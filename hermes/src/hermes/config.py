@@ -71,6 +71,26 @@ def _env_list(key: str) -> list[str]:
         return []
 
 
+def _sugerencia_hostname(valor: str) -> str:
+    """Propone el valor corregido, si limpiarlo da algo válido.
+
+    El error más común es pegar la URL del conector MCP entera —esquema
+    delante, `/mcp` detrás— porque es la cadena que el usuario acaba de copiar
+    en Claude. Decirle "sin esquema ni path" es correcto pero le deja el
+    trabajo de deducir cuál era; enseñarle el valor exacto no.
+
+    El hostname no es un secreto: ya sale en la línea `config_loaded` del log.
+    """
+    limpio = valor.strip()
+    for esquema in ("https://", "http://"):
+        if limpio.lower().startswith(esquema):
+            limpio = limpio[len(esquema):]
+    limpio = limpio.split("/")[0].split("?")[0].split("#")[0].rstrip(".")
+    if limpio and limpio != valor and _HOSTNAME_RE.match(limpio):
+        return f" Con lo que has puesto, seguramente querías: {limpio!r}."
+    return ""
+
+
 # Hostname público: etiquetas DNS separadas por puntos, con puerto opcional.
 # Sin esquema, sin barras, sin credenciales, sin path.
 _HOSTNAME_RE = re.compile(
@@ -188,6 +208,7 @@ class HermesConfig:
                 f"public_hostname inválido: {self.public_hostname!r}. Debe ser "
                 "solo el hostname, sin esquema ni path ni barras "
                 "(ej. hermes.tail-xxxx.ts.net), opcionalmente con :puerto."
+                + _sugerencia_hostname(self.public_hostname)
             )
         if self.network_mode not in NETWORK_MODES:
             raise ValueError(

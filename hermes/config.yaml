@@ -4,7 +4,7 @@
 slug: hermes
 name: "Hermes – MCP Home Assistant"
 description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
-version: "1.0.3"
+version: "1.0.4"
 url: "https://github.com/Nadeon/Hermes-addon"
 
 # Imagen precompilada. Sin esto, el Supervisor construye la imagen en el equipo

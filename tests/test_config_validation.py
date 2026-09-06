@@ -71,6 +71,43 @@ class TestConfigValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             cfg.validate()
 
+    def test_sugiere_el_hostname_corregido(self) -> None:
+        """El error más común es pegar la URL del conector, con su `/mcp`.
+
+        Decir "sin esquema ni path" es correcto pero deja al usuario deducir
+        cuál era el valor bueno. Enseñárselo no.
+        """
+        casos = {
+            "homeassistant.tail-abc123.ts.net/mcp": "homeassistant.tail-abc123.ts.net",
+            "https://hermes.midominio.com/mcp": "hermes.midominio.com",
+            "http://hermes.midominio.com": "hermes.midominio.com",
+            "hermes.midominio.com/": "hermes.midominio.com",
+            "hermes.midominio.com/mcp?x=1": "hermes.midominio.com",
+        }
+        for puesto, esperado in casos.items():
+            with self.subTest(public_hostname=puesto):
+                cfg = HermesConfig(
+                    auth_password=FUERTE,
+                    public_hostname=puesto,
+                    supervisor_token="t",
+                )
+                with self.assertRaises(ValueError) as ctx:
+                    cfg.validate()
+                self.assertIn(repr(esperado), str(ctx.exception))
+
+    def test_no_sugiere_nada_cuando_no_hay_nada_que_sugerir(self) -> None:
+        """Si limpiarlo tampoco da un hostname válido, no se inventa uno."""
+        for basura in ("no vale", "///", "http://"):
+            with self.subTest(public_hostname=basura):
+                cfg = HermesConfig(
+                    auth_password=FUERTE,
+                    public_hostname=basura,
+                    supervisor_token="t",
+                )
+                with self.assertRaises(ValueError) as ctx:
+                    cfg.validate()
+                self.assertNotIn("seguramente querías", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

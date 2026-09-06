@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.4] — 2026-09-06
+
+### Changed — Al rechazar `public_hostname`, Hermes propone el valor correcto
+
+`public_hostname` es solo el hostname, pero la cadena que uno acaba de copiar
+para pegarla en el cliente MCP es la URL entera: con `https://` delante y `/mcp`
+detrás. Pegar esa es el error más fácil de cometer, y Hermes se negaba a
+arrancar diciendo «sin esquema ni path ni barras» — correcto, pero dejándole a
+quien lo lee el trabajo de deducir cuál era el valor bueno.
+
+Ahora el mensaje termina proponiendo el valor limpio, cuando limpiarlo da algo
+válido. Si no da nada válido, no se inventa una sugerencia.
+
+Sigue negándose a arrancar: aceptar un hostname con path produciría URLs de
+descubrimiento OAuth malformadas, y el fallo aparecería mucho más tarde y sin
+relación aparente con la causa.
+
 ## [1.0.3] — 2026-09-06
 
 ### Added — El flujo OAuth deja rastro donde antes no dejaba ninguno
