@@ -304,11 +304,23 @@ class OAuthServer:
         now = time.time()
         cleaned = 0
 
+        # Un código se borra en cuanto se presenta al token endpoint, sea con
+        # éxito o no. Así que todo el que siga aquí al caducar es uno que se
+        # emitió y NADIE llegó a canjear: el cliente recibió la redirección y no
+        # volvió. Sin este aviso ese caso no deja rastro ninguno en el log.
+        sin_canjear: list[str] = []
         for code_file in _CODES_DIR.glob("*.json"):
             data = _safe_read(code_file)
             if data and now > data.get("expires_at", 0):
                 _safe_unlink(code_file)
                 cleaned += 1
+                sin_canjear.append(str(data.get("client_id", "?")))
+        if sin_canjear:
+            logger.warning(
+                "oauth_code_expired_unused",
+                count=len(sin_canjear),
+                client_ids=sin_canjear[:5],
+            )
 
         for token_file in _TOKENS_DIR.glob("*.json"):
             data = _safe_read(token_file)
@@ -541,6 +553,7 @@ class OAuthServer:
             await self._record_login_failure(now)
             logger.warning(
                 "oauth_auth_failed",
+                reason="bad_password",
                 client_id=client_id,
                 src_ip=request.client.host if request.client else "unknown",
             )
@@ -568,6 +581,12 @@ class OAuthServer:
         else:
             client_data = _safe_read(_CLIENTS_DIR / f"{client_id}.json")
         if not client_data:
+            logger.warning(
+                "oauth_auth_failed",
+                reason="unknown_client",
+                client_id=client_id,
+                src_ip=request.client.host if request.client else "unknown",
+            )
             return HTMLResponse(
                 self._login_html(
                     client_id=client_id,
@@ -583,6 +602,13 @@ class OAuthServer:
 
         # Validar redirect_uri
         if redirect_uri not in client_data.get("redirect_uris", []):
+            logger.warning(
+                "oauth_auth_failed",
+                reason="redirect_uri_mismatch",
+                client_id=client_id,
+                registrados=len(client_data.get("redirect_uris", [])),
+                src_ip=request.client.host if request.client else "unknown",
+            )
             return HTMLResponse(
                 self._login_html(
                     client_id=client_id,
@@ -625,7 +651,16 @@ class OAuthServer:
             params["state"] = state
 
         redirect_url = f"{redirect_uri}?{urlencode(params)}"
-        logger.info("oauth_code_issued", client_id=client_id)
+        # El host del destino y si venía `state`, nunca la URL entera: lleva el
+        # código dentro. Sin esto, cuando un cliente recibe la redirección y no
+        # vuelve a canjear, el log no dice ni a dónde se le mandó.
+        logger.info(
+            "oauth_code_issued",
+            client_id=client_id,
+            redirect_host=urlparse(redirect_uri).netloc or "?",
+            has_state=bool(state),
+            scope=scope,
+        )
         return RedirectResponse(redirect_url, status_code=302)
 
     # ── Token endpoint ────────────────────────────────────────

@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.0.3] — 2026-09-06
+
+### Added — El flujo OAuth deja rastro donde antes no dejaba ninguno
+
+Un cliente MCP puede recibir su código de autorización y no volver nunca a
+canjearlo. Cuando eso pasa, el log no decía **nada**: ni un error, ni un aviso.
+Era indistinguible de que el usuario jamás hubiera llegado a autorizarse, y sin
+forma de saber si el problema estaba en el servidor o en el cliente.
+
+Tres señales nuevas:
+
+- **`oauth_auth_failed` dice ahora el motivo**: `bad_password`, `unknown_client`
+  o `redirect_uri_mismatch`. Los tres caminos devolvían el mismo
+  «Authentication failed», así que la pantalla decía «contraseña incorrecta»
+  aunque la contraseña fuera buena. El mensaje **en pantalla no cambia** —el
+  motivo va solo al log—, siguiendo el mismo criterio que el endpoint del
+  token. Distinguirlos ahí es seguro porque los tres se comprueban *después* de
+  validar la contraseña.
+- **`oauth_code_issued` registra a dónde va la redirección** (solo el host) y si
+  venía `state`. Nunca la URL entera: lleva el código dentro.
+- **`oauth_code_expired_unused`** avisa de los códigos que se emitieron y nadie
+  presentó. Un código se borra en cuanto se toca el endpoint del token, con
+  éxito o sin él, así que todo el que sobrevive hasta caducar es exactamente
+  ese caso.
+
 ## [1.0.2] — 2026-09-06
 
 ### Fixed — Hermes anunciaba la versión equivocada
