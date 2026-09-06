@@ -22,7 +22,7 @@ Dos opciones son obligatorias y sin ellas el add-on no arranca:
 
 | Opción | Qué es |
 |---|---|
-| `auth_password` | La contraseña con la que autorizarás a Claude. Mínimo 12 caracteres, generada al azar. Es el único secreto que protege tu casa: no reutilices ninguna |
+| `auth_password` | La contraseña con la que autorizarás a Claude. Mínimo 12 caracteres, y se rechaza si es adivinable —repetitiva, una tirada del teclado, de las más usadas o con «hermes» dentro—. Genérala con `openssl rand -base64 18` o con tu gestor de contraseñas. Es el único secreto que protege tu casa: no reutilices ninguna |
 | `public_hostname` | El hostname público por el que se llega a Hermes, **sin** `https://` y **sin** path final |
 
 Y una que conviene revisar:

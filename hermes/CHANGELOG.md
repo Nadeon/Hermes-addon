@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.39.0] — 2026-09-06
+
+### Añadido — `auth_password` se comprueba de verdad, no solo su longitud
+
+Antes bastaba con tener 12 caracteres, así que `123456789012` arrancaba el
+add-on sin una queja. El login ya frena la fuerza bruta con un bloqueo global y
+escalonado que deja el techo de un atacante en unos 2.000 intentos al día —y que
+no se sube rotando de IP, porque el contador es global—. Con ese techo, una
+password generada al azar es inalcanzable; el único caso que quedaba abierto era
+la password **predecible**.
+
+Ahora Hermes no arranca con una adivinable, y el mensaje dice cuál de las seis
+reglas falla: pocos caracteres distintos, un trozo corto repetido, una tirada
+seguida del abecedario, de los dígitos o de una fila del teclado, caracteres
+estrenados en orden, una de las listas de más usadas, o una palabra del propio
+contexto o de tu hostname público.
+
+Las reglas siguen NIST SP 800-63B §5.1.1.2, que prohíbe las reglas de
+composición del tipo «una mayúscula, un número y un símbolo». Los umbrales están
+calibrados sobre 200.000 passwords generadas al azar para no rechazar ninguna
+legítima: lo que salga de tu gestor de contraseñas pasa.
+
+El motivo del rechazo nunca cita la password, porque ese mensaje acaba en el log
+del add-on.
+
+954 tests.
+
 ## [0.38.0] — 2026-09-06
 
 Primera versión pública.

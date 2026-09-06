@@ -11,6 +11,11 @@ import os
 import re
 from dataclasses import dataclass, field
 
+from .password_policy import (
+    MIN_AUTH_PASSWORD_LENGTH as _MIN_AUTH_PASSWORD_LENGTH,
+    motivo_debil,
+)
+
 
 # ── Constantes del proyecto ───────────────────────────────────
 # Bump HA_CORE_MIN_SUPPORTED solo cuando se use un endpoint que no
@@ -24,9 +29,11 @@ HA_CORE_LAST_TESTED = "2026.9.0"
 MCP_PORT = 8765
 HEALTH_PORT = 8766
 
-# Longitud mínima de auth_password. Es el único secreto que protege el acceso
-# a Home Assistant desde internet, así que se exige al arranque (fail-closed).
-MIN_AUTH_PASSWORD_LENGTH = 12
+# Calidad de auth_password. Es el único secreto que protege el acceso a Home
+# Assistant desde internet, así que se exige al arranque (fail-closed). Las
+# reglas y su porqué están en password_policy; se reexporta la longitud mínima
+# porque es el número que sale en la documentación y en el schema del add-on.
+MIN_AUTH_PASSWORD_LENGTH = _MIN_AUTH_PASSWORD_LENGTH
 
 
 def _env_str(key: str, default: str = "") -> str:
@@ -150,14 +157,19 @@ class HermesConfig:
                 "auth_password no está configurado. "
                 "Configúralo en Ajustes → Add-ons → Hermes → Configuración."
             )
-        if len(self.auth_password) < MIN_AUTH_PASSWORD_LENGTH:
+        # El motivo describe la REGLA que falla, nunca el valor: este mensaje
+        # acaba en el log del add-on, que se ve desde la interfaz de Home
+        # Assistant y que la gente pega en los foros al pedir ayuda.
+        motivo = motivo_debil(
+            self.auth_password, public_hostname=self.public_hostname
+        )
+        if motivo is not None:
             raise ValueError(
-                f"auth_password es demasiado corta "
-                f"({len(self.auth_password)} caracteres). Debe tener al menos "
-                f"{MIN_AUTH_PASSWORD_LENGTH} caracteres y ser aleatoria. Es el "
+                f"auth_password no es lo bastante fuerte: {motivo}. Es el "
                 "único secreto que protege el acceso a Home Assistant desde "
-                "internet: genera una larga y aleatoria (p. ej. con un gestor "
-                "de contraseñas)."
+                "internet, así que Hermes no arranca con una que se pueda "
+                "adivinar. Genera una con el gestor de contraseñas que uses, o "
+                "en un terminal con:  openssl rand -base64 18"
             )
         if not self.public_hostname:
             raise ValueError(

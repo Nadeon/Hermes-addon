@@ -171,8 +171,11 @@ expuesto a internet, así que es la opción con más superficie de ataque.
 
 3. Rellena la configuración:
    - **`auth_password`** *(obligatorio)*: la contraseña con la que autorizarás a
-     Claude. Mínimo 12 caracteres; genérala aleatoria con un gestor de
-     contraseñas. Es el único secreto que protege tu casa.
+     Claude. Mínimo 12 caracteres, y Hermes comprueba además que no sea
+     adivinable: rechaza las repetitivas, las tiradas del teclado, las de las
+     listas más usadas y las que llevan dentro «hermes» o tu propio hostname.
+     Genérala con tu gestor de contraseñas, o con `openssl rand -base64 18`.
+     Es el único secreto que protege tu casa.
    - **`public_hostname`** *(obligatorio)*: el hostname público, sin `https://`
      ni path final.
    - **`network_mode`**: `tailscale` o `reverse_proxy`, según la opción que
@@ -214,7 +217,7 @@ un x86, y bastante más en una Raspberry Pi, porque `pydantic-core`, `aiohttp` y
 |---|---|
 | `No Tailscale CGNAT IP … found` | Estás en `network_mode: tailscale` sin el add-on de Tailscale listo, o con `userspace_networking: true`. Corrígelo o cambia a `reverse_proxy`. |
 | `auth_password no está configurado` | Falta la contraseña. |
-| `auth_password es demasiado corta` | Tiene menos de 12 caracteres. |
+| `auth_password no es lo bastante fuerte` | Es corta, repetitiva, una tirada del teclado, una de las más usadas, o lleva dentro «hermes» o tu propio hostname. El mensaje dice cuál de las seis. |
 | `public_hostname no está configurado` | Falta el hostname. |
 | `public_hostname inválido` | Lo has puesto con `https://` delante, con un path detrás, o con barras. Va solo el hostname. |
 | `mcp_bind no puede estar vacío` | Has dejado la opción en blanco. Ponla a `127.0.0.1` o a `172.30.32.1`. |
@@ -272,7 +275,7 @@ hacer nada.
 
 | Opción | Default | Descripción |
 |--------|---------|-------------|
-| `auth_password` | _(obligatorio)_ | Contraseña del flujo OAuth (mínimo 12 caracteres, larga y aleatoria) |
+| `auth_password` | _(obligatorio)_ | Contraseña del flujo OAuth. Mínimo 12 caracteres y se comprueba que no sea adivinable: Hermes no arranca con una débil |
 | `public_hostname` | _(obligatorio)_ | Hostname público por el que se llega a Hermes, sin esquema ni path |
 | `network_mode` | `tailscale` | Quién publica el hostname: `tailscale` (Funnel) o `reverse_proxy` (Cloudflare Tunnel, Nginx, Caddy…) |
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
@@ -311,7 +314,7 @@ Ver `config.yaml` para el schema completo con sus rangos válidos.
 
 - **OAuth 2.1 con PKCE obligatorio** (no bearer estático): tokens opacos
   hasheados (SHA-256), auth codes de un solo uso, revocación (RFC 7009).
-- **Contraseña fuerte obligatoria**: `auth_password` ≥ 12 caracteres + throttle
+- **Contraseña fuerte obligatoria**: `auth_password` ≥ 12 caracteres, filtro de calidad + throttle
   con backoff exponencial ante intentos fallidos (anti-fuerza-bruta).
 - **DCR endurecido**: validación de `redirect_uris` y tope de clientes.
 - **Tokens de confirmación** para toda acción destructiva.
