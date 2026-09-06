@@ -1,0 +1,14 @@
+# Build configuration for Hermes add-on.
+#
+# IMPORTANTE: Home Assistant ya no publica variantes Debian de la imagen
+# base de Python (verificado abril 2026). Solo hay tags Alpine.
+# Antes de cada release mayor, verificar el tag más reciente en:
+#   https://github.com/home-assistant/docker-base/pkgs/container/amd64-base-python
+#
+# Consecuencia de Alpine (musl libc): el primer build tarda 5-10 min porque
+# pydantic-core, aiohttp y cryptography compilan desde source. Builds
+# posteriores reutilizan la cache de capas y son rápidos.
+
+build_from:
+  amd64: "ghcr.io/home-assistant/amd64-base-python:3.13-alpine3.23"
+  aarch64: "ghcr.io/home-assistant/aarch64-base-python:3.13-alpine3.23"

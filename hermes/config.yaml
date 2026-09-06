@@ -1,0 +1,133 @@
+# Hermes — MCP Home Assistant Add-on
+# https://github.com/Nadeon/Hermes-addon
+
+slug: hermes
+name: "Hermes – MCP Home Assistant"
+description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
+version: "0.38.0"
+url: "https://github.com/Nadeon/Hermes-addon"
+
+# Imagen precompilada. Sin esto, el Supervisor construye la imagen en el equipo
+# del usuario, y sobre Alpine (musl) eso significa compilar pydantic-core,
+# aiohttp y cryptography desde fuente: entre cinco y diez minutos en un x86, y
+# bastante más en una Raspberry Pi. Con la imagen publicada, instalar es una
+# descarga.
+#
+# El `{arch}` lo sustituye el Supervisor por la arquitectura del host. Las
+# imágenes las construye y publica .github/workflows/publicar-imagen.yml en
+# cada etiqueta de versión.
+#
+# Para desarrollar en local con compilación desde fuente, quita esta línea: el
+# Supervisor vuelve a construir usando el Dockerfile.
+image: ghcr.io/nadeon/hermes-{arch}
+
+arch:
+  - amd64
+  - aarch64
+
+# ── Ciclo de vida ──────────────────────────────────────────────
+startup: services          # Arranca tras el core de HA
+boot: auto                 # Arranca con HAOS
+init: false               # Las imágenes base oficiales ya incluyen s6-overlay como PID 1.
+                          # init: true mete tini encima y rompe s6 con
+                          # "s6-overlay-suexec: fatal: can only run as pid 1".
+
+# ── Red ────────────────────────────────────────────────────────
+# host_network: true → el contenedor comparte el netns del host.
+# Los puertos declarados en 'ports:' NO se publican vía docker-proxy
+# (verificado en supervisor/docker/addon.py: container.ports → None con host_network).
+# Solo sirven como metadata para resolución de [PORT:...] en watchdog/webui.
+host_network: true
+
+# ── Permisos ───────────────────────────────────────────────────
+docker_api: false
+privileged: []
+hassio_api: true
+hassio_role: admin         # 'admin' es el único rol que da acceso garantizado a
+                           # /addons/self/options/config (necesario para bashio::config).
+                           # Probado: 'manager' y 'default' devuelven 403 Forbidden.
+homeassistant_api: true
+ingress: false
+
+# ── Puertos ────────────────────────────────────────────────────
+# Con host_network: true los puertos del contenedor son los del host
+# directamente. Estas declaraciones se mantienen porque el Supervisor
+# las usa para resolver [PORT:8766] en la línea 'watchdog:' de abajo.
+ports:
+  8765/tcp: 8765           # Puerto MCP (HTTP plano, Funnel termina TLS)
+  8766/tcp: 8766           # Puerto health interno (bridge hassio)
+
+# NOTA: Hermes habla HTTP plano en 127.0.0.1:8765. Tailscale Funnel
+# termina TLS y proxy-ea al loopback. No hay PEMs, no hay ssl_keyfile.
+
+# ── Montajes ───────────────────────────────────────────────────
+# Sin 'ssl' — TLS lo gestiona Funnel, no Hermes.
+map:
+  - type: homeassistant_config
+    read_only: false
+  - type: share
+    read_only: false
+
+# ── Watchdog ───────────────────────────────────────────────────
+# El Supervisor hace GET desde la bridge hassio (172.30.32.x).
+# [HOST] se resuelve a 172.30.32.1 (gateway de hassio) con host_network: true.
+watchdog: "http://[HOST]:[PORT:8766]/health"
+
+# ── Schema de opciones ────────────────────────────────────────
+schema:
+  auth_password: "password"
+  public_hostname: "str"
+  network_mode: "list(tailscale|reverse_proxy)?"
+  mcp_bind: "str?"
+  log_level: "list(debug|info|warning|error)?"
+  mcp_max_requests_per_minute: "int(10,1000)?"
+  mcp_preauth_max_requests_per_minute_per_ip: "int(5,200)?"
+  safety_backup_enabled: "bool?"
+  safety_backup_window_minutes: "int(5,1440)?"
+  file_backup_max_per_path: "int(1,100)?"
+  file_backup_max_total_mb: "int(10,2000)?"
+  config_write_min_interval_seconds: "int(1,60)?"
+  config_write_max_per_minute: "int(1,60)?"
+  response_max_bytes: "int(10240,10485760)?"
+  ha_ws_max_msg_size_bytes: "int(1048576,16777216)?"
+  max_request_body_bytes: "int(65536,16777216)?"
+  max_concurrent_requests: "int(8,512)?"
+  wait_for_event_max_seconds: "int(10,300)?"
+  wait_for_event_max_concurrent: "int(1,20)?"
+  health_startup_grace_seconds: "int(30,600)?"
+  health_reconnect_tolerance_seconds: "int(30,900)?"
+  call_service_denylist_extra:
+    - "str?"
+  call_service_restricted_entities:
+    - "str?"
+  call_service_auto_classify_dangerous: "bool?"
+  fire_event_allowlist:
+    - "str?"
+
+# ── Opciones por defecto ──────────────────────────────────────
+options:
+  auth_password: ""
+  public_hostname: ""
+  network_mode: "tailscale"
+  mcp_bind: "127.0.0.1"
+  log_level: "info"
+  mcp_max_requests_per_minute: 120
+  mcp_preauth_max_requests_per_minute_per_ip: 20
+  safety_backup_enabled: false
+  safety_backup_window_minutes: 30
+  file_backup_max_per_path: 20
+  file_backup_max_total_mb: 200
+  config_write_min_interval_seconds: 5
+  config_write_max_per_minute: 10
+  response_max_bytes: 1048576
+  ha_ws_max_msg_size_bytes: 4194304
+  max_request_body_bytes: 4194304
+  max_concurrent_requests: 64
+  wait_for_event_max_seconds: 90
+  wait_for_event_max_concurrent: 5
+  health_startup_grace_seconds: 120
+  health_reconnect_tolerance_seconds: 300
+  call_service_denylist_extra: []
+  call_service_restricted_entities: []
+  call_service_auto_classify_dangerous: true
+  fire_event_allowlist: []

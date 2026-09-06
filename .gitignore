@@ -1,0 +1,39 @@
+# ── Python bytecode y cachés ───────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Packaging / build artefacts ────────────────────────────
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+dist/
+build/
+
+# ── Entornos virtuales ─────────────────────────────────────
+.venv/
+venv/
+
+# ── Secretos y entorno ─────────────────────────────────────
+.env
+
+# ── Logs y cobertura ───────────────────────────────────────
+*.log
+.coverage
+htmlcov/
+
+# ── Runtime del add-on (si algún día se genera local) ──────
+data/
+logs/
+
+# ── Editores e IDEs personales ─────────────────────────────
+.vscode/
+.idea/
+.claude/
+
+# ── Ruido de sistema operativo ─────────────────────────────
+.DS_Store
+Thumbs.db

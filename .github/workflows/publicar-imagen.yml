@@ -1,0 +1,82 @@
+name: Publicar imagen
+
+# Construye y publica la imagen del add-on en GHCR, una por arquitectura.
+#
+# Sin esto, `image:` en config.yaml apunta a algo que no existe y la
+# instalación falla. Con esto, el usuario instala en segundos en vez de esperar
+# a que su Raspberry Pi compile pydantic-core desde fuente.
+#
+# Se dispara al etiquetar una versión (`v0.38.0`) o a mano. El tag debe
+# coincidir con el `version:` del config.yaml: el paso de comprobación de abajo
+# aborta si no, porque una imagen etiquetada con una versión que el manifiesto
+# no declara es una que el Supervisor nunca pedirá.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión a publicar (sin la v)"
+        required: true
+
+jobs:
+  comprobar:
+    name: El tag coincide con el manifiesto
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: v
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            TAG="${{ inputs.version }}"
+          else
+            TAG="${GITHUB_REF_NAME#v}"
+          fi
+          MANIFIESTO=$(grep -Po '^version:\s*"\K[^"]+' hermes/config.yaml)
+          echo "tag=$TAG  manifiesto=$MANIFIESTO"
+          if [ "$TAG" != "$MANIFIESTO" ]; then
+            echo "El tag ($TAG) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
+            exit 1
+          fi
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+
+  construir:
+    name: ${{ matrix.arch }}
+    needs: comprobar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, aarch64]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Emular arm64
+        if: matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Entrar en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar
+        uses: home-assistant/builder@master
+        with:
+          args: |
+            --${{ matrix.arch }} \
+            --target /data/hermes \
+            --image hermes-{arch} \
+            --docker-hub ghcr.io/${{ github.repository_owner }} \
+            --addon

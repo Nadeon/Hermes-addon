@@ -1,0 +1,27 @@
+name: "SAST (Semgrep)"
+
+# Análisis estático de seguridad (SAST). Es el único análisis que corre mientras
+# el repositorio sea privado: CodeQL exige GitHub Advanced Security, de pago, y
+# falla en cada ejecución. Al hacer público el repositorio se añade codeql.yml
+# junto a este, porque cubren cosas distintas.
+# Modo BLOQUEANTE: --error hace que el build falle si hay hallazgos.
+# Supresiones puntuales (tras revisión) con un comentario "# nosemgrep" en la línea.
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 5 * * 1"
+
+jobs:
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Semgrep scan (bloqueante)
+        run: semgrep scan --config p/python --config p/secrets --metrics off --error
