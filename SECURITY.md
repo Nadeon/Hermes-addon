@@ -1,93 +1,168 @@
-# Política de seguridad de Hermes
+# Security Policy
 
-Hermes expone Home Assistant **completo** a un cliente MCP (Claude) a través de
-internet, detrás de un proxy inverso (Tailscale Funnel, Cloudflare Tunnel o
-similar). Es un componente sensible: la seguridad es un requisito de primer
-nivel, no un extra.
+Hermes exposes a **complete** Home Assistant installation to an MCP client
+(Claude) over the internet, behind a reverse proxy (Tailscale Funnel, Cloudflare
+Tunnel or similar). It is a sensitive component: security is a first-order
+requirement here, not an extra.
 
-## Reportar una vulnerabilidad
+## Supported versions
 
-**No abras un issue público.** Usa el canal privado de GitHub:
+Security support is provided for the **latest published version** only. There are
+no maintained release branches: fixes ship in a new version, and the upgrade path
+is the Home Assistant add-on store.
+
+| Version | Supported |
+|---|---|
+| Latest published release | ✅ |
+| Anything older | ❌ |
+
+The version history is in [hermes/CHANGELOG.md](hermes/CHANGELOG.md).
+
+## Reporting a vulnerability
+
+**Do not open a public issue, pull request or discussion.**
+
+Use GitHub's private channel:
 
 **[Security → Report a vulnerability](../../security/advisories/new)**
 
-Es un formulario privado entre quien reporta y el mantenedor. No hay correo de
-por medio, no queda indexado, y GitHub se encarga de coordinar la publicación
-del aviso cuando el fallo esté corregido.
+It is a private form between the reporter and the maintainer. Nothing is indexed,
+and GitHub coordinates publishing the advisory once the flaw is fixed. If you
+cannot use GitHub advisories, write to `[SECURITY_EMAIL]` instead, and say up
+front that the message is a security report.
 
-Incluye, si puedes: descripción, pasos de reproducción, impacto y versión de
-Hermes. El `X-Request-ID` de la respuesta y las líneas del log alrededor del
-fallo ayudan mucho.
+Please include, if you can:
 
-Se agradece la divulgación responsable y se da crédito a quien lo desee.
+- A description of the flaw and its impact.
+- Reproduction steps, or a proof of concept.
+- The Hermes version, your `network_mode`, and how Hermes is exposed.
+- The `X-Request-ID` from the failing response and the surrounding log lines.
 
-## Modelo de seguridad
+> [!CAUTION]
+> Redact your own secrets before sending anything. Logs redact known values, but
+> not values Hermes has never seen.
 
-- **TLS** lo termina siempre el proxy de delante; Hermes habla HTTP plano en
-  `mcp_bind:8765` (por defecto `127.0.0.1`) y nunca gestiona certificados.
-  El bind por defecto lo hace inalcanzable desde fuera del host: la única
-  vía de entrada es el proxy. **No lo pongas en `0.0.0.0`**: eso publicaría
-  Hermes sin cifrar en toda la red local, saltándose el TLS.
-- **Autenticación**: OAuth 2.1 con PKCE obligatorio (S256), Dynamic Client
-  Registration, tokens opacos de alta entropía almacenados solo como hash
-  SHA-256, auth codes de un solo uso, y revocación (RFC 7009).
-- **La contraseña del add-on (`auth_password`) es el único secreto que protege
-  todo el sistema.** Debe ser larga y aleatoria. Hermes exige un mínimo de
-  12 caracteres al arrancar y aplica un *throttle* con backoff exponencial ante
-  intentos de login fallidos.
-- **Defensa en profundidad** sobre las acciones:
-  - `confirmation_token` para toda operación destructiva (escribir/borrar
-    ficheros, reiniciar, desinstalar add-ons, restaurar backups, servicios
-    peligrosos…).
-  - Denylist de servicios + sanitización recursiva de `service_data` +
-    auto-clasificación de scripts/automations peligrosos.
-  - Filesystem `/config`: anti-traversal (resolve + boundary check), blacklist
-    de secretos, allowlist *default-deny* para `.storage/`, *managed paths*
-    nunca escribibles, backup automático antes de cada escritura.
-  - Validación de identificadores (slug/entry_id/…) antes de interpolarlos en
-    URLs, más un guard central anti path-injection en el cliente HA.
-- **Redacción de secretos** en todos los logs (propios y de add-ons).
-- **Cabeceras de seguridad** (`X-Content-Type-Options`, `X-Frame-Options`,
-  `Referrer-Policy`, CSP) y límite de tamaño de cuerpo (incl. `chunked`).
+### What to expect
 
-## Supuestos y limitaciones conocidas
+This is a single-maintainer project, so these are honest targets rather than a
+contractual SLA:
 
-Estos puntos son **inherentes al diseño**; se documentan para que el operador
-los conozca y los tenga en cuenta:
+| Stage | Target |
+|---|---|
+| Acknowledgement of your report | 5 business days |
+| Initial assessment, with a severity call | 10 business days |
+| Fix released for a confirmed high-severity flaw | 30 days |
+| Coordinated public disclosure | 90 days after the report, or on release of the fix, whichever comes first |
 
-1. **Confianza en el cliente MCP.** El `confirmation_token` se entrega al propio
-   cliente (Claude), que puede reenviarlo. No es una aprobación humana forzada:
-   el "humano en el bucle" real es el *preview* que el cliente MCP muestra antes
-   de confirmar. Trata el acceso a Hermes como acceso de administrador a HA.
-2. **Token de Supervisor con rol admin.** El add-on usa el `SUPERVISOR_TOKEN`
-   para operar; quien supere la autenticación tiene capacidades de
-   administrador sobre Home Assistant. Por eso la fortaleza de `auth_password`
-   es crítica.
-3. **La IP de origen sirve para limitar, nunca para autorizar.** Con
-   `network_mode: tailscale`, la IP real del cliente sí llega a Hermes: el proxy
-   entrega la petición desde el loopback y el servidor confía en su
-   `X-Forwarded-For`, que ese proxy reescribe. Con `network_mode: reverse_proxy`
-   y `mcp_bind` en la red puente, la cabecera se ignora y el límite por IP pasa a
-   ser un techo global. En ningún caso la IP concede acceso: solo alimenta el
-   rate limit y los logs. La defensa específica contra fuerza bruta es el
-   *throttle* de fallos de login, que es global a propósito.
-4. **Contenedor como root.** Como la mayoría de add-ons de HAOS, el contenedor
-   necesita acceso a `/config` y `/data` y se ejecuta como root dentro de su
-   espacio aislado por el Supervisor.
+If a deadline is going to slip, you will be told before it slips rather than
+after. If you disagree with an assessment — including a decision that something
+is not a vulnerability — say so; that conversation stays in the private thread.
 
-## Recomendaciones de despliegue
+### Safe harbour
 
-- Usa una `auth_password` generada por un gestor de contraseñas (≥ 24 caracteres
-  recomendados).
-- Mantén actualizado el add-on que publica el hostname (Tailscale,
-  Cloudflared…) y revisa periódicamente qué está expuesto.
-- Un túnel (Tailscale Funnel o Cloudflare Tunnel) no abre puertos en tu
-  router; un proxy inverso clásico exige abrir el 443 y deja tu instalación
-  directamente expuesta. A igualdad de todo lo demás, prefiere el túnel.
-- Revisa los logs (`ha addons logs hermes -f`) ante eventos
-  `oauth_login_locked`, `oauth_login_throttled` o `auth_rejected` repetidos.
+Research conducted in good faith under this policy is welcome, and no legal
+action will be pursued over it, provided you:
 
-## Versiones soportadas
+- Test only against **your own installation**. Never against someone else's.
+- Do not access, modify or destroy data that is not yours.
+- Do not degrade the service for others, and do not run automated scanning
+  against third-party deployments.
+- Give a reasonable window to fix before disclosing publicly.
 
-Se da soporte de seguridad a la **última versión** publicada. Consulta
-[CHANGELOG.md](CHANGELOG.md).
+Credit is given to whoever wants it, in the advisory and in the changelog.
+
+### Out of scope
+
+These are known and documented properties of the design, not vulnerabilities. A
+report about one of them will be closed with a pointer to this section:
+
+- Anything from the **Assumptions and known limitations** list below.
+- Findings that require the attacker to already know `auth_password`, or to
+  already have administrator access to Home Assistant.
+- Missing security headers on endpoints that serve no content.
+- Reports produced solely by an automated scanner, with no demonstrated impact.
+- Denial of service achieved by exhausting the documented, configurable resource
+  limits (`max_concurrent_requests` and friends) from an authenticated session.
+- Vulnerabilities in Home Assistant itself, in the Supervisor, or in the proxy
+  you put in front. Report those upstream.
+
+## Security model
+
+- **TLS** is always terminated by the proxy in front; Hermes speaks plain HTTP on
+  `mcp_bind:8765` (`127.0.0.1` by default) and never handles certificates. The
+  default bind makes it unreachable from outside the host: the only way in is the
+  proxy. **Do not set it to `0.0.0.0`**: that would publish Hermes unencrypted
+  across your whole local network, bypassing TLS.
+- **Authentication**: OAuth 2.1 with mandatory PKCE (S256), Dynamic Client
+  Registration, high-entropy opaque tokens stored only as a SHA-256 hash,
+  single-use auth codes, and revocation (RFC 7009). Refresh tokens rotate, with
+  reuse detection.
+- **The add-on password (`auth_password`) is the only secret protecting the whole
+  system.** Hermes enforces a minimum of 12 characters at startup and rejects
+  guessable passwords — repetitive ones, keyboard and alphabet runs, entries from
+  the most-used lists, and passwords containing project or hostname words. The
+  rules follow NIST SP 800-63B §5.1.1.2. On top of that, failed logins are
+  throttled with a global exponential backoff, which cannot be evaded by rotating
+  source IP.
+- **Defence in depth** on actions:
+  - `confirmation_token` for every destructive operation (writing or deleting
+    files, restarting, uninstalling add-ons, restoring backups, dangerous
+    services…). The token is bound to the tool **and its arguments**, expires,
+    and is single-use.
+  - Service denylist + recursive `service_data` sanitisation + automatic
+    classification of dangerous scripts and automations.
+  - `/config` filesystem: anti-traversal (resolve + boundary check), secret
+    blacklist, *default-deny* allowlist for `.storage/`, *managed paths* that are
+    never writable, automatic backup before every write.
+  - Identifier validation (slug, `entry_id`, …) before interpolating them into
+    URLs, plus a central anti path-injection guard in the HA client.
+- **Secret redaction** in all logs, both Hermes's own and those of other add-ons.
+- **Security headers** (`X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, CSP) and a body size limit (`chunked` included).
+- **Resource limits**: caps on concurrency, request body, response size and
+  WebSocket message size, all configurable and all enforced.
+
+## Assumptions and known limitations
+
+These are **inherent to the design**. They are documented so an operator can take
+them into account:
+
+1. **Trust in the MCP client.** The `confirmation_token` is handed to the client
+   (Claude), which can pass it along. It is not an enforced human approval: the
+   real human-in-the-loop is the *preview* the MCP client shows before
+   confirming. Treat access to Hermes as administrator access to Home Assistant.
+2. **Supervisor token with admin role.** The add-on uses `SUPERVISOR_TOKEN` to
+   operate; anyone who gets past authentication has administrator capability over
+   Home Assistant. This is why `auth_password` strength is critical.
+3. **The source IP limits, it never authorizes.** Under
+   `network_mode: tailscale`, the client's real IP does reach Hermes: the proxy
+   delivers from the loopback and the server trusts the `X-Forwarded-For` that
+   proxy rewrites. Under `network_mode: reverse_proxy` with `mcp_bind` on the
+   bridge network, the header is ignored and the per-IP limit becomes a global
+   ceiling. In neither case does an IP grant access: it only feeds rate limiting
+   and logs. The specific anti-brute-force defence is the login throttle, which
+   is global on purpose.
+4. **Container runs as root.** Like most HAOS add-ons, the container needs access
+   to `/config` and `/data` and runs as root inside the space the Supervisor
+   isolates for it.
+5. **Single owner.** The authorization model assumes one owner. There are no
+   roles, no per-tool scopes, and no separation between concurrent clients.
+
+## Deployment recommendations
+
+- Use an `auth_password` produced by a password manager (24 characters or more
+  recommended, well above the enforced minimum).
+- Prefer a tunnel. Tailscale Funnel and Cloudflare Tunnel open no router port; a
+  classic reverse proxy requires opening 443 and leaves your installation
+  directly exposed. All else being equal, take the tunnel.
+- Keep the add-on that publishes the hostname (Tailscale, Cloudflared…) updated,
+  and periodically review what is exposed.
+- Narrow what Claude can do without asking: `call_service_denylist_extra`,
+  `call_service_restricted_entities` and `fire_event_allowlist` exist for that.
+  `fire_event_allowlist` is empty by default, which disables event firing
+  entirely until you name the events you want.
+- Watch the logs (`ha apps logs local_hermes -f`, or the add-on's Log tab) for
+  repeated `oauth_login_locked`, `oauth_login_throttled` or `auth_rejected`
+  events.
+- If you stop using Hermes, uninstall the add-on rather than just stopping it:
+  uninstalling clears `/data`, and with it the stored OAuth keys and tokens.

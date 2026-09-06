@@ -14,7 +14,7 @@ Necesitas además un plan de pago de Claude: los Custom Connectors, que es como
 se conecta Hermes, no están en el plan gratuito.
 
 La guía completa —las tres formas de exponerlo, con sus comandos— está en el
-[README del repositorio](https://github.com/Nadeon/Hermes-addon#readme).
+[README del repositorio](https://github.com/Nadeon/Hermes-addon/blob/main/README.es.md).
 
 ## Configuración mínima
 
@@ -53,7 +53,8 @@ llamarlas con ese token. Verás a Claude enseñarte el cambio antes de aplicarlo
 
 ## Problemas
 
-El apartado *Si no arranca* del README recoge los mensajes de error concretos y
+El apartado *Si no arranca* del [README en español](https://github.com/Nadeon/Hermes-addon/blob/main/README.es.md#si-no-arranca)
+recoge los mensajes de error concretos y
 qué significa cada uno.
 
 Para reportar un fallo de seguridad, **no abras un issue**: usa el

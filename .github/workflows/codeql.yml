@@ -1,0 +1,45 @@
+name: CodeQL
+
+# CodeQL solo es gratuito en repositorios PÚBLICOS. En privado exige GitHub
+# Advanced Security, de pago, y cada ejecución falla con "code scanning is not
+# enabled for this repository".
+#
+# Por eso este fichero NO está en .github/workflows/: GitHub solo ejecuta lo que
+# encuentra ahí, así que aquí queda inerte mientras el repositorio sea privado.
+# El constructor del árbol publicable lo mueve a su sitio al construir para un
+# repositorio público, y lo deja fuera al construir para uno privado.
+#
+# Complementa a Semgrep en vez de sustituirlo: cubren cosas distintas —CodeQL
+# hace análisis de flujo de datos entre funciones— así que se quedan los dos.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "41 5 * * 1"
+
+jobs:
+  analyze:
+    name: Analizar Python
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-and-quality
+
+      - name: Analizar
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

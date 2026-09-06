@@ -1,384 +1,391 @@
-# Hermes — Home Assistant, completo, desde Claude
+# Hermes — all of Home Assistant, from Claude
+
+> Read this in: [English](README.md) | [Español](README.es.md)
 
 [![Tests](https://github.com/Nadeon/Hermes-addon/actions/workflows/tests.yml/badge.svg)](https://github.com/Nadeon/Hermes-addon/actions/workflows/tests.yml)
-[![Licencia](https://img.shields.io/badge/licencia-PolyForm%20Noncommercial-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 
-Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
-como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **185 herramientas**: encender luces, escribir
-automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
-backups, consultar el histórico.
+Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
+an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
+external systems). It ships **185 tools**: turn on lights, write automations,
+edit files under `/config`, manage add-ons, create backups, query history.
 
-En la práctica: le pides a Claude «apaga las luces del salón», o «créame una
-automatización que suba la persiana al amanecer pero no los domingos», y lo
-hace — enseñándote antes qué va a tocar cuando la acción es destructiva.
+In practice: you ask Claude to "turn off the living room lights", or "write me an
+automation that raises the blind at sunrise, but not on Sundays", and it does —
+showing you what it is about to touch whenever the action is destructive.
 
-Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
-[cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
-también está explicado abajo.
+You install it by adding this repository to the Home Assistant add-on store:
+[how to do that](#installation). First you need to expose Home Assistant to the
+internet; that is covered below too.
 
-## Qué puede hacer — 185 herramientas
+## What it can do — 185 tools
 
-Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
-herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
+These are the names Claude sees. You do not need to learn them: a tool called
+`hermes_guide` explains them to Claude on demand.
 
-| Familia | Nº | Qué cubre |
+| Family | # | What it covers |
 |---|---:|---|
-| **Estado y servicios** | 7 | Leer estados, listar y llamar servicios, disparar eventos, renderizar plantillas Jinja |
-| **Automatizaciones y scripts** | 14 | Crear, editar, borrar, activar, desactivar y ejecutar |
-| **Escenas** | 7 | Incluido capturar el estado actual de la casa como escena nueva |
+| **States and services** | 7 | Read states, list and call services, fire events, render Jinja templates |
+| **Automations and scripts** | 14 | Create, edit, delete, enable, disable and run |
+| **Scenes** | 7 | Including capturing the current state of the house as a new scene |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
-| **Zonas y personas** | 10 | Zonas geográficas y seguimiento de personas |
-| **Registros** | 13 | Entidades, dispositivos y áreas: renombrar, mover, ocultar, deshabilitar |
-| **Integraciones** | 13 | Config entries y sus flujos de configuración, incluidos los de opciones |
-| **Ficheros de `/config`** | 11 | Leer, escribir, mover, borrar, buscar, gestionar `secrets.yaml` y restaurar copias |
-| **Lovelace** | 10 | Dashboards y recursos |
-| **Add-ons** | 12 | Listar, instalar, arrancar, parar, actualizar, leer logs y estadísticas |
-| **Backups** | 10 | Completos y parciales, crear y restaurar |
-| **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
-| **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
-| **HACS** | 4 | Consultar repositorios y actualizaciones disponibles |
-| **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
-| **Utilidades** | 2 | `ping` y `hermes_guide` |
+| **Zones and people** | 10 | Geographic zones and person tracking |
+| **Registries** | 13 | Entities, devices and areas: rename, move, hide, disable |
+| **Integrations** | 13 | Config entries and their config flows, options flows included |
+| **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
+| **Lovelace** | 10 | Dashboards and resources |
+| **Add-ons** | 12 | List, install, start, stop, update, read logs and statistics |
+| **Backups** | 10 | Full and partial, create and restore |
+| **Supervisor and system** | 6 | Host and core info, validate configuration, restart |
+| **History and statistics** | 4 | History, logbook and long-term statistics |
+| **HACS** | 4 | Query repositories and available updates |
+| **Event waiting** | 3 | Wait for something to happen, with filters |
+| **Utilities** | 2 | `ping` and `hermes_guide` |
 
-Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y
-que en una instalación normal no existe.
+There is one more, auxiliary, tool that is only registered with `HERMES_DEV=1`
+and does not exist in a normal installation.
 
-Las herramientas destructivas devuelven, en la primera llamada, una vista previa
-y un `confirmation_token`. No hacen nada hasta que se les vuelve a llamar con
-ese token. Es lo que impide que un malentendido acabe reiniciando tu casa.
+On their first call, destructive tools return a preview and a
+`confirmation_token`. They do nothing until they are called again with that
+token. That is what stops a misunderstanding from restarting your house.
 
-## Qué necesitas
+## What you need
 
-- **Home Assistant OS o Supervised.** Hermes es un add-on y necesita el
-  Supervisor: no funciona en HA Container ni en HA Core.
-- **Exponer Home Assistant a internet**, para que Claude llegue. Hermes no lo
-  hace por ti; la siguiente sección explica las tres formas de conseguirlo.
-- **Un plan de pago de Claude.** Los Custom Connectors, que es como se conecta
-  Hermes, no están disponibles en el plan gratuito.
-- Arquitectura `amd64` o `aarch64`, y Home Assistant **2024.1.0** o superior.
+- **Home Assistant OS or Supervised.** Hermes is an add-on and needs the
+  Supervisor: it does not work on HA Container or HA Core.
+- **Home Assistant exposed to the internet**, so Claude can reach it. Hermes does
+  not do this for you; the next section covers the three ways to get there.
+- **A paid Claude plan.** Custom Connectors, which is how Hermes connects, are
+  not available on the free plan.
+- `amd64` or `aarch64` architecture, and Home Assistant **2024.1.0** or newer.
 
-## Cómo se expone Hermes a internet
+## How Hermes is exposed to the internet
 
-Hermes **no habla TLS**: escucha HTTP plano en un puerto local y da por hecho
-que algo delante termina el TLS y le hace proxy. Ese "algo" es cosa tuya, y la
-opción **`network_mode`** le dice a Hermes con cuál cuenta:
+Hermes **does not speak TLS**: it listens for plain HTTP on a local port and
+assumes something in front terminates TLS and proxies to it. That "something" is
+your job, and the **`network_mode`** option tells Hermes which one to expect:
 
-| `network_mode` | Quién publica el hostname | Puertos abiertos en el router |
+| `network_mode` | Who publishes the hostname | Ports opened on your router |
 |---|---|---|
-| `tailscale` *(por defecto)* | Add-on de Tailscale con Funnel | Ninguno |
-| `reverse_proxy` | Cloudflare Tunnel, Nginx Proxy Manager, Caddy… | Ninguno con un túnel; **443** con proxy clásico |
+| `tailscale` *(default)* | Tailscale add-on with Funnel | None |
+| `reverse_proxy` | Cloudflare Tunnel, Nginx Proxy Manager, Caddy… | None with a tunnel; **443** with a classic proxy |
 
-Lo único que Hermes necesita, sea cual sea la opción, es:
+Whichever you pick, all Hermes needs is:
 
-1. Un **hostname público con HTTPS** que llegue hasta él (`public_hostname`).
-2. Que ese proxy reenvíe a **`mcp_bind`:8765** en HTTP plano.
+1. A **public hostname over HTTPS** that reaches it (`public_hostname`).
+2. That proxy forwarding to **`mcp_bind`:8765** over plain HTTP.
 
 > [!IMPORTANT]
-> Hermes queda accesible desde internet y su única barrera es la contraseña de
-> `auth_password`. Genera una larga y aleatoria. Un túnel (Tailscale o
-> Cloudflare) es más seguro que abrir el 443 del router, porque no expone
-> ningún puerto de tu red.
+> Hermes ends up reachable from the internet, and its only barrier is the
+> `auth_password` password. Generate a long, random one. A tunnel (Tailscale or
+> Cloudflare) is safer than opening port 443 on your router, because it exposes
+> no port of your network at all.
 
-### Opción A — Tailscale Funnel *(la más sencilla)*
+### Option A — Tailscale Funnel *(the simplest)*
 
-No abre ningún puerto del router y el certificado lo gestiona Tailscale.
-Es la opción con la que Hermes está más probado.
+Opens no router port, and Tailscale manages the certificate. This is the option
+Hermes is most thoroughly tested against.
 
-1. Instala el **add-on oficial de Tailscale** en HAOS.
-2. Configura **`userspace_networking: false`**. Es obligatorio: sin eso no se
-   crea la interfaz `tailscale0` y, en `network_mode: tailscale`, Hermes espera
-   a que exista y no arranca.
-3. Habilita **Funnel** y apúntalo al puerto de Hermes:
+1. Install the **official Tailscale add-on** on HAOS.
+2. Set **`userspace_networking: false`**. This is mandatory: without it the
+   `tailscale0` interface is never created and, under `network_mode: tailscale`,
+   Hermes waits for it and never starts.
+3. Enable **Funnel** and point it at the Hermes port:
    ```
    tailscale funnel --bg 8765
    ```
-4. En las opciones de Hermes:
+4. In the Hermes options:
    - `network_mode`: `tailscale`
-   - `public_hostname`: el hostname que te da Funnel (ej.
-     `homeassistant.tailXXXX.ts.net`), **sin esquema ni path**
-   - `mcp_bind`: `127.0.0.1` (el add-on de Tailscale comparte la red del host,
-     así que alcanza el loopback)
+   - `public_hostname`: the hostname Funnel gives you (e.g.
+     `homeassistant.tailXXXX.ts.net`), **with no scheme and no path**
+   - `mcp_bind`: `127.0.0.1` (the Tailscale add-on shares the host network, so it
+     can reach the loopback)
 
 ---
 
-### Opción B — Cloudflare Tunnel *(recomendada si no usas Tailscale)*
+### Option B — Cloudflare Tunnel *(recommended if you do not use Tailscale)*
 
-Mismo modelo que Funnel —sin abrir puertos— pero con tu propio dominio. Es
-gratis y permite además poner Cloudflare Access delante como segunda barrera.
+Same model as Funnel — no open ports — but with your own domain. It is free, and
+it also lets you put Cloudflare Access in front as a second barrier.
 
-1. Instala un add-on de **Cloudflared** en HAOS y complétalo con tu dominio.
-2. Añade una *ingress rule* que apunte a Hermes. La dirección depende de la red
-   del add-on de Cloudflared:
-   - Si comparte la red del host (`host_network: true`) → `http://127.0.0.1:8765`
-   - Si está en la red puente de HAOS → `http://172.30.32.1:8765`
-3. En las opciones de Hermes:
+1. Install a **Cloudflared** add-on on HAOS and set it up with your domain.
+2. Add an *ingress rule* pointing at Hermes. The address depends on the network
+   the Cloudflared add-on runs in:
+   - If it shares the host network (`host_network: true`) → `http://127.0.0.1:8765`
+   - If it runs on the HAOS bridge network → `http://172.30.32.1:8765`
+3. In the Hermes options:
    - `network_mode`: `reverse_proxy`
-   - `public_hostname`: tu dominio (ej. `hermes.midominio.com`)
-   - `mcp_bind`: **`127.0.0.1`** si el túnel comparte red de host, o
-     **`172.30.32.1`** si está en la red puente
+   - `public_hostname`: your domain (e.g. `hermes.yourdomain.com`)
+   - `mcp_bind`: **`127.0.0.1`** if the tunnel shares the host network, or
+     **`172.30.32.1`** if it runs on the bridge network
 
 > [!WARNING]
-> Este es el punto donde más gente se atasca. Con `mcp_bind: 127.0.0.1` el
-> puerto solo existe en el *loopback del host*: un add-on que corra en la red
-> puente **no puede alcanzarlo** y verás errores de conexión rechazada en el
-> túnel. Si tu proxy no comparte la red del host, usa `172.30.32.1`.
+> This is where most people get stuck. With `mcp_bind: 127.0.0.1` the port only
+> exists on the *host loopback*: an add-on running on the bridge network **cannot
+> reach it**, and you will see connection-refused errors in the tunnel. If your
+> proxy does not share the host network, use `172.30.32.1`.
 
 ---
 
-### Opción C — Proxy inverso clásico (Nginx Proxy Manager, Caddy…)
+### Option C — Classic reverse proxy (Nginx Proxy Manager, Caddy…)
 
-Válida si ya tienes un dominio propio y un proxy montado. A cambio, **exige
-abrir el puerto 443** de tu router: tu Home Assistant queda directamente
-expuesto a internet, así que es la opción con más superficie de ataque.
+Valid if you already own a domain and run a proxy. In exchange it **requires
+opening port 443** on your router: your Home Assistant is then directly exposed
+to the internet, so this is the option with the largest attack surface.
 
-1. Monta el proxy (add-on de **Nginx Proxy Manager**, **Caddy**, o uno externo)
-   con un certificado válido para tu dominio (Let's Encrypt, DuckDNS…).
-2. Crea un host que haga proxy de **todas** las rutas (`/`) hacia
-   `http://<mcp_bind>:8765`. No restrinjas a `/mcp`: Hermes sirve también los
-   endpoints de OAuth y de discovery (`/.well-known/…`, `/authorize`, `/token`,
-   `/register`, `/revoke`) y sin ellos el cliente no puede autenticarse.
-3. Asegúrate de que el proxy **no reescribe el `Host`**: Hermes valida esa
-   cabecera contra `public_hostname` como protección anti DNS-rebinding.
-4. Reenvía el 443 del router al proxy.
-5. En las opciones de Hermes:
+1. Set up the proxy (the **Nginx Proxy Manager** or **Caddy** add-on, or an
+   external one) with a valid certificate for your domain (Let's Encrypt,
+   DuckDNS…).
+2. Create a host that proxies **every** path (`/`) to `http://<mcp_bind>:8765`.
+   Do not restrict it to `/mcp`: Hermes also serves the OAuth and discovery
+   endpoints (`/.well-known/…`, `/authorize`, `/token`, `/register`, `/revoke`),
+   and without them the client cannot authenticate.
+3. Make sure the proxy **does not rewrite the `Host` header**: Hermes validates
+   it against `public_hostname` as DNS-rebinding protection.
+4. Forward port 443 on your router to the proxy.
+5. In the Hermes options:
    - `network_mode`: `reverse_proxy`
-   - `public_hostname`: tu dominio
-   - `mcp_bind`: la dirección que alcance tu proxy (`127.0.0.1` si comparte red
-     de host; `172.30.32.1` desde la red puente)
+   - `public_hostname`: your domain
+   - `mcp_bind`: whichever address your proxy can reach (`127.0.0.1` if it shares
+     the host network; `172.30.32.1` from the bridge network)
 
 > [!CAUTION]
-> No pongas `mcp_bind: 0.0.0.0` salvo que sepas exactamente lo que haces: eso
-> publica Hermes **en HTTP plano** en toda tu red local, sin cifrar, saltándose
-> el TLS del proxy.
+> Do not set `mcp_bind: 0.0.0.0` unless you know exactly what you are doing: that
+> publishes Hermes **over plain HTTP** across your whole local network,
+> unencrypted, bypassing the proxy's TLS.
 
 ---
 
-## Instalación
+## Installation
 
-1. En Home Assistant: **Ajustes → Add-ons → Tienda de add-ons → ⋮ →
-   Repositorios**, y pega:
+1. In Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**,
+   and paste:
 
    ```
    https://github.com/Nadeon/Hermes-addon
    ```
 
-2. Cierra el diálogo. Hermes aparece en la tienda, en su propia sección.
-   Ábrelo y pulsa **Instalar**.
+2. Close the dialog. Hermes shows up in the store under its own section. Open it
+   and press **Install**.
 
-   > La imagen viene precompilada para `amd64` y `aarch64`, así que instalar
-   > son unos segundos: no se compila nada en tu equipo.
+   > The image is prebuilt for `amd64` and `aarch64`, so installing takes
+   > seconds: nothing is compiled on your machine.
 
-3. Rellena la configuración:
-   - **`auth_password`** *(obligatorio)*: la contraseña con la que autorizarás a
-     Claude. Mínimo 12 caracteres, y Hermes comprueba además que no sea
-     adivinable: rechaza las repetitivas, las tiradas del teclado, las de las
-     listas más usadas y las que llevan dentro «hermes» o tu propio hostname.
-     Genérala con tu gestor de contraseñas, o con `openssl rand -base64 18`.
-     Es el único secreto que protege tu casa.
-   - **`public_hostname`** *(obligatorio)*: el hostname público, sin `https://`
-     ni path final.
-   - **`network_mode`**: `tailscale` o `reverse_proxy`, según la opción que
-     hayas montado arriba.
-   - **`mcp_bind`**: `127.0.0.1` por defecto; cámbialo solo si tu proxy no
-     comparte la red del host.
+3. Fill in the configuration:
+   - **`auth_password`** *(required)*: the password you will use to authorize
+     Claude. Minimum 12 characters, and Hermes also checks that it is not
+     guessable: it rejects repetitive ones, keyboard runs, ones from the
+     most-used lists, and ones containing "hermes" or your own hostname.
+     Generate it with your password manager, or with `openssl rand -base64 18`.
+     It is the only secret protecting your home.
+   - **`public_hostname`** *(required)*: the public hostname, with no `https://`
+     and no trailing path.
+   - **`network_mode`**: `tailscale` or `reverse_proxy`, matching the option you
+     set up above.
+   - **`mcp_bind`**: `127.0.0.1` by default; change it only if your proxy does
+     not share the host network.
 
-4. Arranca el add-on y mira el log. Si todo va bien verás una línea
-   `hermes_started` con el modo elegido:
+4. Start the add-on and check the log. If all is well you will see a
+   `hermes_started` line with the chosen mode:
    ```json
    {"event": "hermes_started", "network_mode": "tailscale", "mcp_bind": "127.0.0.1", ...}
    ```
 
-Cuando haya una versión nueva, Home Assistant te avisa en la propia tienda y se
-actualiza con un clic.
+When a new version ships, Home Assistant notifies you in the store itself and
+updates with one click.
 
 <details>
-<summary>Instalarlo a mano, sin añadir el repositorio</summary>
+<summary>Installing it by hand, without adding the repository</summary>
 
-Si prefieres no añadir un repositorio de terceros a tu Home Assistant, copia
-**el contenido de la carpeta `hermes/`** (no la raíz del repositorio) a
-`/addons/hermes` en el host, por Samba o SSH. Aparecerá en **Local add-ons**
-tras un *Comprobar actualizaciones*.
+If you would rather not add a third-party repository to your Home Assistant, copy
+**the contents of the `hermes/` folder** (not the repository root) to
+`/addons/hermes` on the host, over Samba or SSH. It will appear under **Local
+add-ons** after a *Check for updates*.
 
-Instalado así no recibes avisos de versión nueva: cada actualización es volver a
-copiar los ficheros.
+Installed this way you get no new-version notifications: every update means
+copying the files again.
 
-Esta es también la vía si quieres **construir la imagen tú mismo** en vez de
-descargar la publicada: borra la línea `image:` de `config.yaml` y el Supervisor
-compilará desde el `Dockerfile`. Sobre Alpine son entre cinco y diez minutos en
-un x86, y bastante más en una Raspberry Pi, porque `pydantic-core`, `aiohttp` y
-`cryptography` se compilan desde fuente.
+This is also the route if you want to **build the image yourself** instead of
+downloading the published one: delete the `image:` line from `config.yaml` and
+the Supervisor will build from the `Dockerfile`. On Alpine that is five to ten
+minutes on x86, and considerably longer on a Raspberry Pi, because
+`pydantic-core`, `aiohttp` and `cryptography` are compiled from source.
 
 </details>
 
-### Si no arranca
+### If it does not start
 
-| Síntoma en el log | Causa probable |
+| Symptom in the log | Likely cause |
 |---|---|
-| `No Tailscale CGNAT IP … found` | Estás en `network_mode: tailscale` sin el add-on de Tailscale listo, o con `userspace_networking: true`. Corrígelo o cambia a `reverse_proxy`. |
-| `auth_password no está configurado` | Falta la contraseña. |
-| `auth_password no es lo bastante fuerte` | Es corta, repetitiva, una tirada del teclado, una de las más usadas, o lleva dentro «hermes» o tu propio hostname. El mensaje dice cuál de las seis. |
-| `public_hostname no está configurado` | Falta el hostname. |
-| `public_hostname inválido` | Lo has puesto con `https://` delante, con un path detrás, o con barras. Va solo el hostname. |
-| `mcp_bind no puede estar vacío` | Has dejado la opción en blanco. Ponla a `127.0.0.1` o a `172.30.32.1`. |
-| `SUPERVISOR_TOKEN no está disponible` | No estás en Home Assistant OS ni Supervised. Hermes es un add-on y necesita el Supervisor. |
-| `network_mode inválido` | Solo se admiten `tailscale` y `reverse_proxy`. |
-| El túnel da *connection refused* | `mcp_bind` no es alcanzable desde tu proxy. Si está en la red puente, usa `172.30.32.1`. |
+| `No Tailscale CGNAT IP … found` | You are on `network_mode: tailscale` without the Tailscale add-on ready, or with `userspace_networking: true`. Fix it or switch to `reverse_proxy`. |
+| `auth_password no está configurado` | The password is missing. |
+| `auth_password no es lo bastante fuerte` | It is short, repetitive, a keyboard run, one of the most-used ones, or it contains "hermes" or your own hostname. The message says which of the six. |
+| `public_hostname no está configurado` | The hostname is missing. |
+| `public_hostname inválido` | You wrote it with `https://` in front, a path behind, or slashes. The hostname alone goes there. |
+| `mcp_bind no puede estar vacío` | You left the option blank. Set it to `127.0.0.1` or `172.30.32.1`. |
+| `SUPERVISOR_TOKEN no está disponible` | You are not on Home Assistant OS or Supervised. Hermes is an add-on and needs the Supervisor. |
+| `network_mode inválido` | Only `tailscale` and `reverse_proxy` are accepted. |
+| The tunnel reports *connection refused* | `mcp_bind` is not reachable from your proxy. If it runs on the bridge network, use `172.30.32.1`. |
+
+> [!NOTE]
+> Startup error messages are emitted in Spanish. They are reproduced above
+> verbatim so you can match them against your log.
 
 > [!IMPORTANT]
-> **El rate limit por IP se comporta distinto en cada modo.** uvicorn solo hace
-> caso a `X-Forwarded-For` si la conexión llega desde `127.0.0.1`. Con
-> `tailscale`, tailscaled hace proxy desde el loopback y reescribe esa cabecera
-> con la IP real del cliente, así que el límite por IP funciona de verdad
-> (comprobable en el log: los escáneres de internet aparecen con su IP
-> pública, y una cabecera falsificada a mano se ignora).
+> **Per-IP rate limiting behaves differently in each mode.** uvicorn only honours
+> `X-Forwarded-For` when the connection arrives from `127.0.0.1`. Under
+> `tailscale`, tailscaled proxies from the loopback and rewrites that header with
+> the client's real IP, so the per-IP limit genuinely works (you can check it in
+> the log: internet scanners show up with their public IP, and a hand-forged
+> header is ignored).
 >
-> Con `reverse_proxy` y `mcp_bind` en la red puente (`172.30.32.1`), la conexión
-> ya no llega desde el loopback: uvicorn ignora la cabecera y **todas** las
-> peticiones se ven con la IP del proxy, así que el cubo por IP pasa a ser un
-> techo global. No es una vulnerabilidad —nada del sistema autoriza por IP, la
-> IP solo alimenta el rate limit y los logs, y el freno anti-fuerza-bruta del
-> login es global a propósito—, pero conviene saberlo: si tu proxy ya limita
-> por IP, deja que lo haga él.
+> Under `reverse_proxy` with `mcp_bind` on the bridge network, the connection no
+> longer arrives from the loopback: uvicorn ignores the header and **every**
+> request looks like it came from the proxy, so the per-IP bucket becomes a
+> global ceiling. This is not a vulnerability — nothing in the system authorizes
+> by IP, the IP only feeds the rate limit and the logs, and the login
+> anti-brute-force throttle is global on purpose — but it is worth knowing: if
+> your proxy already rate-limits per IP, let it do the job.
 
-## Conectar Claude
+## Connecting Claude
 
-1. En Claude, móvil o escritorio: **Configuración → Conectores → Añadir conector
-   personalizado**.
-2. Pega la URL de tu servidor:
+1. In Claude, mobile or desktop: **Settings → Connectors → Add custom
+   connector**.
+2. Paste your server URL:
 
    ```
-   https://<tu_public_hostname>/mcp
+   https://<your_public_hostname>/mcp
    ```
 
-3. Claude abre la página de autorización de Hermes. Introduce la
-   `auth_password` que pusiste en la configuración del add-on.
+3. Claude opens the Hermes authorization page. Enter the `auth_password` you set
+   in the add-on configuration.
 
-4. Listo. A partir de ahí, pídele cosas en lenguaje normal.
+4. Done. From there, just ask for things in plain language.
 
 > [!IMPORTANT]
-> La pantalla de autorización te dice **qué cliente** pide acceso y **a qué
-> dirección** irá el código. Léelo antes de aceptar: es la única defensa contra
-> que alguien te haga llegar un enlace de autorización con su propio destino.
+> The authorization screen tells you **which client** is asking for access and
+> **which address** the code will be sent to. Read it before accepting: it is the
+> only defence against someone sending you an authorization link pointing at
+> their own destination.
 
-Lo que ocurre por debajo, si tienes curiosidad: Claude descubre los endpoints
-OAuth a partir del `401` que devuelve Hermes, registra un cliente
-automáticamente (RFC 7591), te manda al login, y a cambio de tu contraseña
-obtiene un token. No hay que copiar ni pegar ninguna clave.
+What happens underneath, if you are curious: Claude discovers the OAuth endpoints
+from the `401` Hermes returns, registers a client automatically (RFC 7591), sends
+you to the login, and in exchange for your password receives a token. There are
+no keys to copy and paste.
 
-**Qué esperar la primera vez.** Al conectar, Hermes le entrega a Claude un
-resumen de las familias de herramientas disponibles. Cuando necesita detalle de
-un área concreta, Claude consulta `hermes_guide` por su cuenta — no tienes que
-hacer nada.
+**What to expect the first time.** On connecting, Hermes hands Claude a summary of
+the available tool families. When it needs detail about a specific area, Claude
+queries `hermes_guide` on its own — you do not have to do anything.
 
-## Opciones de configuración
+## Configuration options
 
-| Opción | Default | Descripción |
+| Option | Default | Description |
 |--------|---------|-------------|
-| `auth_password` | _(obligatorio)_ | Contraseña del flujo OAuth. Mínimo 12 caracteres y se comprueba que no sea adivinable: Hermes no arranca con una débil |
-| `public_hostname` | _(obligatorio)_ | Hostname público por el que se llega a Hermes, sin esquema ni path |
-| `network_mode` | `tailscale` | Quién publica el hostname: `tailscale` (Funnel) o `reverse_proxy` (Cloudflare Tunnel, Nginx, Caddy…) |
-| `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
-| `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `safety_backup_enabled` | `false` | Backup **completo** de HAOS automático antes de escribir en `/config`. Desactivado por defecto (genera varios GB). El backup por-fichero se hace siempre |
-| `mcp_max_requests_per_minute` | `120` | Rate limit global post-auth |
-| `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Rate limit pre-auth por IP. Solo aplica a la superficie pública (OAuth y discovery): las rutas protegidas las gobierna `mcp_max_requests_per_minute` una vez validado el token |
-| `response_max_bytes` | `1048576` | Cap de respuesta por tool (1 MB) |
-| `ha_ws_max_msg_size_bytes` | `4194304` | Cap de mensaje WS hacia HA (4 MB). Un resultado más grande cierra la WebSocket entera, no solo esa llamada: súbelo si usas `ha_get_history` con rangos amplios |
-| `max_request_body_bytes` | `4194304` | Cap del cuerpo de una petición HTTP autenticada (4 MB). Los endpoints públicos de OAuth llevan su propio tope fijo de 64 KiB, que no depende de esta opción |
-| `max_concurrent_requests` | `64` | Peticiones simultáneas que acepta el servidor. Acota la memoria máxima en vuelo (`max_concurrent_requests × max_request_body_bytes`). Claude lanza ráfagas de ~24 llamadas, así que 64 deja holgura |
-| `wait_for_event_max_seconds` | `90` | Máximo timeout permitido para `ha_wait_for_event` (10–300) |
-| `wait_for_event_max_concurrent` | `5` | Máximo de `ha_wait_for_event` simultáneos (1–20) |
-| `safety_backup_window_minutes` | `30` | Si ya hay un backup completo más reciente que esto, no se hace otro |
-| `file_backup_max_per_path` | `20` | Copias que se guardan de cada fichero antes de sobrescribirlo |
-| `file_backup_max_total_mb` | `200` | Tope total del directorio de copias por fichero |
-| `config_write_min_interval_seconds` | `5` | Segundos mínimos entre dos escrituras en `/config` |
-| `config_write_max_per_minute` | `10` | Escrituras máximas por minuto en `/config` |
-| `health_startup_grace_seconds` | `120` | Margen de arranque antes de que el watchdog considere que Hermes no levanta |
-| `health_reconnect_tolerance_seconds` | `300` | Cuánto puede estar caída la WebSocket con HA antes de reportar `unhealthy` |
+| `auth_password` | _(required)_ | OAuth flow password. Minimum 12 characters, and checked for guessability: Hermes will not start with a weak one |
+| `public_hostname` | _(required)_ | Public hostname Hermes is reached at, with no scheme and no path |
+| `network_mode` | `tailscale` | Who publishes the hostname: `tailscale` (Funnel) or `reverse_proxy` (Cloudflare Tunnel, Nginx, Caddy…) |
+| `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
+| `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
+| `safety_backup_enabled` | `false` | Automatic **full** HAOS backup before writing to `/config`. Off by default (it produces several GB). The per-file backup always happens |
+| `mcp_max_requests_per_minute` | `120` | Global post-auth rate limit |
+| `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Pre-auth per-IP rate limit. Applies only to the public surface (OAuth and discovery): protected routes are governed by `mcp_max_requests_per_minute` once the token is validated |
+| `response_max_bytes` | `1048576` | Per-tool response cap (1 MB) |
+| `ha_ws_max_msg_size_bytes` | `4194304` | WS message cap towards HA (4 MB). A larger result closes the whole WebSocket, not just that call: raise it if you use `ha_get_history` over wide ranges |
+| `max_request_body_bytes` | `4194304` | Body cap for an authenticated HTTP request (4 MB). The public OAuth endpoints have their own fixed 64 KiB cap, independent of this option |
+| `max_concurrent_requests` | `64` | Simultaneous requests the server accepts. Bounds the maximum in-flight memory (`max_concurrent_requests × max_request_body_bytes`). Claude fires bursts of ~24 calls, so 64 leaves headroom |
+| `wait_for_event_max_seconds` | `90` | Maximum timeout allowed for `ha_wait_for_event` (10–300) |
+| `wait_for_event_max_concurrent` | `5` | Maximum simultaneous `ha_wait_for_event` calls (1–20) |
+| `safety_backup_window_minutes` | `30` | If a full backup newer than this already exists, another one is skipped |
+| `file_backup_max_per_path` | `20` | Copies kept of each file before overwriting it |
+| `file_backup_max_total_mb` | `200` | Total cap for the per-file backup directory |
+| `config_write_min_interval_seconds` | `5` | Minimum seconds between two writes to `/config` |
+| `config_write_max_per_minute` | `10` | Maximum writes per minute to `/config` |
+| `health_startup_grace_seconds` | `120` | Startup grace before the watchdog decides Hermes is not coming up |
+| `health_reconnect_tolerance_seconds` | `300` | How long the WebSocket to HA may stay down before reporting `unhealthy` |
 
-### Palancas de seguridad
+### Security levers
 
-Estas tres cambian **qué puede hacer Claude sin preguntarte**. Merece la pena leerlas:
+These change **what Claude can do without asking you**. Worth reading:
 
-| Opción | Default | Descripción |
+| Option | Default | Description |
 |--------|---------|-------------|
-| `call_service_denylist_extra` | `[]` | Servicios adicionales que exigirán confirmación explícita, además de los ~40 que ya trae Hermes. Formato `dominio.servicio`, admite comodín (`shell_command.*`) |
-| `call_service_restricted_entities` | `[]` | Entidades concretas que exigirán confirmación aunque el servicio no esté vetado. Útil para `script.abrir_garaje` y compañía |
-| `fire_event_allowlist` | `[]` | Tipos de evento que `ha_fire_event` puede disparar. Vacío significa que la herramienta está deshabilitada: hay que nombrar explícitamente cada evento permitido |
-| `call_service_auto_classify_dangerous` | `true` | Al arrancar y al guardar, Hermes lee tus scripts y automatizaciones y marca automáticamente como restringidas las que invocan servicios peligrosos. Desactívalo solo si quieres gestionar la lista a mano |
+| `call_service_denylist_extra` | `[]` | Additional services that will require explicit confirmation, on top of the ~40 Hermes already ships. Format `domain.service`, wildcards allowed (`shell_command.*`) |
+| `call_service_restricted_entities` | `[]` | Specific entities that will require confirmation even when the service is not denylisted. Useful for `script.open_garage` and friends |
+| `fire_event_allowlist` | `[]` | Event types `ha_fire_event` is allowed to fire. Empty means the tool is disabled: every permitted event must be named explicitly |
+| `call_service_auto_classify_dangerous` | `true` | On startup and on save, Hermes reads your scripts and automations and automatically marks as restricted the ones invoking dangerous services. Disable it only if you want to manage the list by hand |
 
-Ver `config.yaml` para el schema completo con sus rangos válidos.
+See `config.yaml` for the full schema with valid ranges.
 
-## Seguridad
+## Security
 
-- **OAuth 2.1 con PKCE obligatorio** (no bearer estático): tokens opacos
-  hasheados (SHA-256), auth codes de un solo uso, revocación (RFC 7009).
-- **Contraseña fuerte obligatoria**: `auth_password` ≥ 12 caracteres, filtro de calidad + throttle
-  con backoff exponencial ante intentos fallidos (anti-fuerza-bruta).
-- **DCR endurecido**: validación de `redirect_uris` y tope de clientes.
-- **Tokens de confirmación** para toda acción destructiva.
-- **Filesystem `/config`**: anti-traversal, blacklist de secretos, allowlist
-  *default-deny* en `.storage/`, *managed paths*, backup antes de cada escritura.
-- **Validación anti path-injection** de identificadores (slug, `entry_id`…)
-  + guard central en el cliente HA.
-- **Cabeceras de seguridad** (`X-Content-Type-Options`, `X-Frame-Options`,
-  `Referrer-Policy`, CSP) y límite de tamaño de cuerpo (incluido `chunked`).
-- **Redacción de secretos** en todos los logs.
-- **Rate limit** global tras autenticar, y un techo aparte para la superficie
-  pública (OAuth y discovery). Los fallos de autenticación tienen su propio
-  cubo, para que alguien sin credenciales no pueda gastarte el tuyo.
-- **CORS cerrado** (no hay `Access-Control-Allow-Origin`).
-- **Escucha solo donde le digas** (`mcp_bind`, por defecto `127.0.0.1`): nunca
-  se publica en la red directamente, siempre hay un proxy delante.
+- **OAuth 2.1 with mandatory PKCE** (no static bearer): opaque tokens stored
+  hashed (SHA-256), single-use auth codes, revocation (RFC 7009).
+- **Strong password enforced**: `auth_password` ≥ 12 characters, quality filter,
+  plus exponential-backoff throttling on failed attempts (anti-brute-force).
+- **Hardened DCR**: `redirect_uris` validation and a client cap.
+- **Confirmation tokens** for every destructive action.
+- **`/config` filesystem**: anti-traversal, secret blacklist, *default-deny*
+  allowlist under `.storage/`, *managed paths*, backup before every write.
+- **Anti path-injection validation** of identifiers (slug, `entry_id`…) plus a
+  central guard in the HA client.
+- **Security headers** (`X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, CSP) and a body size limit (`chunked` included).
+- **Secret redaction** across all logs.
+- **Rate limiting** globally after authentication, plus a separate ceiling for the
+  public surface (OAuth and discovery). Authentication failures get their own
+  bucket, so someone without credentials cannot burn through yours.
+- **CORS closed** (no `Access-Control-Allow-Origin`).
+- **Listens only where you tell it to** (`mcp_bind`, `127.0.0.1` by default): it
+  is never published on the network directly, there is always a proxy in front.
 
-Modelo de amenaza, supuestos y limitaciones conocidas: ver [SECURITY.md](SECURITY.md).
-Bajo qué reglas está escrito todo esto: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.md).
+Threat model, assumptions and known limitations: see [SECURITY.md](SECURITY.md).
+The rules all of this is written under: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.md)
+*(Spanish)*.
 
-## Limitaciones conocidas
+## Known limitations
 
-- **No hay streaming de eventos.** `ha_wait_for_event` espera **un** evento con
-  timeout; no existe una suscripción continua que empuje eventos a Claude.
-- **Caché de schema en los clientes MCP.** Algunos clientes (la app de Claude en
-  móvil y escritorio) cachean la lista de herramientas tras el primer
-  `initialize` y no detectan cambios del servidor entre versiones. Síntoma: tras
-  actualizar Hermes, el cliente sigue listando las herramientas antiguas.
-  Solución: desconecta el conector, elimínalo y vuelve a añadirlo. No hay
-  arreglo posible en el servidor.
-- **Un solo usuario.** El modelo de autorización asume un dueño. Varios clientes
-  MCP simultáneos comparten el mismo cupo de peticiones.
-- **`network_mode: reverse_proxy` está menos rodado que `tailscale`.** Tiene sus
-  tests, pero recibe mucho menos uso real. Si algo falla, un issue con el log de
-  arranque se agradece.
+- **No event streaming.** `ha_wait_for_event` waits for **one** event with a
+  timeout; there is no continuous subscription pushing events to Claude.
+- **Schema caching in MCP clients.** Some clients (the Claude mobile and desktop
+  apps) cache the tool list after the first `initialize` and do not notice server
+  changes between versions. Symptom: after updating Hermes, the client keeps
+  listing the old tools. Fix: disconnect the connector, delete it and add it
+  again. There is no possible server-side fix.
+- **Single user.** The authorization model assumes one owner. Several concurrent
+  MCP clients share the same request quota.
+- **`network_mode: reverse_proxy` is less battle-tested than `tailscale`.** It has
+  its tests, but sees far less real-world use. If something breaks, an issue with
+  the startup log is much appreciated.
 
-## Arquitectura
+## Architecture
 
 ```
-Claude (móvil/escritorio)
+Claude (mobile/desktop)
     │
-    │ HTTPS  (el TLS lo termina el proxy, nunca Hermes)
+    │ HTTPS  (TLS is terminated by the proxy, never by Hermes)
     ▼
 Tailscale Funnel          ─┐
-Cloudflare Tunnel          ├─►  <mcp_bind>:8765  ──►  Hermes (HTTP plano)
+Cloudflare Tunnel          ├─►  <mcp_bind>:8765  ──►  Hermes (plain HTTP)
 Nginx Proxy Manager/Caddy ─┘                              │
                                                           ├── OAuth 2.1 (/.well-known/*, /oauth/*)
                                                           ├── MCP Streamable HTTP (/mcp)
-                                                          └── WS a HA core + REST a Supervisor
+                                                          └── WS to HA core + REST to Supervisor
 ```
 
-- **TLS**: siempre lo termina el proxy de delante; Hermes habla HTTP plano y
-  nunca gestiona certificados. Cuál de los tres sea es cosa de `network_mode`.
-- **Bind**: `mcp_bind` (por defecto `127.0.0.1`). Solo alcanzable desde el
-  propio host, salvo que se apunte a la red puente de HAOS (`172.30.32.1`)
-  para proxies que no comparten la red del host.
-- **Host header**: se valida contra `public_hostname` (anti DNS-rebinding), así
-  que el proxy no debe reescribirlo.
-- **Auth**: OAuth 2.1 con PKCE, DCR, tokens cortos, revocación.
-- **Health**: Endpoint separado en `172.30.32.1:8766` para el watchdog del Supervisor.
+- **TLS**: always terminated by the proxy in front; Hermes speaks plain HTTP and
+  never handles certificates. Which of the three it is comes from `network_mode`.
+- **Bind**: `mcp_bind` (`127.0.0.1` by default). Reachable only from the host
+  itself, unless pointed at the HAOS bridge network (`172.30.32.1`) for proxies
+  that do not share the host network.
+- **Host header**: validated against `public_hostname` (anti DNS-rebinding), so
+  the proxy must not rewrite it.
+- **Auth**: OAuth 2.1 with PKCE, DCR, short-lived tokens, revocation.
+- **Health**: separate endpoint on `172.30.32.1:8766` for the Supervisor
+  watchdog.
 
-## Desarrollo
+## Development
 
-La suite se ejecuta sin desplegar nada ni tener Home Assistant delante:
+The suite runs without deploying anything and without a Home Assistant in front:
 
 ```bash
 python -m venv .venv
@@ -387,65 +394,64 @@ python -m venv .venv
 .venv/bin/pytest
 ```
 
-En Windows, `.venv\Scripts\` en vez de `.venv/bin/`.
+On Windows, `.venv\Scripts\` instead of `.venv/bin/`.
 
-Las dependencias de test van aparte a propósito: `hermes/requirements.txt` es lo
-que el add-on necesita para **arrancar**, no para probarse. `pytest.ini` fija las
-rutas de importación, así que no hace falta exportar `PYTHONPATH`.
+Test dependencies are kept separate on purpose: `hermes/requirements.txt` is what
+the add-on needs to **run**, not to be tested. `pytest.ini` fixes the import
+paths, so there is no need to export `PYTHONPATH`.
 
-**Estructura**: la raíz es un repositorio de add-ons de Home Assistant
-(`repository.yaml`), y el add-on entero vive en `hermes/`. El código Python está
-en `hermes/src/hermes/`, y los tests en `tests/` en la raíz.
+**Layout**: the root is a Home Assistant add-on repository (`repository.yaml`),
+and the whole add-on lives in `hermes/`. The Python code is under
+`hermes/src/hermes/`, and the tests under `tests/` at the root.
 
-**Probar cambios en un Home Assistant de verdad**: copia el contenido de `hermes/` a
-`/addons/hermes` en el host y **borra la línea `image:`** del `config.yaml` que
-dejes ahí — si no, el Supervisor se descarga la imagen publicada en vez de
-construir tus cambios. Después:
+**Testing changes against a real Home Assistant**: copy the contents of `hermes/`
+to `/addons/hermes` on the host and **delete the `image:` line** from the
+`config.yaml` you leave there — otherwise the Supervisor downloads the published
+image instead of building your changes. Then:
 
-- `ha apps rebuild local_hermes` si tocaste `Dockerfile` o dependencias
-- `ha apps restart local_hermes` si solo tocaste Python
-- `ha apps logs local_hermes -f` para mirar el log
+- `ha apps rebuild local_hermes` if you touched the `Dockerfile` or dependencies
+- `ha apps restart local_hermes` if you only touched Python
+- `ha apps logs local_hermes -f` to watch the log
 
-**`HERMES_DEV=1`** registra una herramienta auxiliar de diagnóstico que en una
-instalación normal no se expone.
+**`HERMES_DEV=1`** registers an auxiliary diagnostic tool that is not exposed in a
+normal installation.
 
-## Licencia
+More detail, and the conventions a pull request is expected to follow, in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
 
 **PolyForm Noncommercial 1.0.0**. © 2026 Nadeon.
 
-**Puedes** usar, estudiar, modificar y compartir Hermes, y construir sobre él,
-para cualquier fin **no comercial**: en tu casa, para aprender, para investigar,
-o dentro de una organización sin ánimo de lucro.
+**You may** use, study, modify and share Hermes, and build on it, for any
+**non-commercial** purpose: at home, to learn, for research, or inside a
+non-profit organization.
 
-**Tienes que** conservar el aviso de autoría del [LICENSE](LICENSE) en cualquier
-copia que distribuyas, para que quien la reciba sepa de dónde viene. Esa es la
-atribución que exige la licencia. Mencionarlo en un README, un artículo o un
-vídeo se agradece, pero lo que la licencia obliga es a que el aviso viaje con el
-código.
+**You must** keep the attribution notice from [LICENSE](LICENSE) in any copy you
+distribute, so whoever receives it knows where it came from. That is the
+attribution the license requires. A mention in a README, an article or a video is
+appreciated, but what the license mandates is that the notice travels with the
+code.
 
-**No puedes** ganar dinero con ello: ni vendiéndolo, ni ofreciéndolo como
-servicio de pago, ni incorporándolo a un producto comercial. Para uso comercial,
-pregunta.
+**You may not** make money from it: not by selling it, not by offering it as a
+paid service, not by folding it into a commercial product. For commercial use,
+ask.
 
-No es una licencia open source: no cumple la definición de la OSI justamente por
-esa restricción, y es a propósito.
+This is not an open source license: it does not meet the OSI definition, purely
+because of that restriction, and that is deliberate.
 
-Texto completo en [LICENSE](LICENSE).
+Full text in [LICENSE](LICENSE).
 
-## Contribuir
+## Contributing
 
-Las mejoras son bienvenidas: issues y pull requests. Al abrir un pull request
-aceptas que tu contribución se publique bajo esta misma licencia.
+Improvements are welcome: issues and pull requests. By opening a pull request you
+agree to your contribution being published under this same license.
 
-Un par de cosas que agradecerás saber antes de empezar:
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before you start — it covers the branch
+and PR workflow, how to report an issue, and the three conventions that get
+review comments most often. Participation is governed by our
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
-- La suite se ejecuta con `pytest` desde la raíz, sin configurar nada más.
-- Cada arreglo de seguridad lleva su test de regresión, y ese test debe **fallar
-  si se deshace el arreglo**. Un test que pasa con la guarda desactivada no
-  protege nada.
-- Los `docstring` de las herramientas no son documentación decorativa: son lo
-  que Claude lee para decidir cuál usar. Si el docstring miente, la herramienta
-  está rota aunque el código funcione.
-
-Para reportar un fallo de **seguridad** no abras un issue: usa el
-[formulario privado](../../security/advisories/new). Ver [SECURITY.md](SECURITY.md).
+To report a **security** flaw, do not open an issue: use the
+[private advisory form](../../security/advisories/new). See
+[SECURITY.md](SECURITY.md).
