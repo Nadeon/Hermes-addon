@@ -168,5 +168,5 @@ y separados entran los dos antes.
 ## Dudas
 
 Para cualquier cosa que no sea un issue ni un pull request, escribe a
-`[CONTACT_EMAIL]`. Los reportes de seguridad **no** van ahí: van al
+`nadeon@gmail.com`. Los reportes de seguridad **no** van ahí: van al
 [formulario privado de avisos](../../security/advisories/new).

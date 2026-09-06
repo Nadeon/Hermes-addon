@@ -28,7 +28,7 @@ Use GitHub's private channel:
 
 It is a private form between the reporter and the maintainer. Nothing is indexed,
 and GitHub coordinates publishing the advisory once the flaw is fixed. If you
-cannot use GitHub advisories, write to `[SECURITY_EMAIL]` instead, and say up
+cannot use GitHub advisories, write to `nadeon@gmail.com` instead, and say up
 front that the message is a security report.
 
 Please include, if you can:

@@ -160,6 +160,6 @@ in faster apart.
 
 ## Questions
 
-For anything that is not an issue or a pull request, write to `[CONTACT_EMAIL]`.
+For anything that is not an issue or a pull request, write to `nadeon@gmail.com`.
 Security reports do **not** go there; they go to the
 [private advisory form](../../security/advisories/new).
