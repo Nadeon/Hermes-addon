@@ -4,7 +4,7 @@
 slug: hermes
 name: "Hermes – MCP Home Assistant"
 description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
-version: "1.0.0"
+version: "1.0.1"
 url: "https://github.com/Nadeon/Hermes-addon"
 
 # Imagen precompilada. Sin esto, el Supervisor construye la imagen en el equipo
@@ -75,8 +75,13 @@ watchdog: "http://[HOST]:[PORT:8766]/health"
 
 # ── Schema de opciones ────────────────────────────────────────
 schema:
-  auth_password: "password"
-  public_hostname: "str"
+  # Con longitud mínima a propósito. Sin ella, "" es un valor VÁLIDO para
+  # `password` y para `str`, y el Supervisor da la opción por configurada:
+  # deja arrancar el add-on y el fallo aparece luego, en el log. El mínimo
+  # de auth_password es el mismo MIN_AUTH_PASSWORD_LENGTH de password_policy
+  # (hay un test que lo comprueba). 253 es el largo máximo de un nombre DNS.
+  auth_password: "password(12,)"
+  public_hostname: "str(1,253)"
   network_mode: "list(tailscale|reverse_proxy)?"
   mcp_bind: "str?"
   log_level: "list(debug|info|warning|error)?"
@@ -106,8 +111,10 @@ schema:
 
 # ── Opciones por defecto ──────────────────────────────────────
 options:
-  auth_password: ""
-  public_hostname: ""
+  # `null`, no "": es así como se marca una opción como obligatoria. Con una
+  # cadena vacía, la opción ya tiene valor y el Supervisor no pide nada.
+  auth_password: null
+  public_hostname: null
   network_mode: "tailscale"
   mcp_bind: "127.0.0.1"
   log_level: "info"
