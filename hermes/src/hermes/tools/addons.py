@@ -181,22 +181,34 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """Devuelve las opciones actuales de configuración de un add-on.
 
         Devuelve las opciones tal como el usuario las tiene configuradas
-        (el formulario del add-on en la UI de HAOS).
+        (el formulario del add-on en la UI de HAOS), y nada más.
+
+        Es la versión enfocada de `sv_get_addon`: aquella trae el manifiesto
+        entero —schema, traducciones, red, permisos—, que son varios kilobytes
+        para leer cuatro valores.
 
         Args:
             slug: Identificador del add-on.
 
         Returns:
-            Objeto con las opciones actuales del add-on.
+            {"slug": "...", "options": {...}} con los secretos redactados.
         """
         if (err := _bad_slug(slug)):
             return err
         try:
-            data = await ha_client.sv_request("GET", f"/addons/{slug}/options/config")
-            # Esta tool devuelve opciones por definición: redactar es
-            # obligatorio, no opcional.
-            data = redact_structure(data)
-            return data if isinstance(data, dict) else {"options": data}
+            # Las opciones se leen de /info y NO de /addons/{slug}/options/config:
+            # ese endpoint el Supervisor lo reserva al add-on que se consulta a
+            # sí mismo, y a cualquier otro le responde 403 "This can be only
+            # read by the app itself!". Usándolo, esta tool no funcionaba nunca.
+            data = await ha_client.sv_request("GET", f"/addons/{slug}/info")
+            if not isinstance(data, dict):
+                return {"error": "unexpected_response", "raw": str(data)}
+            opciones = data.get("options")
+            if opciones is None:
+                return {"slug": slug, "options": {}, "detail": "el add-on no declara opciones"}
+            # Las opciones llevan los secretos del add-on en claro: redactar
+            # aquí es obligatorio, no opcional.
+            return {"slug": slug, "options": redact_structure(opciones)}
         except HAConnectionError as exc:
             return {"error": str(exc)}
 

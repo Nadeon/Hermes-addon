@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.0.6] — 2026-09-06
+
+### Fixed — `sv_get_addon_options` no funcionaba con ningún add-on
+
+Leía `/addons/{slug}/options/config`, un endpoint que el Supervisor reserva al
+add-on que se consulta a sí mismo. A cualquier otra petición responde
+`403 This can be only read by the app itself!`, así que la tool devolvía un
+error siempre, para todos los add-ons, incluido el propio Hermes. Su
+descripción prometía «devuelve las opciones actuales», que es exactamente lo
+que no podía hacer.
+
+Ahora las lee de `/addons/{slug}/info`, que las incluye. Sigue siendo la
+versión enfocada de `sv_get_addon`: aquella devuelve el manifiesto entero
+—schema, traducciones, red, permisos—, del orden de varios kilobytes para leer
+cuatro valores. Devuelve `{"slug": ..., "options": {...}}`, con los secretos
+redactados.
+
+Se detectó llamando a las herramientas contra un Home Assistant en marcha. La suite
+no podía verlo: **el test mockeaba el endpoint roto**, así que daba por buena
+una tool que en producción no funcionaba nunca.
+
+### Changed — La comprobación de redacción miraba solo la primera coincidencia
+
+`test_addon_options_is_redacted` buscaba la primera aparición del endpoint en
+el fichero y comprobaba que hubiera redacción cerca. Al cambiar de sitio esa
+primera aparición, el test pasó a vigilar otra tool distinta sin que nada lo
+delatara. Ahora comprueba, por tool, las tres que devuelven datos de un add-on.
+
 ## [1.0.5] — 2026-09-06
 
 ### Fixed — El identificador del recurso protegido no era el del servidor MCP

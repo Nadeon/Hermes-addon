@@ -261,12 +261,22 @@ class TestAddonTools(unittest.IsolatedAsyncioTestCase):
         self.assertIn("error", result)
 
     async def test_get_addon_options_ok(self) -> None:
-        self.client.set_sv_response("GET", "/addons/core_mosquitto/options/config", {
-            "logins": [{"username": "homeassistant", "password": "foo"}],
-            "require_certificate": False,
+        # Las opciones se leen de /info: /options/config el Supervisor solo se
+        # lo sirve al propio add-on. Este test mockeaba ese endpoint, así que
+        # daba por buena una tool que en real devolvía 403 siempre.
+        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {
+            "slug": "core_mosquitto",
+            "options": {
+                "logins": [{"username": "homeassistant", "password": "s3cr3t0"}],
+                "require_certificate": False,
+            },
         })
         result = await self.tools["sv_get_addon_options"]("core_mosquitto")
-        self.assertIn("logins", result)
+        self.assertEqual(result["slug"], "core_mosquitto")
+        self.assertIn("logins", result["options"])
+        self.assertIs(result["options"]["require_certificate"], False)
+        # Las opciones traen secretos en claro: no pueden salir tal cual.
+        self.assertNotIn("s3cr3t0", json.dumps(result))
 
     async def test_set_addon_options_preview(self) -> None:
         self.client.set_sv_response("GET", "/addons/core_mosquitto/options/config", {
@@ -578,6 +588,39 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         result = await self.tools["sv_list_pending_jobs"]()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["jobs"][0]["job_id"], "pending_test_job")
+
+
+class TestOpcionesDeAddon(unittest.IsolatedAsyncioTestCase):
+    """`sv_get_addon_options` leía un endpoint que el Supervisor le negaba.
+
+    Usaba /addons/{slug}/options/config, que HAOS reserva al add-on que se
+    consulta a sí mismo: a cualquier otro le devuelve 403 "This can be only
+    read by the app itself!". La tool no funcionaba con NINGÚN add-on, y su
+    descripción prometía justo lo que no podía dar. Se detectó llamándola
+    contra un Home Assistant en marcha, no en la suite.
+    """
+
+    def test_no_usa_el_endpoint_que_el_supervisor_niega(self) -> None:
+        import inspect
+        from hermes.tools import addons
+
+        fuente = inspect.getsource(addons.register)
+        bloque = fuente.split("async def sv_get_addon_options")[1]
+        bloque = bloque.split("async def sv_set_addon_options")[0]
+        self.assertNotIn(
+            'sv_request("GET", f"/addons/{slug}/options/config")', bloque
+        )
+        self.assertIn('sv_request("GET", f"/addons/{slug}/info")', bloque)
+
+    def test_redacta_las_opciones(self) -> None:
+        """Las opciones traen los secretos del add-on en claro."""
+        import inspect
+        from hermes.tools import addons
+
+        fuente = inspect.getsource(addons.register)
+        bloque = fuente.split("async def sv_get_addon_options")[1]
+        bloque = bloque.split("async def sv_set_addon_options")[0]
+        self.assertIn("redact_structure(opciones)", bloque)
 
 
 if __name__ == "__main__":

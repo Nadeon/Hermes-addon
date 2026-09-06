@@ -105,9 +105,26 @@ class TestToolsApplyRedaction(unittest.TestCase):
         self.assertIn("redact_structure", src[idx:idx + 400])
 
     def test_addon_options_is_redacted(self) -> None:
+        """Las tools que DEVUELVEN datos de un add-on redactan sus secretos.
+
+        Se comprueba por tool y no por posición del endpoint. Antes se miraba
+        solo la primera aparición de `/options/config`; al moverse esa primera
+        aparición, el test pasó a vigilar otra tool sin que nada lo delatara.
+
+        `/addons/{slug}/info` se llama en más sitios (start, stop, update…),
+        pero allí solo se extrae `state` para la vista previa: no sale ningún
+        secreto, así que no entran en esta comprobación.
+        """
         src = self._src("hermes/src/hermes/tools/addons.py")
-        idx = src.index('f"/addons/{slug}/options/config"')
-        self.assertIn("redact_structure", src[idx:idx + 400])
+        for tool in ("sv_get_addon", "sv_get_addon_options", "sv_set_addon_options"):
+            inicio = src.index(f"async def {tool}(")
+            resto = src[inicio + 1:]
+            siguiente = resto.find("    @mcp.tool()")
+            cuerpo = resto[:siguiente] if siguiente != -1 else resto
+            self.assertIn(
+                "redact_structure", cuerpo,
+                f"{tool} devuelve datos del add-on sin redactar",
+            )
 
     def test_system_info_tools_are_redacted(self) -> None:
         src = self._src("hermes/src/hermes/tools/supervisor.py")
