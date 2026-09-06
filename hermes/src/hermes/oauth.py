@@ -73,6 +73,11 @@ MAX_REGISTERED_CLIENTS = 100
 # Esquemas de redirect_uri rechazados en DCR (vectores XSS / exfiltración).
 _DANGEROUS_REDIRECT_SCHEMES = frozenset({"javascript", "data", "vbscript", "file"})
 
+# Path donde el SDK de MCP sirve el endpoint (`streamable_http_app` montado en
+# "/"). El identificador del recurso protegido de la RFC 9728 es la URL del
+# servidor MCP, path incluido: es la misma que el usuario pega en su cliente.
+MCP_PATH = "/mcp"
+
 # Sub fijo — no hay multi-usuario
 _FIXED_SUB = "hermes-owner"
 
@@ -282,8 +287,10 @@ class OAuthServer:
 
         # URL de los metadatos del recurso protegido (RFC 9728). Se anuncia en
         # el WWW-Authenticate del 401 para que el cliente vaya directo a ella.
+        # RFC 9728 §3.1: para un recurso en /mcp, la URL de sus metadatos
+        # inserta ese path detrás del .well-known.
         self.resource_metadata_url = (
-            f"{self._base_url}/.well-known/oauth-protected-resource"
+            f"{self._base_url}/.well-known/oauth-protected-resource{MCP_PATH}"
         )
 
         # Estado del throttle anti-fuerza-bruta del login (global)
@@ -368,8 +375,13 @@ class OAuthServer:
 
     async def protected_resource_metadata(self, request: Request) -> JSONResponse:
         """GET /.well-known/oauth-protected-resource"""
+        # `resource` es el identificador del recurso protegido, y en MCP el
+        # recurso es el servidor MCP: la URL con su path. Anunciar aquí la raíz
+        # del host describe un recurso distinto del que el cliente está usando,
+        # y un cliente que compruebe esa correspondencia —la RFC 9728 se la
+        # pide— no puede casarlos.
         return JSONResponse({
-            "resource": self._base_url,
+            "resource": f"{self._base_url}{MCP_PATH}",
             "authorization_servers": [self._base_url],
             "bearer_methods_supported": ["header"],
         })

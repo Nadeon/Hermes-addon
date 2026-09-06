@@ -123,5 +123,38 @@ class TestCodigoEmitidoYNoCanjeado(unittest.TestCase):
         self.assertNotIn("x", str(kwargs.get("client_ids", [])).replace("cliente-x", ""))
 
 
+class TestIdentificadorDelRecurso(unittest.TestCase):
+    """RFC 9728: `resource` identifica al recurso protegido, que es /mcp.
+
+    Anunciar la raíz del host describe un recurso distinto del que el cliente
+    está usando —él habla con https://host/mcp—, y la RFC le pide comprobar
+    esa correspondencia. Con los dos valores distintos no puede casarlos.
+    """
+
+    def test_el_recurso_es_la_url_del_servidor_mcp(self) -> None:
+        import inspect
+
+        fuente = inspect.getsource(oauth_mod.OAuthServer.protected_resource_metadata)
+        self.assertIn('"resource": f"{self._base_url}{MCP_PATH}"', fuente)
+        self.assertNotIn('"resource": self._base_url', fuente)
+
+    def test_el_puntero_de_metadatos_lleva_el_path(self) -> None:
+        """RFC 9728 §3.1: el path del recurso va detrás del .well-known."""
+        import inspect
+
+        fuente = inspect.getsource(oauth_mod.OAuthServer.__init__)
+        self.assertIn(
+            'f"{self._base_url}/.well-known/oauth-protected-resource{MCP_PATH}"',
+            fuente,
+        )
+
+    def test_el_authorization_server_sigue_siendo_el_host(self) -> None:
+        """El servidor de autorización sí es el host: no lleva /mcp."""
+        import inspect
+
+        fuente = inspect.getsource(oauth_mod.OAuthServer.authorization_server_metadata)
+        self.assertIn('"issuer": self._base_url', fuente)
+
+
 if __name__ == "__main__":
     unittest.main()

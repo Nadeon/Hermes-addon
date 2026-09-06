@@ -158,9 +158,12 @@ class TestOAuthAliasRoutes(unittest.TestCase):
                     ("/oauth/token", "POST"),
                 ):
                     self.assertIn((path, method), paths)
+                # RFC 9728 §3.1: el recurso protegido vive en /mcp, así que la
+                # URL de sus metadatos lleva ese path tras el .well-known.
                 self.assertEqual(
                     server.resource_metadata_url,
-                    "https://hermes.tail-xxxx.ts.net/.well-known/oauth-protected-resource",
+                    "https://hermes.tail-xxxx.ts.net"
+                    "/.well-known/oauth-protected-resource/mcp",
                 )
             finally:
                 for a, v in orig.items():

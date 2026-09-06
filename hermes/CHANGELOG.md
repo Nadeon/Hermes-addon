@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.0.5] — 2026-09-06
+
+### Fixed — El identificador del recurso protegido no era el del servidor MCP
+
+`/.well-known/oauth-protected-resource` anunciaba como `resource` la raíz del
+host —`https://tu-host`— cuando el recurso protegido es el servidor MCP, que
+vive en `https://tu-host/mcp`. Es la misma URL que el usuario pega en su
+cliente.
+
+La RFC 9728 pide al cliente comprobar que el `resource` de esos metadatos
+corresponde con el recurso que está usando. Con los dos valores distintos no
+puede casarlos, y un cliente estricto tiene motivo para no seguir adelante.
+
+Por lo mismo, el puntero `resource_metadata` de la cabecera `WWW-Authenticate`
+pasa a llevar el path insertado —`/.well-known/oauth-protected-resource/mcp`—,
+que es la forma que define la RFC 9728 §3.1 para un recurso con path. Esa ruta
+ya se servía.
+
+El `issuer` y `authorization_servers` **no** cambian: el servidor de
+autorización sí es el host, sin path.
+
+Un test daba por buena la URL antigua, así que afirmaba el fallo en vez de
+comprobar la regla.
+
 ## [1.0.4] — 2026-09-06
 
 ### Changed — Al rechazar `public_hostname`, Hermes propone el valor correcto
