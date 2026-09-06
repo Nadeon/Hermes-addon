@@ -19,6 +19,7 @@ from pathlib import Path
 
 import yaml
 
+from hermes import __version__
 from hermes.password_policy import MIN_AUTH_PASSWORD_LENGTH
 
 CONFIG = Path(__file__).resolve().parent.parent / "hermes" / "config.yaml"
@@ -112,6 +113,26 @@ class TestManifiesto(unittest.TestCase):
     def test_la_version_es_semver(self) -> None:
         """El workflow de publicación compara el tag con este campo."""
         self.assertRegex(str(self.manifiesto["version"]), r"^\d+\.\d+\.\d+$")
+
+    def test_la_version_del_codigo_coincide_con_la_del_manifiesto(self) -> None:
+        """Son dos números escritos a mano en sitios distintos, y se separaron.
+
+        `__version__` se quedó en 0.38.0 mientras el manifiesto subía tres
+        veces, así que la pantalla de login, el endpoint /health y las líneas de
+        arranque del log anunciaban una versión que no era la instalada. Eso
+        rompe lo que piden SECURITY.md y CONTRIBUTING.md al reportar un fallo:
+        que digas qué versión ejecutas.
+
+        No se derivan una de otra porque config.yaml no entra en la imagen —el
+        Dockerfile copia solo src/ y run.sh—, así que la sincronía la sostiene
+        este test.
+        """
+        self.assertEqual(
+            __version__,
+            str(self.manifiesto["version"]),
+            "hermes/src/hermes/__init__.py y hermes/config.yaml declaran "
+            "versiones distintas",
+        )
 
     def test_toda_opcion_por_defecto_esta_declarada_en_el_schema(self) -> None:
         """Una opción en `options` que no esté en `schema` la rechaza HA."""

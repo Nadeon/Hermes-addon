@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.2] — 2026-09-06
+
+### Fixed — Hermes anunciaba la versión equivocada
+
+La pantalla de autorización, el endpoint `/health` y las tres líneas de arranque
+del log decían **0.38.0** en una instalación de 1.0.1.
+
+La versión está escrita a mano en dos sitios: `version:` en `config.yaml`, que
+es lo que ve el Supervisor, y `__version__` en el paquete Python, que es lo que
+Hermes enseña. El segundo se quedó en 0.38.0 mientras el primero subía tres
+veces.
+
+No afectaba al funcionamiento, pero sí a poder diagnosticar nada: tanto
+`SECURITY.md` como `CONTRIBUTING.md` piden que digas qué versión ejecutas al
+reportar un fallo, y el número que Hermes daba para eso era falso.
+
+Los dos números no pueden derivarse uno del otro, porque `config.yaml` no viaja
+dentro de la imagen —el `Dockerfile` copia solo `src/` y `run.sh`—. Así que la
+sincronía la sostiene ahora un test, que falla si vuelven a separarse.
+
 ## [1.0.1] — 2026-09-06
 
 ### Fixed — El add-on se dejaba arrancar sin `auth_password` ni `public_hostname`
