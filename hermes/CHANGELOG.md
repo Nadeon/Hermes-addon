@@ -9,8 +9,8 @@ del log decían **0.38.0** en una instalación de 1.0.1.
 
 La versión está escrita a mano en dos sitios: `version:` en `config.yaml`, que
 es lo que ve el Supervisor, y `__version__` en el paquete Python, que es lo que
-Hermes enseña. El segundo se quedó en 0.38.0 mientras el primero subía tres
-veces.
+Hermes enseña. El segundo seguía anunciando 0.38.0 mientras el primero subía
+tres veces.
 
 No afectaba al funcionamiento, pero sí a poder diagnosticar nada: tanto
 `SECURITY.md` como `CONTRIBUTING.md` piden que digas qué versión ejecutas al

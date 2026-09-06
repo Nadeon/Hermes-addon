@@ -117,7 +117,7 @@ class TestManifiesto(unittest.TestCase):
     def test_la_version_del_codigo_coincide_con_la_del_manifiesto(self) -> None:
         """Son dos números escritos a mano en sitios distintos, y se separaron.
 
-        `__version__` se quedó en 0.38.0 mientras el manifiesto subía tres
+        `__version__` seguía anunciando 0.38.0 mientras el manifiesto subía tres
         veces, así que la pantalla de login, el endpoint /health y las líneas de
         arranque del log anunciaban una versión que no era la instalada. Eso
         rompe lo que piden SECURITY.md y CONTRIBUTING.md al reportar un fallo:
