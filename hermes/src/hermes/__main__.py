@@ -64,6 +64,8 @@ async def _boot(config: HermesConfig) -> None:
 
     1=config, 2=crash loop, 3=disk, 3.5=health, 4=tailscale,
     5=supervisor, 6=HA version, 7=confirmations, 8=WS a HA, 9=MCP.
+
+    Los pasos 1 y 2 ocurren en `main()`, antes de abrir el event loop.
     """
 
     # Instanciar health server (se usa en varios pasos)
@@ -73,11 +75,8 @@ async def _boot(config: HermesConfig) -> None:
         reconnect_tolerance_seconds=config.health_reconnect_tolerance_seconds,
     )
 
-    # ── Paso 2: Detectar crash loop ───────────────────────────
-    # (Paso 1 es cargar config, ya hecho antes de llamar a _boot)
-    health_server.set_boot_step(2)
-    logger.info("boot_step_2", action="crash_loop_check")
-    check_crash_loop()
+    # (Pasos 1 y 2 —config y crash loop— ya hechos en main(), antes de
+    #  validar la config: ver el comentario de main().)
 
     # ── Paso 3: Check espacio libre en /data ──────────────────
     health_server.set_boot_step(3)
@@ -153,11 +152,9 @@ async def _boot(config: HermesConfig) -> None:
         ws_max_msg_size=config.ha_ws_max_msg_size_bytes,
     )
 
-    try:
-        await ha_client.start(timeout_seconds=config.health_startup_grace_seconds)
-    except Exception as exc:
-        logger.error("ha_ws_connect_failed", error=str(exc))
-        sys.exit(1)
+    ws_ready = await _connect_ha_ws(
+        ha_client, config.health_startup_grace_seconds
+    )
 
     # ── Paso 9: Arrancar servidor MCP principal ──────────────
     health_server.set_boot_step(9)
@@ -229,15 +226,20 @@ async def _boot(config: HermesConfig) -> None:
         call_service_auto_classify=config.call_service_auto_classify_dangerous,
     )
 
-    # Lifespan: arrancar el StreamableHTTPSessionManager del SDK
-    # y la task de limpieza periódica de OAuth (cada hora).
+    # Lifespan: arrancar el StreamableHTTPSessionManager del SDK, la task de
+    # limpieza periódica de OAuth y la de confirmaciones (ambas cada hora).
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette):
         async with mcp.session_manager.run():
             oauth_server.start_periodic_cleanup()
+            confirmations_cleanup = asyncio.create_task(
+                _periodic_confirmations_cleanup(),
+                name="confirmations_periodic_cleanup",
+            )
             try:
                 yield
             finally:
+                confirmations_cleanup.cancel()
                 oauth_server.stop_periodic_cleanup()
                 await ha_client.stop()
 
@@ -350,6 +352,7 @@ async def _boot(config: HermesConfig) -> None:
         mcp_port=MCP_PORT,
         health_port=HEALTH_PORT,
         ha_version=ha_version,
+        ha_ws_ready=ws_ready,
         tailscale_ip=tailscale_ip,
         supervisor_url=supervisor_url,
         public_hostname=config.public_hostname,
@@ -386,6 +389,66 @@ async def _boot(config: HermesConfig) -> None:
     _cleanup_tmp_files()
 
     logger.info("hermes_stopped")
+
+
+async def _connect_ha_ws(ha_client: HAClient, grace_seconds: int) -> bool:
+    """Paso 8 del boot: conectar la WS de HA. NUNCA aborta el arranque.
+
+    Devuelve True si la WS quedó lista dentro del periodo de gracia.
+
+    Que agote el plazo no es fatal: `HAClient.start` solo deja de esperar al
+    evento de conexión, la task de fondo sigue viva reintentando, y las tools
+    marcadas con `requires_ready` ya saben responder "todavía no".
+
+    Antes se salía con sys.exit(1), y eso es lo que convertía una caída larga
+    del core en un add-on parado para siempre: el watchdog del Supervisor
+    reiniciaba, el paso 8 se encontraba el core aún caído, y tras un número
+    acotado de intentos el Supervisor se rendía — justo cuando el bucle de
+    reconexión se habría recuperado solo en cuanto el core volviera.
+    """
+    try:
+        await ha_client.start(timeout_seconds=grace_seconds)
+    except Exception as exc:
+        logger.warning(
+            "ha_ws_connect_pending",
+            error=str(exc),
+            grace_seconds=grace_seconds,
+            message=(
+                "Home Assistant's WebSocket is not available yet. Continuing "
+                "boot in degraded mode; the reconnect loop keeps retrying and "
+                "tools will answer once the core is back."
+            ),
+        )
+        return False
+    return True
+
+
+# Cada preview sin confirmar deja un fichero de token en
+# /data/pending_confirmations. El paso 7 del boot los barre, pero un add-on
+# `boot: auto` puede pasar meses sin reiniciar: sin esta task, el directorio
+# solo crece. Una hora es el mismo periodo que usa la limpieza de OAuth.
+CONFIRMATIONS_CLEANUP_INTERVAL_SECONDS = 3600
+
+
+async def _periodic_confirmations_cleanup(
+    interval_seconds: float = CONFIRMATIONS_CLEANUP_INTERVAL_SECONDS,
+) -> None:
+    """Borra tokens de confirmación caducados cada `interval_seconds`.
+
+    Se cancela desde el lifespan; cualquier otro fallo se registra y no tumba
+    la task, porque una limpieza que muere en silencio reproduce el bug.
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            cleaned = await cleanup_expired_confirmations()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("confirmations_cleanup_failed", error=str(exc))
+            continue
+        if cleaned:
+            logger.info("confirmations_cleaned", count=cleaned, periodic=True)
 
 
 async def _check_disk_space(config: HermesConfig) -> None:
@@ -455,6 +518,15 @@ def main() -> None:
         log_level=config.log_level,
         public_hostname=config.public_hostname,
     )
+
+    # ── Paso 2: Detectar crash loop ───────────────────────────
+    logger.info("boot_step_2", action="crash_loop_check")
+    # ANTES de validar la config, no dentro de _boot(): una config inválida
+    # sale por sys.exit(1) unas líneas más abajo, así que un crash loop causado
+    # por `config_validation_failed` (11 arranques en dos minutos el 2026-09-06)
+    # no llegaba nunca a contarse y la guarda no se disparaba en el único caso
+    # en el que el add-on reinicia en bucle de verdad.
+    check_crash_loop()
 
     # Validar configuración obligatoria
     try:

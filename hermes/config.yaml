@@ -26,7 +26,12 @@ arch:
   - aarch64
 
 # ── Ciclo de vida ──────────────────────────────────────────────
-startup: services          # Arranca tras el core de HA
+# El Supervisor arranca por fases (supervisor/core.py): initialize → system →
+# services → Home Assistant Core → application. Con `startup: services` Hermes
+# arrancaba ANTES que el core, y su paso 8 necesita el WebSocket del core dentro
+# de `health_startup_grace_seconds`: en un arranque en frío sobre hardware lento
+# el core todavía no estaba levantado y el add-on moría con error.
+startup: application       # Arranca DESPUÉS del core de HA
 boot: auto                 # Arranca con HAOS
 init: false               # Las imágenes base oficiales ya incluyen s6-overlay como PID 1.
                           # init: true mete tini encima y rompe s6 con

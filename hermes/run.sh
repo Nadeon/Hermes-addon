@@ -18,13 +18,20 @@ if [ ! -f "$OPTIONS" ]; then
 fi
 
 # Helper: leer un valor del JSON (devuelve "" si la clave no existe o es null)
+#
+# El filtro es `if . == null then empty else . end` y NO `// empty`, porque el
+# operador `//` de jq considera "vacíos" tanto `null` como `false`: con
+# `{"x": false}`, `jq -r '.x // empty'` no imprime nada. Eso convertía cualquier
+# booleano puesto a `false` en las opciones (p. ej.
+# `call_service_auto_classify_dangerous: false`) en cadena vacía, y por tanto en
+# el valor por defecto `true` de cfg_default — justo lo contrario de lo pedido.
 cfg() {
-    jq -r ".$1 // empty" "$OPTIONS"
+    jq -r "if .$1 == null then empty else .$1 end" "$OPTIONS"
 }
 
 # Helper con default
 cfg_default() {
-    val=$(jq -r ".$1 // empty" "$OPTIONS")
+    val=$(jq -r "if .$1 == null then empty else .$1 end" "$OPTIONS")
     echo "${val:-$2}"
 }
 

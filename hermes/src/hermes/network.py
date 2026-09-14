@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import socket
 
 import aiohttp
@@ -224,8 +225,18 @@ async def smoke_check_ha_core_version(
 
     Hace retry con backoff exponencial durante grace_seconds.
     Devuelve la versión encontrada.
+
+    Todo lo que sea "el core todavía no está en condiciones de contestar" se
+    reintenta, no solo los errores de transporte: mientras el core arranca,
+    /core/info responde 200 con `version: "landingpage"` (que
+    `packaging.version` rechaza con InvalidVersion), o con un cuerpo que no es
+    JSON, o con algo que no es un objeto. Cualquiera de esos casos abortaba el
+    boot entero en el primer intento aunque el core hubiera terminado de
+    arrancar dos segundos después. Lo único que sigue siendo fatal e inmediato
+    es una versión legible POR DEBAJO del mínimo soportado: esa no mejora
+    esperando.
     """
-    from packaging.version import Version
+    from packaging.version import InvalidVersion, Version
 
     headers = {"Authorization": f"Bearer {supervisor_token}"}
     deadline = asyncio.get_event_loop().time() + grace_seconds
@@ -248,7 +259,22 @@ async def smoke_check_ha_core_version(
 
                     data = await resp.json()
                     # /core/info devuelve los datos directamente o bajo "data"
+                    if not isinstance(data, dict):
+                        last_error = (
+                            f"/core/info response is not a JSON object "
+                            f"({type(data).__name__})"
+                        )
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 1.5, 15.0)
+                        continue
+
                     info = data.get("data", data)
+                    if not isinstance(info, dict):
+                        last_error = "/core/info 'data' field is not an object"
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 1.5, 15.0)
+                        continue
+
                     version_str = info.get("version", "")
 
                     if not version_str:
@@ -288,8 +314,16 @@ async def smoke_check_ha_core_version(
                     )
                     return version_str
 
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            last_error = str(exc)
+        except (
+            aiohttp.ClientError,
+            asyncio.TimeoutError,
+            json.JSONDecodeError,
+            InvalidVersion,
+        ) as exc:
+            # InvalidVersion incluye el "landingpage" que sirve el core
+            # mientras arranca; JSONDecodeError, un cuerpo a medio escribir.
+            # Los dos son transitorios: reintentar con el mismo backoff.
+            last_error = f"{type(exc).__name__}: {exc}"
             await asyncio.sleep(delay)
             delay = min(delay * 1.5, 15.0)
             continue
