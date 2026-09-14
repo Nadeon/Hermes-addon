@@ -90,10 +90,39 @@ Hermes is most thoroughly tested against.
 2. Set **`userspace_networking: false`**. This is mandatory: without it the
    `tailscale0` interface is never created and, under `network_mode: tailscale`,
    Hermes waits for it and never starts.
-3. Enable **Funnel** and point it at the Hermes port:
-   ```
-   tailscale funnel --bg 8765
-   ```
+3. Enable **Funnel** and point it at the Hermes port. The command runs
+   **inside the Tailscale add-on's container**: that is where the `tailscale`
+   binary and the `tailscaled` socket live, and since that add-on shares the
+   host network, `127.0.0.1:8765` from inside it is Hermes. No add-on option
+   does this: `share_homeassistant` only publishes Home Assistant, and
+   `services` exposes other ports only within the tailnet (Serve), not to the
+   internet (Funnel).
+
+   The Tailscale add-on has no terminal in the HA UI. The most direct way in:
+   1. Install **Advanced SSH & Web Terminal** (the community one; the official
+      "Terminal & SSH" gives no Docker access).
+   2. In its configuration, disable **Protection mode**. Without that there is
+      no `docker` command. You can turn it back on when done.
+   3. From its web terminal:
+      ```
+      docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg 8765
+      docker exec -it addon_a0d7b954_tailscale tailscale funnel status
+      ```
+      If the container name does not match, `docker ps | grep tailscale`
+      gives it. `funnel status` must list `https://<hostname>` pointing at
+      `http://127.0.0.1:8765`.
+
+   Three things to know:
+   - **Funnel must be allowed on your tailnet**: HTTPS enabled and the
+     `funnel` attribute in the access policy. If it is not, the command prints
+     a link to the Tailscale admin panel to enable it; it does not fail
+     silently.
+   - **The Funnel lives in `tailscaled`'s state, not in the add-on options**,
+     so the HA UI does not show it. It survives add-on restarts and updates,
+     but not a reinstall. If Hermes ever becomes unreachable after touching
+     Tailscale, check `tailscale funnel status` first.
+   - `--bg` is what makes it persistent. Without it, the Funnel lasts only as
+     long as the foreground command.
 4. In the Hermes options:
    - `network_mode`: `tailscale`
    - `public_hostname`: the hostname Funnel gives you (e.g.
