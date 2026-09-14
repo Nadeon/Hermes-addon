@@ -14,7 +14,7 @@ from mcp_types.version import (
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
@@ -118,6 +118,14 @@ class TestDefaultOAuthPathsArePublic(unittest.TestCase):
     def test_mcp_is_not_public(self) -> None:
         self.assertFalse(_is_public_path("/mcp"))
         self.assertFalse(_is_public_path("/"))
+        self.assertFalse(_is_public_path("/mcp/"))
+
+    def test_trailing_slash_forms_are_public_too(self) -> None:
+        """Un cliente que normaliza su base URL con `/` pedía `/oauth/token/`
+        y recibía un 401, que leía como fallo de registro."""
+        for path in ("/oauth/token/", "/token/", "/oauth/authorize/",
+                     "/.well-known/oauth-authorization-server/"):
+            self.assertTrue(_is_public_path(path), path)
 
     def test_default_paths_bypass_bearer_auth(self) -> None:
         app = Starlette(
@@ -126,6 +134,25 @@ class TestDefaultOAuthPathsArePublic(unittest.TestCase):
         )
         resp = TestClient(app).post("/register")
         self.assertEqual(resp.status_code, 200)
+
+
+async def _bad_request_with_two_cookies(request: Request) -> Response:
+    resp = JSONResponse({"error": "x"}, status_code=400)
+    resp.raw_headers.append((b"set-cookie", b"a=1"))
+    resp.raw_headers.append((b"set-cookie", b"b=2"))
+    return resp
+
+
+class TestErrorBodyBufferingKeepsHeaders(unittest.TestCase):
+    def test_repeated_headers_survive_the_rebuild(self) -> None:
+        app = Starlette(
+            routes=[Route("/mcp", _bad_request_with_two_cookies, methods=["POST"])],
+            middleware=[Middleware(LoggingMiddleware)],
+        )
+        resp = TestClient(app).post("/mcp")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.headers.get_list("set-cookie"), ["a=1", "b=2"])
+        self.assertEqual(resp.headers["content-length"], str(len(resp.content)))
 
 
 class TestOAuthAliasRoutes(unittest.TestCase):

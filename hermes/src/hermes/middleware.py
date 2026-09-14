@@ -54,8 +54,19 @@ _OAUTH_PUBLIC_PATHS = frozenset({
 
 
 def _is_public_path(path: str) -> bool:
-    """Devuelve True si el path es un endpoint público (OAuth/well-known)."""
-    return path in _OAUTH_PUBLIC_PATHS or path.startswith("/.well-known/")
+    """Devuelve True si el path es un endpoint público (OAuth/well-known).
+
+    Se ignora la barra final: un cliente que normaliza su base URL con `/`
+    pide `/oauth/token/`, y tratarlo como ruta protegida le devolvía un 401 que
+    interpretaba como fallo de registro, reiniciando el flujo entero. Starlette
+    redirige esa forma al path canónico, pero solo si llega hasta el router.
+    """
+    normalized = path.rstrip("/") or "/"
+    return (
+        normalized in _OAUTH_PUBLIC_PATHS
+        or normalized == "/.well-known"
+        or normalized.startswith("/.well-known/")
+    )
 
 
 # Código JSON-RPC para "demasiadas peticiones". El rango -32000..-32099
@@ -97,6 +108,7 @@ def _too_many_requests(request: Request) -> JSONResponse:
 # del servidor simplemente gastándolo.
 _AUTH_FAILURE_BUCKET: dict[str, list[float]] = {}
 _AUTH_FAILURE_WINDOW = 60.0
+_AUTH_FAILURE_MAX_IPS = 10_000
 
 
 def record_auth_failure(client_ip: str, max_per_minute: int) -> bool:
@@ -110,9 +122,24 @@ def record_auth_failure(client_ip: str, max_per_minute: int) -> bool:
     stamps = [t for t in _AUTH_FAILURE_BUCKET.get(client_ip, []) if t > cutoff]
     stamps.append(now)
     _AUTH_FAILURE_BUCKET[client_ip] = stamps
-    if len(_AUTH_FAILURE_BUCKET) > 10_000:  # cota de memoria, igual que arriba
-        _AUTH_FAILURE_BUCKET.clear()
-        _AUTH_FAILURE_BUCKET[client_ip] = stamps
+    if len(_AUTH_FAILURE_BUCKET) > _AUTH_FAILURE_MAX_IPS:
+        # Cota de memoria. Antes se vaciaba el cubo ENTERO, así que quien
+        # pudiera presentar más de 10.000 direcciones (un /64 de IPv6 basta)
+        # reseteaba de paso el contador de todas las demás. Ahora se purgan
+        # primero las entradas sin fallos recientes y, si aún sobra, las que
+        # MENOS fallos acumulan (y entre iguales, las más antiguas): una
+        # inundación de IPs de un solo intento se expulsa a sí misma antes de
+        # tocar al contador que está a punto de saltar.
+        for ip in [ip for ip, ts in _AUTH_FAILURE_BUCKET.items() if not ts or ts[-1] <= cutoff]:
+            del _AUTH_FAILURE_BUCKET[ip]
+        excess = len(_AUTH_FAILURE_BUCKET) - _AUTH_FAILURE_MAX_IPS
+        if excess > 0:
+            victims = sorted(
+                _AUTH_FAILURE_BUCKET.items(), key=lambda kv: (len(kv[1]), kv[1][-1])
+            )
+            for ip, _ in victims[:excess]:
+                if ip != client_ip:
+                    del _AUTH_FAILURE_BUCKET[ip]
     return len(stamps) > max_per_minute
 
 
@@ -510,10 +537,15 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         rebuilt = Response(
             content=body,
             status_code=response.status_code,
-            headers=dict(response.headers),
-            media_type=response.media_type,
             background=response.background,
         )
+        # Las cabeceras se copian en crudo, no vía `dict(...)`: un dict
+        # colapsa las repetidas (dos `Set-Cookie` se quedaban en una). El
+        # content-length se recalcula porque el cuerpo es el mismo pero la
+        # respuesta original pudo venir en streaming, sin él.
+        rebuilt.raw_headers = [
+            (k, v) for k, v in response.headers.raw if k != b"content-length"
+        ] + [(b"content-length", str(len(body)).encode("latin-1"))]
         text = body.decode("utf-8", errors="replace").strip()
         if len(text) > self._ERROR_BODY_LOG_CHARS:
             text = text[: self._ERROR_BODY_LOG_CHARS] + "…"

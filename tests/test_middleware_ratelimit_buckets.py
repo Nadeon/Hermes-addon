@@ -121,6 +121,17 @@ class TestAuthFailureBucket(unittest.TestCase):
                              f"no debería cortar en el intento {i + 1}")
         self.assertTrue(mw.record_auth_failure("1.2.3.4", max_per_minute=3))
 
+    def test_memory_cap_does_not_reset_other_clients(self) -> None:
+        """Al superar la cota se vaciaba el cubo entero: quien pudiera
+        presentar más de 10.000 IPs reseteaba el contador de todas."""
+        for _ in range(3):
+            mw.record_auth_failure("victim", max_per_minute=3)
+        for i in range(mw._AUTH_FAILURE_MAX_IPS + 5):
+            mw.record_auth_failure(f"bot-{i}", max_per_minute=3)
+        self.assertTrue(mw.record_auth_failure("victim", max_per_minute=3),
+                        "el contador de la IP viva se perdió al purgar")
+        self.assertLessEqual(len(mw._AUTH_FAILURE_BUCKET), mw._AUTH_FAILURE_MAX_IPS + 1)
+
     def test_is_independent_per_client(self) -> None:
         for _ in range(4):
             mw.record_auth_failure("1.2.3.4", max_per_minute=3)

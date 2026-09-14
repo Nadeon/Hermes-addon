@@ -30,15 +30,16 @@ import os
 import secrets
 import time
 import uuid
-from base64 import urlsafe_b64encode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlsplit, urlunsplit
 
 from hermes import __version__
 import re
 
 import structlog
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
@@ -147,6 +148,58 @@ def _hash_token(token: str) -> str:
 def _generate_token() -> str:
     """Genera un token opaco seguro."""
     return secrets.token_urlsafe(48)
+
+
+# RFC 7636 §4.1: el code_verifier son de 43 a 128 caracteres del conjunto
+# unreserved. Se comprueba antes de codificarlo como ASCII: un verifier con
+# caracteres fuera de ese conjunto hacía saltar UnicodeEncodeError y salía un
+# 500 con traza en el log desde un endpoint sin autenticar.
+_CODE_VERIFIER_RE = re.compile(r"^[A-Za-z0-9\-._~]{43,128}$")
+
+
+def _successor_key(presented_token: str) -> bytes:
+    """Clave con la que se sella el sucesor de un refresh token rotado.
+
+    Deriva del VALOR del token presentado, que nunca se guarda: en disco solo
+    hay su hash. Así el sucesor sellado solo lo puede abrir quien presente ese
+    mismo token, que es exactamente el cliente que perdió la respuesta de la
+    rotación y reintenta con el anterior.
+    """
+    return hashlib.sha256(b"hermes-refresh-successor-v1:" + presented_token.encode("utf-8")).digest()
+
+
+def _seal_successor(presented_token: str, successor_token: str) -> str:
+    """Cifra el refresh token sucesor con la clave derivada del presentado."""
+    nonce = secrets.token_bytes(12)
+    sealed = AESGCM(_successor_key(presented_token)).encrypt(
+        nonce, successor_token.encode("utf-8"), None
+    )
+    return urlsafe_b64encode(nonce + sealed).decode("ascii")
+
+
+def _open_successor(presented_token: str, sealed_b64: str) -> str | None:
+    """Recupera el sucesor sellado, o None si no se puede abrir con este token."""
+    try:
+        raw = urlsafe_b64decode(sealed_b64.encode("ascii"))
+        nonce, sealed = raw[:12], raw[12:]
+        return AESGCM(_successor_key(presented_token)).decrypt(nonce, sealed, None).decode("utf-8")
+    except Exception:  # noqa: BLE001 — cualquier fallo es "no se puede abrir"
+        return None
+
+
+def _append_query(url: str, params: dict[str, str]) -> str:
+    """Añade `params` a la query de `url`, conservando la que ya tuviera.
+
+    RFC 6749 §3.1.2 permite componentes de query en el redirect_uri. Con
+    `f"{uri}?{...}"` un cliente registrado con `https://host/cb?tenant=42`
+    recibía `?tenant=42?code=…`: el código quedaba dentro del valor de
+    `tenant` y la autorización moría en silencio.
+    """
+    parts = urlsplit(url)
+    query = parts.query
+    extra = urlencode(params)
+    query = f"{query}&{extra}" if query else extra
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
 
 
 
@@ -395,6 +448,10 @@ class OAuthServer:
             "authorization_servers": [self._base_url],
             "bearer_methods_supported": ["header"],
         })
+
+    async def protected_resource_metadata_unknown(self, request: Request) -> JSONResponse:
+        """GET /.well-known/oauth-protected-resource/<otro path> — no hay tal recurso."""
+        return JSONResponse({"error": "not_found"}, status_code=404)
 
     async def authorization_server_metadata(self, request: Request) -> JSONResponse:
         """GET /.well-known/oauth-authorization-server"""
@@ -658,8 +715,9 @@ class OAuthServer:
 
         # Generar authorization code
         code = secrets.token_urlsafe(32)
+        # Nunca el código en claro: el fichero ya se nombra por su hash, y
+        # guardarlo dentro anulaba justamente eso.
         code_data = {
-            "code": code,
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "code_challenge": code_challenge,
@@ -676,7 +734,7 @@ class OAuthServer:
         if state:
             params["state"] = state
 
-        redirect_url = f"{redirect_uri}?{urlencode(params)}"
+        redirect_url = _append_query(redirect_uri, params)
         # El host del destino y si venía `state`, nunca la URL entera: lleva el
         # código dentro. Sin esto, cuando un cliente recibe la redirección y no
         # vuelve a canjear, el log no dice ni a dónde se le mandó.
@@ -717,13 +775,18 @@ class OAuthServer:
             return self._token_error("invalid_request", "unreadable_form", "")
 
         if grant_type == "authorization_code":
-            return await self._token_auth_code(form)
+            response = await self._token_auth_code(form)
         elif grant_type == "refresh_token":
-            return await self._token_refresh(form)
+            response = await self._token_refresh(form)
         else:
-            return self._token_error(
+            response = self._token_error(
                 "unsupported_grant_type", "unsupported_grant_type", grant_type
             )
+        # RFC 6749 §5.1: las respuestas con tokens no se cachean. Se pone en
+        # todas, también en los errores, para no depender de cuál es cuál.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     async def _token_auth_code(self, form: Any) -> JSONResponse:
         """Exchange authorization code for access + refresh tokens."""
@@ -763,6 +826,8 @@ class OAuthServer:
         _safe_unlink(code_path)
 
         # Verificar PKCE (S256)
+        if not _CODE_VERIFIER_RE.match(code_verifier):
+            return self._token_error("invalid_grant", "code_verifier_malformed", grant, client_id)
         challenge = code_data.get("code_challenge", "")
         expected = urlsafe_b64encode(
             hashlib.sha256(code_verifier.encode("ascii")).digest()
@@ -848,13 +913,26 @@ class OAuthServer:
             rotado_hace = time.time() - float(token_data.get("rotated_at", 0) or 0)
             sucesor_hash = token_data.get("successor_hash", "")
             sucesor = _safe_read(_TOKENS_DIR / f"{sucesor_hash}.json") if sucesor_hash else None
-            if rotado_hace <= REFRESH_ROTATION_GRACE_SECONDS and sucesor:
+            # El sucesor sellado solo se abre con el token presentado (ver
+            # `_seal_successor`); si no se abre, no es el reintento honesto.
+            sucesor_valor = _open_successor(refresh_token, token_data.get("successor_sealed", ""))
+            # Y el sucesor tiene que seguir siendo la cabeza viva de la cadena:
+            # si ya rotó otra vez, el que presenta el anterior va dos pasos por
+            # detrás y eso no lo explica una respuesta perdida.
+            sucesor_vivo = bool(sucesor) and sucesor.get("token_type") == "refresh"
+            if (
+                rotado_hace <= REFRESH_ROTATION_GRACE_SECONDS
+                and sucesor_vivo
+                and sucesor_valor
+            ):
                 logger.info(
                     "oauth_refresh_replay_within_grace",
                     client_id=token_data.get("client_id"),
                     seconds_since_rotation=round(rotado_hace, 1),
                 )
-                return self._issue_from_refresh(sucesor, sucesor_hash, rotate=False)
+                return self._issue_from_refresh(
+                    sucesor, sucesor_hash, rotate=False, refresh_value=sucesor_valor
+                )
 
             revocados = _revoke_token_chain(token_hash)
             logger.warning(
@@ -876,7 +954,9 @@ class OAuthServer:
         if client_id and token_data.get("client_id") != client_id:
             return self._token_error("invalid_grant", "client_id_mismatch", grant, client_id)
 
-        return self._issue_from_refresh(token_data, token_hash, rotate=True)
+        return self._issue_from_refresh(
+            token_data, token_hash, rotate=True, presented_token=refresh_token
+        )
 
     def _issue_from_refresh(
         self,
@@ -884,12 +964,18 @@ class OAuthServer:
         token_hash: str,
         *,
         rotate: bool,
+        refresh_value: str | None = None,
+        presented_token: str | None = None,
     ) -> JSONResponse:
         """Emite un access token nuevo a partir de un refresh token válido.
 
-        Con `rotate`, entrega además un refresh token nuevo y marca el anterior
-        como canjeado. Sin él (reintento dentro de la gracia) reutiliza el que
-        ya está vigente, para que un reintento no encadene rotaciones.
+        Con `rotate`, entrega además un refresh token nuevo, marca el anterior
+        como canjeado y deja en él el nuevo sellado con `presented_token` (ver
+        `_seal_successor`). Sin `rotate` (reintento dentro de la gracia) se
+        reutiliza el sucesor vigente y se devuelve su valor, `refresh_value`,
+        para que el cliente que perdió la respuesta original lo reciba por fin:
+        antes la respuesta salía sin `refresh_token`, el cliente se quedaba con
+        el viejo, y una hora después la cadena entera caía como reutilizada.
         """
         now = time.time()
 
@@ -919,6 +1005,8 @@ class OAuthServer:
         if not rotate:
             token_data["access_token_hash"] = _hash_token(nuevo_access)
             _atomic_write(_TOKENS_DIR / f"{token_hash}.json", token_data)
+            if refresh_value:
+                respuesta["refresh_token"] = refresh_value
             return JSONResponse(respuesta)
 
         nuevo_refresh = _generate_token()
@@ -942,6 +1030,8 @@ class OAuthServer:
         token_data["token_type"] = "refresh_rotated"
         token_data["rotated_at"] = now
         token_data["successor_hash"] = nuevo_hash
+        if presented_token:
+            token_data["successor_sealed"] = _seal_successor(presented_token, nuevo_refresh)
         token_data.pop("access_token_hash", None)
         _atomic_write(_TOKENS_DIR / f"{token_hash}.json", token_data)
 
@@ -968,12 +1058,15 @@ class OAuthServer:
         token_data = _safe_read(token_path)
 
         if token_data:
-            # Si es refresh, también revocar su access token
-            if token_data.get("token_type") == "refresh":
-                access_hash = token_data.get("access_token_hash", "")
-                if access_hash:
-                    _safe_unlink(_TOKENS_DIR / f"{access_hash}.json")
-            _safe_unlink(token_path)
+            # RFC 7009 §2.1: revocar un refresh token invalida lo emitido bajo
+            # la misma autorización. Se sigue la cadena entera desde este
+            # eslabón, también si ya rotó: antes un token rotado solo borraba
+            # su propio fichero y la sesión viva seguía funcionando, aunque el
+            # cliente creía haber cerrado sesión.
+            if token_data.get("token_type") in ("refresh", "refresh_rotated"):
+                _revoke_token_chain(token_hash)
+            else:
+                _safe_unlink(token_path)
             logger.info("oauth_token_revoked",
                         token_type=token_data.get("token_type", "unknown"))
 
@@ -1290,9 +1383,12 @@ class OAuthServer:
                 self.protected_resource_metadata,
                 methods=["GET"],
             ),
+            # RFC 9728 §3.1: los metadatos con path insertado corresponden a
+            # ESE recurso. Responder lo mismo para cualquier sufijo anunciaba
+            # `/mcp` como recurso de rutas que no existen.
             Route(
                 "/.well-known/oauth-protected-resource/{path:path}",
-                self.protected_resource_metadata,
+                self.protected_resource_metadata_unknown,
                 methods=["GET"],
             ),
             Route(
