@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import hermes.fs as fs_module
+import hermes.tools.filesystem as fs_tools_module
 from hermes.tools.filesystem import register
 
 
@@ -429,3 +430,125 @@ class TestFsStat(unittest.IsolatedAsyncioTestCase):
     async def test_stat_config_base(self) -> None:
         result = _j(await self.tools["fs_stat"]("."))
         self.assertEqual(result["type"], "dir")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# fs_search_in_config: frenos contra ReDoS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestFsSearchRedos(unittest.IsolatedAsyncioTestCase):
+    """El patrón lo elige quien llama y `re` no se puede abortar a mitad.
+
+    `(a+)+$` contra una línea de 40 «a» no termina nunca y deja colgado un
+    worker del pool de threads, irrecuperable. La única defensa posible es no
+    llegar a ejecutar el patrón.
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.mkdtemp()
+        self.root = Path(self._tmpdir) / "config"
+        self.root.mkdir()
+        self._patcher = patch.object(fs_module, "CONFIG_BASE", self.root.resolve())
+        self._patcher.start()
+        self.tools = _make_tools(self.root)
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    async def test_nested_quantifier_is_rejected(self) -> None:
+        (self.root / "configuration.yaml").write_text("x: 1\n", encoding="utf-8")
+        result = _j(await self.tools["fs_search_in_config"]("(a+)+$"))
+        self.assertEqual(result["error"], "pattern_too_complex")
+
+    async def test_the_pathological_pattern_never_reaches_any_file(self) -> None:
+        """El rechazo es por el patrón: no se llega a leer nada del disco.
+
+        Se comprueba sabotenado read_bytes: si la búsqueda empezara, el test
+        fallaría en vez de colgarse (que es lo que hacía el código anterior con
+        esta misma línea de 40 caracteres).
+        """
+        (self.root / "configuration.yaml").write_text("a" * 40 + "\n", encoding="utf-8")
+        with patch.object(
+            fs_tools_module, "read_bytes",
+            side_effect=AssertionError("no debería leerse ningún fichero"),
+        ):
+            result = _j(await self.tools["fs_search_in_config"]("(a+)+$"))
+        self.assertEqual(result["error"], "pattern_too_complex")
+
+    async def test_backreferences_are_rejected(self) -> None:
+        (self.root / "configuration.yaml").write_text("x: 1\n", encoding="utf-8")
+        for patron in (r"(\w+)\s+\1", r"(?P<n>a+)(?P=n)+"):
+            with self.subTest(patron=patron):
+                result = _j(await self.tools["fs_search_in_config"](patron))
+                self.assertEqual(result["error"], "pattern_too_complex")
+
+    async def test_an_overlong_pattern_is_rejected(self) -> None:
+        (self.root / "configuration.yaml").write_text("x: 1\n", encoding="utf-8")
+        result = _j(await self.tools["fs_search_in_config"]("a" * 300))
+        self.assertEqual(result["error"], "pattern_too_complex")
+
+    async def test_ordinary_patterns_still_work(self) -> None:
+        """Control negativo: la heurística no puede cargarse el uso normal."""
+        (self.root / "configuration.yaml").write_text(
+            "homeassistant:\n  name: My Home\ninfluxdb:\n  host: 10.0.0.5\n",
+            encoding="utf-8",
+        )
+        for patron in ("influxdb", r"\d+\.\d+\.\d+\.\d+", "(influxdb|mqtt):", "host.*5"):
+            with self.subTest(patron=patron):
+                result = _j(await self.tools["fs_search_in_config"](patron))
+                self.assertNotIn("error", result)
+                self.assertGreaterEqual(result["count"], 1)
+
+    async def test_only_the_head_of_a_huge_line_is_scanned(self) -> None:
+        """Segundo freno: con la entrada acotada, el peor caso también lo está."""
+        (self.root / "grande.yaml").write_text(
+            "aguja_inicial " + "z" * 8000 + " aguja_final\n", encoding="utf-8",
+        )
+        inicial = _j(await self.tools["fs_search_in_config"]("aguja_inicial"))
+        self.assertEqual(inicial["count"], 1)
+        final = _j(await self.tools["fs_search_in_config"]("aguja_final"))
+        self.assertEqual(final["count"], 0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Paths que el kernel no admite
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestInvalidPathShapes(unittest.IsolatedAsyncioTestCase):
+    """Las tools solo capturan PathTraversalError; todo lo demás las reventaba."""
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.mkdtemp()
+        self.root = Path(self._tmpdir) / "config"
+        self.root.mkdir()
+        self._patcher = patch.object(fs_module, "CONFIG_BASE", self.root.resolve())
+        self._patcher.start()
+        self.tools = _make_tools(self.root)
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    async def test_null_byte_returns_an_error(self) -> None:
+        result = _j(await self.tools["fs_read_file"]("a\x00.yaml"))
+        self.assertEqual(result["error"], "traversal")
+
+    async def test_overlong_name_returns_an_error(self) -> None:
+        result = _j(await self.tools["fs_read_file"]("a" * 5000))
+        self.assertEqual(result["error"], "traversal")
+
+    async def test_overlong_name_in_stat_returns_an_error(self) -> None:
+        result = _j(await self.tools["fs_stat"]("a" * 5000))
+        self.assertEqual(result["error"], "traversal")
+
+    async def test_a_legal_name_of_200_chars_still_reads(self) -> None:
+        """Control negativo: 255 bytes es NAME_MAX, no una política de Hermes."""
+        nombre = "b" * 200 + ".yaml"
+        (self.root / nombre).write_text("x: 1\n", encoding="utf-8")
+        result = _j(await self.tools["fs_read_file"](nombre))
+        self.assertIn("x: 1", result["content"])

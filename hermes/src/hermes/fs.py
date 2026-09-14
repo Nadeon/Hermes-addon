@@ -167,6 +167,15 @@ STORAGE_ALLOWLIST_PATTERNS: list[str] = [
 _O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
 _O_RDONLY: int = os.O_RDONLY
 
+# ── Límites de forma del path ─────────────────────────────────────────────────
+# NAME_MAX (255) y PATH_MAX (4096) de Linux. No son una política de Hermes:
+# son el límite del kernel. Se comprueban aquí porque `Path.resolve()` NO se
+# queja de un componente de 5000 caracteres —no llega a tocar el disco— y el
+# error sale más tarde, en la primera llamada real (exists(), open()), como
+# OSError ENAMETOOLONG. Ver normalize_path().
+_NAME_MAX_BYTES = 255
+_PATH_MAX_BYTES = 4096
+
 
 # ── Path normalization ────────────────────────────────────────────────────────
 
@@ -177,8 +186,15 @@ def normalize_path(user_path: str) -> Path:
     ("/config/automations.yaml"). Rechaza cualquier path que escape de
     CONFIG_BASE.
 
+    TODO error de path sale por PathTraversalError, a propósito: es la única
+    excepción que capturan los llamadores (las tools devuelven
+    {"error": "traversal", ...} al verla). Un path que el kernel no admite
+    —byte nulo incrustado, componente más largo que NAME_MAX— no es un caso
+    distinto desde fuera: es una ruta inválida. Si se dejara salir tal cual el
+    ValueError/OSError de abajo, la tool reventaría en vez de contestar.
+
     Raises:
-        PathTraversalError: si el path escapa de CONFIG_BASE.
+        PathTraversalError: si el path escapa de CONFIG_BASE o es inválido.
     """
     if not user_path or not user_path.strip():
         raise PathTraversalError("Empty path is not allowed")
@@ -209,10 +225,33 @@ def normalize_path(user_path: str) -> Path:
             f"Absolute paths outside /config are forbidden: {user_path!r}"
         )
 
-    # 5. Construye el path absoluto y resuelve (sigue symlinks)
-    candidate = (CONFIG_BASE / user_path).resolve()
+    # 5. Forma del nombre: límites del kernel, antes de tocar el disco.
+    #    resolve() no valida longitudes, así que sin esto un nombre de 5000
+    #    caracteres pasaba de largo y explotaba luego en exists()/open().
+    joined = CONFIG_BASE / user_path
+    if len(str(joined).encode("utf-8", "surrogatepass")) > _PATH_MAX_BYTES:
+        raise PathTraversalError(
+            f"Path is too long (max {_PATH_MAX_BYTES} bytes): {user_path[:80]!r}…"
+        )
+    for part in Path(user_path).parts:
+        if len(part.encode("utf-8", "surrogatepass")) > _NAME_MAX_BYTES:
+            raise PathTraversalError(
+                f"Path component is too long (max {_NAME_MAX_BYTES} bytes): "
+                f"{part[:80]!r}…"
+            )
 
-    # 6. Verifica que sigue dentro de CONFIG_BASE
+    # 6. Construye el path absoluto y resuelve (sigue symlinks).
+    #    resolve() habla con el sistema operativo: un byte nulo incrustado sale
+    #    por ValueError y un problema del filesystem por OSError. Se traducen a
+    #    PathTraversalError para que el llamador no tenga que conocerlos.
+    try:
+        candidate = joined.resolve()
+    except (ValueError, OSError) as exc:
+        raise PathTraversalError(
+            f"Invalid path {user_path[:80]!r}: {exc}"
+        ) from exc
+
+    # 7. Verifica que sigue dentro de CONFIG_BASE
     try:
         candidate.relative_to(CONFIG_BASE)
     except ValueError:
