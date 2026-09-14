@@ -25,6 +25,8 @@ de la respuesta: sirve para diagnosticar, no para matar el proceso.
 from __future__ import annotations
 
 import asyncio
+import errno
+import socket
 import time
 from typing import Any
 
@@ -150,6 +152,14 @@ class HealthServer:
         if host is not None:
             self._bind_host = host
 
+        # Probar el bind ANTES de dárselo a uvicorn. Si el puerto o la
+        # dirección no están disponibles, uvicorn hace `sys.exit(1)` dentro de
+        # la task del health: el proceso se muere sin una sola línea de Hermes
+        # que explique por qué, porque `server.serve()` corre en otra task y
+        # nadie mira su resultado. Fuera de HAOS (o sin `host_network: true`)
+        # 172.30.32.1 no es una dirección local y ese era exactamente el caso.
+        self._precheck_bind()
+
         app = self._create_app()
 
         config = uvicorn.Config(
@@ -172,6 +182,37 @@ class HealthServer:
             port=self._bind_port,
         )
 
+    def _precheck_bind(self) -> None:
+        """Comprueba que se puede escuchar en (host, port), o explica por qué no.
+
+        Se abre un socket, se bindea y se cierra sin escuchar: no queda nada en
+        TIME_WAIT y uvicorn vuelve a bindear un instante después. Lo que se gana
+        es el diagnóstico —errno incluido— en vez de una muerte muda.
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            # El mismo flag que pone uvicorn: si no, este sondeo podría fallar
+            # por una razón que el bind de verdad no tendría.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self._bind_host, self._bind_port))
+        except OSError as exc:
+            pista = _pista_de_bind(exc, self._bind_host)
+            logger.error(
+                "health_bind_failed",
+                host=self._bind_host,
+                port=self._bind_port,
+                errno=exc.errno,
+                error=str(exc),
+                hint=pista,
+            )
+            raise RuntimeError(
+                f"No se puede escuchar el health en {self._bind_host}:"
+                f"{self._bind_port} ({exc.strerror or exc}, errno={exc.errno}). "
+                f"{pista}"
+            ) from exc
+        finally:
+            sock.close()
+
     async def stop(self) -> None:
         """Detiene el servidor de health."""
         if self._server_task and not self._server_task.done():
@@ -180,3 +221,28 @@ class HealthServer:
                 await self._server_task
             except asyncio.CancelledError:
                 pass
+
+
+def _pista_de_bind(exc: OSError, host: str) -> str:
+    """Qué hacer ante el fallo de bind, según el errno.
+
+    El mensaje se escribe para quien lo va a leer en el log del add-on, que casi
+    siempre es una de dos personas: quien ejecuta Hermes fuera de HAOS (la
+    bridge de hassio no existe en su máquina) y quien se ha quedado sin
+    `host_network: true` tras tocar el manifiesto.
+    """
+    if exc.errno in (errno.EADDRNOTAVAIL, errno.EAFNOSUPPORT):
+        return (
+            f"{host} no es una dirección local de esta máquina. Dentro de HAOS "
+            f"la aporta la red puente de hassio y hace falta "
+            f"`host_network: true` en el manifiesto del add-on; fuera de HAOS, "
+            f"arranca con HERMES_HEALTH_BIND=127.0.0.1."
+        )
+    if exc.errno == errno.EADDRINUSE:
+        return (
+            "El puerto ya está ocupado. ¿Hay otra instancia de Hermes "
+            "arrancada, o un add-on escuchando en ese puerto del host?"
+        )
+    if exc.errno == errno.EACCES:
+        return "El proceso no tiene permiso para escuchar en esa dirección/puerto."
+    return "Revisa la configuración de red del add-on."

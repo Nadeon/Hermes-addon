@@ -267,6 +267,14 @@ límite pre-auth de 20 por minuto: si fallan, es Funnel; si no, es aguas arriba.
 > el techo. No es una vulnerabilidad —nada del sistema autoriza por IP, la IP
 > solo alimenta los límites y los logs—, pero conviene saberlo: si tu proxy ya
 > limita por IP, deja que lo haga él.
+>
+> **`trusted_proxy_ips` devuelve los límites por IP en ese modo.** Pon ahí la
+> dirección de tu proxy, o el rango donde vive (`172.30.32.0/23` es la red
+> puente de HAOS entera), y Hermes vuelve a creerse su `X-Forwarded-For`: el
+> cubo pre-auth, el de fallos de autenticación y el freno del login vuelven a
+> contar cliente a cliente. Confía en lo mínimo: cualquiera dentro de un rango
+> de confianza puede falsificar la IP del cliente —lo que solo desvirtúa los
+> límites y los logs, nunca la autorización—.
 
 ## Conectar Claude
 
@@ -306,6 +314,7 @@ hacer nada.
 | `public_hostname` | _(obligatorio)_ | Hostname público por el que se llega a Hermes, sin esquema ni path |
 | `network_mode` | `tailscale` | Quién publica el hostname: `tailscale` (Funnel) o `reverse_proxy` (Cloudflare Tunnel, Nginx, Caddy…) |
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
+| `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
 | `safety_backup_enabled` | `false` | Backup **completo** de HAOS automático antes de escribir en `/config`. Desactivado por defecto (genera varios GB). El backup por-fichero se hace siempre |
 | `mcp_max_requests_per_minute` | `120` | Rate limit global post-auth |
@@ -321,7 +330,7 @@ hacer nada.
 | `file_backup_max_total_mb` | `200` | Tope total del directorio de copias por fichero |
 | `config_write_min_interval_seconds` | `5` | Segundos mínimos entre dos escrituras en `/config` |
 | `config_write_max_per_minute` | `10` | Escrituras máximas por minuto en `/config` |
-| `health_startup_grace_seconds` | `120` | Margen de arranque antes de que el watchdog considere que Hermes no levanta |
+| `health_startup_grace_seconds` | `120` | Margen de arranque **por paso**, no total: los pasos 4 (Tailscale), 6 (`/core/info`) y 8 (WebSocket de HA) pueden usar cada uno el presupuesto entero |
 | `health_reconnect_tolerance_seconds` | `300` | Cuánto puede estar caída la WebSocket con HA antes de que `/health` diga `degraded_long` en vez de `degraded`. Nunca devuelve 503: reiniciar no arregla una caída de Core, y el bucle de reconexión se recupera solo |
 
 ### Palancas de seguridad

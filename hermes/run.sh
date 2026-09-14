@@ -74,6 +74,11 @@ export HERMES_HEALTH_STARTUP_GRACE="$(cfg_default health_startup_grace_seconds 1
 export HERMES_HEALTH_RECONNECT_TOLERANCE="$(cfg_default health_reconnect_tolerance_seconds 300)"
 
 # ── Opciones de listas (JSON arrays) ──────────────────────────
+# Proxies de confianza para X-Forwarded-For: se pasa a uvicorn como
+# forwarded_allow_ips. Va como array JSON —igual que el resto de listas— para
+# que una entrada con espacios o una lista vacía no se conviertan en cadenas
+# ambiguas al cruzar el entorno.
+export HERMES_TRUSTED_PROXY_IPS="$(jq -c '.trusted_proxy_ips // []' "$OPTIONS")"
 export HERMES_CALL_SERVICE_DENYLIST_EXTRA="$(jq -c '.call_service_denylist_extra // []' "$OPTIONS")"
 export HERMES_CALL_SERVICE_RESTRICTED_ENTITIES="$(jq -c '.call_service_restricted_entities // []' "$OPTIONS")"
 export HERMES_CALL_SERVICE_AUTO_CLASSIFY="$(cfg_default call_service_auto_classify_dangerous true)"

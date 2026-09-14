@@ -196,5 +196,67 @@ class TestBootSkipsTailscaleWait(unittest.IsolatedAsyncioTestCase):
                 )
 
 
+class TestEsperaSoloInterfacesDeTailscale(unittest.IsolatedAsyncioTestCase):
+    """100.64.0.0/10 no es "de Tailscale": es el CGNAT de cualquier operador.
+
+    `wait_for_tailscale0_ready` aceptaba una IP de ese rango en CUALQUIER
+    interfaz que no fuera `lo` ni `hassio` —lo llamaba "modo userspace"—, así
+    que un uplink de LTE o de satélite con CGNAT satisfacía la espera sin que
+    Tailscale estuviera levantado: el arranque continuaba y el fallo aparecía
+    más tarde y en otro sitio. Y el modo userspace ni siquiera crea interfaz
+    alguna, así que aquello no cubría el caso que decía cubrir.
+    """
+
+    @staticmethod
+    def _addrs(mapping: dict[str, str]) -> dict[str, list[object]]:
+        """Imita la salida de psutil.net_if_addrs(): iface → direcciones."""
+        import socket as _socket
+        from collections import namedtuple
+
+        snicaddr = namedtuple("snicaddr", "family address netmask broadcast ptp")
+        return {
+            iface: [snicaddr(_socket.AF_INET, ip, None, None, None)]
+            for iface, ip in mapping.items()
+        }
+
+    async def _esperar(self, ifaces: dict[str, str], timeout: float = 0.4) -> str:
+        from hermes import network
+
+        with mock.patch.object(
+            network.psutil, "net_if_addrs", return_value=self._addrs(ifaces)
+        ):
+            return await network.wait_for_tailscale0_ready(
+                timeout_seconds=timeout,  # type: ignore[arg-type]
+                poll_interval=0.05,
+            )
+
+    async def test_un_cgnat_de_operador_en_wwan0_no_satisface_la_espera(self) -> None:
+        with self.assertRaises(RuntimeError) as ctx:
+            await self._esperar({"lo": "127.0.0.1", "wwan0": "100.70.1.2"})
+        self.assertIn("tailscale", str(ctx.exception))
+
+    async def test_tailscale0_con_la_misma_ip_si_la_satisface(self) -> None:
+        ip = await self._esperar({"lo": "127.0.0.1", "tailscale0": "100.70.1.2"})
+        self.assertEqual(ip, "100.70.1.2")
+
+    async def test_una_segunda_interfaz_de_tailscale_tambien_vale(self) -> None:
+        """Con varias instancias, la interfaz puede llamarse tailscale1."""
+        ip = await self._esperar({"eth0": "192.168.1.5", "tailscale1": "100.80.0.9"})
+        self.assertEqual(ip, "100.80.0.9")
+
+    async def test_una_ip_no_cgnat_en_tailscale0_no_vale(self) -> None:
+        with self.assertRaises(RuntimeError):
+            await self._esperar({"tailscale0": "192.168.1.5"})
+
+    def test_el_docstring_ya_no_promete_una_ip_en_modo_userspace(self) -> None:
+        """Decía que userspace expone la IP CGNAT; no expone interfaz ninguna."""
+        from hermes.network import wait_for_tailscale0_ready
+
+        doc = wait_for_tailscale0_ready.__doc__ or ""
+        self.assertIn("userspace", doc)
+        self.assertIn("NO crea ninguna interfaz", doc)
+
+
+
 if __name__ == "__main__":
     unittest.main()
