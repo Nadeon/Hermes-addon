@@ -130,5 +130,83 @@ class TestSmokeCheckVersionHA(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(version, "2026.9.0")
 
 
+class TestVersionQueNoEsCadena(unittest.IsolatedAsyncioTestCase):
+    """`Version()` solo acepta cadenas: con otra cosa lanza `TypeError`.
+
+    `TypeError` no estaba en el except del bucle de reintentos, así que un
+    `/core/info` que devolviera `version: 2026` —perfectamente posible: un JSON
+    o un YAML sin comillas lo entrega como entero— mataba el arranque entero en
+    el primer intento, con una traza que no señala a nada reconocible.
+
+    Un número es una versión legible en cuanto se convierte; cualquier otro tipo
+    se trata como "todavía no hay versión" y se reintenta, igual que el campo
+    vacío.
+    """
+
+    def setUp(self) -> None:
+        self._sleep = mock.patch(
+            "hermes.network.asyncio.sleep", new=mock.AsyncMock(return_value=None)
+        )
+        self.sleep_mock = self._sleep.start()
+        self.addCleanup(self._sleep.stop)
+
+    async def _check(self, grace: int = 30) -> str:
+        return await smoke_check_ha_core_version(
+            supervisor_base_url=BASE,
+            supervisor_token="token",
+            min_supported="2024.1.0",
+            last_tested="2026.9.0",
+            grace_seconds=grace,
+        )
+
+    async def test_un_entero_se_convierte_en_vez_de_reventar(self) -> None:
+        with aioresponses() as m:
+            m.get(INFO_URL, status=200, payload={"data": {"version": 2026}})
+            version = await self._check()
+        self.assertEqual(version, "2026")
+        # Y sin reintentar: la versión era buena desde el primer momento.
+        self.sleep_mock.assert_not_awaited()
+
+    async def test_un_decimal_tambien_se_convierte(self) -> None:
+        with aioresponses() as m:
+            m.get(INFO_URL, status=200, payload={"data": {"version": 2026.9}})
+            version = await self._check()
+        self.assertEqual(version, "2026.9")
+
+    async def test_un_entero_por_debajo_del_minimo_sigue_abortando(self) -> None:
+        """Convertir no puede ablandar la comprobación que sí es fatal."""
+        with aioresponses() as m:
+            m.get(INFO_URL, status=200, payload={"data": {"version": 2023}})
+            with self.assertRaises(RuntimeError) as ctx:
+                await self._check()
+        self.assertIn("minimum supported", str(ctx.exception))
+
+    async def test_un_tipo_que_no_es_version_se_reintenta(self) -> None:
+        """Una lista, un objeto o un booleano: el core aún no está listo."""
+        for basura in ([2026], {"major": 2026}, True):
+            with self.subTest(valor=basura):
+                with aioresponses() as m:
+                    m.get(INFO_URL, status=200, payload={"data": {"version": basura}})
+                    m.get(
+                        INFO_URL,
+                        status=200,
+                        payload={"data": {"version": "2026.9.0"}},
+                    )
+                    version = await self._check()
+                self.assertEqual(version, "2026.9.0")
+
+    async def test_el_error_del_deadline_dice_de_que_tipo_era(self) -> None:
+        async def _frenar(*_a: object, **_k: object) -> None:
+            await real_sleep(0.05)
+
+        self.sleep_mock.side_effect = _frenar
+        with aioresponses() as m:
+            m.get(INFO_URL, status=200, payload={"data": {"version": [2026]}}, repeat=True)
+            with self.assertRaises(RuntimeError) as ctx:
+                await self._check(grace=1)
+        self.assertIn("list", str(ctx.exception))
+
+
+
 if __name__ == "__main__":
     unittest.main()

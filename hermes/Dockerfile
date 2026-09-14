@@ -23,6 +23,13 @@ COPY src/ /app/src/
 COPY run.sh /app/run.sh
 RUN chmod a+x /app/run.sh
 
+# Margen que da s6-overlay entre el SIGTERM y el SIGKILL al parar el add-on.
+# El valor por defecto son 3000 ms, y el apagado ordenado de Hermes necesita
+# más: uvicorn cierra las conexiones MCP en vuelo (timeout_graceful_shutdown=3),
+# __main__ espera a esa task y después borra los ficheros temporales. Con 3 s
+# s6 mataba el proceso a mitad y los .tmp se quedaban en /data.
+ENV S6_KILL_GRACETIME=10000
+
 ENV PYTHONPATH=/app/src
 WORKDIR /app
 CMD ["/app/run.sh"]

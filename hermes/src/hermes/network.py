@@ -28,12 +28,20 @@ async def wait_for_tailscale0_ready(
     timeout_seconds: int = 120,
     poll_interval: float = 2.0,
 ) -> str:
-    """Espera a que Tailscale esté listo y tenga una IP 100.x.x.x/10.
+    """Espera a que exista una interfaz de Tailscale con IP CGNAT (100.64/10).
 
-    Soporta dos modos:
-    1. TUN mode: busca interfaz 'tailscale0' con IP en rango CGNAT.
-    2. Userspace mode: no existe tailscale0; busca una IP 100.x.x.x en
-       cualquier interfaz (Tailscale userspace proxy la expone así).
+    Solo se miran interfaces cuyo nombre empiece por "tailscale" (la de TUN es
+    `tailscale0`; puede haber `tailscale1` si hay varias instancias). El modo
+    userspace NO crea ninguna interfaz ni expone la IP CGNAT en el host —de ahí
+    que el README exija `userspace_networking: false`—, así que esperar a verla
+    en cualquier sitio no tenía sentido.
+
+    Antes se aceptaba una IP CGNAT en CUALQUIER interfaz que no fuera lo ni
+    hassio, y 100.64.0.0/10 es el rango CGNAT genérico: un uplink de LTE, de
+    satélite o de cualquier operador que haga NAT de nivel de operador reparte
+    direcciones de ahí. Con uno de esos, la espera se daba por satisfecha sin
+    que Tailscale estuviera levantado, y el arranque seguía hasta fallar más
+    tarde y en otro sitio.
 
     Devuelve la IP resuelta. Sale con error si no se cumple en timeout.
     """
@@ -60,11 +68,11 @@ async def wait_for_tailscale0_ready(
                 except (ValueError, TypeError):
                     continue
 
-        # Intento 2: modo userspace — buscar IP CGNAT en cualquier interfaz
-        # (con host_network: true vemos las interfaces del host)
+        # Intento 2: otra interfaz de Tailscale (tailscale1, tailscale2…).
+        # El filtro por nombre es lo que impide confundir el CGNAT de un
+        # operador con el de Tailscale: ambos viven en 100.64.0.0/10.
         for iface_name, iface_addrs in addrs.items():
-            # Saltar loopback y bridge hassio
-            if iface_name in ("lo", "hassio"):
+            if iface_name == "tailscale0" or not iface_name.startswith("tailscale"):
                 continue
             for addr in iface_addrs:
                 if addr.family != socket.AF_INET:
@@ -74,7 +82,7 @@ async def wait_for_tailscale0_ready(
                     if ip in _TAILSCALE_NETWORK:
                         logger.info(
                             "tailscale_ready",
-                            mode="userspace",
+                            mode="tun",
                             interface=iface_name,
                             ip=str(ip),
                         )
@@ -89,9 +97,11 @@ async def wait_for_tailscale0_ready(
         await asyncio.sleep(poll_interval)
 
     raise RuntimeError(
-        f"No Tailscale CGNAT IP (100.x.x.x) found on any interface "
+        f"No Tailscale CGNAT IP (100.x.x.x) found on a tailscale* interface "
         f"after {timeout_seconds}s. "
-        f"Check that the Tailscale add-on is running and authenticated."
+        f"Check that the Tailscale add-on is running and authenticated, and "
+        f"that it runs with userspace_networking: false (userspace mode "
+        f"creates no interface at all)."
     )
 
 
@@ -214,6 +224,29 @@ async def _ping_supervisor(base_url: str, token: str) -> bool:
         return False
 
 
+def _version_como_texto(valor: object) -> str:
+    """Normaliza el campo `version` de /core/info a texto, o a "" si no sirve.
+
+    `Version()` solo acepta cadenas: con cualquier otra cosa lanza `TypeError`,
+    que NO está en el except del bucle de reintentos y por tanto abortaba el
+    arranque entero. Y el campo no siempre es una cadena: un YAML o un JSON con
+    `version: 2026` lo entrega como entero, y eso es una versión perfectamente
+    legible una vez convertida.
+
+    Lo que no sea texto ni número (una lista, un objeto, un `null`, un booleano
+    —que en Python es un int y no es una versión—) se trata como "todavía no
+    hay versión" y se reintenta, igual que el caso del campo vacío: el core a
+    medio arrancar responde cosas raras y dos segundos después ya no.
+    """
+    if isinstance(valor, str):
+        return valor.strip()
+    if isinstance(valor, bool):
+        return ""
+    if isinstance(valor, (int, float)):
+        return str(valor)
+    return ""
+
+
 async def smoke_check_ha_core_version(
     supervisor_base_url: str,
     supervisor_token: str,
@@ -275,10 +308,14 @@ async def smoke_check_ha_core_version(
                         delay = min(delay * 1.5, 15.0)
                         continue
 
-                    version_str = info.get("version", "")
+                    version_raw = info.get("version", "")
+                    version_str = _version_como_texto(version_raw)
 
                     if not version_str:
-                        last_error = "/core/info response has no 'version' field"
+                        last_error = (
+                            f"/core/info response has no usable 'version' "
+                            f"field (got {type(version_raw).__name__})"
+                        )
                         await asyncio.sleep(delay)
                         delay = min(delay * 1.5, 15.0)
                         continue
