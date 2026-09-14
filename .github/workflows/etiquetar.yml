@@ -1,11 +1,16 @@
 name: Etiquetar versión
 
-# Crea la etiqueta `v<version>` sobre la rama elegida, desde GitHub, sin
-# necesidad de un clon a mano. Antes comprueba dos cosas: que la versión
-# coincide con `version:` en hermes/config.yaml (una etiqueta que el
-# manifiesto no declara es una que el Supervisor nunca pedirá) y que la
-# etiqueta no existe ya (una etiqueta no se mueve: si hay que corregir algo,
-# es una versión nueva).
+# Crea la etiqueta `v<version>` sobre la rama elegida y la release de GitHub
+# con las notas del CHANGELOG, desde GitHub, sin necesidad de un clon a mano.
+# Antes comprueba que la versión coincide con `version:` en hermes/config.yaml
+# (una etiqueta que el manifiesto no declara es una que el Supervisor nunca
+# pedirá).
+#
+# Es idempotente: si la etiqueta ya existe sobre este mismo commit, no la
+# toca (una etiqueta no se mueve: si existe sobre otro commit, falla, y lo
+# que toca es una versión nueva); si la release ya existe, no la duplica.
+# Así sirve también para crear la release de una versión etiquetada a mano
+# o por una versión anterior de este workflow, que solo etiquetaba.
 #
 # IMPORTANTE: una etiqueta subida con GITHUB_TOKEN no dispara otros
 # workflows, por diseño de GitHub Actions. Este workflow NO publica las
@@ -41,12 +46,42 @@ jobs:
             echo "La versión ($VERSION) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
             exit 1
           fi
-          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
-            echo "La etiqueta v$VERSION ya existe; una etiqueta no se mueve." >&2
-            exit 1
+          # Una etiqueta anotada apunta a un objeto tag; "^{}" da el commit.
+          # Una ligera (las de las primeras versiones) apunta al commit.
+          EXISTENTE=$(git ls-remote --tags origin "refs/tags/v$VERSION^{}" | cut -f1)
+          [ -n "$EXISTENTE" ] || EXISTENTE=$(git ls-remote --tags origin "refs/tags/v$VERSION" | cut -f1)
+          if [ -n "$EXISTENTE" ]; then
+            if [ "$EXISTENTE" != "$(git rev-parse HEAD)" ]; then
+              echo "La etiqueta v$VERSION ya existe sobre ${EXISTENTE:0:7}, no sobre $(git rev-parse --short HEAD); una etiqueta no se mueve." >&2
+              exit 1
+            fi
+            echo "La etiqueta v$VERSION ya existe sobre este commit; no se toca."
+            exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "Hermes $VERSION"
           git push origin "refs/tags/v$VERSION"
           echo "Etiqueta v$VERSION creada sobre $(git rev-parse --short HEAD)."
+
+      - name: Crear la release con las notas del CHANGELOG
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v$VERSION" --json tagName >/dev/null 2>&1; then
+            echo "La release v$VERSION ya existe; no se duplica."
+            exit 0
+          fi
+          # La sección es desde "## [<version>]" hasta el siguiente "## ",
+          # sin la cabecera: el mismo texto que las releases hechas a mano.
+          awk -v v="$VERSION" '
+            /^## \[/ { dentro = (index($0, "## [" v "]") == 1); if (dentro) next }
+            dentro { print }
+          ' hermes/CHANGELOG.md > /tmp/notas.md
+          if ! grep -q '[^[:space:]]' /tmp/notas.md; then
+            echo "hermes/CHANGELOG.md no tiene sección para la $VERSION." >&2
+            exit 1
+          fi
+          gh release create "v$VERSION" --title "Hermes $VERSION" --notes-file /tmp/notas.md --latest
+          echo "Release v$VERSION creada."
