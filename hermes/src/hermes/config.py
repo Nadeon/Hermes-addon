@@ -6,6 +6,7 @@ Este módulo las recoge y las expone como un objeto tipado.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -71,6 +72,27 @@ def _env_list(key: str) -> list[str]:
         return []
 
 
+def _es_ip_o_red(valor: str) -> bool:
+    """True si `valor` es una IP suelta o una red en CIDR.
+
+    `strict=False` a propósito: "172.30.32.1/23" tiene bits de host puestos y
+    `ip_network` lo rechazaría en modo estricto, pero es justo lo que escribe
+    quien copia la IP del gateway y le añade la máscara. Interpretarlo como la
+    red que lo contiene es lo que hace el propio uvicorn.
+    """
+    texto = valor.strip()
+    if not texto:
+        return False
+    try:
+        if "/" in texto:
+            ipaddress.ip_network(texto, strict=False)
+        else:
+            ipaddress.ip_address(texto)
+    except ValueError:
+        return False
+    return True
+
+
 def _sugerencia_hostname(valor: str) -> str:
     """Propone el valor corregido, si limpiarlo da algo válido.
 
@@ -133,6 +155,17 @@ class HermesConfig:
     #                 proxy a mcp_bind:8765. No se espera a Tailscale.
     network_mode: str = "tailscale"
     mcp_bind: str = "127.0.0.1"
+
+    # Proxies cuyo X-Forwarded-For se cree. uvicorn solo hace caso a esa
+    # cabecera si la conexión viene de una IP de confianza, y de fábrica esa
+    # lista es solo 127.0.0.1: en `reverse_proxy` con `mcp_bind` en la red
+    # puente, todas las peticiones llegan con la IP del proxy y los tres
+    # límites por IP (pre-auth, fallos de auth y freno del login) colapsan en
+    # un único cubo global. Vacía por defecto porque confiar de más es peor
+    # que no confiar: quien esté dentro del rango puede falsificar la IP del
+    # cliente. El daño está acotado a los límites y a los logs — la IP no
+    # autoriza nada.
+    trusted_proxy_ips: list[str] = field(default_factory=list)
 
     # ── Backups ───────────────────────────────────────────────
     # safety_backup_enabled: backup FULL de HAOS (varios GB) automático antes
@@ -217,6 +250,19 @@ class HermesConfig:
             )
         if not self.mcp_bind:
             raise ValueError("mcp_bind no puede estar vacío.")
+        # Se valida aquí y no en uvicorn porque uvicorn NO avisa: lo que no
+        # parsea como IP o como red lo guarda como "literal" y simplemente no
+        # casa nunca con nadie. Un typo ("172.30.32.0/32.1", "172.30.32,1")
+        # dejaría los límites por IP colapsados exactamente igual que sin la
+        # opción, sin una sola línea en el log.
+        for entrada in self.trusted_proxy_ips:
+            if not _es_ip_o_red(entrada):
+                raise ValueError(
+                    f"trusted_proxy_ips contiene un valor que no es una IP ni "
+                    f"una red: {entrada!r}. Escribe una IP suelta "
+                    f"(ej. 172.30.32.2) o un rango en notación CIDR "
+                    f"(ej. 172.30.32.0/23, la red puente de HAOS)."
+                )
         if not self.supervisor_token:
             raise ValueError(
                 "SUPERVISOR_TOKEN no está disponible en el entorno. "
@@ -240,6 +286,7 @@ def load_config() -> HermesConfig:
         or "tailscale",
         mcp_bind=os.environ.get("HERMES_MCP_BIND", "127.0.0.1").strip()
         or "127.0.0.1",
+        trusted_proxy_ips=_env_list("HERMES_TRUSTED_PROXY_IPS"),
         safety_backup_enabled=_env_bool("HERMES_SAFETY_BACKUP_ENABLED", False),
         safety_backup_window_minutes=_env_int("HERMES_SAFETY_BACKUP_WINDOW", 30),
         file_backup_max_per_path=_env_int("HERMES_FILE_BACKUP_MAX_PER_PATH", 20),

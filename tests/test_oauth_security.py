@@ -259,6 +259,122 @@ class TestRedirectQuery(unittest.TestCase):
         )
 
 
+class _FakeQueryRequest:
+    """Request mínimo para authorize_get: solo necesita .query_params."""
+
+    def __init__(self, params: dict | None = None) -> None:
+        self.query_params = params or {}
+        self.client = None
+
+
+def _pkce_pair() -> tuple[str, str]:
+    import hashlib
+    from base64 import urlsafe_b64encode
+    verifier = "v" * 43
+    challenge = urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+class TestPkceBeforePassword(_OAuthTestBase):
+    """Un cliente sin PKCE no puede terminar el flujo: no debe costarle al
+    dueño ni la contraseña ni un fallo en el freno anti-fuerza-bruta."""
+
+    async def test_get_without_pkce_shows_no_password_form(self) -> None:
+        resp = await self.server.authorize_get(_FakeQueryRequest({
+            "client_id": "cid", "redirect_uri": "https://claude.ai/cb", "state": "s",
+        }))
+        self.assertEqual(resp.status_code, 400)
+        self.assertNotIn("<form", resp.body.decode())
+
+    async def test_post_without_pkce_is_rejected_before_the_password_counts(self) -> None:
+        for _ in range(oauth.LOGIN_FAIL_THRESHOLD + 3):
+            resp = await self.server.authorize_post(_FakeFormRequest({
+                "password": "incorrecta", "client_id": "cid",
+                "redirect_uri": "https://claude.ai/cb",
+            }))
+            self.assertEqual(resp.status_code, 400)
+            self.assertEqual(_body(resp)["error"], "invalid_request")
+        self.assertEqual(
+            await self.server._login_lock_remaining(time.time(), "unknown"), 0,
+            "un cliente sin PKCE no debe consumir intentos del freno del login",
+        )
+
+
+class TestResourceIndicator(_OAuthTestBase):
+    """RFC 8707: el único recurso es el servidor MCP; cualquier otro se rechaza."""
+
+    async def test_foreign_resource_is_rejected_at_authorize(self) -> None:
+        _, challenge = _pkce_pair()
+        resp = await self.server.authorize_post(_FakeFormRequest({
+            "password": "test-password-1234", "client_id": "cid",
+            "redirect_uri": "https://claude.ai/cb",
+            "code_challenge": challenge, "code_challenge_method": "S256",
+            "resource": "https://otro.example/mcp",
+        }))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(_body(resp)["error"], "invalid_target")
+
+    async def test_own_resource_is_accepted_and_recorded_in_the_code(self) -> None:
+        reg = await self.server.register_client(_FakeRequest({
+            "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"],
+        }))
+        client_id = _body(reg)["client_id"]
+        _, challenge = _pkce_pair()
+        resp = await self.server.authorize_post(_FakeFormRequest({
+            "password": "test-password-1234", "client_id": client_id,
+            "redirect_uri": "https://claude.ai/cb",
+            "code_challenge": challenge, "code_challenge_method": "S256",
+            "resource": "https://hermes.tail-xxxx.ts.net/mcp/",
+        }))
+        self.assertEqual(resp.status_code, 302, getattr(resp, "body", b""))
+        codes = list(oauth._CODES_DIR.glob("*.json"))
+        self.assertEqual(len(codes), 1)
+        self.assertEqual(oauth._safe_read(codes[0])["resource"],
+                         "https://hermes.tail-xxxx.ts.net/mcp")
+
+    async def test_foreign_resource_is_rejected_at_token(self) -> None:
+        resp = await self.server.token(_FakeFormRequest({
+            "grant_type": "authorization_code", "code": "c", "client_id": "cid",
+            "code_verifier": "v" * 43, "resource": "https://otro.example/mcp",
+        }))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(_body(resp)["error"], "invalid_target")
+        resp = await self.server.token(_FakeFormRequest({
+            "grant_type": "refresh_token", "refresh_token": "r",
+            "resource": "https://otro.example/mcp",
+        }))
+        self.assertEqual(_body(resp)["error"], "invalid_target")
+
+
+class TestTokenEndpointRedirectUri(_OAuthTestBase):
+    async def test_omitting_redirect_uri_is_logged_but_still_accepted(self) -> None:
+        from structlog.testing import capture_logs
+        verifier, challenge = _pkce_pair()
+        code = "codigo-de-prueba"
+        oauth._atomic_write(oauth._CODES_DIR / f"{oauth._hash_token(code)}.json", {
+            "client_id": "cid", "redirect_uri": "https://claude.ai/cb",
+            "code_challenge": challenge, "code_challenge_method": "S256",
+            "scope": "mcp", "sub": oauth._FIXED_SUB,
+            "expires_at": time.time() + 60,
+        })
+        with capture_logs() as logs:
+            resp = await self.server._token_auth_code({
+                "code": code, "client_id": "cid", "code_verifier": verifier,
+            })
+        self.assertEqual(resp.status_code, 200, _body(resp))
+        self.assertIn("oauth_token_redirect_uri_omitted", [e["event"] for e in logs])
+
+
+class TestAuthorizationServerMetadataWithPath(_OAuthTestBase):
+    async def test_path_inserted_form_is_served(self) -> None:
+        rutas = [r for r in self.server.get_routes()
+                 if r.path == "/.well-known/oauth-authorization-server/mcp"]
+        self.assertEqual(len(rutas), 1)
+        resp = await rutas[0].endpoint(None)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(_body(resp)["issuer"], "https://hermes.tail-xxxx.ts.net")
+
+
 class TestDCRHardening(_OAuthTestBase):
     async def test_rejects_javascript_redirect(self) -> None:
         resp = await self.server.register_client(

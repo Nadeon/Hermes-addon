@@ -45,7 +45,11 @@ from hermes.fs_write import (
     BACKUPS_SENSITIVE_DIR,
     MANAGED_PATH_ERROR,
     RateLimitError,
+    _decode_rel,
+    _is_backup_of,
+    _is_legacy_flat_name,
     backup_before_write,
+    backup_candidate_names,
     is_managed_path,
     maybe_trigger_safety_backup,
     record_config_write,
@@ -876,6 +880,9 @@ def register_write(
             {"backups": [...], "count": N}
             Cada item: {"path": "...", "timestamp": "...", "backup_file": "...",
                         "size_bytes": N}
+            Los backups con nombre en el formato legado aplanado ("a__b.yaml")
+            añaden "legacy_name": true y "path_candidates": las dos rutas que
+            ese nombre puede representar — ese formato no es reversible.
         """
         config_base = _current_config_base()
 
@@ -883,41 +890,53 @@ def register_write(
             if not BACKUPS_NORMAL_DIR.exists():
                 return []
 
+            filter_rel: str | None = None
+            if path is not None:
+                try:
+                    filter_path = normalize_path(path)
+                    filter_rel = _fs._rel_posix(filter_path)
+                except (PathTraversalError, ValueError):
+                    return []
+
             results: list[dict[str, Any]] = []
             for backup_file in sorted(BACKUPS_NORMAL_DIR.iterdir()):
                 if not backup_file.is_file():
                     continue
 
                 name = backup_file.name
-                # Format: YYYYMMDDTHHMMSSZ_rel__path
-                parts = name.split("_", 1)
-                if len(parts) < 2:
+                # Formato: "<YYYYMMDDTHHMMSSZ>_<ruta codificada>".
+                ts_part, sep, name_part = name.partition("_")
+                if not sep or not name_part:
                     continue
 
-                ts_part = parts[0]
-                rel_part = parts[1].replace("__", "/")
-
-                # Filter by path if specified
-                if path is not None:
-                    try:
-                        filter_path = normalize_path(path)
-                        filter_rel = _fs._rel_posix(filter_path)
-                    except (PathTraversalError, ValueError):
-                        return []
-                    if rel_part != filter_rel:
-                        continue
+                # El filtro por path usa el mismo comparador que la rotación:
+                # así encuentra tanto los backups nuevos como los legados del
+                # fichero pedido, en vez de compararlos con una única forma.
+                if filter_rel is not None and not _is_backup_of(name, filter_rel):
+                    continue
 
                 try:
                     size = backup_file.stat().st_size
                 except OSError:
                     size = 0
 
-                results.append({
-                    "path": rel_part,
+                entry: dict[str, Any] = {
+                    "path": _decode_rel(name_part),
                     "timestamp": ts_part,
                     "backup_file": name,
                     "size_bytes": size,
-                })
+                }
+                if _is_legacy_flat_name(name_part):
+                    # Nombre anterior al cambio de codificación: "a__b.yaml"
+                    # puede venir de "a/b.yaml" o de un fichero llamado así.
+                    # Se muestra la lectura literal y se declaran las dos
+                    # opciones en vez de inventar cuál era.
+                    entry["legacy_name"] = True
+                    entry["path_candidates"] = [
+                        name_part,
+                        name_part.replace("__", "/"),
+                    ]
+                results.append(entry)
 
             return sorted(results, key=lambda x: (x["path"], x["timestamp"]))
 
@@ -942,6 +961,11 @@ def register_write(
         Respeta las reglas de escritura ACTUALES: si el path está ahora protegido,
         el restore se rechaza aunque el backup fuera creado cuando no lo estaba.
 
+        El fichero que se sobrescribe es SIEMPRE el de `path`: el nombre del
+        backup solo elige de dónde salen los bytes. Encuentra tanto los backups
+        con el nombrado nuevo (reversible) como los del formato aplanado
+        anterior, que siguen siendo restaurables.
+
         Args:
             path:               Path relativo del fichero a restaurar.
             timestamp:          Timestamp del backup a restaurar (YYYYMMDDTHHMMSSZ).
@@ -956,7 +980,9 @@ def register_write(
 
         # Validar timestamp: formato fijo YYYYMMDDTHHMMSSZ. Evita que un
         # timestamp con '..' o '/' escape de BACKUPS_NORMAL_DIR al formar el
-        # nombre del backup (backup_name = f"{timestamp}_{safe_rel}").
+        # nombre del backup ("<timestamp>_<ruta codificada>"). La ruta va
+        # codificada —sin "/" ni "%" sueltos—, así que el timestamp es la única
+        # parte del nombre que podría salirse del directorio.
         if not re.match(r"^\d{8}T\d{6}Z$", timestamp):
             return json.dumps({
                 "error": "invalid_timestamp",
@@ -990,12 +1016,19 @@ def register_write(
 
         rel = _fs._rel_posix(abs_path)
 
-        # Buscar el backup
-        safe_rel = rel.replace("/", "__")
-        backup_name = f"{timestamp}_{safe_rel}"
-        backup_file = BACKUPS_NORMAL_DIR / backup_name
+        # Buscar el backup. El nombre SOLO sirve para elegir el fichero de
+        # origen: el destino de la restauración es `abs_path`, que sale del
+        # `path` que pasó quien llama y nunca se deriva del nombre del backup.
+        # Se prueban las dos codificaciones —la nueva y la aplanada legada—
+        # porque los backups creados antes del cambio siguen en disco.
+        backup_file: Path | None = None
+        for candidate in backup_candidate_names(timestamp, rel):
+            candidate_path = BACKUPS_NORMAL_DIR / candidate
+            if candidate_path.exists():
+                backup_file = candidate_path
+                break
 
-        if not backup_file.exists():
+        if backup_file is None:
             return json.dumps({
                 "error": "backup_not_found",
                 "path": rel,

@@ -4,7 +4,7 @@
 slug: hermes
 name: "Hermes – MCP Home Assistant"
 description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
-version: "1.0.8"
+version: "1.0.9"
 url: "https://github.com/Nadeon/Hermes-addon"
 
 # Imagen precompilada. Sin esto, el Supervisor construye la imagen en el equipo
@@ -89,6 +89,23 @@ schema:
   public_hostname: "str(1,253)"
   network_mode: "list(tailscale|reverse_proxy)?"
   mcp_bind: "str?"
+  # Proxies inversos de confianza para X-Forwarded-For. uvicorn solo hace caso a
+  # esa cabecera si la conexión llega desde una IP de confianza, y por defecto
+  # esa lista es solo 127.0.0.1: con `network_mode: reverse_proxy` y `mcp_bind`
+  # en la red puente, TODAS las peticiones se ven con la IP del proxy y los
+  # límites por IP (pre-auth, fallos de auth, freno del login) pasan a ser un
+  # único cubo global. Poner aquí la red del proxy los devuelve a ser por IP.
+  #
+  # Admite IPs sueltas y CIDR (uvicorn >= 0.30 resuelve redes con `ipaddress`):
+  # la red puente de HAOS entera es "172.30.32.0/23", o solo la IP del add-on
+  # que hace de proxy si la conoces.
+  #
+  # AVISO: confiar en un rango de más permite a cualquiera dentro de ese rango
+  # falsificar la IP del cliente. El daño está acotado —la IP solo alimenta los
+  # límites de ritmo y los logs, NUNCA la autorización—, pero deja los límites
+  # por IP igual de inútiles que sin la opción. Vacío por defecto.
+  trusted_proxy_ips:
+    - "str?"
   log_level: "list(debug|info|warning|error)?"
   mcp_max_requests_per_minute: "int(10,1000)?"
   mcp_preauth_max_requests_per_minute_per_ip: "int(5,200)?"
@@ -104,6 +121,11 @@ schema:
   max_concurrent_requests: "int(8,512)?"
   wait_for_event_max_seconds: "int(10,300)?"
   wait_for_event_max_concurrent: "int(1,20)?"
+  # Margen POR PASO del arranque, no total: los pasos 4 (Tailscale), 6
+  # (/core/info) y 8 (WebSocket del core) usan cada uno este mismo presupuesto,
+  # así que un arranque muy desgraciado puede tardar hasta tres veces esto antes
+  # de rendirse. Se documenta en vez de repartirlo porque cada paso espera a un
+  # componente distinto y acortarlos ahora rompería arranques en frío lentos.
   health_startup_grace_seconds: "int(30,600)?"
   health_reconnect_tolerance_seconds: "int(30,900)?"
   call_service_denylist_extra:
@@ -122,6 +144,7 @@ options:
   public_hostname: null
   network_mode: "tailscale"
   mcp_bind: "127.0.0.1"
+  trusted_proxy_ips: []
   log_level: "info"
   mcp_max_requests_per_minute: 120
   mcp_preauth_max_requests_per_minute_per_ip: 20

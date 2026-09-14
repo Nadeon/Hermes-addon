@@ -58,6 +58,42 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 logger = structlog.get_logger(__name__)
 
+# ── Presupuesto de apagado ────────────────────────────────────
+# Tres números que TIENEN que ir en este orden, y que viven en tres ficheros
+# distintos, así que se separan solos si nadie los vigila (hay un test que lo
+# hace):
+#
+#   MCP_GRACEFUL_SHUTDOWN_SECONDS  < MCP_SHUTDOWN_WAIT_SECONDS < S6_KILL_GRACETIME
+#          (uvicorn)                        (este módulo)          (Dockerfile)
+#
+# uvicorn cierra primero las conexiones MCP en vuelo; `_boot` le espera un poco
+# más para poder registrar `hermes_stopped` y borrar los .tmp; y s6-overlay mata
+# el proceso al agotarse su margen. El defecto de s6 son 3000 ms —menos que la
+# espera de 5 s que ya hacía `_boot`—, así que el SIGKILL llegaba SIEMPRE antes
+# de que terminara el apagado ordenado.
+MCP_GRACEFUL_SHUTDOWN_SECONDS = 3
+MCP_SHUTDOWN_WAIT_SECONDS = 5.0
+
+
+def build_forwarded_allow_ips(trusted_proxy_ips: list[str]) -> list[str]:
+    """Lista de `forwarded_allow_ips` para uvicorn.
+
+    127.0.0.1 va siempre porque es el caso de `network_mode: tailscale`:
+    tailscaled hace proxy desde el loopback y reescribe X-Forwarded-For con la
+    IP real del cliente. Quitarlo rompería el límite por IP del modo por
+    defecto.
+
+    Se deduplica conservando el orden: repetir una entrada no cambia a quién se
+    cree, pero sí ensucia la línea de arranque que el usuario lee para
+    comprobar qué ha quedado configurado.
+    """
+    efectiva: list[str] = []
+    for entrada in ["127.0.0.1", *trusted_proxy_ips]:
+        limpia = entrada.strip()
+        if limpia and limpia not in efectiva:
+            efectiva.append(limpia)
+    return efectiva
+
 
 async def _boot(config: HermesConfig) -> None:
     """Secuencia de arranque completa — 9 pasos en orden estricto.
@@ -89,13 +125,21 @@ async def _boot(config: HermesConfig) -> None:
     health_server.set_boot_step(35)
     logger.info("boot_step_3.5", action="start_health_socket_early")
 
-    # Resolver el gateway de hassio para el bind del health
-    try:
-        hassio_ip = resolve_hassio_bridge_gateway()
-        health_server.set_bind_host(hassio_ip)
-    except Exception:
-        # Si no podemos resolver la bridge, usar fallback
-        logger.warning("hassio_bridge_fallback", ip="172.30.32.1")
+    # Resolver el gateway de hassio para el bind del health.
+    # Sin try/except: `resolve_hassio_bridge_gateway` no lanza nunca —si no
+    # encuentra la interfaz, devuelve el fallback 172.30.32.1 y lo avisa en el
+    # log—, así que el except de antes era código muerto que además sugería que
+    # el fallo estaba cubierto. El fallo real es que ese fallback no se pueda
+    # bindear (fuera de HAOS, o sin host_network), y ese lo detecta y explica
+    # `HealthServer.start`, que lanza RuntimeError hasta `boot_failed`.
+    #
+    # HERMES_HEALTH_BIND es una escotilla SOLO para desarrollo fuera de HAOS,
+    # donde la red puente de hassio no existe y 172.30.32.1 no se puede
+    # bindear. No es una opción del add-on —run.sh no la exporta y no está en
+    # config.yaml— porque dentro de HAOS el bind lo decide la bridge, no el
+    # usuario: el watchdog del Supervisor consulta ahí.
+    health_bind = os.environ.get("HERMES_HEALTH_BIND", "").strip()
+    health_server.set_bind_host(health_bind or resolve_hassio_bridge_gateway())
 
     await health_server.start()
 
@@ -106,8 +150,13 @@ async def _boot(config: HermesConfig) -> None:
     # para impedir el arranque. La IP resuelta es informativa: Hermes escucha
     # en `mcp_bind` y no la usa para nada más.
     health_server.set_boot_step(4)
+    # `health_startup_grace_seconds` se anota aquí porque es el presupuesto de
+    # ESTE paso, y los pasos 6 y 8 vuelven a usar el mismo valor entero: no se
+    # reparte entre ellos, así que un arranque desgraciado puede tardar hasta
+    # tres veces esto. Verlo en el log evita tener que deducirlo.
     logger.info("boot_step_4", action="wait_for_tailscale0",
-                network_mode=config.network_mode)
+                network_mode=config.network_mode,
+                startup_grace_seconds=config.health_startup_grace_seconds)
     tailscale_ip = await wait_for_tailscale_if_required(
         network_mode=config.network_mode,
         timeout_seconds=config.health_startup_grace_seconds,
@@ -309,6 +358,12 @@ async def _boot(config: HermesConfig) -> None:
         lifespan=lifespan,
     )
 
+    # A quién se le cree el X-Forwarded-For. Ver `build_forwarded_allow_ips`
+    # y la opción `trusted_proxy_ips`: sin esto, en `reverse_proxy` con el bind
+    # en la red puente todas las peticiones llegan con la IP del proxy y los
+    # límites por IP dejan de ser por IP.
+    forwarded_allow_ips = build_forwarded_allow_ips(config.trusted_proxy_ips)
+
     # Configurar uvicorn — HTTP plano, sin TLS
     uvi_config = uvicorn.Config(
         app=app,
@@ -317,6 +372,18 @@ async def _boot(config: HermesConfig) -> None:
         log_level="error",
         access_log=False,
         log_config=None,
+        # Hermes está SIEMPRE detrás de quien termina el TLS, así que la IP del
+        # socket es la del proxy y la del cliente solo llega en la cabecera.
+        proxy_headers=True,
+        # uvicorn admite IPs sueltas y redes CIDR aquí (resuelve ambas con
+        # `ipaddress` desde la 0.30); `config.validate` rechaza al arrancar
+        # cualquier entrada que no sea una ni otra, porque uvicorn se las
+        # tragaría en silencio como "literales" que no casan con nadie.
+        forwarded_allow_ips=forwarded_allow_ips,
+        # Sin esto uvicorn espera indefinidamente a que se cierren las
+        # conexiones en vuelo, y s6-overlay acaba mandando SIGKILL. Ver el
+        # bloque de constantes de apagado arriba.
+        timeout_graceful_shutdown=MCP_GRACEFUL_SHUTDOWN_SECONDS,
         # Sin tope de concurrencia, cada petición en vuelo puede retener hasta
         # max_request_body_bytes en memoria y nada acota cuántas hay a la vez.
         # El valor por defecto (64) deja holgura de sobra frente al uso real: el
@@ -350,6 +417,7 @@ async def _boot(config: HermesConfig) -> None:
         network_mode=config.network_mode,
         mcp_bind=config.mcp_bind,
         mcp_port=MCP_PORT,
+        trusted_proxy_ips=forwarded_allow_ips,
         health_port=HEALTH_PORT,
         ha_version=ha_version,
         ha_ws_ready=ws_ready,
@@ -381,7 +449,7 @@ async def _boot(config: HermesConfig) -> None:
 
     # Esperar a que el servidor MCP termine
     try:
-        await asyncio.wait_for(server_task, timeout=5.0)
+        await asyncio.wait_for(server_task, timeout=MCP_SHUTDOWN_WAIT_SECONDS)
     except asyncio.TimeoutError:
         server_task.cancel()
 
