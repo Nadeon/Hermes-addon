@@ -189,6 +189,19 @@ def register_write(
                 "reason": MANAGED_PATH_ERROR,
             })
 
+        # 3. Un directorio existente no se puede escribir. Va ANTES del preview
+        #    a propósito: sin este freno la llamada emitía preview y token, la
+        #    segunda gastaba la plaza del rate limit y reventaba con
+        #    IsADirectoryError dentro de backup_before_write, dejando el token
+        #    en estado `executing` para siempre. Se rechaza igual que hace
+        #    fs_delete_file.
+        if abs_path.is_dir():
+            return json.dumps({
+                "error": "is_directory",
+                "path": _fs._rel_posix(abs_path),
+                "hint": "fs_write_file only writes files, not directories.",
+            })
+
         args = {"path": _fs._rel_posix(abs_path), "content": content}
 
         if not confirmation_token:
@@ -501,6 +514,23 @@ def register_write(
                     "reason": MANAGED_PATH_ERROR,
                 })
 
+        # Directorios: ni en origen ni en destino, y comprobado por delante.
+        # El origen ya se miraba, pero solo al construir el preview; el destino
+        # no se miraba nunca, así que con overwrite=True el flujo llegaba a
+        # backup_before_write y reventaba con IsADirectoryError después de haber
+        # gastado la plaza del rate limit y con el token en `executing`. Además
+        # `shutil.move` con un destino que es directorio MUEVE DENTRO de él en
+        # lugar de reemplazarlo, que no es lo que la tool promete: rechazándolo
+        # aquí, ese camino queda cerrado.
+        for p, label in [(abs_src, "src"), (abs_dst, "dst")]:
+            if p.is_dir():
+                return json.dumps({
+                    "error": "is_directory",
+                    "path": _fs._rel_posix(p),
+                    "which": label,
+                    "hint": "fs_move_file only moves files, not directories.",
+                })
+
         rel_src = _fs._rel_posix(abs_src)
         rel_dst = _fs._rel_posix(abs_dst)
         args = {"src": rel_src, "dst": rel_dst, "overwrite": overwrite}
@@ -508,11 +538,6 @@ def register_write(
         if not confirmation_token:
             if not abs_src.exists():
                 return json.dumps({"error": "not_found", "path": rel_src})
-            if abs_src.is_dir():
-                return json.dumps({
-                    "error": "is_directory",
-                    "hint": "fs_move_file only moves files, not directories.",
-                })
 
             dst_exists = abs_dst.exists()
             if dst_exists and not overwrite:
@@ -588,6 +613,19 @@ def register_write(
             file_backup_max_per_path=file_backup_max_per_path,
             file_backup_max_total_mb=file_backup_max_total_mb,
         ) if abs_dst.exists() else None
+
+        # Última comprobación del destino, pegada al move. La de arriba se hizo
+        # muchos pasos antes —validación del token, rate limit, safety backup,
+        # backup por fichero, todos con E/S de por medio— y en ese hueco el
+        # destino puede aparecer; se sobrescribía en silencio un fichero que el
+        # usuario nunca vio en el preview. La ventana no desaparece del todo
+        # (no hay un rename portable de tipo "falla si existe" en Python), pero
+        # pasa de varios pasos a una línea.
+        if not overwrite and abs_dst.exists():
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="dst appeared before move"
+            )
+            return json.dumps({"error": "dst_exists", "dst": rel_dst})
 
         try:
             abs_dst.parent.mkdir(parents=True, exist_ok=True)

@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import stat
 import time
@@ -114,6 +115,22 @@ async def backup_before_write(
     )
 
 
+# Prefijo de timestamp de un nombre de backup: "%Y%m%dT%H%M%SZ".
+_BACKUP_TS_RE = re.compile(r"\d{8}T\d{6}Z")
+
+
+def _is_backup_of(name: str, safe_rel: str) -> bool:
+    """True si `name` es un backup del fichero aplanado `safe_rel`.
+
+    El timestamp no lleva "_", así que el primer "_" del nombre separa siempre
+    la marca de tiempo del nombre aplanado del fichero.
+    """
+    timestamp, sep, rest = name.partition("_")
+    if not sep or rest != safe_rel:
+        return False
+    return _BACKUP_TS_RE.fullmatch(timestamp) is not None
+
+
 def _backup_sync(
     path: Path,
     backup_dir: Path,
@@ -135,15 +152,37 @@ def _backup_sync(
     backup_path = backup_dir / backup_name
 
     shutil.copy2(str(path), str(backup_path))
+    # copy2 copia el mtime DEL ORIGEN, así que el backup recién hecho de un
+    # fichero antiguo nacía con fecha antigua. La rotación por tamaño total
+    # ordena por mtime, lo elegía como "el más viejo" y lo borraba en esta misma
+    # llamada: backup_before_write devolvía la ruta de un backup que ya no
+    # existía. El backup es un fichero nuevo y su fecha debe decir eso.
+    try:
+        os.utime(backup_path, None)
+    except OSError:
+        pass
     logger.info("fs_backup_created", source=str(path), backup=str(backup_path))
 
-    # Rotación: limitar backups por path
-    prefix = f"__{safe_rel}"
+    # ── Rotación: limitar backups por path ────────────────────────────────
+    # El nombre es "<YYYYMMDDTHHMMSSZ>_<safe_rel>". Compararlo con
+    # endswith(f"_{safe_rel}") mezclaba ficheros distintos: los backups de
+    # "x.yaml" casaban también con los de "my_x.yaml" y con los de "pkg/x.yaml"
+    # (aplanado a "pkg__x.yaml"), y unos expulsaban los backups de otros. Se
+    # exige igualdad exacta de la parte que va detrás del timestamp.
+    #
+    # AMBIGÜEDAD RESIDUAL, conocida y asumida: el aplanado "/"→"__" hace que
+    # "a/b.yaml" y "a__b.yaml" den el mismo safe_rel, así que esos dos siguen
+    # compartiendo cupo. No se cambia el nombre en disco a propósito: los
+    # backups ya creados tienen que seguir siendo restaurables.
     same_file_backups = sorted(
-        [f for f in backup_dir.iterdir() if f.name.endswith(f"_{safe_rel}")],
+        [
+            f for f in backup_dir.iterdir()
+            if f != backup_path and _is_backup_of(f.name, safe_rel)
+        ],
         key=lambda f: f.name,
     )
-    while len(same_file_backups) > max_per_path:
+    # El backup recién creado cuenta para el cupo pero nunca se borra.
+    while len(same_file_backups) >= max(max_per_path, 1):
         oldest = same_file_backups.pop(0)
         try:
             oldest.unlink(missing_ok=True)
@@ -151,14 +190,20 @@ def _backup_sync(
         except OSError:
             pass
 
-    # Rotación: limitar tamaño total
+    # ── Rotación: limitar tamaño total ────────────────────────────────────
+    # El backup recién creado queda fuera de la lista de candidatos: borrar
+    # justo lo que acabamos de guardar deja al llamador con una ruta muerta.
     max_bytes = max_total_mb * 1024 * 1024
     all_backups = sorted(
-        [f for f in backup_dir.iterdir() if f.is_file()],
+        [f for f in backup_dir.iterdir() if f.is_file() and f != backup_path],
         key=lambda f: f.stat().st_mtime,
     )
     total_size = sum(f.stat().st_size for f in all_backups)
-    while total_size > max_bytes and len(all_backups) > 1:
+    try:
+        total_size += backup_path.stat().st_size
+    except OSError:
+        pass
+    while total_size > max_bytes and all_backups:
         oldest = all_backups.pop(0)
         try:
             removed_size = oldest.stat().st_size
@@ -220,15 +265,57 @@ def safe_write_file(path: Path, content: str) -> None:
     # Construye payload
     payload = (b"\xef\xbb\xbf" if has_bom else b"") + content.encode("utf-8")
 
-    # Escritura atómica
+    # ── Escritura atómica ─────────────────────────────────────────────────
+    # El temporal se crea a mano con os.open() y no con write_bytes(). Tres
+    # motivos, los tres de fallo real:
+    #
+    # 1. O_NOFOLLOW|O_EXCL. write_bytes() abre siguiendo symlinks: un enlace
+    #    plantado con el nombre "<fichero>.mcp_tmp" desviaba la escritura FUERA
+    #    de /config y después os.replace() instalaba el propio symlink como el
+    #    fichero de configuración. Con estos flags la apertura falla en vez de
+    #    seguir el enlace; si el nombre ya está ocupado se borra la entrada
+    #    (unlink borra el enlace, nunca su destino) y se reintenta una vez.
+    # 2. Modo 0600 al crear y modo definitivo DESPUÉS de escribir los bytes.
+    #    Al revés —crear con 0644 por defecto y ajustar luego— un fichero 0600
+    #    quedaba un instante legible por todo el mundo con su contenido ya
+    #    dentro. Mientras se hace el chmod el temporal todavía no es el fichero
+    #    real, así que ahí no se abre ninguna ventana.
+    # 3. fsync del fichero antes del replace y del directorio después. Sin
+    #    ellos un corte de corriente puede dejar el rename aplicado y los datos
+    #    no: un configuration.yaml vacío.
     tmp_path = path.with_suffix(path.suffix + ".mcp_tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
-        tmp_path.write_bytes(payload)
         try:
-            tmp_path.chmod(stat.S_IMODE(original_mode))
+            fd = os.open(str(tmp_path), flags, 0o600)
+        except FileExistsError:
+            # Temporal huérfano de una escritura interrumpida, o symlink
+            # plantado. En ambos casos se retira la entrada y se reintenta.
+            os.unlink(str(tmp_path))
+            fd = os.open(str(tmp_path), flags, 0o600)
+        try:
+            written = 0
+            while written < len(payload):
+                written += os.write(fd, payload[written:])
+            try:
+                os.fchmod(fd, stat.S_IMODE(original_mode))
+            except OSError:
+                pass
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+        os.replace(str(tmp_path), str(path))
+
+        # fsync del directorio: es lo que hace duradero el propio rename.
+        try:
+            dir_fd = os.open(str(path.parent), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         except OSError:
             pass
-        os.replace(str(tmp_path), str(path))
     except BaseException:
         # Limpia fichero temporal si algo falla
         try:

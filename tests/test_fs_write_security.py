@@ -978,3 +978,293 @@ class TestTheTwoSafetyBackupPathsShareTheirMark(unittest.IsolatedAsyncioTestCase
                       "el disparo automático no usa la lectura compartida")
         self.assertNotIn("last_completed_at", fuente,
                          "sigue usando su clave propia")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Paths que el kernel no admite (byte nulo, nombre larguísimo)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestInvalidPathShapes(_Base):
+    """normalize_path tiene que devolver SIEMPRE PathTraversalError.
+
+    Es la única excepción que capturan las tools. Antes, un byte nulo salía por
+    ValueError y un nombre de 5000 caracteres por OSError, así que la tool
+    reventaba en vez de contestar {"error": ...}.
+    """
+
+    async def test_null_byte_in_write_path(self) -> None:
+        result = _j(await self.tools["fs_write_file"]("a\x00.yaml", "x"))
+        self.assertEqual(result["error"], "traversal")
+
+    async def test_overlong_name_in_write_path(self) -> None:
+        result = _j(await self.tools["fs_write_file"]("a" * 5000, "x"))
+        self.assertEqual(result["error"], "traversal")
+
+    async def test_overlong_name_in_delete_path(self) -> None:
+        result = _j(await self.tools["fs_delete_file"]("a" * 5000))
+        self.assertEqual(result["error"], "traversal")
+
+    async def test_a_long_but_legal_name_still_works(self) -> None:
+        """Control negativo: el freno es el límite del kernel, no una manía."""
+        nombre = "a" * 200 + ".yaml"
+        result = _j(await self.tools["fs_write_file"](nombre, "x: 1\n"))
+        self.assertIn("confirmation_token", result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Recorrido del árbol de includes: ciclos, contención y paths resueltos
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestYamlIncludeWalk(_Base):
+    async def test_a_self_including_config_does_not_break_every_write(self) -> None:
+        """El RecursionError subía hasta el preview y rompía TODAS las escrituras.
+
+        Incluida —lo peor— la que habría arreglado el configuration.yaml.
+        """
+        import hermes.yaml_include as yi
+
+        (self.config_root / "configuration.yaml").write_text(
+            "a: !include configuration.yaml\n", encoding="utf-8"
+        )
+        yi.invalidate_include_cache()
+
+        result = _j(await self.tools["fs_write_file"](
+            "configuration.yaml", "homeassistant:\n  name: casa\n"
+        ))
+        self.assertIn("confirmation_token", result)
+
+    async def test_a_cycle_between_two_files_does_not_break_the_preview(self) -> None:
+        import hermes.yaml_include as yi
+
+        (self.config_root / "configuration.yaml").write_text(
+            "a: !include uno.yaml\n", encoding="utf-8"
+        )
+        (self.config_root / "uno.yaml").write_text(
+            "b: !include dos.yaml\n", encoding="utf-8"
+        )
+        (self.config_root / "dos.yaml").write_text(
+            "c: !include uno.yaml\n", encoding="utf-8"
+        )
+        yi.invalidate_include_cache()
+
+        result = _j(await self.tools["fs_delete_file"]("dos.yaml"))
+        self.assertIn("confirmation_token", result)
+
+    async def test_an_include_outside_config_is_never_opened(self) -> None:
+        """`!include ../../etc/hostname` abría un fichero de fuera del sandbox."""
+        import hermes.yaml_include as yi
+
+        outside = Path(self._tmpdir) / "fuera"
+        outside.mkdir()
+        victima = outside / "hostname.yaml"
+        victima.write_text("host: secreto\n", encoding="utf-8")
+
+        (self.config_root / "configuration.yaml").write_text(
+            "a: !include ../fuera/hostname.yaml\n", encoding="utf-8"
+        )
+        yi.invalidate_include_cache()
+
+        abiertos: list[str] = []
+        real_open = open
+
+        def _spy(fichero, *args, **kwargs):
+            # Resuelto: lo que importa es QUÉ fichero se abre, no con qué
+            # cadena se nombró. El código antiguo lo abría como
+            # "/config/../fuera/hostname.yaml", que es el mismo fichero.
+            abiertos.append(str(Path(fichero).resolve()))
+            return real_open(fichero, *args, **kwargs)
+
+        with patch("hermes.yaml_include.open", _spy):
+            resultado = yi._collect_include_paths_sync(self.config_root.resolve())
+
+        self.assertNotIn(str(victima.resolve()), abiertos,
+                         "el resolver abrió un fichero de fuera de /config")
+        if isinstance(resultado, set):
+            self.assertNotIn(
+                str(victima.resolve()),
+                {str(Path(p).resolve()) for p in resultado},
+            )
+
+    async def test_an_include_reached_through_dotdot_is_executable(self) -> None:
+        """El set guardaba `/config/sub/../sub/t.yaml`; el consumidor compara resuelto."""
+        import hermes.yaml_include as yi
+        from hermes.fs import normalize_path
+
+        sub = self.config_root / "sub"
+        sub.mkdir()
+        (sub / "t.yaml").write_text("x: 1\n", encoding="utf-8")
+        (self.config_root / "configuration.yaml").write_text(
+            "a: !include sub/../sub/t.yaml\n", encoding="utf-8"
+        )
+        yi.invalidate_include_cache()
+
+        destino = normalize_path("sub/t.yaml")
+        self.assertTrue(
+            await yi.check_executable_by_indirection(destino),
+            "un include alcanzado por `..` se reportaba como NO ejecutable",
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Rotación de backups
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBackupRotation(_Base):
+    def _backup_dir(self) -> Path:
+        d = self.data_root / "backups" / "normal"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    async def test_the_backup_just_created_is_never_evicted(self) -> None:
+        """copy2 copia el mtime DEL ORIGEN: el backup nuevo de un fichero viejo
+        parecía el más antiguo de la carpeta y se borraba a sí mismo."""
+        backup_dir = self._backup_dir()
+        relleno = backup_dir / "20990101T000000Z_relleno.yaml"
+        relleno.write_text("y" * 4096, encoding="utf-8")
+
+        viejo = self.config_root / "viejo.yaml"
+        viejo.write_text("contenido\n", encoding="utf-8")
+        os.utime(viejo, (1_000_000.0, 1_000_000.0))  # fichero de 1970
+
+        backup = await backup_before_write(
+            viejo, file_backup_max_per_path=20, file_backup_max_total_mb=0,
+        )
+
+        self.assertIsNotNone(backup)
+        self.assertTrue(Path(backup).exists(),
+                        "backup_before_write devolvió una ruta que ya no existe")
+        self.assertGreater(Path(backup).stat().st_mtime, time.time() - 120,
+                           "el backup nuevo conserva la fecha del origen")
+
+    async def test_rotation_does_not_mix_up_different_files(self) -> None:
+        """`endswith("_x.yaml")` casaba también con my_x.yaml y con pkg__x.yaml."""
+        backup_dir = self._backup_dir()
+        ajenos = [
+            backup_dir / "20200101T000001Z_my_x.yaml",
+            backup_dir / "20200101T000002Z_pkg__x.yaml",
+        ]
+        for f in ajenos:
+            f.write_text("z", encoding="utf-8")
+
+        origen = self.config_root / "x.yaml"
+        origen.write_text("1\n", encoding="utf-8")
+
+        backup = await backup_before_write(
+            origen, file_backup_max_per_path=2, file_backup_max_total_mb=100,
+        )
+
+        for f in ajenos:
+            self.assertTrue(f.exists(),
+                            f"{f.name} se borró al rotar los backups de x.yaml")
+        self.assertTrue(Path(backup).exists())
+
+    async def test_rotation_still_evicts_backups_of_the_same_file(self) -> None:
+        """Control negativo: el cupo por fichero sigue funcionando."""
+        import hermes.fs_write as fsw
+
+        backup_dir = self._backup_dir()
+        for n in (1, 2, 3):
+            (backup_dir / f"2020010{n}T000000Z_x.yaml").write_text("z", encoding="utf-8")
+
+        origen = self.config_root / "x.yaml"
+        origen.write_text("1\n", encoding="utf-8")
+
+        backup = await backup_before_write(
+            origen, file_backup_max_per_path=2, file_backup_max_total_mb=100,
+        )
+
+        propios = [f for f in backup_dir.iterdir() if fsw._is_backup_of(f.name, "x.yaml")]
+        self.assertEqual(len(propios), 2)
+        self.assertIn(Path(backup).name, [f.name for f in propios])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# safe_write_file: symlink plantado en el fichero temporal
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSafeWriteTempSymlink(_Base):
+    async def test_a_planted_tmp_symlink_does_not_redirect_the_write(self) -> None:
+        """El temporal se abría siguiendo enlaces: la escritura salía de /config
+        y después os.replace() instalaba el propio symlink como fichero real."""
+        fuera = Path(self._tmpdir) / "fuera"
+        fuera.mkdir()
+        victima = fuera / "victima.txt"
+        victima.write_text("intacto\n", encoding="utf-8")
+
+        destino = self.config_root / "automations.yaml"
+        destino.write_text("viejo\n", encoding="utf-8")
+
+        trampa = self.config_root / "automations.yaml.mcp_tmp"
+        trampa.symlink_to(victima)
+
+        safe_write_file(destino, "nuevo\n")
+
+        self.assertEqual(victima.read_text(encoding="utf-8"), "intacto\n",
+                         "la escritura se desvió fuera de /config")
+        self.assertFalse(destino.is_symlink(),
+                         "el symlink acabó instalado como fichero de configuración")
+        self.assertTrue(destino.is_file())
+        self.assertEqual(destino.read_text(encoding="utf-8"), "nuevo\n")
+
+    async def test_the_final_mode_is_still_preserved(self) -> None:
+        """Control negativo: el chmod, ahora anterior al replace, sigue aplicándose."""
+        destino = self.config_root / "privado.yaml"
+        destino.write_text("a: 1\n", encoding="utf-8")
+        destino.chmod(0o600)
+
+        safe_write_file(destino, "a: 2\n")
+
+        self.assertEqual(stat.S_IMODE(destino.stat().st_mode), 0o600)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Directorios y carreras en fs_write_file / fs_move_file
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDirectoryTargets(_Base):
+    async def test_writing_onto_an_existing_directory_is_rejected_up_front(self) -> None:
+        """Antes emitía preview y token, y la segunda llamada gastaba la plaza
+        del rate limit para morir con IsADirectoryError dejando el token vivo."""
+        (self.config_root / "www").mkdir()
+        result = _j(await self.tools["fs_write_file"]("www", "x"))
+        self.assertEqual(result["error"], "is_directory")
+        self.assertNotIn("confirmation_token", result)
+
+    async def test_moving_onto_an_existing_directory_is_rejected_up_front(self) -> None:
+        (self.config_root / "origen.yaml").write_text("x\n", encoding="utf-8")
+        (self.config_root / "www").mkdir()
+        result = _j(await self.tools["fs_move_file"]("origen.yaml", "www", overwrite=True))
+        self.assertEqual(result["error"], "is_directory")
+        self.assertNotIn("confirmation_token", result)
+
+    async def test_moving_a_directory_as_source_is_still_rejected(self) -> None:
+        (self.config_root / "carpeta").mkdir()
+        result = _j(await self.tools["fs_move_file"]("carpeta", "otra.yaml"))
+        self.assertEqual(result["error"], "is_directory")
+
+
+class TestMoveDestinationRace(_Base):
+    async def test_a_destination_that_appears_late_is_not_overwritten(self) -> None:
+        """`abs_dst.exists()` se miraba muchos pasos antes del move."""
+        origen = self.config_root / "a.yaml"
+        origen.write_text("origen\n", encoding="utf-8")
+        destino = self.config_root / "b.yaml"
+
+        first = _j(await self.tools["fs_move_file"]("a.yaml", "b.yaml"))
+        token = first["confirmation_token"]
+
+        real_backup = fsw_tools_module.backup_before_write
+
+        async def _crea_el_destino(path, **kwargs):
+            # Otro proceso crea el destino mientras el move se prepara.
+            destino.write_text("no me pises\n", encoding="utf-8")
+            return await real_backup(path, **kwargs)
+
+        with patch.object(fsw_tools_module, "backup_before_write", _crea_el_destino):
+            result = _j(await self.tools["fs_move_file"](
+                "a.yaml", "b.yaml", confirmation_token=token,
+            ))
+
+        self.assertEqual(result["error"], "dst_exists")
+        self.assertEqual(destino.read_text(encoding="utf-8"), "no me pises\n")
+        self.assertTrue(origen.exists(), "el origen se movió pese al conflicto")
