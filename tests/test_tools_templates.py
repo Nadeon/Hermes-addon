@@ -165,3 +165,28 @@ class TestToolsTemplates(unittest.IsolatedAsyncioTestCase):
         await mcp.tools["ha_render_template"]("{{ x }}", strict=True)
         self.assertTrue(received_payload[0]["strict"])
         self.assertTrue(received_payload[0]["report_errors"])
+
+    async def test_timeout_se_acota_al_rango_admitido(self) -> None:
+        """El timeout del cliente se acota: iba tal cual a la espera del WS.
+
+        Un 0 o un negativo hacía que la suscripción venciera antes de que HA
+        pudiera contestar, y un valor enorme dejaba la llamada colgada sin tope.
+        """
+        recibidos: list[tuple[dict, float]] = []
+        client = make_ready_client(self.session, {})
+
+        async def capture(payload, event_timeout_seconds=10.0):
+            recibidos.append((payload, event_timeout_seconds))
+            return {"result": "x", "listeners": {}}
+
+        client.ws_one_shot_subscription = capture  # type: ignore[method-assign]
+
+        mcp = DummyMCP()
+        mod.register(mcp, client)
+
+        for pedido, esperado in ((0, 1.0), (-5, 1.0), (3600, 60.0), (12, 12.0)):
+            recibidos.clear()
+            await mcp.tools["ha_render_template"]("{{ 1 }}", timeout=pedido)
+            payload, event_timeout = recibidos[0]
+            self.assertEqual(event_timeout, esperado)
+            self.assertEqual(payload["timeout"], esperado)

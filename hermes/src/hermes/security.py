@@ -66,6 +66,25 @@ def canonicalize_for_hash(value: Any) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _escape_key(key: str) -> str:
+    """Aparta las claves de usuario del espacio de nombres de los centinelas.
+
+    Los floats y los bools se codifican como `{"__float__": ...}` /
+    `{"__bool__": ...}`. Sin escapar, un dict escrito a mano por el cliente
+    —`{"x": {"__float__": "1.5"}}`— normalizaba EXACTAMENTE igual que `{"x":
+    1.5}`: dos acciones distintas con el mismo action_hash, y el action_hash es
+    lo único que ata un confirmation_token a lo que se va a ejecutar. Quien
+    obtuviera un token para una acción inocua podía canjearlo por otra.
+
+    Con el escape, toda clave de usuario que empiece por '__' sale con un '_'
+    delante, así que las claves emitidas por el usuario empiezan por '___' y
+    jamás pueden coincidir con un centinela. La transformación es inyectiva
+    (claves distintas siguen dando claves distintas), que es lo que hace falta
+    para que el hash no colisione.
+    """
+    return "_" + key if key.startswith("__") else key
+
+
 def _normalize_value(value: Any) -> Any:
     """Normaliza recursivamente un valor para canonicalización."""
     if value is None:
@@ -104,7 +123,7 @@ def _normalize_value(value: Any) -> Any:
             # Coerce non-string keys to their JSON representation
             if not isinstance(norm_k, str):
                 norm_k = json.dumps(norm_k, sort_keys=True, separators=(",", ":"))
-            result[norm_k] = _normalize_value(v)
+            result[_escape_key(norm_k)] = _normalize_value(v)
         return result
 
     # Fallback: convertir a string

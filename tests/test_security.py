@@ -235,3 +235,41 @@ class TestExpiredTokenIsRefused(unittest.IsolatedAsyncioTestCase):
         valido, error = await security.validate_confirmation_token(
             r["confirmation_token"], "ha_delete_automation", self.args)
         self.assertTrue(valido, error)
+
+
+class TestCanonicalizacionInyectiva(unittest.TestCase):
+    """El action_hash no puede colisionar entre dos acciones distintas.
+
+    Los floats y los bools se serializan con centinelas (`__float__`,
+    `__bool__`). Sin escapar las claves del usuario, un dict escrito a mano
+    reproducía el centinela y ambas acciones salían con el MISMO action_hash:
+    un confirmation_token emitido para una valía para la otra.
+    """
+
+    def test_float_y_su_centinela_escrito_a_mano_no_colisionan(self) -> None:
+        self.assertNotEqual(
+            security.compute_action_hash("t", {"x": 1.5}),
+            security.compute_action_hash("t", {"x": {"__float__": "1.5"}}),
+        )
+
+    def test_bool_y_su_centinela_escrito_a_mano_no_colisionan(self) -> None:
+        self.assertNotEqual(
+            security.compute_action_hash("t", {"x": True}),
+            security.compute_action_hash("t", {"x": {"__bool__": True}}),
+        )
+
+    def test_el_escape_no_colisiona_con_su_propio_prefijo(self) -> None:
+        """Escapar con un '_' extra sigue distinguiendo claves vecinas."""
+        self.assertNotEqual(
+            security.compute_action_hash("t", {"x": {"__float__": "1.5"}}),
+            security.compute_action_hash("t", {"x": {"___float__": "1.5"}}),
+        )
+
+    def test_hash_sigue_siendo_estable_para_el_mismo_valor(self) -> None:
+        """Control negativo: no vale hacer que todo hashee distinto."""
+        args = {"entity_id": "light.salon", "brillo": 1.5, "on": True,
+                "anidado": {"__raro__": [1, 2.5, False]}}
+        self.assertEqual(
+            security.compute_action_hash("t", args),
+            security.compute_action_hash("t", dict(args)),
+        )

@@ -40,11 +40,16 @@ def requires_ready(ha_client: HAClient, timeout: float = 5.0) -> Callable:
 
 
 async def entity_exists(ha_client: HAClient, entity_id: str) -> bool:
-    """Devuelve True si la entidad existe (cache o REST)."""
-    try:
-        state = await ha_client.get_state(entity_id)
-    except HAConnectionError:
-        return False
+    """Devuelve True si la entidad existe (cache o REST).
+
+    Lo único que significa "no existe" es que `get_state` devuelva None (el
+    404 del endpoint /states). Antes se tragaba cualquier HAConnectionError:
+    con Home Assistant caído, `ha_run_script` / `ha_trigger_automation`
+    respondían `not_found` y el cliente daba por borrado un script que sigue
+    ahí —y podía "recrearlo" encima del original—. Los errores de conexión se
+    propagan para que se vean como lo que son.
+    """
+    state = await ha_client.get_state(entity_id)
     return state is not None
 
 
