@@ -96,6 +96,21 @@ def _addon_summary(addon: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _store_addon_summary(addon: dict[str, Any]) -> dict[str, Any]:
+    """Igual que `_addon_summary`, más los campos propios del store.
+
+    `/store/addons` describe el catálogo, no lo instalado: `state` no existe
+    ahí (solo lo tiene un add-on corriendo) y en cambio sí vienen `installed`
+    y `available`, que son justo lo que distingue un add-on del store de uno
+    ya puesto.
+    """
+    return {
+        **_addon_summary(addon),
+        "installed": addon.get("installed"),
+        "available": addon.get("available"),
+    }
+
+
 def register(mcp: object, ha_client: HAClient) -> None:
     """Registra las tools de add-ons en la instancia MCP."""
 
@@ -113,21 +128,30 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         Args:
             installed_only: Si True (default), solo devuelve los add-ons
-                instalados. Si False, incluye también los del store
-                (puede ser una lista larga).
+                instalados (`GET /addons`). Si False, devuelve el catálogo
+                completo del store (`GET /store/addons`), que puede ser una
+                lista larga.
 
         Returns:
-            {"addons": [...], "count": N}
-            Cada item: slug, name, version, version_latest, state,
-            update_available, repository, description.
+            {"addons": [...], "count": N, "source": "/addons"|"/store/addons"}
+            installed_only=True  → slug, name, version, version_latest, state,
+                update_available, repository, description.
+            installed_only=False → los mismos campos más `installed` y
+                `available`. Ahí `state` es siempre None: el store describe el
+                catálogo, no procesos en marcha.
         """
+        # `GET /addons` SOLO lista lo instalado y sus objetos no traen la clave
+        # `installed`, así que el filtro anterior (`a.get("installed") is not
+        # False`) no descartaba nada e `installed_only=False` no hacía nada: la
+        # respuesta era idéntica en ambos casos. El catálogo vive en
+        # `/store/addons`, que es otro endpoint y otra forma de respuesta.
+        path = "/addons" if installed_only else "/store/addons"
         try:
-            data = await ha_client.sv_request("GET", "/addons")
+            data = await ha_client.sv_request("GET", path)
             addons = data.get("addons", []) if isinstance(data, dict) else []
-            if installed_only:
-                addons = [a for a in addons if a.get("installed") is not False and a.get("version")]
-            summaries = [_addon_summary(a) for a in addons]
-            return {"addons": summaries, "count": len(summaries)}
+            summarize = _addon_summary if installed_only else _store_addon_summary
+            summaries = [summarize(a) for a in addons]
+            return {"addons": summaries, "count": len(summaries), "source": path}
         except HAConnectionError as exc:
             return {"error": str(exc)}
 
@@ -249,11 +273,15 @@ def register(mcp: object, ha_client: HAClient) -> None:
         args: dict[str, Any] = {"slug": slug, "options": options}
 
         if not confirmation_token:
-            # Obtener opciones actuales para el preview
+            # Las opciones actuales se leen de /info, igual que en
+            # sv_get_addon_options: /addons/{slug}/options/config el Supervisor
+            # solo se lo sirve al add-on que se consulta a sí mismo y responde
+            # 403 "This can be only read by the app itself!" a cualquier otro,
+            # así que el preview enseñaba siempre `current_options: null` — que
+            # es justo lo que hay que mirar antes de confirmar.
             try:
-                current_opts = await ha_client.sv_request(
-                    "GET", f"/addons/{slug}/options/config"
-                )
+                info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
+                current_opts = info.get("options") if isinstance(info, dict) else None
             except HAConnectionError:
                 current_opts = None
 
@@ -730,9 +758,23 @@ _JOB_CLEANUP_AFTER_SECONDS = 3600  # 1 hora
 
 def _load_jobs_sync() -> dict[str, Any]:
     try:
-        return json.loads(_PENDING_JOBS_PATH.read_text(encoding="utf-8"))
+        jobs = json.loads(_PENDING_JOBS_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+    if not isinstance(jobs, dict):
+        # Un JSON válido pero que no es un objeto (`[]`, `null`, un número)
+        # rompía a `_track_job` con TypeError DESPUÉS de haber lanzado ya el
+        # POST de install/backup: la operación quedaba corriendo en el
+        # Supervisor, su job_id perdido y el token de confirmación colgado sin
+        # cerrar. Tratarlo como fichero corrupto y empezar de cero pierde como
+        # mucho el seguimiento de jobs anteriores, nunca el actual.
+        logger.warning(
+            "pending_jobs_file_corrupt",
+            path=str(_PENDING_JOBS_PATH),
+            tipo=type(jobs).__name__,
+        )
+        return {}
+    return jobs
 
 
 def _write_jobs_sync(jobs: dict[str, Any]) -> None:

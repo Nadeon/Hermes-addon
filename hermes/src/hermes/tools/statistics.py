@@ -25,8 +25,10 @@ logger = structlog.get_logger(__name__)
 # Máximo de puntos por statistic_id antes de truncar por conteo
 _MAX_POINTS_PER_STATISTIC = 1000
 
-# Granularidades válidas según HA recorder
-_VALID_PERIODS = {"5minute", "hour", "day", "week", "month"}
+# Granularidades válidas según HA recorder. La lista es literalmente la del
+# schema de `recorder/statistics_during_period`; faltaba "year", así que Hermes
+# rechazaba con `invalid_period` una granularidad que HA acepta.
+_VALID_PERIODS = {"5minute", "hour", "day", "week", "month", "year"}
 
 # Rango máximo permitido para granularidad 5minute (7 días)
 _FIVEMINUTE_MAX_HOURS = 7 * 24.0
@@ -188,7 +190,8 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = 1_048_5
             statistic_ids: Lista de statistic_ids a consultar
                            (ej. ["sensor.energia_total", "sensor.temperatura_salon"]).
             period: Granularidad de agregación: "5minute", "hour", "day", "week",
-                    "month". Rangos >7 días rechazan "5minute" (demasiados puntos).
+                    "month", "year". Rangos >7 días rechazan "5minute"
+                    (demasiados puntos).
             hours_back: Horas hacia atrás desde ahora. Default 24h. Ignorado si
                         se proporciona start_time.
             start_time: Inicio del rango en ISO 8601

@@ -378,18 +378,34 @@ def _safe_unlink(path: Path) -> None:
 # `logging_setup`: las opciones de un add-on son nombres arbitrarios elegidos
 # por su autor (`mqtt_password`, `ts_authkey`, `api_token`…) y una lista cerrada
 # de claves exactas nunca los cubriría todos.
+# Las claves criptográficas de los add-ons de red (WireGuard, Z-Wave, Zigbee,
+# Matter) no se llaman "password" ni "token": son `psk`, `pre_shared_key`,
+# `network_key`, `encryption_key`. Sin ellas en la lista, `sv_get_addon` y
+# `sv_get_addon_options` devolvían en claro justo el material que da acceso a
+# la red — verificado con {"peers":[{"psk":"..."}], "network_key":"..."}.
+# `key` a secas NO entra: casi todo add-on tiene opciones con `key` en el
+# nombre que no son secretos (`keyboard_layout`, `key_path`, `sort_key`).
 _SENSITIVE_KEY_MARKERS: tuple[str, ...] = (
     "password", "passwd", "passphrase",
     "secret", "token", "credential", "authorization",
     "api_key", "apikey", "auth_key", "authkey",
-    "private_key", "privatekey", "salt",
+    "private_key", "privatekey", "privkey", "salt",
+    "psk", "shared_key", "sharedkey",
+    "network_key", "networkkey",
+    "encryption_key", "encryptionkey",
 )
 
 _STRUCT_REDACTED = "***REDACTED***"
 
 
 def _looks_sensitive(key: str) -> bool:
-    lowered = key.lower()
+    """True si el nombre de la clave delata un secreto.
+
+    El guion se normaliza a subrayado antes de comparar: `api-key`,
+    `pre-shared-key` y `network-key` son la misma clave que sus variantes con
+    subrayado, y sin normalizar se colaban sin redactar.
+    """
+    lowered = key.lower().replace("-", "_")
     return any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS)
 
 

@@ -155,9 +155,19 @@ async def collection_update_flow(
                     ),
                 }
         else:
-            await ha_client.ws_collection_update(
-                domain, object_id, normalized_config
-            )
+            # `{domain}/update` de HA NO es un PATCH: `_update_data` devuelve
+            # `{CONF_ID: item[CONF_ID]} | CREATE_UPDATE_SCHEMA(update_data)`,
+            # así que el item se REEMPLAZA por lo enviado. Como `name` es
+            # Required en ese schema, mandar solo los campos que cambian falla
+            # con "required key not provided @ data['name']" o —si el name va
+            # incluido— borra en silencio el resto de la configuración
+            # (initial, step, minimum, icon…). Se parte del item actual, sin
+            # su id (HA rechaza actualizar el id), y encima lo que pide el
+            # usuario.
+            merged = {
+                k: v for k, v in existing.items() if k != "id"
+            } | normalized_config
+            await ha_client.ws_collection_update(domain, object_id, merged)
         result = {"result": "ok"}
         await complete_confirmation_token(
             confirmation_token, success=True, result=result

@@ -219,6 +219,24 @@ class TestStatisticsDuringPeriod(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["truncated"])
         self.assertIsNotNone(result["truncated_at"])
 
+    async def test_period_year_is_accepted(self) -> None:
+        """HA acepta "year" en recorder/statistics_during_period; Hermes no."""
+        received: list[dict] = []
+        client = make_ready_client(self.session, {})
+        async def capture(payload, timeout_seconds=30):
+            received.append(payload)
+            return {}
+        client.ws_send = capture  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        stats_mod.register(mcp, client)
+        raw = await mcp.tools["ha_statistics_during_period"](
+            ["sensor.temp"], period="year"
+        )
+        result = json.loads(raw)
+        self.assertNotIn("error", result)
+        self.assertEqual(result["granularity"], "year")
+        self.assertEqual(received[0]["period"], "year")
+
     async def test_invalid_period(self) -> None:
         """period inválido → error estructurado sin llamar a WS."""
         client = self._make_client({})
