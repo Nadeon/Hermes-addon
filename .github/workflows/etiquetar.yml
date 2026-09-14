@@ -14,10 +14,14 @@ name: Etiquetar versión
 # workflow que solo etiquetaba, aunque la rama haya avanzado desde entonces.
 # Las notas salen del CHANGELOG de la rama elegida, que las tiene todas.
 #
-# IMPORTANTE: una etiqueta subida con GITHUB_TOKEN no dispara otros
-# workflows, por diseño de GitHub Actions. Este workflow NO publica las
-# imágenes. Para publicarlas hay que lanzar "Publicar imagen" a mano con la
-# misma versión, o subir la etiqueta desde un clon propio, que sí la dispara.
+# Con quién se firma: si existe el secreto RELEASE_TOKEN (un token personal
+# de acceso de grano fino, con permiso Contents: read and write solo sobre
+# este repositorio), la etiqueta y la release aparecen a nombre de su dueño,
+# y la etiqueta subida con él SÍ dispara "Publicar imagen": un solo
+# lanzamiento hace todo. Sin el secreto, se usa GITHUB_TOKEN: etiqueta y
+# release salen como github-actions[bot] y, por diseño de GitHub Actions,
+# la etiqueta no dispara otros workflows, así que hay que lanzar "Publicar
+# imagen" a mano con la misma versión.
 
 on:
   workflow_dispatch:
@@ -35,12 +39,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # El push de la etiqueta sale con este token; véase la cabecera.
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Comprobar y etiquetar
         env:
           # Por variable de entorno, no interpolado en el script: así el
           # valor no puede convertirse en código del shell.
           VERSION: ${{ inputs.version }}
+          # La etiqueta la firma quien lanza el workflow, no el bot.
+          TAGGER_NAME: ${{ github.actor }}
+          TAGGER_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
         run: |
           # Una etiqueta anotada apunta a un objeto tag; "^{}" da el commit.
           # Una ligera (las de las primeras versiones) apunta al commit.
@@ -67,8 +77,8 @@ jobs:
             echo "La versión ($VERSION) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
             exit 1
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$TAGGER_NAME"
+          git config user.email "$TAGGER_EMAIL"
           git tag -a "v$VERSION" -m "Hermes $VERSION"
           git push origin "refs/tags/v$VERSION"
           echo "Etiqueta v$VERSION creada sobre $(git rev-parse --short HEAD)."
@@ -76,7 +86,7 @@ jobs:
       - name: Crear la release con las notas del CHANGELOG
         env:
           VERSION: ${{ inputs.version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "v$VERSION" --json tagName >/dev/null 2>&1; then
             echo "La release v$VERSION ya existe; no se duplica."

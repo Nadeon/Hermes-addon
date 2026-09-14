@@ -104,6 +104,15 @@ def _build_collector(
 
         Devuelve None (se ignora la referencia) si escapa o no se puede
         resolver.
+
+        DECISIÓN (issue #4): una referencia que escapa se SALTA con aviso;
+        no se trata como FAIL_CLOSED_MARKER. El set que sale de aquí solo
+        decide qué escrituras exigen confirmación, y un fichero de fuera de
+        /config no puede hacer «ejecutable» a uno de dentro ni Hermes puede
+        escribirlo. Fallar cerrado obligaría a pedir token para TODA
+        escritura en .yaml hasta corregir la referencia, sin ganar nada en
+        seguridad: sería fricción pura. El aviso `yaml_include_outside_sandbox`
+        queda en el log para que el dueño lo vea y lo corrija.
         """
         try:
             resolved = candidate.resolve()
