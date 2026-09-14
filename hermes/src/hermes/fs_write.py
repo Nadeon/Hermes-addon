@@ -119,16 +119,94 @@ async def backup_before_write(
 _BACKUP_TS_RE = re.compile(r"\d{8}T\d{6}Z")
 
 
-def _is_backup_of(name: str, safe_rel: str) -> bool:
-    """True si `name` es un backup del fichero aplanado `safe_rel`.
+def _encode_rel(rel: str) -> str:
+    """Codifica una ruta relativa para usarla como parte del nombre del backup.
+
+    POR QUÉ: el nombre de un backup es "<timestamp>_<ruta>" y una ruta lleva
+    "/", que no puede ir en un nombre de fichero. El aplanado histórico
+    ("/" → "__") NO es reversible y, peor, NO es inyectivo: "a/b.yaml" y
+    "a__b.yaml" daban exactamente el mismo nombre. Dos ficheros distintos
+    compartían cupo de rotación —los backups de uno expulsaban los del otro— y
+    `fs_restore_file_backup` no podía distinguirlos.
+
+    Aquí se usa percent-encoding de los dos únicos caracteres conflictivos:
+      - "%" → "%25" (primero, o se re-codificaría lo que escribimos después);
+      - "/" → "%2F".
+    Es reversible carácter a carácter, así que el nombre determina la ruta sin
+    ambigüedad: "a/b.yaml" → "a%2Fb.yaml", "a__b.yaml" → "a__b.yaml" (no lleva
+    ninguno de los dos caracteres y se queda igual), "50%.yaml" → "50%25.yaml".
+    """
+    return rel.replace("%", "%25").replace("/", "%2F")
+
+
+def _decode_rel(name_part: str) -> str:
+    """Inversa exacta de `_encode_rel`.
+
+    El orden importa y es el contrario al de codificar: primero "%2F" → "/" y
+    después "%25" → "%". Al revés, un "%252F" literal (el "%2F" de una ruta que
+    llevaba el texto "%2F") se convertiría en "/" y se perdería el original.
+
+    Un nombre en formato legado (aplanado con "__") no lleva "%" y sale tal
+    cual: eso es correcto como decodificación —no hay nada que decodificar—
+    pero NO resuelve su ambigüedad; ver `_is_legacy_flat_name`.
+    """
+    return name_part.replace("%2F", "/").replace("%25", "%")
+
+
+def _legacy_flat_rel(rel: str) -> str:
+    """Nombre aplanado histórico ("/" → "__") de una ruta relativa.
+
+    Se conserva solo para LEER: los backups creados antes del cambio de
+    nombrado siguen en disco y tienen que seguir contando para la rotación y
+    poder restaurarse. Ningún backup nuevo se escribe con este formato.
+    """
+    return rel.replace("/", "__").replace("\\", "__")
+
+
+def _is_legacy_flat_name(name_part: str) -> bool:
+    """True si la parte de nombre puede venir del aplanado histórico ambiguo.
+
+    Un nombre con "__" y sin "%" es exactamente el caso irresoluble: puede ser
+    el backup legado de "a/b.yaml" o el de un fichero que se llama de verdad
+    "a__b.yaml". Sirve para AVISAR de la ambigüedad al listar, no para decidir
+    nada: la ambigüedad desaparece sola según los backups viejos rotan.
+    """
+    return "__" in name_part and "%" not in name_part
+
+
+def backup_candidate_names(timestamp: str, rel: str) -> list[str]:
+    """Nombres bajo los que puede estar guardado un backup de `rel`.
+
+    Primero el formato nuevo (reversible) y después el legado aplanado, que
+    puede existir de antes. `timestamp` debe venir ya validado por el llamador.
+    """
+    nuevo = f"{timestamp}_{_encode_rel(rel)}"
+    legado = f"{timestamp}_{_legacy_flat_rel(rel)}"
+    return [nuevo] if nuevo == legado else [nuevo, legado]
+
+
+def _is_backup_of(name: str, rel: str) -> bool:
+    """True si `name` es un backup del fichero de ruta relativa `rel`.
 
     El timestamp no lleva "_", así que el primer "_" del nombre separa siempre
-    la marca de tiempo del nombre aplanado del fichero.
+    la marca de tiempo del nombre del fichero.
+
+    Acepta LAS DOS codificaciones: la nueva (`_encode_rel`) y la legada
+    (`_legacy_flat_rel`). Los backups creados antes del cambio tienen que
+    seguir contando para el cupo de rotación y siguiendo siendo restaurables;
+    si solo se aceptara la nueva, quedarían huérfanos en disco para siempre.
+
+    AMBIGÜEDAD ASUMIDA: un nombre legado "…_a__b.yaml" casa a la vez con
+    "a/b.yaml" y con "a__b.yaml" — es la ambigüedad que el formato viejo creó y
+    que ya no se puede deshacer leyendo el nombre. Solo afecta a los backups
+    anteriores al cambio y se extingue sola cuando rotan.
     """
     timestamp, sep, rest = name.partition("_")
-    if not sep or rest != safe_rel:
+    if not sep:
         return False
-    return _BACKUP_TS_RE.fullmatch(timestamp) is not None
+    if _BACKUP_TS_RE.fullmatch(timestamp) is None:
+        return False
+    return rest == _encode_rel(rel) or rest == _legacy_flat_rel(rel)
 
 
 def _backup_sync(
@@ -147,8 +225,10 @@ def _backup_sync(
         relative = Path(path.name)
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    safe_rel = str(relative).replace("/", "__").replace("\\", "__")
-    backup_name = f"{timestamp}_{safe_rel}"
+    # `as_posix()` para que el nombre no dependa del separador del sistema: la
+    # codificación tiene que ser la misma que usan los lectores.
+    rel = relative.as_posix()
+    backup_name = f"{timestamp}_{_encode_rel(rel)}"
     backup_path = backup_dir / backup_name
 
     shutil.copy2(str(path), str(backup_path))
@@ -166,20 +246,20 @@ def _backup_sync(
     logger.info("fs_backup_created", source=str(path), backup=str(backup_path))
 
     # ── Rotación: limitar backups por path ────────────────────────────────
-    # El nombre es "<YYYYMMDDTHHMMSSZ>_<safe_rel>". Compararlo con
+    # El nombre es "<YYYYMMDDTHHMMSSZ>_<ruta codificada>". Compararlo con
     # endswith(f"_{safe_rel}") mezclaba ficheros distintos: los backups de
     # "x.yaml" casaban también con los de "my_x.yaml" y con los de "pkg/x.yaml"
     # (aplanado a "pkg__x.yaml"), y unos expulsaban los backups de otros. Se
     # exige igualdad exacta de la parte que va detrás del timestamp.
     #
-    # AMBIGÜEDAD RESIDUAL, conocida y asumida: el aplanado "/"→"__" hace que
-    # "a/b.yaml" y "a__b.yaml" den el mismo safe_rel, así que esos dos siguen
-    # compartiendo cupo. No se cambia el nombre en disco a propósito: los
-    # backups ya creados tienen que seguir siendo restaurables.
+    # Con la codificación reversible (`_encode_rel`) "a/b.yaml" y "a__b.yaml"
+    # ya NO comparten nombre ni, por tanto, cupo. Los backups legados siguen
+    # contando —`_is_backup_of` los acepta— con la ambigüedad documentada allí,
+    # que se extingue cuando esos ficheros rotan.
     same_file_backups = sorted(
         [
             f for f in backup_dir.iterdir()
-            if f != backup_path and _is_backup_of(f.name, safe_rel)
+            if f != backup_path and _is_backup_of(f.name, rel)
         ],
         key=lambda f: f.name,
     )

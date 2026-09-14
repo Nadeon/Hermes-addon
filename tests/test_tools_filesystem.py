@@ -552,3 +552,139 @@ class TestInvalidPathShapes(unittest.IsolatedAsyncioTestCase):
         (self.root / nombre).write_text("x: 1\n", encoding="utf-8")
         result = _j(await self.tools["fs_read_file"](nombre))
         self.assertIn("x: 1", result["content"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# fs_search_in_config: el escaneo corre en un subproceso con plazo de muerte
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestFsSearchSubprocess(unittest.IsolatedAsyncioTestCase):
+    """La heurística de patrones es sintáctica y NO es completa.
+
+    `(a|aa)+$b` la pasa entera —ni cuantificadores anidados ni
+    retrorreferencias— y contra una línea de 38 «a» tarda 20 s, multiplicándose
+    por 2,6 cada dos caracteres más. Ejecutándolo en un `asyncio.to_thread`,
+    como antes, `re` no se puede abortar: el worker del pool queda colgado para
+    siempre y el add-on se queda sin threads. La búsqueda va ahora en un
+    proceso aparte, que sí se puede matar.
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.mkdtemp()
+        self.root = Path(self._tmpdir) / "config"
+        self.root.mkdir()
+        self._patcher = patch.object(fs_module, "CONFIG_BASE", self.root.resolve())
+        self._patcher.start()
+        self.tools = _make_tools(self.root)
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    async def test_a_catastrophic_pattern_times_out_instead_of_hanging(self) -> None:
+        import multiprocessing
+        import time
+
+        patron = "(a|aa)+$b"
+        # Control: este patrón pasa la primera capa; el timeout es lo único que
+        # lo para.
+        self.assertIsNone(fs_tools_module._pattern_redos_risk(patron))
+
+        (self.root / "configuration.yaml").write_text("a" * 38 + "\n", encoding="utf-8")
+
+        # Plazo corto para no alargar la suite: lo que se comprueba es que se
+        # corta, no cuánto vale la constante (eso lo fija el test de abajo).
+        with patch.object(fs_tools_module, "_SEARCH_TIMEOUT_SECONDS", 2.0):
+            inicio = time.monotonic()
+            result = _j(await self.tools["fs_search_in_config"](patron))
+            transcurrido = time.monotonic() - inicio
+
+        self.assertEqual(result["error"], "search_timeout")
+        self.assertIn("hint", result)
+        # Sin el subproceso esto tarda >20 s y cuelga un worker para siempre.
+        self.assertLess(transcurrido, 8.0, f"tardó {transcurrido:.1f}s")
+        self.assertEqual(
+            [p for p in multiprocessing.active_children() if p.is_alive()], [],
+            "quedó vivo el proceso de la búsqueda abortada",
+        )
+
+    async def test_the_default_timeout_is_ten_seconds(self) -> None:
+        """El plazo es una decisión de producto, no un detalle del test."""
+        self.assertEqual(fs_tools_module._SEARCH_TIMEOUT_SECONDS, 10.0)
+
+    async def test_a_normal_search_goes_through_the_subprocess(self) -> None:
+        """Los ficheros se leen en el hijo: sabotear el read_bytes del padre no
+        puede afectar al resultado."""
+        (self.root / "configuration.yaml").write_text(
+            "homeassistant:\n  name: My Home\ninfluxdb:\n  host: localhost\n",
+            encoding="utf-8",
+        )
+        with patch.object(
+            fs_tools_module, "read_bytes",
+            side_effect=AssertionError("el padre no debe leer los ficheros"),
+        ):
+            result = _j(await self.tools["fs_search_in_config"]("influxdb"))
+
+        self.assertNotIn("error", result)
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["matches"][0]["path"], "configuration.yaml")
+        self.assertEqual(result["matches"][0]["line_number"], 3)
+        self.assertEqual(result["searched_files"], 1)
+
+    async def test_the_child_only_receives_files_the_parent_cleared(self) -> None:
+        """Quién es legible se decide en el padre: el hijo no lo revisa."""
+        (self.root / "secrets.yaml").write_text("api_key: hunter2\n", encoding="utf-8")
+        (self.root / "configuration.yaml").write_text("foo: bar\n", encoding="utf-8")
+
+        ficheros, descartados = fs_tools_module._collect_searchable_files(
+            self.root.resolve(), "**/*.yaml",
+        )
+
+        self.assertEqual(
+            [Path(f).name for f in ficheros], ["configuration.yaml"],
+        )
+        self.assertEqual(descartados, 1)
+
+    async def test_a_blacklisted_file_is_never_scanned(self) -> None:
+        (self.root / "secrets.yaml").write_text("api_key: hunter2\n", encoding="utf-8")
+        (self.root / "configuration.yaml").write_text("foo: bar\n", encoding="utf-8")
+
+        result = _j(await self.tools["fs_search_in_config"]("hunter2"))
+
+        self.assertEqual(result["count"], 0)
+        self.assertGreaterEqual(result["skipped_files"], 1)
+
+    async def test_matches_are_capped_by_the_child(self) -> None:
+        """La salida del hijo está acotada: no puede devolver datos sin tope."""
+        (self.root / "muchos.yaml").write_text(
+            "aguja: 1\n" * 50, encoding="utf-8",
+        )
+        result = _j(await self.tools["fs_search_in_config"]("aguja", max_matches=5))
+
+        self.assertEqual(result["count"], 5)
+        self.assertTrue(result["truncated"])
+
+    async def test_a_failing_child_is_an_error_not_an_exception(self) -> None:
+        """Si el hijo revienta, el padre devuelve error: nunca propaga."""
+        import asyncio
+
+        (self.root / "configuration.yaml").write_text("x: 1\n", encoding="utf-8")
+
+        # Un patrón inválido salta la validación del padre y hace explotar al
+        # hijo al compilarlo: simula cualquier fallo dentro del subproceso.
+        payload = await asyncio.to_thread(
+            fs_tools_module._run_scan_in_subprocess,
+            config_base=str(self.root.resolve()),
+            file_paths=[str(self.root / "configuration.yaml")],
+            pattern="[sin cerrar",
+            flags=0,
+            max_matches=10,
+            max_line_len=4096,
+            max_read_bytes=1_048_576,
+            timeout=10.0,
+        )
+
+        self.assertEqual(payload["error"], "search_failed")
+        self.assertTrue(payload["detail"])

@@ -1397,3 +1397,260 @@ class TestMoveDestinationRace(_Base):
         self.assertEqual(result["error"], "dst_exists")
         self.assertEqual(destino.read_text(encoding="utf-8"), "no me pises\n")
         self.assertTrue(origen.exists(), "el origen se movió pese al conflicto")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Nombrado de backups: "a/b.yaml" y "a__b.yaml" compartían nombre
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBackupNamingIsReversible(_Base):
+    """El aplanado "/"→"__" no era inyectivo: dos ficheros, un solo nombre.
+
+    "a/b.yaml" y "a__b.yaml" daban el mismo `safe_rel`, así que compartían cupo
+    de rotación —los backups de uno expulsaban los del otro, y con el mismo
+    segundo se sobrescribían— y el restore no podía distinguirlos.
+    """
+
+    def _backup_dir(self) -> Path:
+        d = self.data_root / "backups" / "normal"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _nombres(self) -> list[str]:
+        return sorted(f.name for f in self._backup_dir().iterdir() if f.is_file())
+
+    async def test_nested_and_flattened_files_get_different_names(self) -> None:
+        (self.config_root / "a").mkdir()
+        anidado = self.config_root / "a" / "b.yaml"
+        anidado.write_text("contenido anidado\n", encoding="utf-8")
+        plano = self.config_root / "a__b.yaml"
+        plano.write_text("contenido plano\n", encoding="utf-8")
+
+        backup_anidado = await backup_before_write(
+            anidado, file_backup_max_per_path=20, file_backup_max_total_mb=100,
+        )
+        backup_plano = await backup_before_write(
+            plano, file_backup_max_per_path=20, file_backup_max_total_mb=100,
+        )
+
+        self.assertNotEqual(Path(backup_anidado).name, Path(backup_plano).name)
+        self.assertTrue(Path(backup_anidado).name.endswith("_a%2Fb.yaml"))
+        self.assertTrue(Path(backup_plano).name.endswith("_a__b.yaml"))
+        self.assertEqual(
+            Path(backup_anidado).read_text(encoding="utf-8"), "contenido anidado\n",
+        )
+        self.assertEqual(
+            Path(backup_plano).read_text(encoding="utf-8"), "contenido plano\n",
+        )
+
+    async def test_they_do_not_evict_each_other(self) -> None:
+        """Con cupo 1 por fichero, cada uno conserva SU backup."""
+        (self.config_root / "a").mkdir()
+        anidado = self.config_root / "a" / "b.yaml"
+        anidado.write_text("contenido anidado\n", encoding="utf-8")
+        plano = self.config_root / "a__b.yaml"
+        plano.write_text("contenido plano\n", encoding="utf-8")
+
+        await backup_before_write(
+            anidado, file_backup_max_per_path=1, file_backup_max_total_mb=100,
+        )
+        await backup_before_write(
+            plano, file_backup_max_per_path=1, file_backup_max_total_mb=100,
+        )
+
+        contenidos = sorted(
+            f.read_text(encoding="utf-8") for f in self._backup_dir().iterdir()
+        )
+        self.assertEqual(contenidos, ["contenido anidado\n", "contenido plano\n"])
+
+    async def test_the_quota_of_one_file_still_rotates(self) -> None:
+        """Control negativo: separar los nombres no desactiva la rotación."""
+        (self.config_root / "a").mkdir()
+        anidado = self.config_root / "a" / "b.yaml"
+        anidado.write_text("v1\n", encoding="utf-8")
+
+        backup_dir = self._backup_dir()
+        for n in (1, 2, 3):
+            (backup_dir / f"2020010{n}T000000Z_a%2Fb.yaml").write_text(
+                "viejo", encoding="utf-8",
+            )
+
+        backup = await backup_before_write(
+            anidado, file_backup_max_per_path=2, file_backup_max_total_mb=100,
+        )
+
+        propios = [
+            f for f in backup_dir.iterdir()
+            if fsw_module._is_backup_of(f.name, "a/b.yaml")
+        ]
+        self.assertEqual(len(propios), 2)
+        self.assertIn(Path(backup).name, [f.name for f in propios])
+
+    async def test_a_legacy_backup_still_counts_for_the_quota(self) -> None:
+        """Los backups de antes del cambio no se quedan huérfanos."""
+        (self.config_root / "a").mkdir()
+        anidado = self.config_root / "a" / "b.yaml"
+        anidado.write_text("v1\n", encoding="utf-8")
+
+        backup_dir = self._backup_dir()
+        legado = backup_dir / "20200101T000000Z_a__b.yaml"
+        legado.write_text("legado", encoding="utf-8")
+
+        await backup_before_write(
+            anidado, file_backup_max_per_path=1, file_backup_max_total_mb=100,
+        )
+
+        self.assertFalse(legado.exists(),
+                         "el backup legado no entró en el cupo del fichero")
+
+    async def test_percent_in_the_path_is_encoded(self) -> None:
+        raro = self.config_root / "50%.yaml"
+        raro.write_text("x\n", encoding="utf-8")
+
+        backup = await backup_before_write(
+            raro, file_backup_max_per_path=20, file_backup_max_total_mb=100,
+        )
+
+        self.assertTrue(Path(backup).name.endswith("_50%25.yaml"))
+        self.assertEqual(fsw_module._decode_rel("50%25.yaml"), "50%.yaml")
+
+    async def test_encode_and_decode_are_inverse(self) -> None:
+        for rel in ("a/b.yaml", "a__b.yaml", "50%.yaml", "x/%2F/y.yaml", "c.yaml"):
+            with self.subTest(rel=rel):
+                self.assertEqual(
+                    fsw_module._decode_rel(fsw_module._encode_rel(rel)), rel,
+                )
+
+    async def test_sensitive_backups_still_go_to_the_sensitive_dir(self) -> None:
+        """El cambio de nombrado no toca el reparto normal/sensitive."""
+        secretos = self.config_root / "secrets.yaml"
+        secretos.write_text("api_key: hunter2\n", encoding="utf-8")
+
+        backup = await backup_before_write(
+            secretos, file_backup_max_per_path=20, file_backup_max_total_mb=100,
+        )
+
+        self.assertEqual(
+            Path(backup).parent, self.data_root / "backups" / "sensitive",
+        )
+        self.assertTrue(Path(backup).name.endswith("_secrets.yaml"))
+
+        listado = _j(await self.tools["fs_list_file_backups"]())
+        self.assertNotIn(
+            "secrets.yaml", [b["path"] for b in listado["backups"]],
+        )
+
+
+class TestBackupListingAndRestoreBothFormats(_Base):
+    """El listado decodifica y el restore encuentra los dos formatos."""
+
+    def _backup_dir(self) -> Path:
+        d = self.data_root / "backups" / "normal"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    async def _restaurar(self, path: str, timestamp: str) -> dict:
+        with patch("hermes.tools.filesystem_write.maybe_trigger_safety_backup",
+                   new=AsyncMock(return_value=None)):
+            with patch("hermes.tools.filesystem_write.reserve_write_slot",
+                       new=AsyncMock()):
+                with patch("hermes.tools.filesystem_write.record_config_write",
+                           new=AsyncMock()):
+                    primero = _j(await self.tools["fs_restore_file_backup"](
+                        path, timestamp,
+                    ))
+                    token = primero.get("confirmation_token")
+                    if token is None:
+                        return primero
+                    return _j(await self.tools["fs_restore_file_backup"](
+                        path, timestamp, confirmation_token=token,
+                    ))
+
+    async def test_a_new_backup_of_a_flattened_name_lists_as_itself(self) -> None:
+        """Antes se mostraba "a/b.yaml": el listado deshacía "__" a ciegas."""
+        plano = self.config_root / "a__b.yaml"
+        plano.write_text("contenido plano\n", encoding="utf-8")
+        await backup_before_write(
+            plano, file_backup_max_per_path=20, file_backup_max_total_mb=100,
+        )
+
+        listado = _j(await self.tools["fs_list_file_backups"]())
+        self.assertEqual([b["path"] for b in listado["backups"]], ["a__b.yaml"])
+
+    async def test_a_new_backup_of_a_nested_file_lists_decoded(self) -> None:
+        (self.config_root / "a").mkdir()
+        anidado = self.config_root / "a" / "b.yaml"
+        anidado.write_text("contenido anidado\n", encoding="utf-8")
+        await backup_before_write(
+            anidado, file_backup_max_per_path=20, file_backup_max_total_mb=100,
+        )
+
+        listado = _j(await self.tools["fs_list_file_backups"]())
+        self.assertEqual([b["path"] for b in listado["backups"]], ["a/b.yaml"])
+        self.assertNotIn("legacy_name", listado["backups"][0])
+
+    async def test_a_legacy_backup_is_listed_flagged_and_filterable(self) -> None:
+        legado = self._backup_dir() / "20200101T000000Z_pkg__b.yaml"
+        legado.write_text("legado\n", encoding="utf-8")
+
+        listado = _j(await self.tools["fs_list_file_backups"]())
+        self.assertEqual(listado["count"], 1)
+        entrada = listado["backups"][0]
+        self.assertTrue(entrada["legacy_name"])
+        self.assertEqual(
+            sorted(entrada["path_candidates"]), ["pkg/b.yaml", "pkg__b.yaml"],
+        )
+
+        # El filtro por path lo encuentra con CUALQUIERA de sus dos lecturas:
+        # es la ambigüedad heredada, que se extingue cuando el backup rota.
+        for filtro in ("pkg/b.yaml", "pkg__b.yaml"):
+            with self.subTest(filtro=filtro):
+                filtrado = _j(await self.tools["fs_list_file_backups"](filtro))
+                self.assertEqual(filtrado["count"], 1)
+
+    async def test_a_legacy_backup_is_still_restorable(self) -> None:
+        (self.config_root / "pkg").mkdir()
+        destino = self.config_root / "pkg" / "b.yaml"
+        destino.write_text("v2\n", encoding="utf-8")
+        (self._backup_dir() / "20200101T000000Z_pkg__b.yaml").write_text(
+            "v1 legado\n", encoding="utf-8",
+        )
+
+        result = await self._restaurar("pkg/b.yaml", "20200101T000000Z")
+
+        self.assertEqual(result.get("result"), "ok", result)
+        self.assertEqual(destino.read_text(encoding="utf-8"), "v1 legado\n")
+
+    async def test_a_new_backup_is_restorable(self) -> None:
+        # El backup se escribe a mano con una marca de tiempo vieja: el
+        # backup-before-restore del propio restore nace con la marca del
+        # segundo actual y taparía al original si compartieran nombre.
+        (self.config_root / "pkg").mkdir()
+        destino = self.config_root / "pkg" / "b.yaml"
+        destino.write_text("v2\n", encoding="utf-8")
+        (self._backup_dir() / "20200101T000000Z_pkg%2Fb.yaml").write_text(
+            "v1\n", encoding="utf-8",
+        )
+
+        result = await self._restaurar("pkg/b.yaml", "20200101T000000Z")
+
+        self.assertEqual(result.get("result"), "ok", result)
+        self.assertEqual(destino.read_text(encoding="utf-8"), "v1\n")
+
+    async def test_the_backup_of_a_nested_file_never_restores_the_other(self) -> None:
+        """Con el aplanado, restaurar "a__b.yaml" servía el backup de "a/b.yaml"."""
+        (self.config_root / "a").mkdir()
+        anidado = self.config_root / "a" / "b.yaml"
+        anidado.write_text("contenido anidado\n", encoding="utf-8")
+        backup = await backup_before_write(
+            anidado, file_backup_max_per_path=20, file_backup_max_total_mb=100,
+        )
+        timestamp = Path(backup).name.partition("_")[0]
+
+        plano = self.config_root / "a__b.yaml"
+        plano.write_text("contenido plano\n", encoding="utf-8")
+
+        result = await self._restaurar("a__b.yaml", timestamp)
+
+        self.assertEqual(result.get("error"), "backup_not_found", result)
+        self.assertEqual(plano.read_text(encoding="utf-8"), "contenido plano\n")
