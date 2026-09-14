@@ -227,6 +227,30 @@ un x86, y bastante más en una Raspberry Pi, porque `pydantic-core`, `aiohttp` y
 | `network_mode inválido` | Solo se admiten `tailscale` y `reverse_proxy`. |
 | El túnel da *connection refused* | `mcp_bind` no es alcanzable desde tu proxy. Si está en la red puente, usa `172.30.32.1`. |
 
+
+### Llamadas que fallan en ráfaga (502)
+
+Medido en septiembre de 2026 contra una instalación real, desde Claude Code, con
+Hermes 1.0.5 y 1.0.8:
+
+- Cuando un cliente lanza **6 o más llamadas en paralelo**, entre el 15 % y el
+  30 % vuelven con un `502` generado por Cloudflare para `api.anthropic.com`
+  («origin returned an invalid or incomplete response»), en el mismo segundo
+  que las que sí entran.
+- Esas llamadas **nunca llegan a Hermes**: no aparecen en su log, y el log de
+  Tailscale no registra ningún error de proxy para ellas.
+- Las llamadas sueltas, y las ráfagas de hasta 4, no fallaron nunca. Hermes
+  responde cada una en 3 a 15 ms.
+
+No es un fallo de Hermes ni de tu red: la pérdida ocurre entre el proxy de
+conectores de Anthropic y el ingress de Funnel. En claude.ai, que hace una
+llamada cada vez, no se nota. Cómo distinguirlo de un problema real: una llamada
+fallida que **sí** está en el log de Hermes (como línea `http_request` con
+4xx/5xx) es de Hermes; una que **no** está, nunca llegó. Para aislar el lado de
+Funnel, lanza 8 `curl` en paralelo desde fuera de tu red contra
+`https://<public_hostname>/.well-known/oauth-protected-resource`, sin pasar del
+límite pre-auth de 20 por minuto: si fallan, es Funnel; si no, es aguas arriba.
+
 > [!IMPORTANT]
 > **El rate limit por IP se comporta distinto en cada modo.** uvicorn solo hace
 > caso a `X-Forwarded-For` si la conexión llega desde `127.0.0.1`. Con

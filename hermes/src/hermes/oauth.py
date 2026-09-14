@@ -88,6 +88,21 @@ _DANGEROUS_REDIRECT_SCHEMES = frozenset({"javascript", "data", "vbscript", "file
 # servidor MCP, path incluido: es la misma que el usuario pega en su cliente.
 MCP_PATH = "/mcp"
 
+
+def _pkce_error(code_challenge: str, code_challenge_method: str) -> str | None:
+    """Motivo por el que la petición no trae un PKCE válido, o None si lo trae.
+
+    Se comprueba ANTES de enseñar el formulario y ANTES de mirar la contraseña:
+    un cliente sin PKCE no puede terminar el flujo, así que hacer que el dueño
+    teclee la contraseña para devolverle luego un 400 era pedirle un secreto
+    para nada.
+    """
+    if not code_challenge:
+        return "PKCE with S256 is required (missing code_challenge)"
+    if code_challenge_method != "S256":
+        return "PKCE with S256 is required (unsupported code_challenge_method)"
+    return None
+
 # Sub fijo — no hay multi-usuario
 _FIXED_SUB = "hermes-owner"
 
@@ -453,8 +468,36 @@ class OAuthServer:
         """GET /.well-known/oauth-protected-resource/<otro path> — no hay tal recurso."""
         return JSONResponse({"error": "not_found"}, status_code=404)
 
+    @property
+    def _canonical_resource(self) -> str:
+        """Identificador del único recurso protegido: el servidor MCP (RFC 8707)."""
+        return f"{self._base_url}{MCP_PATH}"
+
+    def _resource_is_ours(self, resource: str) -> bool:
+        """True si `resource` está vacío (no se pidió audiencia) o es el servidor MCP.
+
+        La comparación ignora una barra final: `https://host/mcp/` y
+        `https://host/mcp` nombran lo mismo.
+        """
+        if not resource:
+            return True
+        return resource.rstrip("/") == self._canonical_resource
+
+    @staticmethod
+    def _request_error_html(message: str) -> HTMLResponse:
+        """Error de la petición de autorización, sin formulario de contraseña."""
+        body = (
+            "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+            "<title>Hermes</title></head><body style=\"font-family:sans-serif\">"
+            "<h1>Hermes</h1><p>La petición de autorización no es válida:</p>"
+            f"<p><code>{html.escape(message, quote=True)}</code></p>"
+            "<p>Es un error del cliente que pide acceso, no de la contraseña.</p>"
+            "</body></html>"
+        )
+        return HTMLResponse(body, status_code=400)
+
     async def authorization_server_metadata(self, request: Request) -> JSONResponse:
-        """GET /.well-known/oauth-authorization-server"""
+        """GET /.well-known/oauth-authorization-server (raíz y con path /mcp)"""
         return JSONResponse({
             "issuer": self._base_url,
             "authorization_endpoint": f"{self._base_url}/oauth/authorize",
@@ -576,6 +619,16 @@ class OAuthServer:
         code_challenge = request.query_params.get("code_challenge", "")
         code_challenge_method = request.query_params.get("code_challenge_method", "")
         scope = request.query_params.get("scope", "mcp")
+        resource = request.query_params.get("resource", "")
+
+        pkce_error = _pkce_error(code_challenge, code_challenge_method)
+        if pkce_error:
+            return self._request_error_html(pkce_error)
+        if not self._resource_is_ours(resource):
+            return self._request_error_html(
+                "Unknown resource: this server only issues tokens for "
+                f"{self._canonical_resource}"
+            )
 
         return HTMLResponse(self._login_html(
             client_id=client_id,
@@ -585,6 +638,7 @@ class OAuthServer:
             code_challenge_method=code_challenge_method,
             scope=scope,
             error="",
+            resource=resource,
         ))
 
     async def authorize_post(self, request: Request) -> Response:
@@ -597,6 +651,26 @@ class OAuthServer:
         code_challenge = str(form.get("code_challenge", ""))
         code_challenge_method = str(form.get("code_challenge_method", ""))
         scope = str(form.get("scope", "mcp"))
+        resource = str(form.get("resource", ""))
+
+        # PKCE y `resource` se validan antes que nada: son errores del cliente,
+        # y ni deben costar un intento de contraseña ni contar como fallo de
+        # login en el freno anti-fuerza-bruta.
+        pkce_error = _pkce_error(code_challenge, code_challenge_method)
+        if pkce_error:
+            return JSONResponse(
+                {"error": "invalid_request", "error_description": pkce_error},
+                status_code=400,
+            )
+        if not self._resource_is_ours(resource):
+            return JSONResponse(
+                {"error": "invalid_target",
+                 "error_description": (
+                     "Unknown resource: this server only issues tokens for "
+                     f"{self._canonical_resource}"
+                 )},
+                status_code=400,
+            )
 
         # Throttle anti-fuerza-bruta: por IP, con techo global de respaldo
         # (ver LOGIN_FAIL_THRESHOLD). Tras Funnel `request.client.host` es la
@@ -705,15 +779,7 @@ class OAuthServer:
                 status_code=200,
             )
 
-        # PKCE obligatorio
-        if not code_challenge or code_challenge_method != "S256":
-            return JSONResponse(
-                {"error": "invalid_request",
-                 "error_description": "PKCE with S256 is required"},
-                status_code=400,
-            )
-
-        # Generar authorization code
+        # Generar authorization code (PKCE ya validado arriba)
         code = secrets.token_urlsafe(32)
         # Nunca el código en claro: el fichero ya se nombra por su hash, y
         # guardarlo dentro anulaba justamente eso.
@@ -724,6 +790,10 @@ class OAuthServer:
             "code_challenge_method": code_challenge_method,
             "scope": scope,
             "sub": _FIXED_SUB,
+            # RFC 8707: audiencia del token. Solo hay un recurso posible, el
+            # servidor MCP; se guarda para que el token endpoint pueda
+            # comprobar que el cliente pide lo mismo que autorizó.
+            "resource": self._canonical_resource,
             "expires_at": time.time() + AUTH_CODE_TTL,
         }
 
@@ -794,10 +864,13 @@ class OAuthServer:
         client_id = str(form.get("client_id", ""))
         redirect_uri = str(form.get("redirect_uri", ""))
         code_verifier = str(form.get("code_verifier", ""))
+        resource = str(form.get("resource", ""))
 
         grant = "authorization_code"
         if not code or not client_id or not code_verifier:
             return self._token_error("invalid_request", "missing_parameters", grant, client_id)
+        if not self._resource_is_ours(resource):
+            return self._token_error("invalid_target", "unknown_resource", grant, client_id)
 
         # Buscar y validar code
         code_hash = _hash_token(code)
@@ -820,6 +893,15 @@ class OAuthServer:
         if redirect_uri and code_data.get("redirect_uri") != redirect_uri:
             _safe_unlink(code_path)
             return self._token_error("invalid_grant", "redirect_uri_mismatch", grant, client_id)
+        if not redirect_uri and code_data.get("redirect_uri"):
+            # RFC 6749 §4.1.3 lo exige si fue en la autorización. No se
+            # rechaza: PKCE ya ata el código a quien lo pidió, y rechazarlo
+            # rompería a un cliente que hoy funciona. Queda en el log para
+            # saber si algún cliente real lo omite antes de endurecerlo.
+            logger.info(
+                "oauth_token_redirect_uri_omitted",
+                client_id=client_id,
+            )
 
         # Invalidar code ANTES de verificar PKCE (single-use enforcement).
         # Si PKCE falla, el code ya no existe — no se puede reintentar.
@@ -890,8 +972,11 @@ class OAuthServer:
         """Refresh an access token, rotando el refresh token."""
         refresh_token = str(form.get("refresh_token", ""))
         client_id = str(form.get("client_id", ""))
+        resource = str(form.get("resource", ""))
 
         grant = "refresh_token"
+        if not self._resource_is_ours(resource):
+            return self._token_error("invalid_target", "unknown_resource", grant, client_id)
         if not refresh_token:
             return self._token_error("invalid_request", "missing_refresh_token", grant, client_id)
 
@@ -1190,6 +1275,7 @@ class OAuthServer:
         code_challenge_method: str,
         scope: str,
         error: str,
+        resource: str = "",
     ) -> str:
         """Genera el HTML inline del formulario de login.
 
@@ -1203,6 +1289,7 @@ class OAuthServer:
         e_code_challenge = html.escape(code_challenge, quote=True)
         e_code_challenge_method = html.escape(code_challenge_method, quote=True)
         e_scope = html.escape(scope, quote=True)
+        e_resource = html.escape(resource, quote=True)
         e_error = html.escape(error, quote=True) if error else ""
 
         # BLOQUE DE CONSENTIMIENTO
@@ -1350,6 +1437,7 @@ class OAuthServer:
     <input type="hidden" name="code_challenge" value="{e_code_challenge}">
     <input type="hidden" name="code_challenge_method" value="{e_code_challenge_method}">
     <input type="hidden" name="scope" value="{e_scope}">
+    <input type="hidden" name="resource" value="{e_resource}">
     <label for="password">Contraseña del add-on</label>
     <input type="password" id="password" name="password" autofocus required
            placeholder="Introduce tu contraseña">
@@ -1393,6 +1481,14 @@ class OAuthServer:
             ),
             Route(
                 "/.well-known/oauth-authorization-server",
+                self.authorization_server_metadata,
+                methods=["GET"],
+            ),
+            # RFC 8414 §3.1 permite la forma con el path del recurso insertado.
+            # Los clientes recuperan con la raíz si esta da 404, pero cada
+            # 404 es un viaje más por Funnel.
+            Route(
+                f"/.well-known/oauth-authorization-server{MCP_PATH}",
                 self.authorization_server_metadata,
                 methods=["GET"],
             ),
