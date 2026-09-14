@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 import structlog
@@ -28,7 +29,7 @@ def _clamp_timeout(timeout: float) -> float:
         value = float(timeout)
     except (TypeError, ValueError):
         return _RENDER_TIMEOUT_MIN
-    if value != value:  # NaN: cualquier comparación es falsa, se trata aparte
+    if math.isnan(value):
         return _RENDER_TIMEOUT_MIN
     return min(max(value, _RENDER_TIMEOUT_MIN), _RENDER_TIMEOUT_MAX)
 

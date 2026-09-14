@@ -21,11 +21,11 @@ import inspect
 import json
 import time
 import unittest
+import unittest.mock as mock
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest import mock
 
-import hermes.crash_loop as crash_loop
+from hermes import crash_loop
 from hermes.crash_loop import (
     CRASH_THRESHOLD,
     CRASH_WINDOW_SECONDS,

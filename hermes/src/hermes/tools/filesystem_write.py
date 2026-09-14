@@ -403,6 +403,8 @@ def register_write(
                     _, current = _fs.detect_encoding(raw)
                     preview["current_content"] = current
             except (OSError, ValueError):
+                # El contenido en la vista previa es cortesía: si no se puede
+                # leer o decodificar, el borrado se confirma sin él.
                 pass
 
             warning = get_executable_warning(abs_path)

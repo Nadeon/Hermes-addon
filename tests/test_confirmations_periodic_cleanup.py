@@ -15,9 +15,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
-import hermes.__main__ as main_mod
+from hermes import __main__ as main_mod
 from hermes.__main__ import (
     CONFIRMATIONS_CLEANUP_INTERVAL_SECONDS,
     _periodic_confirmations_cleanup,
@@ -38,8 +38,8 @@ class TestLimpiezaPeriodicaDeConfirmaciones(unittest.IsolatedAsyncioTestCase):
             task = asyncio.create_task(_periodic_confirmations_cleanup(0))
             await self._correr_un_rato(task, 3)
             task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
+            desenlace = await asyncio.gather(task, return_exceptions=True)
+            self.assertIsInstance(desenlace[0], asyncio.CancelledError)
 
         self.assertGreaterEqual(
             limpiar.await_count, 2, "la limpieza debe repetirse, no correr una vez"
@@ -58,8 +58,8 @@ class TestLimpiezaPeriodicaDeConfirmaciones(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
             en_curso = limpiar.await_count
             task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
+            desenlace = await asyncio.gather(task, return_exceptions=True)
+            self.assertIsInstance(desenlace[0], asyncio.CancelledError)
 
         self.assertEqual(en_curso, 0)
 
@@ -73,8 +73,8 @@ class TestLimpiezaPeriodicaDeConfirmaciones(unittest.IsolatedAsyncioTestCase):
             await self._correr_un_rato(task, 3)
             sigue_viva = not task.done()
             task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
+            desenlace = await asyncio.gather(task, return_exceptions=True)
+            self.assertIsInstance(desenlace[0], asyncio.CancelledError)
 
         self.assertTrue(sigue_viva)
         self.assertGreaterEqual(limpiar.await_count, 2)

@@ -160,6 +160,8 @@ def _backup_sync(
     try:
         os.utime(backup_path, None)
     except OSError:
+        # Sin poder tocar la fecha el backup sigue siendo válido; solo pierde
+        # la protección frente a la evicción por antigüedad de esta llamada.
         pass
     logger.info("fs_backup_created", source=str(path), backup=str(backup_path))
 
@@ -202,6 +204,8 @@ def _backup_sync(
     try:
         total_size += backup_path.stat().st_size
     except OSError:
+        # El backup recién creado no se puede medir: se cuenta como cero y la
+        # cuota se aplica solo a los anteriores, que es el lado seguro.
         pass
     while total_size > max_bytes and all_backups:
         oldest = all_backups.pop(0)
@@ -300,6 +304,8 @@ def safe_write_file(path: Path, content: str) -> None:
             try:
                 os.fchmod(fd, stat.S_IMODE(original_mode))
             except OSError:
+                # Sistemas de ficheros sin permisos POSIX (SMB montado, FAT):
+                # el contenido manda; el modo queda el 0600 del temporal.
                 pass
             os.fsync(fd)
         finally:

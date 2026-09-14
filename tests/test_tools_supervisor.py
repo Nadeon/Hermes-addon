@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from hermes.ha import HAConnectionError
+from hermes.tools import addons as addons_mod
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -462,7 +463,6 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         self._data_dir.mkdir()
 
         from hermes.tools.backups import register
-        import hermes.tools.addons as addons_mod
         import hermes.tools.backups as backups_mod
 
         self._patch_jobs = patch.object(
@@ -656,8 +656,6 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         TypeError DESPUÉS del POST — backup lanzado, job_id perdido y token de
         confirmación sin cerrar.
         """
-        import hermes.tools.addons as addons_mod
-
         addons_mod._PENDING_JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
         addons_mod._PENDING_JOBS_PATH.write_text("[]", encoding="utf-8")
 
@@ -672,8 +670,6 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listado["jobs"][0]["job_id"], "job_tras_fichero_corrupto")
 
     def test_load_jobs_sync_rejects_non_dict_documents(self) -> None:
-        import hermes.tools.addons as addons_mod
-
         addons_mod._PENDING_JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
         for contenido in ("[]", "null", "42", '"texto"'):
             addons_mod._PENDING_JOBS_PATH.write_text(contenido, encoding="utf-8")

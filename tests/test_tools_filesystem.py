@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import hermes.fs as fs_module
-import hermes.tools.filesystem as fs_tools_module
+from hermes.tools import filesystem as fs_tools_module
 from hermes.tools.filesystem import register
 
 

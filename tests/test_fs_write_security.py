@@ -1104,9 +1104,7 @@ class TestTheTwoSafetyBackupPathsShareTheirMark(unittest.IsolatedAsyncioTestCase
         """Si mañana uno vuelve a inventarse la suya, esto lo caza."""
         import inspect
 
-        import hermes.fs_write as fsw
-
-        fuente = inspect.getsource(fsw.maybe_trigger_safety_backup)
+        fuente = inspect.getsource(fsw_module.maybe_trigger_safety_backup)
         self.assertIn("_leer_marca", fuente,
                       "el disparo automático no usa la lectura compartida")
         self.assertNotIn("last_completed_at", fuente,
@@ -1293,8 +1291,6 @@ class TestBackupRotation(_Base):
 
     async def test_rotation_still_evicts_backups_of_the_same_file(self) -> None:
         """Control negativo: el cupo por fichero sigue funcionando."""
-        import hermes.fs_write as fsw
-
         backup_dir = self._backup_dir()
         for n in (1, 2, 3):
             (backup_dir / f"2020010{n}T000000Z_x.yaml").write_text("z", encoding="utf-8")
@@ -1306,7 +1302,7 @@ class TestBackupRotation(_Base):
             origen, file_backup_max_per_path=2, file_backup_max_total_mb=100,
         )
 
-        propios = [f for f in backup_dir.iterdir() if fsw._is_backup_of(f.name, "x.yaml")]
+        propios = [f for f in backup_dir.iterdir() if fsw_module._is_backup_of(f.name, "x.yaml")]
         self.assertEqual(len(propios), 2)
         self.assertIn(Path(backup).name, [f.name for f in propios])
 

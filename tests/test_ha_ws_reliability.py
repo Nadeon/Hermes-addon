@@ -96,7 +96,7 @@ class TestWsSendConcurrency(unittest.IsolatedAsyncioTestCase):
         try:
             await stalled
         except asyncio.CancelledError:
-            pass
+            pass  # la cancelación es el desenlace esperado de la tarea colgada
 
     async def test_socket_cerrado_mientras_se_espera_el_lock(self) -> None:
         """El socket se revalida CON el lock cogido, no solo antes de pedirlo."""
@@ -116,7 +116,7 @@ class TestWsSendConcurrency(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("no disponible", str(ctx.exception))
         self.assertEqual(self.ws.sent, [])  # no se escribió en el socket muerto
-        await hog
+        self.assertIsNone(await hog)
 
 
 class TestFailPendingOnDisconnect(unittest.IsolatedAsyncioTestCase):
@@ -170,7 +170,7 @@ class TestFailPendingOnDisconnect(unittest.IsolatedAsyncioTestCase):
         try:
             await tarea
         except asyncio.CancelledError:
-            pass
+            pass  # la cancelación es el desenlace esperado de la tarea colgada
 
         self.assertIsInstance(respuesta.exception(), HAConnectionError)
         self.assertIsInstance(suscripcion.exception(), HAConnectionError)

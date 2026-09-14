@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from aioresponses import aioresponses
 
