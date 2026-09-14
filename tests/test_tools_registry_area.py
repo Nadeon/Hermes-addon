@@ -285,10 +285,12 @@ class TestDeleteArea(unittest.IsolatedAsyncioTestCase):
     async def test_preview_includes_impact(self) -> None:
         """Preview must show entities_orphaned + devices_orphaned counts."""
         areas = [{"area_id": "salon", "name": "Salón"}]
+        # Forma real del entity registry: la mayoría de entities llevan
+        # `area_id: null` y `device_id` puesto — el área la heredan del device.
         entities = [
-            {"entity_id": "sensor.t1", "area_id": "salon"},
-            {"entity_id": "sensor.t2", "area_id": "salon"},
-            {"entity_id": "sensor.t3", "area_id": "other"},
+            {"entity_id": "sensor.t1", "area_id": "salon", "device_id": None},
+            {"entity_id": "sensor.t2", "area_id": "salon", "device_id": None},
+            {"entity_id": "sensor.t3", "area_id": "other", "device_id": None},
         ]
         devices = [
             {"id": "d1", "area_id": "salon"},
@@ -314,6 +316,48 @@ class TestDeleteArea(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(preview["impact"]["entities_orphaned"], 2)
         self.assertEqual(preview["impact"]["devices_orphaned"], 1)
         self.assertIn("warning", preview)
+
+    async def test_preview_counts_entities_inherited_from_devices(self) -> None:
+        """Las entities heredan el área de su device: también quedan huérfanas.
+
+        Regresión: solo se contaban las entities con `area_id` propio, así que
+        un área con dispositivos anunciaba "0 entities" en el preview de borrado.
+        """
+        areas = [{"area_id": "salon", "name": "Salón"}]
+        entities = [
+            # Área propia: se contaba antes y se sigue contando.
+            {"entity_id": "sensor.t1", "area_id": "salon", "device_id": None},
+            # Heredadas del device d1, que está en el área: el caso normal.
+            {"entity_id": "sensor.t2", "area_id": None, "device_id": "d1"},
+            {"entity_id": "sensor.t3", "area_id": None, "device_id": "d1"},
+            # Device en otra área: no cuenta.
+            {"entity_id": "sensor.t4", "area_id": None, "device_id": "d2"},
+            # Override explícito a otra área pese a estar el device en salon.
+            {"entity_id": "sensor.t5", "area_id": "other", "device_id": "d1"},
+            # Sin device y sin área: no cuenta.
+            {"entity_id": "sensor.t6", "area_id": None, "device_id": None},
+        ]
+        devices = [
+            {"id": "d1", "area_id": "salon"},
+            {"id": "d2", "area_id": "other"},
+        ]
+        client = make_ready_client(self.session, {})
+        async def fake_ws(payload, timeout_seconds=30):
+            t = payload.get("type", "")
+            if t == "config/area_registry/list":
+                return areas
+            if t == "config/entity_registry/list":
+                return entities
+            if t == "config/device_registry/list":
+                return devices
+            return None
+        client.ws_send = fake_ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        area_mod.register(mcp, client)
+        raw = await mcp.tools["ha_delete_area"]("salon")
+        preview = json.loads(raw)["preview"]
+        self.assertEqual(preview["impact"]["entities_orphaned"], 3)
+        self.assertEqual(preview["impact"]["devices_orphaned"], 1)
 
     async def test_delete_with_valid_token(self) -> None:
         areas = [{"area_id": "salon", "name": "Salón"}]

@@ -354,9 +354,11 @@ class TestHACSTools(unittest.IsolatedAsyncioTestCase):
         self._mock_ws_send(repos)
         result = await self.mcp.tools["ha_hacs_list_repositories"](category="integration")
         self.assertEqual(result["count"], 1)
-        # Verify category was passed in the WS call
+        # HACS declara `{Optional("categories"): [str]}` con PREVENT_EXTRA: el
+        # mock anterior daba por bueno un `category` singular que HA rechaza.
         call_args = self.ha_client.ws_send.call_args[0][0]
-        self.assertEqual(call_args.get("category"), "integration")
+        self.assertEqual(call_args.get("categories"), ["integration"])
+        self.assertNotIn("category", call_args)
 
     async def test_hacs_list_repos_invalid_category(self) -> None:
         result = await self.mcp.tools["ha_hacs_list_repositories"](category="invalid_cat")

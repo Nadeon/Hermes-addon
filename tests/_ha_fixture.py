@@ -107,10 +107,22 @@ class FakeCollectionStore:
         async def ws_collection_update(
             domain: str, object_id: str, config: dict[str, Any]
         ) -> dict[str, Any]:
+            # HA REEMPLAZA el item, no lo mergea: `_update_data` devuelve
+            # `{CONF_ID: item[CONF_ID]} | CREATE_UPDATE_SCHEMA(update_data)`.
+            # El fake hacía `dict.update()` —un PATCH que HA no ofrece— y por
+            # eso los tests daban por buenos updates parciales que en real
+            # fallaban o borraban campos.
             d = store.items.setdefault(domain, {})
             if object_id not in d:
                 raise HAConnectionError("HA WS command failed: Item not found.")
-            d[object_id].update(config)
+            if "name" not in config:
+                # `name` es Required en el CREATE_UPDATE schema de todos estos
+                # helpers: sin él, voluptuous rechaza el comando entero.
+                raise HAConnectionError(
+                    "HA WS command failed: required key not provided "
+                    "@ data['name']"
+                )
+            d[object_id] = dict(config)
             return {"id": object_id, **d[object_id]}
 
         async def ws_collection_delete(

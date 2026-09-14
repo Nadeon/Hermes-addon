@@ -46,6 +46,44 @@ class TestRedactStructure(unittest.TestCase):
             out = redact_structure({key: "valor-secreto"})
             self.assertEqual(out[key], "***REDACTED***", f"no redactó {key}")
 
+    def test_claves_de_red_de_addons(self) -> None:
+        """WireGuard/Z-Wave/Zigbee no llaman "password" a sus secretos.
+
+        Caso verificado: este dict salía entero sin redactar por
+        `sv_get_addon_options`, con el material criptográfico en claro.
+        """
+        data = {
+            "peers": [{"psk": "abc123"}],
+            "network_key": "nk",
+            "pre_shared_key": "p",
+            "api-key": "k1",
+        }
+        out = redact_structure(data)
+        self.assertEqual(out["peers"][0]["psk"], "***REDACTED***")
+        self.assertEqual(out["network_key"], "***REDACTED***")
+        self.assertEqual(out["pre_shared_key"], "***REDACTED***")
+        self.assertEqual(out["api-key"], "***REDACTED***")
+        self.assertNotIn("abc123", str(out))
+
+    def test_variantes_con_guion(self) -> None:
+        """El guion es solo otra grafía de la misma clave."""
+        for key in ("api-key", "auth-token", "pre-shared-key", "network-key",
+                    "private-key", "client-secret", "db-password"):
+            out = redact_structure({key: "valor-secreto"})
+            self.assertEqual(out[key], "***REDACTED***", f"no redactó {key}")
+
+    def test_mas_nombres_de_clave_criptografica(self) -> None:
+        for key in ("wg_psk", "zwave_network_key", "encryption_key",
+                    "shared_key", "privkey"):
+            out = redact_structure({key: "valor-secreto"})
+            self.assertEqual(out[key], "***REDACTED***", f"no redactó {key}")
+
+    def test_key_a_secas_no_se_redacta(self) -> None:
+        """`key` suelta es demasiado común para tratarla como secreto."""
+        data = {"key": "enter", "keyboard_layout": "es", "sort_key": "name",
+                "key_path": "/ssl/cert.key"}
+        self.assertEqual(redact_structure(data), data)
+
     def test_non_secret_keys_are_untouched(self) -> None:
         data = {"username": "nadeon", "host": "1.2.3.4", "port": 1883,
                 "url": "https://ejemplo.com", "slug": "core_mosquitto"}

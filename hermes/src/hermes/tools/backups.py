@@ -102,6 +102,24 @@ def _save_safety_state(state: dict[str, Any]) -> None:
     tmp.replace(_SAFETY_BACKUP_STATE_PATH)
 
 
+def _size_mb(backup: dict[str, Any]) -> float | None:
+    """Tamaño del backup en MB a partir de lo que manda el Supervisor.
+
+    El Supervisor envía dos campos: `size_bytes` (bytes, int) y `size`, que YA
+    viene en MB (`round(self.size_bytes / 1048576, 2)` en backup/backup.py).
+    Dividir `size` entre 1 MiB, como se hacía, convertía 500 MB en 0.0 y todos
+    los backups aparecían con tamaño cero. Se prefiere `size_bytes` por
+    precisión y se cae a `size` —interpretado como MB— si no viene.
+    """
+    size_bytes = backup.get("size_bytes")
+    if isinstance(size_bytes, (int, float)) and not isinstance(size_bytes, bool):
+        return round(size_bytes / (1024 * 1024), 2)
+    size = backup.get("size")
+    if isinstance(size, (int, float)) and not isinstance(size, bool):
+        return round(float(size), 2)
+    return None
+
+
 def register(
     mcp: object,
     ha_client: HAClient,
@@ -141,7 +159,7 @@ def register(
                     "name": b.get("name"),
                     "date": b.get("date"),
                     "type": b.get("type"),
-                    "size_mb": round(b.get("size", 0) / (1024 * 1024), 2) if b.get("size") else None,
+                    "size_mb": _size_mb(b),
                     "protected": b.get("protected", False),
                     "location": b.get("location"),
                 }
