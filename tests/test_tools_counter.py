@@ -116,6 +116,50 @@ class TestToolsCounter(unittest.IsolatedAsyncioTestCase):
             self.store.get("counter", "cafes")["maximum"], 30
         )
 
+    async def test_partial_update_keeps_other_fields(self) -> None:
+        """`{domain}/update` de HA reemplaza el item: hay que mandarlo entero.
+
+        Regresión: al enviar solo los campos cambiados, HA borraba el resto de
+        la configuración (aquí `initial`) sin avisar.
+        """
+        new_config = {"name": "Cafés", "maximum": 30}
+        normalized = CounterConfig.model_validate(new_config).model_dump(
+            exclude_none=True, by_alias=True, mode="json"
+        )
+        token_response = await security.create_confirmation_token(
+            "ha_create_or_update_counter",
+            {"entity_id": "counter.cafes", "config": normalized},
+        )
+        result = await self.mcp.tools["ha_create_or_update_counter"](
+            "counter.cafes",
+            new_config,
+            confirmation_token=token_response["confirmation_token"],
+        )
+        self.assertEqual(result, {"result": "ok"})
+        stored = self.store.get("counter", "cafes")
+        self.assertEqual(stored["maximum"], 30)
+        self.assertEqual(stored["initial"], 0)
+
+    async def test_partial_update_without_name_does_not_fail(self) -> None:
+        """`name` es Required en el schema de update: omitirlo rompía la tool."""
+        new_config = {"maximum": 42}
+        normalized = CounterConfig.model_validate(new_config).model_dump(
+            exclude_none=True, by_alias=True, mode="json"
+        )
+        token_response = await security.create_confirmation_token(
+            "ha_create_or_update_counter",
+            {"entity_id": "counter.cafes", "config": normalized},
+        )
+        result = await self.mcp.tools["ha_create_or_update_counter"](
+            "counter.cafes",
+            new_config,
+            confirmation_token=token_response["confirmation_token"],
+        )
+        self.assertEqual(result, {"result": "ok"})
+        stored = self.store.get("counter", "cafes")
+        self.assertEqual(stored["maximum"], 42)
+        self.assertEqual(stored["name"], "Cafés")
+
     async def test_update_token_invalid(self) -> None:
         result = await self.mcp.tools["ha_create_or_update_counter"](
             "counter.cafes",

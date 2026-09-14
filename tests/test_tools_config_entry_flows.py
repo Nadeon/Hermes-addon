@@ -234,11 +234,26 @@ class TestContinueConfigEntryFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(received[0][2]["host"], "192.168.1.1")
 
     async def test_continue_creates_entry(self) -> None:
+        # Forma real de HA: `_prepare_result_json` sustituye `result` por la
+        # config entry serializada (`as_json_fragment`) y NO añade `entry_id`
+        # en la raíz. El mock anterior se lo inventaba.
         create_resp = {
             "flow_id": "flow1",
+            "handler": "hue",
             "type": "create_entry",
-            "entry_id": "new_e",
             "title": "Hue Bridge",
+            "version": 1,
+            "result": {
+                "entry_id": "new_e",
+                "domain": "hue",
+                "title": "Hue Bridge",
+                "source": "user",
+                "state": "loaded",
+            },
+            "description": None,
+            "description_placeholders": None,
+            "options": {},
+            "minor_version": 1,
         }
         client = make_ready_client(self.session, {})
         async def fake_rest(method, path, json_body=None, params=None):
@@ -251,8 +266,11 @@ class TestContinueConfigEntryFlow(unittest.IsolatedAsyncioTestCase):
         )
         result = json.loads(raw)
         self.assertEqual(result["type"], "create_entry")
-        self.assertEqual(result["result"], "ok")
-        self.assertEqual(result["entry_id"], "new_e")
+        self.assertEqual(result["status"], "ok")
+        # Regresión: `raw["result"] = "ok"` machacaba la entry creada y con
+        # ella el entry_id, que es lo único que permite seguir operando.
+        self.assertEqual(result["result"]["entry_id"], "new_e")
+        self.assertEqual(result["result"]["domain"], "hue")
 
     async def test_continue_abort(self) -> None:
         abort_resp = {"flow_id": "flow1", "type": "abort", "reason": "already_configured"}
@@ -436,10 +454,14 @@ class TestContinueOptionsFlow(unittest.IsolatedAsyncioTestCase):
         await self.session.close()
 
     async def test_options_saved(self) -> None:
+        # `OptionManagerFlowResourceView._prepare_result_json` hace
+        # pop("result") y pop("data"): no manda ni entry ni entry_id.
         save_resp = {
             "flow_id": "opt_flow1",
+            "handler": "hue",
             "type": "create_entry",
-            "entry_id": "e1",
+            "title": "",
+            "version": 1,
         }
         received: list[tuple] = []
         client = make_ready_client(self.session, {})
@@ -454,7 +476,9 @@ class TestContinueOptionsFlow(unittest.IsolatedAsyncioTestCase):
         )
         result = json.loads(raw)
         self.assertEqual(result["type"], "create_entry")
-        self.assertEqual(result["result"], "ok")
+        # En options flow HA hace pop("result"), así que no hay nada que
+        # preservar; el estado va en `status`, igual que en el config flow.
+        self.assertEqual(result["status"], "ok")
         self.assertEqual(received[0][0], "POST")
         self.assertEqual(received[0][1], "/config/config_entries/options/flow/opt_flow1")
         self.assertEqual(received[0][2]["scan_interval"], 60)

@@ -66,6 +66,22 @@ from hermes.yaml_include import (
 
 logger = structlog.get_logger(__name__)
 
+# Caracteres que no pueden ir en el valor de un secreto: controles ASCII y los
+# separadores de línea Unicode que YAML también trata como salto de línea.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
+
+
+def _yaml_quote_secret(value: str) -> str:
+    """Devuelve `value` como escalar YAML entre comillas dobles.
+
+    Un string JSON es un escalar YAML de comillas dobles válido: los escapes
+    que emite `json.dumps` (`\\"`, `\\\\`, `\\uXXXX`) son los mismos que
+    define YAML. Así el valor se lee de vuelta exactamente igual, sea cual sea
+    su contenido: `: ` no abre un mapa, `#` no empieza un comentario, `no` y
+    `007` siguen siendo texto.
+    """
+    return json.dumps(value, ensure_ascii=False)
+
 # ── Constantes ────────────────────────────────────────────────────────────────
 
 _SECRETS_YAML_REL = "secrets.yaml"
@@ -187,6 +203,19 @@ def register_write(
                 "error": "managed_path",
                 "path": _fs._rel_posix(abs_path),
                 "reason": MANAGED_PATH_ERROR,
+            })
+
+        # 3. Un directorio existente no se puede escribir. Va ANTES del preview
+        #    a propósito: sin este freno la llamada emitía preview y token, la
+        #    segunda gastaba la plaza del rate limit y reventaba con
+        #    IsADirectoryError dentro de backup_before_write, dejando el token
+        #    en estado `executing` para siempre. Se rechaza igual que hace
+        #    fs_delete_file.
+        if abs_path.is_dir():
+            return json.dumps({
+                "error": "is_directory",
+                "path": _fs._rel_posix(abs_path),
+                "hint": "fs_write_file only writes files, not directories.",
             })
 
         args = {"path": _fs._rel_posix(abs_path), "content": content}
@@ -324,6 +353,19 @@ def register_write(
         except PathTraversalError as exc:
             return json.dumps({"error": "traversal", "detail": str(exc)})
 
+        # Misma regla que en escritura y movimiento: un fichero protegido no se
+        # puede borrar, ni con token. Sin esta guarda `secrets.yaml`, la base
+        # de datos del recorder o los certificados se borraban con un
+        # `{"result": "ok"}`, y el backup caía en `sensitive/`, que Hermes no
+        # lista ni restaura: la pérdida era irrecuperable desde aquí.
+        blacklisted, reason = check_blacklisted(abs_path)
+        if blacklisted:
+            return json.dumps({
+                "error": "blacklisted",
+                "path": _fs._rel_posix(abs_path),
+                "detail": reason,
+            })
+
         if is_managed_path(abs_path):
             return json.dumps({
                 "error": "managed_path",
@@ -343,7 +385,6 @@ def register_write(
                     "hint": "fs_delete_file only deletes files, not directories.",
                 })
 
-            blacklisted, _ = check_blacklisted(abs_path)
             is_managed = is_managed_path(abs_path)
             executable = await check_executable_by_indirection(abs_path)
 
@@ -354,15 +395,17 @@ def register_write(
                 "is_executable_by_indirection": executable,
             }
 
-            # Incluir contenido actual si es legible
-            if not blacklisted:
-                try:
-                    raw = abs_path.read_bytes()
-                    if not _fs.is_binary(raw[:8192]):
-                        _, current = _fs.detect_encoding(raw)
-                        preview["current_content"] = current
-                except (OSError, ValueError):
-                    pass
+            # Incluir contenido actual si es legible (la blacklist ya se
+            # comprobó arriba: aquí solo llegan ficheros no protegidos)
+            try:
+                raw = abs_path.read_bytes()
+                if not _fs.is_binary(raw[:8192]):
+                    _, current = _fs.detect_encoding(raw)
+                    preview["current_content"] = current
+            except (OSError, ValueError):
+                # El contenido en la vista previa es cortesía: si no se puede
+                # leer o decodificar, el borrado se confirma sin él.
+                pass
 
             warning = get_executable_warning(abs_path)
             if warning:
@@ -501,6 +544,23 @@ def register_write(
                     "reason": MANAGED_PATH_ERROR,
                 })
 
+        # Directorios: ni en origen ni en destino, y comprobado por delante.
+        # El origen ya se miraba, pero solo al construir el preview; el destino
+        # no se miraba nunca, así que con overwrite=True el flujo llegaba a
+        # backup_before_write y reventaba con IsADirectoryError después de haber
+        # gastado la plaza del rate limit y con el token en `executing`. Además
+        # `shutil.move` con un destino que es directorio MUEVE DENTRO de él en
+        # lugar de reemplazarlo, que no es lo que la tool promete: rechazándolo
+        # aquí, ese camino queda cerrado.
+        for p, label in [(abs_src, "src"), (abs_dst, "dst")]:
+            if p.is_dir():
+                return json.dumps({
+                    "error": "is_directory",
+                    "path": _fs._rel_posix(p),
+                    "which": label,
+                    "hint": "fs_move_file only moves files, not directories.",
+                })
+
         rel_src = _fs._rel_posix(abs_src)
         rel_dst = _fs._rel_posix(abs_dst)
         args = {"src": rel_src, "dst": rel_dst, "overwrite": overwrite}
@@ -508,11 +568,6 @@ def register_write(
         if not confirmation_token:
             if not abs_src.exists():
                 return json.dumps({"error": "not_found", "path": rel_src})
-            if abs_src.is_dir():
-                return json.dumps({
-                    "error": "is_directory",
-                    "hint": "fs_move_file only moves files, not directories.",
-                })
 
             dst_exists = abs_dst.exists()
             if dst_exists and not overwrite:
@@ -589,6 +644,19 @@ def register_write(
             file_backup_max_total_mb=file_backup_max_total_mb,
         ) if abs_dst.exists() else None
 
+        # Última comprobación del destino, pegada al move. La de arriba se hizo
+        # muchos pasos antes —validación del token, rate limit, safety backup,
+        # backup por fichero, todos con E/S de por medio— y en ese hueco el
+        # destino puede aparecer; se sobrescribía en silencio un fichero que el
+        # usuario nunca vio en el preview. La ventana no desaparece del todo
+        # (no hay un rename portable de tipo "falla si existe" en Python), pero
+        # pasa de varios pasos a una línea.
+        if not overwrite and abs_dst.exists():
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="dst appeared before move"
+            )
+            return json.dumps({"error": "dst_exists", "dst": rel_dst})
+
         try:
             abs_dst.parent.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(shutil.move, str(abs_src), str(abs_dst))
@@ -637,11 +705,28 @@ def register_write(
         """
         tool_name = "fs_set_secret"
 
-        # Validar key: solo alfanuméricos, _, -
-        if not re.match(r"^[A-Za-z0-9_\-]+$", key):
+        # Validar key: solo alfanuméricos, _, -. `fullmatch`, no `match` con
+        # `$`: ese ancla acepta un salto de línea final y con él la clave
+        # rompía el fichero.
+        if not re.fullmatch(r"[A-Za-z0-9_\-]+", key):
             return json.dumps({
                 "error": "invalid_key",
                 "detail": "Secret key must contain only alphanumeric characters, _ and -",
+            })
+
+        # El valor se escribe como escalar YAML entre comillas dobles (ver
+        # `_yaml_quote_secret`), así que `: `, `#`, comillas o un `!` inicial
+        # no cambian su significado. Lo que no se puede citar de forma segura
+        # son los caracteres de control: un salto de línea añadía claves
+        # nuevas al fichero —sobreescribiendo secretos existentes— y la vista
+        # previa no lo enseñaba, porque solo muestra la clave.
+        if _CONTROL_CHARS_RE.search(value):
+            return json.dumps({
+                "error": "invalid_value",
+                "detail": (
+                    "Secret value must not contain line breaks or control "
+                    "characters."
+                ),
             })
 
         args = {"key": key, "value": value}
@@ -721,18 +806,36 @@ def register_write(
         else:
             raw = ""
 
+        quoted = _yaml_quote_secret(value)
+
         # Check si la key ya existe
         pattern = rf"^({re.escape(key)}\s*:)([^\n]*)"
-        if re.search(pattern, raw, re.MULTILINE):
+        existing = re.search(pattern, raw, re.MULTILINE)
+        if existing:
+            # Un escalar de bloque (`clave: |` o `clave: >`) ocupa las líneas
+            # siguientes; sustituir solo esta dejaría el resto pegado al valor
+            # nuevo y el fichero dejaría de decir lo que parece.
+            if existing.group(2).strip().startswith(("|", ">")):
+                await complete_confirmation_token(
+                    confirmation_token, success=False, error="block_scalar"
+                )
+                return json.dumps({
+                    "error": "block_scalar_unsupported",
+                    "key": key,
+                    "detail": (
+                        "This secret is stored as a multi-line YAML block "
+                        "scalar; edit it by hand."
+                    ),
+                })
             was_update = True
             # Reemplazar el valor
             def _replace_secret(m: re.Match) -> str:
-                return f"{m.group(1)} {value}"
+                return f"{m.group(1)} {quoted}"
             new_content = re.sub(pattern, _replace_secret, raw, flags=re.MULTILINE)
         else:
             # Añadir al final
             separator = "\n" if raw and not raw.endswith("\n") else ""
-            new_content = raw + separator + f"{key}: {value}\n"
+            new_content = raw + separator + f"{key}: {quoted}\n"
 
         try:
             secrets_path.parent.mkdir(parents=True, exist_ok=True)

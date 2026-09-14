@@ -56,27 +56,45 @@ def _validate_area_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], str |
 async def _count_area_dependents(
     ha_client: HAClient, area_id: str
 ) -> dict[str, int]:
-    """Cuenta entities y devices asociados al área."""
-    entities_count = 0
+    """Cuenta entities y devices que perderían el área al borrarla.
+
+    Una entity puede estar en un área de dos formas: con `area_id` propio, o
+    —el caso normal— con `area_id: null`, heredándola de su device. Contar solo
+    las primeras hacía que el preview de `ha_delete_area` anunciara "0 entities"
+    en áreas llenas de dispositivos, que es justo cuando más importa avisar.
+    Por eso primero se lee el device registry: los devices del área dan los
+    `device_id` cuyas entities heredan.
+    """
     devices_count = 0
-    try:
-        raw_ents: Any = await ha_client.ws_send(
-            {"type": "config/entity_registry/list"}
-        )
-        if isinstance(raw_ents, list):
-            entities_count = sum(
-                1 for e in raw_ents if e.get("area_id") == area_id
-            )
-    except HAConnectionError:
-        pass
+    device_ids_del_area: set[str] = set()
     try:
         raw_devs: Any = await ha_client.ws_send(
             {"type": "config/device_registry/list"}
         )
         if isinstance(raw_devs, list):
-            devices_count = sum(
-                1 for d in raw_devs if d.get("area_id") == area_id
-            )
+            for d in raw_devs:
+                if isinstance(d, dict) and d.get("area_id") == area_id:
+                    devices_count += 1
+                    device_id = d.get("id")
+                    if isinstance(device_id, str):
+                        device_ids_del_area.add(device_id)
+    except HAConnectionError:
+        pass
+
+    entities_count = 0
+    try:
+        raw_ents: Any = await ha_client.ws_send(
+            {"type": "config/entity_registry/list"}
+        )
+        if isinstance(raw_ents, list):
+            for e in raw_ents:
+                if not isinstance(e, dict):
+                    continue
+                propia = e.get("area_id")
+                if propia == area_id:
+                    entities_count += 1
+                elif propia is None and e.get("device_id") in device_ids_del_area:
+                    entities_count += 1
     except HAConnectionError:
         pass
     return {"entities_orphaned": entities_count, "devices_orphaned": devices_count}

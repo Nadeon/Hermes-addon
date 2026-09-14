@@ -161,6 +161,24 @@ class TestToolsScenes(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"result": "ok"})
 
+    async def test_update_scene_refuses_when_current_config_cannot_be_read(self) -> None:
+        """Un error transitorio al leer la config se trataba como "no existe"
+        y se sobreescribía la escena sin vista previa ni token."""
+        with aioresponses() as m:
+            m.get(
+                f"{REST_BASE}/config/scene/config/1710000000001",
+                status=502,
+                body="bad gateway",
+            )
+            result = await self.mcp.tools["ha_create_or_update_scene"](
+                "scene.fiesta",
+                {"name": "Nueva", "entities": {"light.cocina": "on"}},
+            )
+            posted = [k for k in m.requests if k[0].upper() == "POST"]
+
+        self.assertEqual(result.get("error"), "ha_unavailable", result)
+        self.assertEqual(posted, [])
+
     # ── delete ──────────────────────────────────────────────
 
     async def test_delete_scene_requires_token(self) -> None:

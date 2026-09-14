@@ -83,7 +83,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
         try:
             payload: dict[str, Any] = {"type": "hacs/repositories/list"}
             if category is not None:
-                payload["category"] = category
+                # El schema de HACS es `{Optional("categories"): [str]}` con
+                # PREVENT_EXTRA: mandar `category` (singular, string) hacía que
+                # el WS de HA rechazara el comando entero, así que CUALQUIER
+                # llamada filtrada fallaba.
+                payload["categories"] = [category]
             result = await ha_client.ws_send(payload)
             if isinstance(result, list):
                 return {

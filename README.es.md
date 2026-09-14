@@ -238,10 +238,11 @@ un x86, y bastante más en una Raspberry Pi, porque `pydantic-core`, `aiohttp` y
 > Con `reverse_proxy` y `mcp_bind` en la red puente (`172.30.32.1`), la conexión
 > ya no llega desde el loopback: uvicorn ignora la cabecera y **todas** las
 > peticiones se ven con la IP del proxy, así que el cubo por IP pasa a ser un
-> techo global. No es una vulnerabilidad —nada del sistema autoriza por IP, la
-> IP solo alimenta el rate limit y los logs, y el freno anti-fuerza-bruta del
-> login es global a propósito—, pero conviene saberlo: si tu proxy ya limita
-> por IP, deja que lo haga él.
+> techo global. Le pasa lo mismo al freno anti-fuerza-bruta del login, que es
+> por IP con un techo global de respaldo: visto desde una sola IP, solo queda
+> el techo. No es una vulnerabilidad —nada del sistema autoriza por IP, la IP
+> solo alimenta los límites y los logs—, pero conviene saberlo: si tu proxy ya
+> limita por IP, deja que lo haga él.
 
 ## Conectar Claude
 
@@ -297,7 +298,7 @@ hacer nada.
 | `config_write_min_interval_seconds` | `5` | Segundos mínimos entre dos escrituras en `/config` |
 | `config_write_max_per_minute` | `10` | Escrituras máximas por minuto en `/config` |
 | `health_startup_grace_seconds` | `120` | Margen de arranque antes de que el watchdog considere que Hermes no levanta |
-| `health_reconnect_tolerance_seconds` | `300` | Cuánto puede estar caída la WebSocket con HA antes de reportar `unhealthy` |
+| `health_reconnect_tolerance_seconds` | `300` | Cuánto puede estar caída la WebSocket con HA antes de que `/health` diga `degraded_long` en vez de `degraded`. Nunca devuelve 503: reiniciar no arregla una caída de Core, y el bucle de reconexión se recupera solo |
 
 ### Palancas de seguridad
 

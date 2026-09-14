@@ -46,6 +46,101 @@ _BINARY_PROBE = 8192
 _MAX_LINES_PER_READ = 5000
 _LIST_MAX_ENTRIES = 500
 
+# ── Frenos contra regex de coste exponencial (ReDoS) en fs_search_in_config ───
+#: Longitud máxima del patrón aceptado.
+_SEARCH_PATTERN_MAX_LEN = 256
+#: Solo se escanean con la regex los primeros N caracteres de cada línea.
+_SEARCH_MAX_LINE_LEN = 4096
+#: Caracteres que introducen un cuantificador que puede repetir sin tope.
+_QUANTIFIERS = frozenset("*+{")
+
+
+def _pattern_redos_risk(pattern: str) -> str | None:
+    """Heurística conservadora contra patrones de coste exponencial.
+
+    Devuelve el motivo del rechazo, o None si el patrón se acepta.
+
+    POR QUÉ existe: el módulo `re` de CPython es un motor con backtracking y su
+    ejecución NO se puede interrumpir — corre dentro de una llamada en C que no
+    atiende señales ni la cancelación de asyncio. `(a+)+$` contra una línea de
+    40 caracteres «a» no termina nunca, y como la búsqueda va en un
+    `asyncio.to_thread`, deja un worker del pool colgado para siempre: no hay
+    forma de recuperarlo sin reiniciar el add-on. Al no poder cortar la
+    ejecución, la única defensa es no llegar a empezarla.
+
+    Detecta las dos construcciones que disparan el coste exponencial de forma
+    reconocible sintácticamente:
+      - cuantificador anidado: un grupo que ya lleva cuantificador dentro y va
+        cuantificado por fuera — `(a+)+`, `(a*)*`, `(x{1,3})+`;
+      - retrorreferencias (`\\1`, `(?P=nombre)`), que hacen el matching NP-duro
+        por definición.
+
+    RIESGO RESIDUAL, asumido y documentado: la comprobación es sintáctica y no
+    es completa. No cubre la explosión por alternativas solapadas (`(a|ab)+`)
+    ni la de cuantificadores adyacentes (`a*a*$`), así que sigue siendo posible
+    construir un patrón caro que la pase. Por eso NO es la única defensa: el
+    patrón está limitado a `_SEARCH_PATTERN_MAX_LEN` caracteres y cada línea se
+    escanea recortada a `_SEARCH_MAX_LINE_LEN`, de modo que la entrada del
+    motor está acotada y con ella el coste del peor caso que sobreviva.
+    """
+    i = 0
+    n = len(pattern)
+    # Un elemento por grupo abierto: ¿lleva ya un cuantificador dentro?
+    group_has_quantifier: list[bool] = []
+    in_char_class = False
+
+    while i < n:
+        ch = pattern[i]
+
+        if ch == "\\":
+            nxt = pattern[i + 1] if i + 1 < n else ""
+            if nxt.isdigit() and nxt != "0":
+                return "backreference"
+            i += 2
+            continue
+
+        if in_char_class:
+            # Dentro de [...] los cuantificadores son literales.
+            if ch == "]":
+                in_char_class = False
+            i += 1
+            continue
+
+        if ch == "[":
+            in_char_class = True
+            i += 1
+            continue
+
+        if ch == "(":
+            if pattern.startswith("(?P=", i):
+                return "backreference"
+            group_has_quantifier.append(False)
+            i += 1
+            continue
+
+        if ch == ")":
+            inner = group_has_quantifier.pop() if group_has_quantifier else False
+            nxt = pattern[i + 1] if i + 1 < n else ""
+            if inner and nxt in _QUANTIFIERS:
+                return "nested quantifier"
+            if nxt in _QUANTIFIERS or nxt == "?":
+                # El grupo cuantificado cuenta como cuantificador del grupo que
+                # lo envuelve: así se detecta también `((a+)x)+`.
+                if group_has_quantifier:
+                    group_has_quantifier[-1] = True
+            i += 1
+            continue
+
+        if ch in _QUANTIFIERS:
+            if group_has_quantifier:
+                group_has_quantifier[-1] = True
+            i += 1
+            continue
+
+        i += 1
+
+    return None
+
 
 def _current_config_base() -> Path:
     """Devuelve el CONFIG_BASE actual (permite monkeypatch en tests)."""
@@ -402,6 +497,16 @@ def register(
         fichero blacklisteado ni sus .storage/ no permitidos. Esto evita
         exfiltración de secretos via pattern matching.
 
+        LÍMITES CONTRA ReDoS (el patrón lo elige quien llama): el patrón no
+        puede pasar de 256 caracteres, se rechaza —con
+        {"error": "pattern_too_complex"}— si lleva cuantificadores anidados
+        (`(a+)+`) o retrorreferencias, y cada línea se escanea recortada a los
+        primeros 4096 caracteres. La razón es que una regex de CPython no se
+        puede abortar a mitad: un patrón exponencial cuelga un worker del pool
+        de threads de forma irrecuperable. La detección es una heurística
+        sintáctica, NO una garantía: ver _pattern_redos_risk() para el riesgo
+        residual que queda cubierto solo por los recortes de tamaño.
+
         Args:
             pattern:        Expresión regular (o texto literal) a buscar.
             glob:           Patrón de ficheros a buscar. Default: **/*.yaml.
@@ -429,6 +534,26 @@ def register(
         """
         max_matches = max(1, min(max_matches, 200))
         config_base = _current_config_base()
+
+        # Frenos ReDoS: ANTES de compilar y, sobre todo, antes de buscar nada.
+        if len(pattern) > _SEARCH_PATTERN_MAX_LEN:
+            return json.dumps({
+                "error": "pattern_too_complex",
+                "detail": (
+                    f"Pattern is longer than {_SEARCH_PATTERN_MAX_LEN} characters"
+                ),
+            })
+        risk = _pattern_redos_risk(pattern)
+        if risk is not None:
+            logger.warning("fs_search_pattern_rejected", pattern=pattern, risk=risk)
+            return json.dumps({
+                "error": "pattern_too_complex",
+                "detail": f"Pattern rejected as potentially catastrophic: {risk}",
+                "hint": (
+                    "Avoid nested quantifiers such as (a+)+ and backreferences; "
+                    "a regex engine cannot be interrupted once it starts."
+                ),
+            })
 
         # Compile pattern
         flags = 0 if case_sensitive else re.IGNORECASE
@@ -495,6 +620,13 @@ def register(
                     if len(matches) >= max_matches:
                         truncated = True
                         break
+                    if len(line) > _SEARCH_MAX_LINE_LEN:
+                        # Techo al trabajo del motor: el backtracking crece con
+                        # la longitud de la entrada, así que una línea enorme
+                        # (un .yaml minificado, un blob en base64) multiplica el
+                        # coste de cualquier patrón. Se escanea solo el
+                        # principio.
+                        line = line[:_SEARCH_MAX_LINE_LEN]
                     m = regex.search(line)
                     if m:
                         matches.append({

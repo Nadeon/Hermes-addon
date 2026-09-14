@@ -32,7 +32,16 @@ logger = structlog.get_logger(__name__)
 
 
 class HAConnectionError(RuntimeError):
-    """Error general de conexión a Home Assistant."""
+    """Error general de conexión a Home Assistant.
+
+    Lleva opcionalmente el `status` HTTP que lo originó porque quien captura
+    necesita distinguir un 404 —el recurso no existe— de una caída real de HA,
+    y hacerlo parseando el texto del mensaje es frágil.
+    """
+
+    def __init__(self, *args: Any, status: int | None = None) -> None:
+        super().__init__(*args)
+        self.status = status
 
 
 # Sentinel para señalizar reconexión/cierre de WS a los waiter de eventos
@@ -253,7 +262,19 @@ class HAClient:
         # un valor con '/' aterrice en un endpoint vecino, y aquí sí se sabe
         # qué forma tiene el valor.
         validate_path_segment(entity_id, field="entity_id")
-        return await self._request_json("GET", f"/states/{entity_id}")
+        try:
+            return await self._request_json("GET", f"/states/{entity_id}")
+        except HAConnectionError as exc:
+            # Un 404 del endpoint /states es exactamente lo que promete el tipo
+            # de retorno: la entidad no existe. Dejarlo salir como excepción
+            # hacía que `ha_get_state` devolviera un error crudo en vez del
+            # resultado "no encontrado" documentado. SOLO el 404: cualquier
+            # otro fallo (401, 500, HA caído) tiene que seguir propagándose,
+            # porque disfrazarlo de "la entidad no existe" haría que las tools
+            # dieran por borrada una entidad que sigue ahí.
+            if getattr(exc, "status", None) == 404:
+                return None
+            raise
 
     async def get_services(self) -> list[dict[str, Any]]:
         """Devuelve los servicios disponibles en Home Assistant."""
@@ -330,6 +351,15 @@ class HAClient:
                     "ha_ws_reconnect_failure",
                     error=str(exc),
                     ws_url=self._ws_url,
+                )
+                # La caída puede venir de `ws_connect`, `_authenticate_ws`,
+                # `_subscribe_state_changes` o `_populate_state_cache`, caminos
+                # que NO pasan por el bucle de lectura y por tanto no fallaban
+                # nada. Quien estuviera esperando una respuesta WS se quedaba
+                # colgado hasta su propio timeout aunque la conexión ya se
+                # hubiera dado por perdida.
+                self._fail_pending_requests(
+                    HAConnectionError(f"Conexión WebSocket con Home Assistant perdida: {exc}")
                 )
             # `ready` se limpia en cada caída para que no sea un latch de un
             # solo sentido. Sin esto, con la WS caída `get_states()` seguiría
@@ -447,15 +477,19 @@ class HAClient:
         if self._ws is None:
             raise HAConnectionError("WebSocket no disponible para suscripción.")
 
-        subscribe_id = self._next_ws_request_id
-        self._next_ws_request_id += 1
-        await self._ws.send_json(
-            {
-                "id": subscribe_id,
-                "type": "subscribe_events",
-                "event_type": "state_changed",
-            }
-        )
+        # El contador de ids es compartido con `ws_send`: reservar aquí sin el
+        # lock permitiría que un comando en vuelo durante la reconexión se
+        # llevara el mismo id que esta suscripción y las respuestas se cruzaran.
+        async with self._ws_request_lock:
+            subscribe_id = self._next_ws_request_id
+            self._next_ws_request_id += 1
+            await self._ws.send_json(
+                {
+                    "id": subscribe_id,
+                    "type": "subscribe_events",
+                    "event_type": "state_changed",
+                }
+            )
 
         msg = await self._ws.receive(timeout=10)
         if msg.type != WSMsgType.TEXT:
@@ -569,7 +603,23 @@ class HAClient:
         if self._ws is None or self._ws.closed:
             raise HAConnectionError("WebSocket no disponible para envío de comandos.")
 
+        # El lock protege SOLO la sección crítica —reservar el id, registrar el
+        # future y escribir en el socket—, nunca la espera de la respuesta.
+        # Esperar dentro serializaba todo el tráfico WS detrás del comando más
+        # lento: un comando cuya respuesta no llega bloqueaba durante su
+        # timeout entero a cualquier otra llamada, aunque HA ya hubiera
+        # contestado a esa otra hacía rato. Es el mismo patrón que ya usan
+        # `ws_one_shot_subscription` y `ws_subscribe_events_queue`.
         async with self._ws_request_lock:
+            # El socket se vuelve a mirar YA con el lock cogido: la
+            # comprobación de arriba no vale por sí sola porque
+            # `_connect_and_watch` asigna `self._ws` ANTES de autenticar, así
+            # que entre una cosa y otra el socket puede haberse cerrado o
+            # haber sido sustituido por el de una reconexión.
+            ws = self._ws
+            if ws is None or ws.closed:
+                raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+
             request_id = self._next_ws_request_id
             self._next_ws_request_id += 1
 
@@ -578,17 +628,23 @@ class HAClient:
 
             payload_with_id = dict(payload)
             payload_with_id["id"] = request_id
-            await self._ws.send_json(payload_with_id)
-
             try:
-                return await asyncio.wait_for(future, timeout_seconds)
-            except asyncio.TimeoutError as exc:
+                await ws.send_json(payload_with_id)
+            except BaseException:
+                # Si el envío falla no hay nadie que vaya a resolver el future:
+                # se retira aquí mismo para no dejarlo colgado hasta la
+                # siguiente reconexión.
                 self._pending_ws_responses.pop(request_id, None)
-                raise HAConnectionError(
-                    f"Timeout waiting for HA WS response for command {payload.get('type')}"
-                ) from exc
-            finally:
-                self._pending_ws_responses.pop(request_id, None)
+                raise
+
+        try:
+            return await asyncio.wait_for(future, timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            raise HAConnectionError(
+                f"Timeout waiting for HA WS response for command {payload.get('type')}"
+            ) from exc
+        finally:
+            self._pending_ws_responses.pop(request_id, None)
 
     async def ws_one_shot_subscription(
         self,
@@ -1096,17 +1152,34 @@ class HAClient:
         return parsed
 
     def _fail_pending_requests(self, error: Exception) -> None:
-        """Fail all pending WS requests when the connection is lost."""
-        for future in list(self._pending_ws_responses.values()):
-            if not future.done():
-                future.set_exception(error)
-        self._pending_ws_responses.clear()
+        """Falla todo lo que estuviera esperando por la WS al perderse la conexión.
+
+        Son tres colecciones y hay que vaciar las tres. Antes solo se fallaban
+        las respuestas a comandos: las suscripciones one-shot
+        (`ha_render_template`) y las colas de eventos (`ha_wait_for_event`) se
+        quedaban esperando a un socket que ya no existe y solo se enteraban al
+        vencer su propio timeout, con HA caída todo ese rato.
+        """
+        for pendientes in (self._pending_ws_responses, self._pending_ws_subscriptions):
+            for future in list(pendientes.values()):
+                if not future.done():
+                    future.set_exception(error)
+            pendientes.clear()
+
+        # Los waiters de eventos no esperan un future sino una cola, así que su
+        # aviso es el sentinel: con él `ha_wait_for_event` devuelve
+        # "ws_reconnect" —que le dice al cliente que verifique el estado—
+        # en cuanto se cae la conexión, no minutos después.
+        for queue in list(self._event_subscription_queues.values()):
+            queue.put_nowait(_WS_CLOSED_SENTINEL)
+        self._event_subscription_queues.clear()
 
     async def _parse_response(self, resp: ClientResponse) -> Any:
         text = await resp.text()
         if resp.status >= 400:
             raise HAConnectionError(
-                f"HA REST {resp.method} {resp.url} failed {resp.status}: {text}"
+                f"HA REST {resp.method} {resp.url} failed {resp.status}: {text}",
+                status=resp.status,
             )
 
         if not text:

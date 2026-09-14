@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent / "hermes" / "src"))
 
 import hermes.fs as fs_module
+from hermes.service_policy import targets_restricted_entity
 from hermes.tools.ha import (
     CALL_SERVICE_DENYLIST,
     _auto_restricted,
@@ -325,6 +326,41 @@ template_script:
         automation_entities = [e for e in restricted if e.startswith("automation.")]
         self.assertGreater(len(automation_entities), 0)
 
+    async def test_script_alias_service_requires_token(self) -> None:
+        """HA registra un servicio `script.<object_id>` por script: llamarlo no
+        lleva entity_id, y así un script clasificado como peligroso se
+        ejecutaba sin token."""
+        _auto_restricted.add("script.dangerous_script")
+        ha_client = _make_ha_client()
+        tools = _register_ha_tools(ha_client, call_service_auto_classify=False)
+
+        result = await tools["ha_call_service"](domain="script", service="dangerous_script")
+        self.assertIn("confirmation_token", result)
+        ha_client.call_service.assert_not_called()
+
+    async def test_homeassistant_turn_on_all_requires_token(self) -> None:
+        _auto_restricted.add("script.dangerous_script")
+        ha_client = _make_ha_client()
+        tools = _register_ha_tools(ha_client, call_service_auto_classify=False)
+
+        result = await tools["ha_call_service"](
+            domain="homeassistant", service="turn_on", service_data={"entity_id": "all"}
+        )
+        self.assertIn("confirmation_token", result)
+        ha_client.call_service.assert_not_called()
+
+    async def test_response_tool_refuses_restricted_script(self) -> None:
+        """`ha_call_service_response` no consultaba las entidades restringidas."""
+        _auto_restricted.add("script.dangerous_script")
+        ha_client = _make_ha_client()
+        tools = _register_ha_tools(ha_client, call_service_auto_classify=False)
+
+        result = await tools["ha_call_service_response"](
+            domain="script", service="dangerous_script"
+        )
+        self.assertEqual(result.get("error"), "entity_restricted")
+        ha_client.call_service_response.assert_not_called()
+
     async def test_auto_restricted_entity_requires_token(self) -> None:
         # Mark an entity as restricted
         _auto_restricted.add("script.dangerous_script")
@@ -369,6 +405,43 @@ class TestCallServiceResponseDenylist(unittest.IsolatedAsyncioTestCase):
             service_data={"entity_id": "weather.home", "type": "daily"},
         )
         self.ha_client.call_service_response.assert_called_once()
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. targets_restricted_entity: alias por servicio y dominio homeassistant
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestTargetsRestrictedEntity(unittest.TestCase):
+    R = frozenset({"script.evil", "automation.evil"})
+
+    def test_script_alias_service_is_the_target(self) -> None:
+        self.assertTrue(targets_restricted_entity("script", {}, self.R, service="evil"))
+        self.assertTrue(targets_restricted_entity("Script", {}, self.R, service=" Evil "))
+        self.assertFalse(targets_restricted_entity("script", {}, self.R, service="benign"))
+
+    def test_homeassistant_fanout_reaches_every_domain(self) -> None:
+        self.assertTrue(targets_restricted_entity(
+            "homeassistant", {"entity_id": "all"}, self.R, service="turn_on"))
+        self.assertTrue(targets_restricted_entity(
+            "homeassistant", {"area_id": "salon"}, self.R, service="turn_off"))
+        self.assertTrue(targets_restricted_entity(
+            "homeassistant", {"target": {"device_id": "abc"}}, self.R, service="toggle"))
+        self.assertFalse(targets_restricted_entity(
+            "homeassistant", {"entity_id": "light.x"}, self.R, service="turn_on"))
+
+    def test_unrelated_domain_stays_free(self) -> None:
+        self.assertFalse(targets_restricted_entity(
+            "light", {"entity_id": "all"}, self.R, service="turn_on"))
+        self.assertFalse(targets_restricted_entity(
+            "light", {"area_id": "salon"}, self.R, service="turn_on"))
+
+    def test_without_service_argument_behaviour_is_unchanged(self) -> None:
+        self.assertTrue(targets_restricted_entity(
+            "script", {"entity_id": "script.evil"}, self.R))
+        self.assertTrue(targets_restricted_entity(
+            "script", {"entity_id": "all"}, self.R))
+        self.assertFalse(targets_restricted_entity("script", {}, self.R))
 
 
 if __name__ == "__main__":

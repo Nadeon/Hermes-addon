@@ -180,12 +180,24 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 try:
                     current = await ha_client.config_read("scene", config_id)
                 except HAConnectionError as exc:
+                    # No se sabe si la escena existe, así que no se puede
+                    # decidir entre "crear sin token" y "pedir confirmación".
+                    # Tratar el fallo como "no existe" sobreescribía una
+                    # escena real sin vista previa ni token.
                     logger.warning(
                         "ha_create_or_update_scene_preview_read_failed",
                         config_id=config_id,
                         error=str(exc),
                     )
-                    current = None
+                    return {
+                        "error": "ha_unavailable",
+                        "detail": str(exc),
+                        "hint": (
+                            "Could not read the current scene config, so it "
+                            "is unknown whether this call would overwrite an "
+                            "existing scene. Retry when Home Assistant responds."
+                        ),
+                    }
 
                 if current is None:
                     # Scene nueva — creación directa, sin token.

@@ -158,8 +158,17 @@ def _collect_entity_ids(data: dict) -> set[str]:
     return found
 
 
+# Dominio cuyos servicios genéricos (`turn_on`, `turn_off`, `toggle`) HA
+# reparte entre TODOS los dominios: un `homeassistant.turn_on` con
+# `entity_id: all` o por área alcanza también scripts y automatizaciones.
+_FANOUT_DOMAIN = "homeassistant"
+
+
 def targets_restricted_entity(
-    domain: str, data: dict, restricted: frozenset[str]
+    domain: str,
+    data: dict,
+    restricted: frozenset[str],
+    service: str | None = None,
 ) -> bool:
     """¿Puede esta llamada alcanzar una entidad restringida?
 
@@ -172,18 +181,32 @@ def targets_restricted_entity(
       coincide con el de alguna entidad restringida**. Así una llamada a
       `script.turn_on` por área sí la pide, y un `light.turn_on` por área no,
       que sería ruido inútil.
+    - HA registra un servicio por script, `script.<object_id>`, que lo ejecuta
+      sin ningún `entity_id` en los datos. La propia pareja dominio.servicio es
+      entonces el objetivo, y se compara contra el set.
+    - Los servicios genéricos de `homeassistant` alcanzan cualquier dominio,
+      así que para ellos el comodín y los targets indirectos cuentan siempre.
     """
     if not restricted or not isinstance(data, dict):
         return False
+
+    domain_lower = domain.strip().lower()
+
+    if service is not None:
+        alias = f"{domain_lower}.{service.strip().lower()}"
+        if alias in restricted:
+            return True
 
     entity_ids = _collect_entity_ids(data)
     if entity_ids & restricted:
         return True
 
-    domain_lower = domain.strip().lower()
     restricted_domains = {e.split(".", 1)[0] for e in restricted if "." in e}
+    reaches_domain = (
+        domain_lower == _FANOUT_DOMAIN or domain_lower in restricted_domains
+    )
 
-    if _MATCH_ALL in entity_ids and domain_lower in restricted_domains:
+    if _MATCH_ALL in entity_ids and reaches_domain:
         return True
 
     has_indirect = any(
@@ -192,4 +215,4 @@ def targets_restricted_entity(
         if isinstance(container, dict)
         for key in _INDIRECT_TARGET_KEYS
     )
-    return has_indirect and domain_lower in restricted_domains
+    return has_indirect and reaches_domain

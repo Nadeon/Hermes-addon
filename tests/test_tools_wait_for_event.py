@@ -236,6 +236,33 @@ class TestWaitForEvent(unittest.IsolatedAsyncioTestCase):
         except (asyncio.CancelledError, Exception):
             pass
 
+    async def test_cancel_wait_corta_la_espera_al_momento(self) -> None:
+        """Cancelar tiene que surtir efecto ya, no en el siguiente keepalive.
+
+        El loop solo miraba `cancel_event` al principio de cada vuelta y se
+        quedaba hasta 15 s dentro de `queue.get()`: `ha_cancel_wait` decía "ok"
+        y el wait seguía bloqueado todo ese rato.
+        """
+        self._register(max_seconds=60)
+        tarea = asyncio.create_task(
+            self.mcp.tools["ha_wait_for_event"](
+                None, "state_changed", timeout_seconds=60
+            )
+        )
+        # Dejar que el wait se registre y entre en la espera larga.
+        await asyncio.sleep(0.1)
+
+        activos = await self.mcp.tools["ha_list_active_waits"]()
+        self.assertEqual(activos["count"], 1)
+        wait_id = activos["waits"][0]["wait_id"]
+
+        cancelacion = await self.mcp.tools["ha_cancel_wait"](wait_id)
+        self.assertEqual(cancelacion["result"], "ok")
+
+        result = await asyncio.wait_for(tarea, timeout=1.0)
+        self.assertFalse(result["matched"])
+        self.assertEqual(result["reason"], "cancelled")
+
     async def test_list_active_waits_empty(self) -> None:
         self._register()
         result = await self.mcp.tools["ha_list_active_waits"]()
@@ -327,9 +354,11 @@ class TestHACSTools(unittest.IsolatedAsyncioTestCase):
         self._mock_ws_send(repos)
         result = await self.mcp.tools["ha_hacs_list_repositories"](category="integration")
         self.assertEqual(result["count"], 1)
-        # Verify category was passed in the WS call
+        # HACS declara `{Optional("categories"): [str]}` con PREVENT_EXTRA: el
+        # mock anterior daba por bueno un `category` singular que HA rechaza.
         call_args = self.ha_client.ws_send.call_args[0][0]
-        self.assertEqual(call_args.get("category"), "integration")
+        self.assertEqual(call_args.get("categories"), ["integration"])
+        self.assertNotIn("category", call_args)
 
     async def test_hacs_list_repos_invalid_category(self) -> None:
         result = await self.mcp.tools["ha_hacs_list_repositories"](category="invalid_cat")

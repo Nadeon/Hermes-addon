@@ -5,7 +5,7 @@ de config ni la colección WS de helpers. Los dashboards viven en
 `.storage/lovelace*`, nunca en YAML directo salvo `ui-lovelace.yaml` (YAML mode).
 
 Comandos WS usados:
-    lovelace/dashboards          — lista dashboards extra
+    lovelace/dashboards/list     — lista dashboards extra
     lovelace/config              — obtiene config (url_path opcional = default)
     lovelace/config/save         — guarda config (url_path opcional = default)
     lovelace/dashboards/create   — crea dashboard nuevo
@@ -16,7 +16,7 @@ Comandos WS usados:
     lovelace/resources/update    — modifica resource (resource_id)
     lovelace/resources/delete    — borra resource (resource_id)
 
-El dashboard principal ("default") no aparece en `lovelace/dashboards`.
+El dashboard principal ("default") no aparece en `lovelace/dashboards/list`.
 `ha_list_lovelace_dashboards` añade una entrada sintética para él.
 
 Concurrencia: last-write-wins. HA no tiene locking de dashboard.
@@ -101,18 +101,29 @@ def _validate_dashboard_config(config: Any) -> str | None:
 async def _list_extra_dashboards(ha_client: HAClient) -> list[dict[str, Any]]:
     """Lista los dashboards extra (excluye el default) vía WS.
 
-    En HA 2024+ el comando `lovelace/dashboards` puede no estar registrado
-    si no hay dashboards extra creados todavía. En ese caso devuelve lista
-    vacía en lugar de propagar el error.
+    El comando es `lovelace/dashboards/list` y no `lovelace/dashboards`:
+    HA registra la colección con `DashboardsCollectionWebSocket(..., prefijo
+    "lovelace/dashboards", ...)`, y `StorageCollectionWebsocket.async_setup`
+    solo da de alta `<prefijo>/{list,create,update,delete,subscribe}`. El alias
+    a secas existe únicamente para resources, así que el nombre corto nunca
+    estuvo registrado: HA respondía `success: false` y todas las tools de
+    dashboards extra quedaban muertas.
+
+    Si el comando falla se devuelve lista vacía para no romper la tool que
+    llama, pero se deja constancia en el log: tragarse el error en silencio es
+    lo que mantuvo este bug invisible.
     """
     try:
-        result = await ha_client.ws_send({"type": "lovelace/dashboards"})
+        result = await ha_client.ws_send({"type": "lovelace/dashboards/list"})
         if isinstance(result, list):
             return result
+        logger.warning(
+            "lovelace_dashboards_list_unexpected_type",
+            got=type(result).__name__,
+        )
         return []
-    except HAConnectionError:
-        # HA no registra lovelace/dashboards hasta que existe al menos un
-        # dashboard extra, o el comando ha sido renombrado en versiones recientes.
+    except HAConnectionError as exc:
+        logger.warning("lovelace_dashboards_list_failed", error=str(exc))
         return []
 
 

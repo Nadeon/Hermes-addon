@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from hermes.ha import HAConnectionError
+from hermes.tools import addons as addons_mod
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -216,30 +217,54 @@ class TestAddonTools(unittest.IsolatedAsyncioTestCase):
         self.tools = mcp.tools
 
     async def test_list_addons_installed(self) -> None:
+        # `GET /addons` solo devuelve add-ons INSTALADOS y sus objetos no
+        # llevan clave `installed`: el mock anterior metía ahí una entrada de
+        # store, una forma que el Supervisor nunca produce.
         self.client.set_sv_response("GET", "/addons", {
             "addons": [
                 {"slug": "core_mosquitto", "name": "Mosquitto", "version": "6.5.2",
                  "version_latest": "6.5.2", "state": "started", "update_available": False,
                  "repository": "core", "description": "MQTT broker"},
-                {"slug": "store_addon", "name": "StoreAddon", "version": None,
-                 "state": None, "installed": False},
             ]
         })
         result = await self.tools["sv_list_addons"](installed_only=True)
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["addons"][0]["slug"], "core_mosquitto")
+        self.assertEqual(result["source"], "/addons")
 
-    async def test_list_addons_all(self) -> None:
+    async def test_list_addons_all_uses_store_endpoint(self) -> None:
+        """installed_only=False tiene que ir al catálogo del store.
+
+        Regresión: se pedía `/addons` en ambos casos y se filtraba por una
+        clave `installed` inexistente, así que el parámetro no hacía nada y el
+        catálogo del store no se veía nunca.
+        """
         self.client.set_sv_response("GET", "/addons", {
             "addons": [
                 {"slug": "core_mosquitto", "name": "Mosquitto", "version": "6.5.2",
                  "version_latest": "6.5.2", "state": "started", "update_available": False},
-                {"slug": "store_addon", "name": "StoreAddon", "version": None,
-                 "state": None},
+            ]
+        })
+        self.client.set_sv_response("GET", "/store/addons", {
+            "addons": [
+                {"slug": "core_mosquitto", "name": "Mosquitto", "version": "6.5.2",
+                 "version_latest": "6.5.2", "update_available": False,
+                 "installed": True, "available": True, "repository": "core"},
+                {"slug": "core_deconz", "name": "deCONZ", "version": None,
+                 "version_latest": "6.20.0", "update_available": False,
+                 "installed": False, "available": True, "repository": "core"},
             ]
         })
         result = await self.tools["sv_list_addons"](installed_only=False)
         self.assertEqual(result["count"], 2)
+        self.assertEqual(result["source"], "/store/addons")
+        slugs = [a["slug"] for a in result["addons"]]
+        self.assertIn("core_deconz", slugs)
+        no_instalado = next(
+            a for a in result["addons"] if a["slug"] == "core_deconz"
+        )
+        self.assertIs(no_instalado["installed"], False)
+        self.assertIs(no_instalado["available"], True)
 
     async def test_get_addon_ok(self) -> None:
         self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {
@@ -279,8 +304,13 @@ class TestAddonTools(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("s3cr3t0", json.dumps(result))
 
     async def test_set_addon_options_preview(self) -> None:
-        self.client.set_sv_response("GET", "/addons/core_mosquitto/options/config", {
-            "require_certificate": False,
+        # Igual que sv_get_addon_options: las opciones actuales salen de /info.
+        # El endpoint /options/config el Supervisor lo reserva al propio add-on
+        # (403 a cualquier otro), así que mockearlo daba por bueno un preview
+        # que en real venía siempre vacío.
+        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {
+            "slug": "core_mosquitto",
+            "options": {"require_certificate": False, "password": "s3cr3t0"},
         })
         result = await self.tools["sv_set_addon_options"](
             "core_mosquitto", '{"require_certificate": true}'
@@ -288,9 +318,15 @@ class TestAddonTools(unittest.IsolatedAsyncioTestCase):
         self.assertIn("confirmation_token", result)
         self.assertIn("preview", result)
         self.assertEqual(result["preview"]["new_options"]["require_certificate"], True)
+        # Regresión: el preview enseñaba current_options: None siempre.
+        self.assertIs(
+            result["preview"]["current_options"]["require_certificate"], False
+        )
+        # Y lo que lee de /info sigue teniendo que salir redactado.
+        self.assertNotIn("s3cr3t0", json.dumps(result))
 
     async def test_set_addon_options_with_token(self) -> None:
-        self.client.set_sv_response("GET", "/addons/core_mosquitto/options/config", {})
+        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {})
         preview = await self.tools["sv_set_addon_options"](
             "core_mosquitto", '{"require_certificate": true}'
         )
@@ -427,7 +463,6 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         self._data_dir.mkdir()
 
         from hermes.tools.backups import register
-        import hermes.tools.addons as addons_mod
         import hermes.tools.backups as backups_mod
 
         self._patch_jobs = patch.object(
@@ -453,16 +488,39 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     async def test_list_backups_ok(self) -> None:
+        # El Supervisor manda `size` YA en MB (round(size_bytes/1048576, 2)) y
+        # `size_bytes` aparte. El mock anterior ponía bytes en `size`, una
+        # forma que el Supervisor nunca envía, y tapaba el bug.
         self.client.set_sv_response("GET", "/backups", {
             "backups": [
                 {"slug": "abc123", "name": "Full backup", "date": "2026-01-01T00:00:00Z",
-                 "type": "full", "size": 1024 * 1024 * 500, "protected": False},
+                 "type": "full", "size": 500.0, "size_bytes": 1024 * 1024 * 500,
+                 "protected": False},
             ]
         })
         result = await self.tools["sv_list_backups"]()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["backups"][0]["slug"], "abc123")
         self.assertAlmostEqual(result["backups"][0]["size_mb"], 500.0, places=0)
+
+    async def test_list_backups_size_mb_without_size_bytes(self) -> None:
+        """Sin `size_bytes`, `size` se interpreta como MB, no como bytes."""
+        self.client.set_sv_response("GET", "/backups", {
+            "backups": [
+                {"slug": "def456", "name": "Partial", "type": "partial",
+                 "size": 123.45, "protected": False},
+            ]
+        })
+        result = await self.tools["sv_list_backups"]()
+        self.assertAlmostEqual(result["backups"][0]["size_mb"], 123.45, places=2)
+
+    async def test_list_backups_size_mb_missing(self) -> None:
+        """Sin ningún campo de tamaño no se inventa un 0.0."""
+        self.client.set_sv_response("GET", "/backups", {
+            "backups": [{"slug": "ghi789", "name": "Sin tamaño", "type": "full"}]
+        })
+        result = await self.tools["sv_list_backups"]()
+        self.assertIsNone(result["backups"][0]["size_mb"])
 
     async def test_get_backup_ok(self) -> None:
         self.client.set_sv_response("GET", "/backups/abc123/info", {
@@ -588,6 +646,34 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         result = await self.tools["sv_list_pending_jobs"]()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["jobs"][0]["job_id"], "pending_test_job")
+
+
+    async def test_pending_jobs_file_corrupt_does_not_lose_the_job(self) -> None:
+        """Un pending_jobs.json que no es un objeto no puede tumbar el tracking.
+
+        Regresión: `_load_jobs_sync` solo cubría JSONDecodeError, así que un
+        documento válido pero no-dict (`[]`) hacía estallar `_track_job` con
+        TypeError DESPUÉS del POST — backup lanzado, job_id perdido y token de
+        confirmación sin cerrar.
+        """
+        addons_mod._PENDING_JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        addons_mod._PENDING_JOBS_PATH.write_text("[]", encoding="utf-8")
+
+        self.client.set_sv_response("POST", "/backups/new/full", {
+            "job_id": "job_tras_fichero_corrupto"
+        })
+        result = await self.tools["sv_create_backup_full"]("Backup tras corrupción")
+        self.assertEqual(result["job_id"], "job_tras_fichero_corrupto")
+
+        listado = await self.tools["sv_list_pending_jobs"]()
+        self.assertEqual(listado["count"], 1)
+        self.assertEqual(listado["jobs"][0]["job_id"], "job_tras_fichero_corrupto")
+
+    def test_load_jobs_sync_rejects_non_dict_documents(self) -> None:
+        addons_mod._PENDING_JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        for contenido in ("[]", "null", "42", '"texto"'):
+            addons_mod._PENDING_JOBS_PATH.write_text(contenido, encoding="utf-8")
+            self.assertEqual(addons_mod._load_jobs_sync(), {}, contenido)
 
 
 class TestOpcionesDeAddon(unittest.IsolatedAsyncioTestCase):

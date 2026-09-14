@@ -66,6 +66,25 @@ def canonicalize_for_hash(value: Any) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _escape_key(key: str) -> str:
+    """Aparta las claves de usuario del espacio de nombres de los centinelas.
+
+    Los floats y los bools se codifican como `{"__float__": ...}` /
+    `{"__bool__": ...}`. Sin escapar, un dict escrito a mano por el cliente
+    —`{"x": {"__float__": "1.5"}}`— normalizaba EXACTAMENTE igual que `{"x":
+    1.5}`: dos acciones distintas con el mismo action_hash, y el action_hash es
+    lo único que ata un confirmation_token a lo que se va a ejecutar. Quien
+    obtuviera un token para una acción inocua podía canjearlo por otra.
+
+    Con el escape, toda clave de usuario que empiece por '__' sale con un '_'
+    delante, así que las claves emitidas por el usuario empiezan por '___' y
+    jamás pueden coincidir con un centinela. La transformación es inyectiva
+    (claves distintas siguen dando claves distintas), que es lo que hace falta
+    para que el hash no colisione.
+    """
+    return "_" + key if key.startswith("__") else key
+
+
 def _normalize_value(value: Any) -> Any:
     """Normaliza recursivamente un valor para canonicalización."""
     if value is None:
@@ -104,7 +123,7 @@ def _normalize_value(value: Any) -> Any:
             # Coerce non-string keys to their JSON representation
             if not isinstance(norm_k, str):
                 norm_k = json.dumps(norm_k, sort_keys=True, separators=(",", ":"))
-            result[norm_k] = _normalize_value(v)
+            result[_escape_key(norm_k)] = _normalize_value(v)
         return result
 
     # Fallback: convertir a string
@@ -118,6 +137,23 @@ def compute_action_hash(tool_name: str, args: dict[str, Any]) -> str:
 
 
 # ── Gestión de confirmation tokens ────────────────────────────
+
+# Formato exacto de lo que emite `create_confirmation_token`: un UUID4 en
+# minúsculas. Se comprueba ANTES de construir ninguna ruta con el token. Sin
+# esta guarda, `CONFIRMATIONS_DIR / f"{token}.json"` con un token como
+# `../options` sale del directorio de confirmaciones, y como
+# `validate_confirmation_token` borra el fichero que encuentra cuando no parece
+# un token vigente, cualquier llamada a una tool destructiva se convertía en
+# una primitiva para borrar ficheros `.json` arbitrarios bajo /data y más allá.
+_TOKEN_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+
+
+def is_valid_confirmation_token_format(token: object) -> bool:
+    """True si `token` tiene la forma de un token emitido por Hermes."""
+    return isinstance(token, str) and _TOKEN_RE.match(token) is not None
+
 
 async def create_confirmation_token(
     tool_name: str,
@@ -171,6 +207,9 @@ async def validate_confirmation_token(
 
     Devuelve: (is_valid, error_message)
     """
+    if not is_valid_confirmation_token_format(token):
+        return False, "confirmation_token malformed. Request a new preview."
+
     token_path = CONFIRMATIONS_DIR / f"{token}.json"
 
     if not token_path.exists():
@@ -223,6 +262,8 @@ async def complete_confirmation_token(
     error: str = "",
 ) -> None:
     """Marca un token como completado o fallido."""
+    if not is_valid_confirmation_token_format(token):
+        return
     token_path = CONFIRMATIONS_DIR / f"{token}.json"
     if not token_path.exists():
         return
@@ -378,18 +419,34 @@ def _safe_unlink(path: Path) -> None:
 # `logging_setup`: las opciones de un add-on son nombres arbitrarios elegidos
 # por su autor (`mqtt_password`, `ts_authkey`, `api_token`…) y una lista cerrada
 # de claves exactas nunca los cubriría todos.
+# Las claves criptográficas de los add-ons de red (WireGuard, Z-Wave, Zigbee,
+# Matter) no se llaman "password" ni "token": son `psk`, `pre_shared_key`,
+# `network_key`, `encryption_key`. Sin ellas en la lista, `sv_get_addon` y
+# `sv_get_addon_options` devolvían en claro justo el material que da acceso a
+# la red — verificado con {"peers":[{"psk":"..."}], "network_key":"..."}.
+# `key` a secas NO entra: casi todo add-on tiene opciones con `key` en el
+# nombre que no son secretos (`keyboard_layout`, `key_path`, `sort_key`).
 _SENSITIVE_KEY_MARKERS: tuple[str, ...] = (
     "password", "passwd", "passphrase",
     "secret", "token", "credential", "authorization",
     "api_key", "apikey", "auth_key", "authkey",
-    "private_key", "privatekey", "salt",
+    "private_key", "privatekey", "privkey", "salt",
+    "psk", "shared_key", "sharedkey",
+    "network_key", "networkkey",
+    "encryption_key", "encryptionkey",
 )
 
 _STRUCT_REDACTED = "***REDACTED***"
 
 
 def _looks_sensitive(key: str) -> bool:
-    lowered = key.lower()
+    """True si el nombre de la clave delata un secreto.
+
+    El guion se normaliza a subrayado antes de comparar: `api-key`,
+    `pre-shared-key` y `network-key` son la misma clave que sus variantes con
+    subrayado, y sin normalizar se colaban sin redactar.
+    """
+    lowered = key.lower().replace("-", "_")
     return any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS)
 
 

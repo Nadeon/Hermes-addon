@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 import structlog
@@ -11,6 +12,26 @@ from hermes.ha import HAClient, HAConnectionError
 from hermes.tools._common import requires_ready
 
 logger = structlog.get_logger(__name__)
+
+# Rango admitido para `timeout`. El valor llega del cliente MCP y se usaba tal
+# cual: un 0 o un negativo hacen que la espera venza antes de que HA pueda
+# contestar (todo render devolvería "template_timeout"), y un valor enorme deja
+# la suscripción viva —y el turno del cliente bloqueado— sin tope. Se acota en
+# vez de rechazar porque el timeout es un parámetro accesorio: no merece tumbar
+# una llamada por lo demás correcta.
+_RENDER_TIMEOUT_MIN = 1.0
+_RENDER_TIMEOUT_MAX = 60.0
+
+
+def _clamp_timeout(timeout: float) -> float:
+    """Acota el timeout al rango admitido; los valores no numéricos caen al mínimo."""
+    try:
+        value = float(timeout)
+    except (TypeError, ValueError):
+        return _RENDER_TIMEOUT_MIN
+    if math.isnan(value):
+        return _RENDER_TIMEOUT_MIN
+    return min(max(value, _RENDER_TIMEOUT_MIN), _RENDER_TIMEOUT_MAX)
 
 
 def register(mcp: object, ha_client: HAClient) -> None:
@@ -42,7 +63,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                        usar {{ nombre }} en el template).
             timeout: Segundos máximos para esperar la respuesta de HA.
                      Templates que acceden a entidades inexistentes pueden tardar.
-                     Default: 10s.
+                     Se acota al rango 1-60s. Default: 10s.
             strict: Si True, referencias a variables indefinidas en el template
                     son fatales (devuelven error) en vez de resolverse a cadena
                     vacía. Útil para validar templates antes de usarlos en
@@ -59,6 +80,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
             por defecto con report_errors=True y strict=False). Solo lanza
             error si strict=True o si hay un error de sintaxis en el template.
         """
+        timeout = _clamp_timeout(timeout)
         payload: dict[str, Any] = {
             "type": "render_template",
             "template": template,

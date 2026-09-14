@@ -19,7 +19,7 @@ from hermes.security import (
     create_confirmation_token,
     validate_confirmation_token,
 )
-from hermes.tools._common import requires_ready
+from hermes.tools._common import not_found_response, requires_ready
 from hermes.tools._validation import InvalidIdentifier, identifier_error
 
 logger = structlog.get_logger(__name__)
@@ -285,6 +285,30 @@ def _auto_classify_sync(denylist: frozenset[str]) -> list[str]:
     return restricted
 
 
+def automation_entity_ids_for(config: dict, config_id: str) -> list[str]:
+    """entity_ids bajo los que registrar una automatización recién guardada.
+
+    HA deriva el entity_id del `alias` (`automation.<slugify(alias)>`), que es
+    lo mismo que hace el escáner de arranque en `_extract_automation_entities`.
+    Registrar solo `automation.<config_id>` dejaba la automatización sin
+    restringir hasta el siguiente reinicio, porque nadie la invoca por ese
+    nombre. Se devuelven ambos: el del alias es el real; el del id cubre el
+    caso sin alias, igual que en el arranque.
+    """
+    ids: list[str] = []
+    alias = config.get("alias") if isinstance(config, dict) else None
+    if alias:
+        slug = _slugify(str(alias))
+        if slug:
+            ids.append(f"automation.{slug}")
+    fallback = (
+        config_id if config_id.startswith("automation.") else f"automation.{config_id}"
+    )
+    if fallback not in ids:
+        ids.append(fallback)
+    return ids
+
+
 def classify_saved_config(entity_id: str, config: dict) -> bool:
     """Clasifica AL VUELO la config que se acaba de guardar.
 
@@ -407,7 +431,8 @@ def register(
             compact (bool, opcional): Si es True, elimina campos redundantes y nulos.
 
         Returns:
-            dict: El estado de la entidad o un objeto vacío si no existe.
+            dict: El estado de la entidad, o {"error": "not_found",
+            "entity_id": ...} si la entidad no existe.
 
         Nota:
             Usa un entity_id completo como 'light.cocina' para evitar coincidencias ambiguas.
@@ -419,6 +444,11 @@ def register(
             # y el cliente solo ve «Error executing tool», sin saber qué
             # corregir.
             return identifier_error(exc)
+        if state is None:
+            # Entidad inexistente: la misma forma que usan el resto de tools,
+            # en vez del dict vacío que el cliente no sabe distinguir de un
+            # estado sin campos.
+            return not_found_response(entity_id)
         if not state:
             return {}
         if compact:
@@ -480,7 +510,7 @@ def register(
         # mayúsculas y los targets indirectos por área o dispositivo— que HA sí
         # resuelve.
         entity_is_restricted = _policy.targets_restricted_entity(
-            domain_lower, data, get_auto_restricted_entities()
+            domain_lower, data, get_auto_restricted_entities(), service=service_lower
         )
 
         needs_token = in_denylist or entity_is_restricted
@@ -584,6 +614,21 @@ def register(
                 "hint": (
                     f"'{domain_lower}.{service_lower}' is in the service denylist. "
                     "Use ha_call_service with confirmation_token instead."
+                ),
+            }
+
+        # Mismo cierre que en ha_call_service: un script clasificado como
+        # peligroso se ejecuta igual por esta vía (`script.<id>` devuelve
+        # respuesta), y aquí no hay flujo de confirmación que pedir.
+        if _policy.targets_restricted_entity(
+            domain_lower, data, get_auto_restricted_entities(), service=service_lower
+        ):
+            return {
+                "error": "entity_restricted",
+                "hint": (
+                    f"'{domain_lower}.{service_lower}' reaches an auto-restricted "
+                    "script or automation. Use ha_call_service with "
+                    "confirmation_token instead."
                 ),
             }
 

@@ -5,10 +5,21 @@ para que el watchdog del Supervisor no reciba ECONNREFUSED durante
 los pasos largos del boot.
 
 Estados:
-  (a) booting   — pasos 3.5 a 8, devuelve 200 fijo
-  (b) healthy   — arranque pleno + grace period
-  (c) degraded  — WS caída en reconexión, 200 con body degraded
-  (d) unhealthy — pasado el umbral de reconexión, 503
+  (a) booting       — pasos 3.5 a 8, devuelve 200 fijo
+  (b) healthy       — arranque pleno + grace period
+  (c) degraded      — WS caída en reconexión, 200 con body degraded
+  (d) degraded_long — pasada la tolerancia de reconexión, 200 igualmente
+
+Por qué (d) ya NO devuelve 503: el 503 hacía que el watchdog del Supervisor
+reiniciara el add-on, y un reinicio nunca arregla una caída del core de HA —
+solo la empeora. Al reiniciar, el paso 8 del boot volvía a encontrarse el core
+caído, el watchdog reintentaba un número acotado de veces y acababa dejando
+Hermes parado para siempre, cuando el bucle de reconexión de `hermes.ha` se
+habría recuperado solo en cuanto el core volviera.
+
+`health_reconnect_tolerance_seconds` se sigue aceptando (no rompe configs
+existentes) pero ya solo distingue "degraded" de "degraded_long" en el cuerpo
+de la respuesta: sirve para diagnosticar, no para matar el proceso.
 """
 
 from __future__ import annotations
@@ -110,16 +121,19 @@ class HealthServer:
         if self._ws_disconnected_since is not None:
             disconnected_for = now - self._ws_disconnected_since
 
+        body["reconnecting_for_seconds"] = round(disconnected_for, 1)
+
         if disconnected_for < self._reconnect_tolerance:
             # Estado (c): degradado tolerable
             body["status"] = "degraded"
-            body["reconnecting_for_seconds"] = round(disconnected_for, 1)
             return JSONResponse(body, status_code=200)
 
-        # Estado (d): caído
-        body["status"] = "unhealthy"
-        body["reconnecting_for_seconds"] = round(disconnected_for, 1)
-        return JSONResponse(body, status_code=503)
+        # Estado (d): degradado prolongado. 200 a propósito — ver el docstring
+        # del módulo: un 503 aquí provoca un reinicio del watchdog que no
+        # arregla una caída del core y sí puede dejar el add-on parado del todo.
+        body["status"] = "degraded_long"
+        body["reconnect_tolerance_seconds"] = self._reconnect_tolerance
+        return JSONResponse(body, status_code=200)
 
     def _create_app(self) -> Starlette:
         """Crea la app Starlette minimalista para /health."""

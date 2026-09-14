@@ -13,6 +13,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from structlog.testing import capture_logs
+
 from hermes import security
 from hermes.ha import HAConnectionError
 import hermes.tools.lovelace as mod
@@ -179,7 +181,7 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         self.ws.install(self.ha_client)
 
         # Default responses
-        self.ws.set("lovelace/dashboards", FAKE_DASHBOARDS)
+        self.ws.set("lovelace/dashboards/list", FAKE_DASHBOARDS)
         self.ws.set("lovelace/config", FAKE_DEFAULT_CONFIG)
         self.ws.set("lovelace/resources", FAKE_RESOURCES)
 
@@ -212,13 +214,33 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(d["is_default"])
 
     async def test_list_dashboards_ws_error(self) -> None:
-        # Cuando lovelace/dashboards falla (HA no registra el comando),
-        # se devuelve al menos el dashboard default (degraded graceful).
-        self.ws.set("lovelace/dashboards", HAConnectionError("ws down"))
+        # Cuando lovelace/dashboards/list falla, se devuelve al menos el
+        # dashboard default (degraded graceful).
+        self.ws.set("lovelace/dashboards/list", HAConnectionError("ws down"))
         result = await self.mcp.tools["ha_list_lovelace_dashboards"]()
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 1)
         self.assertTrue(result[0]["is_default"])
+
+    async def test_list_dashboards_uses_registered_ws_command(self) -> None:
+        # Regresión: se enviaba `lovelace/dashboards` a secas, que HA nunca
+        # registra (StorageCollectionWebsocket solo da de alta
+        # `<prefijo>/list|create|update|delete|subscribe`). El resultado era
+        # `success: false` y todas las tools de dashboards extra muertas.
+        await self.mcp.tools["ha_list_lovelace_dashboards"]()
+        self.assertEqual(len(self.ws.calls_for("lovelace/dashboards/list")), 1)
+        self.assertEqual(self.ws.calls_for("lovelace/dashboards"), [])
+
+    async def test_list_dashboards_ws_error_is_logged(self) -> None:
+        # El error no puede tragarse en silencio: sin log, un comando WS
+        # inexistente pasa por "no hay dashboards extra" durante meses.
+        self.ws.set("lovelace/dashboards/list", HAConnectionError("ws down"))
+        with capture_logs() as logs:
+            await self.mcp.tools["ha_list_lovelace_dashboards"]()
+        self.assertIn(
+            "lovelace_dashboards_list_failed",
+            [entry.get("event") for entry in logs],
+        )
 
     # ── ha_get_lovelace_dashboard ──────────────────────────────────────────────
 

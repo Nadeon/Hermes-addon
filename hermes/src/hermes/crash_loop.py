@@ -1,9 +1,16 @@
 """Hermes — Detección de crash loop.
 
-Si el add-on ha registrado >10 arranques previos en los últimos 5 minutos,
+Si el add-on ha registrado 10 o más arranques previos en los últimos 5 minutos,
 aborta inmediatamente para proteger el disco (especialmente SD cards).
-El arranque actual NO se cuenta: se cumple >10 cuando hay 11+ entradas previas
-en la ventana, lo que equivale al 12º arranque real como primer disparo real.
+El arranque actual NO se cuenta: con `>= CRASH_THRESHOLD` el disparo ocurre en
+el 11º arranque real (10 entradas previas en la ventana).
+
+El umbral era `> CRASH_THRESHOLD`, es decir 11 entradas previas y por tanto el
+12º arranque. Ese disparo no llegaba nunca: el watchdog del Supervisor se rinde
+alrededor del 10º-11º reinicio, así que la guarda quedaba siempre por detrás de
+quien la iba a activar y el disco recibía la tanda entera de reinicios sin que
+nadie la parase.
+
 El orden es leer-contar-decidir antes de escribir.
 """
 
@@ -28,7 +35,7 @@ RING_BUFFER_SIZE = 20
 def check_crash_loop() -> None:
     """Comprueba y registra el arranque actual.
 
-    Si detecta crash loop (>CRASH_THRESHOLD arranques en CRASH_WINDOW_SECONDS),
+    Si detecta crash loop (>=CRASH_THRESHOLD arranques en CRASH_WINDOW_SECONDS),
     sale con sys.exit(1) SIN escribir nada — protege el disco.
     """
     now = time.time()
@@ -45,17 +52,21 @@ def check_crash_loop() -> None:
                 entries = [float(ts) for ts in parsed if isinstance(ts, (int, float))]
         except (json.JSONDecodeError, OSError, ValueError):
             # Fichero corrupto (crash previo durante escritura atómica).
-            # NO sobrescribir → preserva el fichero en disco para que el
-            # próximo boot con lectura exitosa vea el histórico real.
-            # Un único crash a media escritura no debe resetear el contador.
+            # Antes se preservaba el fichero sin tocarlo, pero un fichero
+            # corrupto NUNCA se vuelve legible solo: la guarda se quedaba
+            # desactivada para siempre, que es justo lo contrario de proteger
+            # el disco. Se reescribe con el arranque actual, aceptando el coste
+            # de perder el histórico de esta ventana (como mucho, un ciclo de
+            # crash loop más antes de que la guarda vuelva a disparar).
             file_was_corrupt = True
+            entries = []
             logger.warning(
                 "startup_log_corrupt",
                 path=str(STARTUP_LOG_PATH),
                 message=(
                     "startup_log.json is corrupt, likely due to a crash "
-                    "during atomic write. Skipping write this boot to "
-                    "preserve existing data."
+                    "during atomic write. Resetting it to the current boot "
+                    "so the crash-loop guard stays active."
                 ),
             )
 
@@ -63,7 +74,7 @@ def check_crash_loop() -> None:
     recent_count = sum(1 for ts in entries if (now - ts) < CRASH_WINDOW_SECONDS)
 
     # 3. Decidir
-    if recent_count > CRASH_THRESHOLD:
+    if recent_count >= CRASH_THRESHOLD:
         logger.critical(
             "crash_loop_detected",
             starts_in_window=recent_count,
@@ -77,10 +88,11 @@ def check_crash_loop() -> None:
         )
         sys.exit(1)
 
-    # 4. Registrar el arranque actual (solo si no es crash loop
-    #    Y el fichero no estaba corrupto — en ese caso preservamos el original)
+    # 4. Registrar el arranque actual (solo si no es crash loop). Si el
+    #    fichero estaba corrupto, `entries` viene vacío y esto lo deja en
+    #    [now], que es exactamente la reescritura que lo devuelve a servicio.
     if file_was_corrupt:
-        return
+        logger.info("startup_log_reset", path=str(STARTUP_LOG_PATH))
 
     entries.append(now)
     # Ring buffer: mantener solo las últimas N entries

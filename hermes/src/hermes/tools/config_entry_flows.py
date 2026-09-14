@@ -238,8 +238,12 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         Returns:
             type="form":         Siguiente paso, con nuevo step_id y schema.
-            type="create_entry": {"type": "create_entry", "entry_id": "...",
-                                  "title": "...", "result": "ok"}
+            type="create_entry": {"type": "create_entry", "status": "ok",
+                                  "title": "...", "result": {...}} donde
+                                 `result` es la config entry recién creada tal
+                                 como la manda HA (entry_id, domain, title,
+                                 source, state...). No hay `entry_id` en la
+                                 raíz: está dentro de `result`.
             type="abort":        {"type": "abort", "reason": "..."}
             type="menu":         {"type": "menu", "menu_options": [...]}
             Error:               {"error": "..."}
@@ -267,7 +271,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         flow_type = raw.get("type", "")
         if flow_type == "create_entry":
-            raw["result"] = "ok"
+            # OJO: en un config flow, `result` es de HA y trae la config entry
+            # creada serializada (entry_id, domain, title, source, state...).
+            # Escribir "ok" encima la borraba, y con ella el único sitio donde
+            # viaja el entry_id — sin él no se puede seguir con options flow ni
+            # con ha_get_config_entry. El estado va en `status`, que es campo
+            # nuestro y no pisa nada de HA.
+            raw["status"] = "ok"
 
         logger.info(
             "ha_continue_config_entry_flow_ok",
@@ -448,8 +458,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         Returns:
             type="form":         Siguiente paso del options flow.
-            type="create_entry": {"type": "create_entry", "result": "ok"}
-                                 Las opciones han sido guardadas.
+            type="create_entry": {"type": "create_entry", "status": "ok"}
+                                 Las opciones han sido guardadas. (Aquí HA sí
+                                 hace `pop("result")`, así que no hay entry que
+                                 preservar; se usa `status` igual que en
+                                 ha_continue_config_entry_flow.)
             type="abort":        {"type": "abort", "reason": "..."}
             Error:               {"error": "..."}
         """
@@ -476,7 +489,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         flow_type = raw.get("type", "")
         if flow_type == "create_entry":
-            raw["result"] = "ok"
+            raw["status"] = "ok"
 
         logger.info(
             "ha_continue_options_flow_ok",

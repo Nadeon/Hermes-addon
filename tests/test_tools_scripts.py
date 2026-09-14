@@ -323,6 +323,24 @@ class TestToolsScripts(unittest.IsolatedAsyncioTestCase):
             {"error": "not_found", "entity_id": "script.fantasma"},
         )
 
+    async def test_run_script_con_ha_caido_no_dice_not_found(self) -> None:
+        """Una caída de HA no puede disfrazarse de "el script no existe".
+
+        `entity_exists` se tragaba cualquier HAConnectionError y devolvía
+        False: durante un corte, `ha_run_script` contestaba `not_found` y el
+        cliente daba por borrado un script que sigue ahí.
+        """
+        from hermes.ha import HAConnectionError
+
+        with aioresponses() as m:
+            m.get(
+                f"{REST_BASE}/states/script.saludar_otro",
+                status=503,
+                body="service unavailable",
+            )
+            with self.assertRaises(HAConnectionError):
+                await self.mcp.tools["ha_run_script"]("script.saludar_otro")
+
     async def test_reload_scripts(self) -> None:
         """Recargar exige confirmación: `script.reload` está en la denylist.
 

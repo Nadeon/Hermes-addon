@@ -30,15 +30,16 @@ import os
 import secrets
 import time
 import uuid
-from base64 import urlsafe_b64encode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlsplit, urlunsplit
 
 from hermes import __version__
 import re
 
 import structlog
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
@@ -56,14 +57,23 @@ REFRESH_TOKEN_TTL = 604800    # 7 días
 AUTH_CODE_TTL = 60            # 60 segundos
 
 # ── Anti fuerza bruta del login ───────────────────────────────
-# El freno es GLOBAL, no por IP, y es deliberado: la password es el único
-# secreto que protege todo el sistema, así que un techo global es MÁS fuerte
-# que uno por IP —que se evade sin más que rotar la IP de origen—. En uso
-# normal el dueño no encadena fallos, así que no estorba.
-LOGIN_FAIL_THRESHOLD = 5          # fallos consecutivos antes de empezar a bloquear
+# Dos niveles. El primero es POR IP: cada origen acumula sus propios fallos y
+# su propio bloqueo exponencial, así que un atacante desde una dirección no
+# cierra el login a nadie más. El segundo es GLOBAL y de respaldo: cuenta los
+# fallos de todas las IPs que no están ya bloqueadas, y solo salta cuando
+# varias direcciones distintas fallan a la vez, que es lo que hace quien rota
+# la IP para esquivar el primer nivel.
+#
+# Un único freno global —lo que había antes— era más simple pero convertía el
+# login en un objetivo de denegación de servicio: bastaba una IP fallando una
+# vez por minuto, muy por debajo del límite pre-auth, para que el dueño viera
+# un 429 el 100 % del tiempo y no pudiera volver a autorizar ningún cliente.
+LOGIN_FAIL_THRESHOLD = 5          # fallos por IP antes de empezar a bloquearla
 LOGIN_FAIL_WINDOW = 300           # ventana de conteo de fallos (s)
 LOGIN_LOCK_BASE_SECONDS = 2       # backoff base
 LOGIN_LOCK_MAX_SECONDS = 300      # tope de bloqueo por escalón (5 min)
+LOGIN_GLOBAL_FAIL_THRESHOLD = 20  # fallos de IPs no bloqueadas antes del bloqueo global
+LOGIN_MAX_TRACKED_IPS = 10_000    # cota de memoria del estado por IP
 
 # ── Límite de clientes DCR ────────────────────────────────────
 # /oauth/register es público (RFC 7591). Sin tope, un atacante podría
@@ -138,6 +148,58 @@ def _hash_token(token: str) -> str:
 def _generate_token() -> str:
     """Genera un token opaco seguro."""
     return secrets.token_urlsafe(48)
+
+
+# RFC 7636 §4.1: el code_verifier son de 43 a 128 caracteres del conjunto
+# unreserved. Se comprueba antes de codificarlo como ASCII: un verifier con
+# caracteres fuera de ese conjunto hacía saltar UnicodeEncodeError y salía un
+# 500 con traza en el log desde un endpoint sin autenticar.
+_CODE_VERIFIER_RE = re.compile(r"^[A-Za-z0-9\-._~]{43,128}$")
+
+
+def _successor_key(presented_token: str) -> bytes:
+    """Clave con la que se sella el sucesor de un refresh token rotado.
+
+    Deriva del VALOR del token presentado, que nunca se guarda: en disco solo
+    hay su hash. Así el sucesor sellado solo lo puede abrir quien presente ese
+    mismo token, que es exactamente el cliente que perdió la respuesta de la
+    rotación y reintenta con el anterior.
+    """
+    return hashlib.sha256(b"hermes-refresh-successor-v1:" + presented_token.encode("utf-8")).digest()
+
+
+def _seal_successor(presented_token: str, successor_token: str) -> str:
+    """Cifra el refresh token sucesor con la clave derivada del presentado."""
+    nonce = secrets.token_bytes(12)
+    sealed = AESGCM(_successor_key(presented_token)).encrypt(
+        nonce, successor_token.encode("utf-8"), None
+    )
+    return urlsafe_b64encode(nonce + sealed).decode("ascii")
+
+
+def _open_successor(presented_token: str, sealed_b64: str) -> str | None:
+    """Recupera el sucesor sellado, o None si no se puede abrir con este token."""
+    try:
+        raw = urlsafe_b64decode(sealed_b64.encode("ascii"))
+        nonce, sealed = raw[:12], raw[12:]
+        return AESGCM(_successor_key(presented_token)).decrypt(nonce, sealed, None).decode("utf-8")
+    except Exception:  # noqa: BLE001 — cualquier fallo es "no se puede abrir"
+        return None
+
+
+def _append_query(url: str, params: dict[str, str]) -> str:
+    """Añade `params` a la query de `url`, conservando la que ya tuviera.
+
+    RFC 6749 §3.1.2 permite componentes de query en el redirect_uri. Con
+    `f"{uri}?{...}"` un cliente registrado con `https://host/cb?tenant=42`
+    recibía `?tenant=42?code=…`: el código quedaba dentro del valor de
+    `tenant` y la autorización moría en silencio.
+    """
+    parts = urlsplit(url)
+    query = parts.query
+    extra = urlencode(params)
+    query = f"{query}&{extra}" if query else extra
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
 
 
 
@@ -293,8 +355,9 @@ class OAuthServer:
             f"{self._base_url}/.well-known/oauth-protected-resource{MCP_PATH}"
         )
 
-        # Estado del throttle anti-fuerza-bruta del login (global)
+        # Estado del throttle anti-fuerza-bruta del login: por IP y global
         self._login_lock = asyncio.Lock()
+        self._login_ip_state: dict[str, dict[str, float]] = {}
         self._login_failed_attempts = 0
         self._login_first_fail_ts = 0.0
         self._login_locked_until = 0.0
@@ -385,6 +448,10 @@ class OAuthServer:
             "authorization_servers": [self._base_url],
             "bearer_methods_supported": ["header"],
         })
+
+    async def protected_resource_metadata_unknown(self, request: Request) -> JSONResponse:
+        """GET /.well-known/oauth-protected-resource/<otro path> — no hay tal recurso."""
+        return JSONResponse({"error": "not_found"}, status_code=404)
 
     async def authorization_server_metadata(self, request: Request) -> JSONResponse:
         """GET /.well-known/oauth-authorization-server"""
@@ -531,9 +598,13 @@ class OAuthServer:
         code_challenge_method = str(form.get("code_challenge_method", ""))
         scope = str(form.get("scope", "mcp"))
 
-        # Throttle anti-fuerza-bruta (global, no por IP: ver LOGIN_FAIL_THRESHOLD)
+        # Throttle anti-fuerza-bruta: por IP, con techo global de respaldo
+        # (ver LOGIN_FAIL_THRESHOLD). Tras Funnel `request.client.host` es la
+        # IP real del origen: uvicorn la toma del X-Forwarded-For que tailscaled
+        # reescribe (ver RateLimitPreAuth).
         now = time.time()
-        lock_remaining = await self._login_lock_remaining(now)
+        src_ip = request.client.host if request.client else "unknown"
+        lock_remaining = await self._login_lock_remaining(now, src_ip)
         if lock_remaining > 0:
             logger.warning(
                 "oauth_login_throttled",
@@ -562,7 +633,7 @@ class OAuthServer:
 
         if not password_valid:
             # Registrar el fallo para el backoff; mensaje genérico
-            await self._record_login_failure(now)
+            await self._record_login_failure(now, src_ip)
             logger.warning(
                 "oauth_auth_failed",
                 reason="bad_password",
@@ -583,7 +654,7 @@ class OAuthServer:
             )
 
         # Password correcta: resetear el throttle de fuerza bruta
-        await self._reset_login_throttle()
+        await self._reset_login_throttle(src_ip)
 
         # Validar cliente. El formato se comprueba ANTES de construir la ruta:
         # como guarda explícita y no como expresión condicional, para que se lea
@@ -644,8 +715,9 @@ class OAuthServer:
 
         # Generar authorization code
         code = secrets.token_urlsafe(32)
+        # Nunca el código en claro: el fichero ya se nombra por su hash, y
+        # guardarlo dentro anulaba justamente eso.
         code_data = {
-            "code": code,
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "code_challenge": code_challenge,
@@ -662,7 +734,7 @@ class OAuthServer:
         if state:
             params["state"] = state
 
-        redirect_url = f"{redirect_uri}?{urlencode(params)}"
+        redirect_url = _append_query(redirect_uri, params)
         # El host del destino y si venía `state`, nunca la URL entera: lleva el
         # código dentro. Sin esto, cuando un cliente recibe la redirección y no
         # vuelve a canjear, el log no dice ni a dónde se le mandó.
@@ -703,13 +775,18 @@ class OAuthServer:
             return self._token_error("invalid_request", "unreadable_form", "")
 
         if grant_type == "authorization_code":
-            return await self._token_auth_code(form)
+            response = await self._token_auth_code(form)
         elif grant_type == "refresh_token":
-            return await self._token_refresh(form)
+            response = await self._token_refresh(form)
         else:
-            return self._token_error(
+            response = self._token_error(
                 "unsupported_grant_type", "unsupported_grant_type", grant_type
             )
+        # RFC 6749 §5.1: las respuestas con tokens no se cachean. Se pone en
+        # todas, también en los errores, para no depender de cuál es cuál.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     async def _token_auth_code(self, form: Any) -> JSONResponse:
         """Exchange authorization code for access + refresh tokens."""
@@ -749,6 +826,8 @@ class OAuthServer:
         _safe_unlink(code_path)
 
         # Verificar PKCE (S256)
+        if not _CODE_VERIFIER_RE.match(code_verifier):
+            return self._token_error("invalid_grant", "code_verifier_malformed", grant, client_id)
         challenge = code_data.get("code_challenge", "")
         expected = urlsafe_b64encode(
             hashlib.sha256(code_verifier.encode("ascii")).digest()
@@ -834,13 +913,26 @@ class OAuthServer:
             rotado_hace = time.time() - float(token_data.get("rotated_at", 0) or 0)
             sucesor_hash = token_data.get("successor_hash", "")
             sucesor = _safe_read(_TOKENS_DIR / f"{sucesor_hash}.json") if sucesor_hash else None
-            if rotado_hace <= REFRESH_ROTATION_GRACE_SECONDS and sucesor:
+            # El sucesor sellado solo se abre con el token presentado (ver
+            # `_seal_successor`); si no se abre, no es el reintento honesto.
+            sucesor_valor = _open_successor(refresh_token, token_data.get("successor_sealed", ""))
+            # Y el sucesor tiene que seguir siendo la cabeza viva de la cadena:
+            # si ya rotó otra vez, el que presenta el anterior va dos pasos por
+            # detrás y eso no lo explica una respuesta perdida.
+            sucesor_vivo = bool(sucesor) and sucesor.get("token_type") == "refresh"
+            if (
+                rotado_hace <= REFRESH_ROTATION_GRACE_SECONDS
+                and sucesor_vivo
+                and sucesor_valor
+            ):
                 logger.info(
                     "oauth_refresh_replay_within_grace",
                     client_id=token_data.get("client_id"),
                     seconds_since_rotation=round(rotado_hace, 1),
                 )
-                return self._issue_from_refresh(sucesor, sucesor_hash, rotate=False)
+                return self._issue_from_refresh(
+                    sucesor, sucesor_hash, rotate=False, refresh_value=sucesor_valor
+                )
 
             revocados = _revoke_token_chain(token_hash)
             logger.warning(
@@ -862,7 +954,9 @@ class OAuthServer:
         if client_id and token_data.get("client_id") != client_id:
             return self._token_error("invalid_grant", "client_id_mismatch", grant, client_id)
 
-        return self._issue_from_refresh(token_data, token_hash, rotate=True)
+        return self._issue_from_refresh(
+            token_data, token_hash, rotate=True, presented_token=refresh_token
+        )
 
     def _issue_from_refresh(
         self,
@@ -870,12 +964,18 @@ class OAuthServer:
         token_hash: str,
         *,
         rotate: bool,
+        refresh_value: str | None = None,
+        presented_token: str | None = None,
     ) -> JSONResponse:
         """Emite un access token nuevo a partir de un refresh token válido.
 
-        Con `rotate`, entrega además un refresh token nuevo y marca el anterior
-        como canjeado. Sin él (reintento dentro de la gracia) reutiliza el que
-        ya está vigente, para que un reintento no encadene rotaciones.
+        Con `rotate`, entrega además un refresh token nuevo, marca el anterior
+        como canjeado y deja en él el nuevo sellado con `presented_token` (ver
+        `_seal_successor`). Sin `rotate` (reintento dentro de la gracia) se
+        reutiliza el sucesor vigente y se devuelve su valor, `refresh_value`,
+        para que el cliente que perdió la respuesta original lo reciba por fin:
+        antes la respuesta salía sin `refresh_token`, el cliente se quedaba con
+        el viejo, y una hora después la cadena entera caía como reutilizada.
         """
         now = time.time()
 
@@ -905,6 +1005,8 @@ class OAuthServer:
         if not rotate:
             token_data["access_token_hash"] = _hash_token(nuevo_access)
             _atomic_write(_TOKENS_DIR / f"{token_hash}.json", token_data)
+            if refresh_value:
+                respuesta["refresh_token"] = refresh_value
             return JSONResponse(respuesta)
 
         nuevo_refresh = _generate_token()
@@ -928,6 +1030,8 @@ class OAuthServer:
         token_data["token_type"] = "refresh_rotated"
         token_data["rotated_at"] = now
         token_data["successor_hash"] = nuevo_hash
+        if presented_token:
+            token_data["successor_sealed"] = _seal_successor(presented_token, nuevo_refresh)
         token_data.pop("access_token_hash", None)
         _atomic_write(_TOKENS_DIR / f"{token_hash}.json", token_data)
 
@@ -954,12 +1058,15 @@ class OAuthServer:
         token_data = _safe_read(token_path)
 
         if token_data:
-            # Si es refresh, también revocar su access token
-            if token_data.get("token_type") == "refresh":
-                access_hash = token_data.get("access_token_hash", "")
-                if access_hash:
-                    _safe_unlink(_TOKENS_DIR / f"{access_hash}.json")
-            _safe_unlink(token_path)
+            # RFC 7009 §2.1: revocar un refresh token invalida lo emitido bajo
+            # la misma autorización. Se sigue la cadena entera desde este
+            # eslabón, también si ya rotó: antes un token rotado solo borraba
+            # su propio fichero y la sesión viva seguía funcionando, aunque el
+            # cliente creía haber cerrado sesión.
+            if token_data.get("token_type") in ("refresh", "refresh_rotated"):
+                _revoke_token_chain(token_hash)
+            else:
+                _safe_unlink(token_path)
             logger.info("oauth_token_revoked",
                         token_type=token_data.get("token_type", "unknown"))
 
@@ -990,36 +1097,84 @@ class OAuthServer:
 
     # ── Throttle anti-fuerza-bruta del login ──────────────────
 
-    async def _login_lock_remaining(self, now: float) -> int:
-        """Segundos restantes de bloqueo del login, o 0 si no está bloqueado."""
+    @staticmethod
+    def _lock_seconds(failed_attempts: int, threshold: int) -> int:
+        """Bloqueo exponencial: 2 s al alcanzar el umbral, doblando hasta el tope."""
+        over = failed_attempts - threshold
+        return min(LOGIN_LOCK_BASE_SECONDS * (2 ** over), LOGIN_LOCK_MAX_SECONDS)
+
+    async def _login_lock_remaining(self, now: float, ip: str = "unknown") -> int:
+        """Segundos restantes de bloqueo del login para `ip`, o 0 si puede intentar."""
         async with self._login_lock:
+            state = self._login_ip_state.get(ip)
+            if state is not None and now < state["locked_until"]:
+                return int(state["locked_until"] - now) + 1
             if now < self._login_locked_until:
                 return int(self._login_locked_until - now) + 1
         return 0
 
-    async def _record_login_failure(self, now: float) -> None:
-        """Registra un fallo de password y aplica backoff exponencial global."""
+    def _purge_login_ip_state(self, now: float) -> None:
+        """Descarta IPs sin fallos recientes ni bloqueo vigente; acota el tamaño."""
+        stale = [
+            ip for ip, st in self._login_ip_state.items()
+            if now - st["first_fail_ts"] > LOGIN_FAIL_WINDOW and now >= st["locked_until"]
+        ]
+        for ip in stale:
+            del self._login_ip_state[ip]
+        if len(self._login_ip_state) > LOGIN_MAX_TRACKED_IPS:
+            oldest = sorted(self._login_ip_state.items(), key=lambda kv: kv[1]["first_fail_ts"])
+            for ip, _ in oldest[: len(self._login_ip_state) - LOGIN_MAX_TRACKED_IPS]:
+                del self._login_ip_state[ip]
+
+    async def _record_login_failure(self, now: float, ip: str = "unknown") -> None:
+        """Registra un fallo de password: backoff por IP y techo global de respaldo.
+
+        Solo llega aquí un intento que NO estaba bloqueado (el bloqueo se
+        comprueba antes de mirar la password), así que una IP ya frenada no
+        sigue sumando al contador global: para disparar el nivel global hacen
+        falta varias direcciones distintas fallando dentro de la ventana.
+        """
         async with self._login_lock:
+            state = self._login_ip_state.get(ip)
+            if state is None or now - state["first_fail_ts"] > LOGIN_FAIL_WINDOW:
+                state = {"failures": 0, "first_fail_ts": now, "locked_until": 0.0}
+                self._login_ip_state[ip] = state
+            state["failures"] += 1
+            if state["failures"] >= LOGIN_FAIL_THRESHOLD:
+                lock = self._lock_seconds(int(state["failures"]), LOGIN_FAIL_THRESHOLD)
+                state["locked_until"] = now + lock
+                logger.warning(
+                    "oauth_login_locked",
+                    src_ip=ip,
+                    failed_attempts=int(state["failures"]),
+                    lock_seconds=lock,
+                )
+            self._purge_login_ip_state(now)
+
             if now - self._login_first_fail_ts > LOGIN_FAIL_WINDOW:
                 self._login_failed_attempts = 0
                 self._login_first_fail_ts = now
             self._login_failed_attempts += 1
-            if self._login_failed_attempts >= LOGIN_FAIL_THRESHOLD:
-                over = self._login_failed_attempts - LOGIN_FAIL_THRESHOLD
-                lock = min(
-                    LOGIN_LOCK_BASE_SECONDS * (2 ** over),
-                    LOGIN_LOCK_MAX_SECONDS,
+            if self._login_failed_attempts >= LOGIN_GLOBAL_FAIL_THRESHOLD:
+                lock = self._lock_seconds(
+                    self._login_failed_attempts, LOGIN_GLOBAL_FAIL_THRESHOLD
                 )
                 self._login_locked_until = now + lock
                 logger.warning(
-                    "oauth_login_locked",
+                    "oauth_login_locked_global",
                     failed_attempts=self._login_failed_attempts,
                     lock_seconds=lock,
                 )
 
-    async def _reset_login_throttle(self) -> None:
-        """Resetea el throttle tras un login con password correcta."""
+    async def _reset_login_throttle(self, ip: str = "unknown") -> None:
+        """Resetea el throttle tras un login con password correcta.
+
+        Se limpia la IP que acertó y el nivel global. El resto de IPs conservan
+        sus bloqueos: que el dueño entre no debe liberar a quien está probando
+        contraseñas desde otra dirección.
+        """
         async with self._login_lock:
+            self._login_ip_state.pop(ip, None)
             self._login_failed_attempts = 0
             self._login_locked_until = 0.0
             self._login_first_fail_ts = 0.0
@@ -1228,9 +1383,12 @@ class OAuthServer:
                 self.protected_resource_metadata,
                 methods=["GET"],
             ),
+            # RFC 9728 §3.1: los metadatos con path insertado corresponden a
+            # ESE recurso. Responder lo mismo para cualquier sufijo anunciaba
+            # `/mcp` como recurso de rutas que no existen.
             Route(
                 "/.well-known/oauth-protected-resource/{path:path}",
-                self.protected_resource_metadata,
+                self.protected_resource_metadata_unknown,
                 methods=["GET"],
             ),
             Route(
