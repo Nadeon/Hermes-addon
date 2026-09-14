@@ -22,9 +22,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import unittest.mock as mock
 from pathlib import Path
 from typing import Any
-from unittest import mock
 
 import yaml
 

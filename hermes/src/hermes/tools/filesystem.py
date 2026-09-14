@@ -297,7 +297,7 @@ def _scan_files_worker(
             "skipped": skipped,
             "truncated": truncated,
         }
-    except BaseException as exc:  # noqa: BLE001 — el hijo no puede propagar nada
+    except Exception as exc:  # noqa: BLE001 — el hijo no puede propagar nada
         payload = {
             "error": "search_failed",
             "detail": f"{type(exc).__name__}: {exc}",
@@ -305,7 +305,7 @@ def _scan_files_worker(
 
     try:
         result_queue.put(payload)
-    except BaseException:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         # Si la cola ya no está (padre muerto o hijo en proceso de morir) no
         # hay nada que hacer: el padre lo trata como fallo del hijo.
         pass
@@ -376,7 +376,7 @@ def _run_scan_in_subprocess(
                 payload = result_queue.get(timeout=_SEARCH_POLL_INTERVAL_SECONDS)
                 break
             except _queue.Empty:
-                pass
+                pass  # sin resultado todavía: se comprueba el proceso y el plazo
             except (EOFError, OSError, ValueError):
                 # Cola rota: el hijo murió a media escritura. Es un fallo del
                 # escaneo, no una excepción que deba subir hasta la tool.
@@ -442,7 +442,7 @@ def _run_scan_in_subprocess(
             result_queue.close()
             result_queue.join_thread()
         except (OSError, ValueError):
-            pass
+            pass  # la cola ya estaba cerrada o rota: no queda nada que liberar
         try:
             proc.close()
         except ValueError:

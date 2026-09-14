@@ -189,6 +189,21 @@ class HealthServer:
         TIME_WAIT y uvicorn vuelve a bindear un instante después. Lo que se gana
         es el diagnóstico —errno incluido— en vez de una muerte muda.
         """
+        # El health no se publica en todas las interfaces, nunca: lo consulta el
+        # watchdog del Supervisor desde la red puente y no lleva autenticación.
+        # Un host vacío o comodín equivaldría a 0.0.0.0, así que se rechaza
+        # antes de abrir nada.
+        if not self._bind_host or self._bind_host in ("0.0.0.0", "::", "*"):
+            logger.error(
+                "health_bind_failed",
+                host=self._bind_host,
+                port=self._bind_port,
+                hint="El health exige una dirección local concreta, no un comodín.",
+            )
+            raise RuntimeError(
+                f"El health no puede escuchar en {self._bind_host!r}: hace falta "
+                f"una dirección local concreta, no un comodín."
+            )
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             # El mismo flag que pone uvicorn: si no, este sondeo podría fallar

@@ -24,6 +24,7 @@ import asyncio
 import re
 import socket
 import unittest
+import unittest.mock as mock
 from pathlib import Path
 
 import structlog
@@ -49,6 +50,19 @@ def _puerto_libre() -> int:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
 
+
+
+class TestHealthNeverBindsAllInterfaces(unittest.IsolatedAsyncioTestCase):
+    """El health no lleva autenticación: un host vacío o comodín lo publicaría
+    en todas las interfaces, y se rechaza antes de abrir el socket."""
+
+    async def test_wildcard_hosts_are_refused(self) -> None:
+        from hermes.health import HealthServer
+
+        for host in ("", "0.0.0.0", "::", "*"):
+            server = HealthServer(bind_host=host, bind_port=0)
+            with self.assertRaises(RuntimeError, msg=repr(host)):
+                await server.start()
 
 class TestBindDelHealth(unittest.IsolatedAsyncioTestCase):
     async def test_un_bind_imposible_aborta_con_un_error_legible(self) -> None:
@@ -195,8 +209,7 @@ class TestResolucionDelBridgeSinTryExceptMuerto(unittest.TestCase):
         self.assertIn("resolve_hassio_bridge_gateway()", bloque)
 
     def test_la_funcion_sigue_devolviendo_el_fallback_en_vez_de_lanzar(self) -> None:
-        from unittest import mock
-
+        
         from hermes import network
 
         with mock.patch.object(network.psutil, "net_if_addrs", return_value={}):
