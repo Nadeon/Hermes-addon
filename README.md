@@ -302,7 +302,7 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `config_write_min_interval_seconds` | `5` | Minimum seconds between two writes to `/config` |
 | `config_write_max_per_minute` | `10` | Maximum writes per minute to `/config` |
 | `health_startup_grace_seconds` | `120` | Startup grace before the watchdog decides Hermes is not coming up |
-| `health_reconnect_tolerance_seconds` | `300` | How long the WebSocket to HA may stay down before reporting `unhealthy` |
+| `health_reconnect_tolerance_seconds` | `300` | How long the WebSocket to HA may stay down before `/health` reports `degraded_long` instead of `degraded`. It never returns 503: a restart does not help with a Core outage, and the reconnect loop recovers on its own |
 
 ### Security levers
 

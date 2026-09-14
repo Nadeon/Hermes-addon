@@ -298,7 +298,7 @@ hacer nada.
 | `config_write_min_interval_seconds` | `5` | Segundos mínimos entre dos escrituras en `/config` |
 | `config_write_max_per_minute` | `10` | Escrituras máximas por minuto en `/config` |
 | `health_startup_grace_seconds` | `120` | Margen de arranque antes de que el watchdog considere que Hermes no levanta |
-| `health_reconnect_tolerance_seconds` | `300` | Cuánto puede estar caída la WebSocket con HA antes de reportar `unhealthy` |
+| `health_reconnect_tolerance_seconds` | `300` | Cuánto puede estar caída la WebSocket con HA antes de que `/health` diga `degraded_long` en vez de `degraded`. Nunca devuelve 503: reiniciar no arregla una caída de Core, y el bucle de reconexión se recupera solo |
 
 ### Palancas de seguridad
 

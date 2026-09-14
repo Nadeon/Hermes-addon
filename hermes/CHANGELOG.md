@@ -1,5 +1,125 @@
 # Changelog
 
+## [1.0.8] — 2026-09-14
+
+Los 22 fallos restantes del repaso completo que empezó en la 1.0.7, con un
+test de regresión por cada uno y control negativo (cada test nuevo falla
+contra el código anterior). Ninguno es un agujero de seguridad como los de
+la 1.0.7, pero varios rompen funciones enteras o fuerzan reautorizaciones.
+
+### Fixed — OAuth: la ventana de gracia del refresh token no devolvía el sucesor
+
+Si Claude perdía la respuesta de una rotación y reintentaba con el token
+anterior, Hermes contestaba dentro de la ventana de gracia con un access
+token **sin** `refresh_token`: solo tenía el hash del sucesor y no podía
+devolverlo. El cliente se quedaba con el viejo, y una hora después ese viejo
+ya estaba fuera de gracia: se revocaba la cadena entera y tocaba volver a
+autorizar. Era una reautorización forzada con origen en el código.
+
+Ahora, al rotar, el sucesor se guarda sellado con AES-GCM bajo una clave
+derivada del valor del token que se presenta, que nunca está en disco. Solo
+quien presente ese token puede abrirlo, que es exactamente el cliente que
+reintenta. La gracia exige además que el sucesor siga siendo la cabeza viva
+de la cadena: un token dos rotaciones por detrás ya no se atiende, es
+reutilización y revoca todo. Antes esa réplica obtenía un access token
+válido sin disparar la alarma.
+
+### Fixed — OAuth y middleware, ocho más
+
+- `redirect_uri` con query recibía `?tenant=42?code=…`; ahora se añade con `&`.
+- Revocar un refresh token ya rotado no tocaba la sesión viva; ahora sigue la
+  cadena entera, como pide la RFC 7009.
+- Un `code_verifier` fuera del alfabeto de la RFC 7636 producía un 500 con
+  traza desde un endpoint sin autenticar; ahora es `invalid_grant`.
+- Las respuestas del token endpoint llevan `Cache-Control: no-store`.
+- El código de autorización ya no se guarda en claro dentro de su fichero.
+- `/.well-known/oauth-protected-resource/<otro path>` responde 404 en vez de
+  anunciar `/mcp` como recurso de rutas que no existen.
+- Las rutas OAuth públicas con barra final (`/oauth/token/`) devolvían 401, que
+  el cliente leía como fallo de registro.
+- El cubo de fallos de autenticación se vaciaba entero al superar 10.000 IPs,
+  reseteando el contador de todas; ahora purga primero las entradas con menos
+  fallos. Y el log de errores del MCP perdía las cabeceras repetidas al
+  reconstruir la respuesta.
+
+### Fixed — Arranque y ciclo de vida
+
+- `startup: services` arrancaba Hermes **antes** de Home Assistant Core, al
+  revés de lo que decía su comentario; en hardware lento el paso 8 agotaba su
+  plazo y salía con error. Ahora es `application`.
+- Una caída larga de Core dejaba Hermes parado para siempre: `/health` daba
+  503 a los 300 s, el vigilante reiniciaba, el arranque exigía Core y fallaba,
+  y tras varios intentos el Supervisor se rendía. El paso 8 ya no es fatal, y
+  `/health` devuelve 200 con `degraded_long` en vez de 503: reiniciar nunca
+  arregla una caída de Core, y el bucle de reconexión se recupera solo.
+- `call_service_auto_classify_dangerous: false` era imposible: `jq` con
+  `// empty` trata `false` como vacío y caía al valor por defecto.
+- La comprobación de versión de Core abortaba el arranque ante una respuesta
+  transitoria no reintentable (`version: "landingpage"`, cuerpo no JSON).
+- La protección anti crash-loop corría después de validar la configuración,
+  así que un bucle por configuración inválida, el caso real del 6 de
+  septiembre, nunca contaba; ahora corre antes. Un fichero de arranques
+  corrupto la desactivaba para siempre, y el umbral exigía un arranque más de
+  los que el Supervisor llega a hacer.
+- Los ficheros de confirmación caducados solo se limpiaban al arrancar; ahora
+  también cada hora.
+
+### Fixed — Cliente de Home Assistant
+
+- `ws_send` retenía el lock durante toda la espera de respuesta: una llamada
+  colgada serializaba todo el tráfico WebSocket hasta 30 s.
+- Al caer la WebSocket solo se fallaban los comandos pendientes; las
+  suscripciones de `ha_render_template` y las colas de `ha_wait_for_event`
+  esperaban su propio timeout con HA caída.
+- `ha_cancel_wait` tardaba hasta 15 s en hacer efecto.
+- `ha_render_template` aceptaba un timeout sin tope; se acota a 1-60 s.
+- El hash que ata un token de confirmación a sus argumentos podía colisionar:
+  `{"x": 1.5}` y `{"x": {"__float__": "1.5"}}` daban el mismo. Las claves de
+  usuario que empiezan por `__` se escapan.
+- `ha_get_state` de una entidad inexistente lanzaba error en vez de devolver
+  `not_found`, y a la inversa, con HA caída `ha_run_script` decía `not_found`
+  de un script que sigue ahí.
+
+### Fixed — Herramientas de Supervisor y registros
+
+- Todas las herramientas de dashboards adicionales estaban muertas: enviaban
+  `lovelace/dashboards`, que HA no registra; el comando es
+  `lovelace/dashboards/list`. El test simulaba el comando inexistente.
+- Actualizar un helper fallaba o borraba campos: HA reemplaza el objeto entero
+  y exige `name`; ahora se envía el objeto actual fusionado con el cambio. El
+  fixture de tests hacía un merge, por eso pasaban.
+- `size_mb` de los backups era siempre 0.0: el Supervisor ya devuelve
+  megabytes.
+- Al terminar un flujo de integración se perdía el `entry_id`: el estado
+  pisaba el campo `result` donde HA lo pone. Ahora va en `status`.
+- `ha_hacs_list_repositories` con filtro siempre fallaba: HACS espera
+  `categories`, no `category`.
+- `sv_set_addon_options` seguía leyendo el endpoint prohibido en su vista
+  previa; `installed_only=False` no hacía nada; `period="year"` se rechazaba.
+- La redacción de opciones de add-ons dejaba pasar `psk`, `pre_shared_key`,
+  `network_key` y las variantes con guion.
+- La vista previa de `ha_delete_area` no contaba las entidades que heredan el
+  área de su dispositivo. Y un `pending_jobs.json` que no fuera un objeto
+  perdía el job tras haber lanzado la operación.
+
+### Fixed — Sandbox de ficheros
+
+- `fs_search_in_config` ejecutaba cualquier expresión regular: `(a+)+$b` colgaba
+  un hilo del pool para siempre. Se rechazan cuantificadores anidados y
+  retrorreferencias, y se acotan patrón y línea.
+- Un `!include` circular en `configuration.yaml` rompía todas las vistas previas
+  de escritura, incluida la que hacía falta para arreglarlo; y un `!include`
+  fuera de `/config` se abría igualmente. Ahora hay detección de ciclos y
+  contención, y el conjunto de ficheros ejecutables se guarda resuelto.
+- El backup recién creado podía borrarse en la misma llamada por cuota, porque
+  la evicción ordenaba por una fecha que se copiaba del original; y la rotación
+  por ruta confundía `x.yaml` con `pkg/x.yaml`.
+- Rutas con byte nulo o demasiado largas hacían reventar la tool en vez de
+  devolver error; escribir o mover sobre un directorio fallaba después de
+  emitir token y consumir cupo.
+- La escritura atómica seguía un symlink plantado en el nombre temporal, dejaba
+  el fichero legible por todos un instante y no hacía `fsync`.
+
 ## [1.0.7] — 2026-09-14
 
 Siete fallos graves encontrados en un repaso completo del código, con un test
