@@ -140,6 +140,24 @@ class TestManifiesto(unittest.TestCase):
             with self.subTest(opcion=clave):
                 self.assertIn(clave, self.schema)
 
+    def test_arranca_despues_del_core_de_home_assistant(self) -> None:
+        """`startup: services` arrancaba Hermes ANTES que el core de HA.
+
+        El Supervisor arranca por fases (supervisor/core.py): initialize →
+        system → services → Home Assistant Core → application. El paso 8 del
+        boot de Hermes necesita el WebSocket del core dentro de
+        `health_startup_grace_seconds`, así que en la fase `services` —con el
+        core todavía sin levantar— un arranque en frío sobre hardware lento
+        agotaba el plazo y el add-on moría con error.
+
+        `application` es la única fase posterior al core.
+        """
+        self.assertEqual(
+            self.manifiesto["startup"],
+            "application",
+            "Hermes debe arrancar en la fase posterior al core de HA",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
