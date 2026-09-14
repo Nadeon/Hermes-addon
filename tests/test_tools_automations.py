@@ -290,6 +290,41 @@ class TestToolsAutomations(unittest.IsolatedAsyncioTestCase):
         for k, v in posted.items():
             self.assertIsNotNone(v, f"clave {k} no debería ser null")
 
+    async def test_saving_a_dangerous_automation_restricts_its_real_entity_id(self) -> None:
+        """Al guardar se registraba `automation.<id_numérico>`, mientras HA
+        deriva la entidad del alias: la automatización quedaba sin restringir
+        hasta el siguiente reinicio."""
+        from hermes.tools.ha import _auto_restricted, get_auto_restricted_entities
+
+        _auto_restricted.clear()
+        new_config = {
+            "alias": "Reiniciar Host",
+            "trigger": [],
+            "action": [{"service": "shell_command.rm_rf"}],
+        }
+        normalized = AutomationConfig.model_validate(new_config).model_dump(
+            exclude_none=True, by_alias=True, mode="json"
+        )
+        token = (await security.create_confirmation_token(
+            "ha_create_or_update_automation",
+            {"automation_id": "1712345678901", "config": normalized},
+        ))["confirmation_token"]
+
+        try:
+            with aioresponses() as m:
+                m.post(
+                    f"{REST_BASE}/config/automation/config/1712345678901",
+                    status=200,
+                    payload={"result": "ok"},
+                )
+                result = await self.mcp.tools["ha_create_or_update_automation"](
+                    "1712345678901", new_config, confirmation_token=token
+                )
+            self.assertEqual(result, {"result": "ok"})
+            self.assertIn("automation.reiniciar_host", get_auto_restricted_entities())
+        finally:
+            _auto_restricted.clear()
+
     # ── Bug 3: existence check ─────────────────────────────
 
     async def test_trigger_automation_not_found(self) -> None:

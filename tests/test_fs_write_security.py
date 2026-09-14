@@ -54,6 +54,7 @@ from hermes.fs_write import (
     safe_write_file,
 )
 from hermes.tools.filesystem_write import register_write
+from hermes import security
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -203,6 +204,135 @@ class TestBlacklistInWrite(_Base):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 2b. Blacklist en delete
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBlacklistInDelete(_Base):
+    """`fs_delete_file` no comprobaba la lista negra: `secrets.yaml`, la base
+    de datos del recorder o un certificado se borraban con `{"result": "ok"}`,
+    y el backup caía en `sensitive/`, que Hermes no lista ni restaura."""
+
+    async def test_secrets_yaml_cannot_be_deleted(self) -> None:
+        target = self.config_root / "secrets.yaml"
+        target.write_text("wifi_password: x\n", encoding="utf-8")
+        result = _j(await self.tools["fs_delete_file"]("secrets.yaml"))
+        self.assertEqual(result["error"], "blacklisted")
+        self.assertNotIn("confirmation_token", result)
+        self.assertTrue(target.exists())
+
+    async def test_protected_file_survives_a_forged_token(self) -> None:
+        target = self.config_root / "private.key"
+        target.write_text("k", encoding="utf-8")
+        token = (await security.create_confirmation_token(
+            "fs_delete_file", {"path": "private.key"}
+        ))["confirmation_token"]
+        result = _j(await self.tools["fs_delete_file"](
+            "private.key", confirmation_token=token
+        ))
+        self.assertEqual(result["error"], "blacklisted")
+        self.assertTrue(target.exists())
+
+    async def test_storage_auth_delete_rejected(self) -> None:
+        result = _j(await self.tools["fs_delete_file"](".storage/auth"))
+        self.assertEqual(result["error"], "blacklisted")
+
+    async def test_normal_file_still_deletable(self) -> None:
+        target = self.config_root / "borrame.yaml"
+        target.write_text("a: 1\n", encoding="utf-8")
+        with patch("hermes.tools.filesystem_write.maybe_trigger_safety_backup",
+                   new=AsyncMock(return_value=None)):
+            first = _j(await self.tools["fs_delete_file"]("borrame.yaml"))
+            token = first.get("confirmation_token")
+            self.assertIsNotNone(token, first)
+            result = _j(await self.tools["fs_delete_file"](
+                "borrame.yaml", confirmation_token=token
+            ))
+        self.assertEqual(result.get("result"), "ok", result)
+        self.assertFalse(target.exists())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2c. fs_set_secret: sin inyección YAML
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSetSecretHardening(_Base):
+    """El valor se concatenaba tal cual en `secrets.yaml`: un salto de línea
+    añadía claves que sobreescribían secretos existentes sin que la vista
+    previa lo enseñara, y un `: ` dejaba el fichero inválido."""
+
+    async def _set(self, key: str, value: str) -> dict:
+        with patch("hermes.tools.filesystem_write.maybe_trigger_safety_backup",
+                   new=AsyncMock(return_value=None)):
+            with patch("hermes.tools.filesystem_write.reserve_write_slot",
+                       new=AsyncMock(return_value=None)):
+                with patch("hermes.tools.filesystem_write.record_config_write",
+                           new=AsyncMock()):
+                    first = _j(await self.tools["fs_set_secret"](key, value))
+                    token = first.get("confirmation_token")
+                    if token is None:
+                        return first
+                    return _j(await self.tools["fs_set_secret"](
+                        key, value, confirmation_token=token
+                    ))
+
+    def _load(self) -> dict:
+        import yaml
+        return yaml.safe_load((self.config_root / "secrets.yaml").read_text(encoding="utf-8"))
+
+    async def test_newline_in_value_is_rejected_before_any_preview(self) -> None:
+        (self.config_root / "secrets.yaml").write_text(
+            "wifi_password: original\n", encoding="utf-8"
+        )
+        res = _j(await self.tools["fs_set_secret"](
+            "note", "x\nwifi_password: pwned\napi_key: stolen"
+        ))
+        self.assertEqual(res["error"], "invalid_value")
+        self.assertNotIn("confirmation_token", res)
+        self.assertEqual(self._load(), {"wifi_password": "original"})
+
+    async def test_control_characters_are_rejected(self) -> None:
+        for bad in ("a\rb", "a\x00b", "a\u2028b", "a\x7fb"):
+            res = _j(await self.tools["fs_set_secret"]("k", bad))
+            self.assertEqual(res["error"], "invalid_value", repr(bad))
+
+    async def test_key_with_trailing_newline_is_rejected(self) -> None:
+        res = _j(await self.tools["fs_set_secret"]("evil\n", "x"))
+        self.assertEqual(res["error"], "invalid_key")
+
+    async def test_yaml_special_characters_round_trip(self) -> None:
+        (self.config_root / "secrets.yaml").write_text(
+            "wifi_password: original\n", encoding="utf-8"
+        )
+        value = 'p: q #no-es-comentario "citado" !tag no 007 \\ ñ'
+        res = await self._set("api_key", value)
+        self.assertEqual(res.get("result"), "ok", res)
+        loaded = self._load()
+        self.assertEqual(loaded["api_key"], value)
+        self.assertEqual(loaded["wifi_password"], "original")
+
+    async def test_update_replaces_only_that_key(self) -> None:
+        (self.config_root / "secrets.yaml").write_text(
+            "api_key: old\nwifi_password: original\n", encoding="utf-8"
+        )
+        res = await self._set("api_key", "new: value")
+        self.assertEqual(res.get("result"), "ok", res)
+        self.assertTrue(res.get("was_update"))
+        text = (self.config_root / "secrets.yaml").read_text(encoding="utf-8")
+        self.assertEqual(text.count("api_key:"), 1)
+        self.assertEqual(self._load(), {"api_key": "new: value",
+                                        "wifi_password": "original"})
+
+    async def test_block_scalar_secret_is_not_clobbered(self) -> None:
+        original = "cert: |\n  line1\n  line2\nother: x\n"
+        (self.config_root / "secrets.yaml").write_text(original, encoding="utf-8")
+        res = await self._set("cert", "flat")
+        self.assertEqual(res.get("error"), "block_scalar_unsupported", res)
+        self.assertEqual(
+            (self.config_root / "secrets.yaml").read_text(encoding="utf-8"), original
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 3. Managed paths
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -227,7 +357,10 @@ class TestManagedPaths(_Base):
         self.assertFalse(is_managed_path(normal))
 
     async def test_storage_delete_rejected(self) -> None:
-        result = _j(await self.tools["fs_delete_file"](".storage/auth"))
+        # `.storage/lovelace` es gestionado pero no está en la lista negra: así
+        # se prueba la regla de managed path y no la de blacklist, que salta
+        # antes (ver TestBlacklistInDelete).
+        result = _j(await self.tools["fs_delete_file"](".storage/lovelace"))
         self.assertEqual(result["error"], "managed_path")
 
     async def test_storage_move_src_rejected(self) -> None:

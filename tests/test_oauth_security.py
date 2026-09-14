@@ -77,6 +77,40 @@ class TestLoginThrottle(_OAuthTestBase):
         self.assertGreaterEqual(second, first)
 
 
+class TestLoginThrottlePerIp(_OAuthTestBase):
+    """Un freno único global convertía el login en un objetivo de denegación
+    de servicio: una IP fallando una vez por minuto lo mantenía cerrado para
+    el dueño el 100 % del tiempo."""
+
+    async def test_one_ip_cannot_lock_another(self) -> None:
+        now = time.time()
+        for _ in range(oauth.LOGIN_FAIL_THRESHOLD + 5):
+            await self.server._record_login_failure(now, "203.0.113.7")
+        self.assertGreater(await self.server._login_lock_remaining(now, "203.0.113.7"), 0)
+        self.assertEqual(await self.server._login_lock_remaining(now, "198.51.100.2"), 0)
+
+    async def test_global_backstop_needs_many_distinct_ips(self) -> None:
+        now = time.time()
+        for i in range(oauth.LOGIN_GLOBAL_FAIL_THRESHOLD - 1):
+            await self.server._record_login_failure(now, f"10.0.0.{i}")
+        self.assertEqual(await self.server._login_lock_remaining(now, "192.0.2.1"), 0)
+        await self.server._record_login_failure(now, "10.0.0.250")
+        self.assertGreater(await self.server._login_lock_remaining(now, "192.0.2.1"), 0)
+
+    async def test_owner_success_does_not_free_the_attacker(self) -> None:
+        now = time.time()
+        for _ in range(oauth.LOGIN_FAIL_THRESHOLD):
+            await self.server._record_login_failure(now, "203.0.113.7")
+        await self.server._reset_login_throttle("198.51.100.2")
+        self.assertGreater(await self.server._login_lock_remaining(now, "203.0.113.7"), 0)
+
+    async def test_per_ip_state_is_bounded(self) -> None:
+        now = time.time()
+        for i in range(oauth.LOGIN_MAX_TRACKED_IPS + 50):
+            await self.server._record_login_failure(now, f"ip-{i}")
+        self.assertLessEqual(len(self.server._login_ip_state), oauth.LOGIN_MAX_TRACKED_IPS)
+
+
 class TestDCRHardening(_OAuthTestBase):
     async def test_rejects_javascript_redirect(self) -> None:
         resp = await self.server.register_client(

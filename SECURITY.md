@@ -102,8 +102,9 @@ report about one of them will be closed with a pointer to this section:
   guessable passwords — repetitive ones, keyboard and alphabet runs, entries from
   the most-used lists, and passwords containing project or hostname words. The
   rules follow NIST SP 800-63B §5.1.1.2. On top of that, failed logins are
-  throttled with a global exponential backoff, which cannot be evaded by rotating
-  source IP.
+  throttled per source IP with an exponential backoff, plus a global backstop
+  that trips when many distinct IPs fail at once, so rotating the source IP
+  does not lift the ceiling and a single IP cannot lock the owner out.
 - **Defence in depth** on actions:
   - `confirmation_token` for every destructive operation (writing or deleting
     files, restarting, uninstalling add-ons, restoring backups, dangerous

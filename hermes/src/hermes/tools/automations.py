@@ -14,7 +14,7 @@ from hermes.security import (
     create_confirmation_token,
     validate_confirmation_token,
 )
-from hermes.tools.ha import classify_saved_config
+from hermes.tools.ha import automation_entity_ids_for, classify_saved_config
 from hermes.tools._common import (
     guarded_entity_invoke,
     guarded_reload,
@@ -220,7 +220,8 @@ def register(mcp: object, ha_client: HAClient) -> None:
             )
             # Clasificar de inmediato: sin esto, una automatización recién
             # guardada no quedaría restringida hasta reiniciar el add-on.
-            classify_saved_config(automation_id if automation_id.startswith("automation.") else f"automation.{automation_id}", normalized_config)
+            for entity_id in automation_entity_ids_for(normalized_config, automation_id):
+                classify_saved_config(entity_id, normalized_config)
             await complete_confirmation_token(
                 confirmation_token,
                 success=True,

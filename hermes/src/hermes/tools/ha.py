@@ -285,6 +285,30 @@ def _auto_classify_sync(denylist: frozenset[str]) -> list[str]:
     return restricted
 
 
+def automation_entity_ids_for(config: dict, config_id: str) -> list[str]:
+    """entity_ids bajo los que registrar una automatización recién guardada.
+
+    HA deriva el entity_id del `alias` (`automation.<slugify(alias)>`), que es
+    lo mismo que hace el escáner de arranque en `_extract_automation_entities`.
+    Registrar solo `automation.<config_id>` dejaba la automatización sin
+    restringir hasta el siguiente reinicio, porque nadie la invoca por ese
+    nombre. Se devuelven ambos: el del alias es el real; el del id cubre el
+    caso sin alias, igual que en el arranque.
+    """
+    ids: list[str] = []
+    alias = config.get("alias") if isinstance(config, dict) else None
+    if alias:
+        slug = _slugify(str(alias))
+        if slug:
+            ids.append(f"automation.{slug}")
+    fallback = (
+        config_id if config_id.startswith("automation.") else f"automation.{config_id}"
+    )
+    if fallback not in ids:
+        ids.append(fallback)
+    return ids
+
+
 def classify_saved_config(entity_id: str, config: dict) -> bool:
     """Clasifica AL VUELO la config que se acaba de guardar.
 
@@ -480,7 +504,7 @@ def register(
         # mayúsculas y los targets indirectos por área o dispositivo— que HA sí
         # resuelve.
         entity_is_restricted = _policy.targets_restricted_entity(
-            domain_lower, data, get_auto_restricted_entities()
+            domain_lower, data, get_auto_restricted_entities(), service=service_lower
         )
 
         needs_token = in_denylist or entity_is_restricted
@@ -584,6 +608,21 @@ def register(
                 "hint": (
                     f"'{domain_lower}.{service_lower}' is in the service denylist. "
                     "Use ha_call_service with confirmation_token instead."
+                ),
+            }
+
+        # Mismo cierre que en ha_call_service: un script clasificado como
+        # peligroso se ejecuta igual por esta vía (`script.<id>` devuelve
+        # respuesta), y aquí no hay flujo de confirmación que pedir.
+        if _policy.targets_restricted_entity(
+            domain_lower, data, get_auto_restricted_entities(), service=service_lower
+        ):
+            return {
+                "error": "entity_restricted",
+                "hint": (
+                    f"'{domain_lower}.{service_lower}' reaches an auto-restricted "
+                    "script or automation. Use ha_call_service with "
+                    "confirmation_token instead."
                 ),
             }
 

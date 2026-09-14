@@ -52,6 +52,34 @@ class TestSecurityConfirmationTokens(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored.get("state"), "completed")
         self.assertEqual(stored.get("cached_result"), {"status": "ok"})
 
+    async def test_malformed_token_never_leaves_the_confirmations_dir(self) -> None:
+        """Un token como `../options` no puede convertirse en una ruta.
+
+        `validate_confirmation_token` construía la ruta con el token tal cual
+        y borraba el fichero que encontraba si no parecía un token vigente:
+        cualquier `.json` alcanzable desde CONFIRMATIONS_DIR se podía borrar
+        con solo pasarlo como confirmation_token a una tool destructiva.
+        """
+        base = Path(self.temp_dir.name)
+        security.CONFIRMATIONS_DIR = base / "confirmations"
+        security.CONFIRMATIONS_DIR.mkdir()
+        sibling = base / "options.json"
+        sibling.write_text('{"auth_password": "x"}', encoding="utf-8")
+
+        forged = ("../options", "..\\options", "options", "", "x" * 36,
+                  "00000000-0000-0000-0000-000000000000/../../options")
+        for token in forged:
+            valid, error = await security.validate_confirmation_token(
+                token, "fs_write_file", {"path": "a.yaml"}
+            )
+            self.assertFalse(valid, token)
+            self.assertIn("malformed", error, token)
+            await security.complete_confirmation_token(token, success=False, error="e")
+
+        self.assertTrue(sibling.exists(), "el fichero vecino fue borrado")
+        self.assertEqual(sorted(p.name for p in base.iterdir()),
+                         ["confirmations", "options.json"])
+
     async def test_confirmation_token_mismatch(self) -> None:
         payload = {
             "automation_id": "automation.test",

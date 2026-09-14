@@ -1,5 +1,94 @@
 # Changelog
 
+## [1.0.7] — 2026-09-14
+
+Siete fallos graves encontrados en un repaso completo del código, con un test
+de regresión por cada uno y control negativo: los 19 tests nuevos de guarda
+fallan contra el código de la 1.0.6. Actualiza cuanto antes.
+
+### Fixed — El `confirmation_token` se usaba como ruta de fichero sin validar
+
+Cualquier tool destructiva construía `CONFIRMATIONS_DIR / f"{token}.json"` con
+el token tal cual, y al no encontrar en él un token vigente **borraba** ese
+fichero. Con `confirmation_token="../options"` se borraba `/data/options.json`,
+la configuración del propio add-on con `auth_password` dentro; con
+`../write_rate_limit` se reseteaba el limitador de escrituras; con más `..` se
+llegaba a `/config`. Ahora el token debe tener la forma exacta de un UUID4
+antes de tocar el disco, y si no la tiene se rechaza sin construir ninguna ruta.
+
+### Fixed — `fs_delete_file` no comprobaba la lista negra
+
+`fs_delete_file("secrets.yaml")` devolvía `{"result": "ok"}` y lo borraba. Lo
+mismo con la base de datos del recorder, certificados y claves privadas, e
+`ip_bans.yaml`. El backup previo caía en `backups/sensitive/`, que Hermes no
+lista ni restaura: la pérdida era irrecuperable desde aquí. `fs_write_file` y
+`fs_move_file` sí lo comprobaban; delete se quedó fuera. Ahora rechaza con
+`blacklisted`, con y sin token, igual que ellos.
+
+### Fixed — `fs_set_secret` inyectaba YAML
+
+El valor se concatenaba tal cual en `secrets.yaml`. Un salto de línea añadía
+claves nuevas que sobreescribían secretos existentes, y la vista previa no lo
+enseñaba porque solo muestra la clave. Un `: ` dejaba el fichero inválido y
+Home Assistant sin arrancar, sin poder repararlo por Hermes porque el fichero
+está en la lista negra. Un `#` truncaba el valor; `no` y `007` se convertían
+en booleano y número.
+
+Ahora el valor se escribe como escalar YAML entre comillas dobles, así que se
+lee de vuelta exactamente igual sea cual sea su contenido; los caracteres de
+control se rechazan antes de emitir la vista previa; la clave se valida con
+`fullmatch`, porque `$` aceptaba un salto de línea final; y actualizar un
+secreto guardado como escalar de bloque (`clave: |`) se rechaza en vez de
+dejar las líneas de continuación pegadas al valor nuevo.
+
+### Fixed — Los scripts clasificados como peligrosos se ejecutaban sin token
+
+Home Assistant registra un servicio `script.<object_id>` por cada script, que
+lo ejecuta sin ningún `entity_id` en los datos. La comprobación de entidades
+restringidas solo miraba `entity_id`, así que `ha_call_service("script",
+"peligroso")` pasaba sin confirmación aunque el script invocara
+`shell_command.*`. Por la misma vía, `homeassistant.turn_on` con `entity_id:
+all` o por área alcanza todos los dominios y tampoco se detectaba. Y
+`ha_call_service_response` no consultaba las entidades restringidas en
+absoluto.
+
+`targets_restricted_entity` compara ahora también la pareja `dominio.servicio`
+contra el set, trata los servicios genéricos de `homeassistant` como capaces
+de alcanzar cualquier dominio, y `ha_call_service_response` la aplica y
+rechaza con `entity_restricted`.
+
+### Fixed — Una automatización recién guardada quedaba sin restringir
+
+Al guardar con `ha_create_or_update_automation` se clasificaba bajo
+`automation.<id_numérico>`, mientras Home Assistant deriva la entidad del
+alias (`automation.<slug>`), que es lo que registra el escáner de arranque y
+por lo que la invoca cualquiera. Una automatización nueva con
+`shell_command.*` se podía disparar sin token hasta el siguiente reinicio del
+add-on. Ahora se registra bajo el mismo entity_id que en el arranque.
+
+### Fixed — `ha_create_or_update_scene` sobreescribía sin token si HA fallaba al leer
+
+Un error transitorio al leer la configuración actual se trataba como "la
+escena no existe", y ese camino crea sin vista previa ni token: la escena real
+se reemplazaba entera. Ahora ese error devuelve `ha_unavailable` y no escribe
+nada.
+
+### Changed — El freno anti-fuerza-bruta del login es por IP, con techo global de respaldo
+
+El freno era un único bloqueo global y escalonado. Bien contra la fuerza bruta,
+pero convertía el login en un objetivo de denegación de servicio: una sola IP
+reintentando justo al expirar cada bloqueo, 92 intentos por hora, muy por
+debajo del límite pre-auth, mantenía `/oauth/authorize` en 429 el 100 % del
+tiempo. Nadie podía volver a autorizar un conector mientras durase.
+
+Ahora cada IP acumula sus propios fallos y su propio bloqueo exponencial, y el
+nivel global solo cuenta los fallos de IPs que no están ya bloqueadas: hace
+falta que veinte direcciones distintas fallen en cinco minutos para que salte,
+que es lo que hace quien rota la IP para esquivar el primer nivel. Con
+`network_mode: reverse_proxy` y `mcp_bind` en la red puente todas las
+peticiones llegan con la IP del proxy, así que ahí los dos niveles coinciden,
+como ya pasaba con el resto de límites por IP (ver el README).
+
 ## [1.0.6] — 2026-09-06
 
 ### Fixed — `sv_get_addon_options` no funcionaba con ningún add-on

@@ -242,10 +242,11 @@ minutes on x86, and considerably longer on a Raspberry Pi, because
 > Under `reverse_proxy` with `mcp_bind` on the bridge network, the connection no
 > longer arrives from the loopback: uvicorn ignores the header and **every**
 > request looks like it came from the proxy, so the per-IP bucket becomes a
-> global ceiling. This is not a vulnerability — nothing in the system authorizes
-> by IP, the IP only feeds the rate limit and the logs, and the login
-> anti-brute-force throttle is global on purpose — but it is worth knowing: if
-> your proxy already rate-limits per IP, let it do the job.
+> global ceiling. The same happens to the login anti-brute-force throttle,
+> which is per IP with a global backstop: seen from one IP, only the backstop
+> remains. This is not a vulnerability — nothing in the system authorizes by
+> IP, the IP only feeds the rate limits and the logs — but it is worth knowing:
+> if your proxy already rate-limits per IP, let it do the job.
 
 ## Connecting Claude
 

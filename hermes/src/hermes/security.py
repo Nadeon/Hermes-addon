@@ -119,6 +119,23 @@ def compute_action_hash(tool_name: str, args: dict[str, Any]) -> str:
 
 # ── Gestión de confirmation tokens ────────────────────────────
 
+# Formato exacto de lo que emite `create_confirmation_token`: un UUID4 en
+# minúsculas. Se comprueba ANTES de construir ninguna ruta con el token. Sin
+# esta guarda, `CONFIRMATIONS_DIR / f"{token}.json"` con un token como
+# `../options` sale del directorio de confirmaciones, y como
+# `validate_confirmation_token` borra el fichero que encuentra cuando no parece
+# un token vigente, cualquier llamada a una tool destructiva se convertía en
+# una primitiva para borrar ficheros `.json` arbitrarios bajo /data y más allá.
+_TOKEN_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+
+
+def is_valid_confirmation_token_format(token: object) -> bool:
+    """True si `token` tiene la forma de un token emitido por Hermes."""
+    return isinstance(token, str) and _TOKEN_RE.match(token) is not None
+
+
 async def create_confirmation_token(
     tool_name: str,
     args: dict[str, Any],
@@ -171,6 +188,9 @@ async def validate_confirmation_token(
 
     Devuelve: (is_valid, error_message)
     """
+    if not is_valid_confirmation_token_format(token):
+        return False, "confirmation_token malformed. Request a new preview."
+
     token_path = CONFIRMATIONS_DIR / f"{token}.json"
 
     if not token_path.exists():
@@ -223,6 +243,8 @@ async def complete_confirmation_token(
     error: str = "",
 ) -> None:
     """Marca un token como completado o fallido."""
+    if not is_valid_confirmation_token_format(token):
+        return
     token_path = CONFIRMATIONS_DIR / f"{token}.json"
     if not token_path.exists():
         return

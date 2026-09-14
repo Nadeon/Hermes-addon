@@ -56,14 +56,23 @@ REFRESH_TOKEN_TTL = 604800    # 7 días
 AUTH_CODE_TTL = 60            # 60 segundos
 
 # ── Anti fuerza bruta del login ───────────────────────────────
-# El freno es GLOBAL, no por IP, y es deliberado: la password es el único
-# secreto que protege todo el sistema, así que un techo global es MÁS fuerte
-# que uno por IP —que se evade sin más que rotar la IP de origen—. En uso
-# normal el dueño no encadena fallos, así que no estorba.
-LOGIN_FAIL_THRESHOLD = 5          # fallos consecutivos antes de empezar a bloquear
+# Dos niveles. El primero es POR IP: cada origen acumula sus propios fallos y
+# su propio bloqueo exponencial, así que un atacante desde una dirección no
+# cierra el login a nadie más. El segundo es GLOBAL y de respaldo: cuenta los
+# fallos de todas las IPs que no están ya bloqueadas, y solo salta cuando
+# varias direcciones distintas fallan a la vez, que es lo que hace quien rota
+# la IP para esquivar el primer nivel.
+#
+# Un único freno global —lo que había antes— era más simple pero convertía el
+# login en un objetivo de denegación de servicio: bastaba una IP fallando una
+# vez por minuto, muy por debajo del límite pre-auth, para que el dueño viera
+# un 429 el 100 % del tiempo y no pudiera volver a autorizar ningún cliente.
+LOGIN_FAIL_THRESHOLD = 5          # fallos por IP antes de empezar a bloquearla
 LOGIN_FAIL_WINDOW = 300           # ventana de conteo de fallos (s)
 LOGIN_LOCK_BASE_SECONDS = 2       # backoff base
 LOGIN_LOCK_MAX_SECONDS = 300      # tope de bloqueo por escalón (5 min)
+LOGIN_GLOBAL_FAIL_THRESHOLD = 20  # fallos de IPs no bloqueadas antes del bloqueo global
+LOGIN_MAX_TRACKED_IPS = 10_000    # cota de memoria del estado por IP
 
 # ── Límite de clientes DCR ────────────────────────────────────
 # /oauth/register es público (RFC 7591). Sin tope, un atacante podría
@@ -293,8 +302,9 @@ class OAuthServer:
             f"{self._base_url}/.well-known/oauth-protected-resource{MCP_PATH}"
         )
 
-        # Estado del throttle anti-fuerza-bruta del login (global)
+        # Estado del throttle anti-fuerza-bruta del login: por IP y global
         self._login_lock = asyncio.Lock()
+        self._login_ip_state: dict[str, dict[str, float]] = {}
         self._login_failed_attempts = 0
         self._login_first_fail_ts = 0.0
         self._login_locked_until = 0.0
@@ -531,9 +541,13 @@ class OAuthServer:
         code_challenge_method = str(form.get("code_challenge_method", ""))
         scope = str(form.get("scope", "mcp"))
 
-        # Throttle anti-fuerza-bruta (global, no por IP: ver LOGIN_FAIL_THRESHOLD)
+        # Throttle anti-fuerza-bruta: por IP, con techo global de respaldo
+        # (ver LOGIN_FAIL_THRESHOLD). Tras Funnel `request.client.host` es la
+        # IP real del origen: uvicorn la toma del X-Forwarded-For que tailscaled
+        # reescribe (ver RateLimitPreAuth).
         now = time.time()
-        lock_remaining = await self._login_lock_remaining(now)
+        src_ip = request.client.host if request.client else "unknown"
+        lock_remaining = await self._login_lock_remaining(now, src_ip)
         if lock_remaining > 0:
             logger.warning(
                 "oauth_login_throttled",
@@ -562,7 +576,7 @@ class OAuthServer:
 
         if not password_valid:
             # Registrar el fallo para el backoff; mensaje genérico
-            await self._record_login_failure(now)
+            await self._record_login_failure(now, src_ip)
             logger.warning(
                 "oauth_auth_failed",
                 reason="bad_password",
@@ -583,7 +597,7 @@ class OAuthServer:
             )
 
         # Password correcta: resetear el throttle de fuerza bruta
-        await self._reset_login_throttle()
+        await self._reset_login_throttle(src_ip)
 
         # Validar cliente. El formato se comprueba ANTES de construir la ruta:
         # como guarda explícita y no como expresión condicional, para que se lea
@@ -990,36 +1004,84 @@ class OAuthServer:
 
     # ── Throttle anti-fuerza-bruta del login ──────────────────
 
-    async def _login_lock_remaining(self, now: float) -> int:
-        """Segundos restantes de bloqueo del login, o 0 si no está bloqueado."""
+    @staticmethod
+    def _lock_seconds(failed_attempts: int, threshold: int) -> int:
+        """Bloqueo exponencial: 2 s al alcanzar el umbral, doblando hasta el tope."""
+        over = failed_attempts - threshold
+        return min(LOGIN_LOCK_BASE_SECONDS * (2 ** over), LOGIN_LOCK_MAX_SECONDS)
+
+    async def _login_lock_remaining(self, now: float, ip: str = "unknown") -> int:
+        """Segundos restantes de bloqueo del login para `ip`, o 0 si puede intentar."""
         async with self._login_lock:
+            state = self._login_ip_state.get(ip)
+            if state is not None and now < state["locked_until"]:
+                return int(state["locked_until"] - now) + 1
             if now < self._login_locked_until:
                 return int(self._login_locked_until - now) + 1
         return 0
 
-    async def _record_login_failure(self, now: float) -> None:
-        """Registra un fallo de password y aplica backoff exponencial global."""
+    def _purge_login_ip_state(self, now: float) -> None:
+        """Descarta IPs sin fallos recientes ni bloqueo vigente; acota el tamaño."""
+        stale = [
+            ip for ip, st in self._login_ip_state.items()
+            if now - st["first_fail_ts"] > LOGIN_FAIL_WINDOW and now >= st["locked_until"]
+        ]
+        for ip in stale:
+            del self._login_ip_state[ip]
+        if len(self._login_ip_state) > LOGIN_MAX_TRACKED_IPS:
+            oldest = sorted(self._login_ip_state.items(), key=lambda kv: kv[1]["first_fail_ts"])
+            for ip, _ in oldest[: len(self._login_ip_state) - LOGIN_MAX_TRACKED_IPS]:
+                del self._login_ip_state[ip]
+
+    async def _record_login_failure(self, now: float, ip: str = "unknown") -> None:
+        """Registra un fallo de password: backoff por IP y techo global de respaldo.
+
+        Solo llega aquí un intento que NO estaba bloqueado (el bloqueo se
+        comprueba antes de mirar la password), así que una IP ya frenada no
+        sigue sumando al contador global: para disparar el nivel global hacen
+        falta varias direcciones distintas fallando dentro de la ventana.
+        """
         async with self._login_lock:
+            state = self._login_ip_state.get(ip)
+            if state is None or now - state["first_fail_ts"] > LOGIN_FAIL_WINDOW:
+                state = {"failures": 0, "first_fail_ts": now, "locked_until": 0.0}
+                self._login_ip_state[ip] = state
+            state["failures"] += 1
+            if state["failures"] >= LOGIN_FAIL_THRESHOLD:
+                lock = self._lock_seconds(int(state["failures"]), LOGIN_FAIL_THRESHOLD)
+                state["locked_until"] = now + lock
+                logger.warning(
+                    "oauth_login_locked",
+                    src_ip=ip,
+                    failed_attempts=int(state["failures"]),
+                    lock_seconds=lock,
+                )
+            self._purge_login_ip_state(now)
+
             if now - self._login_first_fail_ts > LOGIN_FAIL_WINDOW:
                 self._login_failed_attempts = 0
                 self._login_first_fail_ts = now
             self._login_failed_attempts += 1
-            if self._login_failed_attempts >= LOGIN_FAIL_THRESHOLD:
-                over = self._login_failed_attempts - LOGIN_FAIL_THRESHOLD
-                lock = min(
-                    LOGIN_LOCK_BASE_SECONDS * (2 ** over),
-                    LOGIN_LOCK_MAX_SECONDS,
+            if self._login_failed_attempts >= LOGIN_GLOBAL_FAIL_THRESHOLD:
+                lock = self._lock_seconds(
+                    self._login_failed_attempts, LOGIN_GLOBAL_FAIL_THRESHOLD
                 )
                 self._login_locked_until = now + lock
                 logger.warning(
-                    "oauth_login_locked",
+                    "oauth_login_locked_global",
                     failed_attempts=self._login_failed_attempts,
                     lock_seconds=lock,
                 )
 
-    async def _reset_login_throttle(self) -> None:
-        """Resetea el throttle tras un login con password correcta."""
+    async def _reset_login_throttle(self, ip: str = "unknown") -> None:
+        """Resetea el throttle tras un login con password correcta.
+
+        Se limpia la IP que acertó y el nivel global. El resto de IPs conservan
+        sus bloqueos: que el dueño entre no debe liberar a quien está probando
+        contraseñas desde otra dirección.
+        """
         async with self._login_lock:
+            self._login_ip_state.pop(ip, None)
             self._login_failed_attempts = 0
             self._login_locked_until = 0.0
             self._login_first_fail_ts = 0.0
