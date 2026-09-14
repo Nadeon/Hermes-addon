@@ -6,11 +6,13 @@ name: Etiquetar versión
 # (una etiqueta que el manifiesto no declara es una que el Supervisor nunca
 # pedirá).
 #
-# Es idempotente: si la etiqueta ya existe sobre este mismo commit, no la
-# toca (una etiqueta no se mueve: si existe sobre otro commit, falla, y lo
-# que toca es una versión nueva); si la release ya existe, no la duplica.
-# Así sirve también para crear la release de una versión etiquetada a mano
-# o por una versión anterior de este workflow, que solo etiquetaba.
+# Es idempotente: si la etiqueta ya existe, no la toca (una etiqueta no se
+# mueve; si hay que corregir algo, es una versión nueva) y solo comprueba
+# que el manifiesto del commit etiquetado declara esa versión; si la
+# release ya existe, no la duplica. Así sirve también para crear la release
+# de una versión ya etiquetada, a mano o por una versión anterior de este
+# workflow que solo etiquetaba, aunque la rama haya avanzado desde entonces.
+# Las notas salen del CHANGELOG de la rama elegida, que las tiene todas.
 #
 # IMPORTANTE: una etiqueta subida con GITHUB_TOKEN no dispara otros
 # workflows, por diseño de GitHub Actions. Este workflow NO publica las
@@ -40,23 +42,30 @@ jobs:
           # valor no puede convertirse en código del shell.
           VERSION: ${{ inputs.version }}
         run: |
-          MANIFIESTO=$(grep -Po '^version:\s*"\K[^"]+' hermes/config.yaml)
-          echo "version=$VERSION  manifiesto=$MANIFIESTO"
-          if [ "$VERSION" != "$MANIFIESTO" ]; then
-            echo "La versión ($VERSION) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
-            exit 1
-          fi
           # Una etiqueta anotada apunta a un objeto tag; "^{}" da el commit.
           # Una ligera (las de las primeras versiones) apunta al commit.
           EXISTENTE=$(git ls-remote --tags origin "refs/tags/v$VERSION^{}" | cut -f1)
           [ -n "$EXISTENTE" ] || EXISTENTE=$(git ls-remote --tags origin "refs/tags/v$VERSION" | cut -f1)
           if [ -n "$EXISTENTE" ]; then
-            if [ "$EXISTENTE" != "$(git rev-parse HEAD)" ]; then
-              echo "La etiqueta v$VERSION ya existe sobre ${EXISTENTE:0:7}, no sobre $(git rev-parse --short HEAD); una etiqueta no se mueve." >&2
+            # La etiqueta no se mueve. Se comprueba el manifiesto del commit
+            # etiquetado, no el de la rama: la rama puede haber avanzado a
+            # otra versión y este workflow se lanza también para crear la
+            # release de una versión ya etiquetada.
+            git fetch --depth=1 origin "refs/tags/v$VERSION:refs/tags/v$VERSION"
+            MANIFIESTO=$(git show "v$VERSION:hermes/config.yaml" | grep -Po '^version:\s*"\K[^"]+')
+            echo "version=$VERSION  manifiesto en v$VERSION=$MANIFIESTO"
+            if [ "$VERSION" != "$MANIFIESTO" ]; then
+              echo "La etiqueta v$VERSION apunta a un commit cuyo hermes/config.yaml dice $MANIFIESTO." >&2
               exit 1
             fi
-            echo "La etiqueta v$VERSION ya existe sobre este commit; no se toca."
+            echo "La etiqueta v$VERSION ya existe sobre ${EXISTENTE:0:7}; no se toca."
             exit 0
+          fi
+          MANIFIESTO=$(grep -Po '^version:\s*"\K[^"]+' hermes/config.yaml)
+          echo "version=$VERSION  manifiesto=$MANIFIESTO"
+          if [ "$VERSION" != "$MANIFIESTO" ]; then
+            echo "La versión ($VERSION) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
+            exit 1
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
