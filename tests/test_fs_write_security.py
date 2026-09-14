@@ -1210,11 +1210,16 @@ class TestYamlIncludeWalk(_Base):
 
         self.assertNotIn(str(victima.resolve()), abiertos,
                          "el resolver abrió un fichero de fuera de /config")
-        if isinstance(resultado, set):
-            self.assertNotIn(
-                str(victima.resolve()),
-                {str(Path(p).resolve()) for p in resultado},
-            )
+        # Decisión del issue #4: se salta con aviso, no se falla cerrado.
+        # Si alguien cambia la política, este test le obliga a decirlo.
+        self.assertIsInstance(
+            resultado, set,
+            "un include fuera de /config no debe fallar cerrado (issue #4)",
+        )
+        self.assertNotIn(
+            str(victima.resolve()),
+            {str(Path(p).resolve()) for p in resultado},
+        )
 
     async def test_an_include_reached_through_dotdot_is_executable(self) -> None:
         """El set guardaba `/config/sub/../sub/t.yaml`; el consumidor compara resuelto."""
