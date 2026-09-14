@@ -1,5 +1,92 @@
 # Changelog
 
+## [1.0.9] — 2026-09-14
+
+Cierra los issues #2, #3, #6, #7, #8 y #9: lo que el repaso completo dejó
+fuera de la 1.0.8 por bajo impacto o por exigir una decisión. Ninguno afecta
+al uso diario con Tailscale Funnel; el #6 solo aplica a `reverse_proxy` en la
+red puente. Un test de regresión por cambio, con control negativo.
+
+### Changed — `fs_search_in_config` ejecuta la expresión regular en un proceso aparte (#2)
+
+La heurística sintáctica de la 1.0.8 rechaza cuantificadores anidados y
+retrorreferencias, pero no la explosión por alternativas solapadas: `(a|aa)+$b`
+contra 38 «a» tarda 20 segundos y se multiplica por 2,6 cada dos caracteres
+más. Como el motor `re` de CPython no se puede interrumpir, un patrón así
+dejaba colgado para siempre un hilo del pool de `asyncio.to_thread`.
+
+Ahora el escaneo corre en un proceso hijo (contexto `spawn`, no `fork`: el
+add-on tiene un bucle de eventos con sockets y locks que un fork heredaría en
+mal estado) con un plazo de 10 segundos; al vencer, se le envía SIGTERM y, si
+hace falta, SIGKILL, y la herramienta devuelve `search_timeout`. La lista de
+ficheros legibles la sigue calculando el padre: el hijo recibe rutas ya
+filtradas por la lista negra y no decide nada. La heurística se queda como
+primera capa barata. Coste aceptado: unas décimas de segundo por búsqueda
+para arrancar el intérprete.
+
+### Fixed — Los backups de `a/b.yaml` y `a__b.yaml` ya no comparten nombre (#3)
+
+El aplanado de la ruta sustituía `/` por `__` y no era reversible. Los backups
+nuevos codifican `%` como `%25` y `/` como `%2F`, que sí lo es. Los ficheros
+antiguos siguen contando para la rotación y siguen siendo restaurables: los
+lectores aceptan ambos formatos, y un nombre antiguo ambiguo se marca con
+`legacy_name` y sus posibles rutas. La ambigüedad desaparece sola conforme
+rotan los backups antiguos. El destino de una restauración es siempre la ruta
+que pasa quien llama; el nombre del backup solo elige el origen.
+
+### Added — `trusted_proxy_ips` (#6)
+
+uvicorn solo cree `X-Forwarded-For` desde `127.0.0.1`, así que con
+`reverse_proxy` y `mcp_bind` en la red puente todas las peticiones llegaban
+con la IP del proxy y los tres límites por IP —pre-auth, fallos de
+autenticación y freno del login— se convertían en uno global. La opción
+nueva admite IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de
+HAOS), se valida al arrancar y se registra en `hermes_started`. Vacía por
+defecto: el modo `tailscale` no la necesita. Quien esté dentro de un rango de
+confianza puede falsificar la IP del cliente, que solo alimenta límites y
+logs, nunca la autorización.
+
+### Changed — OAuth: cuatro flecos de la especificación (#7)
+
+- `resource` (RFC 8707) se acepta en `/authorize` y `/token`, se compara con el
+  único recurso, el servidor MCP, y cualquier otro valor devuelve
+  `invalid_target`. Se guarda en el código de autorización como audiencia.
+- PKCE se comprueba antes de enseñar el formulario y antes de mirar la
+  contraseña: un cliente sin PKCE recibe un 400 que explica que el error es
+  suyo, y ya no le cuesta al dueño ni la contraseña ni un intento del freno.
+- `/.well-known/oauth-authorization-server/mcp` se sirve igual que la raíz
+  (RFC 8414 §3.1). Cada 404 era un viaje más por Funnel.
+- `redirect_uri` omitido en el token endpoint se registra en el log como
+  `oauth_token_redirect_uri_omitted`. No se rechaza: PKCE ya ata el código a
+  quien lo pidió, y no hay evidencia de que el cliente de Claude lo envíe;
+  rechazarlo podría romper un flujo que hoy funciona. Si el log demuestra que
+  nadie lo omite, se endurece.
+
+### Fixed — Arranque y apagado: cinco observaciones (#8)
+
+- El servidor de health comprueba el bind antes de arrancar y, si falla,
+  registra `health_bind_failed` con host, puerto, errno y una pista, en vez de
+  morir sin una línea. `HERMES_HEALTH_BIND` es una escotilla por variable de
+  entorno solo para desarrollo fuera de HAOS; no es opción del add-on.
+- Apagado ordenado: `S6_KILL_GRACETIME` sube a 10 s en la imagen, uvicorn
+  recibe `timeout_graceful_shutdown=3`, y la espera de Hermes queda entre
+  ambos. Un test lee el Dockerfile y el código para que los tres números no
+  se separen.
+- `health_startup_grace_seconds` se documenta como presupuesto **por paso**
+  del arranque, que es lo que siempre fue, y se registra en el paso 4.
+- La espera de Tailscale solo mira interfaces `tailscale*`. Antes cualquier
+  dirección CGNAT valía, y un uplink LTE o satélite la satisfacía sin
+  Tailscale. El modo userspace no crea ninguna interfaz, como ya exigía el
+  README.
+- Un `version` numérico en `/core/info` ya no aborta el arranque.
+
+### Docs — Los 502 en ráfagas paralelas (#9)
+
+El README, en ambos idiomas, explica el fallo intermitente que motivó el
+repaso: en ráfagas de 6 o más llamadas en paralelo, entre el 15 % y el 30 %
+vuelven con un 502 de Cloudflare para `api.anthropic.com` y nunca llegan a
+Hermes. Cómo reconocerlo en el log y cómo aislar el lado de Funnel.
+
 ## [1.0.8] — 2026-09-14
 
 Los 22 fallos restantes del repaso completo que empezó en la 1.0.7, con un
