@@ -20,8 +20,11 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import multiprocessing
 import os
+import queue as _queue
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +56,13 @@ _SEARCH_PATTERN_MAX_LEN = 256
 _SEARCH_MAX_LINE_LEN = 4096
 #: Caracteres que introducen un cuantificador que puede repetir sin tope.
 _QUANTIFIERS = frozenset("*+{")
+#: Tope de tiempo de pared del escaneo completo de una búsqueda, en segundos.
+#: Pasado ese plazo el subproceso que la ejecuta se mata.
+_SEARCH_TIMEOUT_SECONDS = 10.0
+#: Cada cuánto mira el padre si el hijo ya ha dejado el resultado en la cola.
+_SEARCH_POLL_INTERVAL_SECONDS = 0.05
+#: Margen que se le da a un hijo terminado (o matado) para acabar de morir.
+_SEARCH_REAP_TIMEOUT_SECONDS = 5.0
 
 
 def _pattern_redos_risk(pattern: str) -> str | None:
@@ -63,10 +73,12 @@ def _pattern_redos_risk(pattern: str) -> str | None:
     POR QUÉ existe: el módulo `re` de CPython es un motor con backtracking y su
     ejecución NO se puede interrumpir — corre dentro de una llamada en C que no
     atiende señales ni la cancelación de asyncio. `(a+)+$` contra una línea de
-    40 caracteres «a» no termina nunca, y como la búsqueda va en un
-    `asyncio.to_thread`, deja un worker del pool colgado para siempre: no hay
-    forma de recuperarlo sin reiniciar el add-on. Al no poder cortar la
-    ejecución, la única defensa es no llegar a empezarla.
+    40 caracteres «a» no termina nunca. Es la primera capa, la barata: rechaza
+    lo obvio sin gastar ni una lectura de disco ni un proceso.
+
+    NO es la capa que sostiene la garantía. Esa es el subproceso con timeout de
+    `_run_scan_in_subprocess`: lo que esta heurística no vea se ejecuta igual,
+    pero fuera del intérprete del add-on y con un plazo de muerte.
 
     Detecta las dos construcciones que disparan el coste exponencial de forma
     reconocible sintácticamente:
@@ -76,12 +88,14 @@ def _pattern_redos_risk(pattern: str) -> str | None:
         por definición.
 
     RIESGO RESIDUAL, asumido y documentado: la comprobación es sintáctica y no
-    es completa. No cubre la explosión por alternativas solapadas (`(a|ab)+`)
+    es completa. No cubre la explosión por alternativas solapadas (`(a|aa)+`)
     ni la de cuantificadores adyacentes (`a*a*$`), así que sigue siendo posible
-    construir un patrón caro que la pase. Por eso NO es la única defensa: el
-    patrón está limitado a `_SEARCH_PATTERN_MAX_LEN` caracteres y cada línea se
-    escanea recortada a `_SEARCH_MAX_LINE_LEN`, de modo que la entrada del
-    motor está acotada y con ella el coste del peor caso que sobreviva.
+    construir un patrón caro que la pase — medido: `(a|aa)+$b` contra 38 «a»
+    tarda 20 s y cada dos caracteres más multiplica por 2,6. Por eso NO es la
+    única defensa: el patrón está limitado a `_SEARCH_PATTERN_MAX_LEN`
+    caracteres, cada línea se escanea recortada a `_SEARCH_MAX_LINE_LEN` y,
+    sobre todo, el escaneo corre en un proceso aparte que se mata a los
+    `_SEARCH_TIMEOUT_SECONDS`.
     """
     i = 0
     n = len(pattern)
@@ -154,6 +168,285 @@ def _is_inside_config(path: Path) -> bool:
     except (OSError, ValueError, RuntimeError):
         return False
     return True
+
+
+# ── Escaneo de fs_search_in_config: lista en el padre, regex en un hijo ───────
+
+def _collect_searchable_files(config_base: Path, glob: str) -> tuple[list[str], int]:
+    """Resuelve el glob y deja SOLO los ficheros que se pueden leer.
+
+    Devuelve (rutas absolutas como str, nº de ficheros descartados por política).
+
+    POR QUÉ esto se queda en el proceso padre: decidir qué es legible es una
+    decisión de seguridad y no se delega. El subproceso que ejecuta la regex
+    recibe una lista ya filtrada y no vuelve a consultar blacklists ni
+    allowlists — no puede ampliar el conjunto de ficheros legibles porque no es
+    él quien lo calcula.
+    """
+    try:
+        matched_paths = sorted(config_base.rglob(glob))
+    except (OSError, ValueError):
+        return [], 0
+
+    files: list[str] = []
+    skipped = 0
+    for file_path in matched_paths:
+        # `rglob` NO colapsa los `..` del patrón, así que un glob como
+        # "sub/../secrets.yaml" o "../*" devuelve rutas fuera del sandbox.
+        # `check_blacklisted` ya resuelve y exige contención; se filtra también
+        # aquí para no depender de una sola capa y para no gastar E/S en rutas
+        # que no se van a servir.
+        if not _is_inside_config(file_path):
+            continue
+        if not file_path.is_file():
+            continue
+        blacklisted, _reason = check_blacklisted(file_path)
+        if blacklisted:
+            skipped += 1
+            continue
+        files.append(str(file_path))
+    return files, skipped
+
+
+def _scan_files_worker(
+    config_base: str,
+    file_paths: list[str],
+    pattern: str,
+    flags: int,
+    max_matches: int,
+    max_line_len: int,
+    max_read_bytes: int,
+    result_queue: Any,
+) -> None:
+    """Aplica la regex a los ficheros ya filtrados. Corre en el SUBPROCESO.
+
+    Está a nivel de módulo, y no como función anidada dentro de la tool, porque
+    el contexto "spawn" serializa el target por referencia (módulo + nombre) y
+    el hijo lo reimporta: una closure no tiene nombre importable y no se podría
+    lanzar. Por lo mismo, todos los argumentos son datos simples y CONFIG_BASE
+    viaja como str — el hijo es un intérprete nuevo donde los monkeypatch del
+    padre (los de los tests, por ejemplo) no existen.
+
+    Deja en `result_queue` un único dict, con los resultados o con "error": el
+    padre no ve la excepción del hijo, solo su código de salida, así que un
+    fallo hay que contarlo explícitamente.
+
+    La salida está acotada por construcción —como mucho `max_matches`
+    coincidencias, cada línea recortada a `max_line_len`— para que el hijo no
+    pueda devolver un volumen arbitrario por la cola.
+    """
+    matches: list[dict[str, Any]] = []
+    searched = 0
+    skipped = 0
+    truncated = False
+
+    try:
+        regex = re.compile(pattern, flags)
+        base = Path(config_base)
+
+        for file_str in file_paths:
+            if len(matches) >= max_matches:
+                truncated = True
+                break
+
+            file_path = Path(file_str)
+            try:
+                raw = read_bytes(file_path, max_bytes=max_read_bytes)
+            except (OSError, FileNotFoundError):
+                skipped += 1
+                continue
+
+            if is_binary(raw[:_BINARY_PROBE]):
+                skipped += 1
+                continue
+
+            try:
+                _encoding, content = detect_encoding(raw)
+            except ValueError:
+                skipped += 1
+                continue
+
+            searched += 1
+            try:
+                file_rel = file_path.relative_to(base).as_posix()
+            except ValueError:
+                file_rel = file_path.as_posix()
+
+            for lineno, line in enumerate(content.splitlines(), start=1):
+                if len(matches) >= max_matches:
+                    truncated = True
+                    break
+                if len(line) > max_line_len:
+                    # Techo al trabajo del motor: el backtracking crece con la
+                    # longitud de la entrada, así que una línea enorme (un
+                    # .yaml minificado, un blob en base64) multiplica el coste
+                    # de cualquier patrón. Se escanea solo el principio.
+                    line = line[:max_line_len]
+                m = regex.search(line)
+                if m:
+                    matches.append({
+                        "path": file_rel,
+                        "line_number": lineno,
+                        "line_content": line.rstrip("\n\r"),
+                        "match": m.group(0),
+                    })
+
+        payload: dict[str, Any] = {
+            "matches": matches,
+            "searched": searched,
+            "skipped": skipped,
+            "truncated": truncated,
+        }
+    except BaseException as exc:  # noqa: BLE001 — el hijo no puede propagar nada
+        payload = {
+            "error": "search_failed",
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
+
+    try:
+        result_queue.put(payload)
+    except BaseException:  # noqa: BLE001
+        # Si la cola ya no está (padre muerto o hijo en proceso de morir) no
+        # hay nada que hacer: el padre lo trata como fallo del hijo.
+        pass
+
+
+def _run_scan_in_subprocess(
+    *,
+    config_base: str,
+    file_paths: list[str],
+    pattern: str,
+    flags: int,
+    max_matches: int,
+    max_line_len: int,
+    max_read_bytes: int,
+    timeout: float,
+) -> dict[str, Any]:
+    """Ejecuta `_scan_files_worker` en otro proceso y lo mata si se pasa de plazo.
+
+    POR QUÉ un proceso y no un thread: una regex de CPython no se puede abortar
+    a mitad — corre en C, no atiende señales ni la cancelación de asyncio, y ni
+    `signal.setitimer` corta el bucle de backtracking. Un patrón exponencial en
+    un `asyncio.to_thread` deja un worker del pool colgado PARA SIEMPRE, y el
+    pool es finito: unas cuantas búsquedas así y el add-on se queda sin threads
+    para cualquier otra cosa, sin más salida que reiniciarlo. Un proceso, en
+    cambio, sí se puede matar desde fuera: SIGTERM y, si hace falta, SIGKILL.
+
+    Se usa el contexto "spawn" a propósito, y no "fork": el add-on corre un
+    bucle de asyncio con sockets y locks abiertos, y un fork los duplica en un
+    hijo que nunca va a atenderlos (un lock tomado en otro thread al forkear se
+    hereda tomado para siempre). "spawn" arranca un intérprete limpio.
+
+    Esta función es SÍNCRONA y bloquea: el llamador la mete en
+    `asyncio.to_thread` para no parar el bucle de eventos. El thread que espera
+    sí se libera al vencer el plazo, que es justo lo que no pasaba antes.
+
+    COSTE ACEPTADO: cada búsqueda arranca un intérprete nuevo, que reimporta
+    hermes (unas décimas de segundo). Es el precio de poder matar el escaneo;
+    una búsqueda en /config no es una operación de bucle cerrado.
+    """
+    ctx = multiprocessing.get_context("spawn")
+    result_queue = ctx.Queue()
+    proc = ctx.Process(
+        target=_scan_files_worker,
+        args=(
+            config_base,
+            file_paths,
+            pattern,
+            flags,
+            max_matches,
+            max_line_len,
+            max_read_bytes,
+            result_queue,
+        ),
+        daemon=True,
+    )
+    proc.start()
+
+    payload: dict[str, Any] | None = None
+    timed_out = False
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                # Se lee ANTES de hacer join: un hijo que escribe en la cola se
+                # queda bloqueado hasta que alguien vacía el pipe, así que
+                # esperar primero a que muera es el interbloqueo clásico de
+                # multiprocessing.
+                payload = result_queue.get(timeout=_SEARCH_POLL_INTERVAL_SECONDS)
+                break
+            except _queue.Empty:
+                pass
+            except (EOFError, OSError, ValueError):
+                # Cola rota: el hijo murió a media escritura. Es un fallo del
+                # escaneo, no una excepción que deba subir hasta la tool.
+                payload = None
+                break
+
+            if not proc.is_alive():
+                # Murió sin que hayamos leído nada: puede que el resultado siga
+                # en tránsito por el pipe, así que se le da una última pasada
+                # antes de darlo por fallido.
+                try:
+                    payload = result_queue.get(timeout=1.0)
+                except (_queue.Empty, EOFError, OSError, ValueError):
+                    payload = None
+                break
+
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+
+        if timed_out:
+            logger.warning(
+                "fs_search_subprocess_killed", pattern=pattern, timeout=timeout
+            )
+            return {
+                "error": "search_timeout",
+                "detail": (
+                    f"Search aborted after {timeout:.0f}s: the pattern is too "
+                    "expensive for the files it had to scan."
+                ),
+                "hint": (
+                    "Narrow the glob or simplify the pattern; alternations that "
+                    "overlap, such as (a|aa)+, backtrack exponentially."
+                ),
+            }
+
+        if payload is None:
+            return {
+                "error": "search_failed",
+                "detail": (
+                    "The search subprocess ended without returning a result "
+                    f"(exit code {proc.exitcode})."
+                ),
+            }
+
+        if not isinstance(payload, dict):
+            return {"error": "search_failed", "detail": "Malformed subprocess result"}
+
+        return payload
+    finally:
+        # Pase lo que pase, aquí no queda ningún hijo vivo ni ningún descriptor
+        # de la cola abierto: la defensa consiste precisamente en que el
+        # proceso caro muera.
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(_SEARCH_REAP_TIMEOUT_SECONDS)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(_SEARCH_REAP_TIMEOUT_SECONDS)
+        else:
+            proc.join(_SEARCH_REAP_TIMEOUT_SECONDS)
+        try:
+            result_queue.close()
+            result_queue.join_thread()
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.close()
+        except ValueError:
+            pass
 
 
 def register(
@@ -497,15 +790,18 @@ def register(
         fichero blacklisteado ni sus .storage/ no permitidos. Esto evita
         exfiltración de secretos via pattern matching.
 
-        LÍMITES CONTRA ReDoS (el patrón lo elige quien llama): el patrón no
-        puede pasar de 256 caracteres, se rechaza —con
-        {"error": "pattern_too_complex"}— si lleva cuantificadores anidados
-        (`(a+)+`) o retrorreferencias, y cada línea se escanea recortada a los
-        primeros 4096 caracteres. La razón es que una regex de CPython no se
-        puede abortar a mitad: un patrón exponencial cuelga un worker del pool
-        de threads de forma irrecuperable. La detección es una heurística
-        sintáctica, NO una garantía: ver _pattern_redos_risk() para el riesgo
-        residual que queda cubierto solo por los recortes de tamaño.
+        LÍMITES CONTRA ReDoS (el patrón lo elige quien llama), en capas:
+          1. El patrón no puede pasar de 256 caracteres y se rechaza —con
+             {"error": "pattern_too_complex"}— si lleva cuantificadores
+             anidados (`(a+)+`) o retrorreferencias. Es una heurística
+             sintáctica y NO es completa: `(a|aa)+$b` la pasa y tarda horas.
+          2. Cada línea se escanea recortada a los primeros 4096 caracteres.
+          3. La búsqueda entera corre en un SUBPROCESO con un plazo de 10 s; al
+             vencer, el proceso se mata y la tool devuelve
+             {"error": "search_timeout"}. Esta es la capa que garantiza que el
+             add-on sigue respondiendo, porque una regex de CPython no se puede
+             abortar a mitad: ejecutarla en un thread del add-on dejaba colgado
+             un worker del pool para siempre.
 
         Args:
             pattern:        Expresión regular (o texto literal) a buscar.
@@ -531,6 +827,8 @@ def register(
               "skipped_files": K,   # blacklisted/binary
               "truncated": bool
             }
+            Error: {"error": "pattern_too_complex"|"invalid_pattern"|
+                             "search_timeout"|"search_failed", "detail": "..."}
         """
         max_matches = max(1, min(max_matches, 200))
         config_base = _current_config_base()
@@ -555,88 +853,68 @@ def register(
                 ),
             })
 
-        # Compile pattern
+        # Compilar aquí es solo para VALIDAR: quien ejecuta la regex es el
+        # subproceso, que la vuelve a compilar (un patrón compilado no cruza
+        # bien un "spawn", y el hijo necesita el objeto en su propio
+        # intérprete). Compilar es barato y no ejecuta nada, así que el error
+        # de sintaxis se devuelve sin pagar un proceso.
         flags = 0 if case_sensitive else re.IGNORECASE
         try:
-            regex = re.compile(pattern, flags)
+            re.compile(pattern, flags)
         except re.error as exc:
             return json.dumps({"error": "invalid_pattern", "detail": str(exc)})
 
-        matches: list[dict[str, Any]] = []
-        searched = 0
-        skipped = 0
-        truncated = False
+        def _search_files() -> dict[str, Any]:
+            # Qué ficheros se pueden abrir se decide AQUÍ, en el padre. El
+            # subproceso solo recibe la lista ya filtrada.
+            file_paths, skipped_by_policy = _collect_searchable_files(config_base, glob)
+            if not file_paths:
+                # Sin ficheros que mirar no hay regex que ejecutar: nos
+                # ahorramos arrancar un intérprete entero.
+                return {
+                    "matches": [],
+                    "searched": 0,
+                    "skipped": skipped_by_policy,
+                    "truncated": False,
+                }
 
-        def _search_files() -> None:
-            nonlocal searched, skipped, truncated
+            payload = _run_scan_in_subprocess(
+                config_base=str(config_base),
+                file_paths=file_paths,
+                pattern=pattern,
+                flags=int(flags),
+                max_matches=max_matches,
+                max_line_len=_SEARCH_MAX_LINE_LEN,
+                max_read_bytes=response_max_bytes,
+                timeout=_SEARCH_TIMEOUT_SECONDS,
+            )
+            if "error" not in payload:
+                payload["skipped"] = int(payload.get("skipped", 0)) + skipped_by_policy
+            return payload
 
-            try:
-                matched_paths = sorted(config_base.rglob(glob))
-            except (OSError, ValueError):
-                return
+        result_payload = await asyncio.to_thread(_search_files)
 
-            # `rglob` NO colapsa los `..` del patrón, así que un glob como
-            # "sub/../secrets.yaml" o "../*" devuelve rutas fuera del sandbox.
-            # `check_blacklisted` ya resuelve y exige contención; se filtra
-            # también aquí para no depender de una sola capa y para no gastar
-            # E/S en rutas que no se van a servir.
-            matched_paths = [fp for fp in matched_paths if _is_inside_config(fp)]
+        if result_payload.get("error") == "search_timeout":
+            logger.warning(
+                "fs_search_timeout",
+                pattern=pattern,
+                glob=glob,
+                timeout_seconds=_SEARCH_TIMEOUT_SECONDS,
+            )
+            return json.dumps(result_payload, ensure_ascii=False)
+        if "error" in result_payload:
+            logger.warning(
+                "fs_search_failed",
+                pattern=pattern,
+                glob=glob,
+                detail=result_payload.get("detail"),
+            )
+            return json.dumps(result_payload, ensure_ascii=False)
 
-            for file_path in matched_paths:
-                if not file_path.is_file():
-                    continue
-                if len(matches) >= max_matches:
-                    truncated = True
-                    break
-
-                # Security check: skip blacklisted files
-                blacklisted, _reason = check_blacklisted(file_path)
-                if blacklisted:
-                    skipped += 1
-                    continue
-
-                # Read (limited to response_max_bytes for efficiency)
-                try:
-                    raw = read_bytes(file_path, max_bytes=response_max_bytes)
-                except (OSError, FileNotFoundError):
-                    skipped += 1
-                    continue
-
-                # Skip binaries
-                if is_binary(raw[:_BINARY_PROBE]):
-                    skipped += 1
-                    continue
-
-                try:
-                    _encoding, content = detect_encoding(raw)
-                except ValueError:
-                    skipped += 1
-                    continue
-
-                searched += 1
-                file_rel = _fs._rel_posix(file_path)
-
-                for lineno, line in enumerate(content.splitlines(), start=1):
-                    if len(matches) >= max_matches:
-                        truncated = True
-                        break
-                    if len(line) > _SEARCH_MAX_LINE_LEN:
-                        # Techo al trabajo del motor: el backtracking crece con
-                        # la longitud de la entrada, así que una línea enorme
-                        # (un .yaml minificado, un blob en base64) multiplica el
-                        # coste de cualquier patrón. Se escanea solo el
-                        # principio.
-                        line = line[:_SEARCH_MAX_LINE_LEN]
-                    m = regex.search(line)
-                    if m:
-                        matches.append({
-                            "path": file_rel,
-                            "line_number": lineno,
-                            "line_content": line.rstrip("\n\r"),
-                            "match": m.group(0),
-                        })
-
-        await asyncio.to_thread(_search_files)
+        matches: list[dict[str, Any]] = result_payload.get("matches", [])
+        searched = int(result_payload.get("searched", 0))
+        skipped = int(result_payload.get("skipped", 0))
+        truncated = bool(result_payload.get("truncated"))
 
         logger.info(
             "fs_search_in_config_ok",
