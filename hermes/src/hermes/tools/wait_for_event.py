@@ -280,9 +280,34 @@ def register(
                         "waited_seconds": round(elapsed, 1),
                     }
 
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=wait_secs)
-                except asyncio.TimeoutError:
+                # Se espera a la vez el evento Y la cancelación. Con un
+                # `wait_for(queue.get())` a secas, la comprobación de
+                # `cancel_event` de arriba solo se ejecutaba entre keepalives:
+                # `ha_cancel_wait` devolvía "ok" pero el wait seguía bloqueado
+                # hasta 15 s más, que es justo lo que el usuario intentaba
+                # cortar.
+                get_task = asyncio.ensure_future(queue.get())
+                cancel_task = asyncio.ensure_future(wait.cancel_event.wait())
+                done, pending = await asyncio.wait(
+                    {get_task, cancel_task},
+                    timeout=wait_secs,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in pending:
+                    task.cancel()
+                # Se esperan las canceladas antes de seguir para que el loop
+                # las recoja aquí y no queden tareas huérfanas por cada vuelta.
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+
+                if get_task not in done:
+                    if cancel_task in done:
+                        elapsed = time.monotonic() - wait.started_at
+                        return {
+                            "matched": False,
+                            "reason": "cancelled",
+                            "waited_seconds": round(elapsed, 1),
+                        }
                     # Keepalive o deadline — volvemos al inicio del loop
                     loop_now2 = asyncio.get_running_loop().time()
                     if loop_now2 >= next_keepalive:
@@ -295,6 +320,8 @@ def register(
                             )
                         last_keepalive = loop_now2
                     continue
+
+                event = get_task.result()
 
                 # Sentinel de reconexión
                 if event is _WS_CLOSED_SENTINEL:

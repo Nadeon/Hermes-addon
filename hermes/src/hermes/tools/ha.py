@@ -19,7 +19,7 @@ from hermes.security import (
     create_confirmation_token,
     validate_confirmation_token,
 )
-from hermes.tools._common import requires_ready
+from hermes.tools._common import not_found_response, requires_ready
 from hermes.tools._validation import InvalidIdentifier, identifier_error
 
 logger = structlog.get_logger(__name__)
@@ -407,7 +407,8 @@ def register(
             compact (bool, opcional): Si es True, elimina campos redundantes y nulos.
 
         Returns:
-            dict: El estado de la entidad o un objeto vacío si no existe.
+            dict: El estado de la entidad, o {"error": "not_found",
+            "entity_id": ...} si la entidad no existe.
 
         Nota:
             Usa un entity_id completo como 'light.cocina' para evitar coincidencias ambiguas.
@@ -419,6 +420,11 @@ def register(
             # y el cliente solo ve «Error executing tool», sin saber qué
             # corregir.
             return identifier_error(exc)
+        if state is None:
+            # Entidad inexistente: la misma forma que usan el resto de tools,
+            # en vez del dict vacío que el cliente no sabe distinguir de un
+            # estado sin campos.
+            return not_found_response(entity_id)
         if not state:
             return {}
         if compact:
