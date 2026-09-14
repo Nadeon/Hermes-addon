@@ -1,0 +1,52 @@
+name: Etiquetar versión
+
+# Crea la etiqueta `v<version>` sobre la rama elegida, desde GitHub, sin
+# necesidad de un clon a mano. Antes comprueba dos cosas: que la versión
+# coincide con `version:` en hermes/config.yaml (una etiqueta que el
+# manifiesto no declara es una que el Supervisor nunca pedirá) y que la
+# etiqueta no existe ya (una etiqueta no se mueve: si hay que corregir algo,
+# es una versión nueva).
+#
+# IMPORTANTE: una etiqueta subida con GITHUB_TOKEN no dispara otros
+# workflows, por diseño de GitHub Actions. Este workflow NO publica las
+# imágenes. Para publicarlas hay que lanzar "Publicar imagen" a mano con la
+# misma versión, o subir la etiqueta desde un clon propio, que sí la dispara.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión a etiquetar (sin la v); debe coincidir con hermes/config.yaml"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  etiquetar:
+    name: Crear v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Comprobar y etiquetar
+        env:
+          # Por variable de entorno, no interpolado en el script: así el
+          # valor no puede convertirse en código del shell.
+          VERSION: ${{ inputs.version }}
+        run: |
+          MANIFIESTO=$(grep -Po '^version:\s*"\K[^"]+' hermes/config.yaml)
+          echo "version=$VERSION  manifiesto=$MANIFIESTO"
+          if [ "$VERSION" != "$MANIFIESTO" ]; then
+            echo "La versión ($VERSION) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
+            echo "La etiqueta v$VERSION ya existe; una etiqueta no se mueve." >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Hermes $VERSION"
+          git push origin "refs/tags/v$VERSION"
+          echo "Etiqueta v$VERSION creada sobre $(git rev-parse --short HEAD)."
