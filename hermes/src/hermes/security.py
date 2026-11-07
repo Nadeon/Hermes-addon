@@ -436,7 +436,11 @@ _SENSITIVE_KEY_MARKERS: tuple[str, ...] = (
     "encryption_key", "encryptionkey",
 )
 
-_STRUCT_REDACTED = "***REDACTED***"
+# Público porque las tools de escritura lo necesitan para lo contrario: rechazar
+# un valor tapado que el llamante reenvía. Guardarlo machacaría el secreto real
+# con este texto (ver `sv_set_addon_options`).
+REDACTED_MARKER = "***REDACTED***"
+_STRUCT_REDACTED = REDACTED_MARKER
 
 
 def _looks_sensitive(key: str) -> bool:

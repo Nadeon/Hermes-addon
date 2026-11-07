@@ -269,6 +269,10 @@ reversible con `fs_restore_file_backup`.
   `sv_set_addon_options` (token), `sv_start/stop/restart_addon` (token),
   `sv_install/uninstall/update_addon` (token, asíncrono → `job_id`),
   `sv_get_addon_logs` (secretos redactados), `sv_get_addon_stats`.
+- `sv_set_addon_options`: pasa SOLO lo que cambias; el resto, secretos
+  incluidos, se conserva. Objetos anidados clave a clave, listas enteras,
+  `null` quita una opción. No reenvíes valores `***REDACTED***`: se rechazan.
+  Se aplica al reiniciar el add-on.
 - Supervisor/host/core: `sv_get_supervisor_info`, `sv_get_host_info`,
   `sv_get_core_info`, `sv_check_core_config`, `sv_restart_core` (token),
   `sv_reboot_host` (token).

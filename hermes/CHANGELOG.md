@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.0.10] — 2026-11-07
+
+### Fixed — `sv_set_addon_options` borraba las opciones que no se le pasaban
+
+Su descripción decía «pasa solo los campos que quieres cambiar; el resto se
+mantiene como está», pero enviaba al Supervisor únicamente lo que pasaba el
+llamante. Y el Supervisor no mezcla: `POST /addons/{slug}/options` valida el
+cuerpo con el schema del add-on y **sustituye** las opciones guardadas por él.
+Lo que no se envía se pierde y vuelve a su valor por defecto, si lo tiene.
+
+Cambiar una sola opción de Zigbee2MQTT habría borrado el puerto serie y la
+contraseña de MQTT. La contraseña, además, el llamante no podía reponerla:
+Hermes solo se la enseña redactada. Se vio en la vista previa, antes de
+confirmar nada.
+
+Ahora la tool lee las opciones actuales de `/addons/{slug}/info` —las mismas
+que usa `sv_get_addon_options`, con las referencias `!secret` sin resolver—,
+pone los cambios encima y envía el conjunto completo:
+
+- Los objetos anidados (`mqtt`, `serial`…) se mezclan clave a clave; las listas
+  y los valores simples se sustituyen enteros.
+- `null` quita una opción. Si el add-on le da un valor por defecto, vuelve ese
+  valor.
+- Un valor que lleve `***REDACTED***`, a cualquier nivel, se rechaza: es el
+  marcador con que Hermes tapa los secretos, y guardarlo machacaría el real.
+- La vista previa enseña las opciones actuales, los cambios pedidos, las
+  opciones finales y las rutas que cambian, todo con los secretos redactados.
+  `new_options` desaparece: lo sustituyen `requested_changes` y
+  `final_options`.
+- Al confirmar se vuelven a leer las opciones actuales y se mezcla de nuevo:
+  si alguien las tocó entre la vista previa y la confirmación, lo que el
+  llamante no cambia conserva su valor más reciente.
+- Si no se pueden leer las opciones actuales, no se envía nada ni se emite
+  token (`current_options_unavailable`). Antes la vista previa seguía adelante
+  con `current_options: null`.
+
+El Supervisor solo incluye las opciones en `/info` si quien pregunta tiene rol
+`manager` o `admin`; a cualquier otro le manda `options: {}` con el schema
+entero. Mezclar sobre ese `{}` volvería a borrarlo todo, así que la tool se
+niega cuando recibe `{}` y el schema tiene alguna opción obligatoria: un
+add-on así no tiene `{}` legítimo. Hermes declara `hassio_role: admin`, y un
+test del manifiesto exige ahora `manager` o `admin`.
+
 ## [1.0.9] — 2026-09-14
 
 Cierra los issues #2, #3, #6, #7, #8 y #9: lo que el repaso completo dejó

@@ -7,6 +7,7 @@ No hace llamadas de red reales.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from hermes.ha import HAConnectionError
+from hermes.security import REDACTED_MARKER
 from hermes.tools import addons as addons_mod
 
 
@@ -317,16 +319,22 @@ class TestAddonTools(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("confirmation_token", result)
         self.assertIn("preview", result)
-        self.assertEqual(result["preview"]["new_options"]["require_certificate"], True)
-        # Regresión: el preview enseñaba current_options: None siempre.
-        self.assertIs(
-            result["preview"]["current_options"]["require_certificate"], False
+        preview = result["preview"]
+        self.assertEqual(preview["requested_changes"], {"require_certificate": True})
+        self.assertEqual(
+            preview["final_options"],
+            {"require_certificate": True, "password": REDACTED_MARKER},
         )
+        self.assertEqual(preview["changed_paths"], ["require_certificate"])
+        # Regresión: el preview enseñaba current_options: None siempre.
+        self.assertIs(preview["current_options"]["require_certificate"], False)
         # Y lo que lee de /info sigue teniendo que salir redactado.
         self.assertNotIn("s3cr3t0", json.dumps(result))
 
     async def test_set_addon_options_with_token(self) -> None:
-        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {})
+        # Sin `options` en /info ya no hay token: ver
+        # TestSetAddonOptionsConservaLoQueNoSeToca.
+        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {"options": {}})
         preview = await self.tools["sv_set_addon_options"](
             "core_mosquitto", '{"require_certificate": true}'
         )
@@ -707,6 +715,270 @@ class TestOpcionesDeAddon(unittest.IsolatedAsyncioTestCase):
         bloque = fuente.split("async def sv_get_addon_options")[1]
         bloque = bloque.split("async def sv_set_addon_options")[0]
         self.assertIn("redact_structure(opciones)", bloque)
+
+
+class _ClienteQueGraba(MockHAClient):
+    """MockHAClient que además apunta cada petición con su cuerpo."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.peticiones: list[tuple[str, str, Any]] = []
+
+    async def sv_request(
+        self,
+        method: str,
+        sv_path: str,
+        json_body: Any = None,
+        params: Any = None,
+        timeout_seconds: float = 60.0,
+    ) -> Any:
+        self.peticiones.append((method.upper(), sv_path, copy.deepcopy(json_body)))
+        return await super().sv_request(method, sv_path, json_body, params, timeout_seconds)
+
+    def enviadas(self, slug: str) -> list[dict[str, Any]]:
+        """Opciones que se han mandado al Supervisor para `slug`, en orden."""
+        return [
+            cuerpo["options"] for metodo, ruta, cuerpo in self.peticiones
+            if metodo == "POST" and ruta == f"/addons/{slug}/options"
+        ]
+
+    def lecturas(self, ruta: str) -> int:
+        return sum(1 for metodo, r, _ in self.peticiones if metodo == "GET" and r == ruta)
+
+
+# Forma de las opciones de Zigbee2MQTT tal como las devuelve /info. La IP es de
+# documentación (RFC 5737): lo que importa es que es un valor que el usuario
+# configuró y que no coincide con ningún valor por defecto.
+_Z2M_SLUG = "45df7312_zigbee2mqtt"
+_Z2M_SECRETO = "contrasena-mqtt-de-verdad"
+_Z2M = {
+    "data_path": "/config/zigbee2mqtt",
+    "socat": {"enabled": False, "master": "pty,raw,echo=0,link=/tmp/ttyZ2M,mode=777"},
+    "mqtt": {
+        "server": "mqtt://core-mosquitto:1883",
+        "user": "addons",
+        "password": _Z2M_SECRETO,
+    },
+    "serial": {"port": "tcp://192.0.2.10:7638", "adapter": "zstack"},
+}
+# `schema` de /info (la schema_ui del Supervisor) con una obligatoria arriba.
+_Z2M_SCHEMA = [
+    {"name": "data_path", "type": "string", "required": True},
+    {"name": "serial", "type": "schema", "optional": True, "multiple": False,
+     "schema": [{"name": "port", "type": "string", "optional": True}]},
+]
+
+
+class TestSetAddonOptionsConservaLoQueNoSeToca(unittest.IsolatedAsyncioTestCase):
+    """`sv_set_addon_options` enviaba solo lo que pasaba el llamante.
+
+    El Supervisor no mezcla: `POST /addons/{slug}/options` sustituye las
+    opciones guardadas por las recibidas. La tool prometía «pasa solo los
+    campos que quieres cambiar; el resto se mantiene», y hacía lo contrario:
+    para poner `{"watchdog": "default"}` en Zigbee2MQTT se habrían perdido el
+    puerto serie y la contraseña de MQTT, que el llamante ni siquiera puede
+    reponer porque solo la ve redactada.
+    """
+
+    def setUp(self) -> None:
+        from hermes.tools.addons import register
+        self.client = _ClienteQueGraba()
+        mcp = DummyMCP()
+        register(mcp, self.client)
+        self.tool = mcp.tools["sv_set_addon_options"]
+        self.info = f"/addons/{_Z2M_SLUG}/info"
+        self._info({"options": copy.deepcopy(_Z2M), "schema": _Z2M_SCHEMA})
+        self.client.set_sv_response("POST", f"/addons/{_Z2M_SLUG}/options", {})
+
+    def _info(self, respuesta: Any) -> None:
+        self.client.set_sv_response("GET", self.info, respuesta)
+
+    async def _aplicar(self, opciones: str) -> tuple[dict, dict]:
+        """Preview + confirmación. Devuelve (preview, resultado)."""
+        preview = await self.tool(_Z2M_SLUG, opciones)
+        self.assertIn("confirmation_token", preview, preview)
+        resultado = await self.tool(
+            _Z2M_SLUG, opciones, confirmation_token=preview["confirmation_token"]
+        )
+        return preview, resultado
+
+    async def test_cambiar_una_opcion_de_primer_nivel_conserva_el_resto(self) -> None:
+        _, resultado = await self._aplicar('{"watchdog": "default"}')
+        self.assertEqual(resultado["result"], "ok")
+        self.assertEqual(self.client.enviadas(_Z2M_SLUG), [{**_Z2M, "watchdog": "default"}])
+        # Nunca el endpoint que el Supervisor reserva al propio add-on.
+        self.assertFalse(any("options/config" in r for _, r, _ in self.client.peticiones))
+
+    async def test_cambiar_una_clave_anidada_conserva_sus_hermanas(self) -> None:
+        await self._aplicar('{"mqtt": {"user": "otro"}}')
+        [enviado] = self.client.enviadas(_Z2M_SLUG)
+        self.assertEqual(enviado["mqtt"], {**_Z2M["mqtt"], "user": "otro"})
+        self.assertEqual(enviado["serial"], _Z2M["serial"])
+        self.assertEqual(enviado["socat"], _Z2M["socat"])
+
+    async def test_un_secreto_no_tocado_se_envia_con_su_valor_real(self) -> None:
+        await self._aplicar('{"serial": {"adapter": "ember"}}')
+        [enviado] = self.client.enviadas(_Z2M_SLUG)
+        self.assertEqual(enviado["mqtt"]["password"], _Z2M_SECRETO)
+        self.assertNotIn(REDACTED_MARKER, json.dumps(enviado))
+
+    async def test_una_referencia_secret_se_reenvia_sin_resolver(self) -> None:
+        # /info devuelve `!secret x` tal cual; reenviarlo conserva la referencia
+        # en vez de guardar el secreto en claro.
+        opciones = copy.deepcopy(_Z2M)
+        opciones["mqtt"]["password"] = "!secret z2m_mqtt"
+        self._info({"options": opciones, "schema": _Z2M_SCHEMA})
+        await self._aplicar('{"watchdog": "default"}')
+        [enviado] = self.client.enviadas(_Z2M_SLUG)
+        self.assertEqual(enviado["mqtt"]["password"], "!secret z2m_mqtt")
+
+    async def test_rechaza_el_marcador_de_redaccion_a_cualquier_nivel(self) -> None:
+        casos = {
+            '{"auth_password": "***REDACTED***"}': ["auth_password"],
+            '{"mqtt": {"password": "***REDACTED***"}}': ["mqtt.password"],
+            '{"logins": [{"username": "a", "password": "***REDACTED***"}]}':
+                ["logins[0].password"],
+        }
+        for opciones, rutas in casos.items():
+            with self.subTest(opciones=opciones):
+                resultado = await self.tool(_Z2M_SLUG, opciones)
+                self.assertEqual(resultado["error"], "redacted_value")
+                self.assertEqual(resultado["paths"], rutas)
+                self.assertNotIn("confirmation_token", resultado)
+        self.assertEqual(self.client.peticiones, [])
+
+    async def test_el_preview_no_filtra_secretos(self) -> None:
+        resultado = await self.tool(_Z2M_SLUG, '{"mqtt": {"password": "nueva-secreta"}}')
+        preview = resultado["preview"]
+        volcado = json.dumps(resultado)
+        self.assertNotIn(_Z2M_SECRETO, volcado)
+        self.assertNotIn("nueva-secreta", volcado)
+        # Lo que no es secreto sí se ve, para saber qué se va a enviar.
+        self.assertEqual(preview["final_options"]["serial"], _Z2M["serial"])
+        self.assertEqual(preview["final_options"]["mqtt"]["password"], REDACTED_MARKER)
+        self.assertEqual(preview["current_options"]["mqtt"]["user"], "addons")
+        self.assertEqual(preview["changed_paths"], ["mqtt.password"])
+
+    async def test_la_confirmacion_relee_las_opciones_actuales(self) -> None:
+        opciones = '{"watchdog": "default"}'
+        preview = await self.tool(_Z2M_SLUG, opciones)
+        # Entre el preview y la confirmación alguien cambia el adaptador.
+        cambiadas = copy.deepcopy(_Z2M)
+        cambiadas["serial"]["adapter"] = "ember"
+        self._info({"options": cambiadas, "schema": _Z2M_SCHEMA})
+
+        await self.tool(_Z2M_SLUG, opciones, confirmation_token=preview["confirmation_token"])
+
+        self.assertEqual(self.client.lecturas(self.info), 2)
+        [enviado] = self.client.enviadas(_Z2M_SLUG)
+        self.assertEqual(enviado["serial"]["adapter"], "ember")
+        self.assertEqual(enviado["watchdog"], "default")
+
+    async def test_null_quita_la_opcion(self) -> None:
+        preview, _ = await self._aplicar('{"serial": {"adapter": null}}')
+        self.assertEqual(preview["preview"]["changed_paths"], ["serial.adapter"])
+        [enviado] = self.client.enviadas(_Z2M_SLUG)
+        self.assertEqual(enviado["serial"], {"port": _Z2M["serial"]["port"]})
+
+    async def test_sin_opciones_actuales_no_se_envia_nada(self) -> None:
+        for respuesta in ({"slug": _Z2M_SLUG}, {"options": None}, HAConnectionError("caído")):
+            with self.subTest(respuesta=respuesta):
+                self._info(respuesta)
+                resultado = await self.tool(_Z2M_SLUG, '{"watchdog": "default"}')
+                self.assertIn("error", resultado)
+                self.assertNotIn("confirmation_token", resultado)
+        self.assertEqual(self.client.enviadas(_Z2M_SLUG), [])
+
+    async def test_opciones_ocultas_por_el_supervisor_no_se_mezclan(self) -> None:
+        """Sin rol manager/admin, /info manda `options: {}` y el schema entero.
+
+        Mezclar sobre ese `{}` enviaría solo los cambios y borraría todo lo
+        demás: el fallo original por otra puerta. Con una obligatoria en el
+        schema, `{}` no puede ser legítimo.
+        """
+        anidada = [{"name": "mqtt", "type": "schema", "optional": True, "multiple": False,
+                    "schema": [{"name": "server", "type": "string", "required": True}]}]
+        for schema in (_Z2M_SCHEMA, anidada):
+            with self.subTest(schema=schema):
+                self._info({"options": {}, "schema": schema})
+                resultado = await self.tool(_Z2M_SLUG, '{"watchdog": "default"}')
+                self.assertEqual(resultado["error"], "current_options_unavailable")
+                self.assertNotIn("confirmation_token", resultado)
+        self.assertEqual(self.client.enviadas(_Z2M_SLUG), [])
+
+    async def test_opciones_ocultas_entre_preview_y_confirmacion(self) -> None:
+        preview = await self.tool(_Z2M_SLUG, '{"watchdog": "default"}')
+        self._info({"options": {}, "schema": _Z2M_SCHEMA})
+        resultado = await self.tool(
+            _Z2M_SLUG, '{"watchdog": "default"}',
+            confirmation_token=preview["confirmation_token"],
+        )
+        self.assertEqual(resultado["error"], "current_options_unavailable")
+        self.assertEqual(self.client.enviadas(_Z2M_SLUG), [])
+
+    async def test_opciones_vacias_sin_obligatorias_si_se_envian(self) -> None:
+        # Un add-on cuyas opciones son todas opcionales y sin valor por defecto
+        # sí puede tener `{}` de verdad: ahí no hay nada que perder.
+        opcional = [{"name": "log_level", "type": "string", "optional": True}]
+        for schema in (opcional, None):
+            with self.subTest(schema=schema):
+                self._info({"options": {}, "schema": schema})
+                await self._aplicar('{"log_level": "debug"}')
+        self.assertEqual(
+            self.client.enviadas(_Z2M_SLUG), [{"log_level": "debug"}, {"log_level": "debug"}]
+        )
+
+    async def test_si_la_relectura_falla_en_la_confirmacion_no_se_envia_nada(self) -> None:
+        preview = await self.tool(_Z2M_SLUG, '{"watchdog": "default"}')
+        self._info({"slug": _Z2M_SLUG})
+        resultado = await self.tool(
+            _Z2M_SLUG, '{"watchdog": "default"}',
+            confirmation_token=preview["confirmation_token"],
+        )
+        self.assertEqual(resultado["error"], "current_options_unavailable")
+        self.assertEqual(self.client.enviadas(_Z2M_SLUG), [])
+
+    async def test_el_token_sigue_atado_a_los_mismos_argumentos(self) -> None:
+        preview = await self.tool(_Z2M_SLUG, '{"watchdog": "default"}')
+        resultado = await self.tool(
+            _Z2M_SLUG, '{"watchdog": "disabled"}',
+            confirmation_token=preview["confirmation_token"],
+        )
+        self.assertIn("does not match", resultado["error"])
+        self.assertEqual(self.client.enviadas(_Z2M_SLUG), [])
+
+    async def test_options_tiene_que_ser_un_objeto(self) -> None:
+        for opciones in ('["watchdog"]', '"default"', "null"):
+            with self.subTest(opciones=opciones):
+                resultado = await self.tool(_Z2M_SLUG, opciones)
+                self.assertEqual(resultado["error"], "invalid_options")
+        self.assertEqual(self.client.peticiones, [])
+
+
+class TestMezclarOpciones(unittest.TestCase):
+    """Reglas de `_mezclar_opciones`, sin pasar por la tool."""
+
+    def test_las_listas_se_sustituyen_enteras(self) -> None:
+        from hermes.tools.addons import _mezclar_opciones
+        actuales = {"logins": [{"username": "a", "password": "x"}], "anonymous": False}
+        finales = _mezclar_opciones(actuales, {"logins": [{"username": "b", "password": "y"}]})
+        self.assertEqual(finales["logins"], [{"username": "b", "password": "y"}])
+        self.assertIs(finales["anonymous"], False)
+
+    def test_no_modifica_las_entradas(self) -> None:
+        from hermes.tools.addons import _mezclar_opciones
+        actuales = copy.deepcopy(_Z2M)
+        cambios = {"mqtt": {"user": "otro"}, "serial": None}
+        _mezclar_opciones(actuales, cambios)
+        self.assertEqual(actuales, _Z2M)
+        self.assertEqual(cambios, {"mqtt": {"user": "otro"}, "serial": None})
+
+    def test_un_objeto_nuevo_no_arrastra_los_null(self) -> None:
+        # El Supervisor rechaza `null` como valor: un objeto que aún no existía
+        # tampoco puede llevarlo dentro.
+        from hermes.tools.addons import _mezclar_opciones
+        finales = _mezclar_opciones({}, {"tls": {"cert": "c.pem", "key": None}})
+        self.assertEqual(finales, {"tls": {"cert": "c.pem"}})
 
 
 if __name__ == "__main__":
