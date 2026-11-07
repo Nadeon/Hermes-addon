@@ -6,7 +6,7 @@ Tools:
   sv_list_addons        — lista add-ons (instalados o todos del store)
   sv_get_addon          — info completa de un add-on
   sv_get_addon_options  — opciones actuales de configuración
-  sv_set_addon_options  — actualiza opciones (siempre requiere token)
+  sv_set_addon_options  — cambia opciones conservando el resto (siempre requiere token)
   sv_start_addon        — arranca un add-on (siempre requiere token)
   sv_stop_addon         — para un add-on (siempre requiere token)
   sv_restart_addon      — reinicia un add-on (siempre requiere token)
@@ -31,6 +31,7 @@ import asyncio
 import json
 import os
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ import structlog
 
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
+    REDACTED_MARKER,
     redact_structure,
     complete_confirmation_token,
     create_confirmation_token,
@@ -109,6 +111,100 @@ def _store_addon_summary(addon: dict[str, Any]) -> dict[str, Any]:
         "installed": addon.get("installed"),
         "available": addon.get("available"),
     }
+
+
+# ── Opciones de add-on: mezcla de cambios ─────────────────────────────────────
+#
+# El Supervisor NO mezcla: `POST /addons/{slug}/options` valida el cuerpo con el
+# schema del add-on y SUSTITUYE las opciones guardadas por él (supervisor/api/
+# apps.py, `options`; setter `options` de supervisor/apps/app.py). Lo que no se
+# envía se pierde y vuelve a su valor por defecto, si lo tiene. Por eso
+# `sv_set_addon_options` envía siempre el conjunto completo: lo actual con los
+# cambios del llamante encima.
+
+
+def _mezclar_opciones(actuales: dict[str, Any], cambios: dict[str, Any]) -> dict[str, Any]:
+    """Aplica `cambios` sobre `actuales` sin tocar lo que no se menciona.
+
+    - Diccionario: se mezcla clave a clave, a cualquier profundidad. Cambiar
+      `mqtt.user` conserva `mqtt.password`.
+    - Lista o valor simple: se sustituye entero. Mezclar listas posición a
+      posición no tiene un significado que el llamante pueda prever.
+    - `None` (`null` en JSON): quita la clave. El Supervisor no acepta `null`
+      como valor de una opción, así que no hay otro uso que darle.
+
+    No modifica ninguno de los dos argumentos.
+    """
+    resultado = deepcopy(actuales)
+    for clave, valor in cambios.items():
+        if valor is None:
+            resultado.pop(clave, None)
+        elif isinstance(valor, dict):
+            base = resultado.get(clave)
+            resultado[clave] = _mezclar_opciones(base if isinstance(base, dict) else {}, valor)
+        else:
+            resultado[clave] = deepcopy(valor)
+    return resultado
+
+
+def _rutas_redactadas(valor: Any, ruta: str = "") -> list[str]:
+    """Rutas (`mqtt.password`, `logins[0].password`) cuyo valor lleva el marcador.
+
+    El llamante solo ve los secretos tapados con `REDACTED_MARKER`. Si copia ese
+    texto en lo que envía, se guardaría literalmente y sustituiría al secreto
+    real: hay que rechazarlo, a cualquier nivel de anidamiento.
+    """
+    if isinstance(valor, dict):
+        rutas: list[str] = []
+        for clave, sub in valor.items():
+            rutas += _rutas_redactadas(sub, f"{ruta}.{clave}" if ruta else str(clave))
+        return rutas
+    if isinstance(valor, list):
+        rutas = []
+        for i, sub in enumerate(valor):
+            rutas += _rutas_redactadas(sub, f"{ruta}[{i}]")
+        return rutas
+    if isinstance(valor, str) and REDACTED_MARKER in valor:
+        return [ruta or "(raíz)"]
+    return []
+
+
+def _rutas_cambiadas(antes: Any, despues: Any, ruta: str = "") -> list[str]:
+    """Rutas que difieren entre dos juegos de opciones (añadidas, quitadas o cambiadas).
+
+    Solo nombres, nunca valores: es seguro devolverlo aunque toque secretos.
+    """
+    if isinstance(antes, dict) and isinstance(despues, dict):
+        rutas: list[str] = []
+        for clave in sorted(set(antes) | set(despues), key=str):
+            sub = f"{ruta}.{clave}" if ruta else str(clave)
+            if clave not in antes or clave not in despues:
+                rutas.append(sub)
+            else:
+                rutas += _rutas_cambiadas(antes[clave], despues[clave], sub)
+        return rutas
+    # `type` además de `==`: en Python True == 1, y para el add-on no son lo mismo.
+    if type(antes) is type(despues) and antes == despues:
+        return []
+    return [ruta or "(raíz)"]
+
+
+def _tiene_obligatorias(schema_ui: Any) -> bool:
+    """True si el schema de /info declara alguna opción obligatoria, a cualquier nivel.
+
+    Es la `schema_ui` del Supervisor: una lista de nodos con `required: true`
+    en las obligatorias y, en los objetos anidados, su propia lista bajo
+    `schema`. Una obligatoria anidada también cuenta: el validador del
+    Supervisor exige el objeto que la contiene.
+    """
+    if not isinstance(schema_ui, list):
+        return False
+    for nodo in schema_ui:
+        if not isinstance(nodo, dict):
+            continue
+        if nodo.get("required") is True or _tiene_obligatorias(nodo.get("schema")):
+            return True
+    return False
 
 
 def register(mcp: object, ha_client: HAClient) -> None:
@@ -236,31 +332,84 @@ def register(mcp: object, ha_client: HAClient) -> None:
         except HAConnectionError as exc:
             return {"error": str(exc)}
 
+    async def _opciones_en_bruto(slug: str) -> dict[str, Any] | None:
+        """Opciones guardadas del add-on, SIN redactar. Nunca devolverlas tal cual.
+
+        Salen de `/addons/{slug}/info` (`app.options` en el Supervisor): las
+        guardadas mezcladas con los valores por defecto del add-on, y con las
+        referencias `!secret x` sin resolver. Es justo lo que hay que reenviar.
+
+        `/addons/{slug}/options/config` no sirve: solo responde al add-on que se
+        consulta a sí mismo (403 para cualquier otro), y además devuelve los
+        `!secret` ya resueltos. Reenviarlos guardaría el secreto en claro en
+        lugar de la referencia.
+
+        Devuelve None —y entonces no se envía nada— si la respuesta no trae las
+        opciones, o si trae `{}` y el schema tiene alguna obligatoria. Lo
+        segundo es lo que el Supervisor manda cuando oculta las opciones a quien
+        no tiene rol `manager` o `admin` (`info_data` en supervisor/api/
+        apps.py): deja el schema entero pero cambia las opciones por `{}`.
+        Mezclar sobre ese `{}` borraría todas las demás. Un add-on con alguna
+        opción obligatoria no tiene `{}` legítimo: el Supervisor no lo valida.
+        Hermes declara `hassio_role: admin`, así que no debería pasar; lo vigila
+        también un test del manifiesto.
+        """
+        data = await ha_client.sv_request("GET", f"/addons/{slug}/info")
+        if not isinstance(data, dict):
+            return None
+        opciones = data.get("options")
+        if not isinstance(opciones, dict):
+            return None
+        if not opciones and _tiene_obligatorias(data.get("schema")):
+            return None
+        return opciones
+
     @mcp.tool()
     async def sv_set_addon_options(
         slug: str,
         options: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Actualiza las opciones de configuración de un add-on.
+        """Cambia opciones de configuración de un add-on, conservando el resto.
 
-        Siempre requiere confirmation_token — cambiar opciones puede
-        interrumpir un add-on en producción.
+        Pasa SOLO lo que quieres cambiar. El Supervisor sustituye las opciones
+        guardadas por las que recibe, así que esta tool lee las actuales, pone
+        tus cambios encima y envía el conjunto completo: lo que no mencionas,
+        secretos incluidos, se queda como está.
 
-        Primera llamada (sin token): devuelve preview con las opciones
-        actuales vs. las nuevas + confirmation_token.
-        Segunda llamada (con token): aplica los cambios.
+        Cómo se aplican los cambios:
+        - Objetos anidados (`mqtt`, `serial`…): clave a clave.
+          `{"mqtt": {"user": "x"}}` conserva `mqtt.password` y el resto.
+        - Listas y valores simples: se sustituyen enteros. Una lista con
+          secretos (p. ej. `logins` de Mosquitto) hay que pasarla completa.
+        - `null`: quita la opción. Si el add-on le da un valor por defecto,
+          vuelve ese valor; si es obligatoria, el Supervisor rechaza el cambio.
+        - Un valor con `***REDACTED***` se rechaza: es el marcador con que
+          Hermes tapa los secretos, y guardarlo machacaría el real.
+
+        Si no se pueden leer las opciones actuales, no se envía nada
+        (`current_options_unavailable`): enviar solo los cambios borraría el
+        resto.
+
+        Siempre requiere confirmation_token: cambiar opciones puede dejar un
+        add-on sin arrancar. Las opciones nuevas se aplican cuando el add-on
+        se reinicia (`sv_restart_addon`).
+
+        Primera llamada (sin token): preview con las opciones actuales, los
+        cambios pedidos, las opciones finales que se enviarán y las rutas que
+        cambian, todo con los secretos redactados, + confirmation_token.
+        Segunda llamada (con token): vuelve a leer las opciones actuales, mezcla
+        de nuevo y envía. Si alguien las tocó entre medias, lo que tú no
+        cambias conserva su valor más reciente.
 
         Args:
             slug: Identificador del add-on.
-            options: JSON string con el objeto de opciones a establecer.
-                     Pasa solo los campos que quieres cambiar; el resto
-                     se mantiene como está.
+            options: JSON string con un objeto: solo las opciones a cambiar.
             confirmation_token: Token obtenido del preview anterior.
 
         Returns:
             Sin token: {"confirmation_token": "...", "preview": {...}}
-            Con token válido: {"result": "ok"}
+            Con token válido: {"result": "ok", "slug": "..."}
         """
         if (err := _bad_slug(slug)):
             return err
@@ -268,35 +417,58 @@ def register(mcp: object, ha_client: HAClient) -> None:
             opts_dict = json.loads(options) if isinstance(options, str) else options
         except json.JSONDecodeError as exc:
             return {"error": f"options must be valid JSON: {exc}"}
+        if not isinstance(opts_dict, dict):
+            return {
+                "error": "invalid_options",
+                "detail": "options debe ser un objeto JSON con las opciones a cambiar",
+            }
+        if (redactadas := _rutas_redactadas(opts_dict)):
+            return {
+                "error": "redacted_value",
+                "detail": (
+                    f"Estas opciones llevan el marcador {REDACTED_MARKER}, que es "
+                    "como Hermes tapa los secretos: guardarlo sustituiría el valor "
+                    "real. Quítalas para conservar el valor actual, o pasa el "
+                    "valor nuevo en claro."
+                ),
+                "paths": redactadas,
+            }
 
         tool_name = "sv_set_addon_options"
         args: dict[str, Any] = {"slug": slug, "options": options}
+        sin_opciones = {
+            "error": "current_options_unavailable",
+            "detail": (
+                "El Supervisor no ha devuelto las opciones actuales del add-on. "
+                "Sin ellas no se puede enviar el conjunto completo, y enviar solo "
+                "los cambios borraría el resto."
+            ),
+        }
 
         if not confirmation_token:
             # Las opciones actuales se leen de /info, igual que en
-            # sv_get_addon_options: /addons/{slug}/options/config el Supervisor
-            # solo se lo sirve al add-on que se consulta a sí mismo y responde
-            # 403 "This can be only read by the app itself!" a cualquier otro,
-            # así que el preview enseñaba siempre `current_options: null` — que
-            # es justo lo que hay que mirar antes de confirmar.
+            # sv_get_addon_options (ver `_opciones_en_bruto`). Sin ellas no hay
+            # preview: antes se seguía con `current_options: null` y se emitía
+            # el token igualmente.
             try:
-                info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
-                current_opts = info.get("options") if isinstance(info, dict) else None
-            except HAConnectionError:
-                current_opts = None
+                actuales = await _opciones_en_bruto(slug)
+            except HAConnectionError as exc:
+                return {"error": str(exc)}
+            if actuales is None:
+                return sin_opciones
+            finales = _mezclar_opciones(actuales, opts_dict)
 
             warning = _self_warning(slug, "changing options of")
             preview: dict[str, Any] = {
                 "slug": slug,
-                # Redactado igual que en sv_get_addon_options: este preview
-                # lee las opciones ACTUALES del add-on, así que sin redactar
-                # filtraría los secretos en claro por la puerta de atrás de la
-                # tool de escritura.
-                "current_options": redact_structure(current_opts),
-                # `new_options` es lo que envió el propio llamante: devolverlo no
-                # añade información que no tuviera ya, y verlo es justo el punto
-                # de un preview antes de confirmar.
-                "new_options": opts_dict,
+                # Todo redactado. Las actuales y las finales traen los secretos
+                # del add-on en claro: sin redactar, la tool de escritura sería
+                # una puerta de atrás para leerlos. Los cambios pedidos también,
+                # para que la vista previa no repita ningún secreto.
+                "current_options": redact_structure(actuales),
+                "requested_changes": redact_structure(opts_dict),
+                "final_options": redact_structure(finales),
+                "changed_paths": _rutas_cambiadas(actuales, finales),
             }
             if warning:
                 preview["warning"] = warning
@@ -309,8 +481,18 @@ def register(mcp: object, ha_client: HAClient) -> None:
             return {"error": error}
 
         try:
+            # Se vuelven a leer: las del preview pueden haber cambiado mientras
+            # tanto, y reutilizarlas desharía cambios ajenos en lo que el
+            # llamante no toca.
+            actuales = await _opciones_en_bruto(slug)
+            if actuales is None:
+                await complete_confirmation_token(
+                    confirmation_token, success=False, error=sin_opciones["error"]
+                )
+                return sin_opciones
+            finales = _mezclar_opciones(actuales, opts_dict)
             await ha_client.sv_request(
-                "POST", f"/addons/{slug}/options", json_body={"options": opts_dict}
+                "POST", f"/addons/{slug}/options", json_body={"options": finales}
             )
             result: dict[str, Any] = {"result": "ok", "slug": slug}
             await complete_confirmation_token(confirmation_token, success=True, result=result)

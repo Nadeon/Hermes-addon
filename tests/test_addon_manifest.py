@@ -158,6 +158,24 @@ class TestManifiesto(unittest.TestCase):
             "Hermes debe arrancar en la fase posterior al core de HA",
         )
 
+    def test_el_rol_deja_leer_las_opciones_de_otros_add_ons(self) -> None:
+        """Sin rol `manager` o `admin`, `sv_set_addon_options` borraría opciones.
+
+        `POST /addons/{slug}/options` sustituye las opciones guardadas, así que
+        la tool lee las actuales de `/addons/{slug}/info` y mezcla los cambios
+        encima. El Supervisor solo incluye ahí las opciones si quien pregunta
+        tiene rol `manager` o `admin` (`info_data` en supervisor/api/apps.py); a
+        cualquier otro le manda `options: {}`. Con un rol menor, la mezcla
+        partiría de `{}` y enviaría solo los cambios: todo lo demás, secretos
+        incluidos, se perdería. La tool se niega cuando ve `{}` con opciones
+        obligatorias en el schema, pero un add-on sin obligatorias pasaría.
+        """
+        self.assertIn(
+            self.manifiesto.get("hassio_role"),
+            ("manager", "admin"),
+            "sin rol manager/admin, /info oculta las opciones de los add-ons",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
