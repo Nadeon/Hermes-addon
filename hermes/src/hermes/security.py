@@ -202,6 +202,27 @@ def is_valid_confirmation_token_format(token: object) -> bool:
     return isinstance(token, str) and _TOKEN_RE.match(token) is not None
 
 
+# Mensaje de `resolve_confirmation_token` cuando el objetivo cambió desde la
+# vista previa (spec 018, FR-003). Público para que la tool lo distinga de un
+# token que no casa y responda con su propio código (`dashboard_changed`): no es
+# un error del cliente, solo tiene que pedir otra vista previa.
+ESTADO_CAMBIADO = (
+    "The target changed since the preview. Nothing was done; request a new "
+    "preview."
+)
+
+
+def _huella_de_estado(estado: Any) -> str:
+    """Huella del estado leído en la vista previa (spec 018, research R-2).
+
+    La misma canonicalización que el action_hash: el orden de las claves no
+    cuenta y un 1.0 es un 1. Solo se escribe la huella: el estado (el
+    dashboard entero) puede llevar datos de la casa y /data entra en los
+    backups (principio II).
+    """
+    return compute_action_hash("estado", {"estado": estado})
+
+
 def _bytes_guardados(guardados: dict[str, Any]) -> int:
     """Tamaño de lo guardado tal como se escribe en el fichero del token."""
     return len(json.dumps(guardados, ensure_ascii=False).encode("utf-8"))
@@ -249,8 +270,16 @@ async def create_confirmation_token(
     preview: dict[str, Any] | None = None,
     *,
     omitibles: tuple[str, ...] = (),
+    estado: Any = None,
 ) -> dict[str, Any]:
     """Crea un token de confirmación vinculado a una acción.
+
+    `estado` (opcional, spec 018) ata además el token al estado del objetivo
+    leído en la vista previa: se guarda su huella (`state_hash`) y
+    `resolve_confirmation_token` exige el mismo estado. Es para las vistas
+    previas que prometen conservar algo que puede cambiar en los 60 s del
+    token (el resto de un dashboard al guardar una sola vista). No entra en
+    el action_hash ni en `confirm_with`: el cliente no lo manda ni lo conoce.
 
     `omitibles` son los argumentos que la tool deja omitir al confirmar (su
     documento grande). Se guardan junto al token para que la confirmación no
@@ -277,6 +306,8 @@ async def create_confirmation_token(
         "created_at": time.time(),
         "retries": 0,
     }
+    if estado is not None:
+        token_data["state_hash"] = _huella_de_estado(estado)
 
     # Solo los omitibles de la tool presentes en la vista previa, con el valor
     # que entró en el hash. Nada más: guardar todos los argumentos escribiría
@@ -356,8 +387,16 @@ async def resolve_confirmation_token(
     args: dict[str, Any],
     *,
     omitibles: tuple[str, ...] = (),
+    estado: Any = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     """Valida un token y devuelve los argumentos con los que se ejecuta.
+
+    `estado` (opcional, spec 018): el estado actual del objetivo. Si el token
+    se emitió con estado, o llega uno ahora, las dos huellas tienen que
+    coincidir; si no, `ESTADO_CAMBIADO` sin tocar el token (el cliente puede
+    pedir otra vista previa, y un token emitido sin estado no vale para una
+    tool que lo exige: fail-closed). Sin `estado` en ninguno de los dos
+    lados, igual que en la 1.1.2.
 
     Un omitible ausente (o `None`) en `args` se toma de lo guardado en la
     vista previa; uno presente se usa tal cual. El action_hash se comprueba
@@ -427,6 +466,14 @@ async def resolve_confirmation_token(
     actual_hash = compute_action_hash(tool_name, resueltos)
     if expected_hash != actual_hash:
         return False, "confirmation_token does not match this action.", {}
+
+    # Estado del objetivo (spec 018): después del action_hash, para que un
+    # token de otra acción siga dando «does not match», y antes de
+    # `executing`, sin ningún `await` entre medias, para no gastar el token.
+    huella_token = token_data.get("state_hash")
+    if huella_token is not None or estado is not None:
+        if estado is None or huella_token != _huella_de_estado(estado):
+            return False, ESTADO_CAMBIADO, {}
 
     # Marcar como executing
     token_data["state"] = "executing"
