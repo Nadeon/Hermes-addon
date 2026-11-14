@@ -87,6 +87,16 @@ _CATALOGO: tuple[Familia, ...] = (
             "Generic tools that run Core WebSocket commands and Supervisor API "
             "routes allowed by Hermes' classification table.",
             "1.2.0", True, ("generic_commands",)),
+    # Spec 016. Dos familias y no una (research R-8): quien no quiere que el
+    # agente aplique arreglos de Repairs (`repair_flows`, tramo C) puede
+    # quitarlos sin perder la gestión de integraciones, y al revés. No amplían
+    # `config_entries` ni `diagnostics` porque FR-010 de la 008 exige familias
+    # nuevas: desactivando las de la 1.2.0 tiene que quedar la lista de la
+    # 1.1.2. El tramo B añade aquí `config_subentries`.
+    Familia("integration_flows",
+            "Discovered integrations, config entry preferences, config "
+            "subentries and reconfigure flows.",
+            "1.2.0", True, ("integration_setup",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

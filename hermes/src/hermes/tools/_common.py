@@ -12,10 +12,33 @@ from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    redact_secrets,
+    redact_structure,
     validate_confirmation_token,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def redactar_datos(valor: Any) -> Any:
+    """Redacta por clave (`redact_structure`) y por patrón en cada texto.
+
+    Las dos capas hacen falta: la clave tapa `{"token": "…"}`, pero una URL
+    con credenciales bajo una clave inocente (`url`) solo la detecta el
+    patrón de `redact_secrets`.
+
+    Nació en `tools/repairs.py` para los marcadores de los avisos; se movió
+    aquí sin cambiarlo cuando la spec 016 lo necesitó también para lo que HA
+    cuenta de un descubrimiento (`title_placeholders`).
+    """
+    valor = redact_structure(valor)
+    if isinstance(valor, dict):
+        return {k: redactar_datos(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [redactar_datos(v) for v in valor]
+    if isinstance(valor, str):
+        return redact_secrets(valor)
+    return valor
 
 
 def tam_json(valor: Any) -> int:

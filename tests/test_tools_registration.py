@@ -737,6 +737,23 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+    # Spec 016, tramo A (contracts/tools.md). Las dos de lectura, por prefijo.
+    # `ha_ignore_discovery` modifica sin destruir (se deshace borrando la
+    # entrada `ignore`) y es idempotente; `ha_update_config_entry` es
+    # destructiva por nombre exacto porque puede pedir token.
+    "ha_list_discovered_integrations": ("R-I-", "List discovered integrations (Home Assistant)"),
+    "ha_ignore_discovery": ("--I-", "Ignore discovery (Home Assistant)"),
+    "ha_list_config_flow_domains": ("R-I-", "List config flow domains (Home Assistant)"),
+    "ha_update_config_entry": ("-DI-", "Update config entry (Home Assistant)"),
+}
+
+# Tools de cada familia nueva de la 1.2.0 (sus contratos). Con la familia
+# desactivada no aparece ninguna.
+_TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
+    "integration_flows": {
+        "ha_list_discovered_integrations", "ha_ignore_discovery",
+        "ha_list_config_flow_domains", "ha_update_config_entry",
+    },
 }
 
 
@@ -948,6 +965,16 @@ class TestRegistroPorFamilias:
             n for n in _HINTS_SNAPSHOT
             if _hint_code(tools[n].annotations) != _HINTS_SNAPSHOT[n])
         assert cambiados == [], f"hints cambiados: {cambiados}"
+
+    def test_familias_nuevas_con_sus_tools(self):
+        """Spec 016 (T009, FR-017): cada familia nueva de la 1.2.0 registra
+        exactamente sus tools y, desactivada, ninguna (las demás siguen)."""
+        completo = set(_do_register().tools)
+        for familia, tools in _TOOLS_DE_FAMILIA_1_2_0.items():
+            assert tools <= completo, (familia, sorted(tools - completo))
+            reducido = set(_do_register([familia]).tools)
+            assert reducido.isdisjoint(tools), (familia, sorted(reducido & tools))
+            assert completo - reducido == tools, familia
 
     def test_por_defecto_la_1_1_2_entera(self):
         """Con la opción vacía, las 216 están y con los mismos hints."""

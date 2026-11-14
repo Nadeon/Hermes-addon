@@ -19,10 +19,11 @@ from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
-    redact_secrets,
-    redact_structure,
     validate_confirmation_token,
 )
+# La redacción por clave y por patrón vive en `_common` desde la spec 016, que
+# la comparte con `integration_setup`; el comportamiento es el de siempre.
+from hermes.tools._common import redactar_datos as _redactar
 from hermes.tools._common import requires_ready
 
 logger = structlog.get_logger(__name__)
@@ -46,23 +47,6 @@ def _invalid(field: str, detail: str) -> str:
     return json.dumps(
         {"error": "invalid_argument", "field": field, "detail": detail}
     )
-
-
-def _redactar(valor: Any) -> Any:
-    """Redacta por clave (`redact_structure`) y por patrón en cada texto.
-
-    Las dos capas hacen falta: la clave tapa `{"token": "…"}`, pero una URL
-    con credenciales bajo una clave inocente (`url`) solo la detecta el
-    patrón de `redact_secrets`.
-    """
-    valor = redact_structure(valor)
-    if isinstance(valor, dict):
-        return {k: _redactar(v) for k, v in valor.items()}
-    if isinstance(valor, list):
-        return [_redactar(v) for v in valor]
-    if isinstance(valor, str):
-        return redact_secrets(valor)
-    return valor
 
 
 def _resumen(issue: dict[str, Any]) -> dict[str, Any]:

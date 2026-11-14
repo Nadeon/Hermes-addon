@@ -145,6 +145,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # peor. Siempre piden confirmation_token.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 016: puede pedir token. Desactivar el sondeo recarga la integración
+    # y deja sus entidades sin actualizar; desactivar las entidades nuevas hace
+    # que lo que se añada entre deshabilitado. Invariante «pide token ⇔
+    # destructiva». Idempotente: repetirla deja la entrada igual.
+    "ha_update_config_entry",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

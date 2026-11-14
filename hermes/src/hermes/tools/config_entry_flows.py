@@ -24,10 +24,11 @@ Regla de seguridad:
   {"error": "non_automatable", ...}. Esto evita flows huérfanos en HA.
 
 Nota sobre ha_list_configured_domains:
-  No existe un comando WS/REST que liste todos los handlers disponibles.
-  Esta tool devuelve los dominios únicos de las config entries existentes
-  como referencia. Para instalar una nueva integración desde cero, usa
-  ha_start_config_entry_flow con el domain conocido.
+  Devuelve los dominios únicos de las config entries existentes. La lista de
+  los handlers que se pueden configurar existe por REST
+  (`/api/config/config_entries/flow_handlers`) y la expone
+  ha_list_config_flow_domains (spec 016, familia integration_flows). Para
+  instalar una integración nueva, ha_start_config_entry_flow con su dominio.
 """
 
 from __future__ import annotations
@@ -104,10 +105,12 @@ def register(mcp: object, ha_client: HAClient) -> None:
         ha_start_config_entry_flow con su dominio (p. ej. "spotify"), aunque no
         aparezca en esta lista.
 
-        NOTA: No existe un comando HA que liste todos los handlers disponibles
-        para instalación nueva. Esta tool devuelve los dominios únicos de las
-        config entries ya configuradas. Útil para saber qué integraciones están
-        activas y pueden recibir un nuevo flow (ej. añadir segundo bridge Hue).
+        NOTA: Esta tool devuelve los dominios únicos de las config entries ya
+        configuradas. Útil para saber qué integraciones están activas y pueden
+        recibir un nuevo flow (ej. añadir segundo bridge Hue). La lista de los
+        dominios que se pueden configurar por flujo (el catálogo de «Añadir
+        integración») la da ha_list_config_flow_domains, si la familia
+        integration_flows está activa.
 
         Returns:
             JSON {"count": int, "domains": ["hue", "mqtt", ...]}
