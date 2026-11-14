@@ -106,50 +106,103 @@ en su propio commit (solo las rutas que toca, añadidas por nombre).
 
 # TRAMO 2 — honestidad de las demás tools (T012–T036)
 
+**Notas del tramo 2** (implementación):
+
+- T012: línea base en Windows sobre el tramo 1: 2334 passed, 66 skipped,
+  6 failed (los 6 conocidos). La 028 sí dejó el hallazgo de la escena con
+  `name` en `HALLAZGOS_028` / `XFAIL_PERMITIDOS_028`
+  (`TestEscena.test_hallazgo_escena_desde_el_estado_con_nombre`); T030 lo
+  quita. No hizo falta integrar otra vez la rama del programa.
+- T013/T026: `test_reload` de la 1.1.2 (vista previa + token + 400) se
+  sustituye por `test_reload_no_soportada`; los de `amount` van en la clase
+  nueva `TestValorDeContadorValido`, con el doble de `call_service` como espía.
+- Extras del supervisor dentro del tramo: (1) `ha_set_counter_value` comprueba
+  el valor igual que `amount` y responde `invalid_value` (mismo ayudante
+  `_value_problem`; unitario y banco); (2) el docstring de
+  `hermes/src/hermes/config.py` decía «bashio»: `run.sh` lee
+  `/data/options.json` con `jq` (test en `tests/test_run_sh_options.py`);
+  (3) `_count_config_entry_dependents` compara el `entry_id` exacto (test en
+  `tests/test_tools_config_entries.py`).
+- T019: además del tipo, el aviso de progreso del keepalive va en un `try`:
+  hasta ahora no se ejecutaba nunca y, sin petición detrás (o con el
+  transporte cerrado), `Context.report_progress` lanza; un aviso que falla no
+  puede cortar la espera (test y control negativo propios).
+- T022: el estado posterior a `scene.create` se lee por REST sin la caché
+  (que va por detrás del bus); el id pasa por `validate_path_segment` (lo
+  exige el invariante de `tests/test_security_regressions.py`). Con un
+  `confirmation_token` y la escena ya inexistente, el token se valida igual
+  (fail-closed). `ha_create_scene_from_current` entra en el inventario de
+  argumentos atados (82 tools): `scene_id` y `entity_ids` atados, `name`
+  exento (con valor se rechaza antes del token).
+- T025/T028 (banco): el test de `amount` incluye también `ha_set_counter_value`
+  inválido (extra 1). La confirmación del 500 de hoy y el control negativo en
+  el banco van con la rama desechable del CI (ver T036).
+- T029: el canario usa una barrera propia del lector (`counter.increment`
+  sobre un contador suyo) y comprueba que Hermes no llamó a ningún servicio
+  de `counter`. `TestServicioInexistente` y los ayudantes
+  `ServicioInexistente`/`RechazadoPorCore` se quedan en `tests/banco/`: no los
+  usa ya ningún test del banco, pero son la herramienta para el próximo
+  hallazgo y tienen sus tests.
+- T036: nuevo `test_ningun_xfail_en_el_banco_fuera_de_la_lista` en
+  `tests/test_banco_cobertura.py`: cada `xfail` de `tests/banco/` está en la
+  lista del job y la lista está vacía.
+- Controles negativos (comprobados y restaurados): T017, volver a
+  `guarded_reload` → cae 1 (`test_reload_no_soportada`); devolver `options` →
+  cae 1. T020, `ctx: Any` → caen 4 (`test_esquemas_de_la_1_1_2`, los 2 de
+  `TestEsperaSinCtxEnElEsquema` y `test_sin_ctx_por_el_servidor_real`).
+  T024, mandar otra vez `name` → 1; sin consulta de existencia → 5; sin
+  comprobación posterior → 2; sin consulta al registro → 1; sin la anotación
+  destructiva → 4 del registro. T023, docstrings de antes → 2. T028, sin la
+  comprobación → 6 (4 de `amount`, 2 de `invalid_value`). T032, sin la
+  excepción de la escena o sin la de la espera → cae
+  `test_esquemas_de_la_1_1_2`. Extras: comparación por subcadena → 1;
+  docstring con «bashio» → 1. Sin `xfail` en la lista y uno de vuelta en
+  `test_recarga` → cae 1.
+
 ## Fase 6: Preparación
 
-- [ ] T012 Línea base del tramo 2 sobre el commit del tramo 1 (y, si hace falta, integrar de nuevo la rama del programa: S-01). Comprobar si la 028 dejó en `tests/banco/cobertura_escrituras.py` un hallazgo de `ha_create_scene_from_current` en `HALLAZGOS_028` / `XFAIL_PERMITIDOS_028` y anotarlo
+- [x] T012 Línea base del tramo 2 sobre el commit del tramo 1 (y, si hace falta, integrar de nuevo la rama del programa: S-01). Comprobar si la 028 dejó en `tests/banco/cobertura_escrituras.py` un hallazgo de `ha_create_scene_from_current` en `HALLAZGOS_028` / `XFAIL_PERMITIDOS_028` y anotarlo
 
 ## Fase 7: Historia 2 — `ha_reload_counters` y `ha_get_config_entry_options` lo dicen (P1)
 
-- [ ] T013 [P] [US2] Tests en `tests/test_tools_counter.py`: `ha_reload_counters` sin token y con un token cualquiera → `not_supported` con `_deprecated`; el doble de HA no recibe ninguna llamada; no se crea ningún fichero de token; la docstring empieza por `DEPRECATED (removed in 1.3.0)`. En rojo
-- [ ] T014 [US2] Arreglo en `hermes/src/hermes/tools/counter.py` (`ha_reload_counters` según contracts/tools.md, sin `guarded_reload`; comentario con el porqué y la referencia a research R-2). T013 en verde
-- [ ] T015 [P] [US2] Tests en `tests/test_tools_config_entry_flows.py`: con una entry existente → `not_supported` con `entry_id`, `domain`, `title`, `supports_options`, `hint` y `_deprecated`, sin clave `options`; entry inexistente → `not_found` como hoy; error de conexión → como hoy. En rojo
-- [ ] T016 [US2] Arreglo en `hermes/src/hermes/tools/config_entry_flows.py` (`ha_get_config_entry_options` según el contrato; docstring `DEPRECATED (removed in 1.3.0)` con el motivo). T015 en verde
-- [ ] T017 [US2] Controles negativos de T014 y T016 (volver a llamar a `guarded_reload`; volver a devolver `options: {}`) → caen T013 y T015; restaurar y anotar
+- [x] T013 [P] [US2] Tests en `tests/test_tools_counter.py`: `ha_reload_counters` sin token y con un token cualquiera → `not_supported` con `_deprecated`; el doble de HA no recibe ninguna llamada; no se crea ningún fichero de token; la docstring empieza por `DEPRECATED (removed in 1.3.0)`. En rojo
+- [x] T014 [US2] Arreglo en `hermes/src/hermes/tools/counter.py` (`ha_reload_counters` según contracts/tools.md, sin `guarded_reload`; comentario con el porqué y la referencia a research R-2). T013 en verde
+- [x] T015 [P] [US2] Tests en `tests/test_tools_config_entry_flows.py`: con una entry existente → `not_supported` con `entry_id`, `domain`, `title`, `supports_options`, `hint` y `_deprecated`, sin clave `options`; entry inexistente → `not_found` como hoy; error de conexión → como hoy. En rojo
+- [x] T016 [US2] Arreglo en `hermes/src/hermes/tools/config_entry_flows.py` (`ha_get_config_entry_options` según el contrato; docstring `DEPRECATED (removed in 1.3.0)` con el motivo). T015 en verde
+- [x] T017 [US2] Controles negativos de T014 y T016 (volver a llamar a `guarded_reload`; volver a devolver `options: {}`) → caen T013 y T015; restaurar y anotar
 
 ## Fase 8: Historia 3 — `ha_wait_for_event` sin `ctx` en el esquema (P1)
 
-- [ ] T018 [P] [US3] Tests: en `tests/test_tools_registration.py`, con el registro real, el esquema de `ha_wait_for_event` tiene `event_type`, `filters`, `timeout_seconds`, solo `event_type` obligatorio, y la tool registrada tiene `context_kwarg == "ctx"`; en `tests/test_tools_wait_for_event.py`, (a) una espera más larga que `_KEEPALIVE_INTERVAL` (parcheado a algo corto) con un `Context` de prueba (subclase o doble con `report_progress`) llama a `report_progress`; (b) por el `MCPServer` real, `call_tool` con un `ctx` sobrante no da error de validación. En rojo lo que corresponda
-- [ ] T019 [US3] Arreglo en `hermes/src/hermes/tools/wait_for_event.py`: `ctx: Context` en la misma posición (plan, Diseño). T018 en verde y los tests existentes de `ha_wait_for_event` sin tocar
-- [ ] T020 [US3] Control negativo de T019 (volver a `Any`) → cae el test del esquema y el de `context_kwarg`; anotar
+- [x] T018 [P] [US3] Tests: en `tests/test_tools_registration.py`, con el registro real, el esquema de `ha_wait_for_event` tiene `event_type`, `filters`, `timeout_seconds`, solo `event_type` obligatorio, y la tool registrada tiene `context_kwarg == "ctx"`; en `tests/test_tools_wait_for_event.py`, (a) una espera más larga que `_KEEPALIVE_INTERVAL` (parcheado a algo corto) con un `Context` de prueba (subclase o doble con `report_progress`) llama a `report_progress`; (b) por el `MCPServer` real, `call_tool` con un `ctx` sobrante no da error de validación. En rojo lo que corresponda
+- [x] T019 [US3] Arreglo en `hermes/src/hermes/tools/wait_for_event.py`: `ctx: Context` en la misma posición (plan, Diseño). T018 en verde y los tests existentes de `ha_wait_for_event` sin tocar
+- [x] T020 [US3] Control negativo de T019 (volver a `Any`) → cae el test del esquema y el de `context_kwarg`; anotar
 
 ## Fase 9: Historias 4 y 5 — escenas (P2, P3)
 
-- [ ] T021 [P] [US4] Tests en `tests/test_tools_scenes.py` con el doble de HA del fichero: (a) `name` → `name_not_supported` sin ninguna llamada de servicio; (b) entidad inexistente → `entity_not_found`; (c) escena inexistente → `scene.create` con `scene_id` y `snapshot_entities` y SIN `name`, respuesta `result: ok`, `replaced: false`, `temporary: true` y `ha_response`; (d) escena temporal existente sin token → vista previa con `current_entities` y `new_entities` y sin llamada; con el token → `scene.create` y `replaced: true`; con otras `entity_ids` → rechazo del token; (e) escena con atributo `id`, o con entrada en el registro de entidades → `scene_exists` sin token ni llamada; (f) tras `scene.create`, una escena con otras entidades → `scene_not_created`. En rojo
-- [ ] T022 [US4] Arreglo en `hermes/src/hermes/tools/scenes.py` (`ha_create_scene_from_current` según research R-4 y el contrato, con `confirmation_token` opcional; docstring: escena temporal, cuándo pide token, `name` deprecado) y en `hermes/src/hermes/tools/_annotations.py` (`ha_create_scene_from_current` en `_DESTRUCTIVE_EXACT`, con comentario), con la línea de `_HINTS_SNAPSHOT` de T032 en el mismo paso para no dejar la suite en rojo. T021 en verde
-- [ ] T023 [P] [US5] Test en `tests/test_tools_scenes.py`: las docstrings de `ha_get_scene`, `ha_create_or_update_scene` y `ha_delete_scene` nombran `scenes.yaml` y no contienen `.storage/core.scene_`; la de `ha_create_or_update_scene` no dice que vea las escenas de `scene.create`. En rojo; arreglo de las docstrings en `hermes/src/hermes/tools/scenes.py`; en verde
-- [ ] T024 [US4] Controles negativos de T022 (volver a mandar `name`; quitar la consulta de existencia; quitar la comprobación posterior) → anotar qué tests caen en cada caso
+- [x] T021 [P] [US4] Tests en `tests/test_tools_scenes.py` con el doble de HA del fichero: (a) `name` → `name_not_supported` sin ninguna llamada de servicio; (b) entidad inexistente → `entity_not_found`; (c) escena inexistente → `scene.create` con `scene_id` y `snapshot_entities` y SIN `name`, respuesta `result: ok`, `replaced: false`, `temporary: true` y `ha_response`; (d) escena temporal existente sin token → vista previa con `current_entities` y `new_entities` y sin llamada; con el token → `scene.create` y `replaced: true`; con otras `entity_ids` → rechazo del token; (e) escena con atributo `id`, o con entrada en el registro de entidades → `scene_exists` sin token ni llamada; (f) tras `scene.create`, una escena con otras entidades → `scene_not_created`. En rojo
+- [x] T022 [US4] Arreglo en `hermes/src/hermes/tools/scenes.py` (`ha_create_scene_from_current` según research R-4 y el contrato, con `confirmation_token` opcional; docstring: escena temporal, cuándo pide token, `name` deprecado) y en `hermes/src/hermes/tools/_annotations.py` (`ha_create_scene_from_current` en `_DESTRUCTIVE_EXACT`, con comentario), con la línea de `_HINTS_SNAPSHOT` de T032 en el mismo paso para no dejar la suite en rojo. T021 en verde
+- [x] T023 [P] [US5] Test en `tests/test_tools_scenes.py`: las docstrings de `ha_get_scene`, `ha_create_or_update_scene` y `ha_delete_scene` nombran `scenes.yaml` y no contienen `.storage/core.scene_`; la de `ha_create_or_update_scene` no dice que vea las escenas de `scene.create`. En rojo; arreglo de las docstrings en `hermes/src/hermes/tools/scenes.py`; en verde
+- [x] T024 [US4] Controles negativos de T022 (volver a mandar `name`; quitar la consulta de existencia; quitar la comprobación posterior) → anotar qué tests caen en cada caso
 
 ## Fase 10: Historia 6 — `amount` de los contadores (P2)
 
-- [ ] T025 [US6] Test del banco PRIMERO, en `tests/banco/test_banco_helpers_tiempo.py` (`TestCounter`): contador creado por el lector con `initial` 5 y `step` 3; `ha_increment_counter` con `amount=3` → hoy 500 (la sospecha, confirmada contra HA real en el CI, se anota en el commit); tras el arreglo, `invalid_amount` con `reason: not_multiple_of_step` y el lector ve el contador en 5; `ha_set_counter_value` a 6 y `amount=3` → 9 (camino válido); contador con `step` 1 y `maximum` 10 en 9, `amount=5` → `invalid_amount` `out_of_range`
-- [ ] T026 [P] [US6] Tests unitarios en `tests/test_tools_counter.py` con atributos `step`/`minimum`/`maximum` en el estado del doble: los casos de la Historia 6 para increment y decrement; sin `amount`, sin cambios; sin `step` en atributos → se asume 1. En rojo
-- [ ] T027 [US6] Arreglo en `hermes/src/hermes/tools/counter.py` (`_bulk_adjust` según research R-7 y el contrato; docstrings de increment y decrement con la regla). T026 en verde
-- [ ] T028 [US6] Control negativo de T027 (quitar la comprobación) → caen T026 y, en el banco, T025; anotar
+- [x] T025 [US6] Test del banco PRIMERO, en `tests/banco/test_banco_helpers_tiempo.py` (`TestCounter`): contador creado por el lector con `initial` 5 y `step` 3; `ha_increment_counter` con `amount=3` → hoy 500 (la sospecha, confirmada contra HA real en el CI, se anota en el commit); tras el arreglo, `invalid_amount` con `reason: not_multiple_of_step` y el lector ve el contador en 5; `ha_set_counter_value` a 6 y `amount=3` → 9 (camino válido); contador con `step` 1 y `maximum` 10 en 9, `amount=5` → `invalid_amount` `out_of_range`
+- [x] T026 [P] [US6] Tests unitarios en `tests/test_tools_counter.py` con atributos `step`/`minimum`/`maximum` en el estado del doble: los casos de la Historia 6 para increment y decrement; sin `amount`, sin cambios; sin `step` en atributos → se asume 1. En rojo
+- [x] T027 [US6] Arreglo en `hermes/src/hermes/tools/counter.py` (`_bulk_adjust` según research R-7 y el contrato; docstrings de increment y decrement con la regla). T026 en verde
+- [x] T028 [US6] Control negativo de T027 (quitar la comprobación) → caen T026 y, en el banco, T025; anotar
 
 ## Fase 11: Historia 7 — el banco da los arreglos por probados (P1)
 
-- [ ] T029 [US7] `tests/banco/test_banco_helpers_tiempo.py`: `TestCounter.test_recarga` sin `xfail`, como canario (research R-2): el lector comprueba que Core no tiene `counter.reload` en `get_services` y la tool responde `not_supported` sin que el lector vea ninguna llamada de servicio. `tests/banco/cobertura.py`: `ha_reload_counters` de `FALLAN_EN_BANCO` a `NO_EJECUTABLES` con su motivo, `XFAIL_PERMITIDOS` sin su test, docstrings y comentarios de recuento al día. EN EL MISMO COMMIT que T014 (el `xfail` estricto pondría el job en rojo)
-- [ ] T030 [US7] Tests del banco de escenas en el fichero de escenas de la 028 (`tests/banco/test_banco_escrituras_automatizacion.py`): crear sin `name` (el lector ve la escena con esas entidades), reemplazar una temporal con token (el lector ve las entidades nuevas), `scene_exists` sobre una escena creada con `ha_create_or_update_scene` (el lector ve que no cambia), `name_not_supported` (el lector no ve `scene.create`). Quitar el `xfail` `HALLAZGO` de la escena y sus entradas de `HALLAZGOS_028` / `XFAIL_PERMITIDOS_028` si existen (T012)
-- [ ] T031 [P] [US7] Tests del banco de `ha_wait_for_event` llamada sin `ctx` (el lector dispara el evento y la tool devuelve `matched: true`) y de `ha_get_config_entry_options` sobre la entry de `kitchen_sink` (`not_supported` con su `domain`), en los ficheros del banco de la 028 de servicios/eventos e integraciones
+- [x] T029 [US7] `tests/banco/test_banco_helpers_tiempo.py`: `TestCounter.test_recarga` sin `xfail`, como canario (research R-2): el lector comprueba que Core no tiene `counter.reload` en `get_services` y la tool responde `not_supported` sin que el lector vea ninguna llamada de servicio. `tests/banco/cobertura.py`: `ha_reload_counters` de `FALLAN_EN_BANCO` a `NO_EJECUTABLES` con su motivo, `XFAIL_PERMITIDOS` sin su test, docstrings y comentarios de recuento al día. EN EL MISMO COMMIT que T014 (el `xfail` estricto pondría el job en rojo)
+- [x] T030 [US7] Tests del banco de escenas en el fichero de escenas de la 028 (`tests/banco/test_banco_escrituras_automatizacion.py`): crear sin `name` (el lector ve la escena con esas entidades), reemplazar una temporal con token (el lector ve las entidades nuevas), `scene_exists` sobre una escena creada con `ha_create_or_update_scene` (el lector ve que no cambia), `name_not_supported` (el lector no ve `scene.create`). Quitar el `xfail` `HALLAZGO` de la escena y sus entradas de `HALLAZGOS_028` / `XFAIL_PERMITIDOS_028` si existen (T012)
+- [x] T031 [P] [US7] Tests del banco de `ha_wait_for_event` llamada sin `ctx` (el lector dispara el evento y la tool devuelve `matched: true`) y de `ha_get_config_entry_options` sobre la entry de `kitchen_sink` (`not_supported` con su `domain`), en los ficheros del banco de la 028 de servicios/eventos e integraciones
 
 ## Fase 12: Compatibilidad y cierre (FR-011, FR-012)
 
-- [ ] T032 [US3] [US4] `tests/test_tools_registration.py`: en `_HINTS_SNAPSHOT`, `ha_create_scene_from_current` pasa de `----` a `-D--` con un comentario que cita FR-011 y FR-099 de la 008; en `test_esquemas_de_la_1_1_2` (si la 011 está integrada; si no, anotar la tarea para la integración), dos excepciones escritas junto a la de `hermes_guide`: `ha_wait_for_event` sin `ctx` (propiedad y obligatorio) y `ha_create_scene_from_current` con `confirmation_token` opcional, cada una con su porqué. Control negativo: con cualquiera de las dos excepciones quitada, el test cae
-- [ ] T033 [P] Documentación: en `hermes/CHANGELOG.md`, viñetas del tramo 2 en la subsección de la 033; en `hermes/src/hermes/tools/guide.py`, contadores (sin recarga, regla de `amount`), escenas (temporal, `name`, `scenes.yaml`) y opciones de config entries (no publicadas, flujo de opciones); en `docs/HOJA-DE-RUTA.md`, deprecaciones con retirada en la 1.3.0 (`ha_reload_counters`, `ha_get_config_entry_options`, argumento `name` de `ha_create_scene_from_current`), fila 033 a «hecha», y el recuento del banco de helpers (46 probadas y 1 no ejecutable con motivo); en `specs/008-cobertura-total/plan.md`, la fila CAP-039 de la matriz completa con los tests
-- [ ] T034 Revisión de honestidad (SC-005): releer las docstrings de las siete tools y los textos de la guía tocados contra el código y contra HA (research); la lista de frases revisadas va al commit
-- [ ] T035 Suite completa (solo los 6 conocidos en Windows); revisión del diff buscando datos personales e identificadores de modelos
+- [x] T032 [US3] [US4] `tests/test_tools_registration.py`: en `_HINTS_SNAPSHOT`, `ha_create_scene_from_current` pasa de `----` a `-D--` con un comentario que cita FR-011 y FR-099 de la 008; en `test_esquemas_de_la_1_1_2` (si la 011 está integrada; si no, anotar la tarea para la integración), dos excepciones escritas junto a la de `hermes_guide`: `ha_wait_for_event` sin `ctx` (propiedad y obligatorio) y `ha_create_scene_from_current` con `confirmation_token` opcional, cada una con su porqué. Control negativo: con cualquiera de las dos excepciones quitada, el test cae
+- [x] T033 [P] Documentación: en `hermes/CHANGELOG.md`, viñetas del tramo 2 en la subsección de la 033; en `hermes/src/hermes/tools/guide.py`, contadores (sin recarga, regla de `amount`), escenas (temporal, `name`, `scenes.yaml`) y opciones de config entries (no publicadas, flujo de opciones); en `docs/HOJA-DE-RUTA.md`, deprecaciones con retirada en la 1.3.0 (`ha_reload_counters`, `ha_get_config_entry_options`, argumento `name` de `ha_create_scene_from_current`), fila 033 a «hecha», y el recuento del banco de helpers (46 probadas y 1 no ejecutable con motivo); en `specs/008-cobertura-total/plan.md`, la fila CAP-039 de la matriz completa con los tests
+- [x] T034 Revisión de honestidad (SC-005): releer las docstrings de las siete tools y los textos de la guía tocados contra el código y contra HA (research); la lista de frases revisadas va al commit
+- [x] T035 Suite completa (solo los 6 conocidos en Windows); revisión del diff buscando datos personales e identificadores de modelos
 - [ ] T036 Commit del tramo 2 con los recuentos de T017, T020, T024, T028 y T032; si se sube la rama, CI y banco en verde (`FALLAN_EN_BANCO` vacío, ningún `xfail` de estas tools)
 
 ## Dependencias y orden
