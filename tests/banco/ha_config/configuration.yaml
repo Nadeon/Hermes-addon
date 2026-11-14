@@ -47,3 +47,23 @@ timer:
 schedule:
 zone:
 person:
+
+# ── Spec 028 (tramo A): escrituras de automatización, ejecución y Lovelace ──
+#
+# automation:, script: y scene: con sus ficheros: las tools
+# `ha_create_or_update_*` y `ha_delete_*` de automatizaciones, scripts y
+# escenas guardan por los endpoints `/api/config/<dominio>/config/<id>` de HA,
+# que solo existen si el dominio está cargado y escriben en estos ficheros;
+# sin el `!include`, HA no recargaría lo guardado. Las recargas, el disparo,
+# la ejecución y la activación (`ha_reload_*`, `ha_trigger_automation`,
+# `ha_run_script`, `ha_activate_scene`, `ha_create_scene_from_current`)
+# necesitan además los servicios del dominio. Los tres ficheros empiezan
+# vacíos y se versionan en esta carpeta; nada sale a internet.
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# frontend: registra Lovelace (dashboards y recursos por WebSocket, en modo
+# almacenamiento) y arrastra `repairs`; lo necesitan las 7 tools de Lovelace.
+# Sirve ficheros de la propia imagen: no sale a internet.
+frontend:
