@@ -125,6 +125,69 @@ class TestSupervisorInfoTools(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["channel"], "stable")
         self.assertTrue(result["healthy"])
 
+    # ── D4: machine, docker_version y kernel_version llegaban siempre a null ──
+    # `/supervisor/info` no trae `machine` ni `docker_version`: viven en
+    # `GET /info` (`machine`, `docker`). Y `/host/info` publica el kernel como
+    # `kernel`, no `kernel_version`.
+
+    async def test_get_supervisor_info_reads_machine_and_docker_from_info(self) -> None:
+        self.client.set_sv_response("GET", "/supervisor/info", {
+            "version": "2026.11.0", "channel": "stable", "healthy": True,
+            "supported": True, "arch": "amd64",
+        })
+        self.client.set_sv_response("GET", "/info", {
+            "machine": "generic-x86-64", "docker": "28.0.0",
+        })
+        result = await self.tools["sv_get_supervisor_info"]()
+        self.assertEqual(result["machine"], "generic-x86-64")
+        self.assertEqual(result["docker_version"], "28.0.0")
+        self.assertEqual(result["version"], "2026.11.0")
+
+    async def test_get_supervisor_info_survives_info_failure(self) -> None:
+        self.client.set_sv_response("GET", "/supervisor/info", {
+            "version": "2026.11.0", "channel": "stable", "healthy": True,
+            "supported": True, "arch": "amd64",
+        })
+        self.client.set_sv_response("GET", "/info", HAConnectionError("boom"))
+        result = await self.tools["sv_get_supervisor_info"]()
+        self.assertNotIn("error", result)
+        self.assertIsNone(result["machine"])
+        self.assertIsNone(result["docker_version"])
+        self.assertEqual(result["version"], "2026.11.0")
+        self.assertEqual(result["arch"], "amd64")
+
+    async def test_get_host_info_reads_kernel(self) -> None:
+        self.client.set_sv_response("GET", "/host/info", {
+            "hostname": "homeassistant", "kernel": "6.12.51-haos",
+            "boot_timestamp": 1_700_000_000_000_000, "disk_total": 58.0,
+        })
+        result = await self.tools["sv_get_host_info"]()
+        self.assertEqual(result["kernel_version"], "6.12.51-haos")
+
+    # ── D4 y C3: las descripciones deben decir lo que llega de verdad ─────────
+
+    def test_host_info_description_states_units(self) -> None:
+        doc = self.tools["sv_get_host_info"].__doc__
+        self.assertIn("microsegundos", doc)
+        self.assertIn("GiB", doc)
+
+    def test_addon_stats_description_names_real_fields(self) -> None:
+        from hermes.tools.addons import register as register_addons
+        mcp = DummyMCP()
+        register_addons(mcp, self.client)
+        doc = mcp.tools["sv_get_addon_stats"].__doc__
+        self.assertIn("blk_read", doc)
+        self.assertIn("blk_write", doc)
+        self.assertNotIn("disk_read", doc)
+
+    def test_list_backups_description_explains_null_location(self) -> None:
+        from hermes.tools.backups import register as register_backups
+        mcp = DummyMCP()
+        register_backups(mcp, self.client)
+        doc = mcp.tools["sv_list_backups"].__doc__
+        self.assertIn("location: null", doc)
+        self.assertIn("local", doc)
+
     async def test_get_supervisor_info_error(self) -> None:
         self.client.set_sv_response("GET", "/supervisor/info", HAConnectionError("timeout"))
         result = await self.tools["sv_get_supervisor_info"]()
@@ -691,6 +754,69 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
         result = await self.tools["sv_get_job_status"]("job_abc123")
         self.assertTrue(result["done"])
         self.assertEqual(result["reference"], "deadbeef")
+        # Terminado y sin errores: es el único caso que cuenta como éxito.
+        self.assertIs(result["success"], True)
+        self.assertEqual(result["errors"], [])
+
+    # ── R2: un job terminado con errores es un FALLO ──────────────────────────
+    # El Supervisor pone `done: true` también cuando el job falla y deja los
+    # motivos en `errors`. La tool solo devolvía `done`, así que un backup
+    # fallido por falta de espacio se veía igual que uno correcto.
+
+    async def test_get_job_status_done_with_errors_is_a_failure(self) -> None:
+        self.client.set_sv_response("GET", "/jobs/job_abc123", {
+            "name": "backup_manager_full_backup",
+            "done": True,
+            "progress": 100,
+            "errors": [{"type": "BackupError", "message": "Not enough free space",
+                        "stage": None}],
+        })
+        result = await self.tools["sv_get_job_status"]("job_abc123")
+        self.assertTrue(result["done"])
+        self.assertIs(result["success"], False)
+        self.assertEqual(result["errors"], ["Not enough free space"])
+
+    async def test_get_job_status_not_done_has_null_success(self) -> None:
+        self.client.set_sv_response("GET", "/jobs/job_abc123", {
+            "name": "backup_full", "done": False, "progress": 10, "errors": [],
+        })
+        result = await self.tools["sv_get_job_status"]("job_abc123")
+        self.assertIsNone(result["success"])
+        self.assertEqual(result["errors"], [])
+
+    async def test_failed_job_is_marked_failed_in_the_local_registry(self) -> None:
+        self.client.set_sv_response("POST", "/backups/new/full", {"job_id": "job_falla"})
+        await self.tools["sv_create_backup_full"]("Backup que fallará")
+        self.client.set_sv_response("GET", "/jobs/job_falla", {
+            "name": "backup_full", "done": True,
+            "errors": [{"type": "BackupError", "message": "Not enough free space",
+                        "stage": None}],
+        })
+        await self.tools["sv_get_job_status"]("job_falla")
+
+        en_disco = json.loads(addons_mod._PENDING_JOBS_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(en_disco["job_falla"]["status"], "failed")
+        listado = await self.tools["sv_list_pending_jobs"]()
+        self.assertEqual(listado["jobs"][0]["status"], "failed")
+
+    async def test_job_errors_without_message_become_unknown_error(self) -> None:
+        self.client.set_sv_response("GET", "/jobs/job_abc123", {
+            "name": "backup_full", "done": True,
+            "errors": [{"type": "BackupError"}, {"message": 42}, "texto suelto"],
+        })
+        result = await self.tools["sv_get_job_status"]("job_abc123")
+        self.assertIs(result["success"], False)
+        self.assertEqual(result["errors"], ["unknown error"] * 3)
+
+    def test_job_errors_are_trimmed_and_redacted(self) -> None:
+        from hermes.tools.backups import _job_errors
+
+        largo = _job_errors({"errors": [{"message": "x" * 2000}]})
+        self.assertLessEqual(len(largo[0]), 500)
+        secreto = _job_errors({"errors": [{"message": "failed: password=hunter2"}]})
+        self.assertNotIn("hunter2", secreto[0])
+        self.assertEqual(_job_errors({}), [])
+        self.assertEqual(_job_errors({"errors": None}), [])
 
     async def test_list_pending_jobs_empty(self) -> None:
         result = await self.tools["sv_list_pending_jobs"]()

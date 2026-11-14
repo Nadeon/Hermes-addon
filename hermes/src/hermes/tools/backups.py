@@ -38,6 +38,7 @@ from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    redact_secrets,
     validate_confirmation_token,
 )
 from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
@@ -93,13 +94,50 @@ def _save_safety_state(state: dict[str, Any]) -> None:
 
     Reemplazar el documento entero es lo que permitía que un camino borrara la
     marca del otro.
+
+    Un valor `None` borra la clave: el safety backup automático necesita
+    quitar sus claves pendientes (`pending_*`) al resolver el job, y dejarlas
+    a `null` haría que la escritura siguiente las tomara por un job en curso.
     """
     actual = _load_safety_state()
-    actual.update(state)
+    for clave, valor in state.items():
+        if valor is None:
+            actual.pop(clave, None)
+        else:
+            actual[clave] = valor
     _SAFETY_BACKUP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = _SAFETY_BACKUP_STATE_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(actual, ensure_ascii=False), encoding="utf-8")
     tmp.replace(_SAFETY_BACKUP_STATE_PATH)
+
+
+# Tope de cada mensaje de error de un job. El Supervisor puede devolver trazas
+# largas; al cliente le basta el motivo.
+_JOB_ERROR_MAX_CHARS = 500
+
+
+def _job_errors(data: Any) -> list[str]:
+    """Mensajes de error de un job del Supervisor (`GET /jobs/{uuid}`), saneados.
+
+    El job termina con `done: true` TAMBIÉN cuando falla, y los motivos van en
+    `errors` (lista de `{type, message, stage}`). Solo se toma `message`: el
+    resto no aporta al cliente. Se recorta y se pasa por `redact_secrets`
+    porque el texto del Supervisor puede citar opciones o rutas con secretos.
+    Un error sin `message` de texto cuenta igual como error: perderlo haría
+    pasar un job fallido por correcto.
+    """
+    if not isinstance(data, dict):
+        return []
+    errores = data.get("errors")
+    if not isinstance(errores, list):
+        return []
+    mensajes: list[str] = []
+    for error in errores:
+        mensaje = error.get("message") if isinstance(error, dict) else None
+        if not isinstance(mensaje, str) or not mensaje:
+            mensaje = "unknown error"
+        mensajes.append(redact_secrets(mensaje[:_JOB_ERROR_MAX_CHARS]))
+    return mensajes
 
 
 def _size_mb(backup: dict[str, Any]) -> float | None:
@@ -148,7 +186,11 @@ def register(
         Returns:
             {"backups": [...], "count": N}
             Cada item: slug, name, date, type (full/partial),
-            size_mb, protected.
+            size_mb, protected, location.
+            `location: null` significa almacenamiento local (el disco de
+            HAOS); otro valor es el nombre de un montaje de red. Si el backup
+            está en varias ubicaciones, `location` y `protected` son los de
+            la primera.
         """
         try:
             data = await ha_client.sv_request("GET", "/backups")
@@ -636,8 +678,12 @@ def register(
 
         Returns:
             {"job_id": "...", "name": "...", "done": bool,
+             "success": true|false|null, "errors": ["..."],
              "progress": 0-100, "stage": "...", "reference": "..."}
-            Cuando done=True, reference puede contener el slug del backup
+            `done` es True también cuando el job FALLA: mira `success`.
+            success=true: terminado sin errores; false: terminado con
+            errores (los motivos en `errors`); null: aún en curso.
+            Cuando success=true, reference puede contener el slug del backup
             creado u otro identificador del resultado.
         """
         if (err := _bad_job(job_id)):
@@ -647,10 +693,19 @@ def register(
             if not isinstance(data, dict):
                 return {"error": "unexpected_response"}
 
+            # `done` no basta: el Supervisor lo pone a True también cuando el
+            # job falla, y deja los motivos en `errors`. Sin mirarlos, un
+            # backup fallido por falta de espacio se veía como correcto.
+            done = data.get("done") is True
+            errores = _job_errors(data)
+            success = (not errores) if done else None
+
             result: dict[str, Any] = {
                 "job_id": job_id,
                 "name": data.get("name"),
                 "done": data.get("done", False),
+                "success": success,
+                "errors": errores,
                 "progress": data.get("progress"),
                 "stage": data.get("stage"),
                 "reference": data.get("reference"),
@@ -662,7 +717,7 @@ def register(
                 async with _jobs_lock:
                     jobs = _load_jobs_sync()
                     if job_id in jobs:
-                        jobs[job_id]["status"] = "done"
+                        jobs[job_id]["status"] = "failed" if errores else "done"
                         jobs[job_id]["reference"] = data.get("reference")
                         _write_jobs_sync(jobs)
 
@@ -683,6 +738,8 @@ def register(
         Returns:
             {"jobs": [...], "count": N}
             Cada item: job_id, op, slug, started_at, status.
+            `status` es `running`, `done` o `failed` (terminado con errores),
+            según la última consulta con sv_get_job_status.
         """
         async with _jobs_lock:
             jobs = _load_jobs_sync()

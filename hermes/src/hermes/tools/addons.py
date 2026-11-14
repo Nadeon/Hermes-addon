@@ -910,15 +910,18 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:
-        """Devuelve estadísticas de recursos de un add-on (CPU, RAM, red).
+        """Devuelve estadísticas de recursos de un add-on (CPU, RAM, red, disco).
 
         Args:
             slug: Identificador del add-on.
 
         Returns:
-            {"cpu_percent": ..., "memory_usage": ..., "memory_limit": ...,
-             "network_tx": ..., "network_rx": ...,
-             "disk_read": ..., "disk_write": ...}
+            La respuesta del Supervisor tal cual:
+            {"cpu_percent": ..., "cpu_usage": ..., "cpu_system_usage": ...,
+             "online_cpus": ..., "memory_usage": ..., "memory_limit": ...,
+             "memory_percent": ..., "network_tx": ..., "network_rx": ...,
+             "blk_read": ..., "blk_write": ...}
+            Memoria, red y `blk_*` (lectura/escritura en disco) van en bytes.
         """
         if (err := _bad_slug(slug)):
             return err
