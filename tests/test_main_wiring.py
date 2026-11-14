@@ -164,6 +164,28 @@ def test_servidor_mcp_con_version_y_limites_de_la_configuracion(
     assert kwargs["safety_backup_keep"] == 5
 
 
+def test_instrucciones_sin_genericas_con_su_familia_desactivada() -> None:
+    """T049 de la 011 (principio V): con `generic_commands` en
+    `tool_families_disabled`, las instrucciones del `initialize` no anuncian
+    unas genéricas que no están registradas; con la familia activa, sí.
+    Control negativo comprobado: con `build_mcp_server(INSTRUCTIONS)` fijo en
+    `_build_mcp` → cae la primera comprobación."""
+    genericas = ("ha_read_ws_command", "ha_call_ws_command", "sv_read_api", "sv_call_api")
+    with mock.patch("hermes.tools.register_all_tools"):
+        apagada = main_mod._build_mcp(
+            _config(tool_families_disabled=["generic_commands"]), object())
+        activa = main_mod._build_mcp(_config(), object())
+    for nombre in genericas:
+        assert nombre not in apagada.instructions
+        assert nombre in activa.instructions
+    assert "generic_commands" not in apagada.instructions
+    assert "generic_commands" in activa.instructions
+    # Otra familia apagada no quita las genéricas.
+    with mock.patch("hermes.tools.register_all_tools"):
+        otra = main_mod._build_mcp(_config(tool_families_disabled=["lovelace"]), object())
+    assert "ha_read_ws_command" in otra.instructions
+
+
 def test_boot_usa_las_funciones_cableadas() -> None:
     """`_boot` no puede construir OAuth ni MCP por su cuenta, sin opciones."""
     fuente = inspect.getsource(main_mod._boot)

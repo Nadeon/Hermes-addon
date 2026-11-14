@@ -282,6 +282,30 @@ class TestLecturaCoreTablaReal(_Base):
         self.assertEqual(r["count"], 1)
         self.ha.ws_send.assert_awaited_once_with({"type": "tag/list"})
 
+    async def test_action_calls_tapa_el_code(self) -> None:
+        # T044: `logbook/get_action_calls` devuelve el `service_data` de cada
+        # llamada; el `code` de un `alarm_disarm` o un `lock.unlock` sale
+        # tapado, sea texto o número. Control negativo comprobado: sin
+        # `redact_extra=("code",)` en la entrada de la tabla, este test cae
+        # (el texto y el número salen en claro).
+        self.ha.ws_send.return_value = [
+            {"when": 1.0, "domain": "alarm_control_panel", "service": "alarm_disarm",
+             "service_data": {"entity_id": "alarm_control_panel.casa",
+                              "code": _CENTINELA}},
+            {"when": 2.0, "domain": "lock", "service": "unlock",
+             "service_data": {"entity_id": "lock.puerta", "code": 918273}},
+        ]
+        r = await self.t["ha_read_ws_command"](
+            "logbook/get_action_calls", {"start_time": "2026-01-01T00:00:00Z"}
+        )
+        texto = json.dumps(r)
+        self.assertNotIn(_CENTINELA, texto)
+        self.assertNotIn("918273", texto)
+        datos = [i["service_data"] for i in r["items"]]
+        self.assertEqual([d["code"] for d in datos], [security.REDACTED_MARKER] * 2)
+        # Lo demás sigue a la vista: solo se tapa el código.
+        self.assertEqual(datos[1]["entity_id"], "lock.puerta")
+
     async def test_reales_rechazadas(self) -> None:
         casos = {
             "lovelace/config/save": "use_dedicated_tool",

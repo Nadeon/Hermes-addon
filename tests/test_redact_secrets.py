@@ -1,5 +1,8 @@
 """Tests para hermes.security.redact_secrets."""
 
+import random
+import re
+import time
 import unittest
 
 from hermes.security import redact_secrets
@@ -175,6 +178,159 @@ class TestRedactSecretsEdgeCases(unittest.TestCase):
         """Texto unicode sin secretos se preserva."""
         raw = "Conexión aceptada desde 192.168.1.1 — usuario: pepe"
         assert redact_secrets(raw) == raw
+
+
+# ── FR-001 (009): redacción lineal ─────────────────────────────────────────
+
+_MIB = 1024 * 1024
+
+
+def _repetir(trozo: str, tam: int = _MIB) -> str:
+    """`trozo` repetido hasta `tam` caracteres, sin espacios."""
+    return (trozo * (tam // len(trozo) + 1))[:tam]
+
+
+class TestRedaccionLineal(unittest.TestCase):
+    """FR-001: 1 MiB de cada forma adversaria se redacta en menos de 1 s.
+
+    Medido en la 1.1.2: 30 KB de estas formas tardaban 0,4–0,6 s en
+    `_BASIC_AUTH_URL_RE`, `_JWT_RE` o `_JSON_SECRET_RE` (cuadráticas: cada
+    posición de una racha recorría la racha entera), y `sv_get_addon_logs`
+    redacta en el bucle de eventos, así que un log así bloqueaba Hermes. Con
+    1 MiB, la 1.1.2 tardaría minutos; lo lineal, decenas de milisegundos. El
+    umbral de 1 s es holgado a propósito para no ser frágil en un runner lento.
+
+    Control negativo (T007): con las tres expresiones de la 1.1.2 caen los
+    cinco tests de esta clase.
+    """
+
+    LIMITE_S = 1.0
+
+    def _medir(self, texto: str) -> None:
+        inicio = time.perf_counter()
+        redact_secrets(texto)
+        tardado = time.perf_counter() - inicio
+        self.assertLess(
+            tardado, self.LIMITE_S,
+            f"redact_secrets tardó {tardado:.2f} s con 1 MiB",
+        )
+
+    def test_letras_sin_esquema(self):
+        self._medir(_repetir("a"))
+
+    def test_letras_y_puntos(self):
+        self._medir(_repetir("a."))
+
+    def test_esquema_y_usuario_sin_arroba(self):
+        self._medir(_repetir("a://b:c"))
+
+    def test_muchos_inicios_de_jwt(self):
+        self._medir(_repetir("eyJ"))
+
+    def test_clave_json_sin_cierre(self):
+        self._medir('"' + _repetir("password", _MIB - 1))
+
+
+# Copia literal de las tres expresiones y de `redact_secrets` de la 1.1.2, como
+# referencia del test diferencial. Las otras dos expresiones no cambian, así
+# que se importan.
+from hermes.security import _BARE_SECRET_RE, _SECRET_KEY_RE  # noqa: E402
+
+_BASIC_AUTH_URL_RE_112 = re.compile(
+    r"([a-zA-Z][a-zA-Z0-9+\-.]*://[^:/@\s]+)"  # scheme://user
+    r"(:)([^@\s]+)"                              # :password
+    r"(@)",                                      # @host separator
+)
+
+_JWT_RE_112 = re.compile(
+    r"eyJ[A-Za-z0-9_\-]{2,}\.[A-Za-z0-9_\-]{2,}\.[A-Za-z0-9_\-]{2,}"
+)
+
+_JSON_SECRET_RE_112 = re.compile(
+    r'("(?:[A-Za-z0-9_.-]*(?:password|passwd|passphrase|secret|token|api[_-]?key|'
+    r'auth[_-]?key|credential|private[_-]?key)[A-Za-z0-9_.-]*)"\s*:\s*")([^"]*)(")',
+    re.IGNORECASE,
+)
+
+
+def _redact_secrets_112(text: str) -> str:
+    if not text:
+        return text
+    text = _JWT_RE_112.sub("***JWT_REDACTED***", text)
+    text = _JSON_SECRET_RE_112.sub(r"\1***REDACTED***\3", text)
+    text = _BASIC_AUTH_URL_RE_112.sub(r"\1\2***\4", text)
+    text = _SECRET_KEY_RE.sub(r"\1\2***REDACTED***", text)
+    text = _BARE_SECRET_RE.sub(r"\1***REDACTED***", text)
+    return text
+
+
+_FRAGMENTOS = (
+    "eyJ", "eyJ", ".", ".", "://", ":", ":", "@", "@", '"', '"', "password",
+    "token", "api_key", "=", " ", "a", "b", "Z", "x", "9", "0", "-", "_",
+    "PassWord", "\t", "/", "+",
+)
+
+
+def _corpus(n: int = 6000) -> list[str]:
+    """Textos de 1–80 caracteres hechos de fragmentos, con semilla fija."""
+    rnd = random.Random(2026)
+    textos = []
+    for _ in range(n):
+        objetivo = rnd.randint(1, 80)
+        trozos: list[str] = []
+        largo = 0
+        while largo < objetivo:
+            t = rnd.choice(_FRAGMENTOS)
+            trozos.append(t)
+            largo += len(t)
+        textos.append("".join(trozos)[:objetivo])
+    return textos
+
+
+class TestRedaccionDiferencial(unittest.TestCase):
+    """FR-001 / S-01: la redacción lineal da exactamente lo mismo que la 1.1.2.
+
+    Sin excepciones: en todo el corpus la salida es idéntica (no redacta más ni
+    menos). Una variante con lookbehind (`(?<![A-Za-z0-9_-])eyJ…`) sería lineal
+    pero dejaría `xeyJ…` sin redactar; este test y el de los casos fijos la
+    detectan.
+
+    Control negativo (T007): con la variante lookbehind en `_JWT_RE`, cae.
+    """
+
+    def test_corpus_aleatorio(self):
+        distintos = 0
+        for texto in _corpus():
+            esperado = _redact_secrets_112(texto)
+            obtenido = redact_secrets(texto)
+            if obtenido != esperado:
+                distintos += 1
+                with self.subTest(texto=texto):
+                    self.assertEqual(obtenido, esperado)
+        self.assertEqual(distintos, 0)
+
+    def test_casos_fijos(self):
+        casos = [
+            "xeyJhbGc.eyJzdWIi.c2lnbmF0",
+            "eyJab.cd.ef eyJxx.yy.zz",
+            "eyJeyJab.cd.ef",
+            "eyJa.bb.cc eyJab.c.dd eyJab.cd.e",
+            "ab.eyJab.cd.ef.gh",
+            "http://user:pass@host https://u:p@h",
+            "9http://user:pass@host",
+            "1+a.b-c://u:p:q@h",
+            "a://b://c@d",
+            "a://b:c a://b:c@d",
+            "ftp://u:p\n@h",
+            '"password": "x", "api_key":"y" "TOKEN" : "z"',
+            '"passwordpassword" x "password": "v"',
+            '"a"password": "v"',
+            '"secretos":"' ,
+            '"PaSsWoRd_hash" :\t"abc"',
+        ]
+        for texto in casos:
+            with self.subTest(texto=texto):
+                self.assertEqual(redact_secrets(texto), _redact_secrets_112(texto))
 
 
 if __name__ == "__main__":
