@@ -442,6 +442,10 @@ hacer nada.
 
 ## Opciones de configuración
 
+La página de configuración de la app enseña el nombre y una descripción corta
+de cada opción, en inglés o en español (`hermes/translations/`). El detalle
+completo está aquí abajo.
+
 | Opción | Default | Descripción |
 |--------|---------|-------------|
 | `auth_password` | _(obligatorio)_ | Contraseña del flujo OAuth. Mínimo 12 caracteres y se comprueba que no sea adivinable: Hermes no arranca con una débil |

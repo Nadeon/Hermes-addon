@@ -443,6 +443,10 @@ queries `hermes_guide` on its own — you do not have to do anything.
 
 ## Configuration options
 
+The configuration page of the app shows a name and a short description of
+each option, in English or Spanish (`hermes/translations/`). The full detail
+is below.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `auth_password` | _(required)_ | OAuth flow password. Minimum 12 characters, and checked for guessability: Hermes will not start with a weak one |
@@ -451,7 +455,7 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
 | `trusted_proxy_ips` | `[]` | Proxies whose `X-Forwarded-For` is trusted, as plain IPs or CIDR ranges (`172.30.32.0/23` is the HAOS bridge network). Empty means only `127.0.0.1` is trusted, which under `reverse_proxy` turns every per-IP limit into a single global bucket. Anybody inside a trusted range can forge the client IP (rate limits and logs only — never authorization) |
 | `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace` and `generic_commands`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the add-on from starting and the log names the wrong value and the valid ones |
+| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace` and `generic_commands`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
 | `log_redact_network` | `true` | Replaces your `public_hostname`, the hosts of Home Assistant's `external_url` and `internal_url`, any `*.ts.net` name and every non-loopback IP (also when written as `ip-a-b-c-d`) in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
 | `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |
