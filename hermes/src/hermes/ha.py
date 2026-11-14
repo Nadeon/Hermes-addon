@@ -12,6 +12,7 @@ import json
 import re
 import time
 from datetime import datetime
+from collections.abc import Callable
 from typing import Any
 
 import aiohttp
@@ -864,6 +865,96 @@ class HAClient:
             )
         finally:
             # Siempre cancelar la suscripción al salir (con o sin error)
+            await self._ws_unsubscribe(request_id)
+
+    async def ws_collect_subscription(
+        self,
+        payload: dict[str, Any],
+        *,
+        terminado: Callable[[Any], bool],
+        timeout_seconds: float,
+    ) -> tuple[list[Any], bool]:
+        """Envía un comando WS de suscripción, recoge sus eventos y cancela.
+
+        Para suscripciones de VARIOS mensajes con final, como
+        `system_health/info` (spec 029, FR-002): HA confirma con un `result`
+        y manda eventos hasta uno que cierra (`finish`). Devuelve
+        `(eventos, completo)`: los eventos en orden, incluido el que hace
+        verdadero a `terminado`, y `completo=False` si venció el plazo antes.
+
+        POR QUÉ un método aparte: `ws_one_shot_subscription` termina en el
+        primer evento y la usan otras tools; cambiar su contrato las tocaría
+        a todas (FR-020 de la 008).
+
+        - El plazo es TOTAL (confirmación incluida), no por evento: un HA que
+          gotea actualizaciones sin llegar nunca al final no puede alargar la
+          espera sin tope y dejar la tool colgada.
+        - La suscripción se cancela SIEMPRE en el `finally` (fin, plazo, error
+          de HA, caída de la WS y cancelación de la tarea): abierta, HA
+          seguiría mandando eventos por la WebSocket compartida sin nadie que
+          los lea.
+
+        Raises:
+            HAConnectionError: WS no disponible o caída a mitad (sin código),
+                rechazo de HA en el `result` (con su `code`) o sin
+                confirmación dentro del plazo.
+        """
+        if self._ws is None or self._ws.closed:
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+
+        loop = asyncio.get_running_loop()
+        limite = loop.time() + timeout_seconds
+
+        async with self._ws_request_lock:
+            ws = self._ws
+            if ws is None or ws.closed:
+                raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+            request_id = self._next_ws_request_id
+            self._next_ws_request_id += 1
+
+            result_future: asyncio.Future[Any] = loop.create_future()
+            # Cola y no future: llegan varios eventos, a veces antes de que
+            # se empiece a esperar (HA manda `initial` y `finish` seguidos
+            # cuando no hay nada pendiente). La caída de la WS la avisa el
+            # sentinel de `_fail_pending_requests`.
+            cola: asyncio.Queue[Any] = asyncio.Queue()
+            self._pending_ws_responses[request_id] = result_future
+            self._event_subscription_queues[request_id] = cola
+
+            try:
+                await ws.send_json({**payload, "id": request_id})
+            except BaseException:
+                self._pending_ws_responses.pop(request_id, None)
+                self._event_subscription_queues.pop(request_id, None)
+                raise
+
+        eventos: list[Any] = []
+        try:
+            try:
+                await asyncio.wait_for(result_future, timeout=max(limite - loop.time(), 0))
+            except asyncio.TimeoutError as exc:
+                raise HAConnectionError(
+                    f"Timeout waiting for subscription confirmation: {payload.get('type')}"
+                ) from exc
+            while True:
+                restante = limite - loop.time()
+                if restante <= 0:
+                    return eventos, False
+                try:
+                    item = await asyncio.wait_for(cola.get(), timeout=restante)
+                except asyncio.TimeoutError:
+                    return eventos, False
+                if item is _WS_CLOSED_SENTINEL:
+                    raise HAConnectionError(
+                        "WebSocket connection lost while collecting "
+                        f"subscription events: {payload.get('type')}"
+                    )
+                eventos.append(item)
+                if terminado(item):
+                    return eventos, True
+        finally:
+            self._pending_ws_responses.pop(request_id, None)
+            # `_ws_unsubscribe` también retira la cola del registro.
             await self._ws_unsubscribe(request_id)
 
     async def ws_subscribe_events_queue(
