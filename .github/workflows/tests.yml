@@ -12,6 +12,12 @@ on:
   schedule:
     - cron: "23 5 * * 1"
 
+# Solo lectura del contenido del repositorio. Hoy coincide con el valor por
+# defecto del repositorio, pero se declara aquí para no depender de él: el job
+# del banco ejecuta una imagen de terceros y usa `sudo`.
+permissions:
+  contents: read
+
 jobs:
   pytest:
     name: pytest (${{ matrix.python }})

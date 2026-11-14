@@ -98,6 +98,14 @@ class TestJobBancoCore(unittest.TestCase):
         )
         self.assertNotIn("urllib", texto)
 
+    def test_permisos_de_solo_lectura(self) -> None:
+        # T044: declarado en el workflow, sin depender del valor por defecto
+        # del repositorio; y ningún job lo amplía.
+        datos = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertEqual(datos.get("permissions"), {"contents": "read"})
+        for nombre, job in datos["jobs"].items():
+            self.assertNotIn("permissions", job, nombre)
+
     def test_marcador_banco_registrado(self) -> None:
         ini = configparser.ConfigParser()
         ini.read(RAIZ / "pytest.ini", encoding="utf-8")
