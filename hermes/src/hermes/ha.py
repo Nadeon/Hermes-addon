@@ -176,6 +176,22 @@ def _state_is_newer(candidato: Any, cacheado: Any) -> bool:
     return t_nuevo >= t_viejo
 
 
+def _host_de_url(url: Any) -> str | None:
+    """Host de una URL de `/api/config`, o `None` si no hay o no vale.
+
+    Sin host, mal formada (`urlsplit(...).hostname` lanza `ValueError` con
+    `http://[fe80::1`) o de un tipo que no es texto: se ignora sin error
+    (spec de la 009, casos límite). Por campo, para que una URL rota no
+    impida tapar la otra (T045).
+    """
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
+
+
 class HAClient:
     """Cliente de Home Assistant que usa Supervisor core API y WebSocket."""
 
@@ -460,22 +476,24 @@ class HAClient:
         `Exception` y no solo `HAConnectionError` porque aiohttp lanza más
         tipos (y el tiempo máximo, `TimeoutError`); `CancelledError` no es
         `Exception` y se propaga, como debe.
+
+        Cada URL se trata por separado (`_host_de_url`): una mal formada se
+        ignora sin aviso, como dice la spec, y no impide tapar la otra
+        (revisión de la 009, T045).
         """
         try:
             datos = await self._request_json("GET", "/config")
             if not isinstance(datos, dict):
                 raise TypeError("respuesta de /api/config inesperada")
-            hosts: list[str | None] = []
-            for clave in ("external_url", "internal_url"):
-                url = datos.get(clave)
-                if url is not None and not isinstance(url, str):
-                    raise TypeError("URL de HA inesperada")
-                hosts.append(urlsplit(url).hostname if url else None)
-            set_ha_url_hosts(hosts[0], hosts[1])
         except Exception as exc:  # noqa: BLE001 — ver el docstring
             logger.warning(
                 "ha_url_redaction_unavailable", error_type=type(exc).__name__
             )
+            return
+        set_ha_url_hosts(
+            _host_de_url(datos.get("external_url")),
+            _host_de_url(datos.get("internal_url")),
+        )
 
     async def _authenticate_ws(self) -> None:
         """Realiza el handshake de autenticación del WebSocket de HA."""

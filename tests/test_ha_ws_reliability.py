@@ -430,7 +430,6 @@ class TestUrlsDeHAAlConectar(unittest.IsolatedAsyncioTestCase):
             "ClientError": aiohttp.ClientError("https://casa.example.org"),
             "TimeoutError": TimeoutError(),
             "lista": ["https://casa.example.org"],
-            "url_no_texto": {"external_url": 5},
         }
         for nombre, respuesta in casos.items():
             with self.subTest(caso=nombre):
@@ -443,6 +442,31 @@ class TestUrlsDeHAAlConectar(unittest.IsolatedAsyncioTestCase):
                 texto = repr(avisos[0])
                 self.assertNotIn("casa.example", texto)
                 self.assertNotIn("http", texto)
+
+    async def test_una_url_mal_formada_no_impide_tapar_la_otra(self) -> None:
+        """T045: cada campo se trata por separado y sin aviso.
+
+        `urlsplit("http://[fe80::1").hostname` lanza `ValueError`; antes eso
+        saltaba al `except` común, avisaba con `ha_url_redaction_unavailable`
+        y el host externo, que sí era válido, salía en claro. Lo mismo con una
+        URL que no es texto. La spec (casos límite): «URL sin host o mal
+        formada: se ignora sin error».
+
+        Control negativo: con el `try` alrededor de los dos campos (la forma
+        anterior) fallan los dos subtests: hay aviso y el host sale en claro.
+        """
+        from hermes.logging_setup import redact_network
+
+        for nombre, interna in (("mal_formada", "http://[fe80::1"), ("no_texto", 5)):
+            with self.subTest(caso=nombre):
+                orden, eventos = await self._conectar(
+                    {"external_url": "https://casa.example.org",
+                     "internal_url": interna})
+                self.assertIn("leer", orden)
+                self.assertNotIn("ha_url_redaction_unavailable",
+                                 [e.get("event") for e in eventos])
+                self.assertEqual(redact_network("https://casa.example.org/x"),
+                                 "https://<ha_external_host>/x")
 
 
 if __name__ == "__main__":
