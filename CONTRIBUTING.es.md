@@ -57,8 +57,9 @@ accionable:
 > prefieras no publicar.
 
 Si el reporte va de una herramienta que hace algo que no debe, incluye el nombre
-de la herramienta y los argumentos con los que la llamó Claude. Los dos salen en
-el log.
+de la herramienta y los argumentos con los que la llamó Claude. El log no los
+registra: despliega la llamada en la conversación con Claude, que muestra los
+dos.
 
 ## Montar el entorno
 
@@ -86,8 +87,9 @@ Para probar cambios contra un Home Assistant de verdad, copia el contenido de
 `hermes/` a `/addons/hermes` en el host y **borra la línea `image:`** del
 `config.yaml` que dejes ahí — si no, el Supervisor se descarga la imagen
 publicada en vez de construir tus cambios. Después `ha apps rebuild local_hermes`
-(si tocaste el `Dockerfile` o las dependencias), `ha apps restart local_hermes`
-(solo Python), y `ha apps logs local_hermes -f`.
+tras cualquier cambio, Python incluido (el código se copia dentro de la imagen,
+así que un simple reinicio sigue ejecutando el antiguo), y
+`ha apps logs local_hermes -f`.
 
 ## Las tres convenciones que importan
 

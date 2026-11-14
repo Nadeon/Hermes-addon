@@ -104,7 +104,10 @@ report about one of them will be closed with a pointer to this section:
   rules follow NIST SP 800-63B §5.1.1.2. On top of that, failed logins are
   throttled per source IP with an exponential backoff, plus a global backstop
   that trips when many distinct IPs fail at once, so rotating the source IP
-  does not lift the ceiling and a single IP cannot lock the owner out.
+  does not lift the ceiling and a single IP cannot lock the owner out. That
+  last guarantee needs Hermes to see real client IPs: under `reverse_proxy`
+  without `trusted_proxy_ips`, every client shares the proxy's IP and 5
+  failures from anyone lock the login for everyone.
 - **Defence in depth** on actions:
   - `confirmation_token` for every destructive operation (writing or deleting
     files, restarting, uninstalling add-ons, restoring backups, dangerous
@@ -139,10 +142,11 @@ them into account:
    `network_mode: tailscale`, the client's real IP does reach Hermes: the proxy
    delivers from the loopback and the server trusts the `X-Forwarded-For` that
    proxy rewrites. Under `network_mode: reverse_proxy` with `mcp_bind` on the
-   bridge network, the header is ignored and the per-IP limit becomes a global
-   ceiling. In neither case does an IP grant access: it only feeds rate limiting
-   and logs. The specific anti-brute-force defence is the login throttle, which
-   is global on purpose.
+   bridge network, the header is ignored unless the proxy is listed in
+   `trusted_proxy_ips`, and without it every per-IP limit, the login throttle
+   included, becomes one shared ceiling. In no case does an IP grant access: it
+   only feeds rate limiting and logs. Anyone inside a trusted range can forge
+   the client IP, which skews those limits and logs but never authorization.
 4. **Container runs as root.** Like most HAOS add-ons, the container needs access
    to `/config` and `/data` and runs as root inside the space the Supervisor
    isolates for it.
@@ -161,9 +165,15 @@ them into account:
 - Narrow what Claude can do without asking: `call_service_denylist_extra`,
   `call_service_restricted_entities` and `fire_event_allowlist` exist for that.
   `fire_event_allowlist` is empty by default, which disables event firing
-  entirely until you name the events you want.
-- Watch the logs (`ha apps logs local_hermes -f`, or the add-on's Log tab) for
-  repeated `oauth_login_locked`, `oauth_login_throttled` or `auth_rejected`
+  entirely until you name the events you want. These are guard rails against
+  mistakes, not a sandbox: Claude can change Hermes' own options with
+  `sv_set_addon_options` after a confirmed call, so they do not hold against a
+  client that has been manipulated into acting against you.
+- Under `network_mode: reverse_proxy`, list your proxy in `trusted_proxy_ips`
+  so that rate limits and the login throttle count each client separately.
+- Watch the logs (the add-on's Log tab, or `ha apps logs <slug> -f` with the
+  slug shown on the add-on's page) for repeated `oauth_login_locked`,
+  `oauth_login_locked_global`, `oauth_login_throttled` or `auth_rejected`
   events.
 - If you stop using Hermes, uninstall the add-on rather than just stopping it:
   uninstalling clears `/data`, and with it the stored OAuth keys and tokens.

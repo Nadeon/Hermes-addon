@@ -205,8 +205,9 @@ expuesto a internet, así que es la opción con más superficie de ataque.
 3. Rellena la configuración:
    - **`auth_password`** *(obligatorio)*: la contraseña con la que autorizarás a
      Claude. Mínimo 12 caracteres, y Hermes comprueba además que no sea
-     adivinable: rechaza las repetitivas, las tiradas del teclado, las de las
-     listas más usadas y las que llevan dentro «hermes» o tu propio hostname.
+     adivinable: rechaza las repetitivas, las tiradas del abecedario, de los
+     dígitos o del teclado, las de las listas más usadas y las que llevan dentro
+     «hermes», «homeassistant» o tu propio hostname.
      Genérala con tu gestor de contraseñas, o con `openssl rand -base64 18`.
      Es el único secreto que protege tu casa.
    - **`public_hostname`** *(obligatorio)*: el hostname público, sin `https://`
@@ -250,13 +251,19 @@ un x86, y bastante más en una Raspberry Pi, porque `pydantic-core`, `aiohttp` y
 |---|---|
 | `No Tailscale CGNAT IP … found` | Estás en `network_mode: tailscale` sin el add-on de Tailscale listo, o con `userspace_networking: true`. Corrígelo o cambia a `reverse_proxy`. |
 | `auth_password no está configurado` | Falta la contraseña. |
-| `auth_password no es lo bastante fuerte` | Es corta, repetitiva, una tirada del teclado, una de las más usadas, o lleva dentro «hermes» o tu propio hostname. El mensaje dice cuál de las seis. |
+| `auth_password no es lo bastante fuerte` | Es corta, repetitiva, una tirada del abecedario, de los dígitos o del teclado, una de las más usadas, o lleva dentro «hermes», «homeassistant», «hassio», «supervisor» o tu propio hostname. El mensaje dice qué regla incumple. |
 | `public_hostname no está configurado` | Falta el hostname. |
 | `public_hostname inválido` | Lo has puesto con `https://` delante, con un path detrás, o con barras. Va solo el hostname. |
-| `mcp_bind no puede estar vacío` | Has dejado la opción en blanco. Ponla a `127.0.0.1` o a `172.30.32.1`. |
+| `trusted_proxy_ips contiene un valor que no es una IP ni una red` | Una errata en esa lista. Escribe IPs sueltas (`172.30.32.2`) o rangos CIDR (`172.30.32.0/23`). |
 | `SUPERVISOR_TOKEN no está disponible` | No estás en Home Assistant OS ni Supervised. Hermes es un add-on y necesita el Supervisor. |
 | `network_mode inválido` | Solo se admiten `tailscale` y `reverse_proxy`. |
-| El túnel da *connection refused* | `mcp_bind` no es alcanzable desde tu proxy. Si está en la red puente, usa `172.30.32.1`. |
+| `HA core … < minimum supported 2024.1.0` | Tu Home Assistant es demasiado antiguo. Actualízalo. |
+| `No se puede escuchar el health en …` | Otro proceso ocupa el puerto 8766, o falta la red puente de HAOS. El mensaje termina con una pista de cuál de las dos. |
+| `Crash loop detectado` | Hermes arrancó 10 veces en 5 minutos y se detuvo solo. Corrige la causa que aparece antes en el log y arranca el add-on a mano. Los reinicios manuales también cuentan. |
+| El túnel da *connection refused* | `mcp_bind` no es alcanzable desde tu proxy. Si está en la red puente, usa `172.30.32.1`. Un `mcp_bind` en blanco se convierte sin aviso en `127.0.0.1`. |
+
+`ha_core_version_untested` es solo un aviso: tu Home Assistant es más nuevo que
+la última versión con la que se comprobó Hermes. Hermes sigue funcionando.
 
 
 ### Llamadas que fallan en ráfaga (502)
@@ -276,8 +283,11 @@ Hermes 1.0.5 y 1.0.8:
 No es un fallo de Hermes ni de tu red: la pérdida ocurre entre el proxy de
 conectores de Anthropic y el ingress de Funnel. En claude.ai, que hace una
 llamada cada vez, no se nota. Cómo distinguirlo de un problema real: una llamada
-fallida que **sí** está en el log de Hermes (como línea `http_request` con
-4xx/5xx) es de Hermes; una que **no** está, nunca llegó. Para aislar el lado de
+fallida que **sí** está en el log de Hermes es de Hermes; una que **no** está,
+nunca llegó. Busca una línea `http_request` con estado 4xx/5xx, y también
+`auth_rejected`, `rate_limit_pre_auth`, `rate_limit_post_auth`,
+`auth_failure_flood` y `body_too_large`: esos rechazos ocurren antes de que la
+petición llegue a registrarse como `http_request`. Para aislar el lado de
 Funnel, lanza 8 `curl` en paralelo desde fuera de tu red contra
 `https://<public_hostname>/.well-known/oauth-protected-resource`, sin pasar del
 límite pre-auth de 20 por minuto: si fallan, es Funnel; si no, es aguas arriba.
@@ -293,11 +303,13 @@ límite pre-auth de 20 por minuto: si fallan, es Funnel; si no, es aguas arriba.
 > Con `reverse_proxy` y `mcp_bind` en la red puente (`172.30.32.1`), la conexión
 > ya no llega desde el loopback: uvicorn ignora la cabecera y **todas** las
 > peticiones se ven con la IP del proxy, así que el cubo por IP pasa a ser un
-> techo global. Le pasa lo mismo al freno anti-fuerza-bruta del login, que es
-> por IP con un techo global de respaldo: visto desde una sola IP, solo queda
-> el techo. No es una vulnerabilidad —nada del sistema autoriza por IP, la IP
-> solo alimenta los límites y los logs—, pero conviene saberlo: si tu proxy ya
-> limita por IP, deja que lo haga él.
+> techo global. El freno anti-fuerza-bruta del login sale peor parado: bloquea
+> cada IP tras 5 contraseñas fallidas, y si todas las peticiones se ven con la
+> IP del proxy, **5 fallos de cualquiera bloquean el login a todos, tú
+> incluido**, con una espera que crece hasta 5 minutos por escalón. No es una
+> vulnerabilidad —nada del sistema autoriza por IP, la IP solo alimenta los
+> límites y los logs—, pero es una denegación de servicio al alcance de
+> cualquiera. Configura `trusted_proxy_ips` (abajo) y desaparece.
 >
 > **`trusted_proxy_ips` devuelve los límites por IP en ese modo.** Pon ahí la
 > dirección de tu proxy, o el rango donde vive (`172.30.32.0/23` es la red
@@ -332,6 +344,14 @@ OAuth a partir del `401` que devuelve Hermes, registra un cliente
 automáticamente (RFC 7591), te manda al login, y a cambio de tu contraseña
 obtiene un token. No hay que copiar ni pegar ninguna clave.
 
+**Cuánto dura.** Cada autorización vale **7 días**: Claude renueva su acceso cada
+hora dentro de esa semana, pero cuando se agota el conector vuelve a pedirte la
+contraseña. Puede haber hasta 5 autorizaciones vivas a la vez (móvil,
+escritorio…); la sexta cierra la que lleva más tiempo sin usarse. Cambiar
+`auth_password` **no** cierra las sesiones ya abiertas: siguen funcionando hasta
+que se cumplen sus 7 días. Para cortarlas todas de golpe, desinstala y reinstala el add-on, que borra
+sus tokens guardados (y sus opciones, así que apúntalas antes).
+
 **Qué esperar la primera vez.** Al conectar, Hermes le entrega a Claude un
 resumen de las familias de herramientas disponibles. Cuando necesita detalle de
 un área concreta, Claude consulta `hermes_guide` por su cuenta — no tienes que
@@ -349,14 +369,14 @@ hacer nada.
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
 | `safety_backup_enabled` | `false` | Backup **completo** de HAOS automático antes de escribir en `/config`. Desactivado por defecto (genera varios GB). El backup por-fichero se hace siempre |
 | `mcp_max_requests_per_minute` | `120` | Rate limit global post-auth |
-| `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Rate limit pre-auth por IP. Solo aplica a la superficie pública (OAuth y discovery): las rutas protegidas las gobierna `mcp_max_requests_per_minute` una vez validado el token |
+| `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Rate limit pre-auth por IP. Aplica a la superficie pública (OAuth y discovery), y el mismo valor acota por IP las peticiones a rutas protegidas que llegan sin token o con uno inválido. Las válidas las gobierna `mcp_max_requests_per_minute` |
 | `response_max_bytes` | `1048576` | Cap de respuesta por tool (1 MB) |
 | `ha_ws_max_msg_size_bytes` | `4194304` | Cap de mensaje WS hacia HA (4 MB). Un resultado más grande cierra la WebSocket entera, no solo esa llamada: súbelo si usas `ha_get_history` con rangos amplios |
 | `max_request_body_bytes` | `4194304` | Cap del cuerpo de una petición HTTP autenticada (4 MB). Los endpoints públicos de OAuth llevan su propio tope fijo de 64 KiB, que no depende de esta opción |
 | `max_concurrent_requests` | `64` | Peticiones simultáneas que acepta el servidor. Acota la memoria máxima en vuelo (`max_concurrent_requests × max_request_body_bytes`). Claude lanza ráfagas de ~24 llamadas, así que 64 deja holgura |
 | `wait_for_event_max_seconds` | `90` | Máximo timeout permitido para `ha_wait_for_event` (10–300) |
 | `wait_for_event_max_concurrent` | `5` | Máximo de `ha_wait_for_event` simultáneos (1–20) |
-| `safety_backup_window_minutes` | `30` | Si ya hay un backup completo más reciente que esto, no se hace otro |
+| `safety_backup_window_minutes` | `30` | Si Hermes hizo su propio backup de seguridad hace menos de esto, no se hace otro. Los backups hechos a mano o por otras herramientas no cuentan. Mientras se hace, la escritura espera hasta 5 minutos, y se cancela si el backup falla |
 | `file_backup_max_per_path` | `20` | Copias que se guardan de cada fichero antes de sobrescribirlo |
 | `file_backup_max_total_mb` | `200` | Tope total del directorio de copias por fichero |
 | `config_write_min_interval_seconds` | `5` | Segundos mínimos entre dos escrituras en `/config` |
@@ -366,11 +386,11 @@ hacer nada.
 
 ### Palancas de seguridad
 
-Estas tres cambian **qué puede hacer Claude sin preguntarte**. Merece la pena leerlas:
+Estas cuatro cambian **qué puede hacer Claude sin preguntarte**. Merece la pena leerlas:
 
 | Opción | Default | Descripción |
 |--------|---------|-------------|
-| `call_service_denylist_extra` | `[]` | Servicios adicionales que exigirán confirmación explícita, además de los ~40 que ya trae Hermes. Formato `dominio.servicio`, admite comodín (`shell_command.*`) |
+| `call_service_denylist_extra` | `[]` | Servicios adicionales que exigirán confirmación explícita, además de los ~70 que ya trae Hermes. Formato `dominio.servicio`, admite comodín (`shell_command.*`) |
 | `call_service_restricted_entities` | `[]` | Entidades concretas que exigirán confirmación aunque el servicio no esté vetado. Útil para `script.abrir_garaje` y compañía |
 | `fire_event_allowlist` | `[]` | Tipos de evento que `ha_fire_event` puede disparar. Vacío significa que la herramienta está deshabilitada: hay que nombrar explícitamente cada evento permitido |
 | `call_service_auto_classify_dangerous` | `true` | Al arrancar y al guardar, Hermes lee tus scripts y automatizaciones y marca automáticamente como restringidas las que invocan servicios peligrosos. Desactívalo solo si quieres gestionar la lista a mano |
@@ -469,8 +489,9 @@ en `hermes/src/hermes/`, y los tests en `tests/` en la raíz.
 dejes ahí — si no, el Supervisor se descarga la imagen publicada en vez de
 construir tus cambios. Después:
 
-- `ha apps rebuild local_hermes` si tocaste `Dockerfile` o dependencias
-- `ha apps restart local_hermes` si solo tocaste Python
+- `ha apps rebuild local_hermes` tras cualquier cambio, Python incluido: el
+  código se copia dentro de la imagen, así que un simple reinicio sigue
+  ejecutando el antiguo
 - `ha apps logs local_hermes -f` para mirar el log
 
 **`HERMES_DEV=1`** registra una herramienta auxiliar de diagnóstico que en una

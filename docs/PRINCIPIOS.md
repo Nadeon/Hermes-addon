@@ -76,8 +76,11 @@ una versión que producción no ejecuta no prueba nada.
   IP real del cliente llega o no llega: depende de si el proxy está en el
   loopback y reescribe `X-Forwarded-For`. Un límite "por IP" puede acabar siendo
   global sin que se note, así que ninguna decisión de acceso puede depender de
-  ella. La defensa contra fuerza bruta es global a propósito: un techo por IP se
-  evade rotando el origen.
+  ella. La defensa contra fuerza bruta tiene dos niveles: un freno por IP, para
+  que un atacante desde una dirección no cierre el login a nadie más, y un
+  techo global de respaldo, porque un freno solo por IP se evade rotando el
+  origen. El primero depende de ver la IP real, por eso existe
+  `trusted_proxy_ips`.
 - El modelo de amenaza asume **un solo usuario legítimo** y un cliente MCP
   potencialmente manipulable por el contenido que lee.
 
