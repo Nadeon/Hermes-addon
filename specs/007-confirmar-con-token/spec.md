@@ -171,7 +171,10 @@ de log lo contiene.
 
 - `content: ""` en `fs_write_file` es un fichero vacío, no una omisión; `config:
   {}` es un documento (inválido), no una omisión. Solo la ausencia del
-  argumento o `null` cuentan como omisión.
+  argumento o `null` cuentan como omisión. Excepción: en `fs_write_file` la
+  omisión es no mandar `content`; un `null` explícito lo rechaza el SDK MCP,
+  porque `content` se anota exactamente `str` para que el SDK no convierta en
+  JSON un contenido como `{"a": 1}` (revisión de la 1.1.2).
 - `url_path: null` es el dashboard principal y se compara como cualquier otro
   destino.
 - La escena nueva (no existe aún) no pide token: sin `config` es
@@ -200,7 +203,8 @@ de log lo contiene.
   `ha_create_or_update_scene` → `config`. El destino (`url_path`, `path`,
   `automation_id`, `script_id`, `scene_id`) nunca es omitible y es obligatorio
   en las dos llamadas.
-- **FR-003**: En la confirmación, un argumento omitible ausente (o `null`) se
+- **FR-003**: En la confirmación, un argumento omitible ausente (o `null`,
+  salvo `content` en `fs_write_file`, ver casos límite) se
   toma del guardado; uno presente se usa tal cual. El `action_hash` se comprueba
   sobre los argumentos resultantes, así que un argumento con otro valor o uno
   que no estaba en la vista previa da «confirmation_token does not match this

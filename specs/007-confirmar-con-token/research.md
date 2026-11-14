@@ -46,7 +46,11 @@ de la punta de la rama sobre 1.1.1.
   stored value for: config. Repeat the call with all its arguments.», sin
   tocar el estado del token, para que el cliente pueda reintentar completo
   dentro del TTL.
-- **Omisión**: argumento ausente o `null`. `""` y `{}` son valores.
+- **Omisión**: argumento ausente o `null`. `""` y `{}` son valores. En
+  `fs_write_file`, solo la ausencia: `content` se anota `str` (no `str | None`)
+  porque el SDK MCP hace `json.loads` de los argumentos de texto con otra
+  anotación, y un contenido `{"a": 1}` o `[1, 2]` dejaba de ser texto (revisión
+  de la 1.1.2).
 
 ## R-4 — Interfaz de `security.py`
 

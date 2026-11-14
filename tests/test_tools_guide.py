@@ -195,6 +195,26 @@ class TestGuiaConfirmarSinDocumento(unittest.TestCase):
         self.assertIn("omit_on_confirm", _GUIDE["filesystem"])
         self.assertIn("sin reenviar", _GUIDE["workflows"])
 
+    def test_la_omision_depende_de_omit_on_confirm(self) -> None:
+        """Revisión de la 1.1.2: con el tope lleno el token se emite sin
+        documento, así que la guía no puede decir sin condición que ya está
+        guardado. Cada sitio que habla de omitir lo condiciona a
+        `omit_on_confirm` y dice que, si no, se reenvía todo.
+
+        Control negativo comprobado: con el texto incondicional anterior cae.
+        """
+        self.assertNotIn("ya está guardado", _GUIDE["filesystem"])
+        for nombre in ("filesystem", "workflows"):
+            with self.subTest(texto=nombre):
+                texto = _GUIDE[nombre]
+                self.assertIn("omit_on_confirm", texto)
+                self.assertIn("reenvía", texto)
+                # Cada mención de omitir/sin reenviar va con su condición.
+                for parrafo in texto.split("\n\n"):
+                    plano = " ".join(parrafo.split())
+                    if "sin reenviar" in plano or "omite `" in plano:
+                        self.assertIn("trae `omit_on_confirm`", plano)
+
 
 
 if __name__ == "__main__":

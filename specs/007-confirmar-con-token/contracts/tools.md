@@ -11,8 +11,11 @@ El documento deja de estar en `required`; el destino sigue en él.
 ha_save_lovelace_dashboard(url_path: str | None, config: dict | None = None,
                            confirmation_token: str | None = None,
                            remove_top_level_keys: list[str] | None = None)
-fs_write_file(path: str, content: str | None = None,
+fs_write_file(path: str, content: str = None,
               confirmation_token: str | None = None)
+# `content` se anota exactamente `str`: con `str | None` el SDK MCP hace
+# json.loads del texto y un contenido JSON (`{"a": 1}`, `[1, 2]`, `true`) deja
+# de ser texto. Omitir es no mandarlo; un `null` explícito lo rechaza el SDK.
 ha_create_or_update_automation(automation_id: str, config: dict | None = None,
                                confirmation_token: str | None = None)
 ha_create_or_update_script(script_id: str, config: dict | None = None,

@@ -298,8 +298,8 @@ Lectura:
 
 Escritura (TODAS requieren confirmation_token):
 - `fs_write_file(path, content)` — crea/sobrescribe. Hace backup del original.
-  Para confirmar basta con `path` y el token: `content` ya está guardado
-  (`omit_on_confirm`).
+  Si la vista previa trae `omit_on_confirm`, para confirmar basta con `path` y
+  el token (omite `content`); si no lo trae, reenvía todos los argumentos.
 - `fs_delete_file(path)`, `fs_move_file(src, dst)`.
 - `fs_set_secret(key, value)` — escribe en secrets.yaml (nunca se devuelve su
   contenido).
@@ -309,7 +309,7 @@ Ejemplo (lee y luego escribe, segunda llamada con el token del preview):
   `fs_read_file("automations.yaml")` →
   `fs_write_file("automations.yaml", nuevo_contenido)` (preview) →
   `fs_write_file("automations.yaml", confirmation_token="…")` (aplica; sin
-  reenviar el contenido).
+  reenviar el contenido si el preview trae `omit_on_confirm`).
 
 Seguridad: anti-traversal (no se sale de /config), secretos en blacklist
 (secrets.yaml, *.key, *.db…), `.storage/` es default-deny y NO se escribe (usa
@@ -440,14 +440,16 @@ CONTROLAR ALGO
 CREAR UNA AUTOMATIZACIÓN
 1. Define `triggers`, `conditions` y `actions` (claves en plural, HA ≥ 2024.10).
 2. `ha_create_or_update_automation(entity_id, config)` → devuelve preview + token.
-3. Repite con el mismo id y `confirmation_token` para aplicar, sin reenviar
-   `config` (`omit_on_confirm`); HA recarga sola.
+3. Repite con el mismo id y `confirmation_token` para aplicar; si el preview
+   trae `omit_on_confirm`, omite `config` (si no, reenvíalo todo). HA recarga
+   sola.
 4. Pruébala: `ha_trigger_automation(entity_id)` y revisa el resultado.
 
 CAMBIO SEGURO EN /config
 1. `fs_read_file("configuration.yaml")` (o el fichero a tocar).
 2. `fs_write_file(path, nuevo_contenido)` → preview (hace backup) → repite con
-   `path` y el token para aplicar, sin reenviar el contenido.
+   `path` y el token para aplicar; si el preview trae `omit_on_confirm`,
+   sin reenviar el contenido (si no, reenvíalo todo).
 3. `sv_check_core_config()` para validar que la config sigue siendo correcta.
 4. Recarga lo afectado (`ha_reload_automations`, …) o, si hace falta,
    `sv_restart_core()` (token). Si algo va mal: `fs_restore_file_backup`.

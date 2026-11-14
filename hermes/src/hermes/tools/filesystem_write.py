@@ -177,7 +177,15 @@ def register_write(
     @mcp.tool()
     async def fs_write_file(
         path: str,
-        content: str | None = None,
+        # `str` exactamente, y no `str | None`, aunque el valor por defecto sea
+        # None: el SDK MCP hace `json.loads` de todo argumento de texto cuya
+        # anotación no sea exactamente `str`. Con `str | None`, un contenido
+        # como `{"a": 1}`, `[1, 2]` o `true` llegaba convertido en dict, lista
+        # o bool y fallaba la validación (no se podía escribir un .json), y el
+        # texto `null` se tomaba como omisión. Así el texto llega intacto;
+        # omitir es no mandar `content`, y un `null` explícito lo rechaza el
+        # SDK.
+        content: str = None,  # type: ignore[assignment]
         confirmation_token: str | None = None,
     ) -> object:
         """Escribe el contenido de un fichero bajo /config.
@@ -203,8 +211,8 @@ def register_write(
         Args:
             path: Ruta relativa o absoluta bajo /config.
             content: Contenido UTF-8 a escribir. Obligatorio en la vista
-                previa; se puede omitir al confirmar. `""` es un fichero vacío,
-                no una omisión.
+                previa; al confirmar se puede omitir (no mandarlo; `null` no
+                vale). `""` es un fichero vacío, no una omisión.
             confirmation_token: Token del preview anterior.
 
         Returns:

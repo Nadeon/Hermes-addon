@@ -321,6 +321,14 @@ La suite no puede cubrir esto; anota aquí el resultado:
 
 ### 1.2.x y posteriores
 
+- **Menor conocido de la 1.1.2: coste del barrido en cada vista previa con
+  documento.** `create_confirmation_token` relee y parsea todos los ficheros de
+  token para barrer caducados y sumar el tope. Con el tope de 16 MiB casi
+  lleno, eso bloquea el bucle de eventos del orden de decenas de milisegundos
+  por vista previa. Solo lo puede provocar un cliente autenticado y no rompe
+  nada. Arreglo posible: llevar el total en memoria (sumar al emitir, restar al
+  completar o caducar) o barrer como mucho una vez por segundo.
+
 - **Menores vistos en las pruebas en vivo de la 1.1.1**:
   `sv_get_addon_logs` informa `redacted: false` aunque el log ya trae la red
   redactada (el campo solo mira los secretos); `auto_classify_restricted`

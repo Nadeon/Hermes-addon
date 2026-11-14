@@ -2038,3 +2038,77 @@ class TestConfirmarSinContent(_Base):
         for f in self.confirmaciones.iterdir():
             self.assertNotIn(centinela, f.read_text(encoding="utf-8"), f.name)
 
+
+class TestContentPasaPorElSdkIntacto(TestConfirmarSinContent):
+    """`content` llega como texto a través de la validación real del SDK MCP
+    (revisión de la 1.1.2).
+
+    El SDK hace `json.loads` de todo argumento de texto cuya anotación no sea
+    exactamente `str`. Con `content: str | None`, `{"a": 1}`, `[1, 2]` o
+    `true` llegaban convertidos y fallaba la validación (no se podía escribir
+    un .json), y el texto `null` se tomaba como omisión. Estos tests llaman a
+    la tool como un cliente MCP, no a la función, para pasar por esa
+    validación.
+
+    Control negativo comprobado: con `content: str | None = None` caen los
+    dos tests de esta clase.
+    """
+
+    CONTENIDOS = ('{"a": 1}', "[1, 2]", "true", "null")
+
+    def setUp(self) -> None:
+        super().setUp()
+        from mcp.server.mcpserver import MCPServer
+
+        self.servidor = MCPServer("test-fs-write")
+        register_write(
+            self.servidor,
+            self.ha_client,
+            config_write_min_interval_seconds=5,
+            config_write_max_per_minute=10,
+        )
+
+    async def _llamar(self, client, **args) -> dict:
+        r = await client.call_tool("fs_write_file", args)
+        texto = r.content[0].text
+        self.assertFalse(r.is_error, texto)
+        return json.loads(texto)
+
+    async def test_contenido_json_llega_como_texto_y_se_confirma_sin_reenviar(self) -> None:
+        from mcp import Client
+
+        for i, contenido in enumerate(self.CONTENIDOS):
+            with self.subTest(contenido=contenido):
+                nombre = f"ficticio_{i}.json"
+                # Sin salto final: safe_write_file conserva esa forma.
+                (self.config_root / nombre).write_bytes(b"anterior")
+                async with Client(self.servidor) as client:
+                    vista = await self._llamar(client, path=nombre, content=contenido)
+                    token = vista["confirmation_token"]
+                    self.assertEqual(vista["preview"]["new_content_length"], len(contenido))
+                    guardado = json.loads(
+                        (self.confirmaciones / f"{token}.json").read_text(encoding="utf-8"))
+                    self.assertEqual(guardado["stored_args"], {"content": contenido})
+                    res = await self._llamar(client, path=nombre, confirmation_token=token)
+                self.assertEqual(res["result"], "ok", res)
+                self.assertEqual(
+                    (self.config_root / nombre).read_bytes(), contenido.encode("utf-8"))
+
+    async def test_reenviando_todo_como_en_1_1_1(self) -> None:
+        from mcp import Client
+
+        nombre = "reenviado.json"
+        (self.config_root / nombre).write_bytes(b"anterior")
+        async with Client(self.servidor) as client:
+            vista = await self._llamar(client, path=nombre, content='{"a": 1}')
+            res = await self._llamar(client, path=nombre, content='{"a": 1}',
+                                     confirmation_token=vista["confirmation_token"])
+        self.assertEqual(res["result"], "ok", res)
+        self.assertEqual((self.config_root / nombre).read_bytes(), b'{"a": 1}')
+
+    # Los tests heredados ya corren en TestConfirmarSinContent.
+    test_confirmar_sin_content_escribe_el_de_la_vista_previa = None
+    test_content_vacio_es_un_fichero_vacio = None
+    test_sin_token_y_sin_content_es_invalid_argument = None
+    test_otro_path_no_vale_y_el_fichero_no_cambia = None
+    test_el_contenido_no_se_queda_en_las_confirmaciones = None
