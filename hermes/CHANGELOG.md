@@ -137,6 +137,10 @@ test de regresión por cada uno y control negativo (cada test nuevo falla
 contra el código anterior). Ninguno es un agujero de seguridad como los de
 la 1.0.7, pero varios rompen funciones enteras o fuerzan reautorizaciones.
 
+La 1.0.7 no llegó a publicarse como versión propia: si vienes de la 1.0.6,
+esta actualización trae también sus siete arreglos de seguridad, descritos en
+la sección siguiente.
+
 ### Fixed — OAuth: la ventana de gracia del refresh token no devolvía el sucesor
 
 Si Claude perdía la respuesta de una rotación y reintentaba con el token
@@ -251,6 +255,8 @@ válido sin disparar la alarma.
   el fichero legible por todos un instante y no hacía `fsync`.
 
 ## [1.0.7] — 2026-09-14
+
+No se publicó por separado: estos cambios llegaron a los usuarios con la 1.0.8.
 
 Siete fallos graves encontrados en un repaso completo del código, con un test
 de regresión por cada uno y control negativo: los 19 tests nuevos de guarda
