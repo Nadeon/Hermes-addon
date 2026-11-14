@@ -71,9 +71,24 @@ ajustes de backup no tienen secretos ni token y se leen mejor aparte.
 opciones para una sola capacidad); llamarla `backup_storage` (los montajes
 también son de medios y de `share`).
 
-## R-2 — CIFS y NFS; `disk` solo se lista, recarga y borra
+## R-2 — CIFS, NFS y `disk`
 
-**Decisión**: `sv_create_mount` y `sv_update_mount` aceptan `type` `cifs` o
+**Decisión vigente (supervisor del programa, tramo 1)**: `sv_create_mount` y
+`sv_update_mount` aceptan `type` `cifs`, `nfs` o `disk`; cualquier otro (por
+ejemplo `bind`, que el Supervisor tiene en su enumeración pero no acepta por
+la API) → `unsupported_mount_type`. Un `disk` lleva `device` (ruta bajo
+`/dev/`, solo de entrada: el Supervisor la resuelve a `uuid`) y/o `uuid`, al
+menos uno (`_device_identifier_required` de `api/mounts.py`), y ni campos de
+red ni credenciales. Al editar un `disk` se conserva su `uuid` si no se pasa
+otro; `filesystem` no se envía nunca (el Supervisor no lo acepta por la API y
+lo vuelve a sondear). La comprobación de que el dispositivo es montable y no
+es de Home Assistant OS la hace el Supervisor (`HAOS_LABEL_PREFIX`, guarda de
+UDisks2); su error vuelve redactado. Motivo: al pasar `POST /mounts` y
+`PUT /mounts/{mount}` a `dedicated`, la genérica deja de alcanzarlos y no
+puede quedar ningún tipo sin tool.
+
+**Decisión inicial (sustituida)**: `sv_create_mount` y `sv_update_mount`
+aceptan `type` `cifs` o
 `nfs`; cualquier otro → `unsupported_mount_type`. `sv_list_mounts`,
 `sv_reload_mount` y `sv_delete_mount` funcionan con cualquier montaje que el
 Supervisor liste, también `disk`.
@@ -134,7 +149,8 @@ de cumplir: Hermes no las tiene).
 - La vista previa dice solo `credentials` (`"set"`, `"none"`, `"replaced"` o
   `"removed_if_present"`).
 - Atados en el hash del token y **no omitibles**: `create_confirmation_token`
-  solo escribe en disco el `action_hash` (SHA-256 de la acción canónica) y,
+  solo escribe en disco el `action_hash` (HMAC-SHA256 de la acción canónica
+  con una clave en memoria, ver abajo) y,
   sin `omitibles`, ningún argumento (lo dice su comentario: «guardar todos los
   argumentos escribiría en disco, por ejemplo, las opciones con contraseñas de
   sv_set_addon_options»). Es el patrón de `fs_set_secret` (`value` atado),
@@ -154,16 +170,29 @@ de cumplir: Hermes no las tiene).
 retorno) y el punto de atención del encargo («no se guardan en el disco de los
 tokens»).
 
-**Riesgo residual (documentado, no nuevo)**: el SHA-256 de la acción incluye
+**Riesgo residual, cerrado en el tramo 1**: el SHA-256 de la acción incluía
 la contraseña; con acceso de lectura a `/data` durante los 60 s del token,
-una contraseña débil se podría adivinar probando contra el hash. Es el mismo
-compromiso que ya tienen `fs_set_secret` y `sv_restore_backup_*`; cambiar el
-hash (por ejemplo, a un HMAC con clave en memoria) sería un cambio transversal
-de `security.py` fuera del alcance: queda como duda para el final.
+una contraseña débil se podía adivinar probando contra el hash (lo mismo con
+`fs_set_secret` y `sv_restore_backup_*`). Por decisión del supervisor del
+programa, `compute_action_hash` pasa a HMAC-SHA256 con una clave aleatoria de
+32 bytes generada al arrancar, que nunca se escribe en disco ni en el log.
+Cambia en cada arranque y no pasa nada: los tokens caducan a los 60 s y uno
+de antes del arranque se responde como «lost across restart»; la
+idempotencia y `cached_result` van por el fichero del token, y
+`canonicalize_for_hash` (sin clave) solo compara valores en el momento.
 
 ## R-6 — La huella del estado entra en el token
 
-**Decisión**: además de los argumentos, el dict que se pasa a
+**Mecanismo vigente (tramo 1)**: la 018, integrada después de especificar,
+añadió `estado=` a `create_confirmation_token` y a
+`resolve_confirmation_token`: la huella se guarda como `state_hash` y, si el
+estado cambió, la confirmación da `ESTADO_CAMBIADO` sin gastar el token. Las
+tools de montajes usan ese mecanismo común (error `mount_changed`) en vez de
+una clave `_estado` dentro de los argumentos; el contenido de la huella es el
+de la tabla.
+
+**Decisión inicial (sustituida en el mecanismo)**: además de los argumentos,
+el dict que se pasa a
 `create_confirmation_token` y a `validate_confirmation_token` lleva una clave
 reservada `_estado` con la huella canónica de lo que la vista previa describe:
 

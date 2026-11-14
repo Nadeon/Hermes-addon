@@ -31,9 +31,9 @@ descarta antes de devolver.
 | Argumento | Crear | Editar | Regla (FR-007) |
 |---|---|---|---|
 | `name` | obligatorio | obligatorio (no cambia) | `^[A-Za-z0-9_]{1,64}$` |
-| `type` | obligatorio | opcional | `cifs` \| `nfs`; otro → `unsupported_mount_type` |
+| `type` | obligatorio | opcional | `cifs` \| `nfs` \| `disk`; otro → `unsupported_mount_type` |
 | `usage` | obligatorio | opcional | `backup` \| `media` \| `share` |
-| `server` | obligatorio | opcional | 1–253, sin `/`, `\`, espacios ni control |
+| `server` | obligatorio en CIFS y NFS | opcional | 1–253, sin `/`, `\`, espacios ni control; no en `disk` |
 | `share` | obligatorio en CIFS | opcional | sin `/`, `\` ni control; solo CIFS |
 | `path` | obligatorio en NFS | opcional | absoluto, sin control; solo NFS |
 | `port` | opcional | opcional | entero 1–65535, no booleano |
@@ -41,6 +41,8 @@ descarta antes de devolver.
 | `read_only` | `False` | opcional | booleano; `True` no con `backup` |
 | `username` | opcional | opcional | con `password`; solo CIFS; sin control; ≠ `***REDACTED***` |
 | `password` | opcional | opcional | con `username`; ídem |
+| `device` | `disk`: este o `uuid` | opcional | ruta absoluta bajo `/dev/`, sin `..` ni control, ≤ 255; solo `disk`; solo de entrada |
+| `uuid` | `disk`: este o `device` | opcional (se conserva el actual) | `^[A-Za-z0-9-]{1,64}$`; solo `disk` |
 
 Al editar, la validación se aplica al **resultado de fundir** lo actual con lo
 pasado (R-4), además de a cada argumento pasado. Cambiar `type` exige los
@@ -54,12 +56,13 @@ campos obligatorios del tipo nuevo entre los argumentos.
 | `"none"` | crear CIFS sin ellas (invitado) |
 | `"replaced"` | editar CIFS con `username` y `password` |
 | `"removed_if_present"` | editar CIFS sin ellas (con `credentials_warning`) |
-| ausente | NFS |
+| ausente | NFS y `disk` |
 
-## Huella del estado (`_estado`, R-6)
+## Huella del estado (R-6)
 
-Diccionario canónico que entra en el hash junto con los argumentos. Sin
-secretos (el Supervisor no los devuelve y la lista permitida los descartaría).
+Diccionario canónico que se pasa como `estado=` al token (mecanismo de la
+018: en disco solo su HMAC, `state_hash`). Sin secretos (el Supervisor no
+los devuelve y la lista permitida los descartaría).
 
 | Tool | Contenido |
 |---|---|

@@ -50,7 +50,7 @@ Sin incógnitas abiertas: las decisiones están en [research.md](research.md)
 | VI. Lo que no se puede probar | Unitarios contra el Supervisor simulado con respuestas sacadas del código de 2026.11.0; el banco de Core no aplica (su Supervisor solo reenvía a Core). Las 7 que modifican van a la matriz como **VM / pendiente** con su línea en el procedimiento (FR-021, SC-008). | OK con pendiente declarado |
 | VII. Control negativo | T016 y T030 con recuentos: lista permitida, omitibles, contraseña fuera del hash, huella, limpieza de errores, caracteres de control, aviso de credenciales, log con servidor, `dedicated`, carga sin `location`. | OK |
 | VIII. Privacidad | Fixtures con `nas.local`, `192.0.2.10`, `backups`, centinelas de texto; el log no lleva servidor, recurso ni ruta (FR-020); revisión del diff en cada tramo. | OK |
-| IX. Cambios mínimos | Un módulo nuevo por tramo; `sv_create_backup_*` gana un opcional sin tocar su camino por defecto; ningún cambio en `security.py`; la regla de clase A del test de la tabla ya admite `dedicated` (013) o se amplía igual; `disk`, la 031 y el HMAC del hash quedan fuera (dudas). | OK |
+| IX. Cambios mínimos | Un módulo nuevo por tramo; `sv_create_backup_*` gana un opcional sin tocar su camino por defecto; `security.py` solo cambia por la decisión transversal del supervisor (HMAC con clave en memoria en `compute_action_hash`); la regla de clase A del test de la tabla ya admite `dedicated` (013) o se amplía igual; `disk` entra por decisión del supervisor; la 031 queda fuera. | OK |
 | X. Comentarios en español | Comentarios en español con el porqué; descripciones, errores al cliente y eventos en inglés. | OK |
 | XI. Versionado | Sin subida de versión (la fijó la 009); sección propia en `## [1.2.0] — <fecha de publicación>` (E-4). | OK |
 | Flujo, puerta 4 (CI) | Cada tramo deja la suite en verde en el CI de Linux (6 fallos conocidos en local). | OK |
@@ -70,8 +70,8 @@ Sin incógnitas abiertas: las decisiones están en [research.md](research.md)
   - `_leer_estado()`: `GET /mounts` → `(por_defecto, {nombre: montaje})`;
     forma inesperada → error. `_backups_en(nombre)`: `GET /backups` → los que
     tienen el nombre en `locations` (con `only_here` si es la única).
-  - `_huella(...)`: dict canónico de data-model; entra como `_estado` en el
-    dict del hash (research R-6).
+  - `_huella(...)`: dict canónico de data-model; va como `estado=` al token
+    (mecanismo de la 018; research R-6).
   - `_limpiar_error(texto, secretos)`: sustituye los valores literales y pasa
     por `redact_secrets`.
   - Las seis tools con el flujo de [contracts/tools.md](contracts/tools.md).

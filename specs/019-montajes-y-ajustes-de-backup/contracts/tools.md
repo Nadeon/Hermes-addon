@@ -42,7 +42,7 @@ async def sv_create_mount(
     name: str,
     type: str,
     usage: str,
-    server: str,
+    server: str | None = None,   # obligatorio en CIFS y NFS; no en `disk`
     share: str | None = None,
     path: str | None = None,
     port: int | None = None,
@@ -50,6 +50,8 @@ async def sv_create_mount(
     read_only: bool = False,
     username: str | None = None,
     password: str | None = None,
+    device: str | None = None,   # solo `disk` (tramo 1, decisión del supervisor)
+    uuid: str | None = None,     # solo `disk`
     confirmation_token: str | None = None,
 ) -> object
 
@@ -65,6 +67,8 @@ async def sv_update_mount(
     read_only: bool | None = None,
     username: str | None = None,
     password: str | None = None,
+    device: str | None = None,
+    uuid: str | None = None,
     confirmation_token: str | None = None,
 ) -> object
 
@@ -92,12 +96,14 @@ descripción.
    Errores de existencia (`mount_exists`, `mount_not_found`,
    `not_a_backup_mount`) → error sin token.
 3. Sin `confirmation_token`: construir la vista previa (data-model), calcular
-   `_estado` y devolver `create_confirmation_token(tool, args | {"_estado":
-   huella}, preview=…)` **sin `omitibles`**.
+   la huella y devolver `create_confirmation_token(tool, args, preview=…,
+   estado=huella)` **sin `omitibles`** (mecanismo `estado` de la 018).
 4. Con `confirmation_token`: volver a leer el estado, recalcular la huella y
-   `validate_confirmation_token(token, tool, args | {"_estado": huella})`. Si
-   falla: `{error: <el de security>, hint: "Arguments or the mount changed
-   since the preview; request a new preview."}`.
+   `resolve_confirmation_token(token, tool, args, estado=huella)`. Si el
+   estado cambió: `{error: "mount_changed", detail: ESTADO_CAMBIADO}` (el
+   token no se gasta); si no casa: `{error: <el de security>, hint:
+   "Arguments or the mount changed since the preview; request a new
+   preview."}`.
 5. Ejecutar la petición; `complete_confirmation_token(success=…)`; leer de
    vuelta y responder (data-model). Errores del Supervisor: limpiar
    credenciales literales + `redact_secrets`; en fallos de montaje, `hint`
@@ -110,15 +116,16 @@ descripción.
 
 ```python
 "sv_create_mount": {a: A for a in ("name", "type", "usage", "server", "share", "path",
-                                    "port", "version", "read_only", "username", "password")},
+                                    "port", "version", "read_only", "username", "password",
+                                    "device", "uuid")},
 "sv_update_mount": {…los mismos…},
 "sv_delete_mount": {"name": A},
 "sv_set_default_backup_mount": {"name": A},
 ```
 
 Y `test_recuento` sube en 4 (82 → 86 sobre la punta de la 033; el número
-exacto depende de lo integrado). Comentario: la huella `_estado` también entra
-en el hash, aunque no es un argumento.
+exacto depende de lo integrado). Comentario: la huella del estado también
+ata el token (`estado=`), aunque no es un argumento.
 
 ## Log (R-10)
 

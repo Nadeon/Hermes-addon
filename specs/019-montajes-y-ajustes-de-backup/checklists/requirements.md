@@ -23,8 +23,8 @@ implementar.
   llamada, centinelas)
 - [x] Escenarios de aceptación para las cuatro historias
 - [x] Casos límite identificados
-- [x] Alcance acotado (fuera de alcance: 031, `disk`, clase D, restaurar con
-  `location`)
+- [x] Alcance acotado (fuera de alcance: 031, clase D, restaurar con
+  `location`; `disk` entró en el tramo 1 por decisión del supervisor)
 - [x] Dependencias y supuestos identificados (S-01…S-05)
 
 ## Preparación
@@ -76,17 +76,15 @@ Sin CRITICAL ni HIGH abiertos. Menores anotados (no bloquean):
 
 ## Dudas para el final
 
-- **D-019-1 — Montajes de disco (`type: disk`)**: el Supervisor 2026.11.0
-  permite crear montajes de un disco local por `POST /mounts`. Al pasar esa
-  ruta a `dedicated` y no admitir `disk` en `sv_create_mount`, dejan de ser
-  alcanzables desde Hermes (fail-closed). ¿Se cubren en otra sub-feature
-  (¿032, host?), o se quedan fuera?
+- **D-019-1 — Montajes de disco (`type: disk`)**: RESUELTA por el
+  supervisor del programa en el tramo 1: `sv_create_mount` y
+  `sv_update_mount` admiten `disk`.
 - **D-019-2 — Hash del token con la contraseña dentro**: el `action_hash`
   (SHA-256) incluye la contraseña CIFS, como ya pasa con `fs_set_secret` y
   `sv_restore_backup_*`. Con lectura de `/data` durante los 60 s del token, una
-  contraseña débil se podría adivinar contra el hash. Un HMAC con clave en
-  memoria lo cerraría para todas las tools; es un cambio de `security.py`
-  fuera de esta sub-feature.
+  contraseña débil se podría adivinar contra el hash. RESUELTA por el
+  supervisor del programa en el tramo 1: HMAC-SHA256 con clave en memoria en
+  `security.py`, para todas las tools.
 - **D-019-3 — La 033 sin integrar**: si al implementar el tramo 1 la 033 no
   está en la rama, las cuatro tools con token entran en su inventario al
   integrarla (T013).

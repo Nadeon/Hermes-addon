@@ -61,11 +61,13 @@ en [research.md](research.md)):
   con dos módulos: `mounts` (montajes) y `backup_settings` (ajustes de backup).
   `location` se queda en las tools de la familia `backups` de la 1.1.2
   (research R-1).
-- P: ¿Qué tipos de montaje se crean y editan? → R: **CIFS y NFS**, los de red
-  que nombra CAP-083. Los montajes de disco local (`disk`, que el Supervisor
-  2026.11.0 también acepta en `POST /mounts`) se listan, se recargan y se
-  borran, pero no se crean ni se editan: quedan como duda para el final
-  (research R-2).
+- P: ¿Qué tipos de montaje se crean y editan? → R: **CIFS, NFS y `disk`**
+  (decisión del supervisor del programa al implementar el tramo 1, que
+  sustituye a la de especificar: «CIFS y NFS; `disk` como duda»). El
+  Supervisor 2026.11.0 crea montajes de un disco local por `POST /mounts`, y
+  al pasar esa ruta (y `PUT /mounts/{mount}`) a `dedicated` no puede quedar
+  ningún hueco. Un `disk` lleva `device` y/o `uuid` y nada de red (research
+  R-2).
 - P: ¿Argumentos sueltos o un documento de configuración? → R: **sueltos**,
   uno por campo del Supervisor, para que el esquema diga qué es cada cosa y
   la contraseña no viaje anidada en un documento que se pueda copiar a una
@@ -92,6 +94,23 @@ en [research.md](research.md)):
   2026.11.0, `POST /backups/options` solo acepta `days_until_stale`.
   `sv_get_backup_settings` los lee junto con el montaje por defecto y los
   montajes de backup disponibles (research R-8).
+
+### Decisiones del supervisor del programa (tramo 1)
+
+- **Montajes `disk`**: `sv_create_mount` y `sv_update_mount` admiten
+  `type="disk"` con `device` (ruta bajo `/dev/`) y/o `uuid`; ningún tipo que
+  el Supervisor cree por esas rutas queda sin tool (research R-2).
+- **Hash del token con clave** (transversal, `security.py`): el
+  `action_hash` pasa a HMAC-SHA256 con una clave aleatoria de 32 bytes
+  generada en memoria al arrancar, que nunca se escribe en disco ni en el
+  log. El hash de unos argumentos con una contraseña ya no se puede atacar
+  sin conexión aunque se lea el directorio de tokens (research R-5; cierra la
+  duda D-019-2).
+- **Huella del estado**: va por el `estado` de `create_confirmation_token` y
+  `resolve_confirmation_token` que añadió la 018 (integrada después de
+  especificar), no como una clave `_estado` dentro de los argumentos. Mismo
+  efecto (el token ata el estado y, si cambia, no se ejecuta y se pide otra
+  vista previa) con el mecanismo común (research R-6).
 
 ## Escenarios de usuario y pruebas *(obligatorio)*
 
@@ -223,8 +242,10 @@ considera viejo y releer los backups tras copiarlos a mano al NAS.
   vista previa enseñaría algo que no se aplica.
 - `usage="backup"` con `read_only=True` → `invalid_argument` (el Supervisor
   no lo admite).
-- `type` distinto de `cifs` o `nfs` al crear o editar → `unsupported_mount_type`.
-  Un montaje `disk` existente se puede listar, recargar y borrar.
+- `type` distinto de `cifs`, `nfs` o `disk` al crear o editar →
+  `unsupported_mount_type`. Un `disk` sin `device` ni `uuid`, o con campos de
+  red o credenciales → `invalid_argument`; `device` o `uuid` en CIFS o NFS →
+  `invalid_argument`.
 - Nombre que ya existe al crear → error que sugiere `sv_update_mount`, sin
   token. Nombre que no existe al editar, borrar o recargar → `mount_not_found`
   sin token y sin llamada de escritura.
@@ -267,17 +288,22 @@ Cada FR cita el FR de la 008 y la CAP que cubre.
 - **FR-002**: `sv_create_mount(name, type, usage, server, share=None,
   path=None, port=None, version=None, read_only=False, username=None,
   password=None, confirmation_token=None)` crea un montaje CIFS o NFS con
-  `POST /mounts`, **siempre en dos pasos**. La vista previa enseña la carga sin
+  `POST /mounts`, **siempre en dos pasos**; también un montaje de disco local
+  (`type="disk"`, con `device` y/o `uuid`; firma ampliada con
+  `device=None, uuid=None`). La vista previa enseña la carga sin
   credenciales, `credentials` (`"set"` o `"none"`, que en CIFS es acceso de
   invitado), si pasará a ser el montaje por defecto de backups (uso `backup` y
   ninguno por defecto), que el Supervisor relee los backups (uso `backup`) y
-  que el Supervisor prueba la conexión al crearlo y no lo crea si falla. Un
+  que el Supervisor prueba la conexión al crearlo y no lo crea si falla (en
+  `disk`: que comprueba que el dispositivo es un sistema de ficheros montable
+  que no es de Home Assistant OS). Un
   nombre que ya existe se rechaza en la vista previa. Tras ejecutar, devuelve
   el montaje leído de vuelta de `GET /mounts` (008 FR-066; CAP-083).
 - **FR-003**: `sv_update_mount(name, type=None, usage=None, server=None,
   share=None, path=None, port=None, version=None, read_only=None,
-  username=None, password=None, confirmation_token=None)` edita un montaje
-  CIFS o NFS existente con `PUT /mounts/{name}`, **siempre en dos pasos**. Los
+  username=None, password=None, device=None, uuid=None,
+  confirmation_token=None)` edita un montaje CIFS, NFS o `disk` existente con
+  `PUT /mounts/{name}`, **siempre en dos pasos**. Los
   campos no pasados conservan el valor actual leído de `GET /mounts`
   (`version="auto"` vuelve a la negociación automática); cambiar `type` exige
   los campos del tipo nuevo y descarta los del viejo. La vista
@@ -286,7 +312,8 @@ Cada FR cita el FR de la 008 y la CAP que cubre.
   quita las que tuviera y Hermes no puede saber si las tiene), que el montaje
   se desmonta y se vuelve a montar, si deja de ser el montaje por defecto
   (deja de ser de uso `backup`) y, si era de uso `backup` y cambia de uso o
-  de destino (tipo, servidor, recurso, ruta o puerto), cuántos backups dejarán
+  de destino (tipo, servidor, recurso, ruta, puerto, `device` o `uuid`),
+  cuántos backups dejarán
   de verse, como en FR-004 (008 FR-066; CAP-083).
 - **FR-004**: `sv_delete_mount(name, confirmation_token=None)` borra un
   montaje con `DELETE /mounts/{name}`, **siempre en dos pasos**. La vista
@@ -311,8 +338,11 @@ Cada FR cita el FR de la 008 y la CAP que cubre.
   Hermes) irán ahí. Un montaje que no existe o que no es de uso `backup` se
   rechaza sin token (008 FR-066; CAP-083).
 - **FR-007**: Validación común, **fail-closed y antes de cualquier llamada de
-  escritura**: `name` casa `^[A-Za-z0-9_]{1,64}$`; `type` es `cifs` o `nfs`
-  al crear o editar; `usage` es `backup`, `media` o `share`; `server` no tiene
+  escritura**: `name` casa `^[A-Za-z0-9_]{1,64}$`; `type` es `cifs`, `nfs` o
+  `disk` al crear o editar; `usage` es `backup`, `media` o `share`; en `disk`,
+  `device` (ruta absoluta bajo `/dev/`, sin `..` ni caracteres de control,
+  como mucho 255) o `uuid` (`^[A-Za-z0-9-]{1,64}$`), al menos uno, y ningún
+  campo de red ni credenciales; `device` y `uuid` solo en `disk`; `server` no tiene
   `/`, `\`, espacios ni caracteres de control y mide como mucho 253
   caracteres; `share` no tiene `/`, `\` ni caracteres de control; `path`
   (NFS) es absoluto y sin caracteres de control; `port` es un entero de 1 a
@@ -326,7 +356,8 @@ Cada FR cita el FR de la 008 y la CAP que cubre.
 - **FR-008**: **Secretos.** `username` y `password` de CIFS no aparecen en
   ninguna respuesta, vista previa, error ni evento de log de Hermes. Entran en
   el hash del token (atados) y no se guardan en el fichero del token (no son
-  omitibles): en disco solo queda el SHA-256 de la acción, como con
+  omitibles): en disco solo queda el HMAC-SHA256 de la acción, con una clave
+  que vive solo en memoria, como con
   `fs_set_secret`, `sv_set_addon_options` y `sv_restore_backup_*`. Todo texto
   de error del Supervisor pasa por la sustitución literal de los dos valores y
   por `redact_secrets` antes de devolverse (principio II; 008 FR-019, FR-066;
@@ -428,7 +459,8 @@ Cada FR cita el FR de la 008 y la CAP que cubre.
 
 ### Entidades clave
 
-- **Montaje**: `name`, `type` (`cifs`, `nfs`; `disk` solo se lista),
+- **Montaje**: `name`, `type` (`cifs`, `nfs`, `disk`), `device` y `uuid`
+  (`disk`; `device` solo de entrada),
   `usage` (`backup`, `media`, `share`), `read_only`, `server`, `port`,
   `share` y `version` (CIFS), `path` (NFS), `state` y `user_path` (de
   lectura); credenciales CIFS (`username`, `password`), que entran pero nunca
@@ -448,7 +480,6 @@ Cada FR cita el FR de la 008 y la CAP que cubre.
 - Los backups de la integración `backup` de Home Assistant
   (`backup/restore`, `backup/delete`, `backup/generate`, agentes, ajustes
   automáticos) y los safety backups cifrados: 031.
-- Crear o editar montajes de disco local (`type: disk`): duda para el final.
 - `GET /host/disks` (lo dejó la 013 en `read`) y el uso de disco de un
   montaje (`sv_get_disk_usage` de la 013).
 - `POST /backups/freeze`, `/backups/thaw`, `/backups/new/upload` y
@@ -471,10 +502,10 @@ Cada FR cita el FR de la 008 y la CAP que cubre.
 - **S-03**: Hermes llama a la API sin la cabecera de versión de
   `aiohasupervisor`, así que `GET /mounts` le enseña también los montajes de
   disco.
-- **S-04**: El hash del token con la contraseña dentro es el mismo
-  compromiso que ya aceptan `fs_set_secret` y `sv_restore_backup_*`: el
-  fichero del token vive en `/data` del add-on, caduca a los 60 s y lleva solo
-  el SHA-256 de la acción, nunca el valor.
+- **S-04**: El hash del token con la contraseña dentro es un HMAC-SHA256
+  con una clave en memoria (decisión del programa, en `security.py` para
+  todas las tools): el fichero del token vive en `/data` del add-on, caduca a
+  los 60 s y lleva solo ese hash, nunca el valor.
 - **S-05**: La 1.2.0 sale entera: los motivos «pendiente» que queden en la
   tabla son de otras sub-features y los vigila el cierre (FR-098 de la 008).
 
