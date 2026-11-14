@@ -78,8 +78,18 @@ class TestEntornoKitchenSink(BancoEscrituras):
 # ── T020: config entries y flujos ────────────────────────────────────────
 
 
-async def _flujos_en_curso(s: SesionEscrituras) -> set[str]:
-    return {f["flow_id"] for f in await s.lector.comando({"type": "config_entries/flow/progress"})}
+async def _flujo_en_curso(s: SesionEscrituras, flow_id: str) -> bool:
+    """Si el flujo de configuración sigue abierto en Core.
+
+    Por REST y no con `config_entries/flow/progress`: ese comando solo lista
+    los flujos que NO abrió un usuario (descubrimientos), y los de las tools
+    de Hermes son de origen `user`. `GET` del flujo da 200 mientras existe y
+    404 cuando ya terminó o se abortó.
+    """
+    estado, _ = await s.lector.rest("GET", f"/api/config/config_entries/flow/{flow_id}")
+    if estado not in (200, 404):
+        raise AssertionError(f"GET del flujo {flow_id}: estado inesperado {estado}")
+    return estado == 200
 
 
 async def _entrada(s: SesionEscrituras, entry_id: str) -> dict[str, Any] | None:
@@ -128,12 +138,12 @@ class TestConfigEntryUptime(BancoEscrituras):
             # Abrir y abortar.
             abierto = await s.accion("ha_start_config_entry_flow", handler="uptime")
             self.assertEqual((abierto["type"], abierto["step_id"]), ("form", "user"))
-            self.assertIn(abierto["flow_id"], await _flujos_en_curso(s))
+            self.assertTrue(await _flujo_en_curso(s, abierto["flow_id"]))
             self.assertEqual(
                 await s.accion("ha_abort_config_entry_flow", flow_id=abierto["flow_id"]),
                 {"result": "ok"},
             )
-            self.assertNotIn(abierto["flow_id"], await _flujos_en_curso(s))
+            self.assertFalse(await _flujo_en_curso(s, abierto["flow_id"]))
 
             # Abrir otro y completarlo: entrada nueva, cargada.
             abierto = await s.accion("ha_start_config_entry_flow", handler="uptime")
@@ -147,7 +157,7 @@ class TestConfigEntryUptime(BancoEscrituras):
                 lambda e: e is not None and e["state"] == "loaded",
                 descripcion=f"entrada {entry_id} de uptime en estado loaded",
             )
-            self.assertNotIn(abierto["flow_id"], await _flujos_en_curso(s))
+            self.assertFalse(await _flujo_en_curso(s, abierto["flow_id"]))
 
             # Recargar: el sensor guarda la hora a la que se creó la entidad,
             # así que cambia. Por si el estado redondea a segundos, se deja
