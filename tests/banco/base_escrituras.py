@@ -17,6 +17,12 @@ Lo que añade:
   al cerrar la sesión, pase lo que pase.
 - **Ayudas para los dos pasos**: la vista previa tiene que traer token, y la
   confirmación no puede devolver un error.
+- **Barrera del lector** (T031): para demostrar que una vista previa NO ha
+  llamado a un servicio, no basta con contar llamadas al final (si la vista
+  previa llamara y la confirmación no, se vería una sola). Tras la vista
+  previa, el lector llama él mismo a un servicio inocuo y espera a verlo en el
+  bus: los eventos llegan en orden por la misma WebSocket, así que lo que la
+  vista previa hubiera llamado ya estaría en la lista.
 
 Todo dentro de un único `async with` por test, por el mismo motivo que en la
 010: el cliente MCP usa grupos de tareas de anyio, que tienen que abrirse y
@@ -78,6 +84,7 @@ class SesionEscrituras:
     cliente: Any
     lector: Lector
     limpiezas: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
+    _barrera: str | None = None
 
     # ── Llamadas por Hermes ───────────────────────────────────────────────
     async def accion(self, tool: str, **args: Any) -> Any:
@@ -119,6 +126,40 @@ class SesionEscrituras:
         await self.esperar_estado(entity_id, lambda e: e is not None and e["state"] == "off", "apagado")
         return entity_id
 
+    async def preparar_barrera(self) -> str:
+        """El `input_boolean` del lector para las barreras (se crea una vez).
+
+        Se prepara ANTES de abrir la ventana que cuenta las llamadas, para que
+        crearlo no se mezcle con lo que se quiere ver.
+        """
+        if self._barrera is None:
+            self._barrera = await self.input_boolean(f"banco_input_boolean_{sufijo()}")
+        return self._barrera
+
+    async def barrera(self, vistos: list[tuple[str, str]]) -> None:
+        """Llamada propia del lector (`input_boolean.toggle`) vista en el bus.
+
+        Al volver, todo lo que se llamó en HA antes de esta barrera está ya en
+        `vistos`: los eventos `call_service` llegan en orden por la WebSocket
+        del lector, y la vista previa de Hermes respondió antes de que el
+        lector llamara.
+        """
+        entidad = await self.preparar_barrera()
+        antes = vistos.count(("input_boolean", "toggle"))
+        await self.lector.comando(
+            {
+                "type": "call_service",
+                "domain": "input_boolean",
+                "service": "toggle",
+                "target": {"entity_id": entidad},
+            }
+        )
+        await self.lector.esperar(
+            lambda: _devolver(vistos),
+            lambda v: v.count(("input_boolean", "toggle")) > antes,
+            descripcion="barrera del lector (input_boolean.toggle) en el bus",
+        )
+
     def limpiar_config(self, dominio: str, id_: str) -> None:
         """Apunta el borrado por REST de una automatización, script o escena."""
 
@@ -128,13 +169,24 @@ class SesionEscrituras:
         self.limpiezas.append(borrar)
 
     async def recarga_vista_una_vez(self, tool: str, dominio: str) -> None:
-        """`ha_reload_*` en dos pasos: `<dominio>.reload` visto en el bus una sola
-        vez, la de la confirmación (los eventos llegan en orden por la
-        WebSocket: si la vista previa hubiera llamado, habría llegado antes)."""
+        """`ha_reload_*` en dos pasos: la vista previa no llama (lo demuestra la
+        barrera del lector) y `<dominio>.reload` se ve en el bus una sola vez,
+        la de la confirmación.
+
+        Control negativo (T031, en el CI): con `guarded_reload` llamando al
+        servicio en la vista previa y no en la confirmación, cae aquí, en la
+        comprobación de después de la barrera.
+        """
+        await self.preparar_barrera()
         async with self.lector.servicios_llamados() as vistos:
             vista = await self.vista(tool)
             if vista["preview"].get("service") != f"{dominio}.reload":
                 raise AssertionError(f"{tool}: vista previa inesperada {vista['preview']!r}")
+            await self.barrera(vistos)
+            if (dominio, "reload") in vistos:
+                raise AssertionError(
+                    f"{tool}: la vista previa ha llamado a {dominio}.reload sin token"
+                )
             await self.confirmar(tool, vista)
             await self.lector.esperar(
                 lambda: _devolver(vistos),

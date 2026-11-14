@@ -49,20 +49,24 @@ class TestLlamarServicio(BancoEscrituras):
         tool = "ha_call_service"
         args = {"domain": "input_boolean", "service": "reload"}
         async with self.sesion() as s:
+            await s.preparar_barrera()
             async with s.lector.servicios_llamados() as vistos:
                 vista = await s.vista(tool, **args)
                 self.assertEqual(
                     (vista["preview"]["domain"], vista["preview"]["service"]),
                     ("input_boolean", "reload"),
                 )
+                # La vista previa no ha llamado: tras la barrera del lector, lo
+                # que se hubiera llamado antes ya estaría en `vistos` (T031).
+                await s.barrera(vistos)
+                self.assertNotIn(("input_boolean", "reload"), vistos)
                 await s.confirmar(tool, vista, **args)
                 await s.lector.esperar(
                     lambda: _devolver(vistos),
                     lambda v: ("input_boolean", "reload") in v,
                     descripcion="input_boolean.reload en el bus",
                 )
-            # Los eventos llegan en orden: si la vista previa hubiera llamado al
-            # servicio, se habrían visto dos.
+            # Y la confirmación llama una sola vez.
             self.assertEqual(vistos.count(("input_boolean", "reload")), 1)
 
     async def test_con_respuesta(self) -> None:
