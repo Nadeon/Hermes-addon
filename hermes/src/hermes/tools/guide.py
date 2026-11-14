@@ -20,11 +20,14 @@ from __future__ import annotations
 # ── Resumen entregado al conectar (initialize) ────────────────────────────────
 
 INSTRUCTIONS = """\
-Controlas Home Assistant a través de Hermes: ~216 tools con prefijo `ha_`
-(Home Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: add-ons, host,
+Controlas Home Assistant a través de Hermes: tools con prefijo `ha_` (Home
+Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: add-ons, host,
 backups). Los nombres son predecibles —`ha_list_*`, `ha_get_*`, `ha_update_*`,
 `sv_restart_*`, `fs_read_*`…— así que normalmente sabrás cuál usar leyendo la
 lista. Lo que sigue es lo que NO se deduce del nombre.
+Para lo que ninguna tool cubre están las genéricas `ha_read_ws_command`,
+`ha_call_ws_command`, `sv_read_api` y `sv_call_api`: solo ejecutan lo que
+permite la tabla de comandos de Hermes, y las de escritura siempre en dos pasos.
 
 1) CONFIRMACIÓN EN DOS PASOS
 Las acciones destructivas devuelven, en la primera llamada, un `preview` y un

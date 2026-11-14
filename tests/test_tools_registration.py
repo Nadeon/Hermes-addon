@@ -496,6 +496,11 @@ class TestDestructiveToolsAskBeforeActing:
 # de añadir `title`. Añadir el título no puede cambiar lo que una tool dice de
 # sí misma (principio V): si un día cambia un hint, tiene que ser a propósito y
 # actualizando esta tabla en el mismo cambio.
+#
+# Es la REFERENCIA DE LA 1.1.2 (spec 011, FR-021): las 216 tools de producción
+# más `test_progress` (desarrollo). Las tools nuevas de la 1.2.0 no se añaden
+# aquí: van en `_HINTS_NUEVAS_1_2_0`, para que esta tabla siga diciendo qué
+# prometía la 1.1.2 y un cambio en una de ellas se vea como tal.
 # Código: R = readOnlyHint, D = destructiveHint, I = idempotentHint,
 # O = openWorldHint; «-» = False.
 _HINTS_SNAPSHOT: dict[str, str] = {
@@ -719,6 +724,18 @@ _HINTS_SNAPSHOT: dict[str, str] = {
 }
 
 
+# Tools nuevas de la 1.2.0: código de hints y título exactos (spec 011,
+# contracts/tools.md). Las de lectura no son de mundo abierto (ninguna entrada
+# `read` de la tabla sale a internet); las de escritura son destructivas, no
+# idempotentes y de mundo abierto, porque ejecutan lo que la tabla permita.
+_HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
+    "ha_read_ws_command": ("R-I-", "Read WS command (Home Assistant)"),
+    "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
+    "sv_read_api": ("R-I-", "Read API (Supervisor)"),
+    "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+}
+
+
 def _hint_code(ann) -> str:
     flags = (ann.read_only_hint, ann.destructive_hint,
              ann.idempotent_hint, ann.open_world_hint)
@@ -784,14 +801,61 @@ class TestToolTitles:
         assert tools["sv_get_addon_logs"].title == "Get add-on logs (Supervisor)"
 
     def test_hints_did_not_change(self):
+        """Las de la 1.1.2 conservan sus hints y las únicas de más son las de
+        la 1.2.0 que la spec enumera (FR-021)."""
         tools = _real_registry()
-        assert set(tools) == set(_HINTS_SNAPSHOT), (
-            "la lista de tools no coincide con la instantánea")
+        faltan = sorted(set(_HINTS_SNAPSHOT) - set(tools))
+        assert faltan == [], f"tools de la 1.1.2 que ya no están: {faltan}"
+        sobran = sorted(set(tools) - set(_HINTS_SNAPSHOT) - set(_HINTS_NUEVAS_1_2_0))
+        assert sobran == [], f"tools nuevas sin declarar: {sobran}"
         cambiados = sorted(
-            f"{n}: {_HINTS_SNAPSHOT[n]} -> {_hint_code(t.annotations)}"
-            for n, t in tools.items()
-            if _hint_code(t.annotations) != _HINTS_SNAPSHOT[n])
+            f"{n}: {_HINTS_SNAPSHOT[n]} -> {_hint_code(tools[n].annotations)}"
+            for n in _HINTS_SNAPSHOT
+            if _hint_code(tools[n].annotations) != _HINTS_SNAPSHOT[n])
         assert cambiados == [], f"hints cambiados: {cambiados}"
+
+    def test_hints_y_titulos_de_las_nuevas(self):
+        """Contrato de la 011 (contracts/tools.md): hints y títulos exactos."""
+        tools = _real_registry()
+        for nombre, (codigo, titulo) in _HINTS_NUEVAS_1_2_0.items():
+            assert nombre in tools, f"{nombre} no está registrada"
+            assert _hint_code(tools[nombre].annotations) == codigo, nombre
+            assert tools[nombre].title == titulo, (nombre, tools[nombre].title)
+
+    def test_api_no_cambia_ningun_titulo_existente(self):
+        """`"api": "API"` en `_TITLE_WORDS` solo toca a las nuevas: ninguna
+        tool de la 1.1.2 tiene `api` como palabra de su nombre."""
+        con_api = sorted(n for n in _HINTS_SNAPSHOT if "api" in n.split("_"))
+        assert con_api == [], con_api
+
+    def test_esquemas_de_la_1_1_2(self):
+        """Las tools de la 1.1.2 conservan los argumentos (nombres y
+        obligatorios) de su esquema de entrada (FR-021).
+
+        `tests/fixtures/esquemas_1_1_2.json` se generó del registro real ANTES
+        de añadir las genéricas, con:
+
+            tools = _real_registry()
+            {n: {"properties": sorted(t.parameters.get("properties", {})),
+                 "required": sorted(t.parameters.get("required", []))}
+             for n, t in sorted(tools.items())}
+
+        (json.dumps con indent=1 y sort_keys). No se regenera: es la referencia.
+        """
+        import json
+
+        ruta = pathlib.Path(__file__).resolve().parent / "fixtures" / "esquemas_1_1_2.json"
+        esperado = json.loads(ruta.read_text(encoding="utf-8"))
+        assert set(esperado) == set(_HINTS_SNAPSHOT)
+        tools = _real_registry()
+        distintos = []
+        for nombre, esquema in esperado.items():
+            actual = tools[nombre].parameters
+            real = {"properties": sorted(actual.get("properties", {})),
+                    "required": sorted(actual.get("required", []))}
+            if real != esquema:
+                distintos.append(f"{nombre}: {esquema} -> {real}")
+        assert distintos == [], "esquemas cambiados: " + "; ".join(distintos)
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
@@ -968,9 +1032,11 @@ class TestResolutionAndHABackupsRegistration:
 # ── Recuento de tools en la documentación ────────────────────────────────────
 
 class TestToolCountInDocs:
-    """El número de tools que anuncian las instrucciones, la guía, los README y
-    DOCS.md es el del registro real, sin las de desarrollo. Se ha quedado
-    atrás en varias versiones porque nadie lo recontaba al añadir módulos."""
+    """El número de tools que anuncian los README y DOCS.md es el del registro
+    real, sin las de desarrollo. Se ha quedado atrás en varias versiones
+    porque nadie lo recontaba al añadir módulos. Las instrucciones del
+    servidor ya no dan ninguno (spec 011, FR-022): depende de las familias
+    desactivadas; lo comprueba también `test_tools_guide`."""
 
     def test_documented_count_matches_registry(self):
         import re
@@ -985,8 +1051,8 @@ class TestToolCountInDocs:
                 os.environ["HERMES_DEV"] = previous
         total = len(mcp.tools)
         raiz = pathlib.Path(__file__).resolve().parents[1]
+        assert re.findall(r"(\d{3}) (?:tools|herramientas)\b", INSTRUCTIONS) == []
         textos = {
-            "INSTRUCTIONS": INSTRUCTIONS,
             "README.md": (raiz / "README.md").read_text(encoding="utf-8"),
             "README.es.md": (raiz / "README.es.md").read_text(encoding="utf-8"),
             "DOCS.md": (raiz / "hermes" / "DOCS.md").read_text(encoding="utf-8"),

@@ -162,6 +162,26 @@ class TestInstructions(unittest.TestCase):
         self.assertIn("hermes_guide", INSTRUCTIONS)
         self.assertIn("ha_get_states", INSTRUCTIONS)
 
+    def test_instructions_sin_recuento_de_tools(self) -> None:
+        """Spec 011 (FR-022, principio V): el número de tools depende de las
+        familias desactivadas y de la versión, así que las instrucciones no lo
+        dan; un «~216» sería falso con las genéricas o con una familia
+        apagada. Sí mencionan las genéricas y que dependen de la tabla.
+
+        Control negativo comprobado: con las INSTRUCTIONS de la 1.1.2 («~216
+        tools») cae.
+        """
+        import re
+
+        self.assertIsNone(
+            re.search(r"\d+\s*(?:tools|herramientas)\b", INSTRUCTIONS),
+            "INSTRUCTIONS no debe dar un recuento de tools",
+        )
+        for nombre in ("ha_read_ws_command", "ha_call_ws_command",
+                       "sv_read_api", "sv_call_api"):
+            self.assertIn(nombre, INSTRUCTIONS)
+        self.assertIn("tabla", INSTRUCTIONS)
+
     def test_instructions_accepted_and_exposed_by_fastmcp(self) -> None:
         # Verifica end-to-end que el SDK entrega instructions en el initialize.
         from mcp.server.mcpserver import MCPServer

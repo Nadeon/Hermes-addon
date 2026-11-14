@@ -270,6 +270,12 @@ def register_all_tools(
     from hermes.tools.hacs import register as register_hacs
     register_hacs(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
+    # que la tabla de comandos permite. Van las últimas para que el cliente vea
+    # antes las tools dedicadas, que son las que debe preferir.
+    from hermes.tools.generic_commands import register as register_generic_commands
+    register_generic_commands(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Anotaciones MCP (readOnly / destructive / idempotent / openWorld).
     # Se aplican al final, sobre todo lo ya registrado, para que los clientes
     # puedan distinguir lo que solo lee de lo que borra o reinicia.

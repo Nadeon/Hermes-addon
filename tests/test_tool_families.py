@@ -27,11 +27,6 @@ _TOOLS_DIR = (
     pathlib.Path(__file__).resolve().parents[1] / "hermes" / "src" / "hermes" / "tools"
 )
 
-# Módulos que una familia puede nombrar aunque todavía no existan en disco.
-# `generic_commands` lo crea el tramo 2 (T024); T025 quita esta excepción para
-# que, desde entonces, una familia que nombre un módulo inexistente falle.
-_MODULOS_AUN_NO_CREADOS = {"generic_commands"}
-
 # Catálogo de la 1.1.2 (research R-5): familia → módulos.
 _CATALOGO_1_1_2 = {
     "base": {"ping", "guide"},
@@ -93,7 +88,7 @@ class TestCatalogo(unittest.TestCase):
         existentes = {p.stem for p in _TOOLS_DIR.glob("*.py")}
         faltan = sorted(
             f"{f.nombre}: {m}" for f in FAMILIAS.values() for m in f.modulos
-            if m not in existentes and m not in _MODULOS_AUN_NO_CREADOS
+            if m not in existentes
         )
         self.assertEqual(faltan, [], f"módulos inexistentes: {faltan}")
 
