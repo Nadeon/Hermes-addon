@@ -4,7 +4,7 @@
 slug: hermes
 name: "Hermes – MCP Home Assistant"
 description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
-version: "1.1.2"
+version: "1.2.0"
 url: "https://github.com/Nadeon/Hermes-addon"
 
 # Versión mínima de Home Assistant (igual que HA_CORE_MIN_SUPPORTED en
@@ -60,9 +60,16 @@ host_network: true
 docker_api: false
 privileged: []
 hassio_api: true
-hassio_role: admin         # 'admin' es el único rol que da acceso garantizado a
-                           # /addons/self/options/config (necesario para bashio::config).
-                           # Probado: 'manager' y 'default' devuelven 403 Forbidden.
+hassio_role: admin         # Se mantiene 'admin' hasta probar 'manager' en vivo
+                           # (docs/HOJA-DE-RUTA.md, pruebas manuales; procedimiento
+                           # en docs/BANCO-SUPERVISOR.md). En el Supervisor 2026.11.0
+                           # /addons/self/options/config está en api_bypass y pasa con
+                           # cualquier rol (supervisor/api/middleware/security.py), y
+                           # Hermes no usa bashio::config: run.sh lee /data/options.json.
+                           # Con el código del Supervisor 2026.11.0, todas las rutas que
+                           # usa Hermes están permitidas para 'manager'
+                           # (tests/test_rutas_supervisor_rol.py); el rol no se ha bajado
+                           # porque falta probarlo en una instalación real.
 homeassistant_api: true
 ingress: false
 

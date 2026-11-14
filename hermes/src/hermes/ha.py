@@ -26,7 +26,9 @@ from hermes.service_policy import (
 )
 from hermes.health import HealthServer
 from hermes.identifiers import validate_path_segment
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
+
+from hermes.logging_setup import set_ha_url_hosts
 
 logger = structlog.get_logger(__name__)
 
@@ -172,6 +174,22 @@ def _state_is_newer(candidato: Any, cacheado: Any) -> bool:
     if t_nuevo is None or t_viejo is None:
         return True
     return t_nuevo >= t_viejo
+
+
+def _host_de_url(url: Any) -> str | None:
+    """Host de una URL de `/api/config`, o `None` si no hay o no vale.
+
+    Sin host, mal formada (`urlsplit(...).hostname` lanza `ValueError` con
+    `http://[fe80::1`) o de un tipo que no es texto: se ignora sin error
+    (spec de la 009, casos límite). Por campo, para que una URL rota no
+    impida tapar la otra (T045).
+    """
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
 
 
 class HAClient:
@@ -427,6 +445,9 @@ class HAClient:
             # el snapshot lo resuelve `_state_is_newer` en el manejador.
             await self._subscribe_state_changes()
             await self._populate_state_cache()
+            # Antes de `ha_ws_connected`: desde aquí puede haber líneas con
+            # las URLs de HA, y en cada reconexión se vuelven a leer.
+            await self._aprender_urls_de_ha()
 
             # Señalizar reconexión a waits activos
             self._reconnect_generation += 1
@@ -439,6 +460,40 @@ class HAClient:
             logger.info("ha_ws_connected", ws_url=self._ws_url)
 
             await self._read_ws_messages()
+
+    async def _aprender_urls_de_ha(self) -> None:
+        """Pasa a la redacción del log los hosts de `external_url`/`internal_url`.
+
+        FR-002 de la 009: el dominio propio de la casa salía en claro en el log.
+        Por REST (`/api/config`, el mismo canal que el snapshot de estados) y
+        no por WebSocket: el bucle de lectura aún no corre, así que un
+        `ws_send` esperaría una respuesta que nadie lee.
+
+        Un fallo aquí NO corta la conexión (principio III, matiz justificado
+        en el plan de la 009): dejar la casa sin servicio por no poder tapar
+        dos nombres en el log sería desproporcionado, y el resto de la
+        redacción sigue activa. Se avisa sin ningún trozo de URL. Se captura
+        `Exception` y no solo `HAConnectionError` porque aiohttp lanza más
+        tipos (y el tiempo máximo, `TimeoutError`); `CancelledError` no es
+        `Exception` y se propaga, como debe.
+
+        Cada URL se trata por separado (`_host_de_url`): una mal formada se
+        ignora sin aviso, como dice la spec, y no impide tapar la otra
+        (revisión de la 009, T045).
+        """
+        try:
+            datos = await self._request_json("GET", "/config")
+            if not isinstance(datos, dict):
+                raise TypeError("respuesta de /api/config inesperada")
+        except Exception as exc:  # noqa: BLE001 — ver el docstring
+            logger.warning(
+                "ha_url_redaction_unavailable", error_type=type(exc).__name__
+            )
+            return
+        set_ha_url_hosts(
+            _host_de_url(datos.get("external_url")),
+            _host_de_url(datos.get("internal_url")),
+        )
 
     async def _authenticate_ws(self) -> None:
         """Realiza el handshake de autenticación del WebSocket de HA."""

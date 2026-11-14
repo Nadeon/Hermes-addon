@@ -92,6 +92,27 @@ tras cualquier cambio, Python incluido (el código se copia dentro de la imagen,
 así que un simple reinicio sigue ejecutando el antiguo), y
 `ha apps logs local_hermes -f`.
 
+**Banco de pruebas de Core.** Los tests de `tests/banco/` corren contra un Home
+Assistant Core real en un contenedor, que solo existe en el job `banco de Core`
+del CI. En tu máquina se saltan con un motivo que nombra la variable que falta
+(`pytest -rs` lo muestra); el resto del banco —el Supervisor simulado, el
+onboarding automático, las reglas de salto y las comprobaciones del workflow—
+se prueba en la suite normal contra dobles locales. Para correr el banco en
+local hace falta Docker (Linux, macOS o WSL) y un contenedor nuevo cada vez,
+porque el onboarding solo se puede hacer una vez:
+
+```bash
+cp -r tests/banco/ha_config /tmp/ha_config_banco
+docker run -d --name ha-banco -p 127.0.0.1:8123:8123 \
+  -v /tmp/ha_config_banco:/config -e TZ=Etc/UTC "<HA_IMAGEN de tests.yml>"
+# espera a que http://127.0.0.1:8123/api/onboarding responda 200
+HERMES_BANCO_HA_URL=http://127.0.0.1:8123 HERMES_BANCO_OBLIGATORIO=1 \
+  pytest -m banco tests/banco -q
+docker rm -f ha-banco && rm -rf /tmp/ha_config_banco
+```
+
+Los pasos exactos están en `specs/010-banco-de-pruebas-core/quickstart.md`.
+
 ## Las tres convenciones que importan
 
 Casi todos los comentarios de revisión de este proyecto se reducen a una de
@@ -141,7 +162,10 @@ error describen la regla que falla, nunca el valor que la incumple.
    tu máquina puede no cubrir.
 5. **CI tiene que quedar en verde.** Dos comprobaciones obligatorias: `Tests` y
    `SAST (Semgrep)` (en el repositorio público se les suma `CodeQL`, que ahí
-   es gratis). Semgrep va en modo bloqueante; si marca una línea que has
+   es gratis). Dentro de `Tests`, el job `banco de Core` arranca Home
+   Assistant Core 2026.11.1 (imagen fijada por digest), completa su onboarding
+   y ejecuta `tests/banco/` con Hermes conectado por un Supervisor simulado,
+   como en producción; allí un test del banco saltado es un fallo. Semgrep va en modo bloqueante; si marca una línea que has
    revisado y consideras falso positivo, suprímela con `# nosemgrep` en la línea
    exacta más una línea de justificación, no debilitando la regla.
 6. **Actualiza la documentación en el mismo PR** cuando cambie el

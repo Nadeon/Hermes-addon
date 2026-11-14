@@ -1326,10 +1326,28 @@ class TestStateCacheDoesNotLoseUpdates(unittest.TestCase):
         return HAClient(supervisor_base_url="http://supervisor",
                         supervisor_token="t", health_server=_Salud(), **kw)
 
-    def test_subscribing_happens_before_the_snapshot(self) -> None:
-        import asyncio
+    # Desde la 009 (FR-002), al conectar también se lee `/api/config` para
+    # tapar en el log los hosts de `external_url`/`internal_url`. La sesión
+    # falsa de este test no tenía `request`: la lectura fallaba, el fallo se
+    # tragaba (no corta la conexión, a propósito) y el test pasaba sin recorrer
+    # el camino real. Ahora la sesión responde a `/api/config` y el orden
+    # completo se comprueba.
+    #
+    # Control negativo comprobado: con `_aprender_urls_de_ha()` antes de
+    # `_populate_state_cache()`, después de `set_ws_connected(True)` o sin
+    # la llamada caen los dos tests (el orden cambia); dejando que la
+    # excepción se propague cae el del fallo explícito.
 
-        orden = []
+    _CONFIG_MINIMA = {"external_url": "https://casa.example.org",
+                      "internal_url": "http://ha.lan.example:8123"}
+
+    def _conexion(self, orden, respuesta_config):
+        """Cliente con WS, salud y sesión falsas que apuntan cada paso.
+
+        `respuesta_config`: el dict que devuelve `/api/config` o la excepción
+        que lanza su petición.
+        """
+        import json as _json
 
         class _Alto(Exception):
             pass
@@ -1341,13 +1359,49 @@ class TestStateCacheDoesNotLoseUpdates(unittest.TestCase):
             async def __aexit__(self, *exc):
                 return False
 
+        class _Resp:
+            status = 200
+            method = "GET"
+
+            def __init__(self, url):
+                self.url = url
+
+            async def text(self):
+                return _json.dumps(respuesta_config)
+
+        class _CtxResp:
+            def __init__(self, url):
+                self.url = url
+
+            async def __aenter__(self):
+                if isinstance(respuesta_config, BaseException):
+                    raise respuesta_config
+                return _Resp(self.url)
+
+            async def __aexit__(self, *exc):
+                return False
+
         class _Sesion:
             closed = False
 
             def ws_connect(self, url, **kw):
                 return _CtxWS()
 
-        cliente = self._cliente()
+            def request(self, method, url, **kw):
+                if method == "GET" and url.endswith("/api/config"):
+                    orden.append("config")
+                    return _CtxResp(url)
+                raise AssertionError(f"petición inesperada {method} {url}")
+
+        class _Salud:
+            def set_ws_connected(self, v):
+                if v:
+                    orden.append("conectado")
+
+        from hermes.ha import HAClient
+
+        cliente = HAClient(supervisor_base_url="http://supervisor",
+                           supervisor_token="t", health_server=_Salud())
         cliente._session = _Sesion()
 
         async def _marca(nombre):
@@ -1358,17 +1412,62 @@ class TestStateCacheDoesNotLoseUpdates(unittest.TestCase):
         cliente._populate_state_cache = lambda: _marca("snapshot")
 
         async def _fin():
+            orden.append("leer")
             raise _Alto
 
         cliente._read_ws_messages = _fin
+        return cliente, _Alto
+
+    def _conectar(self, respuesta_config):
+        import asyncio
+
+        from structlog.testing import capture_logs
+
+        orden = []
+        cliente, alto = self._conexion(orden, respuesta_config)
 
         async def _correr():
-            with self.assertRaises(_Alto):
+            with self.assertRaises(alto):
                 await cliente._connect_and_watch()
 
-        asyncio.run(_correr())
-        self.assertEqual(orden, ["auth", "suscribir", "snapshot"],
-                         "el snapshot se toma antes de suscribirse: se pierden cambios")
+        with capture_logs() as eventos:
+            asyncio.run(_correr())
+        return orden, eventos
+
+    def setUp(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+
+    def tearDown(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+
+        # Estado del módulo: desactivado y sin hosts, como en el arranque.
+        configure_network_redaction(False, "")
+
+    def test_subscribing_happens_before_the_snapshot(self) -> None:
+        from hermes.logging_setup import redact_network
+
+        orden, eventos = self._conectar(self._CONFIG_MINIMA)
+        self.assertEqual(
+            orden, ["auth", "suscribir", "snapshot", "config", "conectado", "leer"],
+            "el snapshot se toma antes de suscribirse (se pierden cambios), o las "
+            "URLs de HA se leen fuera de su sitio")
+        # El camino real: la lectura fue bien y los hosts llegaron a la
+        # redacción del log.
+        self.assertNotIn("ha_url_redaction_unavailable", [e["event"] for e in eventos])
+        self.assertEqual(redact_network("https://casa.example.org/x"),
+                         "https://<ha_external_host>/x")
+
+    def test_if_the_config_read_fails_it_warns_and_connects(self) -> None:
+        import aiohttp
+
+        orden, eventos = self._conectar(aiohttp.ClientConnectionError("caída"))
+        self.assertEqual(orden, ["auth", "suscribir", "snapshot", "config", "conectado", "leer"])
+        avisos = [e for e in eventos if e["event"] == "ha_url_redaction_unavailable"]
+        self.assertEqual(len(avisos), 1, eventos)
+        self.assertEqual(avisos[0]["error_type"], "ClientConnectionError")
+        self.assertEqual(avisos[0]["log_level"], "warning")
 
     def _evento(self, entity_id, estado, marca):
         return {"type": "event", "event": {
