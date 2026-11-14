@@ -83,7 +83,10 @@ CORE_WS: dict[str, E] = {
     # backup.create crea un backup fijo en el agente local (y en HAOS ni existe);
     # elegir agentes y contenido es ha_create_backup (CAP-057, spec 031).
     "backup/generate": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands"),
-    "backup/generate_with_automatic_settings": E("dedicated", "cubierto por ha_call_service (acción de HA)", "services", tool="ha_call_service"),
+    # Su acción, `backup.create_automatic`, está en la denylist: `ha_call_service` la
+    # ejecuta, pero solo en dos pasos. `use_dedicated_tool` no dice qué acción ni
+    # que pide confirmación, así que el motivo lo dice (T046).
+    "backup/generate_with_automatic_settings": E("deny", "pendiente de tool dedicada (spec 031); mientras, `ha_call_service` con `backup.create_automatic`, que pide confirmación (denylist)", "generic_commands"),
     "backup/info": E("dedicated", "cubierto por ha_list_backups", "backups", tool="ha_list_backups"),
     # SOBRESCRIBE Core, apps y datos desde cualquier ubicación, también remota.
     # La vista previa genérica no enseña fecha, contenido ni tamaño del backup como
@@ -269,7 +272,10 @@ CORE_WS: dict[str, E] = {
     "hassio/update/addon": E("dedicated", "cubierto por sv_update_addon", "supervisor", tool="sv_update_addon"),
     "hassio/update/config/info": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
     "hassio/update/config/update": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
-    "hassio/update/core": E("dedicated", "cubierto por ha_call_service (acción de HA)", "services", tool="ha_call_service"),
+    # `hassio.core_update` ya no existe en 2026.11: la vía es `update.install` sobre
+    # la entidad update de Core, que está en la denylist (dos pasos). Ver la nota de
+    # `backup/generate_with_automatic_settings` (T046).
+    "hassio/update/core": E("deny", "pendiente de tool dedicada (spec 015); mientras, `ha_call_service` con `update.install` sobre la entidad update de Core, que pide confirmación (denylist)", "generic_commands"),
     "history/history_during_period": E("dedicated", "cubierto por ha_get_history", "data", tool="ha_get_history"),
     "history/stream": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "history_stats/start_preview": E("deny", "vista previa en vivo del formulario de un helper en la UI (clase B)", "generic_commands"),
@@ -385,7 +391,10 @@ CORE_WS: dict[str, E] = {
     "lcn/entities/delete": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "llm/api/list": E("read", "APIs de LLM registradas; solo lee", "generic_commands", cap="CAP-062"),
     "logbook/event_stream": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "logbook/get_action_calls": E("read", "auditoría de llamadas a acciones en un intervalo (los datos pueden llevar códigos: la respuesta se redacta); solo lee", "generic_commands", cap="CAP-058"),
+    # `service_data` es el de la llamada entera: un `alarm_disarm` o un `lock.unlock`
+    # lleva `code` (texto o número), que no es un marcador de redact_structure.
+    # Por eso HA lo hace admin-only, y aquí `code` se tapa con redact_extra (T044).
+    "logbook/get_action_calls": E("read", "auditoría de llamadas a acciones en un intervalo; el `code` de alarmas y cerraduras sale tapado; solo lee", "generic_commands", cap="CAP-058", redact_extra=("code",)),
     "logbook/get_events": E("dedicated", "cubierto por ha_get_logbook", "data", tool="ha_get_logbook"),
     # logger.set_level no persiste ni cubre todos los loggers de la integración;
     # ha_set_log_level es la de CAP-041 (spec 012).
@@ -445,13 +454,16 @@ CORE_WS: dict[str, E] = {
     "matter/subscribe_network_topology": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-102"),
     "media_player/browse_media": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
     "media_player/search_media": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
-    "media_source/browse_media": E("read", "navega por las fuentes de medios; solo lee", "generic_commands", cap="CAP-067"),
+    # Con una fuente remota (radio_browser, google_photos, immich…) navegar y buscar
+    # consultan APIs de internet: `read` de mundo abierto, y por eso
+    # ha_read_ws_command se anuncia con openWorldHint (T047).
+    "media_source/browse_media": E("read", "navega por las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
     "media_source/local_source/remove": E("confirm", "borra del disco un fichero de medios locales (irreversible)", "generic_commands", cap="CAP-067"),
     # async_process_play_media_url firma la ruta con async_sign_path y `expires` es
     # libre (media_source/http.py de Core 2026.11.1). La 008 (FR-087) la daba como
     # lectura; se deniega por coherencia con auth/sign_path.
     "media_source/resolve_media": E("deny", "devuelve una URL firmada (authSig) con la caducidad que pida quien llama: es una credencial temporal, como auth/sign_path (clase D)", "generic_commands", cap="CAP-067"),
-    "media_source/search_media": E("read", "busca en las fuentes de medios; solo lee", "generic_commands", cap="CAP-067"),
+    "media_source/search_media": E("read", "busca en las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
     "mobile_app/push_notification_channel": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "mobile_app/push_notification_confirm": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "modbus/connections/list": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
@@ -534,11 +546,15 @@ CORE_WS: dict[str, E] = {
     "system_health/info": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-043"),
     "system_log/list": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-041"),
     "system_log/subscribe_raw": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "tag/create": E("confirm", "crea un tag", "generic_commands", cap="CAP-066"),
-    "tag/delete": E("confirm", "borra un tag", "generic_commands", cap="CAP-066"),
-    "tag/list": E("read", "tags conocidos y su último escaneo; solo lee", "generic_commands", cap="CAP-066"),
+    # Ejemplos de tag/* (los muestra hermes_guide): campos de CREATE_FIELDS y
+    # UPDATE_FIELDS de tag/__init__.py y `tag_id` como clave del elemento en
+    # update/delete (StorageCollectionWebsocket.item_id_key = f"{model_name}_id"),
+    # Core 2026.11.1. Datos ficticios. Sin `tag_id` al crear, HA genera un uuid.
+    "tag/create": E("confirm", "crea un tag", "generic_commands", cap="CAP-066", example={"tag_id": "tag-ficticio-3", "name": "Llavero azul", "description": "Llavero de la puerta"}),
+    "tag/delete": E("confirm", "borra un tag", "generic_commands", cap="CAP-066", example={"tag_id": "tag-ficticio-3"}),
+    "tag/list": E("read", "tags conocidos y su último escaneo; solo lee", "generic_commands", cap="CAP-066", example={}),
     "tag/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "tag/update": E("confirm", "modifica un tag (nombre, descripción, dispositivo)", "generic_commands", cap="CAP-066"),
+    "tag/update": E("confirm", "modifica un tag (nombre, descripción, dispositivo)", "generic_commands", cap="CAP-066", example={"tag_id": "tag-ficticio-3", "name": "Llavero rojo"}),
     "template/start_preview": E("deny", "vista previa en vivo del formulario de un helper en la UI (clase B)", "generic_commands"),
     "test_condition": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-040"),
     "thread/add_dataset_tlv": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),
@@ -873,7 +889,7 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/core/stop"): E("deny", "Hermes depende del WebSocket de Core: su watchdog lo reiniciaría y el usuario queda sin UI (clase D)", "generic_commands"),
     ("POST", "/core/update"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
     ("POST", "/discovery"): E("deny", "Una app anuncia su integración (clase B)", "generic_commands"),
-    ("POST", "/dns/options"): E("confirm", "cambia los servidores DNS y fallback/LLMNR/mDNS del host (reinicia el plugin DNS)", "generic_commands", cap="CAP-091"),
+    ("POST", "/dns/options"): E("confirm", "cambia los servidores DNS del plugin DNS (`servers`) y si usa el DNS de reserva (`fallback`); es lo único que admite, y reinicia el plugin", "generic_commands", cap="CAP-091"),
     ("POST", "/dns/reset"): E("confirm", "restablece la configuración del plugin DNS", "generic_commands", cap="CAP-091"),
     ("POST", "/dns/restart"): E("confirm", "reinicia el plugin DNS", "generic_commands", cap="CAP-091"),
     ("POST", "/dns/update"): E("confirm", "actualiza el plugin DNS (descarga la imagen nueva)", "generic_commands", cap="CAP-091", open_world=True),

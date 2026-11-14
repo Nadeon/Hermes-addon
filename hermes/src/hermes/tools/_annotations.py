@@ -65,6 +65,11 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     "ha_marketplace_list_removed",
     # Dos que parecen encajar aquí y no encajan: sv_check_core_config y
     # sv_get_job_status escriben. Ver _NOT_READ_ONLY_EXACT más abajo.
+    # Genéricas de lectura (spec 011): solo ejecutan entradas `read` de la
+    # tabla, y un test de la tabla impide que una `read` escriba o salga a
+    # internet. Por nombre exacto: ningún prefijo las cubre.
+    "ha_read_ws_command",
+    "sv_read_api",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -135,6 +140,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # pendiente): quien lo descarta deja de verlo aunque el problema siga.
     "sv_dismiss_resolution_issue",
     "sv_dismiss_resolution_suggestion",
+    # Genéricas de escritura (spec 011): ejecutan cualquier entrada `confirm`
+    # de la tabla (borrar, reiniciar, reconfigurar…), así que se asume lo
+    # peor. Siempre piden confirmation_token.
+    "ha_call_ws_command",
+    "sv_call_api",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -151,6 +161,17 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # tiene en memoria; antes de 1.1.0 los alias se anunciaban de mundo abierto
     # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
     "ha_marketplace_list_releases",
+    # Genéricas de escritura (spec 011): algunas entradas `confirm` salen a
+    # internet (actualizar un plugin, calendarios remotos).
+    "ha_call_ws_command",
+    "sv_call_api",
+    # Y la de lectura de Core: `media_source/browse_media` y `search_media`
+    # consultan APIs externas cuando la fuente es remota (radio_browser,
+    # google_photos, immich…). Una tool no puede decir que no sale a internet
+    # si algún comando suyo lo hace (principio V; T047). `sv_read_api` no:
+    # ninguna ruta `read` del Supervisor sale. tests/test_command_table.py
+    # ata esta lista a las marcas `open_world` de la tabla.
+    "ha_read_ws_command",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -166,7 +187,13 @@ _NON_IDEMPOTENT_PREFIXES: tuple[str, ...] = (
 # encaja con ningún prefijo, así que hay que marcarla a mano. Un cliente que
 # reintente tras un timeout de red duplicaría el delta: es el caso de uso
 # canónico de idempotent_hint.
-_NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({"ha_change_timer"})
+_NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
+    "ha_change_timer",
+    # Genéricas de escritura (spec 011): entre lo que la tabla permite hay
+    # creaciones y acciones que se acumulan; repetir no deja el mismo estado.
+    "ha_call_ws_command",
+    "sv_call_api",
+})
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el
 # mismo estado). Empieza por `ha_create_`, así que hay que sacarlo a mano.
@@ -208,6 +235,9 @@ _TITLE_WORDS: dict[str, str] = {
     "id": "ID",
     "ids": "IDs",
     "ws": "WS",
+    # Spec 011: `sv_read_api` → «Read API (Supervisor)». Ninguna tool de la
+    # 1.1.2 tiene `api` como palabra, así que no cambia ningún título.
+    "api": "API",
     # «addon» es como se escribe en el código; Home Assistant lo llama add-on.
     "addon": "add-on",
     "addons": "add-ons",

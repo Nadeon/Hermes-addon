@@ -168,5 +168,14 @@ class TestValoresPorDefectoDeRunSh(unittest.TestCase):
                          "safety_backup_keep 3")
 
 
+    def test_exporta_tool_families_disabled_como_lista_json(self) -> None:
+        """Spec 011, FR-020: como las demás listas, array JSON y `[]` si falta."""
+        self.assertIn(
+            "export HERMES_TOOL_FAMILIES_DISABLED="
+            "\"$(jq -c '.tool_families_disabled // []' \"$OPTIONS\")\"",
+            self.texto,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

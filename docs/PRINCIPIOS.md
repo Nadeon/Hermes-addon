@@ -54,10 +54,19 @@ tiene que coincidir. El token está atado a la tool **y a sus argumentos** —lo
 de la vista previa, guardados en el servidor—, caduca y es de un solo uso. Un
 token obtenido para una acción no puede ejecutar otra.
 
-En una tool genérica, la vista previa describe exactamente el comando o la ruta,
-el método y la carga que se enviarán (con los secretos tapados) y dice que no
-interpreta su efecto. No anuncia efectos que no ocurren ni omite nada de lo que
-se envía. Lo que necesite una vista previa semántica tiene tool dedicada.
+En una tool genérica, la vista previa describe el comando o la ruta, el método y
+cada clave de la carga que se enviará (con su tipo y su tamaño), y dice que no
+interpreta su efecto. El valor de un escalar se enseña entero si mide 64
+caracteres o menos; si es más largo, se enseñan sus primeros 32 caracteres
+(pasados por la redacción de secretos), su tamaño y un hash corto (12 hex de su
+SHA-256): así quien confirma sabe qué aprueba sin que la vista previa crezca con
+la carga, que tiene tope. Los valores sensibles —los que cuelgan de una clave
+sensible, también por herencia, y los textos en los que la redacción de secretos
+encuentra algo— se tapan por completo y solo dejan tipo y tamaño, porque la
+vista previa la lee el modelo y queda en la conversación (principio II). No
+anuncia efectos que no ocurren ni omite ninguna clave de lo que se envía, y el
+token se ata a la carga completa, no al resumen. Lo que necesite una vista
+previa semántica tiene tool dedicada.
 
 ### V. El nombre y la descripción no mienten
 

@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 216 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 220 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -117,7 +117,8 @@ milisegundos) o con `timeout` en la entrada del servidor.
 |---|---|---|
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (por ejemplo `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**. Ver el aviso de abajo |
-| `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los nombres `*.ts.net` y las IPs (salvo las de loopback) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
+| `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs (salvo las de loopback, y también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
+| `tool_families_disabled` | `[]` | Familias de tools que Hermes no registra, para que el cliente cargue menos tools en su contexto. Vacía, están todas. Ver «Familias de tools» |
 
 **Aviso sobre `oauth_cimd_allowed_hosts`.** Con CIMD, quien abre la página de
 autorización de Hermes elige la URL del documento del cliente, y no necesita la
@@ -147,6 +148,53 @@ con CIMD está comprobado en una instalación real. El valor por defecto sigue
 vacío para no romper otros clientes. Cada descarga o uso de la caché deja en el
 log el evento `oauth_cimd_document` con el resultado (`ok`, `cache` o `error`
 con su motivo) y solo el host del `client_id`, nunca una IP.
+
+### Familias de tools
+
+Cada tool pertenece a una familia. Las que pongas en
+`tool_families_disabled` no se registran: Claude no las ve y no las puede
+usar, ni directamente ni a través de las tools genéricas.
+
+| Familia | Tools | Qué agrupa |
+|---|---|---|
+| `base` | 2 | `ping` y `hermes_guide`. **No se puede desactivar**: sin la guía, Claude no sabe usar el resto |
+| `services` | 5 | Estados, servicios y acciones (`ha_get_states`, `ha_call_service`…) |
+| `automations` | 21 | Automatizaciones, scripts y escenas |
+| `helpers` | 69 | Helpers (`input_*`, contadores, temporizadores, horarios), zonas y personas |
+| `events` | 4 | Disparar y esperar eventos |
+| `data` | 5 | Plantillas, historial, logbook y estadísticas |
+| `registries` | 26 | Registros de áreas, categorías, dispositivos, entidades, plantas y etiquetas |
+| `diagnostics` | 8 | Repairs, trazas, relaciones y centro de resolución del Supervisor |
+| `config_entries` | 13 | Integraciones y sus flujos de configuración y opciones |
+| `filesystem` | 11 | Leer y escribir ficheros de `/config` |
+| `supervisor` | 18 | Add-ons, Core, host e información del Supervisor |
+| `backups` | 13 | Backups del Supervisor y de la integración `backup` |
+| `lovelace` | 10 | Dashboards y recursos de Lovelace |
+| `marketplace` | 11 | Marketplace y alias `ha_hacs_*` (solo lectura) |
+| `generic_commands` | 4 | Las tools genéricas (nueva en 1.2.0, ver abajo) |
+
+Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
+
+```yaml
+tool_families_disabled:
+  - lovelace
+  - marketplace
+```
+
+Un nombre que no esté en la tabla, o `base`, impide arrancar: el log dice qué
+valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
+familias desactivadas y cuántas tools quedan. Con `generic_commands`
+desactivada, la lista de tools es exactamente la de la 1.1.2.
+
+### Tools genéricas
+
+`ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`
+cubren lo que ninguna otra tool cubre: comandos WebSocket de Home Assistant y
+rutas de la API del Supervisor. Solo ejecutan lo que permite la tabla de
+comandos de Hermes, revisada a mano para Home Assistant 2026.11; lo demás se
+rechaza sin llegar a Home Assistant. Las de escritura piden siempre
+confirmación, con una vista previa de lo que se va a enviar. Claude puede
+consultar la tabla con `hermes_guide(topic="generic_commands", search="…")`.
 
 ## Problemas
 
