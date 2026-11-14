@@ -25,12 +25,37 @@ De dónde salen las rutas:
   (`hermes/src/hermes/command_table.py`), sus entradas del Supervisor `read` y
   `confirm`.
 
+Límites del extractor (convergencia, T019 y T020):
+
+- Un hueco de f-string puede ocupar justo el segmento que decide el permiso
+  (`f"/addons/self/{accion}"` con `accion = "security"`). Por eso cada
+  f-string se prueba también con cada hueco sustituido por los segmentos que
+  solo da `admin` (`SONDAS_DE_HUECO`), y tiene que seguir cabiendo en
+  `manager`; si no, el test cae (fail-closed) salvo que la plantilla esté en
+  `HUECOS_DECLARADOS` con su motivo.
+- El extractor solo ve `X.sv_request(...)` y `X.sv_request_text(...)`. Una
+  llamada por alias (`llamar = cliente.sv_request`), por `functools.partial`
+  o por `getattr(cliente, "sv_request")` no la vería. En vez de seguir esos
+  caminos, el test los prohíbe en `hermes/src/hermes`: cualquier atributo
+  `sv_request*` que no sea la función de una llamada y cualquier cadena
+  `"sv_request"`/`"sv_request_text"` lo hacen caer con el fichero y la línea.
+  Un nombre construido a trozos (`"sv_" + "request"`) queda fuera de su
+  alcance.
+
 Control negativo (014, T005): una llamada `sv_request("GET", "/auth/list")`
 añadida en una tool hace caer `test_rutas_de_hermes_caben_en_manager`
 nombrándola; quitar `(?!security)` del patrón de `manager` hace caer
 `test_patrones_copiados_rechazan_lo_de_admin`; una llamada
 `sv_request("GET", ruta)` con una variable hace caer
 `test_toda_llamada_reconocida` con el fichero y la línea.
+
+Control negativo (014, T019): `accion = "security"` y
+`sv_request("POST", f"/addons/self/{accion}")` en una tool hacen caer
+`test_huecos_de_fstring_no_deciden_el_permiso` nombrando la plantilla, la
+sonda y la línea; la misma plantilla en `HUECOS_DECLARADOS` con su motivo lo
+deja pasar. (T020): `llamar = ha_client.sv_request` y
+`getattr(ha_client, "sv_request")` hacen caer
+`test_sin_llamadas_por_alias_ni_getattr` con el fichero y la línea.
 """
 
 from __future__ import annotations
@@ -137,6 +162,27 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
 # comentario de `hassio_role` y la casilla manual de la hoja de ruta la nombran.
 EXCEPCIONES_ADMIN: dict[str, str] = {}
 
+# Segmentos que solo da `admin` en 2026.11.0 (lo que excluyen los patrones
+# copiados) más `self`, que es el que decide `api_bypass`. Cada hueco de un
+# f-string se sustituye por cada uno: si alguna sustitución deja la ruta fuera
+# de `manager`, el hueco decide el permiso y el test no puede saber qué valor
+# tomará, así que cae.
+SONDAS_DE_HUECO: tuple[str, ...] = (
+    "security",
+    "update",
+    "list",
+    "reset",
+    "datadisk/wipe",
+    "ssh/authorized_keys",
+    "panels",
+    "self",
+)
+
+# Plantilla de f-string (huecos como `{}`) → motivo por el que su hueco no
+# puede tomar un valor solo-admin (por ejemplo, porque se valida antes contra
+# una lista cerrada). Vacía con el código de la 1.2.0.
+HUECOS_DECLARADOS: dict[str, str] = {}
+
 _METODOS = {"sv_request": 1, "sv_request_text": 0}  # método → posición de la ruta
 
 
@@ -147,23 +193,47 @@ def _admitida_por_manager(ruta: str) -> bool:
     )
 
 
-def _ruta_de_fstring(nodo: ast.JoinedStr) -> str:
-    partes = []
-    for valor in nodo.values:
-        if isinstance(valor, ast.Constant) and isinstance(valor.value, str):
-            partes.append(valor.value)
+def _partes_de_fstring(nodo: ast.JoinedStr) -> list[str | None]:
+    """Los trozos literales del f-string; `None` en cada hueco."""
+    return [
+        valor.value if isinstance(valor, ast.Constant) and isinstance(valor.value, str) else None
+        for valor in nodo.values
+    ]
+
+
+def _rellenar(partes: list[str | None], hueco: int | None = None, valor: str = "x") -> str:
+    """La ruta con el hueco número `hueco` como `valor` y los demás como `x`."""
+    salida = []
+    n = 0
+    for parte in partes:
+        if parte is None:
+            salida.append(valor if n == hueco else "x")
+            n += 1
         else:
-            partes.append("x")
-    return "".join(partes)
+            salida.append(parte)
+    return "".join(salida)
+
+
+def _plantilla(partes: list[str | None]) -> str:
+    return "".join("{}" if p is None else p for p in partes)
 
 
 class _Llamada:
-    def __init__(self, fichero: Path, linea: int, modulo: str, funcion: str, ruta: str | None):
+    def __init__(
+        self,
+        fichero: Path,
+        linea: int,
+        modulo: str,
+        funcion: str,
+        ruta: str | None,
+        partes: list[str | None] | None = None,
+    ):
         self.fichero = fichero
         self.linea = linea
         self.modulo = modulo
         self.funcion = funcion
         self.ruta = ruta  # None: no es un literal ni un f-string
+        self.partes = partes  # solo en los f-strings: trozos, None en los huecos
 
     def donde(self) -> str:
         return f"{self.fichero.relative_to(RAIZ).as_posix()}:{self.linea} ({self.funcion})"
@@ -175,6 +245,9 @@ class _Extractor(ast.NodeVisitor):
         self.modulo = modulo
         self.pila: list[str] = []
         self.llamadas: list[_Llamada] = []
+        # Usos de `sv_request*` que no son una llamada directa: (línea, qué).
+        self.prohibidos: list[tuple[int, str]] = []
+        self._funciones_de_llamada: set[int] = set()
 
     def _visitar_funcion(self, nodo: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.pila.append(nodo.name)
@@ -184,8 +257,20 @@ class _Extractor(ast.NodeVisitor):
     visit_FunctionDef = _visitar_funcion
     visit_AsyncFunctionDef = _visitar_funcion
 
+    def visit_Attribute(self, nodo: ast.Attribute) -> None:
+        # `visit_Call` marca antes la función de cada llamada directa; un
+        # atributo `sv_request*` sin marcar es un alias o un `partial`.
+        if nodo.attr in _METODOS and id(nodo) not in self._funciones_de_llamada:
+            self.prohibidos.append((nodo.lineno, f"atributo .{nodo.attr} sin llamarlo (alias)"))
+        self.generic_visit(nodo)
+
+    def visit_Constant(self, nodo: ast.Constant) -> None:
+        if isinstance(nodo.value, str) and nodo.value in _METODOS:
+            self.prohibidos.append((nodo.lineno, f"cadena {nodo.value!r} (getattr)"))
+
     def visit_Call(self, nodo: ast.Call) -> None:
         if isinstance(nodo.func, ast.Attribute) and nodo.func.attr in _METODOS:
+            self._funciones_de_llamada.add(id(nodo.func))
             posicion = _METODOS[nodo.func.attr]
             arg: ast.expr | None = None
             if len(nodo.args) > posicion:
@@ -194,12 +279,16 @@ class _Extractor(ast.NodeVisitor):
                 if kw.arg in ("path", "sv_path"):
                     arg = kw.value
             ruta: str | None = None
+            partes: list[str | None] | None = None
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                 ruta = arg.value
             elif isinstance(arg, ast.JoinedStr):
-                ruta = _ruta_de_fstring(arg)
+                partes = _partes_de_fstring(arg)
+                ruta = _rellenar(partes)
             funcion = self.pila[-1] if self.pila else "<módulo>"
-            self.llamadas.append(_Llamada(self.fichero, nodo.lineno, self.modulo, funcion, ruta))
+            self.llamadas.append(
+                _Llamada(self.fichero, nodo.lineno, self.modulo, funcion, ruta, partes)
+            )
         self.generic_visit(nodo)
 
 
@@ -211,14 +300,37 @@ def _modulo(fichero: Path) -> str:
     return ".".join(fichero.relative_to(CODIGO).with_suffix("").parts)
 
 
-def _llamadas() -> list[_Llamada]:
-    todas: list[_Llamada] = []
+def _extractores() -> list[_Extractor]:
+    extractores = []
     for fichero in _ficheros():
         arbol = ast.parse(fichero.read_text(encoding="utf-8"), filename=str(fichero))
         extractor = _Extractor(fichero, _modulo(fichero))
         extractor.visit(arbol)
-        todas.extend(extractor.llamadas)
-    return todas
+        extractores.append(extractor)
+    return extractores
+
+
+def _llamadas() -> list[_Llamada]:
+    return [ll for ex in _extractores() for ll in ex.llamadas]
+
+
+def _huecos_que_deciden() -> list[str]:
+    """F-strings cuyo hueco, con un valor solo-admin, saca la ruta de `manager`."""
+    fuera = []
+    for llamada in _llamadas():
+        if llamada.partes is None:
+            continue
+        plantilla = _plantilla(llamada.partes)
+        if plantilla in HUECOS_DECLARADOS:
+            continue
+        for hueco in range(sum(p is None for p in llamada.partes)):
+            for sonda in SONDAS_DE_HUECO:
+                ruta = _rellenar(llamada.partes, hueco, sonda)
+                if not _admitida_por_manager(ruta) and ruta not in EXCEPCIONES_ADMIN:
+                    fuera.append(
+                        f"{plantilla}, hueco {hueco + 1} = {sonda!r} → {ruta} ({llamada.donde()})"
+                    )
+    return fuera
 
 
 def _apariciones_en_el_texto() -> int:
@@ -306,6 +418,51 @@ class TestRutasSupervisorRol(unittest.TestCase):
             sin_leer,
             [],
             "llamadas con una ruta que no se puede leer: declárala en LLAMADAS_DECLARADAS",
+        )
+
+    def test_huecos_de_fstring_no_deciden_el_permiso(self) -> None:
+        self.assertEqual(
+            _huecos_que_deciden(),
+            [],
+            "un hueco de f-string ocupa el segmento que decide el permiso: "
+            "escribe ese segmento literal o declara la plantilla en HUECOS_DECLARADOS",
+        )
+
+    def test_huecos_declarados_con_motivo(self) -> None:
+        plantillas = {_plantilla(ll.partes) for ll in _llamadas() if ll.partes is not None}
+        for plantilla, motivo in HUECOS_DECLARADOS.items():
+            with self.subTest(plantilla=plantilla):
+                self.assertTrue(motivo.strip(), "declaración sin motivo")
+                self.assertIn(plantilla, plantillas, "declaración que ya no usa nadie")
+
+    def test_las_sondas_sacan_de_manager(self) -> None:
+        # Sin esto, unas sondas inofensivas harían pasar siempre el test de
+        # los huecos. Cada plantilla de aquí cabe en `manager` con `x` y deja
+        # de caber con su sonda (la primera es la ruta sintética de la
+        # revisión).
+        for partes, sonda in (
+            (["/addons/self/", None], "security"),
+            # `/addons/self/update` no: lo excluye `api_bypass`, pero el
+            # patrón de `manager` (`/addons/<slug>/(?!security).+`) lo admite.
+            (["/auth/", None], "list"),
+            (["/os/", None], "datadisk/wipe"),
+            (["/os/", None], "ssh/authorized_keys"),
+            (["/ingress/", None], "panels"),
+        ):
+            with self.subTest(plantilla=_plantilla(partes), sonda=sonda):
+                self.assertIn(sonda, SONDAS_DE_HUECO)
+                self.assertFalse(_admitida_por_manager(_rellenar(partes, 0, sonda)))
+
+    def test_sin_llamadas_por_alias_ni_getattr(self) -> None:
+        prohibidos = [
+            f"{ex.fichero.relative_to(RAIZ).as_posix()}:{linea}: {que}"
+            for ex in _extractores()
+            for linea, que in ex.prohibidos
+        ]
+        self.assertEqual(
+            prohibidos,
+            [],
+            "sv_request por alias o getattr: el extractor no ve su ruta; llámalo directamente",
         )
 
     def test_rutas_de_hermes_caben_en_manager(self) -> None:
