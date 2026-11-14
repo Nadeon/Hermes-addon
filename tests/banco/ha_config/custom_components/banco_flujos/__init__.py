@@ -17,8 +17,10 @@ Qué ofrece:
   descubrimiento con unique_id fijo y dos avisos reparables con
   `translation_key` y marcadores.
 - Servicios para que cada test prepare lo suyo: `banco_flujos.descubrir`
-  (otro descubrimiento, con el unique_id que diga el test) y
-  `banco_flujos.crear_avisos` (vuelve a crear los dos avisos).
+  (otro descubrimiento, con el unique_id que diga el test),
+  `banco_flujos.crear_avisos` (vuelve a crear los dos avisos) y
+  `banco_flujos.pedir_reauth` (abre la reautenticación de una entrada, como
+  cuando unas credenciales dejan de valer; tramo C).
 - Una entrada se crea por el flujo `user` (un campo, sin red) y admite
   `reconfigure`; cada entrada admite subentries de tipo `elemento`, con un
   sensor y un dispositivo por subentry (sensor.py).
@@ -53,6 +55,8 @@ _ESQUEMA_DESCUBRIR = probatio.Schema(
         probatio.Optional("name", default=NOMBRE_INICIAL): cv.string,
     }
 )
+
+_ESQUEMA_REAUTH = probatio.Schema({probatio.Required("entry_id"): cv.string})
 
 
 def _descubrir(hass: HomeAssistant, unique_id: str, nombre: str) -> None:
@@ -97,8 +101,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def crear_avisos(call: ServiceCall) -> None:
         _crear_avisos(hass)
 
+    async def pedir_reauth(call: ServiceCall) -> None:
+        entrada = hass.config_entries.async_get_entry(call.data["entry_id"])
+        if entrada is not None and entrada.domain == DOMAIN:
+            entrada.async_start_reauth(hass)
+
     hass.services.async_register(DOMAIN, "descubrir", descubrir, schema=_ESQUEMA_DESCUBRIR)
     hass.services.async_register(DOMAIN, "crear_avisos", crear_avisos)
+    hass.services.async_register(DOMAIN, "pedir_reauth", pedir_reauth, schema=_ESQUEMA_REAUTH)
 
     if DOMAIN in config:
         _descubrir(hass, UNIQUE_ID_INICIAL, NOMBRE_INICIAL)

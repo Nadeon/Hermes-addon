@@ -18,11 +18,18 @@
         "data": {
           "valor": "Value"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate the test entry",
+        "data": {
+          "clave": "Key"
+        }
       }
     },
     "abort": {
       "already_configured": "Already configured",
-      "reconfigure_successful": "Reconfigured"
+      "reconfigure_successful": "Reconfigured",
+      "reauth_successful": "Re-authenticated"
     }
   },
   "config_subentries": {
@@ -103,6 +110,16 @@
     "crear_avisos": {
       "name": "Create issues",
       "description": "Creates the two fixable test issues again."
+    },
+    "pedir_reauth": {
+      "name": "Ask for re-authentication",
+      "description": "Starts the re-authentication flow of a test entry.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "Config entry of the test integration."
+        }
+      }
     }
   }
 }

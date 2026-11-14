@@ -10,3 +10,9 @@ descubrir:
       selector:
         text:
 crear_avisos:
+pedir_reauth:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:

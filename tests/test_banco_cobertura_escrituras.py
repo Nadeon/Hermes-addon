@@ -84,8 +84,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             f"{no_modifican}",
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las 2
-        # que modifican del tramo A de la 016 y las 7 del tramo B.
-        self.assertEqual(len(reales), 135)
+        # que modifican del tramo A de la 016, las 7 del tramo B y las 3 del C.
+        self.assertEqual(len(reales), 138)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()

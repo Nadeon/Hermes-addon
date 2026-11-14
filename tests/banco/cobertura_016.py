@@ -21,6 +21,11 @@ from __future__ import annotations
 # Tramo B (T027): las siete que modifican. `ha_list_config_subentries`
 # también se ejecuta. El reconfigure se prueba con token en cada paso y con
 # el rechazo de `ha_continue_config_entry_flow` (decisión del supervisor).
+# Tramo C (T042): las tres de los flujos de reparación
+# (`tests/banco/test_banco_repairs.py`); `ha_get_repair` y los textos de
+# `ha_list_repairs` también se ejecutan. La reautenticación con token de
+# `ha_continue_config_entry_flow` (1.1.2, ya en el inventario de la 010) se
+# prueba en `TestReauth` de `test_banco_integraciones.py`.
 PROBADAS_016: frozenset[str] = frozenset(
     {
         "ha_ignore_discovery",
@@ -32,6 +37,9 @@ PROBADAS_016: frozenset[str] = frozenset(
         "ha_delete_subentry",
         "ha_start_reconfigure_flow",
         "ha_continue_reconfigure_flow",
+        "ha_start_repair_fix",
+        "ha_continue_repair_fix",
+        "ha_abort_repair_fix",
     }
 )
 

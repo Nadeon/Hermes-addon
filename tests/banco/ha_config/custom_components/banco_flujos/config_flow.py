@@ -1,4 +1,4 @@
-"""Flujos de `banco_flujos`: descubrimiento, `user`, `reconfigure` y subentries.
+"""Flujos de `banco_flujos`: descubrimiento, `user`, `reconfigure`, `reauth` y subentries.
 
 Configuración del banco de pruebas de Core (spec 016): corre dentro de la HA
 de prueba del CI. Nunca se empaqueta ni llega al add-on. Sin red.
@@ -6,6 +6,7 @@ de prueba del CI. Nunca se empaqueta ni llega al add-on. Sin red.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import probatio
@@ -80,6 +81,29 @@ class BancoFlujosConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=probatio.Schema({probatio.Required(CAMPO, default="inicial"): str}),
+        )
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        """Reautenticación (tramo C): la abre el servicio `pedir_reauth`."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pide la clave nueva (selector de contraseña) y recarga la entrada."""
+        if user_input is not None:
+            return self.async_update_reload_and_abort(
+                self._get_reauth_entry(), data_updates={CLAVE: user_input[CLAVE]}
+            )
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CLAVE): TextSelector(
+                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                    ),
+                }
+            ),
         )
 
     async def async_step_reconfigure(

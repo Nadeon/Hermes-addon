@@ -17,6 +17,9 @@ Contra HA Core 2026.11.1 real, con la integración de prueba `banco_flujos`
 - `TestReconfigure` (T027, decisión del supervisor): reconfigure de la entrada
   con token en cada paso; la tool general lo rechaza; el campo de contraseña
   (nombre inocente, selector de contraseña) sale tapado.
+- `TestReauth` (tramo C, decisión del supervisor): reautenticación de una
+  entrada por `ha_continue_config_entry_flow`, con token en cada paso; la
+  vista previa no cambia nada y tapa la clave.
 
 Hermes hace; el lector independiente comprueba en Core y limpia lo suyo.
 
@@ -471,3 +474,69 @@ class TestReconfigure(BancoEscrituras):
             )
             estado, _ = await _paso_del_flujo(s, otro["flow_id"])
             self.assertEqual(estado, 404)
+
+
+# ── Tramo C: reautenticación con token (decisión del supervisor) ──────────────
+
+
+async def _reauth_en_curso(s: SesionEscrituras, entry_id: str) -> list[dict[str, Any]]:
+    return [
+        f
+        for f in await _descubiertos(s)
+        if f["context"].get("source") == "reauth" and f["context"].get("entry_id") == entry_id
+    ]
+
+
+class TestReauth(BancoEscrituras):
+    async def test_reauth_con_token_por_la_tool_general(self) -> None:
+        async with self.sesion() as s:
+            entry_id = await _entrada_nueva(s)
+            await s.lector.comando(
+                {
+                    "type": "call_service",
+                    "domain": DOMINIO,
+                    "service": "pedir_reauth",
+                    "service_data": {"entry_id": entry_id},
+                }
+            )
+            flujos = await s.lector.esperar(
+                lambda: _reauth_en_curso(s, entry_id),
+                lambda fs: len(fs) == 1,
+                descripcion=f"reauth de la entrada {entry_id} en flow/progress",
+            )
+            flow_id = flujos[0]["flow_id"]
+
+            async def abortar() -> None:
+                await s.lector.rest("DELETE", f"{_RUTA_FLUJOS}/{flow_id}")
+
+            s.limpiezas.append(abortar)
+
+            # Hermes lo ve entre lo descubierto, con su `source`.
+            listado = await s.accion("ha_list_discovered_integrations", domain=DOMINIO)
+            item = next(i for i in listado["items"] if i["flow_id"] == flow_id)
+            self.assertEqual((item["source"], item["step_id"]), ("reauth", "reauth_confirm"))
+
+            # Vista previa: la clave sale tapada y no se envía nada.
+            tool = "ha_continue_config_entry_flow"
+            nuevo = {"clave": f"clave-{sufijo()}"}
+            vista = await s.vista(tool, flow_id=flow_id, user_input=nuevo)
+            p = vista["preview"]
+            self.assertEqual((p["source"], p["entry_id"], p["step_id"]),
+                             ("reauth", entry_id, "reauth_confirm"))
+            self.assertEqual(p["user_input"], {"clave": _TAPADO})
+            self.assertNotIn(nuevo["clave"], str(vista))
+            estado, paso = await _paso_del_flujo(s, flow_id)
+            self.assertEqual((estado, paso.get("step_id")), (200, "reauth_confirm"), paso)
+
+            # Con el token: HA guarda la clave nueva y recarga la entrada.
+            hecho = await s.confirmar(tool, vista, flow_id=flow_id, user_input=nuevo)
+            self.assertEqual(
+                (hecho["type"], hecho["reason"], hecho["status"]),
+                ("abort", "reauth_successful", "ok"),
+            )
+            await s.lector.esperar(
+                lambda: _entrada(s, entry_id),
+                lambda e: e is not None and e["state"] == "loaded",
+                descripcion=f"entrada {entry_id} recargada tras la reautenticación",
+            )
+            self.assertEqual((await _datos_de_la_entrada(s, entry_id))["clave"], nuevo["clave"])
