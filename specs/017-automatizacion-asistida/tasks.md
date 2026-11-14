@@ -1,0 +1,200 @@
+---
+
+description: "Tareas de la sub-feature 017 — automatización asistida (Hermes 1.2.0)"
+---
+
+# Tareas: automatización asistida (017)
+
+**Entrada**: `specs/017-automatizacion-asistida/` (spec.md, plan.md,
+research.md, data-model.md, contracts/tools.md, quickstart.md) y la paraguas
+`specs/008-cobertura-total/`.
+
+**Tests**: obligatorios, escritos ANTES del código que prueban (TDD: se ven en
+rojo y luego en verde) y con control negativo anotado (principio VII). Estilo
+de los existentes: `unittest.IsolatedAsyncioTestCase`, `CONFIRMATIONS_DIR` en
+un `tempfile.TemporaryDirectory`, `DummyMCP`/`_RecordingMCP`, `AsyncMock` de
+`ws_send` con respuestas por `type`, cola de suscripción simulada para las
+esperas, `structlog.testing.capture_logs`. Datos ficticios (`light.salon`,
+`<device_id>`, `https://example.com/blueprints/luz.yaml`, `centinela-017`, un
+JWT de prueba). Nada de la instalación real ni de las tools MCP de Hermes.
+
+**Suite** (desde la raíz del worktree, en Git Bash):
+`export MSYS_NO_PATHCONV=1; HERMES_CONFIG_BASE="$(cygpath -w <carpeta propia>)" python -m pytest -q -p no:cacheprovider`.
+Línea base en Windows al especificar (2026-11-14, punta `cc92b4a`, con la 009,
+la 010, la 011, la 028 y la 014, sin la 012): 2357 passed, 65 skipped, 6
+failed (los 6 conocidos). T001 la vuelve a tomar tras integrar la 012. Cada
+tramo termina con exactamente esos 6 fallos en local; la referencia es el CI
+de Linux.
+
+## Formato: `[ID] [P?] [Historia] Descripción`
+
+Historias de spec.md: US1 blueprints, US2 dispositivo, US3 targets, US4 espera
+de trigger, US5 validar al guardar, US6 nada se rompe.
+
+## Tramos de implementación
+
+La 008 da 3 tramos; aquí son 4 porque el de blueprints no cabe con holgura en
+un agente (research R-12). Cada tramo lo hace un agente nuevo, deja la suite
+en verde y se commitea por separado (uno o varios commits; el tramo no se
+cierra con la suite en rojo).
+
+| Tramo | Tareas | Resultado al cerrar |
+|---|---|---|
+| **A** — base y blueprints locales | **T001–T016** | Familia `blueprints`; `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint`, `ha_delete_blueprint` registradas, anotadas y probadas; 4 entradas `blueprint/*` en `dedicated`; tema `blueprints` (parte local); banco con dos probadas y sus filas de la matriz; CHANGELOG y hoja de ruta parciales |
+| **B** — importar | **T017–T025** | `ha_import_blueprint` (vista previa de terceros con huella, de mundo abierto); `blueprint/import` en `dedicated`; blueprint servido por la HA del banco y prueba de importación; tema `blueprints` completo |
+| **C** — dispositivo y targets | **T026–T037** | Familia `automation_assist` (dos módulos); las 8 tools de lectura; 11 entradas en `dedicated`; tema `automation_assist` (parte de dispositivo y targets); lecturas en el banco |
+| **D** — espera de trigger, validación al guardar y cierre | **T038–T054** | `HAClient.ws_subscribe_queue`; gestor de esperas compartido; `ha_wait_for_trigger`; `subscribe_trigger` reclasificado y en `dedicated`; validación en `ha_create_or_update_automation`/`_script`; banco; documentación final y matriz de la 008 |
+
+Orden: A → B; C es independiente de A y B dentro de la 017 (puede ir en
+paralelo con B si no se tocan a la vez los ficheros comunes); D necesita A
+(sustitución) y la 012.
+
+---
+
+## Tramo A — base y blueprints locales (US1, US6)
+
+### Preparación
+
+- [ ] T001 Comprobar las dependencias (S-01): la rama tiene integrada la 012 (`hermes/src/hermes/tools/core_validation.py` existe y `scripts/inventario/generar_tabla.py` consulta `_DEDICADAS_INICIALES` para la clase A). Si no, traerla por merge desde `feat/cobertura-total` cuando la tenga; si `feat/cobertura-total` aún no la tiene, PARAR y decirlo en el informe (la 008 pone a la 017 detrás de la 012). Ejecutar la suite y anotar la línea base en el mensaje del commit
+
+### Familia (US6)
+
+- [ ] T002 [US6] Tests en `tests/test_tool_families.py`: `blueprints` existe, `desde="1.2.0"`, desactivable, con exactamente `("blueprints",)`; `validar_desactivadas(["blueprints"])` la acepta; el test de las 216 de la 1.1.2 sigue pasando sin tocarlo. Luego `Familia("blueprints", …)` en `hermes/src/hermes/tool_families.py`, bloque de la 1.2.0, con el comentario de por qué va sola (research R-10) (FR-011)
+
+### Tests de blueprints locales (escritos antes de T008)
+
+- [ ] T003 [P] [US1] Tests de los helpers en `tests/test_tools_blueprints.py` (`TestRutasYYaml`): `_validar_ruta` acepta `homeassistant/motion_light.yaml` y `mio/luz` (→ `mio/luz.yaml`) y rechaza `../x`, `a/../b`, `/abs`, `\\x`, `c:/x`, `a\x00b`, `""`, 256 caracteres y segmentos con caracteres fuera de `[A-Za-z0-9._ -]`; `_validar_dominio` acepta los tres y rechaza `light`; `_cargar_yaml_blueprint` lee un blueprint con `!input` y una etiqueta desconocida sin fallar, rechaza YAML roto, uno que no es un mapa, uno sin `blueprint:` y uno de más de 256 KiB; `_metadatos` aplana entradas con secciones (`input: {sec: {input: {a: …}}}`) (FR-002, FR-003, research R-5)
+- [ ] T004 [P] [US1] Tests de `ha_list_blueprints`: sin `domain` pide `blueprint/list` para `automation`, `script` y `template` y junta; con `domain` solo ese; transformación de cada campo de data-model; elemento con `error` → error redactado (centinela tapado); orden; `_third_party_text`; dominio inválido → `invalid_argument` sin `ws_send`; respuesta que no es mapa → error, no lista vacía; muchos blueprints con `response_max_bytes` pequeño → sobre con `truncated` y `count` total (FR-001, FR-015, FR-016)
+- [ ] T005 [P] [US1] Tests de `ha_preview_blueprint_substitution`: un solo `ws_send` `blueprint/substitute` con `domain`, `path` final e `input`; devuelve `substituted_config` y `saved: false`; un valor de entrada con un centinela sale tapado (`redact_structure`); error de HA (`unknown_error` «Missing input…») → error redactado; ruta inválida → `invalid_argument` sin `ws_send`; resultado que no cabe → `response_too_large` (FR-005, FR-015, FR-016)
+- [ ] T006 [P] [US1] Tests de `ha_save_blueprint` (`TestGuardar`): (a) validación sin HA: dominio, ruta, YAML ilegible, sin `blueprint:`, `blueprint.domain` distinto del argumento, `yaml` ausente sin token; (b) vista previa: lee `blueprint/list`, no existe → vista previa de data-model con metadatos, tamaño y SHA-256, token, y NINGÚN `blueprint/save`; (c) existe sin `allow_override` → `already_exists` sin token ni fichero de token; con `allow_override` → `exists: true`, `used_by` de `search/related` y el aviso de recarga; (d) confirmación: un solo `blueprint/save` con `domain`, `path` final, `yaml` y `allow_override`; confirmación omitiendo `yaml` → guarda el previsualizado (spec 007); `yaml` reenviado distinto → rechazado; (e) token con otra ruta, otro dominio u otro `allow_override` → rechazado sin `blueprint/save`; reutilizado → rechazado; (f) HA `invalid_format` al guardar → error redactado y token completado con fallo; (g) lectura previa fallida → `preview_unavailable` sin token; (h) centinela en el YAML: no aparece en la vista previa (no repite el YAML), ni en el log (el log lleva dominio, ruta, tamaño y huella) (FR-003, FR-015, SC-003, SC-004)
+- [ ] T007 [P] [US1] Tests de `ha_delete_blueprint` (`TestBorrar`): (a) no existe en `blueprint/list` → `not_found` sin token; (b) `search/related` con `automation_blueprint` e `item_id` = ruta devuelve dos automatizaciones → `blueprint_in_use` con las dos, `used_by_count` y sin token ni `blueprint/delete`; con `script_blueprint` para el dominio `script`; (c) sin uso → vista previa de data-model con `effect` y token, sin `blueprint/delete`; (d) `template` → no llama a `search/related`, `used_by: null` con `used_by_note`, token; (e) `search/related` falla → `preview_unavailable` sin token; (f) confirmación → un solo `blueprint/delete`; HA responde `home_assistant_error` «Blueprint in use» → `blueprint_in_use` y token completado con fallo; otro error → redactado; (g) token de otra ruta o dominio → rechazado; (h) más de 50 consumidores → 50 ids y `used_by_count` exacto (FR-004, SC-003)
+
+### Implementación
+
+- [ ] T008 [US1] `hermes/src/hermes/tools/blueprints.py` (research R-2…R-5, data-model, contracts): `register(mcp, ha_client, *, response_max_bytes)` con las cuatro tools del tramo, `@ready`, docstrings en inglés que dicen lo que hacen y lo que no; helpers de módulo de plan.md (tramo A, punto 2); dos pasos con `create_confirmation_token` (con `omitibles=("yaml",)` en guardar), `resolve_confirmation_token`/`validate_confirmation_token` y `complete_confirmation_token`; redacción; sobre con `ajustar_lista_a_bytes`; eventos de log sin contenido. El argumento `yaml` no puede tapar al módulo `yaml`: importarlo con otro nombre. Comentarios en español con el porqué. T003–T007 en verde (FR-001, FR-003…FR-005, FR-015, FR-016)
+- [ ] T009 [US6] Registro, anotaciones y matriz de pruebas, en el mismo cambio (el test de la matriz de la 014 exige la fila en cuanto la tool que modifica se registra): `register_blueprints` en `hermes/src/hermes/tools/__init__.py` dentro de `if _activa("blueprints")` con `response_max_bytes`; `ha_preview_blueprint_substitution` en `_READ_ONLY_EXACT` y `ha_save_blueprint`, `ha_delete_blueprint` en `_DESTRUCTIVE_EXACT` de `tools/_annotations.py` con los comentarios de contracts; filas de las dos en la matriz de `docs/HOJA-DE-RUTA.md` (`banco de Core`, `ok`). El `ok` lo sostiene el inventario de T012: T009 y T012 van en el MISMO commit, o `test_matriz_pruebas` queda en rojo entre los dos. Tests en `tests/test_tools_registration.py`: hints y títulos de las cuatro según contracts; con `blueprints` desactivada no aparece ninguna; las de la 1.1.2 sin cambios («pide token ⇔ destructiva» pasa sin excepciones nuevas) (FR-011, FR-013, FR-017, FR-018)
+
+### Tabla y generador (US6)
+
+- [ ] T010 [US6] Tabla: (a) tests primero: en `tests/test_tools_generic_commands.py`, `ha_call_ws_command("blueprint/delete", …)` y `ha_read_ws_command("blueprint/list")` → `use_dedicated_tool` con su tool; con `blueprints` desactivada, `family_disabled: true`; (b) `scripts/inventario/generar_tabla.py`: `blueprint/list`, `blueprint/save`, `blueprint/delete` y `blueprint/substitute` en `_DEDICADAS_INICIALES` con un comentario «Blueprints (spec 017)»; (c) `hermes/src/hermes/command_table.py`: las cuatro a `E("dedicated", "cubierto por <tool>", "blueprints", tool=…, cap="CAP-046")`; (d) ejecutar el generador y comprobar que `git diff -- hermes/src/hermes/command_table.py` no cambia nada respecto a (c); anotarlo en el commit (FR-012, SC-002)
+
+### Guía (US6)
+
+- [ ] T011 [US6] `hermes/src/hermes/tools/guide.py`: tema `blueprints` (alias `blueprint`) con la parte local de contracts (listar, sustituir, crear la automatización con `use_blueprint`, guardar en vez de `fs_write_file`, borrar y `blueprint_in_use`). Tests en `tests/test_tools_guide.py`: el tema existe con su alias; cada tool registrada de la familia `blueprints` aparece nombrada en él (test genérico por familia que los tramos B, C y D no tienen que tocar: recorre `blueprints` y `automation_assist`, la que exista); el índice lo lista (FR-014)
+
+### Banco (US1)
+
+- [ ] T012 [US1] Inventario: `tests/banco/cobertura_017.py` con el docstring de la regla de la 028, `PROBADAS_017 = {"ha_save_blueprint", "ha_delete_blueprint"}` y `NO_EJECUTABLES_017 = {}`; sumada en `tests/test_banco_cobertura_escrituras.py` (unión de `test_todas_las_escrituras_clasificadas` y `test_listas_disjuntas`) y a `TOOLS_EXIGIDAS_DEL_JOB` de `tests/banco/cobertura_escrituras.py`. Control negativo: quitar `ha_delete_blueprint` de `PROBADAS_017` pone en rojo el invariante nombrándola (FR-017)
+- [ ] T013 [US1] `tests/banco/test_banco_blueprints.py` (marcador y base de la 010; lector independiente): `ha_list_blueprints` incluye `automation` `homeassistant/motion_light.yaml` y `script` `homeassistant/confirmable_notification.yaml`; `ha_preview_blueprint_substitution` de `motion_light` con entradas genéricas devuelve una configuración con `triggers`; `ha_save_blueprint` de un blueprint mínimo propio en `hermes_banco/guardado.yaml`: vista previa → el lector no lo ve → confirmación → el lector lo ve con su nombre; otra vez sin `allow_override` → `already_exists`; con `allow_override` y otro nombre → el lector ve el nuevo; `ha_delete_blueprint`: se crea con el lector (por `ha_create_or_update_automation` o la API de config) una automatización con `use_blueprint: {path: hermes_banco/guardado.yaml, …}` → `blueprint_in_use` con ella y el fichero sigue (lector) → se borra la automatización → vista previa → confirmación → el lector ya no lo ve. Limpieza en `tearDown` aunque falle (FR-017, SC-005)
+
+### Documentación y cierre del tramo
+
+- [ ] T014 Documentación parcial: sección «Automatización asistida (spec 017)» en `## [1.2.0]` de `hermes/CHANGELOG.md` con las cuatro tools, la familia y las entradas de la tabla; fila 017 de la tabla del programa en `docs/HOJA-DE-RUTA.md` → «en curso (tramo A)» (FR-019)
+- [ ] T015 [US6] No regresión del tramo: `tests/test_tools_search_related.py`, `tests/test_tools_filesystem.py` y los de automatizaciones y scripts pasan sin tocarlos; con todas las familias de la 1.2.0 desactivadas, la lista de tools es la de la 1.1.2 (test existente) (FR-018)
+- [ ] T016 Cierre del tramo A: suite completa (los 6 fallos conocidos y nada más); controles negativos, cada uno visto en rojo y anotado en el commit: (1) `_validar_ruta` sin la comprobación de `..` → T003 en rojo; (2) vista previa de guardar que llama a `blueprint/save` → T006(b); (3) borrar sin consultar `search/related` → T007(b); (4) `blueprint_in_use` con token → T007(b); (5) sin `redact_secrets` en el error de `ha_list_blueprints` → T004; (6) `ha_delete_blueprint` fuera de `_DESTRUCTIVE_EXACT` → T009; (7) una entrada `blueprint/*` sin pasar a `dedicated` → T010 (o el test de deriva); (8) la fila de la matriz de `ha_save_blueprint` borrada → `test_matriz_pruebas` en rojo. Revisión del diff buscando datos personales e identificadores de modelo. Commit(s) del tramo (FR-020, SC-006, SC-007)
+
+---
+
+## Tramo B — importar (US1, US6)
+
+### Tests (escritos antes de T020)
+
+- [ ] T017 [P] [US1] Tests de la vista previa de `ha_import_blueprint` en `tests/test_tools_blueprints.py` (`TestImportar`), con `blueprint/import` simulado: (a) `url` vacía o sin esquema `http(s)` → `invalid_argument` sin `ws_send`; `path` inválido → ídem; (b) vista previa con todos los campos de data-model: `importer` por patrón (foro, GitHub, gist, web de HA, genérico), `path` final (`<suggested_filename>.yaml` o el `path` dado), `full_path`, metadatos, entradas, `content` = `raw_data`, `content_bytes`, `content_sha256` correcto, `on_save`, `_third_party_text`; NINGÚN `blueprint/save`; (c) `validation_errors` no vacío → `invalid_blueprint` sin token; dominio `light` → `invalid_blueprint`; (d) `exists: true` sin `allow_override` → `already_exists` sin token; con `allow_override` → `used_by` y aviso de recarga; (e) `raw_data` que no cabe en `response_max_bytes` → `blueprint_too_large` sin token y sin recortar el YAML; (f) `raw_data` con un centinela → tapado en `content` con `content_redacted: true` y la nota; (g) errores de HA (`not_supported`, `timeout`, `unknown_error`, `invalid_format`) → `import_failed` con `ha_code` y `detail` redactado, sin token; (h) el log no lleva la URL con credenciales (`https://user:centinela-017@example.com/…`) ni el YAML (FR-002, FR-015, FR-016)
+- [ ] T018 [P] [US1] Tests de la confirmación: (a) mismo contenido → `blueprint/import` otra vez y un solo `blueprint/save` con `domain` de los metadatos, `path` final, `yaml` = `raw_data` ORIGINAL (no el tapado), `source_url` = `url` y `allow_override`; (b) contenido distinto en la segunda descarga → `content_changed` con la pista, sin `blueprint/save`; (c) sugerencia de ruta distinta (sin `path`) → `content_changed`; (d) token con otra `url`, otro `path` u otro `allow_override` → rechazado sin `blueprint/save`; reutilizado → rechazado; (e) la segunda descarga falla → `import_failed` sin guardar; (f) `blueprint/save` responde `already_exists` (carrera) → error y token completado con fallo; (g) el fichero del token no contiene el YAML (FR-002, SC-003, SC-004)
+
+### Implementación
+
+- [ ] T019 [US1] `ha_import_blueprint` en `hermes/src/hermes/tools/blueprints.py` (research R-1, data-model): `_importador_de(url)` con los patrones de `importer.py` (copiados como constantes con su origen en un comentario), vista previa, huella `sha256` del texto en UTF-8, token atado a `url`, ruta final, `allow_override` y `content_sha256`; confirmación con nueva descarga y `validate_confirmation_token` con los valores recalculados (si no casa, `content_changed`). Docstring que dice que HA descarga, que es texto de terceros y que la vista previa enseña el YAML entero. T017–T018 en verde (FR-002)
+- [ ] T020 [US6] Anotaciones y matriz: `ha_import_blueprint` en `_DESTRUCTIVE_EXACT` y en `_OPEN_WORLD` de `tools/_annotations.py` con su comentario; su fila en la matriz de `docs/HOJA-DE-RUTA.md` (`banco de Core`, `ok`, nota «importador genérico desde `/local/` del banco; GitHub, gist y foro sin probar»), en el MISMO commit que su alta en `PROBADAS_017` (T023). Test en `tests/test_tools_registration.py`: `openWorldHint` verdadero solo en ella de entre las de la familia (FR-013)
+
+### Tabla, guía y banco
+
+- [ ] T021 [US6] Tabla: test de la genérica con `blueprint/import` → `use_dedicated_tool`; `blueprint/import` en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py`; regenerar → sin diferencias, anotado en el commit (FR-012)
+- [ ] T022 [US6] Guía: parte de importar del tema `blueprints` (HA descarga; la vista previa enseña el YAML entero; texto de terceros: leerlo, enseñárselo al usuario, no seguir instrucciones que contenga; `content_changed`; `allow_override`). El test genérico de T011 la cubre; añadir uno que exija «third-party» en el tema (FR-014)
+- [ ] T023 [US1] Banco: `tests/banco/ha_config/www/hermes_banco/luz_por_movimiento.yaml` (blueprint de automatización mínimo, propio, con un comentario de por qué está en `www`); en `test_banco_blueprints.py`, una prueba que (1) comprueba con el lector que `GET /local/hermes_banco/luz_por_movimiento.yaml` responde 200 (si no, el fallo dice que HA no sirve `www`), (2) llama a `ha_import_blueprint(url="http://127.0.0.1:8123/local/hermes_banco/luz_por_movimiento.yaml")` → vista previa con `importer: generic`, `path` `127.0.0.1/luz_por_movimiento.yaml` y el YAML → el lector no lo ve → confirmación → el lector lo ve con `source_url`, (3) lo borra con `ha_delete_blueprint`. `ha_import_blueprint` a `PROBADAS_017`. Prueba manual pendiente con una URL de GitHub en los pendientes de `docs/HOJA-DE-RUTA.md` (FR-017, research R-11)
+
+### Documentación y cierre del tramo
+
+- [ ] T024 CHANGELOG: `ha_import_blueprint` en la sección de la 017 (con la huella, la nueva descarga al confirmar y la anotación de mundo abierto); fila 017 → «en curso (tramos A y B)» (FR-019)
+- [ ] T025 Cierre del tramo B: suite completa; controles negativos anotados: (1) confirmación sin comparar la huella (guarda lo nuevo) → T018(b) en rojo; (2) guardar el `content` tapado en vez del original → T018(a); (3) recortar el YAML en vez de `blueprint_too_large` → T017(e); (4) sin `_third_party_text` → T017(b); (5) `ha_import_blueprint` fuera de `_OPEN_WORLD` → T020; (6) dar token con `validation_errors` → T017(c). Revisión del diff. Commit(s) del tramo (FR-020, SC-006)
+
+---
+
+## Tramo C — dispositivo y targets (US2, US3, US6)
+
+- [ ] T026 [US6] Familia `automation_assist` (`desde="1.2.0"`, desactivable) con `("device_automation", "targets")`, tests primero en `tests/test_tool_families.py` (el tramo D añade `wait_for_trigger` y ajusta el test) (FR-011)
+
+### Tests (escritos antes de T029 y T030)
+
+- [ ] T027 [P] [US2] Tests en `tests/test_tools_device_automation.py`: para cada tipo, un `ws_send` `device_automation/<tipo>/list` con `device_id`; lista devuelta tal cual en el sobre con `device_id`; `include_capabilities=true` → una llamada `…/capabilities` por elemento con la clave correcta (`trigger`, `condition`, `action`) y `capabilities` en cada uno; capacidades de un elemento que fallan → `capabilities_error` redactado y el resto sigue; 60 elementos → 50 llamadas y `capabilities_truncated: true`; `not_found` de HA → `not_found`; `device_id` vacío → `invalid_argument` sin `ws_send`; respuesta que no es lista → error; recorte por tamaño (FR-006, FR-015, FR-016)
+- [ ] T028 [P] [US3] Tests en `tests/test_tools_targets.py`: `_validar_target` (claves admitidas, texto o lista de textos no vacíos, `exclude` con las mismas claves, al menos una clave fuera de `exclude`, clave desconocida → `invalid_argument` nombrándola, solo `exclude` → `invalid_argument`); `ha_resolve_target` envía `extract_from_target` con `target`, `expand_group` y `primary_entities_only` y devuelve la forma de data-model ordenada; `ha_explain_target` con `explain_target` y sus valores por defecto; las tres de lista envían su comando y devuelven el sobre con nombres ordenados; `unknown_command` → `ha_version_unsupported` con la versión; recorte por tamaño con recuentos (FR-007, FR-008, FR-016)
+
+### Implementación
+
+- [ ] T029 [US2] `hermes/src/hermes/tools/device_automation.py` (research R-6): `_listar` común y las tres tools con `@ready` y docstrings que dicen que el elemento se pega tal cual en la automatización y qué son las capacidades. T027 en verde (FR-006)
+- [ ] T030 [US3] `hermes/src/hermes/tools/targets.py` (research R-7): `_validar_target` y las cinco tools; docstrings que dicen que las listas dan nombres sin sus opciones y cómo se escribe un trigger por propósito. T028 en verde (FR-007, FR-008)
+- [ ] T031 [US6] Registro y anotaciones: los dos módulos en `tools/__init__.py` dentro de `if _activa("automation_assist")` con `response_max_bytes`; `ha_resolve_target` y `ha_explain_target` en `_READ_ONLY_EXACT` con comentario. Tests en `tests/test_tools_registration.py`: las ocho de solo lectura, ninguna de mundo abierto; con `automation_assist` desactivada no aparece ninguna (FR-011, FR-013)
+
+### Tabla, guía y banco
+
+- [ ] T032 [US6] Tabla: tests de la genérica con `device_automation/trigger/list` y `get_services_for_target` → `use_dedicated_tool`; las 11 entradas en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py` (data-model); regenerar → sin diferencias, anotado en el commit (FR-012)
+- [ ] T033 [US6] Guía: tema `automation_assist` (alias `device_automation`, `targets`) con la receta «automatización para un dispositivo» y la de target → por propósito → validar; el test genérico de T011 cubre sus tools (FR-014)
+- [ ] T034 [US2] [US3] Banco (lectura): `tests/banco/test_banco_automatizacion_asistida.py`: el lector busca un dispositivo de `kitchen_sink` con entidades; `ha_list_device_triggers/conditions/actions` con `include_capabilities=true` devuelven listas y capacidades con la forma de data-model; `ha_resolve_target` y `ha_explain_target` con su `device_id` devuelven sus entidades; las tres de lista por target devuelven nombres no vacíos para una entidad `light` de `kitchen_sink` (si la hay; si no, una `switch`) (FR-017)
+
+### Documentación y cierre del tramo
+
+- [ ] T035 CHANGELOG: las ocho tools y la familia; fila 017 → «en curso (tramos A–C)» (FR-019)
+- [ ] T036 [US6] No regresión: `ha_search_related` y los registros sin cambios; con todas las familias de la 1.2.0 desactivadas, la lista de la 1.1.2 (FR-018)
+- [ ] T037 Cierre del tramo C: suite completa; controles negativos anotados: (1) capacidades sin tope → T027 (60 elementos); (2) `_validar_target` que acepta claves desconocidas → T028; (3) `unknown_command` como error opaco → T028; (4) una entrada de `device_automation/*` sin `dedicated` → T032. Revisión del diff. Commit(s) del tramo (FR-020, SC-006)
+
+---
+
+## Tramo D — espera de trigger, validación al guardar y cierre (US4, US5, US6)
+
+### Cliente y gestor de esperas
+
+- [ ] T038 [US4] Tests en `tests/test_ha_ws_subscribe_queue.py` (patrón de los tests de suscripción de `HAClient`): `ws_subscribe_queue(payload)` envía el payload con `id`, espera la confirmación, devuelve `(sub_id, cola, generación)` y los eventos llegan a la cola; error de HA en la confirmación → `HAConnectionError` con su `code` y sin cola ni future colgados, con `unsubscribe_events` enviado; plazo de confirmación → ídem; `ws_subscribe_events_queue("x")` envía exactamente `{"id", "type": "subscribe_events", "event_type": "x"}` como hoy. Luego el método en `hermes/src/hermes/ha.py` y `ws_subscribe_events_queue` delegando en él, con comentario. Los tests existentes de suscripciones pasan sin tocarlos (FR-009, FR-018)
+- [ ] T039 [US4] Tests en `tests/test_tools_wait_for_event.py`: `register` acepta un gestor; dos registros con el mismo gestor comparten cupo; `list_active` de una espera de evento devuelve exactamente las claves de hoy; de una de trigger, además `kind` y `trigger_platform`. Luego el cambio en `tools/wait_for_event.py` (parámetro opcional `manager`, campos opcionales en `_ActiveWait`) y en `tools/__init__.py` (un `_WaitManager` con `wait_for_event_max_concurrent`, creado una vez y pasado a los dos registros) (FR-009, FR-018)
+
+### Espera de trigger
+
+- [ ] T040 [P] [US4] Tests en `tests/test_tools_wait_for_trigger.py` con una cola simulada (`ws_subscribe_queue` en `AsyncMock`): disparo → `matched: true` con `trigger` y `waited_seconds`; plazo → `timeout`; `ha_cancel_wait` → `cancelled` sin esperar al keepalive; sentinel → `ws_reconnect` con nota; `timeout_seconds` mayor que el máximo o menor que 1 → los mismos errores que `ha_wait_for_event`; cupo lleno (compartido con una espera de evento) → `too_many_waits`; lista cerrada de research R-8: `state` y `light.turned_on` (con `manifest/get` simulado `is_built_in: true`) → se suscribe; `webhook`, `conversation`, `samsungtv.turn_on`, `device` con `domain: webostv`, una plataforma sin punto que no está en la lista, `mi_custom.algo` (`is_built_in: false`) y un `manifest/get` que falla → `trigger_not_allowed` sin `ws_subscribe_queue`; la regla se aplica a cada elemento de una lista y a `trigger` y a `platform`; HA rechaza el trigger → `invalid_trigger` redactado y la espera no queda registrada; siempre `ws_unsubscribe_events_queue` al salir (también con excepción); `to_state` con `attributes.access_token` = centinela → tapado; disparo que no cabe → sin `from_state`/`to_state` y `truncated: true`; `variables` se pasan en el payload (FR-009, FR-015, FR-016)
+- [ ] T041 [US4] `hermes/src/hermes/tools/wait_for_trigger.py` (research R-8): `register(mcp, ha_client, *, manager, wait_for_event_max_seconds, response_max_bytes)` y `ha_wait_for_trigger`, reutilizando el bucle de espera de `ha_wait_for_event` (extraer a una función común de `wait_for_event.py` si se puede sin cambiar su comportamiento; si no, duplicar con un comentario). Docstring: un solo disparo, triggers rechazados y por qué, mismo tope que `ha_wait_for_event`. T040 en verde (FR-009)
+- [ ] T042 [US6] Familia, registro y anotaciones: `wait_for_trigger` en los módulos de `automation_assist` (y su test); registro dentro de `if _activa("automation_assist")` con el gestor compartido; `ha_wait_for_trigger` en `_READ_ONLY_EXACT` con el comentario de contracts. Test en `tests/test_tools_registration.py` (FR-011, FR-013)
+
+### Validación al guardar
+
+- [ ] T043 [P] [US5] Tests en `tests/test_tools_validacion_al_guardar.py`: para `ha_create_or_update_automation` y `ha_create_or_update_script`: (a) parte inválida → `invalid_config` con el error por parte, redactado (centinela), sin token y sin fichero en `CONFIRMATIONS_DIR`; (b) todo válido → vista previa de hoy más `validation` con `validated` y `not_validated`, y token; (c) `use_blueprint` → `blueprint/substitute` con dominio `automation`/`script`, `path` e `input`, y `validate_config` con las partes del resultado; `via_blueprint` en la vista previa; (d) sustitución fallida → `blueprint_substitution_failed` sin token; (e) `validate_config` con `HAConnectionError` o respuesta que no es mapa → `validation_unavailable` sin token; (f) sin partes (solo `alias`) → sin `validate_config`, `validation` lo dice, token; (g) script con `sequence` → se valida como `actions`; (h) la confirmación NO llama a `validate_config` y guarda lo previsualizado (spec 007 sin cambios); (i) con `blueprints`, `automation_assist` y `core_diagnostics` desactivadas, valida igual (FR-010, FR-011)
+- [ ] T044 [US5] `hermes/src/hermes/tools/core_validation.py` (de la 012): sacar `partes_de_config` y `validar_partes` a funciones de módulo, usadas por `ha_validate_config` sin cambiar su comportamiento (sus tests de la 012 pasan sin tocarlos); en `tools/blueprints.py`, `sustituir(ha_client, dominio, use_blueprint)` compartida con `ha_preview_blueprint_substitution`; en `tools/automations.py` y `tools/scripts.py`, la validación en la rama de vista previa, con comentario del porqué (research R-9). Docstrings de las dos tools: la vista previa valida. T043 en verde (FR-010)
+
+### Tabla, guía y banco
+
+- [ ] T045 [US6] Tabla e inventario: tests primero (`tests/test_generar_tabla.py`: la fila de `subscribe_trigger` del inventario es clase A con CAP-038 y sale `dedicated`; la genérica con `subscribe_trigger` → `use_dedicated_tool`); `specs/008-cobertura-total/inventario/core-ws.tsv`: `subscribe_trigger` a clase `A`, nota «Esperar a un trigger (un solo disparo)», `CAP-038` (research R-13); `subscribe_trigger` en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py`; regenerar → sin diferencias, anotado en el commit. Comprobar que `tests/test_command_inventory.py` y el test de deriva siguen en verde (FR-012)
+- [ ] T046 [US6] Guía: espera de trigger en `automation_assist` (alias `wait_for_trigger`; frente a `ha_wait_for_event`; triggers rechazados; cancelación y qué pasa con `events` apagada); en el tema de automatizaciones, que la vista previa valida y remite a `blueprints` y `automation_assist` (FR-014)
+- [ ] T047 [US4] [US5] Banco: en `test_banco_automatizacion_asistida.py`, (1) espera de trigger de estado sobre un `input_boolean` del banco mientras el lector lo cambia → `matched: true` con `to_state.state`; (2) `ha_wait_for_trigger` con un trigger inválido → `invalid_trigger`; (3) `ha_create_or_update_automation` con un trigger inválido → `invalid_config` sin token, y el lector comprueba que `automation/config` no existe para ese id; (4) con `use_blueprint` de `homeassistant/motion_light.yaml` y una entrada que falta → `blueprint_substitution_failed` (FR-017, SC-005)
+
+### Documentación final y cierre
+
+- [ ] T048 [US6] No regresión: los tests existentes de automatizaciones, scripts, `ha_wait_for_event`, `ha_list_active_waits`, `ha_cancel_wait` y de `ha_validate_config` pasan sin tocarlos (salvo los que esperaban una vista previa sin `validation`, que se amplían, no se cambian); la denylist no cambia (FR-018)
+- [ ] T049 CHANGELOG completo de la 017 en `## [1.2.0]` (blueprints, dispositivo, targets, espera de trigger, validación al guardar, familias, tabla, inventario reclasificado) (FR-019)
+- [ ] T050 `docs/HOJA-DE-RUTA.md`: fila 017 de la tabla del programa → «hecha»; en la lista de pendientes, quitar «Triggers y condiciones por propósito; resolución de targets (017)» y dejar la prueba manual de importación desde GitHub (FR-019)
+- [ ] T051 [P] `README.md` y `README.es.md` sincronizados (tools por área y recuento si lo llevan); `hermes/DOCS.md` si la opción de familias enumera las familias (`blueprints`, `automation_assist`) (FR-019)
+- [ ] T052 [P] Matriz de la 008 (`specs/008-cobertura-total/plan.md`): filas CAP-038, CAP-040, CAP-046, CAP-051 y CAP-052 con las tools y los ficheros de test (FR-019)
+- [ ] T053 Comprobación final: ninguna entrada «pendiente de tool dedicada (spec 017)» queda en `command_table.py`; cada FR de spec.md tiene su test (tabla de trazabilidad de plan.md al día); SC-001…SC-007 (FR-012, SC-006)
+- [ ] T054 Cierre del tramo D: suite completa; controles negativos anotados: (1) emitir token con una parte inválida → T043(a) en rojo; (2) dar token si `validate_config` falla → T043(e); (3) validar sin sustituir el blueprint → T043(c); (4) aceptar un trigger que no está en la lista cerrada (p. ej. quitar la comprobación de `is_built_in`) → T040; (5) gestor no compartido → T039 (cupo); (6) no cancelar la suscripción al salir → T040; (7) sin `redact_structure` en el disparo → T040; (8) `subscribe_trigger` de vuelta a clase B en el inventario → T045. Revisión del diff buscando datos personales e identificadores de modelo. Commit(s) del tramo (FR-020, SC-006, SC-007)
+
+## Dependencias
+
+- T001 antes de todo. Dentro de cada tramo: tests → implementación →
+  registro → tabla → guía → banco → documentación → cierre.
+- B necesita A (rutas, `used_by`, metadatos, `cobertura_017.py`).
+- C no necesita A ni B; si va en paralelo con B, el segundo en integrarse
+  resuelve los conflictos de los ficheros comunes.
+- D necesita A (sustitución) y la 012 (T001).
+
+## Paralelismo
+
+- Tramo A: T003–T007 en paralelo (mismo fichero de test, clases distintas).
+- Tramo B: T017 y T018.
+- Tramo C: T027 y T028; T029 y T030.
+- Tramo D: T040 y T043; T051 y T052.
