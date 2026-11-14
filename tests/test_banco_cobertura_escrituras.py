@@ -14,6 +14,12 @@ Control negativo (T008, anotado en el commit del tramo A): quitar
 motivo de `sv_reboot_host` hace caer `test_motivos_no_vacios`; poner
 `ha_get_state` en `PROBADAS_028` hace caer el primero («declaradas que no
 modifican»).
+
+Control negativo del cierre (T022, tramo B): quitar `ha_ignore_repair` de
+`PROBADAS_028` hace caer `test_todas_las_escrituras_clasificadas`
+nombrándola (y `test_recuento_028`: 52); dejarla en la lista y quitar su
+nombre literal del test del banco hace caer
+`test_cada_probada_aparece_en_un_test_del_banco`.
 """
 
 from __future__ import annotations
@@ -49,7 +55,6 @@ def _listas() -> dict[str, set[str]]:
         "cobertura.NO_EJECUTABLES (010)": set(cobertura.NO_EJECUTABLES),
         "PROBADAS_028": set(c028.PROBADAS_028),
         "NO_EJECUTABLES_028": set(c028.NO_EJECUTABLES_028),
-        "PENDIENTES_TRAMO_B": set(c028.PENDIENTES_TRAMO_B),
         "FUERA_DEL_BANCO": set(c028.FUERA_DEL_BANCO),
     }
 
@@ -94,7 +99,6 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             for nombre, lista in (
                 ("NO_EJECUTABLES_028", c028.NO_EJECUTABLES_028),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
-                ("PENDIENTES_TRAMO_B", c028.PENDIENTES_TRAMO_B),
             )
             for tool, motivo in lista.items()
             if not str(motivo).strip()
@@ -102,11 +106,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         self.assertFalse(sin_motivo, f"tools sin motivo: {sin_motivo}")
 
     def test_recuento_028(self) -> None:
-        total = (
-            len(c028.PROBADAS_028)
-            + len(c028.NO_EJECUTABLES_028)
-            + len(c028.PENDIENTES_TRAMO_B)
-        )
+        total = len(c028.PROBADAS_028) + len(c028.NO_EJECUTABLES_028)
         self.assertEqual(total, 53, f"las listas de la 028 suman {total}, no 53")
         self.assertEqual(len(c028.FUERA_DEL_BANCO), 24)
 

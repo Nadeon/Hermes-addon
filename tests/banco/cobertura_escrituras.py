@@ -5,7 +5,7 @@ suite normal (sin HA ni Docker):
 
     tools que MODIFICAN del registro de producción
       = cobertura.PROBADAS_EN_BANCO ∪ cobertura.NO_EJECUTABLES      (010, 47)
-      ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028 ∪ PENDIENTES_TRAMO_B       (028, 53)
+      ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
       ∪ FUERA_DEL_BANCO                                              (24)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
@@ -29,9 +29,10 @@ toca desde aquí: se importa y se suma.
 
 from __future__ import annotations
 
-# Tramo A (26): cada una la llama algún `tests/banco/test_banco_escrituras_*.py`
-# y su efecto lo comprueba el lector independiente (salvo `ha_cancel_wait`,
-# cuyo efecto vive en Hermes: research R-7 de la 028).
+# Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama algún
+# `tests/banco/test_banco_escrituras_*.py` y su efecto lo comprueba el lector
+# independiente (salvo `ha_cancel_wait`, cuyo efecto vive en Hermes: research
+# R-7 de la 028).
 PROBADAS_028: frozenset[str] = frozenset(
     {
         # automation (6)
@@ -66,6 +67,36 @@ PROBADAS_028: frozenset[str] = frozenset(
         "ha_create_lovelace_resource",
         "ha_update_lovelace_resource",
         "ha_delete_lovelace_resource",
+        # registros: áreas, plantas, etiquetas y categorías (12)
+        "ha_create_area",
+        "ha_update_area",
+        "ha_delete_area",
+        "ha_create_floor",
+        "ha_update_floor",
+        "ha_delete_floor",
+        "ha_create_label",
+        "ha_update_label",
+        "ha_delete_label",
+        "ha_create_category",
+        "ha_update_category",
+        "ha_delete_category",
+        # dispositivos, entidades y reparaciones (6)
+        "ha_update_device",
+        "ha_remove_device",
+        "ha_remove_device_from_config_entry",
+        "ha_update_entity_registry",
+        "ha_remove_entity_registry",
+        "ha_ignore_repair",
+        # config entries y flujos (9)
+        "ha_reload_config_entry",
+        "ha_disable_config_entry",
+        "ha_enable_config_entry",
+        "ha_delete_config_entry",
+        "ha_start_config_entry_flow",
+        "ha_continue_config_entry_flow",
+        "ha_abort_config_entry_flow",
+        "ha_start_options_flow",
+        "ha_continue_options_flow",
     }
 )
 
@@ -123,42 +154,4 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_reboot_host": _SV_REINICIOS,
     "sv_dismiss_resolution_issue": _SV_AVISOS,
     "sv_dismiss_resolution_suggestion": _SV_AVISOS,
-}
-
-_TRAMO_B = "se ejecuta en el banco en el tramo B de la 028"
-
-# Solo entre el tramo A y el B, para que el invariante esté en verde al cerrar
-# el A. El tramo B pasa estas 27 a `PROBADAS_028` y borra este diccionario del
-# módulo y del test.
-PENDIENTES_TRAMO_B: dict[str, str] = {
-    # registros (12)
-    "ha_create_area": _TRAMO_B,
-    "ha_update_area": _TRAMO_B,
-    "ha_delete_area": _TRAMO_B,
-    "ha_create_floor": _TRAMO_B,
-    "ha_update_floor": _TRAMO_B,
-    "ha_delete_floor": _TRAMO_B,
-    "ha_create_label": _TRAMO_B,
-    "ha_update_label": _TRAMO_B,
-    "ha_delete_label": _TRAMO_B,
-    "ha_create_category": _TRAMO_B,
-    "ha_update_category": _TRAMO_B,
-    "ha_delete_category": _TRAMO_B,
-    # dispositivos, entidades y reparaciones (6)
-    "ha_update_device": _TRAMO_B,
-    "ha_remove_device": _TRAMO_B,
-    "ha_remove_device_from_config_entry": _TRAMO_B,
-    "ha_update_entity_registry": _TRAMO_B,
-    "ha_remove_entity_registry": _TRAMO_B,
-    "ha_ignore_repair": _TRAMO_B,
-    # config entries y flujos (9)
-    "ha_reload_config_entry": _TRAMO_B,
-    "ha_disable_config_entry": _TRAMO_B,
-    "ha_enable_config_entry": _TRAMO_B,
-    "ha_delete_config_entry": _TRAMO_B,
-    "ha_start_config_entry_flow": _TRAMO_B,
-    "ha_continue_config_entry_flow": _TRAMO_B,
-    "ha_abort_config_entry_flow": _TRAMO_B,
-    "ha_start_options_flow": _TRAMO_B,
-    "ha_continue_options_flow": _TRAMO_B,
 }
