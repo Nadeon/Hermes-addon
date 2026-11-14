@@ -30,6 +30,11 @@ Control negativo (T007), permanente en `TestControlNegativo`: sobre una copia
 temporal de `tools/`, una tool nueva con token sin entrada y un argumento
 nuevo en `ha_run_script` hacen que la comprobación falle nombrando los dos.
 
+Contraste con el registro real (T037): el descubrimiento por AST se compara
+además con las tools que publican `confirmation_token` en un `MCPServer` real
+(`_real_registry()`), así que una tool con token registrada de otra forma
+(`mcp.add_tool`, un subpaquete) tampoco se escapa.
+
 Recuento: 82 tools. La auditoría de la spec (research R-1) contaba 79 sobre
 la punta de entonces; la 011 integró después `ha_call_ws_command` y
 `sv_call_api`, que atan todo lo que envían, y el tramo 2 de la 033 dio token
@@ -204,6 +209,37 @@ def problemas(carpeta: Path, inventario: dict[str, dict[str, str]]) -> list[str]
     return salida
 
 
+def firmas_publicadas(registro: dict) -> dict[str, list[str]]:
+    """Tool → argumentos de su esquema publicado, para las que publican
+    `confirmation_token`, sobre el registro real de un `MCPServer`."""
+    firmas: dict[str, list[str]] = {}
+    for nombre, tool in registro.items():
+        propiedades = list((tool.parameters or {}).get("properties", {}))
+        if "confirmation_token" in propiedades:
+            firmas[nombre] = propiedades
+    return firmas
+
+
+def diferencias_con_el_registro(
+    por_ast: dict[str, list[str]], publicadas: dict[str, list[str]]
+) -> list[str]:
+    """Lo que el descubrimiento por AST no ve del registro real, y al revés."""
+    salida: list[str] = []
+    for tool in sorted(set(publicadas) - set(por_ast)):
+        salida.append(f"{tool}: publica confirmation_token y el AST no la encuentra")
+    for tool in sorted(set(por_ast) - set(publicadas)):
+        salida.append(f"{tool}: el AST la encuentra y el registro no publica su token")
+    for tool in sorted(set(por_ast) & set(publicadas)):
+        # `ctx` lo inyecta el SDK y no sale en el esquema publicado.
+        ast_args = set(por_ast[tool]) - {"ctx"}
+        if ast_args != set(publicadas[tool]):
+            salida.append(
+                f"{tool}: argumentos distintos (AST {sorted(ast_args)}, "
+                f"registro {sorted(publicadas[tool])})"
+            )
+    return salida
+
+
 class TestInventarioDeArgumentosAtados(unittest.TestCase):
     def test_cubre_exactamente_las_tools_con_token_y_sus_argumentos(self) -> None:
         self.assertEqual(problemas(TOOLS, INVENTARIO), [])
@@ -216,6 +252,22 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
             self.assertEqual(args.get("confirmation_token"), TOKEN, tool)
+
+    def test_el_ast_ve_lo_mismo_que_el_registro_real(self) -> None:
+        # T037 (B1 de la revisión): el inventario descubre las tools por AST
+        # de `tools/*.py` y decoradores `mcp.tool…`. Una tool con token
+        # registrada de otra forma (`mcp.add_tool`, un subpaquete, otro
+        # módulo) se le escaparía; el registro real de un `MCPServer` no.
+        # Control negativo, comprobado y restaurado: registrando
+        # `ha_create_scene_from_current` con `registrar = mcp.tool` y
+        # `@registrar()`, el AST deja de verla y este test cae nombrándola.
+        from tests.test_tools_registration import _real_registry
+
+        publicadas = firmas_publicadas(_real_registry())
+        self.assertEqual(
+            diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
+        )
+        self.assertEqual(len(publicadas), 82)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).
@@ -256,6 +308,25 @@ class TestControlNegativo(unittest.TestCase):
             [
                 "ha_tool_ficticia: tiene confirmation_token y no está en el inventario",
                 "ha_run_script.modo: argumento sin clasificar (atado o exento con motivo)",
+            ],
+        )
+
+    def test_tool_registrada_fuera_del_ast(self) -> None:
+        # T037: control negativo permanente de la comparación con el
+        # registro. Una tool con token que solo está en el registro (como si
+        # se hubiera registrado con `mcp.add_tool`) y un argumento que solo
+        # está en el esquema publicado salen nombrados.
+        por_ast = firmas_con_token(TOOLS)
+        publicadas = {t: list(a) for t, a in por_ast.items()}
+        publicadas["ha_tool_por_add_tool"] = ["entity_id", "confirmation_token"]
+        publicadas["ha_run_script"].append("modo")
+        self.assertEqual(
+            diferencias_con_el_registro(por_ast, publicadas),
+            [
+                "ha_tool_por_add_tool: publica confirmation_token y el AST no la encuentra",
+                "ha_run_script: argumentos distintos (AST "
+                f"{sorted(por_ast['ha_run_script'])}, registro "
+                f"{sorted(publicadas['ha_run_script'])})",
             ],
         )
 
