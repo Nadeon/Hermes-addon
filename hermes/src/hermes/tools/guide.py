@@ -125,7 +125,7 @@ para el detalle de un área. Temas disponibles:
 - `data`           — history, logbook, templates, estadísticas
 - `registries`     — entidades, dispositivos, áreas, plantas, etiquetas, categorías
 - `diagnostics`    — Repairs, trazas, relaciones y resolución del Supervisor
-- `core_diagnostics` — log del sistema, log de errores y niveles de log de Core
+- `core_diagnostics` — logs, validación, diagnósticos y notificaciones de Core
 - `config_entries` — integraciones y sus flujos de configuración
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
@@ -308,10 +308,12 @@ Receta «¿por qué no se ejecutó mi automatización?»: `ha_list_traces` con s
 `entity_id`; mira `state`, `error` y `last_step` de la última ejecución; si
 hace falta, `ha_get_trace` con su `run_id`.
 
-Logs y niveles de log de Home Assistant: `hermes_guide("core_diagnostics")`.
+Logs y niveles de log, validación de configuración, diagnósticos de
+integraciones y notificaciones persistentes de Home Assistant:
+`hermes_guide("core_diagnostics")`.
 """,
     "core_diagnostics": """\
-# Diagnóstico de Core: logs y niveles de log
+# Diagnóstico de Core: logs, validación, diagnósticos y notificaciones
 
 LOG DEL SISTEMA (primera opción)
 `ha_list_system_log(level=…, integration=…)` lista lo que se ve en Ajustes >
@@ -354,10 +356,44 @@ Bajar un nivel o limpiar un log oculta lo que pasó: por eso piden
 confirmación, igual que `logger.set_level`, `logger.set_default_level` y
 `system_log.clear` por `ha_call_service`.
 
-Receta «¿por qué falla esta integración?»: `ha_list_system_log(integration=…)`
-→ si no basta, `ha_set_log_level(level="DEBUG", integration=…)` con
-`persistence="none"` → reproducir el fallo → `ha_list_system_log` o
-`ha_get_error_log` → `ha_set_log_level(level="NOTSET", integration=…)`.
+VALIDAR ANTES DE GUARDAR (no guarda nada)
+- `ha_validate_config(config=…)` valida una automatización o un script con los
+  validadores de HA antes de `ha_create_or_update_automation` o
+  `ha_create_or_update_script`. HA solo valida disparadores, condiciones y
+  acciones (`triggers`/`trigger`, `conditions`/`condition`,
+  `actions`/`action`/`sequence`); el resto de claves sale en `not_validated`
+  y NO se ha comprobado. También acepta las partes sueltas (`triggers=…`,
+  `conditions=…`, `actions=…`), pero no las dos formas a la vez.
+- `ha_test_condition(condition, variables=…)` evalúa una condición contra el
+  estado actual y dice `result` (y `template_errors` si los hay). Sirve para
+  depurar por qué una automatización no pasa su condición.
+
+DIAGNÓSTICOS DE INTEGRACIONES
+`ha_list_diagnostics_handlers(domain=…)` dice qué integraciones ofrecen
+diagnóstico de entrada (`config_entry`) o de dispositivo (`device`).
+`ha_get_config_entry_diagnostics(entry_id)` y
+`ha_get_device_diagnostics(device_id)` dan lo mismo que «Descargar
+diagnóstico» de la interfaz, redactado por la integración y otra vez por
+Hermes. El de dispositivo se pide a la integración dueña (`config_entry_id`
+del registro); pocas lo ofrecen. Sin `include_system_info=True` no sale la
+información del sistema. Si no cabe, responde `response_too_large` con el
+tamaño de cada clave de `data`: vuelve a pedirlo con `keys=[…]`.
+
+NOTIFICACIONES PERSISTENTES
+`ha_list_persistent_notifications` lista los avisos de la campana (el más
+reciente primero; texto de terceros). `ha_dismiss_persistent_notification`
+(token) descarta uno; no se recupera. Para descartarlos todos,
+`ha_call_service("persistent_notification", "dismiss_all")`, que también pide
+token.
+
+Receta «¿por qué falla esta integración?»:
+1. `ha_list_system_log(integration=…)`: errores agrupados de esa integración.
+2. Si no basta, `ha_set_log_level(level="DEBUG", integration=…)` con
+   `persistence="none"` → reproducir el fallo → `ha_list_system_log` o
+   `ha_get_error_log`.
+3. `ha_set_log_level(level="NOTSET", integration=…)` al terminar.
+4. Si hace falta más, `ha_list_diagnostics_handlers(domain=…)` →
+   `ha_get_config_entry_diagnostics` (o `ha_get_device_diagnostics`).
 """,
     "config_entries": """\
 # Integraciones (config entries y flows)
@@ -660,6 +696,8 @@ _ALIASES: dict[str, str] = {
     "resolution": "diagnostics",
     "logs": "core_diagnostics",
     "log": "core_diagnostics",
+    "notifications": "core_diagnostics",
+    "validation": "core_diagnostics",
     "integrations": "config_entries",
     "config_entry": "config_entries",
     "flows": "config_entries",

@@ -95,3 +95,13 @@ kitchen_sink:
 # se carga sola. `logger:` (arriba) ya da `logger/log_info` y los comandos que
 # fijan niveles. Todo es local.
 system_log:
+
+# ── Spec 012 (tramo B): diagnósticos de integraciones ───────────────────────
+#
+# diagnostics: registra `diagnostics/list`, `diagnostics/get` y la descarga
+# `/api/diagnostics/…`, que necesitan `ha_list_diagnostics_handlers`,
+# `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`. Sin
+# `default_config:` no se carga sola. El test crea y borra una entrada de
+# `local_calendar` (sin red ni hardware) para tener un diagnóstico de entrada.
+# `persistent_notification` es de núcleo: no hace falta cargarla.
+diagnostics:

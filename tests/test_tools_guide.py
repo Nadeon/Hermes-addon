@@ -390,9 +390,13 @@ class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
 
     async def test_tema_y_alias(self) -> None:
         tema = _GUIDE["core_diagnostics"]
-        for alias in ("core_diagnostics", "logs", "log", "LOGS"):
+        # `notifications` y `validation`: tramo B (T029).
+        for alias in ("core_diagnostics", "logs", "log", "LOGS", "notifications",
+                      "validation"):
             self.assertEqual(await self.guide(alias), tema, alias)
-        for clave in ("duplicate_log_file", "NOTSET", "persistence", "error_log_unavailable"):
+        for clave in ("duplicate_log_file", "NOTSET", "persistence", "error_log_unavailable",
+                      "not_validated", "response_too_large", "keys=", "dismiss_all",
+                      "config_entry_id"):
             self.assertIn(clave, tema)
 
     async def test_indice_y_diagnostics(self) -> None:

@@ -222,14 +222,14 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
 | CAP-038 | baja | 017 | FR-061 | D | espera de trigger (banco) |
-| CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | validación (banco) |
-| CAP-041 | alta | 012 | FR-037 | D | logs y niveles (banco) |
-| CAP-042 | alta | 012 | FR-038 | D | diagnósticos (banco) |
+| CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | `ha_validate_config`, `ha_test_condition` (012): `tests/test_tools_core_validation.py`; banco: `TestValidacion` (`tests/banco/test_banco_core_diagnostico.py`) |
+| CAP-041 | alta | 012 | FR-037 | D | `ha_list_system_log`, `ha_get_error_log`, `ha_get_log_levels`, `ha_set_log_level`, `ha_clear_system_log`: `tests/test_tools_core_logs.py`, `tests/test_ha_rest_text_tail.py`; banco: `tests/banco/test_banco_core_logs.py` |
+| CAP-042 | alta | 012 | FR-038 | D | `ha_list_diagnostics_handlers`, `ha_get_config_entry_diagnostics`, `ha_get_device_diagnostics`: `tests/test_tools_integration_diagnostics.py`; banco: `TestDiagnosticos` (`tests/banco/test_banco_core_diagnostico.py`, entrada de `local_calendar`); camino feliz del de dispositivo, prueba manual pendiente (ninguna integración sin hardware ni nube lo ofrece) |
 | CAP-043 | alta | 029 | FR-040 | D | salud y estado (banco) |
 | CAP-044 | alta | 016 | FR-053 | D | descubiertas y preferencias (banco) |
 | CAP-045 | alta | 016 | FR-054 | D | subentries y reconfigure (banco) |
 | CAP-046 | alta | 017 | FR-058 | D | blueprints (banco) |
-| CAP-047 | alta | 012 | FR-039 | D | notificaciones (banco) |
+| CAP-047 | alta | 012 | FR-039 | D | `ha_list_persistent_notifications`, `ha_dismiss_persistent_notification`: `tests/test_tools_persistent_notifications.py`; banco: `TestNotificaciones` (`tests/banco/test_banco_core_diagnostico.py`) |
 | CAP-048 | media-alta | 016 | FR-055 | D | flujos de reparación (unitario; banco si hay issue reproducible) |
 | CAP-049 | media-alta | 029 | FR-041 | D | estadísticas de lectura (banco) |
 | CAP-050 | media-alta | 020 | FR-069 | D | mantenimiento de estadísticas (banco) |

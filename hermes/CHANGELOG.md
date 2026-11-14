@@ -11,11 +11,8 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 #### Diagnóstico de Core (spec 012)
 
-_Tramo A (logs) hecho; la validación, los diagnósticos de integraciones y las
-notificaciones persistentes llegan con el tramo B._
-
 - **Familia nueva `core_diagnostics`** (desactivable con
-  `tool_families_disabled`), con cinco tools de logs de Core:
+  `tool_families_disabled`), con 12 tools. Cinco de logs de Core:
   - `ha_list_system_log`: el log del sistema (Ajustes > Sistema > Registros)
     tal como lo agrupa Home Assistant, con `count`, primera y última vez
     (ISO 8601) y origen; filtra por nivel y por integración (sus sub-loggers
@@ -33,18 +30,50 @@ notificaciones persistentes llegan con el tramo B._
     En dos pasos: la vista previa da el nivel actual de la integración.
   - `ha_clear_system_log`: vacía el log del sistema, en dos pasos (no toca el
     fichero de log ni el journal).
-- `ha_set_log_level` y `ha_clear_system_log` se anuncian destructivas: bajar
-  un nivel o vaciar un log oculta rastros, la misma razón por la que sus
-  acciones están en la denylist.
+- Dos de validación, que no guardan nada:
+  - `ha_validate_config`: valida disparadores, condiciones y acciones con los
+    validadores de Home Assistant, sueltos o desde una automatización o un
+    script entero (`trigger`/`triggers`, `condition`/`conditions`,
+    `action`/`actions`/`sequence`). Las demás claves salen en
+    `not_validated`: HA no las comprueba.
+  - `ha_test_condition`: evalúa una condición contra el estado actual, con
+    sus errores de plantilla si los hay.
+- Tres de diagnósticos de integraciones:
+  - `ha_list_diagnostics_handlers`: qué integraciones ofrecen diagnóstico de
+    entrada o de dispositivo.
+  - `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`: lo
+    mismo que «Descargar diagnóstico», comprobando antes que la entrada, el
+    dispositivo y el diagnóstico existen (sin descargar nada si no), con la
+    redacción de Hermes encima de la de la integración, sin la información del
+    sistema salvo que se pida, y filtrable por `keys`. Si no cabe,
+    `response_too_large` con el tamaño de cada clave, nunca JSON cortado. El
+    de dispositivo se pide a la integración dueña (`config_entry_id`).
+- Dos de notificaciones persistentes:
+  - `ha_list_persistent_notifications`: los avisos de la campana, el más
+    reciente primero, redactados y marcados como texto de terceros.
+  - `ha_dismiss_persistent_notification`: descarta uno, en dos pasos; al
+    confirmar vuelve a leer y, si ya no estaba, responde `already_dismissed`.
+- `ha_set_log_level`, `ha_clear_system_log` y
+  `ha_dismiss_persistent_notification` se anuncian destructivas: bajar un
+  nivel, vaciar un log o descartar un aviso oculta rastros, la misma razón por
+  la que sus acciones están en la denylist. `ha_validate_config` y
+  `ha_test_condition` se anuncian de solo lectura.
 - **`logger.set_default_level` entra en la denylist** de `ha_call_service`:
   por ahí pide confirmación, igual que `logger.set_level`.
-- Tabla de comandos: `system_log/list`, `logger/log_info`, `logger/log_level`
-  y `logger/integration_log_level` pasan de `deny` a `dedicated`; las
+- Tabla de comandos: nueve entradas pasan de `deny` a `dedicated`
+  (`system_log/list`, `logger/log_info`, `logger/log_level`,
+  `logger/integration_log_level`, `validate_config`, `test_condition`,
+  `diagnostics/list`, `diagnostics/get` y `persistent_notification/get`); las
   genéricas responden `use_dedicated_tool` con su tool.
-- Tema nuevo de la guía, `hermes_guide("core_diagnostics")` (alias `logs`),
-  con la receta «¿por qué falla esta integración?».
-- Probadas contra HA Core real en el banco de pruebas: las cinco, con las dos
-  que modifican comprobadas por el lector independiente.
+- Tema nuevo de la guía, `hermes_guide("core_diagnostics")` (alias `logs`,
+  `log`, `notifications` y `validation`), con la receta «¿por qué falla esta
+  integración?».
+- Probadas contra HA Core real en el banco de pruebas: las 12, con las tres
+  que modifican comprobadas por el lector independiente. El diagnóstico de
+  entrada se prueba con una entrada de `local_calendar`; el de dispositivo,
+  solo en su camino `diagnostics_not_supported`: ninguna integración sin
+  hardware ni nube lo ofrece, así que su camino feliz queda en los unitarios
+  y como prueba manual pendiente.
 
 ### Integraciones
 
