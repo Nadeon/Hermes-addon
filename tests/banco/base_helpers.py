@@ -190,6 +190,19 @@ async def _devolver(valor: Any) -> Any:
     return valor
 
 
+def _unica(grupo: BaseExceptionGroup) -> BaseException | None:
+    """La única excepción hoja de un grupo (anidado), o None si hay varias."""
+    hojas: list[BaseException] = []
+    pendientes: list[BaseException] = [grupo]
+    while pendientes:
+        exc = pendientes.pop()
+        if isinstance(exc, BaseExceptionGroup):
+            pendientes.extend(exc.exceptions)
+        else:
+            hojas.append(exc)
+    return hojas[0] if len(hojas) == 1 else None
+
+
 class BancoHelpers(unittest.IsolatedAsyncioTestCase):
     entorno: EntornoBanco
 
@@ -206,6 +219,14 @@ class BancoHelpers(unittest.IsolatedAsyncioTestCase):
                 async with hermes_conectado(self.entorno) as hermes:
                     sesion.cliente = hermes.cliente
                     yield sesion
+            except BaseExceptionGroup as grupo:
+                # El grupo de tareas del cliente MCP envuelve el fallo del test
+                # en un ExceptionGroup; se saca el único error de dentro para
+                # que el informe muestre la causa y `xfail(raises=…)` la vea.
+                unica = _unica(grupo)
+                if unica is None:
+                    raise
+                raise unica
             finally:
                 # Limpieza independiente de Hermes: si el test cayó a medias,
                 # la HA del banco queda limpia para los siguientes.
