@@ -177,6 +177,67 @@ class TestGetHistory(unittest.IsolatedAsyncioTestCase):
         self.assertIn("error", result)
 
 
+class TestLimiteDeRespuestaDelHistorial(unittest.IsolatedAsyncioTestCase):
+    """FR-006 de la 009: un historial recortado dice cuánto se dejó fuera.
+
+    Antes solo traía `truncated` y `truncated_at`: el agente no sabía si
+    faltaba un estado o 2 500, ni cuál era el tope. Ahora, con `truncated`,
+    lleva `_response_limit` (la misma forma que pone el guardián central en
+    las demás listas) y la respuesta entera, con el bloque, cabe en el tope.
+    """
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    async def _pedir(self, puntos: dict, tope: int | None = None) -> tuple[str, dict]:
+        client = make_ready_client(self.session, {})
+
+        async def fake_ws_send(payload, timeout_seconds=30):
+            return puntos
+        client.ws_send = fake_ws_send  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        if tope is None:
+            hist_mod.register(mcp, client)
+        else:
+            hist_mod.register(mcp, client, response_max_bytes=tope)
+        raw = await mcp.tools["ha_get_history"](list(puntos))
+        return raw, json.loads(raw)
+
+    async def test_recorte_por_bytes(self) -> None:
+        raw, r = await self._pedir({"light.test": _make_compressed_points(100)}, tope=2000)
+        self.assertTrue(r["truncated"])
+        self.assertIsNotNone(r["truncated_at"])
+        lim = r["_response_limit"]
+        self.assertEqual(lim["list"], "history")
+        self.assertEqual(lim["returned"], len(r["history"]["light.test"]))
+        self.assertLess(lim["returned"], 100)
+        self.assertEqual(lim["total"], 100)
+        self.assertEqual(lim["max_bytes"], 2000)
+        self.assertIn("truncated_at", lim["hint"])
+        self.assertLessEqual(len(raw.encode("utf-8")), 2000)
+
+    async def test_recorte_por_cantidad_aunque_quepa(self) -> None:
+        from hermes.tools.history import _MAX_STATES_PER_ENTITY
+        n = _MAX_STATES_PER_ENTITY + 50
+        _, r = await self._pedir(
+            {"light.test": _make_compressed_points(n)}, tope=10_000_000
+        )
+        self.assertTrue(r["truncated"])
+        lim = r["_response_limit"]
+        self.assertEqual(lim["returned"], _MAX_STATES_PER_ENTITY)
+        # `total` es lo que devolvió HA, antes del corte por cantidad.
+        self.assertEqual(lim["total"], n)
+
+    async def test_sin_recorte_la_respuesta_de_la_112(self) -> None:
+        _, r = await self._pedir({"light.test": _make_compressed_points(3)})
+        self.assertEqual(set(r), {"history", "truncated", "truncated_at"})
+        self.assertFalse(r["truncated"])
+        self.assertIsNone(r["truncated_at"])
+
+
 # ── Tests ha_get_logbook ───────────────────────────────────────────────────────
 
 class TestGetLogbook(unittest.IsolatedAsyncioTestCase):

@@ -111,6 +111,15 @@ class TestGuiaMarketplace(unittest.IsolatedAsyncioTestCase):
         # Nombres y descripciones los escriben terceros.
         self.assertIn("terceros", tema)
 
+    async def test_retirados_con_filtros_y_resumen(self) -> None:
+        """009 (FR-007, FR-013): la guía dice cómo acotar los retirados; sin
+        esto el modelo pedía la lista entera (~500 entradas) para buscar lo
+        suyo."""
+        tema = await self.guide("marketplace")
+        linea = tema[tema.index("ha_marketplace_list_removed"):]
+        for texto in ("installed_only", "limit", "by_removal_type"):
+            self.assertIn(texto, linea)
+
     async def test_index_mentions_marketplace(self) -> None:
         self.assertIn("marketplace", await self.guide())
         self.assertIn("marketplace", INSTRUCTIONS)
