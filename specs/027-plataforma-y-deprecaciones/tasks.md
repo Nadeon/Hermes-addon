@@ -186,3 +186,14 @@ B no depende del código de A salvo para citar sus tests en la documentación
 | FR-015 | T023, T024, T025, T026 |
 | FR-016 | T002, T009, T010, T016, T017, T027 |
 | FR-017 | T005a, T005b |
+
+---
+
+## Fase 3: Convergencia
+
+Revisión independiente (2026-11-14) sobre `65d6795..26af251`. Todos los FR
+(FR-001…FR-017) tienen código y test; lo que sigue son los hallazgos de la
+revisión que hay que arreglar.
+
+- [ ] T028 [BAJO] `child_errors` (y `errors`, por la misma función) recorta el mensaje a 500 caracteres ANTES de pasar `redact_secrets`: un secreto que cruza el corte deja de reconocerse y sale a medias (un JWT cortado deja ver su cabecera y parte del payload; `child_jobs`, que no se recorta, sí lo tapa entero). Arreglo: en `hermes/src/hermes/supervisor_jobs.py`, `redact_secrets(mensaje)[:JOB_ERROR_MAX_CHARS]` en `_mensaje` y en `job_errors`; test con un JWT centinela que cruce el carácter 500 en `tests/test_supervisor_jobs.py`, con control negativo per FR-002, FR-016, Constitution II (contradicts)
+- [ ] T029 [BAJO] La descripción de `call_service_auto_classify_dangerous` en `hermes/translations/en.yaml` y `es.yaml` («Turn it off only to manage the list by hand» / «Desactívalo solo para gestionar la lista a mano») da a entender que con `false` no se clasifica nada, pero `classify_saved_config` (`tools/ha.py`, llamada desde `ha_create_or_update_script` y `ha_create_or_update_automation`) marca como restringidos los guardados peligrosos con la opción en `false`; la opción solo apaga la clasificación del arranque y tras un `reload` por `ha_call_service`. Arreglo: decir eso en las dos traducciones (y en la fila de `README.md`/`README.es.md` de la que salen, sincronizadas) per FR-006, Constitution V (contradicts)
