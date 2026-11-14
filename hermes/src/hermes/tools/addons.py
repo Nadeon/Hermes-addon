@@ -13,7 +13,8 @@ Tools:
   sv_install_addon      — instala desde el store (token + async job)
   sv_uninstall_addon    — desinstala (token + async job)
   sv_update_addon       — actualiza a la última versión (token + async job)
-  sv_get_addon_logs     — logs recientes (REDACTADOS de secretos)
+  sv_get_addon_logs     — logs recientes (REDACTADOS de secretos), también
+                          de un arranque anterior (`boot`, `latest`)
   sv_get_addon_stats    — CPU / RAM / red del add-on
 
 Auto-protección: si el slug del add-on objetivo es el propio Hermes
@@ -49,6 +50,12 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools._common import tam_json
+from hermes.tools._logs import (
+    ArgumentoInvalido,
+    comprobar_latest,
+    normalizar_boot,
+    ruta_de_log,
+)
 from hermes.tools._validation import InvalidIdentifier, validate_slug
 
 logger = structlog.get_logger(__name__)
@@ -932,7 +939,12 @@ def register(
             return {"error": str(exc)}
 
     @mcp.tool()
-    async def sv_get_addon_logs(slug: str, lines: int = 100) -> object:
+    async def sv_get_addon_logs(
+        slug: str,
+        lines: int = 100,
+        boot: int | str | None = None,
+        latest: bool = False,
+    ) -> object:
         """Lee los logs recientes de un add-on.
 
         Los logs se REDACTAN automáticamente antes de ser devueltos:
@@ -949,6 +961,12 @@ def register(
         Args:
             slug: Identificador del add-on.
             lines: Número de líneas a devolver (default 100, máx 1000).
+            boot: Opcional (1.2.0): arranque a leer, como desplazamiento
+                entero (0 = el actual, -1 = el anterior) o un id de
+                `sv_list_boots`. Sin `boot` ni `latest`, la petición y la
+                respuesta son las de siempre.
+            latest: Opcional (1.2.0): solo las líneas desde el último arranque
+                del contenedor del add-on. No se combina con `boot`.
 
         Returns:
             {"slug": "...", "lines_requested": N, "redacted": bool,
@@ -964,13 +982,27 @@ def register(
             no tiene más. Si el log no cabe en `response_max_bytes`, se
             devuelven sus ÚLTIMAS líneas que caben, con `truncated: true`,
             `lines_returned` y una pista.
+            Con `boot` o `latest`, la respuesta lleva además `route` (la
+            plantilla de la ruta) y `boot` o `latest`. Un `boot` inválido, o
+            `boot` con `latest`, devuelve {"error": "invalid_argument",
+            "field", "detail"} sin llamar al Supervisor.
         """
         if (err := _bad_slug(slug)):
             return err
+        # Spec 013 (FR-007): `boot` y `latest` son opcionales y, sin ellos, la
+        # petición y la respuesta son las de la 1.1.2 (FR-020 de la 008). La
+        # validación es la de las tools de logs del sistema (`tools/_logs.py`).
+        try:
+            boot_n = normalizar_boot(boot)
+            comprobar_latest(boot_n, latest)
+        except ArgumentoInvalido as exc:
+            return exc.respuesta()
+        ruta, plantilla = ruta_de_log(f"/addons/{slug}", "/addons/{app}", boot_n, latest)
+        por_arranque = boot_n is not None or latest
         lines = min(max(1, lines), 1000)
         try:
             raw = await ha_client.sv_request_text(
-                f"/addons/{slug}/logs",
+                ruta,
                 params={"lines": str(lines)},
             )
         except HAConnectionError as exc:
@@ -990,6 +1022,9 @@ def register(
             # hace nada si la opción está desactivada.
             redacted = redact_network(redacted)
         was_redacted = redacted != raw
+        # La plantilla de la ruta, nunca el id de arranque, y solo si se pidió
+        # un arranque: sin `boot` ni `latest` el evento es el de antes.
+        extra_log: dict[str, Any] = {"route": plantilla} if por_arranque else {}
         logger.info(
             "sv_get_addon_logs",
             slug=slug,
@@ -998,18 +1033,22 @@ def register(
             redacted=was_redacted,
             secrets_redacted=secrets_redacted,
             network_redacted=network_redacted,
+            **extra_log,
         )
-        return _ultimas_lineas_que_caben(
-            {
-                "slug": slug,
-                "lines_requested": lines,
-                "redacted": was_redacted,
-                "secrets_redacted": secrets_redacted,
-                "network_redacted": network_redacted,
-            },
-            redacted,
-            response_max_bytes,
-        )
+        respuesta: dict[str, Any] = {
+            "slug": slug,
+            "lines_requested": lines,
+            "redacted": was_redacted,
+            "secrets_redacted": secrets_redacted,
+            "network_redacted": network_redacted,
+        }
+        if por_arranque:
+            respuesta["route"] = plantilla
+            if boot_n is not None:
+                respuesta["boot"] = boot_n
+            if latest:
+                respuesta["latest"] = True
+        return _ultimas_lineas_que_caben(respuesta, redacted, response_max_bytes)
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:

@@ -737,7 +737,21 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+    # Spec 013 (contracts/tools.md): logs del sistema, familia
+    # `system_diagnostics`. Solo leen, son idempotentes y no salen a internet.
+    "sv_get_core_logs": ("R-I-", "Get core logs (Supervisor)"),
+    "sv_get_supervisor_logs": ("R-I-", "Get supervisor logs (Supervisor)"),
+    "sv_get_plugin_logs": ("R-I-", "Get plugin logs (Supervisor)"),
+    "sv_get_host_logs": ("R-I-", "Get host logs (Supervisor)"),
+    "sv_list_host_log_identifiers": ("R-I-", "List host log identifiers (Supervisor)"),
+    "sv_list_boots": ("R-I-", "List boots (Supervisor)"),
 }
+
+# Las tools de la spec 013 en este tramo (logs, CAP-081).
+_LOGS_013 = (
+    "sv_get_core_logs", "sv_get_supervisor_logs", "sv_get_plugin_logs",
+    "sv_get_host_logs", "sv_list_host_log_identifiers", "sv_list_boots",
+)
 
 
 def _hint_code(ann) -> str:
@@ -870,6 +884,15 @@ class TestToolTitles:
                                   "installed_only", "limit"]),
             "required": esperado["ha_marketplace_list_removed"]["required"],
         }
+        # Tercera diferencia permitida, de la spec 013 (FR-007; research R-3):
+        # `sv_get_addon_logs` gana `boot` y `latest`, OPCIONALES. Sin ellos la
+        # petición y la respuesta son las de la 1.1.2 (lo comprueba
+        # `test_tools_supervisor.TestLogsDeAddonPorArranque`).
+        esperado["sv_get_addon_logs"] = {
+            "properties": sorted([*esperado["sv_get_addon_logs"]["properties"],
+                                  "boot", "latest"]),
+            "required": esperado["sv_get_addon_logs"]["required"],
+        }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
         distintos = []
@@ -938,7 +961,7 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert "generic_commands" in nuevas
+        assert {"generic_commands", "system_diagnostics"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1026,6 +1049,45 @@ class TestRegistroPorFamilias:
             _do_register(["familia_inventada"])
         with pytest.raises(ValueError, match="base"):
             _do_register(["base"])
+
+
+# ── Spec 013: logs del sistema (FR-021, FR-022; T011) ─────────────────────────
+
+
+class TestLogsDelSistema013:
+    """Las seis tools de logs se registran por defecto, solo leen y no piden
+    token; con `system_diagnostics` apagada no existe ninguna, y
+    `sv_get_addon_logs` (familia `supervisor`) conserva `boot` y `latest`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _LOGS_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _LOGS_013}
+        assert props["sv_get_core_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_supervisor_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_plugin_logs"] == {"plugin", "lines", "boot", "latest"}
+        assert props["sv_get_host_logs"] == {"lines", "boot", "identifier"}
+        assert props["sv_list_host_log_identifiers"] == {"search"}
+        assert props["sv_list_boots"] == set()
+        assert tools["sv_get_plugin_logs"].parameters.get("required") == ["plugin"]
+
+    def test_con_la_familia_apagada(self):
+        tools = _real_registry(["system_diagnostics"])
+        assert [n for n in _LOGS_013 if n in tools] == []
+        esquema = tools["sv_get_addon_logs"].parameters
+        assert {"boot", "latest"} <= set(esquema["properties"])
+        assert sorted(esquema.get("required", [])) == ["slug"]
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

@@ -132,6 +132,16 @@ class TestCatalogo(unittest.TestCase):
         self.assertTrue(familia.desactivable)
         self.assertEqual(familia.modulos, ("generic_commands",))
 
+    def test_system_diagnostics_es_de_la_1_2_0(self) -> None:
+        # Spec 013, FR-021 (research R-1): las tools de logs del sistema van
+        # en una familia propia de la 1.2.0 para que apagarla devuelva la
+        # lista de la 1.1.2. El módulo `host_system` lo añade el tramo 2.
+        familia = FAMILIAS["system_diagnostics"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_logs",))
+        self.assertEqual(familia_de_modulo("system_logs"), "system_diagnostics")
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

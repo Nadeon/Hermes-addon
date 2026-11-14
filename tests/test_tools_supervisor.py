@@ -1297,6 +1297,94 @@ class TestQueRedactoElLog(unittest.IsolatedAsyncioTestCase):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 013 — FR-007: sv_get_addon_logs con `boot` y `latest`
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestLogsDeAddonPorArranque(unittest.IsolatedAsyncioTestCase):
+    """`boot` y `latest` son opcionales; sin ellos, la petición y la respuesta
+    son EXACTAMENTE las de antes (FR-007, FR-022; FR-020 de la 008).
+
+    Control negativo (T013 g): añadir `route` a la respuesta siempre → cae
+    `test_sin_boot_ni_latest_identica_a_la_1_1_2`.
+    """
+
+    _HERMES = "a1b2c3d4_hermes"
+
+    def setUp(self) -> None:
+        from tests.fixtures.supervisor_diagnostico import SupervisorSimulado
+        self.sv = SupervisorSimulado()
+        mcp = DummyMCP()
+        addons_mod.register(mcp, self.sv)
+        self.tools = mcp.tools
+
+    async def test_sin_boot_ni_latest_identica_a_la_1_1_2(self) -> None:
+        from tests.fixtures.supervisor_diagnostico import log_con_centinelas
+        self.sv.texto("/addons/core_ficticio/logs", log_con_centinelas())
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", lines=50)
+        # Petición y respuesta capturadas ANTES de añadir `boot` y `latest`.
+        self.assertEqual(self.sv.llamadas, [{
+            "metodo": "GET", "ruta": "/addons/core_ficticio/logs",
+            "params": {"lines": "50"}, "timeout": 60.0, "texto": True}])
+        self.assertEqual(r, {
+            "slug": "core_ficticio", "lines_requested": 50, "redacted": True,
+            "secrets_redacted": True, "network_redacted": False,
+            "logs": (
+                "2026-11-14 12:00:00 core: arrancando\n"
+                "2026-11-14 12:00:01 core: password: ***REDACTED***\n"
+                "2026-11-14 12:00:02 core: Authorization: ***REDACTED*** ***JWT_REDACTED***\n"
+                "2026-11-14 12:00:03 core: GET /api?token=***REDACTED***\n"
+                "2026-11-14 12:00:04 core: listo\n"
+            ),
+        })
+
+    async def test_latest(self) -> None:
+        self.sv.texto("/addons/core_ficticio/logs/latest", "x\n")
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", latest=True)
+        self.assertEqual([c["ruta"] for c in self.sv.llamadas],
+                         ["/addons/core_ficticio/logs/latest"])
+        self.assertEqual(self.sv.llamadas[0]["params"], {"lines": "100"})
+        self.assertEqual(r["route"], "/addons/{app}/logs/latest")
+        self.assertIs(r["latest"], True)
+        self.assertNotIn("boot", r)
+        self.assertEqual(r["slug"], "core_ficticio")
+        self.assertEqual(r["logs"], "x\n")
+
+    async def test_boot(self) -> None:
+        for boot in (-1, "-1"):
+            with self.subTest(boot=boot):
+                self.sv.llamadas.clear()
+                self.sv.texto("/addons/core_ficticio/logs/boots/-1", "x\n")
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=boot)
+                self.assertEqual([c["ruta"] for c in self.sv.llamadas],
+                                 ["/addons/core_ficticio/logs/boots/-1"])
+                self.assertEqual(r["route"], "/addons/{app}/logs/boots/{bootid}")
+                self.assertEqual(r["boot"], -1)
+                self.assertNotIn("latest", r)
+
+    async def test_invalidos_sin_llamada(self) -> None:
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=-1, latest=True)
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "latest"))
+        for boot in ("abc", 1000, "../x", 1.5):
+            with self.subTest(boot=boot):
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=boot)
+                self.assertEqual((r["error"], r["field"]), ("invalid_argument", "boot"))
+        self.assertEqual(self.sv.llamadas, [])
+
+    async def test_hermes_con_boot_sigue_tapando_la_red(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        try:
+            self.sv.texto(f"/addons/{self._HERMES}/logs/boots/-1",
+                          "conexión desde 192.0.2.10\n")
+            r = await self.tools["sv_get_addon_logs"](self._HERMES, boot=-1)
+        finally:
+            configure_network_redaction(False, "")
+        self.assertNotIn("192.0.2.10", r["logs"])
+        self.assertIs(r["network_redacted"], True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 009 — FR-010: sv_update_addon no promete actualizar al propio Hermes
 # ══════════════════════════════════════════════════════════════════════════════
 
