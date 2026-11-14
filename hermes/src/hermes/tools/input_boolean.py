@@ -104,8 +104,6 @@ def register(mcp: object, ha_client: HAClient) -> None:
             )
             return {"error": f"config validation: {exc}"}
 
-        if not confirmation_token:  # CONTROL NEGATIVO T030: se revierte
-            await ha_client.ws_collection_create(DOMAIN, normalized_config)
         return await collection_update_flow(
             ha_client,
             DOMAIN,

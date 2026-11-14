@@ -164,9 +164,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
         if not await entity_exists(ha_client, eid):
             logger.warning("ha_increment_counter_not_found", entity_id=eid)
             return not_found_response(eid)
-        if amount is None:  # CONTROL NEGATIVO T030: se revierte
+        if amount is None:
             return await ha_client.call_service(
-                DOMAIN, "decrement", {"entity_id": eid}
+                DOMAIN, "increment", {"entity_id": eid}
             )
         return await _bulk_adjust(eid, amount)
 
