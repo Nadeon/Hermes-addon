@@ -13,7 +13,7 @@ recortó).
   "job_id": "<uuid>",
   "name": "backup_manager_full_backup",
   "done": true,
-  "success": true,
+  "success": false,
   "errors": [],
   "child_errors": [
     {"job": "backup_store_apps", "message": "Can't create backup for <slug>"}
@@ -29,10 +29,10 @@ Descripción (texto que el cliente lee; en el idioma de la actual):
 - `done` es `true` también cuando el job falla: mira `success`.
 - `success` es `false` si hay **cualquier** entrada en `errors`: el Supervisor
   no distingue avisos de errores fatales.
-- Los errores de los sub-jobs **no** cambian `success`: van en
-  `child_errors`. Por ejemplo, una app que no se pudo guardar en un backup:
-  el backup existe (`reference`) pero le falta esa app; compruébalo con
-  `sv_get_backup`.
+- Los errores de los sub-jobs van en `child_errors` y **también** dan
+  `success: false`, aunque `errors` esté vacío (D-1; la 1.1.2 daba `true`).
+  Por ejemplo, una app que no se pudo guardar en un backup: el backup existe
+  (`reference`) pero le falta esa app; compruébalo con `sv_get_backup`.
 - Con errores, `reference` puede apuntar a algo que sí se creó.
 
 ## `ha_remove_device_from_config_entry(device_id, config_entry_id, confirmation_token?)` — destructiva (sin cambios)

@@ -61,11 +61,19 @@ en [research.md](research.md)):
   (`child_jobs[].errors`) y no suben al padre: por ejemplo, una app que no se
   pudo guardar en un backup completo deja el error en el sub-job
   `backup_store_apps` y el backup termina y existe. Hoy `sv_get_job_status`
-  no mira los sub-jobs y da `success: true`. Documentarlo sin más dejaría una
-  descripción que, aun siendo cierta, esconde un fallo real; la 027 añade un
-  campo `child_errors` (aditivo: `success` no cambia) y lo explica en la
-  descripción y en la guía (research R-1). Si `success` debe tener en cuenta
-  los sub-jobs queda como duda D-1.
+  no mira los sub-jobs y da `success: true`, y eso miente. La 027 añade un
+  campo `child_errors` y lo explica en la descripción y en la guía (research
+  R-1).
+- P (D-1, **decidida por el supervisor del programa, vinculante**): ¿cuentan
+  los errores de los sub-jobs para `success`? → R: **sí**. Con
+  `child_errors` (o con sub-jobs que no se pudieron revisar por el tope),
+  `success` pasa a `false`. Es un **arreglo**, no un cambio de contrato: es
+  coherente con la 009, donde cualquier error ya da `success: false`, y la
+  1.1.2 daba `true` a un backup al que le faltaba una app. Y el sondeo de los
+  safety backups (`fs_write.py`, código de la 009) cuenta esos errores como
+  fallo, para fallar cerrado (principio III): no se escribe nada sin un
+  backup válido. La anotación de la retención (`safety_retention.py`) no
+  cambia: el backup existe y debe poder podarse.
 - P: ¿Qué es «preparar» el socket Unix y la `/v2`? → R: **detectar y avisar,
   nunca usar**. Al arrancar, Hermes mira si el Supervisor le ha inyectado
   `SUPERVISOR_SOCKET` (hoy solo se inyecta en Core) y si la opción de
@@ -127,7 +135,8 @@ terminó bien, y si hubo errores que no lo hicieron fallar del todo.
 
 **Prueba independiente**: con un Supervisor simulado que devuelve un job
 terminado sin errores propios y con un error en un sub-job, la tool devuelve
-`success: true` (como hoy) y el error del sub-job en `child_errors`, redactado.
+`success: false` (la 1.1.2 daba `true`: D-1) y el error del sub-job en
+`child_errors`, redactado.
 
 **Escenarios de aceptación**:
 
@@ -136,12 +145,17 @@ terminado sin errores propios y con un error en un sub-job, la tool devuelve
    motivo, como hoy.
 2. **Dado** un backup completo en el que una app no se pudo guardar (error en
    el sub-job), **cuando** consulta el job, **entonces** recibe
-   `success: true`, `child_errors` con el nombre del sub-job y el mensaje, y la
-   descripción le dice que el backup existe pero puede estar incompleto.
+   `success: false`, `errors: []`, `child_errors` con el nombre del sub-job y
+   el mensaje, y la descripción le dice que el backup puede existir
+   (`reference`) pero estar incompleto.
 3. **Dado** un job sin sub-jobs, **cuando** lo consulta, **entonces** recibe
    `child_errors: []` y el resto de campos idénticos a la 1.1.2.
 4. **Dado** un mensaje de error con un secreto, **cuando** lo consulta,
    **entonces** el secreto sale tapado en `errors` y en `child_errors`.
+5. **Dado** un safety backup cuyo job termina sin errores propios y con un
+   error en un sub-job, **cuando** una escritura `fs_*` sondea ese job,
+   **entonces** la escritura se rechaza con `safety_backup_job_failed` y el
+   mensaje del sub-job, y no se escribe nada (D-1, principio III).
 
 ### Historia 2 — Nada se rompe hoy y lo que caduca avisa (Prioridad: P1)
 
@@ -267,17 +281,25 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   cualquier entrada en `errors` del job consultado, porque el Supervisor
   2026.11.0 no distingue avisos de errores fatales (sus errores llevan tipo,
   mensaje, fase, `error_key` y `extra_fields`, sin gravedad); que `done` es
-  `true` también cuando falla; y que, con errores, `reference` puede apuntar a
-  un backup que sí se creó. El cálculo de `success` no cambia (FR-092,
-  CAP-025).
+  `true` también cuando falla; que los errores de los sub-jobs también dan
+  `success: false` (D-1); y que, con errores, `reference` puede apuntar a un
+  backup que sí se creó (FR-092, CAP-025).
 - **FR-002**: `sv_get_job_status` añade `child_errors`: los errores de los
   sub-jobs (`child_jobs`, recorridos en profundidad) como `{job, message}`,
   con el mensaje recortado a 500 caracteres y pasado por `redact_secrets`,
   hasta 20 entradas y 5 niveles, con `child_errors_truncated: true` si se
-  pasa. No cambia `success` ni ningún otro campo. La descripción dice que un
-  error en un sub-job (por ejemplo, una app que no se pudo guardar en un
-  backup) no hace fallar el job y aparece ahí (FR-092, CAP-025; aditivo según
-  FR-020).
+  pasa. Con `child_errors` no vacío o `child_errors_truncated: true`, el job
+  terminado da `success: false` (D-1: arreglo, coherente con la 009, porque
+  la 1.1.2 daba `true` a un backup incompleto); el resto de campos no cambia.
+  La descripción dice que un error en un sub-job (por ejemplo, una app que no
+  se pudo guardar en un backup) hace fallar el job aunque `errors` esté vacío
+  y aparece en `child_errors` (FR-092, CAP-025).
+- **FR-017**: El sondeo del safety backup (`fs_write.py`, `_evaluar_job`)
+  cuenta los errores de los sub-jobs (y un recorrido recortado por el tope)
+  como fallo: la escritura se rechaza con `safety_backup_job_failed` y los
+  mensajes de los sub-jobs, y no se toma ese backup como válido (D-1,
+  principio III). La anotación de la retención (`safety_retention.py`) no
+  cambia: ese backup existe y tiene que poder podarse (FR-092, CAP-025).
 
 #### CIMD (FR-093 de la 008, CAP-026)
 
@@ -383,14 +405,16 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   de ruta (FR-023, FR-024).
 - **FR-016**: Cada FR tiene su test de regresión; cada comportamiento nuevo con
   riesgo (FR-002, FR-009, FR-011), su control negativo anotado; los mensajes
-  de `child_errors` pasan un test con un centinela de secreto; los ficheros
+  de `child_errors` pasan un test con un centinela de secreto; FR-017 tiene
+  también su control negativo; los ficheros
   nuevos usan solo marcadores genéricos (FR-018, FR-019, FR-021).
 
 ### Entidades clave
 
 - **Job del Supervisor**: `uuid`, `name`, `done`, `progress`, `stage`,
   `reference`, `errors` (de ese job) y `child_jobs` (cada uno con la misma
-  forma). Los errores de un sub-job no suben al padre.
+  forma). Los errores de un sub-job no suben al padre en el Supervisor;
+  Hermes los sube él (D-1).
 - **Plataforma del Supervisor vista por Hermes**: transporte (hoy siempre TCP),
   socket ofrecido (sí/no) y API `/v2` activada (sí/no/desconocido).
 - **Traducción de opciones**: fichero por idioma con `configuration`, una
@@ -406,9 +430,9 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
 - Cambiar el valor por defecto de `oauth_cimd_allowed_hosts` (D-09 de la 008).
 - Añadir `outputSchema` a tools, quitarlo de `ping` y `hermes_guide` o
   adoptar la vía nativa de MCP para confirmar (D-10 de la 008; dudas D-3 y D-5).
-- Que `success` de `sv_get_job_status` tenga en cuenta los sub-jobs, y que el
-  sondeo de los safety backups (`fs_write.py`, `safety_retention.py`) mire
-  los sub-jobs (duda D-1).
+- Que la anotación de la retención de safety backups (`safety_retention.py`)
+  descarte los backups con errores en sub-jobs: existen y deben podarse
+  (D-1 solo afecta a `success` y al sondeo de `fs_write.py`).
 - Renombrar tools o argumentos `*_addon*` a `*_app*`, o cambiar «add-on» en el
   resto de textos de Hermes.
 - Un inventario de la `/v2` en `scripts/inventario/` (duda D-4).
@@ -418,8 +442,9 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
 No bloquean la 027; las decide el mantenedor (detalle en
 [checklists/requirements.md](checklists/requirements.md)).
 
-- **D-1**: ¿`success` de `sv_get_job_status` (y el sondeo de los safety
-  backups) debe contar los errores de los sub-jobs?
+- **D-1** (**cerrada** por el supervisor del programa): `success` de
+  `sv_get_job_status` y el sondeo de los safety backups cuentan los errores
+  de los sub-jobs (FR-002, FR-017).
 - **D-2**: Versión exacta de la retirada de `ha_remove_device_from_config_entry`
   (D-08 de la 008; propuesta: 1.3.0, como tarde antes de HA 2027.9).
 - **D-3**: `outputSchema` inferido de `ping` y `hermes_guide`: mantenerlo,
@@ -452,8 +477,9 @@ No bloquean la 027; las decide el mantenedor (detalle en
   la de antes de la 027 en nombres, argumentos y anotaciones, y regenerar la
   tabla no cambia ni un byte.
 - **SC-002**: En el 100 % de los casos de prueba con errores en sub-jobs,
-  `child_errors` los recoge, y `success` es el mismo que daba la 1.1.2 en
-  todos los casos de prueba existentes.
+  `child_errors` los recoge y `success` es `false`; en los casos de prueba
+  existentes (sin sub-jobs con errores), `success` es el mismo que daba la
+  1.1.2; y un safety backup con errores en sub-jobs no deja escribir.
 - **SC-003**: En las cuatro combinaciones de socket y `/v2` el evento dice la
   verdad, la URL base y las rutas no cambian, y con `/supervisor/info` roto el
   arranque sigue en menos de 10 s de más.

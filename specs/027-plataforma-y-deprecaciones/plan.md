@@ -6,8 +6,9 @@
 
 Sin tools nuevas. La 027 deja la 1.2.0 preparada para lo que HA y el
 Supervisor van a cambiar y documenta lo que solo se puede decidir más
-adelante: `sv_get_job_status` explica qué significa `success` y enseña los
-errores de los sub-jobs (`child_errors`), que hoy se pierden; la tool
+adelante: `sv_get_job_status` explica qué significa `success`, enseña los
+errores de los sub-jobs (`child_errors`), que hoy se pierden, y los cuenta
+como fallo, igual que el sondeo de los safety backups (D-1); la tool
 deprecada `ha_remove_device_from_config_entry` da un error claro el día que HA
 retire su comando; tests fijan la forma de los dispositivos de HA 2027.8 y
 2027.10 y que nada deprecado se retira en la 1.2.0; Hermes detecta al arrancar
@@ -54,15 +55,15 @@ de texto; 1 módulo nuevo (`supervisor_platform.py`); 1 función nueva en
 
 | Principio | Cumplimiento | Estado |
 |---|---|---|
-| I. Seguridad primero | Nada se activa: el socket y la `/v2` solo se detectan (FR-011); la tool deprecada no cambia de comando ni reintenta con otro al fallar (FR-009); `success` no cambia (FR-002). Ninguna tool nueva, ninguna entrada de la tabla cambia, la denylist no cambia. | OK |
+| I. Seguridad primero | Nada se activa: el socket y la `/v2` solo se detectan (FR-011); la tool deprecada no cambia de comando ni reintenta con otro al fallar (FR-009); `success` deja de dar por bueno un job con sub-jobs fallidos (FR-002, D-1). Ninguna tool nueva, ninguna entrada de la tabla cambia, la denylist no cambia. | OK |
 | II. Secretos | `child_errors` pasa por `redact_secrets` y el recorte de `job_errors`, con test de centinela (FR-016); el evento del arranque solo lleva booleanos, nunca la ruta del socket ni el texto del error (FR-011). | OK |
-| III. Fail-closed | La detección es solo informativa y un fallo da `null`, nunca «no hay `/v2`» por omisión (FR-011); `child_errors` ignora entradas raras sin inventar errores ni ocultarlos en `errors` (FR-002); `unknown_command` se reconoce por el código, nunca por el texto (FR-009). Traducciones: un fichero mal formado lo ignora el Supervisor sin efecto en el arranque, y el test impide publicarlo. | OK |
+| III. Fail-closed | La detección es solo informativa y un fallo da `null`, nunca «no hay `/v2`» por omisión (FR-011); `child_errors` ignora entradas raras sin inventar errores ni ocultarlos en `errors` (FR-002); un error en un sub-job, o un recorrido recortado, da `success: false` y hace fallar el sondeo del safety backup: no se escribe sin un backup válido (FR-017, D-1); `unknown_command` se reconoce por el código, nunca por el texto (FR-009). Traducciones: un fichero mal formado lo ignora el Supervisor sin efecto en el arranque, y el test impide publicarlo. | OK |
 | IV. Dos pasos, token atado | Sin cambios en ningún flujo de confirmación; la tool deprecada gasta su token como fallido al recibir `unknown_command` y no lo reutiliza para otro comando. Los dos pasos siguen siendo la única vía (FR-004). | OK |
 | V. Nombre y descripción | Es el objetivo de FR-001 y FR-007: la descripción de `sv_get_job_status` dice lo que de verdad significa `success`, y deja de esconder los sub-jobs; las tools de apps usan el término del Supervisor sin cambiar de nombre; ninguna anotación cambia (test de FR-008 y FR-014). | OK |
 | VI. Lo que no se puede probar | El socket para apps y la `/v2` estable no existen: se prueban contra el comportamiento que documenta el código del Supervisor 2026.11.0 con un cliente simulado, citando el fichero (research R-2, R-3); la retirada de `remove_config_entry` y la forma de los dispositivos de 2027.8, igual con HA simulado (R-4). La comprobación en una instalación real queda en quickstart como manual opcional. | OK |
-| VII. Control negativo | Uno por comportamiento con riesgo: `child_errors` (quitar el recorrido), `command_removed_in_ha` (quitar la traducción), detección (forzar `api_v2_enabled` a `False` ante un fallo), guarda del SDK (emitir un aviso deprecado de prueba), traducciones (borrar una clave). Enumerados en T003, T005, T007, T009, T011, T015 y T018 y anotados en el commit. | OK |
+| VII. Control negativo | Uno por comportamiento con riesgo: `child_errors` (quitar el recorrido), `success` con sub-jobs (no mirar `child_errors`), sondeo del safety backup (no mirar los sub-jobs), `command_removed_in_ha` (quitar la traducción), detección (forzar `api_v2_enabled` a `False` ante un fallo), guarda del SDK (emitir un aviso deprecado de prueba), traducciones (borrar una clave). Enumerados en T003, T005, T005b, T007, T009, T011, T015 y T018 y anotados en el commit. | OK |
 | VIII. Privacidad | Fixtures con `<slug>`, `<uuid>`, `light.salon`, centinelas; traducciones sin hostnames ni ejemplos reales (los de `DOCS.md` ya son genéricos: `homeassistant.tailXXXX.ts.net`, `claude.ai`); revisión del diff al cerrar cada tramo. | OK |
-| IX. Cambios mínimos | Solo lo que piden las CAP; las dos ampliaciones (`child_errors`, `command_removed_in_ha`) son aditivas y necesarias para que las descripciones no mientan o para preparar lo anunciado. Los «add-on» del resto de textos no se tocan; lo que no es de la 027 va a dudas o al informe (research R-9). | OK |
+| IX. Cambios mínimos | Solo lo que piden las CAP; las dos ampliaciones (`child_errors`, `command_removed_in_ha`) son aditivas y necesarias, y el cambio de `success` con sub-jobs es un arreglo (D-1), necesario para que las descripciones no mientan o para preparar lo anunciado. Los «add-on» del resto de textos no se tocan; lo que no es de la 027 va a dudas o al informe (research R-9). | OK |
 | X. Comentarios en español | Comentarios y mensajes del log en español; nombres de eventos en inglés. Las descripciones al cliente que se editan (`sv_get_job_status`, las doce de apps, la guía) están hoy en español: las líneas nuevas siguen el idioma de su texto y traducirlas enteras no es de la 027 (IX); queda como duda D-6. Los errores nuevos (`command_removed_in_ha`) y `en.yaml`, en inglés; `es.yaml`, en español. | OK, con duda D-6 |
 | XI. Versionado | Sin subir versión (la 1.2.0 la fija la 009); sección propia en `## [1.2.0]` del CHANGELOG. | OK |
 | Flujo, puerta 4 | Suite en verde en el CI al cerrar cada tramo; la 027 no añade nada al banco. | OK |
@@ -74,7 +75,7 @@ Tras el diseño: sin cambios. Desviación justificada abajo.
 | Qué | 008 | 027 | Por qué |
 |---|---|---|---|
 | Tramos | 1 (S) | 2 cortos | Código y textos en ficheros distintos; juntos llenan el contexto de un agente (research R-10) |
-| FR-092 | Documentar «cualquier `errors` → `false`» | Documentarlo y añadir `child_errors` | Los errores de los sub-jobs no suben al padre; sin el campo, la descripción escondería fallos reales (research R-1) |
+| FR-092 | Documentar «cualquier `errors` → `false`» | Documentarlo, añadir `child_errors` y contarlos en `success` y en el sondeo del safety backup | Los errores de los sub-jobs no suben al padre; sin esto, `success: true` mentía con un backup incompleto (research R-1; D-1, decisión del supervisor) |
 | FR-097 | Documentar lo bloqueado | Documentar y detectar al arrancar | Decisión del supervisor del programa: preparar con detección y avisos sin activar nada (research R-2, R-3) |
 | CAP-029 | «traducciones de las opciones» | Crearlas (no existían) | research R-5 |
 
@@ -88,8 +89,14 @@ Tras el diseño: sin cambios. Desviación justificada abajo.
    recursión; reutiliza `JOB_ERROR_MAX_CHARS` y `redact_secrets`.
    `job_errors` no cambia.
 2. **`tools/backups.py`, `sv_get_job_status`**: añade `child_errors` (y
-   `child_errors_truncated` si hace falta) al resultado; `success` igual. Nueva
-   descripción (FR-001, contrato).
+   `child_errors_truncated` si hace falta) al resultado; `success` es `false`
+   si cualquiera de los dos dice que hubo (o pudo haber) errores en sub-jobs,
+   y el seguimiento local (`pending_jobs.json`) lo marca `failed`. Nueva
+   descripción (FR-001, FR-002, contrato; D-1).
+   **`fs_write.py`, `_evaluar_job`** (sondeo del safety backup): cuenta los
+   errores de los sub-jobs como fallo, con su mensaje `"<sub-job>: <mensaje>"`,
+   y un recorrido recortado también (FR-017, D-1). `safety_retention.py` no
+   cambia.
 3. **`tools/registry_device.py`, `ha_remove_device_from_config_entry`**: en el
    `except HAConnectionError` del segundo paso, si `exc.code ==
    "unknown_command"`, devolver `command_removed_in_ha` (data-model) tras
@@ -213,6 +220,7 @@ specs/008-cobertura-total/plan.md      # B (matriz)
 | FR-013 | FR-096, FR-097 | 030–033 | B | hoja de ruta («Deprecaciones con fecha») |
 | FR-014 | FR-020 | — | A | test de registro y de esquemas existentes; regenerar la tabla |
 | FR-015 | FR-023, FR-024 | — | B | CHANGELOG, hoja de ruta, DOCS, README, matriz |
+| FR-017 | FR-092 | 025 | A | `TestSondeoSubJobs` (`tests/test_supervisor_jobs.py`) |
 | FR-016 | FR-018, FR-019, FR-021 | — | A y B | centinela en `TestChildJobErrors`; controles negativos en los commits |
 
 ## Seguimiento de complejidad

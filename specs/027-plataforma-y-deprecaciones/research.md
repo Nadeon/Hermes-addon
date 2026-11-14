@@ -20,8 +20,9 @@ del Supervisor son relativas a la raíz de su repositorio.
   a Core cuando `api.supports_unix_socket`.
 - **Corrección 2** (FR-092 de la 008): «cualquier entrada en `errors` da
   `success: false`» solo vale para los errores del propio job; los de sus
-  sub-jobs no suben (R-1). La 027 lo documenta y lo hace visible sin cambiar
-  `success`.
+  sub-jobs no suben (R-1). La 027 lo documenta, lo hace visible
+  (`child_errors`) y, por decisión del supervisor (D-1), los cuenta en
+  `success` y en el sondeo del safety backup.
 - **Corrección 3** (CAP-029): `hermes/translations/` no existe; las
   «traducciones de las opciones» hay que crearlas (R-5).
 
@@ -50,20 +51,26 @@ del Supervisor son relativas a la raíz de su repositorio.
 - `job_errors` lo usan también el sondeo del safety backup (`fs_write.py`) y la
   retención (`safety_retention.py`).
 
-**Decisión**: documentar en la descripción y en la guía lo que dice FR-092 de
-la 008 (sin gravedad, cualquier error del job → `false`, `done` también al
-fallar) **y** añadir `child_errors`, aditivo, con los errores de los sub-jobs.
-`success` no cambia (FR-020 de la 008: mismo significado), `job_errors` no
-cambia (el safety backup y la retención siguen igual) y la nueva función vive
-en `supervisor_jobs.py` junto a la existente.
+**Decisión** (revisada con D-1, decisión vinculante del supervisor del
+programa): documentar en la descripción y en la guía lo que dice FR-092 de la
+008 (sin gravedad, cualquier error → `false`, `done` también al fallar),
+añadir `child_errors` con los errores de los sub-jobs **y contarlos en
+`success`**: un backup completo con una app fallida daba `success: true`, y
+eso miente. Es un arreglo, coherente con la 009 (cualquier error da
+`false`), no un cambio de contrato. El sondeo del safety backup
+(`fs_write.py`, `_evaluar_job`) también los cuenta como fallo (principio III:
+no se escribe sin un backup válido). `job_errors` no cambia y la retención
+(`safety_retention.py`) tampoco: el backup existe y tiene que poder podarse.
+La nueva función vive en `supervisor_jobs.py` junto a la existente.
 
 **Alternativas descartadas**:
 
 - Solo documentar «no se miran los sub-jobs»: la descripción sería cierta
   pero dejaría al agente sin forma de ver que a un backup le falta una app.
-- Contar los errores de los sub-jobs en `success`: cambia el significado de
-  un campo existente (FR-020 de la 008) y convertiría en «fallido» un backup
-  que existe y se puede restaurar. Queda como duda D-1.
+- No contar los errores de los sub-jobs en `success` (propuesta inicial de
+  la 027): dejaba `success: true` en un backup incompleto. El supervisor lo
+  descartó (D-1): un backup al que le falta una app no es un backup correcto,
+  aunque exista y se pueda restaurar en parte.
 
 **Topes**: 20 entradas y 5 niveles (un backup completo con muchas apps tiene
 un sub-job por app dentro de `backup_store_apps`; 20 errores bastan para

@@ -32,7 +32,7 @@
 ## Notas
 
 - Decisiones tomadas sin el mantenedor (en «Clarificaciones» de la spec y en
-  research.md): `child_errors` aditivo sin cambiar `success` (R-1); detectar
+  research.md): `child_errors` (R-1), que cuenta en `success` y en el sondeo del safety backup por decisión del supervisor (D-1); detectar
   socket y `/v2` sin usarlos (R-2, R-3); `unknown_command` → error claro sin
   reintentar (R-4); crear las traducciones que no existían (R-5); textos
   editados en su idioma actual (D-6); guarda de deprecaciones del SDK que
@@ -45,11 +45,12 @@
 
 ## Dudas para el final (para el mantenedor)
 
-- **D-1**: Los errores de los sub-jobs del Supervisor no suben al job padre
-  (research R-1). `success` sigue mirando solo los del job; `child_errors` los
-  enseña. ¿Debe `success` contarlos, y el sondeo de los safety backups
-  (`fs_write.py`, `safety_retention.py`) también? Contarlos convertiría en
-  «fallido» un backup que existe y se puede restaurar.
+- **D-1** (**cerrada**, decisión vinculante del supervisor del programa): los
+  errores de los sub-jobs no suben al job padre (research R-1), y Hermes los
+  cuenta: `sv_get_job_status` da `success: false` con `child_errors`
+  (arreglo, coherente con la 009) y el sondeo de los safety backups de
+  `fs_write.py` los trata como fallo (principio III). La retención
+  (`safety_retention.py`) no cambia: el backup existe y debe podarse.
 - **D-2**: Versión exacta de la retirada de `ha_remove_device_from_config_entry`
   (D-08 de la 008). Propuesta: la 1.3.0, con los alias `ha_hacs_*`, siempre
   que salga antes de HA 2027.9; si no, una 1.2.x anterior a esa versión de HA.

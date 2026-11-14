@@ -17,8 +17,9 @@ Qué mirar:
 
 1. **Jobs** (`tests/test_supervisor_jobs.py` y `tests/test_tools_supervisor.py`,
    `TestJobStatusSubJobs`): un job
-   con error en un sub-job da `success: true` y `child_errors` con ese error;
-   un centinela en el mensaje sale tapado.
+   con error en un sub-job da `success: false` y `child_errors` con ese error
+   (D-1); un centinela en el mensaje sale tapado; y el sondeo del safety
+   backup (`TestSondeoSubJobs`) rechaza la escritura.
 2. **Plataforma** (`tests/test_supervisor_platform.py`): las cuatro
    combinaciones de socket y `/v2`, y los fallos de `/supervisor/info`, dan el
    evento correcto; la URL base del cliente no cambia y ninguna petición va a

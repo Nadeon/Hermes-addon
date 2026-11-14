@@ -42,7 +42,7 @@ separado (uno o varios commits; el tramo no se cierra con la suite en rojo).
 
 | Tramo | Tareas | Resultado al cerrar |
 |---|---|---|
-| **A** — código y tests | **T001–T016** | `child_job_errors` y `child_errors` en `sv_get_job_status` con su descripción; `command_removed_in_ha` en `ha_remove_device_from_config_entry`; `supervisor_platform.py` cableado en el arranque; tests de deprecaciones (lo deprecado sigue, forma de los dispositivos de 2027.8/2027.10, CIMD por defecto) y guardas del SDK; tabla y lista de tools sin cambios |
+| **A** — código y tests | **T001–T016** | `child_job_errors` y `child_errors` en `sv_get_job_status` con su descripción, contados en `success` y en el sondeo del safety backup (D-1); `command_removed_in_ha` en `ha_remove_device_from_config_entry`; `supervisor_platform.py` cableado en el arranque; tests de deprecaciones (lo deprecado sigue, forma de los dispositivos de 2027.8/2027.10, CIMD por defecto) y guardas del SDK; tabla y lista de tools sin cambios |
 | **B** — textos, traducciones y documentación | **T017–T027** | `translations/en.yaml` y `es.yaml`; descripciones de las tools de apps; guía (jobs y apps); `DOCS.md` y README; hoja de ruta (deprecaciones, CIMD, `outputSchema` y vía nativa, socket y `/v2`, estado de la 027); CHANGELOG; matriz de la 008 |
 
 B no depende del código de A salvo para citar sus tests en la documentación
@@ -60,8 +60,10 @@ B no depende del código de A salvo para citar sus tests en la documentación
 
 - [ ] T002 [P] [US1] Tests en `tests/test_supervisor_jobs.py` (nuevo), clase `TestChildJobErrors`, de `child_job_errors` según data-model: sin `child_jobs` → `([], False)`; un hijo con un error → `[{job, message}]`; tres niveles anidados en orden de profundidad; error sin `message` → `"unknown error"`; mensaje de 2000 caracteres → 500; centinela `token=centinela-027` tapado; `child_jobs` que no es lista, entradas que no son objetos y `errors` que no es lista → ignorados sin inventar nada; 25 errores → 20 y `True`; 7 niveles → se para en 5 y `True`; `name` que no es texto → `job: null`; y `job_errors` con la misma entrada sigue dando solo los del nivel superior (FR-002, FR-016)
 - [ ] T003 [US1] `hermes/src/hermes/supervisor_jobs.py`: `CHILD_ERRORS_MAX = 20`, `CHILD_JOBS_MAX_DEPTH = 5` y `child_job_errors(data)` con recorrido iterativo (pila) y comentario del porqué (research R-1: los errores de un sub-job no suben al padre). `job_errors` sin cambios. T002 en verde. **Control negativo**: devolver siempre `([], False)` → T002 en rojo; anotarlo en el test y en el commit (FR-002)
-- [ ] T004 [P] [US1] Tests en `tests/test_tools_supervisor.py`, clase `TestJobStatusSubJobs`, con el `MockHAClient` del fichero: job terminado sin errores propios y con un error en un sub-job → `success: true`, `errors: []` y `child_errors` con el sub-job; job con error propio → `success: false` como antes; job sin `child_jobs` → `child_errors: []` y el resto de campos idénticos a la respuesta actual; job en curso → `success: null`; recorte → `child_errors_truncated: true` (y ausente si no hay recorte); centinela tapado; y la descripción contiene: que `done` es `true` también al fallar, que cualquier entrada en `errors` da `success: false`, que el Supervisor no distingue avisos de fatales, que los errores de sub-jobs van en `child_errors` sin cambiar `success`, y `sv_get_backup`. Los tests existentes de `sv_get_job_status` no se tocan (FR-001, FR-002, SC-002)
-- [ ] T005 [US1] `hermes/src/hermes/tools/backups.py`, `sv_get_job_status`: añadir `child_errors` (y `child_errors_truncated`) con `child_job_errors`; nueva descripción según contracts/tools.md, en el idioma de la actual. T004 en verde. **Control negativo**: quitar la línea que añade `child_errors` → T004 en rojo; anotarlo (FR-001, FR-002)
+- [ ] T004 [P] [US1] Tests en `tests/test_tools_supervisor.py`, clase `TestJobStatusSubJobs`, con el `MockHAClient` del fichero: job terminado sin errores propios y con un error en un sub-job → `success: false` (D-1), `errors: []` y `child_errors` con el sub-job, y el seguimiento local lo marca `failed`; job con error propio → `success: false` como antes; job sin `child_jobs` → `child_errors: []`, `success: true` y el resto de campos idénticos a la respuesta actual; job en curso → `success: null`; recorte → `child_errors_truncated: true` y `success: false` (y ausente si no hay recorte); centinela tapado; y la descripción contiene: que `done` es `true` también al fallar, que cualquier entrada en `errors` da `success: false`, que el Supervisor no distingue avisos de fatales, que los errores de sub-jobs van en `child_errors` y también dan `success: false`, y `sv_get_backup`. Los tests existentes de `sv_get_job_status` no se tocan (FR-001, FR-002, SC-002)
+- [ ] T005 [US1] `hermes/src/hermes/tools/backups.py`, `sv_get_job_status`: añadir `child_errors` (y `child_errors_truncated`) con `child_job_errors`, y contarlos en `success` y en el seguimiento local (D-1, arreglo); nueva descripción según contracts/tools.md, en el idioma de la actual. T004 en verde. **Control negativo**: quitar la línea que añade `child_errors` → T004 en rojo; calcular `success` sin los sub-jobs → T004 en rojo; anotarlo (FR-001, FR-002)
+- [ ] T005a [P] [US1] Tests en `tests/test_supervisor_jobs.py`, clase `TestSondeoSubJobs`, de `fs_write._evaluar_job` y del camino completo de `maybe_trigger_safety_backup` con un job pendiente: job terminado sin errores propios y con un error en un sub-job → `("fallo", ["<sub-job>: <mensaje>"])` y la escritura se rechaza con `safety_backup_job_failed` (sin marca de backup correcto); recorte → fallo con la línea del recorte; sin sub-jobs ni errores → `("ok", [])` como antes; centinela tapado en el mensaje (FR-017, D-1)
+- [ ] T005b [US1] `hermes/src/hermes/fs_write.py`, `_evaluar_job`: sumar los errores de `child_job_errors` (y el recorte) a los del job, con comentario del porqué (principio III: no se escribe sin un backup válido). `safety_retention.py` sin cambios. T005a en verde. **Control negativo**: no mirar los sub-jobs → T005a en rojo; anotarlo (FR-017)
 
 ### Deprecaciones (US2)
 
@@ -84,7 +86,7 @@ B no depende del código de A salvo para citar sus tests en la documentación
 
 ### Cierre del tramo A
 
-- [ ] T016 Cierre: con la configuración por defecto se registran las mismas tools que en T001 (mismo número y nombres; los tests de registro y de esquemas de la 1.1.2 sin tocar); regenerar la tabla con `scripts/inventario/generar_tabla.py` y comprobar `git diff --exit-code hermes/src/hermes/command_table.py`; suite con exactamente los 6 fallos conocidos; revisión del diff buscando datos personales; commit(s) del tramo con los controles negativos de T003, T005, T007, T009, T011 y T015 en el mensaje (FR-014, FR-016, SC-001, SC-006, SC-007)
+- [ ] T016 Cierre: con la configuración por defecto se registran las mismas tools que en T001 (mismo número y nombres; los tests de registro y de esquemas de la 1.1.2 sin tocar); regenerar la tabla con `scripts/inventario/generar_tabla.py` y comprobar `git diff --exit-code hermes/src/hermes/command_table.py`; suite con exactamente los 6 fallos conocidos; revisión del diff buscando datos personales; commit(s) del tramo con los controles negativos de T003, T005, T005b, T007, T009, T011 y T015 en el mensaje (FR-014, FR-016, SC-001, SC-006, SC-007)
 
 ---
 
@@ -106,7 +108,7 @@ B no depende del código de A salvo para citar sus tests en la documentación
 
 - [ ] T023 [US4] `hermes/DOCS.md`, `README.md` y `README.es.md`: en las descripciones de opciones, «app» donde dicen «add-on» hablando del objeto (no en el nombre del repositorio ni en los enlaces) y una línea sobre las traducciones de la página de configuración; los dos README sincronizados (FR-007, FR-015)
 - [ ] T024 [US5] `docs/HOJA-DE-RUTA.md`: tabla «Deprecaciones con fecha» según research R-8, con los tests de A; hosts CIMD conocidos y cómo averiguar otro (research R-7) junto a la entrada de `oauth_cimd_allowed_hosts`; resumen de `outputSchema` y de la vía nativa de MCP con la recomendación (research R-6); en «1.3.0 y posteriores», apartado del socket Unix y la `/v2` con los pasos de research R-2 y la tabla de rutas de research R-3, y la nota de que la deriva solo vigila la V1; fecha de retirada de los alias (1.3.0) y de la tool deprecada (como tarde antes de HA 2027.9, D-08); estado de la 027 en la tabla del programa («hecha», con lo que hace) y los puntos de la 027 en la lista de lo que ahora es del programa (FR-003, FR-004, FR-005, FR-008, FR-012, FR-013, FR-015)
-- [ ] T025 [US5] `hermes/CHANGELOG.md`: sección `### Plataforma y deprecaciones` dentro de `## [1.2.0]`: `child_errors` y la descripción de `sv_get_job_status`; `command_removed_in_ha`; detección del socket y de la `/v2` al arrancar (evento y avisos); traducciones de las opciones y término «app»; nada se retira en la 1.2.0 (alias hasta la 1.3.0; la tool deprecada sigue); guarda de deprecaciones del SDK (FR-015)
+- [ ] T025 [US5] `hermes/CHANGELOG.md`: sección `### Plataforma y deprecaciones` dentro de `## [1.2.0]`: `child_errors` y la descripción de `sv_get_job_status`, `success: false` con errores en sub-jobs y el sondeo del safety backup que los cuenta (D-1, arreglo); `command_removed_in_ha`; detección del socket y de la `/v2` al arrancar (evento y avisos); traducciones de las opciones y término «app»; nada se retira en la 1.2.0 (alias hasta la 1.3.0; la tool deprecada sigue); guarda de deprecaciones del SDK (FR-015)
 - [ ] T026 [US5] `specs/008-cobertura-total/plan.md`, matriz de trazabilidad: filas CAP-025, CAP-026 y CAP-028…CAP-033 con vía, tests (clases y ficheros de A y B) y entradas de la hoja de ruta, como las de la 011 (FR-015, SC-008)
 
 ### Cierre del tramo B
@@ -118,7 +120,7 @@ B no depende del código de A salvo para citar sus tests en la documentación
 ## Dependencias y orden
 
 - T001 antes de todo.
-- Tramo A: T002→T003, T004→T005 (T005 necesita T003), T006→T007, T008→T009,
+- Tramo A: T002→T003, T004→T005 (T005 necesita T003), T005a→T005b (necesita T003), T006→T007, T008→T009,
   T010→T011, T012→T013 (T013 necesita T011), T014→T015; los bloques son
   independientes entre sí. T016 al final.
 - Tramo B: T017→T018, T019→T020, T021→T022; T023 en paralelo; T024–T026 tras
@@ -150,3 +152,4 @@ B no depende del código de A salvo para citar sus tests en la documentación
 | FR-014 | T016, T027 |
 | FR-015 | T023, T024, T025, T026 |
 | FR-016 | T002, T009, T010, T016, T017, T027 |
+| FR-017 | T005a, T005b |

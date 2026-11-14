@@ -19,6 +19,13 @@ Sale de `supervisor_jobs.child_job_errors(data) -> tuple[list[dict], bool]`.
 - `child_jobs` que no es lista, entradas que no son objetos o `errors` que no
   es lista: se ignoran; nunca se inventa un error.
 - `job_errors` (los del job consultado) no cambia.
+- `sv_get_job_status` (D-1): con el job terminado, `success` es `false` si
+  `errors` o `child_errors` no están vacíos o si `child_errors_truncated`; el
+  seguimiento local lo marca `failed` en los mismos casos.
+- Sondeo del safety backup (`fs_write._evaluar_job`, FR-017): los mismos
+  casos dan `("fallo", mensajes)`, con los de los sub-jobs como
+  `"<job>: <message>"` (`"sub-job"` si `job` es `null`) y, si se recortó,
+  una línea final que lo dice.
 
 ## Plataforma del Supervisor (FR-011)
 
