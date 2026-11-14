@@ -55,7 +55,9 @@ Enseña al usuario lo que dice el `preview` antes de confirmar algo grave
   ("homeassistant","restart"): sv_restart_core comprueba antes que la
   configuración esté validada.
 - `ha_save_lovelace_dashboard` REEMPLAZA el dashboard entero: lee antes con
-  `ha_get_lovelace_dashboard`, modifica el documento y guárdalo completo.
+  `ha_get_lovelace_dashboard`, modifica el documento y guárdalo completo. Para
+  cambiar una sola vista, pasa `view_index` y `view` (sin `config`): el resto
+  del dashboard se conserva tal cual.
 - Para quitar una integración, `ha_disable_config_entry` es reversible;
   `ha_delete_config_entry` borra también sus entidades y dispositivos.
 - Edita automatizaciones con `ha_create_or_update_automation`, no escribiendo
@@ -143,6 +145,12 @@ para el detalle de un área. Temas disponibles:
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
 (preview + `confirmation_token`). Ver `hermes_guide("security")`.
+
+Listas: las tools de lista nuevas de la 1.2.0 (y las genéricas) devuelven
+`{..., "count", "items", "truncated"}`: `count` es cuántos `items` vienen y
+`truncated: true` dice que la lista se cortó por el final (si la cortó el tope
+de respuesta, `_response_limit` dice cuántos había). Las tools anteriores a la
+1.2.0 conservan su forma.
 """
 
 _GUIDE: dict[str, str] = {
@@ -160,7 +168,10 @@ El núcleo del día a día.
   puede no caber.
 - `ha_call_service(domain, service, service_data)` — ejecuta una acción.
 - `ha_call_service_response(...)` — para servicios que devuelven datos
-  (return_response). No admite servicios de la denylist.
+  (return_response). Los de la denylist (p. ej. `conversation.process`) y los
+  que alcanzan un script restringido no se ejecutan a la primera: la respuesta
+  trae `error`, `preview` y `confirmation_token`; repite la misma llamada con
+  el `confirmation_token` para ejecutarlo y recibir su respuesta.
 
 Ejemplos:
 - Encender una luz al 80 %:
@@ -420,6 +431,17 @@ ubicación. Los anteriores a 1.1.0 no se podan: bórralos con `sv_delete_backup`
 `save_dashboard` reemplaza TODA la config del dashboard: lee primero con
 `get_lovelace_dashboard`, modifica el documento y guárdalo completo (si no,
 borras el resto de tarjetas).
+
+Para cambiar una sola vista (lo más seguro en un dashboard grande): lee la
+vista con `ha_get_lovelace_dashboard(url_path, view_index=N)`, modifícala y
+guárdala con `ha_save_lovelace_dashboard(url_path, view_index=N, view=...)`,
+sin `config`. El servidor sustituye solo esa vista del dashboard actual y
+conserva las demás vistas y las claves de nivel superior; la vista previa lo
+detalla (`view_before`, `view_after`, `views_kept`, `top_level_keys_kept`). Si
+trae `omit_on_confirm`, confirma con `url_path`, `view_index` y el token, sin
+reenviar `view`; si no, reenvía todo. Si el dashboard cambia entre la vista
+previa y la confirmación, se rechaza con `dashboard_changed` sin guardar nada:
+pide otra vista previa. Solo sustituye vistas que existen (no añade ni borra).
 """,
     "marketplace": """\
 # Marketplace (antes HACS), de solo lectura

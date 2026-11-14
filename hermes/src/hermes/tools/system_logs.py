@@ -39,7 +39,7 @@ from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.logging_setup import network_redaction_enabled, redact_network
 from hermes.security import redact_secrets, redact_structure
-from hermes.tools._common import ajustar_lista_a_bytes
+from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista
 from hermes.tools._logs import (
     ArgumentoInvalido,
     acotar_lineas,
@@ -308,7 +308,8 @@ def register(
 
         Returns:
             {"count": N, "truncated": bool, "items": ["kernel", ...]}, plus
-            `search` when given.
+            `search` when given; `count` is how many items come back and, when
+            cut, `total` says how many there were.
         """
         tool = "sv_list_host_log_identifiers"
         plantilla = "/host/logs/identifiers"
@@ -330,14 +331,17 @@ def register(
         items = redact_structure(items)
         logger.info(_EVENTO, tool=tool, route=plantilla, count=len(items), outcome="ok")
 
+        # Sobre común de la 1.2.0 (spec 018, FR-012): `count` es cuántos
+        # `items` vienen; si se cortó, `total` dice cuántos había, como el
+        # tope central (`recortar_a_bytes`).
         def construir(kept: list[str], cut: bool) -> dict[str, Any]:
-            out: dict[str, Any] = {"count": len(items), "truncated": cut, "items": kept}
-            if cut:
-                out["returned"] = len(kept)
-                out["hint"] = "Use search to narrow the list."
+            cabecera: dict[str, Any] = {}
             if search:
-                out["search"] = search
-            return out
+                cabecera["search"] = search
+            if cut:
+                cabecera["total"] = len(items)
+                cabecera["hint"] = "Use search to narrow the list."
+            return sobre_de_lista(kept, truncated=cut, **cabecera)
 
         return ajustar_lista_a_bytes(items, construir, response_max_bytes)
 
@@ -349,7 +353,8 @@ def register(
 
         Returns:
             {"count": N, "truncated": bool,
-             "items": [{"offset": 0, "boot_id": "<32 hex>"}, ...]}
+             "items": [{"offset": 0, "boot_id": "<32 hex>"}, ...]}; when cut,
+            `total` says how many there were.
         """
         tool = "sv_list_boots"
         plantilla = "/host/logs/boots"
@@ -380,10 +385,12 @@ def register(
         items = redact_structure(items)
         logger.info(_EVENTO, tool=tool, route=plantilla, count=len(items), outcome="ok")
 
+        # Sobre común de la 1.2.0 (spec 018, FR-012): `count` es cuántos
+        # `items` vienen; si se cortó, `total` dice cuántos había, como el
+        # tope central (`recortar_a_bytes`).
         def construir(kept: list[dict[str, Any]], cut: bool) -> dict[str, Any]:
-            out: dict[str, Any] = {"count": len(items), "truncated": cut, "items": kept}
             if cut:
-                out["returned"] = len(kept)
-            return out
+                return sobre_de_lista(kept, truncated=True, total=len(items))
+            return sobre_de_lista(kept)
 
         return ajustar_lista_a_bytes(items, construir, response_max_bytes)

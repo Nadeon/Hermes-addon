@@ -428,22 +428,22 @@ class TestDestructiveToolsAskBeforeActing:
 
     Al escribir este test había dos que la rompían. Una se corrigió
     —`ha_disable_config_entry`, que deja una integración fuera de servicio— y la
-    otra queda documentada abajo como excepción deliberada.
+    otra, `ha_call_service_response`, fue excepción deliberada hasta la spec
+    018, que le dio `confirmation_token` (ver abajo).
 
     El invariante inverso también se vigila: una herramienta que pide token es,
     por definición, consecuente, y debe declararse como tal. Si no, el cliente
     la trata como inofensiva y solo descubre lo contrario al llamarla.
     """
 
-    # Única excepción admitida, y por qué.
+    # Excepciones admitidas: ninguna.
     #
-    # `ha_call_service_response` invoca servicios que devuelven datos
-    # (`calendar.get_events`, `weather.get_forecasts`…). Va marcada como
-    # destructiva porque el servicio lo elige quien llama y hay que asumir lo
-    # peor, pero su guarda no es el token: es la denylist, que la rechaza de
-    # plano ante cualquier servicio peligroso. Añadirle el token obligaría a dos
-    # pasos para leer el tiempo.
-    SIN_TOKEN_A_PROPOSITO = {"ha_call_service_response"}
+    # Hasta la 1.1.2 lo era `ha_call_service_response`, que rechazaba de plano
+    # la denylist sin flujo de confirmación. Desde la spec 018 (FR-008, FR-016)
+    # acepta `confirmation_token` para la denylist y las entidades
+    # restringidas, así que la excepción deja de hacer falta. Fuera de ellas
+    # sigue respondiendo a la primera: leer el tiempo no pide dos pasos.
+    SIN_TOKEN_A_PROPOSITO: set[str] = set()
 
     @staticmethod
     def _firmas() -> dict:
@@ -489,8 +489,9 @@ class TestDestructiveToolsAskBeforeActing:
             "piden confirmación pero se anuncian inofensivas: " + str(incumplen))
 
     def test_the_documented_exception_is_still_only_one(self):
-        """Si mañana hay dos, que haya que justificar la segunda a mano."""
-        assert len(self.SIN_TOKEN_A_PROPOSITO) == 1
+        """Ya no queda ninguna (spec 018): si mañana aparece una, que haya
+        que justificarla a mano."""
+        assert len(self.SIN_TOKEN_A_PROPOSITO) == 0
 
 
 # ── title (spec 003, FR-040) e hints intactos (FR-043) ───────────────────────
@@ -913,6 +914,25 @@ class TestToolTitles:
             "properties": sorted([*esperado["sv_get_addon_logs"]["properties"],
                                   "boot", "latest"]),
             "required": esperado["sv_get_addon_logs"]["required"],
+        }
+        # Cuarta diferencia permitida, de la spec 018 (FR-016 de la 018,
+        # FR-063 de la 008): `ha_save_lovelace_dashboard` gana `view_index` y
+        # `view`, OPCIONALES, para guardar una sola vista. Sin ellos el
+        # guardado completo es el de la 1.1.2; `required` no cambia.
+        esperado["ha_save_lovelace_dashboard"] = {
+            "properties": sorted([*esperado["ha_save_lovelace_dashboard"]["properties"],
+                                  "view", "view_index"]),
+            "required": esperado["ha_save_lovelace_dashboard"]["required"],
+        }
+        # Quinta diferencia permitida, de la spec 018 (FR-016 de la 018,
+        # FR-064 de la 008): `ha_call_service_response` gana
+        # `confirmation_token`, OPCIONAL, para confirmar la denylist y las
+        # entidades restringidas. Sin él responde como en la 1.1.2 (el mismo
+        # `error`, con el token añadido); `required` no cambia.
+        esperado["ha_call_service_response"] = {
+            "properties": sorted([*esperado["ha_call_service_response"]["properties"],
+                                  "confirmation_token"]),
+            "required": esperado["ha_call_service_response"]["required"],
         }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
@@ -1437,3 +1457,18 @@ class TestArgumentosCambiadosAnteLaValidacionDelSdk:
             args = meta.validate_arguments({destino: "ficticio", "config": {"a": 1}})
             assert args["config"] == {"a": 1}, nombre
             assert meta.validate_arguments({destino: "ficticio"})["config"] is None, nombre
+
+    def test_view_se_preparsea_como_config(self):
+        """Spec 018 (FR-016): `view` de `ha_save_lovelace_dashboard` es
+        `dict | None` como `config`: un objeto mandado como texto JSON llega
+        como dict y omitido llega None (se puede omitir al confirmar)."""
+        meta = _real_registry()["ha_save_lovelace_dashboard"].fn_metadata
+        base = {"url_path": "panel-prueba", "view_index": 1}
+        args = meta.validate_arguments({**base, "view": '{"title": "Cocina"}'})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments({**base, "view": {"title": "Cocina"}})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments(base)
+        assert args["view"] is None
+        assert args["view_index"] == 1
+        assert meta.validate_arguments({"url_path": "panel-prueba"})["view_index"] is None

@@ -92,6 +92,44 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 _Pendiente: la añade la sub-feature que lo implemente._
 
+### Mejoras de tools existentes
+
+- **Guardar una sola vista de un dashboard**: `ha_save_lovelace_dashboard`
+  acepta `view_index` (un entero JSON: `true`, `"1"` o `1.0` se rechazan,
+  no se convierten) y `view` (opcionales). Con ellos sustituye solo esa
+  vista del dashboard actual y conserva exactamente las demás vistas y las
+  claves de nivel superior, así que en un dashboard grande ya no hay que
+  reescribirlo entero (ni arriesgarse a perder tarjetas). Va en dos pasos: la
+  vista previa dice qué vista cambia (`view_before`, `view_after`,
+  `view_unchanged`), qué vistas se conservan (`views_kept`) y qué claves
+  (`top_level_keys_kept`), y al confirmar no hace falta reenviar `view` (se
+  guarda junto al token, como `config`). El token queda atado también al
+  estado del dashboard: si cambia entre la vista previa y la confirmación, se
+  rechaza con `dashboard_changed` y no se guarda nada. Mezclarlo con `config`
+  o `remove_top_level_keys` es `invalid_argument`. Sin los argumentos nuevos,
+  el guardado completo es exactamente el de la 1.1.2.
+- **Servicios con respuesta de la denylist, con confirmación**:
+  `ha_call_service_response` acepta `confirmation_token` (opcional). Los
+  servicios de la denylist (por ejemplo `conversation.process`) y los que
+  alcanzan un script o una automatización restringidos ya no quedan
+  bloqueados sin remedio: sin token siguen sin ejecutarse y devuelven el mismo
+  `error` que en la 1.1.2 (`service_in_denylist` o `entity_restricted`), y
+  además el `confirmation_token` y una vista previa como la de
+  `ha_call_service`; repitiendo la llamada con el token se ejecutan una vez y
+  devuelven su respuesta. Como toda vista previa con token, esa primera
+  respuesta ya no va marcada `isError`. La respuesta no se guarda junto al token. Fuera de
+  la denylist, todo igual que antes. Como defensa en profundidad, la capa de
+  cliente que llama a HA aplica también la denylist a los servicios con
+  respuesta, y solo la levanta esta tool tras validar el token.
+- **Sobre común de las listas nuevas**: toda tool de lista nueva de la 1.2.0
+  (y las genéricas) devuelve `{..., "count", "items", "truncated"}`; un test
+  lo exige a cada `ha_list_*` y `sv_list_*` nueva. Las tools de lista
+  anteriores conservan su forma, para no romper a sus clientes. Las cuatro
+  listas del diagnóstico del Supervisor (`sv_list_host_log_identifiers`,
+  `sv_list_boots`, `sv_list_host_services` y `sv_list_datadisk_candidates`)
+  lo usan: `count` es cuántos `items` vienen y, si la lista se cortó,
+  `total` dice cuántos había.
+
 ### Política y genéricas
 
 - **Cuatro tools genéricas para lo que ninguna otra cubre**:

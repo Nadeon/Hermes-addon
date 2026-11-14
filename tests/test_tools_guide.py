@@ -391,11 +391,13 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "filesystem": "b5902d6d0ff666c1",
         "generic_commands": "906066a916e93727",
         "helpers": "685d974fff03f37b",
-        "lovelace": "f2eaa1782992327b",
+        # La 018 cambia `lovelace` (guardado por vista) y `services`
+        # (`ha_call_service_response` con token); su CHANGELOG lo dice.
+        "lovelace": "38d00048b136b460",
         "marketplace": "f83ec233a87ad95b",
         "registries": "42894b4111cb8c80",
         "security": "157ee929e7db08ae",
-        "services": "3070fd96727eca8b",
+        "services": "e7b494a2e8ad587e",
         "workflows": "53b81454a6708b9a",
     }
 
@@ -475,6 +477,65 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
             with self.subTest(tema=tema):
                 real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
                 self.assertEqual(real, huella)
+
+
+class TestGuiaGuardadoPorVista(unittest.TestCase):
+    """Spec 018 (FR-007, FR-016): la guía y las instrucciones explican el
+    guardado de una sola vista; si siguieran diciendo solo que
+    `ha_save_lovelace_dashboard` reemplaza el dashboard entero, el cliente
+    seguiría reescribiendo dashboards grandes (y perdiendo tarjetas).
+
+    Control negativo comprobado: con `guide.py` anterior a la 018 caen los dos.
+    """
+
+    def test_tema_lovelace(self) -> None:
+        texto = _GUIDE["lovelace"]
+        self.assertIn("view_index", texto)
+        self.assertIn("dashboard_changed", texto)
+        self.assertIn("omit_on_confirm", texto)
+
+    def test_instrucciones_mencionan_una_sola_vista(self) -> None:
+        self.assertIn("view_index", INSTRUCTIONS)
+        self.assertIn("una sola vista", INSTRUCTIONS)
+
+
+
+class TestGuiaRespuestaConfirmadaYListas(unittest.IsolatedAsyncioTestCase):
+    """Spec 018 (FR-011, FR-013): el índice describe el sobre común de las
+    listas nuevas, y el tema `services` dice que `ha_call_service_response`
+    confirma la denylist con token. Si la guía siguiera diciendo que no la
+    admite, el cliente no intentaría el segundo paso (principio V).
+
+    Control negativo comprobado: con `guide.py` anterior al tramo 2 de la 018
+    caen los tres.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_indice_describe_el_sobre(self) -> None:
+        texto = await self.guide()
+        for palabra in ('"count"', '"items"', '"truncated"', "_response_limit", "1.2.0"):
+            self.assertIn(palabra, texto)
+        self.assertIn("conservan su forma", texto)
+
+    def test_tema_services(self) -> None:
+        texto = _GUIDE["services"]
+        # La viñeta de `ha_call_service_response` (hasta la línea en blanco),
+        # no el tema entero: «confirmation_token» ya salía en otra línea.
+        ini = texto.index("- `ha_call_service_response(")
+        fin = texto.find("\n\n", ini)
+        vineta = texto[ini:fin]
+        for palabra in ("confirmation_token", "denylist", "conversation.process"):
+            self.assertIn(palabra, vineta)
+
+    def test_nadie_dice_ya_que_no_la_admite(self) -> None:
+        for nombre, texto in [("INSTRUCTIONS", INSTRUCTIONS), *_GUIDE.items()]:
+            with self.subTest(texto=nombre):
+                self.assertNotIn("No admite servicios de la denylist", texto)
+                self.assertNotIn("no admite servicios de la denylist", texto)
 
 
 if __name__ == "__main__":

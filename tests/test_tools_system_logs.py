@@ -20,6 +20,7 @@ Controles negativos (T013), con recuentos en el commit del tramo:
 
 from __future__ import annotations
 
+import json
 import unittest
 from typing import Any
 
@@ -397,6 +398,26 @@ class TestArranques(_Base):
 
 class TestRecorte(_Base):
     max_bytes = 2048
+
+    async def test_listas_cortadas_con_el_sobre(self) -> None:
+        """Sobre común (spec 018, FR-012), al integrar la 018: cortada, la
+        lista dice en `count` cuántos `items` vienen y en `total` cuántos
+        había. Control negativo: volver a `count=len(items)` con `returned`
+        (la forma de la 013 antes de integrar la 018) → caen las dos."""
+        ids = {"identifiers": [f"ident_{i:04d}" for i in range(400)]}
+        boots = {"boots": {str(-i): f"{i:032x}" for i in range(200)}}
+        self.sv.respuesta("GET", "/host/logs/identifiers", ids)
+        self.sv.respuesta("GET", "/host/logs/boots", boots)
+        for tool, total in (("sv_list_host_log_identifiers", 400), ("sv_list_boots", 200)):
+            with self.subTest(tool=tool):
+                r = await self.tools[tool]()
+                self.assertIs(r["truncated"], True)
+                self.assertEqual(r["count"], len(r["items"]))
+                self.assertLess(r["count"], total)
+                self.assertEqual(r["total"], total)
+                self.assertNotIn("returned", r)
+                self.assertLessEqual(len(json.dumps(r, ensure_ascii=False).encode()),
+                                     self.max_bytes)
 
     async def test_log_grande_devuelve_las_ultimas_lineas(self) -> None:
         self.sv.texto("/core/logs", log_numerado(400))

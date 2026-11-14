@@ -40,7 +40,7 @@ from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.identifiers import InvalidIdentifier, validate_path_segment
 from hermes.security import redact_secrets, redact_structure
-from hermes.tools._common import ajustar_lista_a_bytes, tam_json
+from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista, tam_json
 from hermes.tools._logs import ArgumentoInvalido
 
 logger = structlog.get_logger(__name__)
@@ -268,7 +268,8 @@ def register(
         Returns:
             {"count": N, "truncated": bool,
              "items": [{"name", "description", "state"}, ...]}, plus `state`
-            when given.
+            when given; `count` is how many items come back and, when cut,
+            `total` says how many there were.
         """
         tool, plantilla = "sv_list_host_services", "/host/services"
         data, error = await _leer(tool, plantilla, plantilla)
@@ -283,14 +284,17 @@ def register(
         items = redact_structure(items)
         logger.info(_EVENTO, tool=tool, route=plantilla, count=len(items), outcome="ok")
 
+        # Sobre común de la 1.2.0 (spec 018, FR-012): `count` es cuántos
+        # `items` vienen; si se cortó, `total` dice cuántos había, como el
+        # tope central (`recortar_a_bytes`).
         def construir(kept: list[Any], cut: bool) -> dict[str, Any]:
-            out: dict[str, Any] = {"count": len(items), "truncated": cut, "items": kept}
-            if cut:
-                out["returned"] = len(kept)
-                out["hint"] = "Use state to narrow the list."
+            cabecera: dict[str, Any] = {}
             if state is not None:
-                out["state"] = state
-            return out
+                cabecera["state"] = state
+            if cut:
+                cabecera["total"] = len(items)
+                cabecera["hint"] = "Use state to narrow the list."
+            return sobre_de_lista(kept, truncated=cut, **cabecera)
 
         return ajustar_lista_a_bytes(items, construir, response_max_bytes)
 
@@ -394,7 +398,8 @@ def register(
         Returns:
             {"count": N, "truncated": bool, "devices": ["<disk id>", ...],
              "items": [{"name", "vendor", "model", "serial", "size", "id",
-             "dev_path"}, ...]}; without Home Assistant OS, {"error", "hint"}.
+             "dev_path"}, ...]}, plus `total` when cut; without Home
+            Assistant OS, {"error", "hint"}.
         """
         tool, plantilla = "sv_list_datadisk_candidates", "/os/datadisk/list"
         data, error = await _leer(tool, plantilla, plantilla)
@@ -407,12 +412,13 @@ def register(
         devices = redact_structure(data.get("devices") or [])
         logger.info(_EVENTO, tool=tool, route=plantilla, count=len(items), outcome="ok")
 
+        # Sobre común de la 1.2.0 (spec 018, FR-012): `count` es cuántos
+        # `items` vienen; si se cortó, `total` dice cuántos había, como el
+        # tope central (`recortar_a_bytes`).
         def construir(kept: list[Any], cut: bool) -> dict[str, Any]:
-            out: dict[str, Any] = {
-                "count": len(items), "truncated": cut, "devices": devices, "items": kept,
-            }
             if cut:
-                out["returned"] = len(kept)
-            return out
+                return sobre_de_lista(kept, truncated=True, devices=devices,
+                                      total=len(items))
+            return sobre_de_lista(kept, devices=devices)
 
         return ajustar_lista_a_bytes(items, construir, response_max_bytes)

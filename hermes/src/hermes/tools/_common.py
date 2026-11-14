@@ -23,6 +23,33 @@ def tam_json(valor: Any) -> int:
     return len(json.dumps(valor, ensure_ascii=False).encode("utf-8"))
 
 
+_CLAVES_DEL_SOBRE = ("count", "items", "truncated")
+
+
+def sobre_de_lista(
+    items: list[Any], /, *, truncated: bool = False, **cabecera: Any
+) -> dict[str, Any]:
+    """Sobre común de las tools de lista NUEVAS de la 1.2.0 (spec 018, FR-012).
+
+    `{**cabecera, "count": len(items), "items": items, "truncated": truncated}`.
+    Una sola forma para que el cliente aprenda a leer una lista una vez, y la
+    que el tope central (`recortar_a_bytes`) sabe recortar: corta `items`,
+    pone al día `count` y marca `truncated`. `count` sale siempre de la lista,
+    nunca a mano, para que no pueda mentir. Las tools de la 1.1.2 conservan
+    su forma (cambiarla rompería a sus clientes).
+
+    Una cabecera llamada `count` o `items` pisaría el sobre: es un error de
+    programación y se rechaza con `ValueError` (`items` es solo posicional
+    para que llegue aquí; `truncated` es el propio argumento).
+    """
+    pisadas = sorted(k for k in cabecera if k in _CLAVES_DEL_SOBRE)
+    if pisadas:
+        raise ValueError(
+            f"sobre_de_lista: la cabecera no puede usar {', '.join(pisadas)}"
+        )
+    return {**cabecera, "count": len(items), "items": items, "truncated": truncated}
+
+
 def ajustar_lista_a_bytes(
     items: list[Any],
     construir: Callable[[list[Any], bool], Any],
@@ -592,8 +619,9 @@ async def guarded_reload(
     limpia para activar un `fs_write_file` malicioso previo: escribir el YAML
     (que sí pide token) y luego recargarlo con una tool que el cliente aprueba
     sin mirar. Por eso piden confirmación como cualquier otra acción
-    destructiva, y son el único sitio que pasa `allow_dangerous=True` además
-    de `ha_call_service`.
+    destructiva, y pasan `allow_dangerous=True` solo después de validar el
+    token (como `ha_call_service`, `ha_call_service_response` y
+    `guarded_entity_invoke`; lista en `tests/test_allow_dangerous_inventario.py`).
     """
     args = {"domain": domain}
     if not confirmation_token:

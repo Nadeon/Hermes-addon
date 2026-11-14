@@ -35,6 +35,42 @@ _FILTERED_ATTRIBUTES = {
 }
 
 
+def _vista_previa_servicio(
+    accion: str,
+    domain_lower: str,
+    service_lower: str,
+    data: dict[str, Any],
+    *,
+    in_denylist: bool,
+    entity_is_restricted: bool,
+) -> dict[str, Any]:
+    """Vista previa de un servicio que pide confirmación.
+
+    La comparten `ha_call_service` y `ha_call_service_response` (spec 018)
+    para que las dos enseñen lo mismo y no diverjan; solo cambia `action`.
+    """
+    reason = (
+        f"Service '{domain_lower}.{service_lower}' requires confirmation "
+        f"({'denylist match' if in_denylist else 'auto-restricted entity'})."
+    )
+    preview: dict[str, Any] = {
+        "action": accion,
+        "domain": domain_lower,
+        "service": service_lower,
+        "service_data": data,
+        "reason": reason,
+    }
+    if entity_is_restricted:
+        # Los entity_id se re-extraen con la misma normalización que usó la
+        # comprobación, para que el preview enseñe justo lo que la disparó
+        # (incluidas listas separadas por comas).
+        restricted_auto = get_auto_restricted_entities()
+        preview["restricted_entities"] = sorted(
+            _policy._collect_entity_ids(data) & restricted_auto
+        ) or ["(objetivo indirecto: área, dispositivo o comodín)"]
+    return preview
+
+
 def _compact_state(state: dict[str, Any]) -> dict[str, Any]:
     """Compacta un estado de HA eliminando campos redundantes o pesados."""
     if not isinstance(state, dict):
@@ -549,25 +585,10 @@ def register(
             }
 
             if not confirmation_token:
-                reason = (
-                    f"Service '{domain_lower}.{service_lower}' requires confirmation "
-                    f"({'denylist match' if in_denylist else 'auto-restricted entity'})."
+                preview = _vista_previa_servicio(
+                    "call_service", domain_lower, service_lower, data,
+                    in_denylist=in_denylist, entity_is_restricted=entity_is_restricted,
                 )
-                preview: dict[str, Any] = {
-                    "action": "call_service",
-                    "domain": domain_lower,
-                    "service": service_lower,
-                    "service_data": data,
-                    "reason": reason,
-                }
-                if entity_is_restricted:
-                    # Los entity_id se re-extraen con la misma normalización que
-                    # usó la comprobación, para que el preview enseñe justo lo
-                    # que la disparó (incluidas listas separadas por comas).
-                    restricted_auto = get_auto_restricted_entities()
-                    preview["restricted_entities"] = sorted(
-                        _policy._collect_entity_ids(data) & restricted_auto
-                    ) or ["(objetivo indirecto: área, dispositivo o comodín)"]
                 return await create_confirmation_token(tool_name_cs, args_cs, preview=preview)
 
             valid, error = await validate_confirmation_token(
@@ -577,8 +598,8 @@ def register(
                 return {"error": error}
 
             try:
-                # Único punto que autoriza explícitamente un servicio vetado: se
-                # llega aquí solo con un confirmation_token ya validado.
+                # Aquí se autoriza explícitamente un servicio vetado: se llega
+                # solo con un confirmation_token ya validado.
                 result = await ha_client.call_service(
                     domain_lower, service_lower, data, allow_dangerous=True
                 )
@@ -605,18 +626,25 @@ def register(
         domain: str,
         service: str,
         service_data: dict[str, object] | None = None,
+        confirmation_token: str | None = None,
     ) -> object:
         """Llama un servicio de Home Assistant y devuelve su respuesta si está soportado.
 
-        Es la vía para servicios de consulta. NO acepta confirmation_token, así
-        que los servicios de la denylist se rechazan sin llegar a ejecutarse,
-        con {"error": "service_in_denylist"}. Para esos usa ha_call_service,
-        que sí tiene el flujo de confirmación en dos pasos.
+        Es la vía para servicios de consulta. Los servicios de la denylist
+        (p. ej. conversation.process) y los que alcanzan un script o una
+        automatización restringidos piden confirmación en dos pasos: sin
+        token NO se ejecutan, y la respuesta trae
+        {"error": "service_in_denylist" | "entity_restricted", "hint",
+        "confirmation_token", "expires_in_seconds", "preview"}. Repite la
+        MISMA llamada con ese confirmation_token para ejecutarlo una vez y
+        recibir su respuesta. La denylist no se relaja: solo se confirma.
 
         Args:
             domain (str): Dominio del servicio. Ej: 'weather', 'calendar'.
             service (str): Nombre del servicio. Ej: 'get_forecasts', 'get_events'.
             service_data (dict, opcional): Parámetros del servicio. Ej: {'entity_id': 'weather.home'}.
+            confirmation_token (str, opcional): Token de la vista previa, para
+                los servicios que piden confirmación. Fuera de ellos se ignora.
 
         Nota:
             Muchos servicios no soportan `return_response=1`. Si no es
@@ -631,33 +659,80 @@ def register(
         if not safe:
             return {"error": "unsafe_service_data", "detail": san_err}
 
-        # ha_call_service_response no acepta confirmation_token (es para read-like ops).
-        # Si el servicio está en la denylist, rechazar con hint.
-        if _is_in_denylist(domain_lower, service_lower, effective_denylist):
+        # Mismo criterio que ha_call_service (spec 018, FR-008): la denylist y
+        # las entidades restringidas (un script peligroso devuelve respuesta
+        # por esta vía) piden token.
+        in_denylist = _is_in_denylist(domain_lower, service_lower, effective_denylist)
+        entity_is_restricted = _policy.targets_restricted_entity(
+            domain_lower, data, get_auto_restricted_entities(), service=service_lower
+        )
+
+        if not (in_denylist or entity_is_restricted):
+            try:
+                return await ha_client.call_service_response(domain_lower, service_lower, data)
+            except HAConnectionError as exc:
+                return {"error": "ha_call_service_response_failed", "details": str(exc)}
+
+        # El token se ata a ESTA tool: el de ha_call_service (mismos args,
+        # otra tool) no vale aquí, ni al revés.
+        tool_name_csr = "ha_call_service_response"
+        args_csr: dict[str, Any] = {
+            "domain": domain_lower,
+            "service": service_lower,
+            "service_data": data,
+        }
+
+        if not confirmation_token:
+            # Sin token se conserva el `error` de la 1.1.2 (un cliente que solo
+            # lo lee sigue viendo un rechazo y no ejecuta nada) y se AÑADEN el
+            # token y la vista previa (DF-1 de la 018: cambio aditivo).
+            if in_denylist:
+                error = "service_in_denylist"
+                motivo = f"'{domain_lower}.{service_lower}' is in the service denylist."
+            else:
+                error = "entity_restricted"
+                motivo = (
+                    f"'{domain_lower}.{service_lower}' reaches an auto-restricted "
+                    "script or automation."
+                )
+            preview = _vista_previa_servicio(
+                "call_service_response", domain_lower, service_lower, data,
+                in_denylist=in_denylist, entity_is_restricted=entity_is_restricted,
+            )
+            token = await create_confirmation_token(tool_name_csr, args_csr, preview=preview)
             return {
-                "error": "service_in_denylist",
+                "error": error,
                 "hint": (
-                    f"'{domain_lower}.{service_lower}' is in the service denylist. "
-                    "Use ha_call_service with confirmation_token instead."
+                    f"{motivo} Repeat this same call with confirmation_token "
+                    "to run it and get its response."
                 ),
+                **token,
             }
 
-        # Mismo cierre que en ha_call_service: un script clasificado como
-        # peligroso se ejecuta igual por esta vía (`script.<id>` devuelve
-        # respuesta), y aquí no hay flujo de confirmación que pedir.
-        if _policy.targets_restricted_entity(
-            domain_lower, data, get_auto_restricted_entities(), service=service_lower
-        ):
-            return {
-                "error": "entity_restricted",
-                "hint": (
-                    f"'{domain_lower}.{service_lower}' reaches an auto-restricted "
-                    "script or automation. Use ha_call_service with "
-                    "confirmation_token instead."
-                ),
-            }
+        valid, err = await validate_confirmation_token(
+            confirmation_token, tool_name_csr, args_csr
+        )
+        if not valid:
+            return {"error": err}
 
         try:
-            return await ha_client.call_service_response(domain_lower, service_lower, data)
-        except HAConnectionError as exc:
-            return {"error": "ha_call_service_response_failed", "details": str(exc)}
+            # Único punto que autoriza un servicio vetado con respuesta: se
+            # llega aquí solo con un confirmation_token ya validado.
+            result = await ha_client.call_service_response(
+                domain_lower, service_lower, data, allow_dangerous=True
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Cualquier fallo deja el token `failed` (no `executing` hasta que
+            # caduque); los de conexión, con la respuesta de siempre.
+            await complete_confirmation_token(
+                confirmation_token, success=False, error=str(exc)
+            )
+            if isinstance(exc, HAConnectionError):
+                return {"error": "ha_call_service_response_failed", "details": str(exc)}
+            raise
+        # Solo `called`: la respuesta (la de conversation.process puede llevar
+        # datos de la casa) no se escribe en /data, que entra en los backups.
+        await complete_confirmation_token(
+            confirmation_token, success=True, result={"called": True}
+        )
+        return result

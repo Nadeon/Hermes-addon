@@ -105,8 +105,12 @@ class TestServicios(_Base):
         self.sv.respuesta("GET", "/host/services", muchos)
         r = await self.tools["sv_list_host_services"]()
         self.assertIs(r["truncated"], True)
-        self.assertEqual(r["count"], 2000)
-        self.assertLess(r["returned"], 2000)
+        # Sobre común (spec 018, FR-012): `count` son los que vienen y
+        # `total`, los que había. Control negativo: con `count=len(items)`
+        # (la forma anterior a la integración de la 018) cae.
+        self.assertEqual(r["total"], 2000)
+        self.assertEqual(r["count"], len(r["items"]))
+        self.assertLess(r["count"], 2000)
         self.assertLessEqual(len(json.dumps(r, ensure_ascii=False).encode()), self.max_bytes)
 
 

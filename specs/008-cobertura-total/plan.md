@@ -202,11 +202,11 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-016 | media | 009 | FR-031 | X | `TestRetiradosConFiltros` (`tests/test_tools_marketplace.py`) |
 | CAP-017 | baja | 009 | FR-032 | X | `TestEventosOk` (`tests/test_tools_marketplace.py`), `TestEventoOk` (`tests/test_tools_resolution.py`) |
 | CAP-018 | baja | 009 | FR-033 | X | `TestBarridoAcotado` (`tests/test_security.py`) |
-| CAP-019 | alta | 018 | FR-063 | X | guardado por vistas (unitario y banco) |
-| CAP-020 | media-alta | 018 | FR-064 | X | denylist con token en `ha_call_service_response` |
+| CAP-019 | alta | 018 | FR-063 | X | `ha_save_lovelace_dashboard` con `view_index` y `view`: `TestGuardarPorVista` (`tests/test_tools_lovelace.py`), `TestTokenAtadoAlEstado` (`tests/test_security.py`); banco: `TestGuardadoPorVista` (`tests/banco/test_banco_mejoras.py`) |
+| CAP-020 | media-alta | 018 | FR-064 | X | `ha_call_service_response` con `confirmation_token`: `TestCallServiceResponseConfirmacion` y `TestGuardaDeClienteConRespuesta` (`tests/test_call_service_security.py`); banco: `TestRespuestaConfirmada` (`tests/banco/test_banco_mejoras.py`) |
 | CAP-021 | media | 009 | FR-034 | X | `TestNoSeActualizaASiMismo` (`tests/test_tools_supervisor.py`) |
 | CAP-022 | alta | 014 | FR-017 | X+M | `tests/test_addon_manifest.py` (`TestComentarioDelRol`), `tests/test_rutas_supervisor_rol.py`; prueba manual de `manager` (pendiente) |
-| CAP-023 | media | 018 | FR-018, FR-065 | X | sobre común en tools nuevas |
+| CAP-023 | media | 018 | FR-018, FR-065 | X | `sobre_de_lista` (`tools/_common.py`): `TestConstructor`, `TestGenericasSinCambios`, `TestTransversal` y `TestControlSintetico` (`tests/test_sobre_de_lista.py`) |
 | CAP-024 | baja | 009 | FR-035 | X | `TestApagadoSinTraza` (`tests/test_boot_shutdown_diagnostics.py`) |
 | CAP-025 | baja | 027 | FR-092 | M | descripción y guía |
 | CAP-026 | baja | 027 | FR-093 | M | hoja de ruta |
