@@ -385,6 +385,84 @@ template_script:
 # 5. ha_call_service_response: denylist → hint to use ha_call_service
 # ══════════════════════════════════════════════════════════════════════════════
 
+class TestClasificacionSinEntityId(unittest.IsolatedAsyncioTestCase):
+    """FR-003 (009): la clasificación automática no escribe `entity_id` al log.
+
+    El log se pega en issues públicos y el id de una automatización sale de su
+    alias, que nombra la casa. La restricción sigue funcionando igual.
+
+    Control negativo (T015): con `new=new_entities` de vuelta en
+    `auto_classify_restricted`, cae `test_escaneo_sin_entity_id`; con
+    `entity_id=entity_id` en `auto_classify_on_save`, cae
+    `test_al_guardar_sin_entity_id`.
+    """
+
+    CENTINELA = "automation.ficticia"
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+        self.config_root = Path(self._tmpdir) / "config"
+        self.config_root.mkdir()
+        self._patcher = patch.object(fs_module, "CONFIG_BASE", self.config_root.resolve())
+        self._patcher.start()
+        _auto_restricted.clear()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        _auto_restricted.clear()
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _sin_centinela(self, eventos: list[dict]) -> None:
+        texto = json.dumps(eventos, default=str)
+        self.assertNotIn(self.CENTINELA, texto)
+        self.assertNotIn("ficticia", texto)
+
+    async def test_escaneo_sin_entity_id(self) -> None:
+        from structlog.testing import capture_logs
+
+        (self.config_root / "automations.yaml").write_text(
+            """
+- id: "1700000000000"
+  alias: Ficticia
+  trigger: []
+  action:
+    - service: shell_command.algo
+""",
+            encoding="utf-8",
+        )
+        with capture_logs() as eventos:
+            restricted = await auto_classify_dangerous(CALL_SERVICE_DENYLIST)
+        self.assertIn(self.CENTINELA, restricted)
+        self.assertIn(self.CENTINELA, get_auto_restricted_entities())
+        ev = [e for e in eventos if e.get("event") == "auto_classify_restricted"]
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0]["count"], len(restricted))
+        self.assertEqual(ev[0]["new_count"], len(restricted))
+        self.assertNotIn("new", ev[0])
+        self._sin_centinela(eventos)
+
+    async def test_al_guardar_sin_entity_id(self) -> None:
+        from structlog.testing import capture_logs
+
+        from hermes.tools.ha import classify_saved_config
+
+        config = {
+            "alias": "Ficticia",
+            "triggers": [],
+            "actions": [{"action": "shell_command.algo"}],
+        }
+        with capture_logs() as eventos:
+            self.assertTrue(classify_saved_config(self.CENTINELA, config))
+        self.assertIn(self.CENTINELA, get_auto_restricted_entities())
+        ev = [e for e in eventos if e.get("event") == "auto_classify_on_save"]
+        self.assertEqual(len(ev), 1)
+        self.assertIs(ev[0]["restricted"], True)
+        self.assertEqual(ev[0]["count"], 1)
+        self.assertNotIn("entity_id", ev[0])
+        self._sin_centinela(eventos)
+
+
 class TestCallServiceResponseDenylist(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.ha_client = _make_ha_client()

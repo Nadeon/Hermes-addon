@@ -1197,3 +1197,169 @@ class TestSelfProtectionWorksWhereverItIsInstalled(unittest.TestCase):
         self.assertIsNotNone(aviso, "sin aviso al pararse a sí mismo")
         self.assertIn("unavailable", aviso)
         self.assertIsNone(_self_warning("core_mosquitto", "Stopping"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 009 — FR-005: sv_get_addon_logs dice qué redactó
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestQueRedactoElLog(unittest.IsolatedAsyncioTestCase):
+    """`redacted` solo dice si el texto cambió, no qué se tapó (FR-005).
+
+    En la prueba en vivo de la 1.1.1 el log de Hermes ya venía con la red
+    tapada (se redacta al escribir), no traía secretos y la tool dijo
+    `redacted: false`: el agente no podía saber que la redacción de red se
+    había aplicado. `secrets_redacted` y `network_redacted` lo separan.
+    """
+
+    _HERMES = "a1b2c3d4_hermes"
+
+    def setUp(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        from hermes.tools.addons import register
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        self.client = MockHAClient()
+        mcp = DummyMCP()
+        register(mcp, self.client)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        # Estado del módulo: desactivado, como en el arranque.
+        configure_network_redaction(False, "")
+
+    def _log(self, slug: str, texto: str) -> None:
+        self.client.set_sv_text_response(f"/addons/{slug}/logs", texto)
+
+    async def test_log_de_hermes_ya_redactado(self) -> None:
+        self._log(self._HERMES, "conexión desde <ip:private:0a1b2c3d>\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertFalse(r["redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertTrue(r["network_redacted"])
+
+    async def test_otro_addon_con_secreto(self) -> None:
+        self._log("core_mosquitto", "password: centinela-9876\n")
+        r = await self.tools["sv_get_addon_logs"]("core_mosquitto")
+        self.assertTrue(r["redacted"])
+        self.assertTrue(r["secrets_redacted"])
+        self.assertFalse(r["network_redacted"])
+        self.assertNotIn("centinela-9876", r["logs"])
+
+    async def test_hermes_con_la_redaccion_desactivada(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(False, "")
+        self._log(self._HERMES, "conexión desde 10.0.0.5\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertFalse(r["network_redacted"])
+        self.assertFalse(r["redacted"])
+        self.assertIn("10.0.0.5", r["logs"])
+
+    async def test_hermes_con_una_ip_en_claro(self) -> None:
+        self._log(self._HERMES, "conexión desde 10.0.0.5\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertTrue(r["redacted"])
+        self.assertTrue(r["network_redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertNotIn("10.0.0.5", r["logs"])
+
+    async def test_el_evento_lleva_los_tres_campos(self) -> None:
+        from structlog.testing import capture_logs
+        self._log("core_mosquitto", "password: centinela-9876\n")
+        with capture_logs() as eventos:
+            await self.tools["sv_get_addon_logs"]("core_mosquitto")
+        ev = [e for e in eventos if e["event"] == "sv_get_addon_logs"]
+        self.assertEqual(len(ev), 1)
+        self.assertIs(ev[0]["redacted"], True)
+        self.assertIs(ev[0]["secrets_redacted"], True)
+        self.assertIs(ev[0]["network_redacted"], False)
+
+    async def test_el_recorte_por_tamano_conserva_los_campos(self) -> None:
+        from hermes.tools.addons import register
+        mcp = DummyMCP()
+        register(mcp, self.client, response_max_bytes=2048)
+        self._log(self._HERMES, "".join(f"línea {i} desde 10.0.0.5\n" for i in range(400)))
+        r = await mcp.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertTrue(r["truncated"])
+        self.assertTrue(r["redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertTrue(r["network_redacted"])
+
+    async def test_tapa_el_host_de_la_url_externa_de_ha(self) -> None:
+        from hermes.logging_setup import set_ha_url_hosts
+        set_ha_url_hosts("casa.example.org", None)
+        self._log(self._HERMES, "GET https://casa.example.org/api/states\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertNotIn("casa.example.org", r["logs"])
+        self.assertIn("<ha_external_host>", r["logs"])
+        self.assertTrue(r["network_redacted"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 009 — FR-010: sv_update_addon no promete actualizar al propio Hermes
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestNoSeActualizaASiMismo(unittest.IsolatedAsyncioTestCase):
+    """El Supervisor contesta 403 («can't update itself») a un add-on que pide
+    su propia actualización. La 1.1.2 daba vista previa y token, y la
+    confirmación fallaba: prometía algo imposible. Ahora se rechaza antes, sin
+    token y sin ninguna petición al Supervisor (FR-010).
+    """
+
+    # El último es un slug de HOSTNAME que no termina en `_hermes`: solo lo
+    # reconoce `_HERMES_SLUG`, parcheado como si viniera del entorno.
+    _SLUG_DEL_HOSTNAME = "a1b2c3d4_hermes_dev"
+    _SLUGS = ("self", "hermes", "a1b2c3d4_hermes", _SLUG_DEL_HOSTNAME)
+
+    def setUp(self) -> None:
+        from hermes.tools.addons import register
+        self._p = patch.object(addons_mod, "_HERMES_SLUG", self._SLUG_DEL_HOSTNAME)
+        self._p.start()
+        self.client = _ClienteQueGraba()
+        mcp = DummyMCP()
+        register(mcp, self.client)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        self._p.stop()
+
+    def _es_el_rechazo(self, r: Any) -> None:
+        self.assertEqual(r.get("error"), "self_update_not_supported")
+        self.assertIn("Home Assistant UI", r["detail"])
+        self.assertNotIn("confirmation_token", r)
+
+    async def test_sin_token_se_rechaza_sin_llamar_al_supervisor(self) -> None:
+        for slug in self._SLUGS:
+            with self.subTest(slug=slug):
+                self.client.peticiones.clear()
+                r = await self.tools["sv_update_addon"](slug)
+                self._es_el_rechazo(r)
+                self.assertEqual(self.client.peticiones, [])
+
+    async def test_con_un_token_de_la_112_tambien(self) -> None:
+        from hermes import security
+        for slug in self._SLUGS:
+            with self.subTest(slug=slug):
+                self.client.peticiones.clear()
+                # Lo que dejaba una vista previa de la 1.1.2.
+                emitido = await security.create_confirmation_token(
+                    "sv_update_addon", {"slug": slug}, preview={"slug": slug}
+                )
+                token = emitido["confirmation_token"]
+                r = await self.tools["sv_update_addon"](slug, confirmation_token=token)
+                self._es_el_rechazo(r)
+                self.assertEqual(self.client.peticiones, [])
+                fichero = security.CONFIRMATIONS_DIR / f"{token}.json"
+                self.assertEqual(
+                    json.loads(fichero.read_text(encoding="utf-8"))["state"], "pending"
+                )
+
+    async def test_otro_addon_sigue_como_en_la_112(self) -> None:
+        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {
+            "version": "6.5.1", "version_latest": "6.5.2", "update_available": True
+        })
+        r = await self.tools["sv_update_addon"]("core_mosquitto")
+        self.assertIn("confirmation_token", r)
+        self.assertEqual(self.client.lecturas("/addons/core_mosquitto/info"), 1)

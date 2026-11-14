@@ -2,6 +2,35 @@
 
 ## [1.2.0] — <fecha de publicación>
 
+Programa de cobertura total de Home Assistant 2026.11 (Core 2026.11.1,
+Supervisor 2026.11.0): todo lo que el programa añade sale en esta única
+versión. Es compatible con la 1.1.2: ninguna tool cambia de nombre y ningún
+argumento existente cambia ni pasa a ser obligatorio.
+
+### Diagnóstico
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Integraciones
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Automatización
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Supervisor
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Sistema
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Política y genéricas
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de
@@ -9,11 +38,14 @@
   por digest y sin salida a internet), completa el onboarding sin
   intervención humana y conecta Hermes a ella por un Supervisor simulado, por
   el mismo camino que en un add-on (`/core/api` y `/core/api/websocket` con el
-  token de add-on). Corre en cada push y cada pull request. De momento ejecuta
-  los tests de humo: arranque, lectura de estados y servicios, una llamada a
-  servicio con su efecto comprobado directamente en Core, los filtros del
-  Supervisor y que ninguna credencial del banco sale en el log.
-- **Las 47 tools que modifican helpers, ejecutadas de verdad.** En el mismo
+  token de add-on). Corre en cada push y cada pull request. Ejecuta los tests
+  de humo (arranque, lectura de estados y servicios, una llamada a servicio
+  con su efecto comprobado directamente en Core, los filtros del Supervisor y
+  que ninguna credencial del banco sale en el log, tampoco durante el
+  onboarding) y los de los helpers del punto siguiente. El job falla si algún
+  test del banco se salta, se deselecciona o queda como fallo esperado sin
+  ser un hallazgo documentado.
+- **Las tools que modifican helpers, ejecutadas de verdad.** En el mismo
   job, las escrituras de `input_boolean`, `input_button`, `input_datetime`,
   `input_number`, `input_select`, `input_text`, `counter`, `timer`, `schedule`,
   `zone` y `person` se ejecutan contra esa HA: crear y editar en dos pasos (la
@@ -21,11 +53,13 @@
   cada acción sobre el valor, las recargas y los borrados. El efecto lo
   comprueba un lector que habla directamente con Core, no Hermes. Un test de
   la suite normal obliga a que cualquier tool nueva de esos dominios se pruebe
-  en el banco o diga por qué no se puede.
+  en el banco o diga por qué no se puede, y el job comprueba que cada una se
+  ha llamado con éxito en un test que ha pasado. 46 de las 47 funcionan.
 - **Hallazgo: `ha_reload_counters` falla contra HA real.** HA Core 2026.11.1
-  no tiene el servicio `counter.reload`; Core responde 400. Queda anotado en
-  la hoja de ruta y como fallo esperado en el banco; esta sección no cambia la
-  tool.
+  no tiene el servicio `counter.reload`; Core responde 400. No cuenta como
+  probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
+  033, y en el banco como fallo esperado que solo admite ese error. Esta
+  sección no cambia la tool.
 - **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
   automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
   configuración guardada leída de HA; activar, desactivar, disparar,
@@ -50,6 +84,67 @@
   onboarding, reglas de salto, comprobaciones del workflow, inventario de
   cobertura) se prueban en la suite normal. Sin cambios en el código del
   add-on.
+
+### Correcciones
+
+- **La redacción de secretos era cuadrática** (FR-001). Tres de las expresiones
+  de `redact_secrets` recorrían el texto desde cada posición de una misma
+  racha: 30 KB de ciertas formas (`eyJ` repetido, `a://b:c` repetido sin `@`,
+  `"` seguido de `password` repetido) tardaban medio segundo, en el bucle de
+  eventos, al leer un log con `sv_get_addon_logs`. Ahora son lineales (1 MiB,
+  decenas de milisegundos) y redactan exactamente lo mismo que en la 1.1.2,
+  comprobado con un test diferencial.
+- **El log ya no lleva los hosts de las URLs de Home Assistant** (FR-002). Al
+  conectar (y en cada reconexión), Hermes lee `external_url` e `internal_url`
+  de `/api/config` y la redacción de red sustituye sus hosts por
+  `<ha_external_host>` y `<ha_internal_host>`. No se tapan los literales IP
+  (ya se seudonimizan), ni `localhost`, `homeassistant` y
+  `homeassistant.local`. Si no se pueden leer, la conexión sigue y el log lo
+  avisa con `ha_url_redaction_unavailable`, sin la URL.
+- **La clasificación automática no escribe `entity_id` al log** (FR-003).
+  `auto_classify_restricted` lleva `count` y `new_count`, y
+  `auto_classify_on_save` lleva `restricted` y `count`: los id de
+  automatizaciones y scripts salen de sus alias, que nombran la casa.
+- **Los nombres `ip-a-b-c-d` se redactan** (FR-004). `ip-10-0-0-5.ec2.internal`
+  sale como `<ip:private:…>.ec2.internal`, con el mismo seudónimo que
+  `10.0.0.5`.
+- **Las vistas previas con documento ya no releen todos los tokens** (FR-009).
+  El barrido de tokens caducados se hace como mucho una vez por segundo y,
+  entre medias, el total de lo guardado sale de memoria. El tope de 16 MiB no
+  cambia: el total solo puede sobrestimarse hasta el siguiente barrido, así
+  que, como mucho, un documento no se guarda y hay que reenviarlo entero.
+- **`sv_get_addon_logs` dice qué redactó** (FR-005). `redacted` solo decía si
+  el texto cambió, y el log de Hermes, que ya se escribe con la red tapada,
+  salía con `redacted: false`. Ahora la respuesta y el evento llevan además
+  `secrets_redacted` (se sustituyó algún secreto) y `network_redacted` (se
+  aplicó la redacción de red: el log de Hermes con `log_redact_network`
+  activa, cambie o no el texto).
+- **Un historial recortado dice cuánto falta** (FR-006). Con `truncated`,
+  `ha_get_history` añade `_response_limit` con `list: "history"`, los estados
+  devueltos, los que dio HA, el tope y una pista; la respuesta entera, con el
+  bloque, cabe en `response_max_bytes`.
+- **`ha_marketplace_list_removed` con filtros y resumen** (FR-007). En HA
+  2026.11 la lista tiene unas 500 entradas (~97 KB). Dos argumentos
+  opcionales: `installed_only` (solo los retirados que están instalados) y
+  `limit` (1–500). La respuesta añade `by_removal_type` (los 20 tipos más
+  frecuentes) y `by_removal_type_other`, y `removal_type` pasa a tratarse como
+  texto de terceros (recortado a 300 caracteres). Sin argumentos, la lista es
+  la de la 1.1.2.
+- **Eventos `*_ok` del Marketplace y de `sv_get_resolution`** (FR-008). Cada
+  tool `ha_marketplace_*` y `sv_get_resolution` deja en el log, cuando termina
+  bien, qué API respondió y cuántas entradas devolvió; nunca nombres de
+  repositorio ni textos de terceros.
+- **`sv_update_addon` ya no promete actualizar al propio Hermes** (FR-010). El
+  Supervisor responde 403 a un add-on que se actualiza a sí mismo; la 1.1.2
+  daba vista previa y token y la confirmación fallaba. Ahora responde
+  `self_update_not_supported` sin token y sin llamar al Supervisor: Hermes se
+  actualiza desde la interfaz de Home Assistant.
+- **Apagado sin traza** (FR-011, problema 23). Al reiniciar el add-on con una
+  petición en vuelo, uvicorn cancelaba la petición y registraba
+  `Exception in ASGI application` con la traza de un `CancelledError`. Ahora
+  sale una línea `request_cancelled_on_shutdown`; cualquier otra excepción
+  conserva su traza. Un `CancelledError` que llegue a `main()` se registra
+  como `interrupted`, y la espera del servidor recoge su cancelación.
 
 ## [1.1.2] — 2026-11-14
 

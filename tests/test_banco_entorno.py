@@ -16,14 +16,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import socket
 import unittest
+from typing import Any
 from unittest import mock
 
 import aiohttp
+import structlog
 
-from tests.banco import entorno
+from tests.banco import entorno, onboarding
 from tests.banco.core_doble import CoreDoble
 from tests.banco.lector import ErrorCore, Lector
 
@@ -135,6 +138,104 @@ class TestEntornoContraElDoble(unittest.IsolatedAsyncioTestCase):
                     ) as r:
                         self.assertEqual(r.status, 401)
         self.assertEqual(core.registro.pasos.count("users"), 1)
+
+
+class _Corte(BaseException):
+    """Como la excepción de pytest-timeout: no es `Exception`."""
+
+
+class TestCorteDelTopePorTest(unittest.TestCase):
+    """T041: el tope por test de pytest corta la espera del onboarding con una
+    excepción que no es `Exception`. El fallo tiene que quedar anotado, para
+    que el test siguiente no repita el onboarding (403 «already done»).
+
+    Control negativo (T041), comprobado en local y restaurado: sin la rama
+    `except BaseException` de `obtener_entorno`, la segunda llamada vuelve a
+    crear el entorno y cae `test_el_fallo_queda_anotado_sin_reintentar`.
+    """
+
+    def setUp(self) -> None:
+        entorno._reiniciar()
+
+    def tearDown(self) -> None:
+        entorno._reiniciar()
+
+    def test_el_fallo_queda_anotado_sin_reintentar(self) -> None:
+        intentos: list[str] = []
+
+        async def crear(core_url: str, secretos: list[str]) -> entorno.EntornoBanco:
+            intentos.append(core_url)
+            raise _Corte()
+
+        url = f"http://127.0.0.1:{_puerto_cerrado()}"
+        with mock.patch.dict(os.environ, {**_sin_variables(), entorno.VAR_URL: url}, clear=True), \
+                mock.patch.object(entorno, "_crear", crear):
+            primero = _excepcion_de(entorno.exigir_banco)
+            segundo = _excepcion_de(entorno.obtener_entorno)
+        # El corte sigue su camino (pytest lo informa como su timeout)...
+        self.assertIs(type(primero), _Corte)
+        # ...y el siguiente test ve la causa, sin un segundo onboarding.
+        self.assertIs(type(segundo), AssertionError)
+        self.assertIn("_Corte", str(segundo))
+        self.assertIn("tope por test", str(segundo))
+        self.assertEqual(len(intentos), 1)
+
+
+class TestRegistroDelArranque(unittest.IsolatedAsyncioTestCase):
+    """T042 (FR-012): el log de la creación del entorno —el onboarding, que
+    pasa una sola vez y antes de cualquier test del banco— se captura con sus
+    secretos para que el test de humo lo compruebe contra HA real.
+
+    Control negativo (T042), comprobado en local y restaurado: sin
+    `anotar(acceso)` en el onboarding cae
+    `test_secretos_del_arranque_y_ninguno_en_el_log` (faltan secretos); sin el
+    manejador de logging en `_capturar_arranque` cae
+    `test_la_captura_ve_lo_que_se_registra`.
+    """
+
+    def setUp(self) -> None:
+        entorno._reiniciar()
+
+    def tearDown(self) -> None:
+        entorno._reiniciar()
+
+    async def _arrancar(self) -> entorno.EntornoBanco:
+        async with CoreDoble() as core:
+            with mock.patch.dict(os.environ, {**_sin_variables(), entorno.VAR_URL: core.url}, clear=True), \
+                    mock.patch.object(entorno, "INTERVALO", 0.01):
+                return await asyncio.to_thread(entorno.exigir_banco)
+
+    async def test_secretos_del_arranque_y_ninguno_en_el_log(self) -> None:
+        self.assertIsNone(entorno.registro_del_arranque())
+        uno = await self._arrancar()
+        registro = entorno.registro_del_arranque()
+        assert registro is not None
+        # Usuario, contraseña, código, token de acceso, de larga duración y de add-on.
+        self.assertEqual(len(registro.secretos), 6)
+        self.assertIn(uno.token_core, registro.secretos)
+        self.assertIn(uno.token_addon, registro.secretos)
+        self.assertGreater(registro.eventos, 0, "el onboarding registra sus pasos")
+        for secreto in registro.secretos:
+            self.assertNotIn(secreto, registro.log)
+            self.assertNotIn(secreto, repr(registro))
+
+    async def test_la_captura_ve_lo_que_se_registra(self) -> None:
+        # Si el onboarding registrase el token (por stdlib o por structlog),
+        # el registro lo vería: la comprobación de arriba no pasa en vacío.
+        original = onboarding._token_larga_duracion
+
+        async def chivato(session: Any, core_url: str, token: str) -> str:
+            resultado = await original(session, core_url, token)
+            logging.getLogger("banco.chivato").debug("acceso %s", token)
+            structlog.get_logger("banco.chivato").info("larga", token=resultado)
+            return resultado
+
+        with mock.patch.object(onboarding, "_token_larga_duracion", chivato):
+            uno = await self._arrancar()
+        registro = entorno.registro_del_arranque()
+        assert registro is not None
+        self.assertIn(uno.token_core, registro.log)
+        self.assertIn(registro.secretos[3], registro.log)
 
 
 class TestLector(unittest.IsolatedAsyncioTestCase):
@@ -297,6 +398,70 @@ class TestLlamar(unittest.IsolatedAsyncioTestCase):
             [{"a": 1}, {"b": 2}],
         )
         self.assertEqual(await entorno.llamar(self._cliente(['{"a": 1}']), "ha_x"), {"a": 1})
+
+    async def test_registro_de_tools_llamadas_con_exito(self) -> None:
+        # T037: solo cuenta lo que termina bien; un error de la tool o una
+        # respuesta `{"error": …}` no. Control negativo (comprobado y
+        # restaurado): anotando antes de mirar `is_error`, este test cae.
+        entorno.tomar_tools_del_test()
+        await entorno.llamar(self._cliente(['{"result": "ok"}']), "ha_bien")
+        with self.assertRaises(AssertionError):
+            await entorno.llamar(self._cliente(["Error executing tool ha_mal"], is_error=True), "ha_mal")
+        await entorno.llamar(self._cliente(['{"error": "token caducado"}']), "ha_con_error")
+        self.assertEqual(entorno.tomar_tools_del_test(), {"ha_bien"})
+        self.assertEqual(entorno.tomar_tools_del_test(), set())
+
+
+class TestServicioInexistente(unittest.TestCase):
+    """T038: el `xfail` de `ha_reload_counters` solo admite el 400 de Core a
+    `/services/counter/reload` con el servicio ausente en Core.
+
+    Control negativo (T038), comprobado en local y restaurado: sin mirar los
+    servicios de Core en `es_servicio_inexistente` cae
+    `test_solo_el_400_del_servicio_que_core_no_tiene`.
+    """
+
+    @staticmethod
+    def _fallo(estado: int, ruta: str = "/core/api/services/counter/reload") -> BaseException:
+        from hermes.ha import HAConnectionError
+
+        causa = HAConnectionError(
+            f"HA REST POST http://127.0.0.1:1{ruta} failed {estado}: 400: Bad Request", status=estado
+        )
+        # Lo que registra el SDK de MCP: el error genérico, con la causa detrás.
+        envoltorio = RuntimeError("Error executing tool ha_reload_counters")
+        envoltorio.__cause__ = causa
+        return envoltorio
+
+    def test_solo_el_400_del_servicio_que_core_no_tiene(self) -> None:
+        from tests.banco.base_helpers import es_servicio_inexistente
+
+        sin_reload = {"counter": {"increment": {}, "decrement": {}}}
+        con_reload = {"counter": {"increment": {}, "reload": {}}}
+        self.assertTrue(es_servicio_inexistente([self._fallo(400)], sin_reload, "counter", "reload"))
+        # Si Core sí tiene el servicio, el 400 es otra cosa.
+        self.assertFalse(es_servicio_inexistente([self._fallo(400)], con_reload, "counter", "reload"))
+        self.assertFalse(es_servicio_inexistente([self._fallo(500)], sin_reload, "counter", "reload"))
+        self.assertFalse(
+            es_servicio_inexistente(
+                [self._fallo(400, "/core/api/services/counter/increment")], sin_reload, "counter", "reload"
+            )
+        )
+        self.assertFalse(es_servicio_inexistente([], sin_reload, "counter", "reload"))
+        self.assertFalse(
+            es_servicio_inexistente([AssertionError("vista previa inesperada")], sin_reload, "counter", "reload")
+        )
+
+    def test_errores_de_tools_recoge_lo_que_registra_el_sdk(self) -> None:
+        from tests.banco.base_helpers import errores_de_tools
+
+        fallo = self._fallo(400)
+        with errores_de_tools() as errores:
+            try:
+                raise fallo
+            except RuntimeError:
+                logging.getLogger("mcp.server.mcpserver.server").exception("Tool %r raised", "ha_x")
+        self.assertEqual(errores, [fallo])
 
 
 if __name__ == "__main__":

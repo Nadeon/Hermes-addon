@@ -12,6 +12,12 @@ on:
   schedule:
     - cron: "23 5 * * 1"
 
+# Solo lectura del contenido del repositorio. Hoy coincide con el valor por
+# defecto del repositorio, pero se declara aquí para no depender de él: el job
+# del banco ejecuta una imagen de terceros y usa `sudo`.
+permissions:
+  contents: read
+
 jobs:
   pytest:
     name: pytest (${{ matrix.python }})
@@ -160,20 +166,15 @@ jobs:
 
       - name: Comprobar que HA no tiene salida a internet
         run: |
-          # Con el python3 de la propia imagen. Si esta petición llega, la regla
-          # de arriba no está cortando nada (por ejemplo, porque los runners
-          # cambien de cortafuegos) y el banco dependería de internet sin
-          # saberlo. Fail-closed: solo un error de red cuenta como «sin
-          # salida»; si falta python3 o el script falla por otra cosa, el paso
-          # falla en vez de darlo por bueno.
-          if docker exec ha-banco python3 -c "
-          import sys, urllib.request
-          try:
-              urllib.request.urlopen('https://github.com', timeout=5)
-          except OSError:
-              sys.exit(0)
-          sys.exit(1)
-          "; then
+          # Con el python3 de la propia imagen. Si alguna conexión se
+          # establece, la regla de arriba no está cortando nada (por ejemplo,
+          # porque los runners cambien de cortafuegos) y el banco dependería de
+          # internet sin saberlo. Fail-closed (ver tests/banco/sin_salida.py):
+          # TCP a IP literal, sin DNS ni HTTP; solo un fallo de conexión cuenta
+          # como «sin salida». Una respuesta HTTP de error (429, 5xx) ya no
+          # puede pasar por buena, y si falta python3 o el script falla por
+          # otra cosa, el paso falla.
+          if docker exec -i ha-banco python3 - 1.1.1.1:443 8.8.8.8:443 < tests/banco/sin_salida.py; then
             echo "Sin salida a internet, como se esperaba."
           else
             echo "El contenedor de HA tiene salida a internet (o no se pudo comprobar)." >&2

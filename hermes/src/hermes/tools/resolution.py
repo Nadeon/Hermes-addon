@@ -125,7 +125,16 @@ def register(mcp: object, ha_client: HAClient) -> None:
         `sv_dismiss_resolution_issue` / `sv_dismiss_resolution_suggestion`
         to dismiss one; Hermes never applies suggestions.
         """
-        return await _leer()
+        info = await _leer()
+        if "error" not in info:
+            # Solo recuentos: los uuid, referencias y contextos no dicen nada
+            # útil en un log que se pega en issues públicos (FR-008 de la 009).
+            logger.info(
+                "sv_get_resolution_ok",
+                **{clave: len(info[clave]) for clave in (
+                    "unsupported", "unhealthy", "issues", "suggestions", "checks")},
+            )
+        return info
 
     async def _descartar(tool_name: str, clase: str, campo: str, uuid: str,
                          confirmation_token: str | None) -> dict[str, Any]:

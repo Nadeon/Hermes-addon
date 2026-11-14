@@ -342,7 +342,9 @@ Detalle en [data-model.md](data-model.md).
   saltados.
 - **SC-002**: **47 de 47** tools que modifican de los 11 dominios de helpers se
   han ejecutado contra HA Core 2026.11.1 real con su efecto comprobado por el
-  lector independiente.
+  lector independiente. (Convergencia, T038: queda en 46 de 47;
+  `ha_reload_counters` falla contra HA real porque Core no tiene
+  `counter.reload`, y su arreglo es de la spec 033.)
 - **SC-003**: **0** líneas cambiadas en `hermes/` en el diff de la
   sub-feature, salvo `hermes/CHANGELOG.md`.
 - **SC-004**: En Windows sin Docker, la suite completa da exactamente los 6

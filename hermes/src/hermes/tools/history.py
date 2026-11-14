@@ -31,6 +31,19 @@ _LC = "lc"  # last_changed (float timestamp, solo si difiere de lu)
 # Máximo de estados por entidad antes de truncar
 _MAX_STATES_PER_ENTITY = 500
 
+# Pista del `_response_limit` de un historial recortado (FR-006 de la 009).
+# Se continúa POR ENTIDAD: `truncated_at` es el más reciente de los últimos
+# estados incluidos, y el recorte quita primero de la lista más larga, así que
+# con una entidad muy activa y otra lenta pedir desde `truncated_at` saltaba
+# los estados de la activa entre su último incluido y ese instante (revisión
+# de la 009, T043: 647 de 1000 perdidos). Corta: se mide dentro del tope, y
+# con uno pequeño una pista larga no deja sitio a ningún estado.
+_HISTORY_LIMIT_HINT = (
+    "Cut to fit the limit. Narrow the range or entities, or call again for "
+    "each entity with start_time = last_updated of its last returned state "
+    "(not truncated_at)."
+)
+
 
 def _expand_state(point: dict[str, Any]) -> dict[str, Any]:
     """Convierte un punto comprimido {s,a,lu,lc} a nombres legibles."""
@@ -68,20 +81,39 @@ def _ultimo_ts(working: dict[str, list[dict[str, Any]]]) -> str | None:
 
 
 def _envolver(
-    working: dict[str, list[dict[str, Any]]], truncated: bool
+    working: dict[str, list[dict[str, Any]]],
+    truncated: bool,
+    total: int | None = None,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
-    """La respuesta completa de `ha_get_history`, tal como sale."""
-    return {
+    """La respuesta completa de `ha_get_history`, tal como sale.
+
+    Recortada y con `total`, lleva `_response_limit` (FR-006 de la 009): solo
+    `truncated` y `truncated_at` no decían si faltaba un estado o miles, ni
+    cuál era el tope. Es la misma forma que pone el guardián central en las
+    demás listas, con `list: "history"`.
+    """
+    out: dict[str, Any] = {
         "history": working,
         "truncated": truncated,
         "truncated_at": _ultimo_ts(working) if truncated else None,
     }
+    if truncated and total is not None:
+        out["_response_limit"] = {
+            "list": "history",
+            "returned": sum(len(v) for v in working.values()),
+            "total": total,
+            "max_bytes": max_bytes,
+            "hint": _HISTORY_LIMIT_HINT,
+        }
+    return out
 
 
 def _truncate_to_bytes(
     result: dict[str, list[dict[str, Any]]],
     max_bytes: int,
     ya_recortado: bool = False,
+    total: int | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], bool, str | None]:
     """Trunca el resultado para que quepa en max_bytes.
 
@@ -97,19 +129,23 @@ def _truncate_to_bytes(
     `ya_recortado`: el tope por cantidad ya quitó estados. Entonces la
     respuesta es `truncated` aunque quepa, y se mide con su `truncated_at`.
 
+    `total`: estados que devolvió HA. Con él se mide también el bloque
+    `_response_limit`, que crece con `returned`: añadirlo después de medir
+    dejaría la respuesta por encima del tope con un tope justo.
+
     Returns:
         (result_truncado, fue_truncado, truncated_at_iso)
         truncated_at_iso es el last_updated del último estado incluido.
     """
     # Comprobación rápida: ¿cabe sin truncar?
-    if tam_json(_envolver(result, ya_recortado)) <= max_bytes:
+    if tam_json(_envolver(result, ya_recortado, total, max_bytes)) <= max_bytes:
         return result, ya_recortado, _ultimo_ts(result) if ya_recortado else None
 
     # Quitar el punto más nuevo de la lista más larga hasta que quepa, lo que
     # iguala las longitudes; en tiempo lineal (verificación de 1.1.1, N-3).
     working = recortar_grupos_a_bytes(
         {eid: list(states) for eid, states in result.items()},
-        lambda w: _envolver(w, True),
+        lambda w: _envolver(w, True, total, max_bytes),
         max_bytes,
     )
     return working, True, _ultimo_ts(working)
@@ -163,9 +199,19 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
 ...
                 ]
               },
-              "truncated": false,       // true si se cortó por tamaño
-              "truncated_at": null      // ISO del último estado incluido si truncated
+              "truncated": false,       // true si se cortó (por tamaño o
+                                        // por el tope de 500 por entidad)
+              "truncated_at": null      // si truncated, ISO del último estado
+                                        // incluido más reciente (de todas)
             }
+            Solo si truncated, además:
+              "_response_limit": {"list": "history", "returned": N,
+                                  "total": M, "max_bytes": B, "hint": "..."}
+            `returned` son los estados incluidos y `total` los que devolvió
+            HA. Para seguir, acota el rango o las entidades, o vuelve a pedir
+            cada entidad con start_time = el last_updated de su último estado
+            devuelto. `truncated_at` es el más reciente de esos: pedirlas
+            todas desde ahí se salta estados de las demás.
         """
         from datetime import timedelta
 
@@ -202,10 +248,12 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
         # y truncar a _MAX_STATES_PER_ENTITY antes de la serialización global
         expanded: dict[str, list[dict[str, Any]]] = {}
         por_cantidad = False
+        total = 0
         for entity_id, points in raw.items():
             if not isinstance(points, list):
                 continue
             states = [_expand_state(p) for p in points if isinstance(p, dict)]
+            total += len(states)
             # Truncar por entidad primero. Antes este corte no lo decía: 3000
             # estados salían como 500 con `truncated: false` y el agente
             # creía tener todo el rango (verificación de 1.1.1, N-2).
@@ -216,7 +264,7 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
 
         # Truncar por bytes (nunca a mitad de registro)
         final, truncated, _ = _truncate_to_bytes(
-            expanded, response_max_bytes, por_cantidad
+            expanded, response_max_bytes, por_cantidad, total
         )
 
         logger.info(
@@ -227,4 +275,7 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
         # `ensure_ascii=False`, como se mide: con los `\uXXXX` de la
         # serialización por defecto un nombre con tildes ocupaba más de lo
         # medido y la respuesta volvía a pasar del tope.
-        return json.dumps(_envolver(final, truncated), ensure_ascii=False)
+        return json.dumps(
+            _envolver(final, truncated, total, response_max_bytes),
+            ensure_ascii=False,
+        )

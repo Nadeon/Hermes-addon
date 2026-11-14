@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 from dataclasses import dataclass, field
+from typing import Callable
 
 import aiohttp
 import structlog
@@ -175,13 +176,20 @@ async def preparar_core(
     timeout_http: float = TIMEOUT_HTTP,
     timeout_running: float = TIMEOUT_RUNNING,
     intervalo: float = INTERVALO,
+    anotar_secreto: Callable[[str], None] | None = None,
 ) -> CredencialesCore:
     """Completa el onboarding y devuelve el token de larga duración.
 
     Lanza `BancoNoDisponible(paso, estado)` en cuanto algo falla. No reintenta
     los pasos: un segundo intento daría 403 «already done» y escondería el
     primer error.
+
+    `anotar_secreto` recibe cada credencial en cuanto existe (usuario,
+    contraseña, código, token de acceso y de larga duración). Solo lo usa el
+    entorno del banco para comprobar, sobre el onboarding real, que ninguna
+    acaba en el log (FR-012); no las guarda en ningún otro sitio.
     """
+    anotar = anotar_secreto or (lambda _secreto: None)
     core_url = core_url.rstrip("/")
     # indieauth exige que `client_id` y `redirect_uri` tengan el mismo esquema
     # y netloc, y que el host sea el de la petición: la URL base con barra
@@ -195,6 +203,8 @@ async def preparar_core(
         # Core exige el usuario en minúsculas y sin espacios: hex.
         usuario = f"banco{secrets.token_hex(6)}"
         contrasena = secrets.token_urlsafe(24)
+        anotar(usuario)
+        anotar(contrasena)
         alta = await _post(
             session,
             "users",
@@ -211,6 +221,7 @@ async def preparar_core(
         codigo = alta.get("auth_code")
         if not isinstance(codigo, str):
             raise BancoNoDisponible("users", "sin auth_code")
+        anotar(codigo)
 
         tokens = await _post(
             session,
@@ -221,6 +232,7 @@ async def preparar_core(
         acceso = tokens.get("access_token")
         if not isinstance(acceso, str):
             raise BancoNoDisponible("token", "sin access_token")
+        anotar(acceso)
 
         await _post(session, "core_config", f"{core_url}/api/onboarding/core_config", token=acceso)
         await _post(session, "analytics", f"{core_url}/api/onboarding/analytics", token=acceso)
@@ -234,5 +246,6 @@ async def preparar_core(
 
         version = await _esperar_running(session, core_url, acceso, timeout_running, intervalo)
         token_core = await _token_larga_duracion(session, core_url, acceso)
+        anotar(token_core)
 
     return CredencialesCore(token_core=token_core, version_core=version)

@@ -88,6 +88,23 @@ class TestJobBancoCore(unittest.TestCase):
         self.assertIn("DOCKER-USER", texto)
         self.assertIn("-p 127.0.0.1:8123:8123", texto)
         self.assertIn("tiene salida a internet", texto)
+        # T040: la comprobación es `tests/banco/sin_salida.py` (TCP a IP
+        # literal), no una petición HTTP que un 429 o un 5xx darían por buena.
+        pasos = [p for p in _pasos() if "sin_salida.py" in str(p.get("run", ""))]
+        self.assertEqual(len(pasos), 1)
+        self.assertRegex(
+            pasos[0]["run"],
+            r"docker exec -i ha-banco python3 - (\d+\.\d+\.\d+\.\d+:\d+ )+< tests/banco/sin_salida\.py",
+        )
+        self.assertNotIn("urllib", texto)
+
+    def test_permisos_de_solo_lectura(self) -> None:
+        # T044: declarado en el workflow, sin depender del valor por defecto
+        # del repositorio; y ningún job lo amplía.
+        datos = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertEqual(datos.get("permissions"), {"contents": "read"})
+        for nombre, job in datos["jobs"].items():
+            self.assertNotIn("permissions", job, nombre)
 
     def test_marcador_banco_registrado(self) -> None:
         ini = configparser.ConfigParser()

@@ -4,6 +4,15 @@ Réplica mínima de lo que el Supervisor 2026.11.0 ofrece a un add-on para
 hablar con Core (`supervisor/api/proxy.py`), más las dos rutas que Hermes usa
 al arrancar. Escucha solo en `127.0.0.1`, en un puerto libre.
 
+## Filtro de peticiones peligrosas (T039)
+
+Antes que nada (también antes de comprobar el token), como el primer
+middleware del real (`block_bad_requests`): si la ruta o la query, decodificadas
+hasta que no cambien (`recursive_unquote`), encajan en `FILTERS` de
+`supervisor/api/middleware/security.py` del Supervisor 2026.11.0 (copiado tal
+cual: `concat(`, `union … select (`, `union all … select`, `<script>`,
+`../`, `x=/.//`, `proc/self/environ`) → `400` sin llegar a Core.
+
 ## Autenticación
 
 - REST: `Authorization: Bearer <token_addon>`. Sin cabecera o con otro token →
@@ -68,6 +77,9 @@ al arrancar. Escucha solo en `127.0.0.1`, en un puerto libre.
 Contra un doble de Core (`tests/banco/core_doble.py`, servidor `aiohttp` local
 que implementa `/api/*`, `/api/websocket`, el onboarding y `/auth/token`):
 
+- peticiones que encajan en `FILTERS` (en la ruta o en la query, también con
+  doble codificación) → 400 sin llegar al doble, incluso sin token; consultas
+  normales de history y logbook → pasan.
 - ping sin token → 200; `/core/info` con token → versión del doble; sin token
   → 401.
 - REST `GET`, `POST` y `DELETE` llegan al doble con `token_core` y no con

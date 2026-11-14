@@ -143,6 +143,10 @@ class Lector:
         """Elementos de un dominio de helpers (`<dominio>/list`)."""
         return await self._comando({"type": f"{dominio}/list"})
 
+    async def servicios(self) -> dict[str, dict[str, Any]]:
+        """Servicios que Core tiene registrados (`get_services`), por dominio."""
+        return await self._comando({"type": "get_services"})
+
     async def estado(self, entity_id: str) -> dict[str, Any] | None:
         """Estado de una entidad por REST; None si Core no la conoce."""
         assert self._session is not None

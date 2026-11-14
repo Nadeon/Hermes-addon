@@ -120,7 +120,7 @@ y las dos partes son disjuntas.
 | counter | `ha_decrement_counter` | no | estado − `step` |
 | counter | `ha_set_counter_value` | no | estado igual al valor |
 | counter | `ha_reset_counter` | no | estado = `initial` |
-| counter | `ha_reload_counters` | sí | `counter.reload` visto en el bus; el contador sigue existiendo |
+| counter | `ha_reload_counters` | sí | HALLAZGO (convergencia, T038): Core 2026.11.1 no tiene `counter.reload`; en `FALLAN_EN_BANCO`, no cuenta como probada; `xfail` estricto que solo admite el 400 de ese servicio ausente (arreglo en la spec 033) |
 | counter | `ha_delete_counter` | sí | fuera de la lista |
 | timer | `ha_create_or_update_timer` | sí | en la lista con su `duration` |
 | timer | `ha_start_timer` | no | estado `active` |

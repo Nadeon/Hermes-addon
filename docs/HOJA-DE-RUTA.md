@@ -17,7 +17,8 @@ leyó en esos tags; las tools de lectura se probaron en una instalación de prue
 con HA 2026.11.1. De las 124 tools que modifican, las 100 `ha_*` se ejecutan
 en cada push en el CI contra HA Core 2026.11.1 real (banco de pruebas): las 47
 de helpers en la spec 010 y las 53 restantes en la 028 (ver «Banco de Core:
-helpers» y «Banco de Core: escrituras» más abajo). Las 24 `fs_*` y `sv_*` no
+helpers» y «Banco de Core: escrituras» más abajo). Funcionan 99;
+`ha_reload_counters` falla (ver más abajo). Las 24 `fs_*` y `sv_*` no
 pasan por el banco, cada una con su motivo: las `fs_*` se ejecutan contra
 ficheros reales en la suite normal y las `sv_*` se verificaron leyendo el
 código de Hermes y el del Supervisor (su banco es la VM de la 014).
@@ -94,7 +95,7 @@ detalle está en el CHANGELOG.
 | 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes | Corregido |
 | 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente (1.2.0, spec 008: sobre común en las tools nuevas) |
 | 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes | Corregido |
-| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Pendiente (1.2.0, spec 008); la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
+| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Resuelto en 1.2.0 (009); la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
 
 Recomendación: actualizar a la 1.0.12. Quien siga en la 1.0.11 no debe
 reenviar `aliases` leídos del registro, ni usar
@@ -375,7 +376,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 
 | N.º | Sub-feature | CAP | Estado |
 |---|---|---|---|
-| 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | pendiente |
+| 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | pendiente |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
@@ -409,7 +410,8 @@ efecto lo comprueba un lector que habla directamente con Core. El inventario
 está en `tests/banco/cobertura.py` y un test de la suite normal impide que una
 tool nueva de estos dominios entre sin probarse en el banco.
 
-Ejecutadas en el banco (47):
+Ejecutadas en el banco con su efecto comprobado (46; el job exige que cada
+una se haya llamado con éxito en un test que ha pasado):
 
 - `input_boolean`: `ha_create_or_update_input_boolean`, `ha_set_input_boolean`,
   `ha_toggle_input_boolean`, `ha_delete_input_boolean`.
@@ -427,7 +429,7 @@ Ejecutadas en el banco (47):
   `ha_delete_input_text`.
 - `counter`: `ha_create_or_update_counter`, `ha_increment_counter`,
   `ha_decrement_counter`, `ha_set_counter_value`, `ha_reset_counter`,
-  `ha_reload_counters` (falla, ver abajo), `ha_delete_counter`.
+  `ha_delete_counter`.
 - `timer`: `ha_create_or_update_timer`, `ha_start_timer`, `ha_pause_timer`,
   `ha_change_timer`, `ha_cancel_timer`, `ha_finish_timer`, `ha_reload_timers`,
   `ha_delete_timer`.
@@ -438,13 +440,15 @@ Ejecutadas en el banco (47):
 
 No ejecutables en el banco: ninguna.
 
-Hallazgo del banco, pendiente de decidir dónde se arregla:
+Se ejecuta en el banco pero falla (`FALLAN_EN_BANCO`; no cuenta como probada).
+Hallazgo pendiente de arreglo en la spec 033:
 
 - **`ha_reload_counters` no funciona.** HA Core 2026.11.1 no tiene el servicio
   `counter.reload` (la integración `counter` solo registra `increment`,
   `decrement`, `reset` y `set_value`): Core responde 400 y la tool termina en
   «Error executing tool». En el banco está como fallo esperado estricto
-  (`xfail`), que se pondrá en rojo cuando deje de fallar.
+  (`xfail`) que solo admite ese error y que se pondrá en rojo cuando deje de
+  fallar.
 
 #### Banco de Core: escrituras (028)
 
@@ -521,16 +525,6 @@ programa:
 
 - **Guardar un dashboard por vistas** (018). En la prueba en vivo de la 1.1.2
   el cliente se dejó tarjetas al reescribir 134 KB; la vista previa lo mostró.
-- **Menores de las 1.1.1 y 1.1.2** (009): coste del barrido de tokens con el
-  tope de 16 MiB casi lleno; `redacted` de `sv_get_addon_logs`; `entity_id` en
-  el log de `auto_classify_restricted`; `_response_limit` de `ha_get_history`;
-  `ha_marketplace_list_removed` (filtros, resumen, `removal_type` como texto
-  de terceros); eventos `*_ok` del Marketplace y de `sv_get_resolution`;
-  `external_url` e `internal_url` y las IPs con forma `ip-a-b-c-d` en el log;
-  `redact_secrets` cuadrático con cadenas largas sin espacios (30 KB tardan del
-  orden de medio segundo).
-- **`sv_update_addon` sobre Hermes** (009): el Supervisor responde 403; se
-  rechaza antes con un mensaje que dice que se actualiza desde la interfaz.
 - **`ha_call_service_response` y la denylist** (018): hoy rechaza todo lo de la
   denylist y no acepta `confirmation_token`, así que una acción peligrosa con
   respuesta (`conversation.process`) no puede devolverla ni confirmando.
