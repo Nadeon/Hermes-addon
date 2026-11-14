@@ -2,8 +2,9 @@
 
 Suite normal (no necesita HA): TODA tool que modifica del registro de
 producción está en una de estas listas, sin solaparse: probada en el banco por
-la 010 (helpers), probada en el banco por la 028, no ejecutable con su motivo,
-o fuera del banco (`fs_*` y `sv_*`) con su motivo. Una tool nueva que modifica
+la 010 (helpers), hallazgo de la 010 que falla contra HA real
+(`FALLAN_EN_BANCO`), probada en el banco por la 028, no ejecutable con su
+motivo, o fuera del banco (`fs_*` y `sv_*`) con su motivo. Una tool nueva que modifica
 y no está en ninguna hace caer `test_todas_las_escrituras_clasificadas`, que la
 nombra. Contrato: `specs/028-pruebas-escrituras-core/contracts/`.
 
@@ -17,20 +18,25 @@ modifican»).
 
 Control negativo del cierre (T022, tramo B): quitar `ha_ignore_repair` de
 `PROBADAS_028` hace caer `test_todas_las_escrituras_clasificadas`
-nombrándola (y `test_recuento_028`: 52); dejarla en la lista y quitar su
-nombre literal del test del banco hace caer
-`test_cada_probada_aparece_en_un_test_del_banco`.
+nombrándola (y `test_recuento_028`: 52).
+
+Desde la convergencia (T030) ya no hay comprobación textual («el nombre de la
+tool aparece en un fichero del banco»): la sustituye la de EJECUCIÓN de la 010
+(`tests/banco/obligatorio.py`), a la que la 028 suma `PROBADAS_028` en
+`TOOLS_EXIGIDAS_DEL_JOB`. Aquí se comprueba que la suma está hecha y que los
+`xfail` de hallazgos de la 028 están bien formados.
 """
 
 from __future__ import annotations
 
+import importlib
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from tests.banco import cobertura, cobertura_escrituras as c028
 
-CARPETA_BANCO = Path(__file__).resolve().parent / "banco"
+RAIZ = Path(__file__).resolve().parent.parent
 
 
 def _modifican() -> set[str]:
@@ -53,6 +59,7 @@ def _listas() -> dict[str, set[str]]:
     return {
         "cobertura.PROBADAS_EN_BANCO (010)": set(cobertura.PROBADAS_EN_BANCO),
         "cobertura.NO_EJECUTABLES (010)": set(cobertura.NO_EJECUTABLES),
+        "cobertura.FALLAN_EN_BANCO (010)": set(cobertura.FALLAN_EN_BANCO),
         "PROBADAS_028": set(c028.PROBADAS_028),
         "NO_EJECUTABLES_028": set(c028.NO_EJECUTABLES_028),
         "FUERA_DEL_BANCO": set(c028.FUERA_DEL_BANCO),
@@ -110,16 +117,55 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         self.assertEqual(total, 53, f"las listas de la 028 suman {total}, no 53")
         self.assertEqual(len(c028.FUERA_DEL_BANCO), 24)
 
-    def test_cada_probada_aparece_en_un_test_del_banco(self) -> None:
-        textos = "\n".join(
-            p.read_text(encoding="utf-8")
-            for p in sorted(CARPETA_BANCO.glob("test_banco_escrituras_*.py"))
+    def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
+        # El plugin del job (010) solo exige lo que le pasa el conftest. Si la
+        # 028 no sumara su lista, sus 53 tools podrían dejar de ejecutarse sin
+        # que nada se pusiera en rojo.
+        from tests.banco import obligatorio
+
+        self.assertEqual(
+            c028.TOOLS_EXIGIDAS_DEL_JOB, cobertura.PROBADAS_EN_BANCO | c028.PROBADAS_028
         )
-        self.assertTrue(textos, "no hay ficheros tests/banco/test_banco_escrituras_*.py")
-        ausentes = sorted(t for t in c028.PROBADAS_028 if f'"{t}"' not in textos)
-        self.assertFalse(
-            ausentes, f"tools de PROBADAS_028 que ningún test del banco llama: {ausentes}"
+        self.assertEqual(
+            c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}
         )
+        conftest = (RAIZ / "tests" / "banco" / "conftest.py").read_text(encoding="utf-8")
+        self.assertIn("tools_exigidas=TOOLS_EXIGIDAS_DEL_JOB", conftest)
+        self.assertIn("xfail_permitidos=XFAIL_DEL_JOB", conftest)
+        # Y el plugin nombra la tool que falta, sin decir que es de la 010.
+        plugin = obligatorio.ComprobacionDelJob(
+            carpeta=RAIZ / "tests" / "banco",
+            xfail_permitidos=c028.XFAIL_DEL_JOB,
+            tools_exigidas=c028.TOOLS_EXIGIDAS_DEL_JOB,
+            tomar_tools_del_test=set,
+        )
+        plugin.xfail_vistos = set(c028.XFAIL_DEL_JOB)
+        plugin.tools_probadas = set(c028.TOOLS_EXIGIDAS_DEL_JOB) - {"ha_fire_event"}
+        self.assertEqual(len(plugin.calcular_problemas()), 1)
+        self.assertIn("['ha_fire_event']", plugin.calcular_problemas()[0])
+        self.assertIn("PROBADAS_028", plugin.calcular_problemas()[0])
+
+    def test_hallazgos_de_la_028_con_su_xfail(self) -> None:
+        # Como el T038 de la 010: cada hallazgo tiene su xfail en la lista del
+        # job y cada xfail de la lista documenta un hallazgo, apunta a un test
+        # que existe, es estricto, espera una excepción concreta y dice
+        # HALLAZGO. La tool sigue en PROBADAS_028: su camino normal funciona.
+        self.assertEqual(set(c028.XFAIL_PERMITIDOS_028.values()), set(c028.HALLAZGOS_028))
+        self.assertLessEqual(set(c028.HALLAZGOS_028), set(c028.PROBADAS_028))
+        for tool, motivo in c028.HALLAZGOS_028.items():
+            self.assertIn("HALLAZGO", motivo, tool)
+            self.assertIn("spec 033", motivo, tool)
+        for nodeid in c028.XFAIL_PERMITIDOS_028:
+            ruta, clase, metodo = nodeid.split("::")
+            self.assertTrue((RAIZ / ruta).is_file(), nodeid)
+            modulo = importlib.import_module(ruta.removesuffix(".py").replace("/", "."))
+            prueba = getattr(getattr(modulo, clase), metodo)
+            marcas = [m for m in getattr(prueba, "pytestmark", []) if m.name == "xfail"]
+            self.assertEqual(len(marcas), 1, nodeid)
+            self.assertIs(marcas[0].kwargs.get("strict"), True, nodeid)
+            self.assertIn("HALLAZGO", marcas[0].kwargs.get("reason", ""), nodeid)
+            excepcion = marcas[0].kwargs.get("raises")
+            self.assertNotIn(excepcion, (None, AssertionError, Exception, BaseException), nodeid)
 
 
 if __name__ == "__main__":

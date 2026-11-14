@@ -4,7 +4,8 @@ Invariante que comprueba `tests/test_banco_cobertura_escrituras.py` en la
 suite normal (sin HA ni Docker):
 
     tools que MODIFICAN del registro de producción
-      = cobertura.PROBADAS_EN_BANCO ∪ cobertura.NO_EJECUTABLES      (010, 47)
+      = cobertura.PROBADAS_EN_BANCO ∪ cobertura.NO_EJECUTABLES
+        ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 0 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
       ∪ FUERA_DEL_BANCO                                              (24)
 
@@ -25,9 +26,24 @@ su rama nombrando la tool.
 
 El inventario de los helpers es de la 010 (`tests/banco/cobertura.py`) y no se
 toca desde aquí: se importa y se suma.
+
+«Probada» quiere decir EJECUTADA (contrato de la 010): en el job, el plugin de
+`tests/banco/obligatorio.py` exige que cada tool de `TOOLS_EXIGIDAS_DEL_JOB`
+(las probadas de la 010 y de la 028) se haya llamado con éxito dentro de un
+test que ha pasado. Nombrarla en un fichero no basta. Una tool que falla contra
+HA real no es probada: va a `FALLAN_EN_BANCO` (hoy, solo `ha_reload_counters`,
+de la 010).
+
+Hallazgos de la 028 (`HALLAZGOS_028`): defectos de una tool que funciona por su
+camino normal (por eso sigue en `PROBADAS_028` y se exige por ejecución), pero
+que falla o es insegura con un argumento concreto. Cada uno tiene su test con
+`xfail` estricto que espera ese fallo concreto, en `XFAIL_PERMITIDOS_028`; el
+job no admite ningún otro `xfail`.
 """
 
 from __future__ import annotations
+
+from tests.banco import cobertura
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama algún
 # `tests/banco/test_banco_escrituras_*.py` y su efecto lo comprueba el lector
@@ -99,6 +115,24 @@ PROBADAS_028: frozenset[str] = frozenset(
         "ha_continue_options_flow",
     }
 )
+
+# Tool → hallazgo de la 028 (FR-007). La tool funciona por su camino normal
+# (está en `PROBADAS_028` y su test lo ejecuta con éxito), pero el banco ha
+# visto contra HA Core 2026.11.1 un defecto con un argumento concreto. No se
+# arregla aquí: el arreglo es de la spec 033.
+HALLAZGOS_028: dict[str, str] = {}
+
+# Los `xfail` de la 028 que el job admite: id del test (como lo escribe pytest
+# desde la raíz del repositorio) → tool de `HALLAZGOS_028` que documenta. Cada
+# uno es estricto y espera una excepción concreta: si la tool se arregla, el
+# test pasa y el job se pone en rojo para quitar la marca.
+XFAIL_PERMITIDOS_028: dict[str, str] = {}
+
+# Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
+# por ejecución y todos los `xfail` de hallazgos listados. Una sub-feature
+# nueva con tests en el banco suma aquí sus listas.
+TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = cobertura.PROBADAS_EN_BANCO | PROBADAS_028
+XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 
 # `ha_*` que no se pueden ejecutar en el banco → motivo concreto (qué falta:
 # hardware, internet, nube o Supervisor). Vacío: todas se ejecutan.
