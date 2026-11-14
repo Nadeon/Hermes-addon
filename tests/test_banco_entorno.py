@@ -214,5 +214,33 @@ class TestLector(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class TestLlamar(unittest.IsolatedAsyncioTestCase):
+    """`llamar` (tramo B): un error de la tool es un fallo del test, y una lista
+    devuelta por la tool (un bloque por elemento, o ninguno) se reconstruye."""
+
+    @staticmethod
+    def _cliente(content: list[str], is_error: bool = False) -> mock.MagicMock:
+        resultado = mock.MagicMock(
+            content=[mock.MagicMock(text=t) for t in content], is_error=is_error
+        )
+        cliente = mock.MagicMock()
+        cliente.call_tool = mock.AsyncMock(return_value=resultado)
+        return cliente
+
+    async def test_error_de_la_tool_falla(self) -> None:
+        cliente = self._cliente(["Error executing tool ha_x"], is_error=True)
+        with self.assertRaises(AssertionError) as ctx:
+            await entorno.llamar(cliente, "ha_x")
+        self.assertIn("ha_x", str(ctx.exception))
+
+    async def test_listas(self) -> None:
+        self.assertEqual(await entorno.llamar(self._cliente([]), "ha_x"), [])
+        self.assertEqual(
+            await entorno.llamar(self._cliente(['{"a": 1}', '{"b": 2}']), "ha_x"),
+            [{"a": 1}, {"b": 2}],
+        )
+        self.assertEqual(await entorno.llamar(self._cliente(['{"a": 1}']), "ha_x"), {"a": 1})
+
+
 if __name__ == "__main__":
     unittest.main()

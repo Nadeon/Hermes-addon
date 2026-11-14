@@ -229,17 +229,35 @@ async def hermes_conectado(entorno: EntornoBanco) -> AsyncIterator[HermesConecta
         await ha_client.stop()
 
 
-def _decodificar(resultado: Any) -> Any:
-    texto = resultado.content[0].text
+def _decodificar_texto(texto: str) -> Any:
     try:
         return json.loads(texto)
     except ValueError:
         return texto
 
 
+def _decodificar(resultado: Any) -> Any:
+    # Una tool que devuelve una lista sale como un bloque por elemento (una
+    # llamada a servicio devuelve los estados cambiados, a menudo ninguno): se
+    # reconstruye la lista en vez de quedarse con el primer bloque.
+    bloques = [_decodificar_texto(c.text) for c in resultado.content]
+    if len(bloques) == 1:
+        return bloques[0]
+    return bloques
+
+
 async def llamar(cliente: Any, tool: str, **args: Any) -> Any:
-    """Llama a una tool por MCP y devuelve su respuesta decodificada."""
-    return _decodificar(await cliente.call_tool(tool, args))
+    """Llama a una tool por MCP y devuelve su respuesta decodificada.
+
+    Una excepción dentro de la tool llega como resultado con `is_error`; se
+    convierte en fallo del test (si no, el texto del error pasaría por una
+    respuesta normal y el test fallaría después, lejos de la causa).
+    """
+    resultado = await cliente.call_tool(tool, args)
+    if getattr(resultado, "is_error", False):
+        textos = " ".join(getattr(c, "text", "") for c in resultado.content)
+        raise AssertionError(f"{tool}: la tool falló: {textos}")
+    return _decodificar(resultado)
 
 
 async def confirmar(cliente: Any, tool: str, respuesta: dict[str, Any], **args: Any) -> Any:

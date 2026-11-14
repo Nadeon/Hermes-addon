@@ -51,8 +51,9 @@ class TestCounter(BancoHelpers):
             await s.esperar_estado(eid, lambda e: e["state"] == "8", "5 + step")
             await s.accion("ha_decrement_counter", entity_id=eid)
             await s.esperar_estado(eid, lambda e: e["state"] == "5", "8 − step")
-            await s.accion("ha_set_counter_value", entity_id=eid, value=20)
-            await s.esperar_estado(eid, lambda e: e["state"] == "20", "a 20")
+            # HA exige que el valor sea múltiplo del `step` (3): si no, 500.
+            await s.accion("ha_set_counter_value", entity_id=eid, value=21)
+            await s.esperar_estado(eid, lambda e: e["state"] == "21", "a 21")
             await s.accion("ha_reset_counter", entity_id=eid)
             await s.esperar_estado(eid, lambda e: e["state"] == "5", "vuelta a initial")
 
