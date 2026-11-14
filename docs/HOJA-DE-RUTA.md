@@ -326,38 +326,53 @@ Hermes la aceptó.
   salvaguarda funciona, pero reconstruir un dashboard grande entero es
   propenso a errores del cliente (ver 1.2.x, guardado por vistas).
 
-### Pruebas manuales pendientes en una instalación real
+### Pruebas manuales pendientes
 
-La suite no puede cubrir esto; anota aquí el resultado:
+La suite no puede cubrir esto; anota aquí el resultado. Cada casilla dice
+dónde se hace: en la VM del banco del Supervisor
+([BANCO-SUPERVISOR.md](BANCO-SUPERVISOR.md)), en la instalación real o desde
+un cliente contra la instalación real.
 
-- [ ] **Lo que la instalación de prueba no tenía**: la redacción de las
-  referencias de `sv_get_resolution` con issues o sugerencias reales, y las
-  trazas de un script (`ha_list_traces` y `ha_get_trace` con
-  `domain: "script"`).
-- [ ] **CIMD con Claude Code** (con claude.ai ya está hecho): autorizar,
-  comprobar la pantalla de autorización (host, nombre y destino del código) y
-  el evento `oauth_cimd_document` del log
-  (`specs/003-oauth-y-protocolo/quickstart.md`).
-- [ ] **Primer byte tras el proxy**: Claude Code con una espera de 90 s detrás
-  del proxy. Si corta a los 60 s, completar DOCS.md con lo que haga falta en
-  ese proxy.
-- [ ] **Clave `homeassistant` en una HA antigua**: que el Supervisor rechace
-  la actualización en una HA anterior a 2024.10 (en una soportada ya está
-  comprobado).
-- [ ] **Funnel en el 8443**: publicar Hermes en el 8443 con
+- [ ] (VM) **Matriz del Supervisor**: las tandas de pruebas del procedimiento
+  sobre las `sv_*` y `fs_*` que modifican, con el resultado anotado en la
+  matriz de pruebas (sección «Matriz de pruebas: tool → entorno → resultado»).
+- [ ] (VM o instalación real) **Lo que la instalación de prueba no tenía**: la
+  redacción de las referencias de `sv_get_resolution` con issues o
+  sugerencias reales, y las trazas de un script (`ha_list_traces` y
+  `ha_get_trace` con `domain: "script"`).
+- [ ] (cliente contra la VM o la instalación real) **CIMD con Claude Code**
+  (con claude.ai ya está hecho): autorizar, comprobar la pantalla de
+  autorización (host, nombre y destino del código) y el evento
+  `oauth_cimd_document` del log (`specs/003-oauth-y-protocolo/quickstart.md`).
+- [ ] (cliente contra la instalación real) **Primer byte tras el proxy**:
+  Claude Code con una espera de 90 s detrás del proxy. Si corta a los 60 s,
+  completar DOCS.md con lo que haga falta en ese proxy.
+- [ ] (VM) **Clave `homeassistant` en una HA antigua**: que el Supervisor
+  rechace la actualización en una HA anterior a 2024.10 (en una soportada ya
+  está comprobado).
+- [ ] (instalación real) **Funnel en el 8443**: publicar Hermes en el 8443 con
   `public_hostname: homeassistant.tailXXXX.ts.net:8443`, con
   `share_homeassistant: funnel` en el 443, y pasar una instalación existente
   del 443 al 8443 siguiendo los README.
-- [ ] **Confirmar sin el documento con `fs_write_file` (1.1.2)**: lo mismo
-  que con el dashboard, con un fichero de prueba grande; y comprobar que,
-  pasados unos dos minutos, el directorio de confirmaciones no conserva el
-  contenido (`specs/007-confirmar-con-token/quickstart.md`). Hace falta
+- [ ] (VM) **Confirmar sin el documento con `fs_write_file` (1.1.2)**: lo
+  mismo que con el dashboard, con un fichero de prueba grande; y comprobar
+  que, pasados unos dos minutos, el directorio de confirmaciones no conserva
+  el contenido (`specs/007-confirmar-con-token/quickstart.md`). Hace falta
   acceso al `/data` del add-on, que las tools no dan.
-- [ ] **`hassio_role: manager` en una instalación real** (o en la VM del
-  procedimiento de la spec 014): arranque, `bashio::config` y todas las
-  `sv_*`.
-- [ ] **Las 13 tools de escritura de la 1.1.x**, en vivo.
-- [ ] **`sv_update_addon` sobre Hermes**, tras el rechazo previo de la
+- [ ] (VM, después instalación real) **`hassio_role: manager`**: según el
+  procedimiento, comprobar el arranque, la lectura de las opciones de otros
+  add-ons (`sv_get_addon_options`, `sv_get_addon`) y cada tool `sv_*`, sin
+  ningún 403 nuevo. Según el código del Supervisor 2026.11.0 todas las rutas
+  que usa Hermes caben en `manager`, sin excepciones
+  (`tests/test_rutas_supervisor_rol.py`). El rol del add-on publicado se
+  decide con este resultado (D-02).
+- [ ] (instalación real, tras publicar) **Pruebas en vivo de las tools nuevas
+  de la 1.2.0**: las tools nuevas del programa en una instalación en uso,
+  solo después de publicar; las destructivas, antes en la VM.
+- [ ] (VM o instalación real) **Las 13 tools de escritura de la 1.1.x**, en
+  vivo: cubiertas por la matriz de pruebas (banco de Core para las de Core,
+  VM para las del Supervisor).
+- [ ] (VM) **`sv_update_addon` sobre Hermes**, tras el rechazo previo de la
   spec 009 (CAP-021).
 
 ### Programa de cobertura total (spec 008) — 1.2.0

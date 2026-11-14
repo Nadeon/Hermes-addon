@@ -71,8 +71,8 @@ cerrada y commiteable).
 
 ## Fase 5: US3 — casillas manuales con su entorno (P2)
 
-- [ ] T010 [US3] En `docs/HOJA-DE-RUTA.md`, renombrar «Pruebas manuales pendientes en una instalación real» a «Pruebas manuales pendientes» (y actualizar los enlaces internos que apunten a ese título, si hay) y poner a cada casilla su entorno al principio según research R-5: «(VM)», «(instalación real)», «(VM o instalación real)», «(cliente contra la instalación real)»…
-- [ ] T011 [US3] En la misma sección: casilla nueva «(VM) Matriz del Supervisor» que enlaza `docs/BANCO-SUPERVISOR.md` y remite a la matriz; casilla nueva «(instalación real, tras publicar) Pruebas en vivo de las tools nuevas de la 1.2.0»; reescribir la de `hassio_role: manager` («(VM, después instalación real)», sin `bashio::config`: arranque, opciones de otros add-ons y cada `sv_*`; con las excepciones de `EXCEPCIONES_ADMIN` si las hay); la de «las 13 tools de escritura de la 1.1.x» remite a la matriz. Pasan `test_casillas_manuales` y `test_hoja_de_ruta_enlaza_el_procedimiento`; la suite de la 014 entera en verde (FR-005, SC-004)
+- [x] T010 [US3] En `docs/HOJA-DE-RUTA.md`, renombrar «Pruebas manuales pendientes en una instalación real» a «Pruebas manuales pendientes» (y actualizar los enlaces internos que apunten a ese título, si hay) y poner a cada casilla su entorno al principio según research R-5: «(VM)», «(instalación real)», «(VM o instalación real)», «(cliente contra la instalación real)»…
+- [x] T011 [US3] En la misma sección: casilla nueva «(VM) Matriz del Supervisor» que enlaza `docs/BANCO-SUPERVISOR.md` y remite a la matriz; casilla nueva «(instalación real, tras publicar) Pruebas en vivo de las tools nuevas de la 1.2.0»; reescribir la de `hassio_role: manager` («(VM, después instalación real)», sin `bashio::config`: arranque, opciones de otros add-ons y cada `sv_*`; con las excepciones de `EXCEPCIONES_ADMIN` si las hay); la de «las 13 tools de escritura de la 1.1.x» remite a la matriz. Pasan `test_casillas_manuales` y `test_hoja_de_ruta_enlaza_el_procedimiento`; la suite de la 014 entera en verde (FR-005, SC-004)
 
 ## Fase 6: Documentación y cierre
 
