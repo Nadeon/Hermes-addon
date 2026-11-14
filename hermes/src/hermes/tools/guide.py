@@ -512,11 +512,20 @@ El streaming (`follow`) no está: MCP es petición-respuesta.
 - `sv_list_host_services(state=)` — servicios systemd del host; `state`
   filtra por estado exacto (`failed` para ver qué ha fallado).
 - `sv_get_disk_usage(disk="default", max_depth=1)` — qué ocupa el disco del
-  sistema (`default`) o un montaje de red (su nombre). `max_depth` de 0 a 3.
+  sistema (`default`) o un montaje de red (su nombre). `max_depth` de 0 a 3,
+  pero los niveles los decide el Supervisor:
+  - disco del sistema: el primer nivel son siempre sus zonas fijas (system,
+    datos y configuración de add-ons, media, share, backup, ssl,
+    homeassistant); 0 y 1 dan solo ese nivel, 2 añade un nivel de carpetas
+    dentro de cada zona y 3, dos;
+  - montaje: 0 y 1 dan solo los totales, sin hijos; 2 da un nivel de
+    carpetas y 3, dos.
   En cada nivel quedan los 20 hijos que más ocupan; si había más, el nodo
-  lleva `children_omitted` y `omitted_bytes` y la suma sigue cuadrando. Para
-  «qué llena el disco», empieza con `max_depth=1` y baja solo si hace falta.
-  Un montaje lento puede tardar hasta un minuto.
+  lleva `children_omitted` y `omitted_bytes` y la suma sigue cuadrando. Si
+  aun así no cabe en `response_max_bytes`, se pliegan igual las carpetas más
+  pequeñas de todo el árbol y la respuesta lleva `truncated: true`. Para
+  «qué llena el disco», empieza con `max_depth=1` (en un montaje, 2) y baja
+  solo si hace falta. Un montaje lento puede tardar hasta un minuto.
 - `sv_get_os_info` — versión de OS, la última, si hay actualización, placa,
   slot de arranque, disco de datos y slots.
 - `sv_get_swap` — tamaño y swappiness de la swap (OS 15 o posterior).

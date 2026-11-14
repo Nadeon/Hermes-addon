@@ -449,6 +449,14 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
                         "/time/info", "/network/info", "/security/integrity"):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
+        # T032: los niveles que da cada `max_depth`, que en un montaje son
+        # uno menos (el Supervisor convierte < 2 en 0). Control negativo:
+        # volver al texto anterior («`max_depth` de 0 a 3.») → cae.
+        for frase in ("montaje: 0 y 1 dan solo los totales",
+                      "0 y 1 dan solo ese nivel",
+                      "(en un montaje, 2)", "`truncated: true`"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, texto)
         for alias in ("disk", "storage", "os", "jobs", "DISK"):
             with self.subTest(alias=alias):
                 self.assertEqual(await self.guide(alias), texto)

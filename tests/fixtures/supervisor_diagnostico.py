@@ -185,6 +185,37 @@ def uso_de_disco_profundo(ancho: int = 25) -> dict[str, Any]:
     }
 
 
+def uso_de_disco_realista(ancho: int = 20) -> dict[str, Any]:
+    """Disco del sistema con `max_depth` 3 como lo arma el Supervisor 2026.11
+    (`get_dir_sizes` y `get_dir_structure_sizes`): `system` y siete rutas
+    conocidas, y en cada ruta dos niveles de `ancho` carpetas. Con 20 y estos
+    nombres pasa de 200 KB, más que el tope de 128 KiB, aun podado a 20
+    hijos por nivel. Los tamaños son todos distintos para que el orden de la
+    poda no dependa de desempates."""
+    conocidas = ("apps_data", "apps_config", "media", "share", "backup", "ssl",
+                 "homeassistant")
+    hijos = []
+    for k, ruta in enumerate(conocidas):
+        carpetas = []
+        for a in range(ancho):
+            subcarpetas = [
+                nodo(f"subcarpeta_{b:02d}_de_{a:02d}_en_{ruta}",
+                     (k * 1000 + a * 40 + b + 1) * 1_000)
+                for b in range(ancho)
+            ]
+            carpetas.append(nodo(f"carpeta_{a:02d}_de_{ruta}",
+                                 sum(h["used_bytes"] for h in subcarpetas) + 4096,
+                                 subcarpetas))
+        hijos.append(nodo(ruta, sum(h["used_bytes"] for h in carpetas) + 8192, carpetas))
+    conocido = sum(h["used_bytes"] for h in hijos)
+    usado = conocido + 3_000_000_000
+    return {
+        "id": "root", "label": "Root", "total_bytes": 64_000_000_000,
+        "used_bytes": usado,
+        "children": [nodo("system", usado - conocido), *hijos],
+    }
+
+
 # Disco del sistema por la API v1 del Supervisor (la que ve un add-on): los
 # ids de los add-ons salen con el nombre antiguo y Hermes no los cambia.
 USO_DE_DISCO_V1 = {

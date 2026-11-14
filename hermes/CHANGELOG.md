@@ -29,7 +29,8 @@ argumento existente cambia ni pasa a ser obligatorio.
   identificador pedido.
 - **`sv_get_addon_logs` gana `boot` y `latest`**, opcionales: el log de un
   add-on en un arranque anterior o desde que arrancó su contenedor. Sin
-  ellos, la petición y la respuesta son las de la 1.1.2.
+  ellos, la petición y la respuesta son las de la 1.1.2, salvo que su
+  mensaje de error pasa ahora por la redacción de secretos, como el log.
 - **Tabla de comandos**: las 23 rutas de logs del Supervisor que cubren estas
   tools pasan de «pendiente de tool dedicada» a `dedicated`; `sv_read_api`
   remite a la tool. Las variantes `follow` (streaming) y el alias legado
@@ -37,9 +38,12 @@ argumento existente cambia ni pasa a ser obligatorio.
 - **Disco, host y OS.** Cinco tools más de solo lectura en
   `system_diagnostics`: `sv_list_host_services` (servicios systemd del host;
   `state="failed"` enseña los que han fallado), `sv_get_disk_usage` (qué
-  ocupa el disco del sistema o un montaje de red, con `max_depth` de 0 a 3;
-  en cada nivel quedan las 20 carpetas que más ocupan y lo quitado se resume
-  en `children_omitted` y `omitted_bytes` para que la suma cuadre),
+  ocupa el disco del sistema o un montaje de red, con `max_depth` de 0 a 3
+  y los niveles que da el Supervisor, que en un montaje son uno menos; en
+  cada nivel quedan las 20 carpetas que más ocupan, si aun así no cabe en
+  `response_max_bytes` se pliegan las más pequeñas de todo el árbol, y lo
+  quitado se resume en `children_omitted` y `omitted_bytes` para que la
+  suma cuadre),
   `sv_get_os_info` (versión de Home Assistant OS, actualización, placa y
   slots), `sv_get_swap` (tamaño y swappiness, OS 15 o posterior) y
   `sv_list_datadisk_candidates` (discos que podrían ser el disco de datos;

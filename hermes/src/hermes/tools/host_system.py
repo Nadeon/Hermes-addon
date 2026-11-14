@@ -28,8 +28,10 @@ bytes y el resultado.
 
 from __future__ import annotations
 
+import copy
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 import structlog
@@ -38,7 +40,7 @@ from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.identifiers import InvalidIdentifier, validate_path_segment
 from hermes.security import redact_secrets, redact_structure
-from hermes.tools._common import ajustar_lista_a_bytes
+from hermes.tools._common import ajustar_lista_a_bytes, tam_json
 from hermes.tools._logs import ArgumentoInvalido
 
 logger = structlog.get_logger(__name__)
@@ -61,6 +63,12 @@ MAX_HIJOS = 20
 # corte de la petición que no diría nada (research R-4).
 _ESPERA_USO_DE_DISCO = 75.0
 
+_PISTA_ARBOL = (
+    "The smallest folders were folded into their parent's children_omitted "
+    "and omitted_bytes to fit response_max_bytes; a lower max_depth shows "
+    "fewer levels with less folding."
+)
+
 _PISTA_OS = "Requires Home Assistant OS (swap needs OS 15 or newer)."
 
 
@@ -70,9 +78,9 @@ def podar_arbol(nodo: dict[str, Any], max_hijos: int = MAX_HIJOS) -> dict[str, A
     Supervisor).
 
     POR QUÉ: con `max_depth` 3, una carpeta con miles de subcarpetas da un
-    árbol que no cabe en `response_max_bytes`, y el tope central solo sabe
-    recortar listas del primer nivel. Para «qué llena el disco» lo que importa
-    son las carpetas grandes. Lo quitado se resume en `children_omitted` y
+    árbol enorme. Para «qué llena el disco» lo que importa son las carpetas
+    grandes. Aun así, 20 por nivel en tres niveles puede no caber en
+    `response_max_bytes`: eso lo resuelve después `ajustar_arbol_a_bytes`. Lo quitado se resume en `children_omitted` y
     `omitted_bytes` para que la suma siga cuadrando y la respuesta no mienta
     (principio V). Un nodo sin nada quitado no gana esas claves.
     """
@@ -91,6 +99,81 @@ def podar_arbol(nodo: dict[str, Any], max_hijos: int = MAX_HIJOS) -> dict[str, A
         copia["children_omitted"] = len(quitados)
         copia["omitted_bytes"] = sum(_bytes(h.get("used_bytes")) for h in quitados)
     return copia
+
+
+def ajustar_arbol_a_bytes(
+    arbol: dict[str, Any],
+    construir: Callable[[dict[str, Any], bool], dict[str, Any]],
+    max_bytes: int,
+) -> dict[str, Any]:
+    """Respuesta con el árbol que quepa en `max_bytes`, quitando primero las
+    carpetas que MENOS ocupan.
+
+    `construir(arbol, recortado)` arma la respuesta completa (con la marca y la
+    pista cuando `recortado`). Cada carpeta quitada se suma al
+    `children_omitted` y al `omitted_bytes` de su padre, así que en CADA nivel
+    los hijos que quedan más `omitted_bytes` suman lo mismo que los hijos que
+    dio el Supervisor (research R-4, principio V).
+
+    POR QUÉ: con `max_depth` 3, aun podado a 20 hijos por nivel, el árbol del
+    disco del sistema pasa de 200 KB. El guardián central solo sabe recortar
+    la lista del primer nivel: quitaba ramas enteras sin decir cuánto
+    ocupaban y la suma dejaba de cuadrar. Quitar por tamaño conserva lo que
+    responde a «qué llena el disco»: las carpetas grandes.
+
+    Se estima lo que ahorra cada carpeta con su tamaño serializado y se
+    verifica con el tamaño real, repitiendo si las claves añadidas
+    (`children_omitted`, `omitted_bytes`) se comen lo ahorrado. El orden
+    (tamaño, más profunda antes, `id`) no depende del orden del Supervisor.
+    """
+    completa = construir(arbol, False)
+    if tam_json(completa) <= max_bytes:
+        return completa
+    arbol = copy.deepcopy(arbol)
+    # (nodo, padre, profundidad) de todo nodo salvo la raíz.
+    nodos: list[tuple[dict[str, Any], dict[str, Any], int]] = []
+
+    def recorrer(nodo: dict[str, Any], profundidad: int) -> None:
+        hijos = nodo.get("children")
+        if not isinstance(hijos, list):
+            return
+        for hijo in hijos:
+            if isinstance(hijo, dict):
+                nodos.append((hijo, nodo, profundidad + 1))
+                recorrer(hijo, profundidad + 1)
+
+    recorrer(arbol, 0)
+    nodos.sort(key=lambda t: (_bytes(t[0].get("used_bytes")), -t[2], str(t[0].get("id", ""))))
+    quitados: set[int] = set()
+
+    def marcar(nodo: dict[str, Any]) -> None:
+        # Un descendiente de una carpeta quitada ya no está en el árbol: no
+        # puede quitarse otra vez ni sumarse dos veces.
+        quitados.add(id(nodo))
+        for hijo in nodo.get("children") or []:
+            if isinstance(hijo, dict):
+                marcar(hijo)
+
+    i = 0
+    out = construir(arbol, True)
+    while tam_json(out) > max_bytes and i < len(nodos):
+        exceso = tam_json(out) - max_bytes
+        ahorro = 0
+        while ahorro < exceso and i < len(nodos):
+            nodo, padre, _ = nodos[i]
+            i += 1
+            if id(nodo) in quitados:
+                continue
+            marcar(nodo)
+            padre["children"] = [h for h in padre["children"] if h is not nodo]
+            padre["children_omitted"] = padre.get("children_omitted", 0) + 1
+            padre["omitted_bytes"] = (
+                padre.get("omitted_bytes", 0) + _bytes(nodo.get("used_bytes"))
+            )
+            # ", " entre elementos de la lista.
+            ahorro += tam_json(nodo) + 2
+        out = construir(arbol, True)
+    return out
 
 
 def _bytes(valor: Any) -> int:
@@ -218,19 +301,30 @@ def register(
 
         Each level keeps the 20 children that use the most space; when more
         exist, the node carries `children_omitted` and `omitted_bytes` so the
-        sizes still add up. Measuring a slow network mount can take up to a
-        minute.
+        sizes still add up. If the tree still does not fit in the response
+        limit, the smallest folders anywhere in it are folded the same way
+        and the answer carries `truncated: true` and a `hint`. Measuring a
+        slow network mount can take up to a minute.
+
+        Levels you get for each `max_depth` (the Supervisor decides them):
+        - system disk: the first level is always its fixed areas (system,
+          add-on data and config, media, share, backup, ssl, homeassistant);
+          0 and 1 give only that level, 2 adds one level of folders inside
+          each area and 3 adds two.
+        - storage mount: 0 and 1 give only the totals, with no children; 2
+          gives one level of folders and 3 gives two.
 
         Args:
             disk: `default` (the system disk) or the name of a storage mount
                 (letters, digits and '_').
-            max_depth: How many folder levels to break down, 0-3 (default 1).
+            max_depth: 0-3 (default 1); see the levels above.
 
         Returns:
             {"disk", "max_depth", "id", "label", "total_bytes", "used_bytes",
              "children": [{"id", "label", "used_bytes", "children"?, ...}]},
-            or {"error": "invalid_argument", "field", "detail"} without
-            calling the Supervisor.
+            plus `truncated` and `hint` when folded to fit; or
+            {"error": "invalid_argument", "field", "detail"} without calling
+            the Supervisor.
         """
         tool, plantilla = "sv_get_disk_usage", "/host/disks/{disk}/usage"
         try:
@@ -248,8 +342,25 @@ def register(
         if not isinstance(data, dict) or "used_bytes" not in data:
             return _forma_inesperada(tool, plantilla)
         arbol = redact_structure(podar_arbol(data))
-        out = {"disk": disk, "max_depth": max_depth, **arbol}
-        logger.info(_EVENTO, tool=tool, route=plantilla, bytes=_tam(out), outcome="ok")
+
+        def construir(nodo: dict[str, Any], recortado: bool) -> dict[str, Any]:
+            out = {"disk": disk, "max_depth": max_depth, **nodo}
+            if recortado:
+                out["truncated"] = True
+                out["hint"] = _PISTA_ARBOL
+            return out
+
+        # La tool cabe por su cuenta: el guardián central no llega a actuar
+        # (quitaría ramas enteras del primer nivel sin cuadrar la suma).
+        # `max_depth` se manda tal cual: en un montaje el Supervisor da un
+        # nivel menos que en el disco del sistema (convierte < 2 en 0 y solo
+        # desglosa con > 1; `api/host.py` del 2026.11.0). Compensarlo con +1
+        # haría que `max_depth=3` recorriera cuatro niveles de un recurso de
+        # red lento, más allá del tope de 3; la descripción dice qué niveles
+        # da cada valor (principio V).
+        out = ajustar_arbol_a_bytes(arbol, construir, response_max_bytes)
+        logger.info(_EVENTO, tool=tool, route=plantilla, bytes=_tam(out),
+                    truncated=bool(out.get("truncated")), outcome="ok")
         return out
 
     @mcp.tool()

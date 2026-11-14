@@ -60,7 +60,11 @@ palabra `os`); un test lo comprueba.
   los servicios por defecto del host; no hay `latest`.
 - `sv_get_plugin_logs`: `plugin` es `dns`, `audio` o `multicast`.
 - `sv_get_disk_usage`: `disk` = `default` o el nombre de un montaje; `max_depth`
-  0–3; poda a 20 hijos por nivel; un montaje lento puede tardar hasta un
+  0–3, con los niveles que da el Supervisor (disco del sistema: 0 y 1 dan sus
+  zonas fijas, 2 y 3 añaden uno y dos niveles de carpetas; montaje: 0 y 1 solo
+  totales, 2 y 3 dan uno y dos niveles); poda a 20 hijos por nivel y, si no
+  cabe en `response_max_bytes`, pliega las carpetas más pequeñas con
+  `truncated: true` (T029, T032); un montaje lento puede tardar hasta un
   minuto.
 - `sv_get_os_info`, `sv_get_swap`, `sv_list_datadisk_candidates`: requieren
   Home Assistant OS (la swap, OS 15 o posterior); solo leen.
@@ -115,8 +119,7 @@ Uso de disco:
  "children": [
    {"id": "homeassistant", "label": "homeassistant", "used_bytes": 9000000000},
    {"id": "backup", "label": "backup", "used_bytes": 6000000000},
-   {"id": "system", "label": "System", "used_bytes": 3000000000}],
- "children_omitted": 0}
+   {"id": "system", "label": "System", "used_bytes": 3000000000}]}
 ```
 
 OS: la respuesta de `/os/info` o `/os/config/swap` tras `redact_structure` (objeto);

@@ -12,6 +12,14 @@ Controles negativos (T027), con recuentos en el commit del tramo:
 (a) quitar la poda → caen `test_poda_a_20_hijos` y los de la poda;
 (b) no validar `max_depth` → cae `test_argumentos_invalidos_sin_llamada`;
 (c) no poner la pista en el 404 de `/os/*` → cae `test_404_de_os_con_pista`.
+
+Controles negativos (T029), en `TestArbolQueNoCabe`:
+(d) devolver el árbol podado sin ajustarlo a `response_max_bytes` → caen
+`test_cabe_y_el_guardian_no_actua` y `test_la_suma_cuadra_en_cada_nivel`;
+(e) no sumar lo quitado a `omitted_bytes` del padre → cae
+`test_la_suma_cuadra_en_cada_nivel`;
+(f) quitar por posición y no por tamaño → caen `test_quita_primero_lo_que_menos_ocupa`
+y `test_cabe_y_el_guardian_no_actua`.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from typing import Any
 from structlog.testing import capture_logs
 
 from hermes.ha import HAConnectionError
+from hermes.tools._common import recortar_a_bytes
 from hermes.tools.host_system import podar_arbol, register
 from tests.fixtures.supervisor_diagnostico import (
     CENTINELA_OS,
@@ -36,6 +45,7 @@ from tests.fixtures.supervisor_diagnostico import (
     SupervisorSimulado,
     uso_de_disco_ancho,
     uso_de_disco_profundo,
+    uso_de_disco_realista,
 )
 
 
@@ -117,6 +127,9 @@ class TestUsoDeDisco(_Base):
         self.assertEqual(r["id"], "root")
         self.assertEqual(r["total_bytes"], 32_000_000_000)
         self.assertNotIn("children_omitted", r)
+        # Lo que cabe no se toca ni se marca (contraste de T029).
+        self.assertNotIn("truncated", r)
+        self.assertNotIn("hint", r)
         # Ordenados por lo que ocupan; los ids antiguos de la v1 tal cual.
         self.assertEqual(_ids(r), ["homeassistant", "addons_data", "system",
                                    "backup", "addons_config"])
@@ -128,6 +141,22 @@ class TestUsoDeDisco(_Base):
         self.assertEqual(self.sv.llamadas[0]["params"], {"max_depth": "3"})
         self.assertEqual(r["disk"], "nas_backups")
         self.assertEqual(r["max_depth"], 3)
+
+    def test_descripcion_dice_los_niveles_de_cada_max_depth(self) -> None:
+        """T032: en un montaje el Supervisor convierte `max_depth` < 2 en 0 y
+        solo desglosa con > 1, así que da un nivel menos que en el disco del
+        sistema. La descripción lo dice en vez de prometer «N niveles»
+        (principio V); `max_depth` se manda tal cual
+        (`test_montaje_y_profundidad`). Control negativo: volver a «How many
+        folder levels to break down» → cae."""
+        doc = " ".join(self.tools["sv_get_disk_usage"].__doc__.split())
+        self.assertNotIn("How many folder levels to break down", doc)
+        for frase in ("system disk: the first level is always its fixed areas",
+                      "0 and 1 give only that level",
+                      "storage mount: 0 and 1 give only the totals",
+                      "2 gives one level of folders and 3 gives two"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, doc)
 
     async def test_argumentos_invalidos_sin_llamada(self) -> None:
         casos: tuple[tuple[dict[str, Any], str], ...] = (
@@ -208,6 +237,76 @@ class TestUsoDeDisco(_Base):
         self.assertEqual(len(podado["children"]), 5)
         self.assertNotIn("children_omitted", podado)
         self.assertNotIn("omitted_bytes", podado)
+
+
+class TestArbolQueNoCabe(_Base):
+    """T029: con `max_depth` 3, el árbol del disco del sistema pasa de 200 KB
+    aun podado a 20 hijos por nivel. La tool lo ajusta ELLA MISMA a
+    `response_max_bytes` quitando las carpetas que menos ocupan, y en cada
+    nivel lo que queda más `omitted_bytes` suma lo que dio el Supervisor
+    (research R-4, principio V). El guardián central no llega a actuar: si
+    actuara, quitaría ramas enteras del primer nivel sin cuadrar la suma."""
+
+    async def _pedir(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        arbol = uso_de_disco_realista()
+        # Precondición: el caso es el del hallazgo, no uno que ya cabía.
+        self.assertGreater(len(json.dumps(podar_arbol(arbol), ensure_ascii=False)), 200_000)
+        self.sv.respuesta("GET", "/host/disks/default/usage", arbol)
+        r = await self.tools["sv_get_disk_usage"](max_depth=3)
+        return arbol, r
+
+    async def test_cabe_y_el_guardian_no_actua(self) -> None:
+        _, r = await self._pedir()
+        self.assertLessEqual(len(json.dumps(r, ensure_ascii=False).encode()), self.max_bytes)
+        self.assertIs(recortar_a_bytes(r, self.max_bytes), r)
+        self.assertIs(r["truncated"], True)
+        self.assertIn("children_omitted", r["hint"])
+        self.assertNotIn("_response_limit", r)
+        # Las ocho ramas del primer nivel siguen: son las que más ocupan.
+        self.assertEqual(len(r["children"]), 8)
+        self.assertNotIn("children_omitted", r)
+
+    async def test_la_suma_cuadra_en_cada_nivel(self) -> None:
+        arbol, r = await self._pedir()
+        quitadas = 0
+
+        def comparar(original: dict[str, Any], devuelto: dict[str, Any]) -> None:
+            nonlocal quitadas
+            hijos = original.get("children") or []
+            quedan = devuelto.get("children") or []
+            self.assertEqual(
+                sum(h["used_bytes"] for h in quedan) + devuelto.get("omitted_bytes", 0),
+                sum(h["used_bytes"] for h in hijos), devuelto["id"])
+            self.assertEqual(
+                len(quedan) + devuelto.get("children_omitted", 0), len(hijos),
+                devuelto["id"])
+            quitadas += devuelto.get("children_omitted", 0)
+            por_id = {h["id"]: h for h in hijos}
+            for h in quedan:
+                comparar(por_id[h["id"]], h)
+
+        comparar(arbol, r)
+        self.assertGreater(quitadas, 0)
+
+    async def test_quita_primero_lo_que_menos_ocupa(self) -> None:
+        _, r = await self._pedir()
+
+        def hojas_y_resumenes(n: dict[str, Any]) -> tuple[list[int], list[int]]:
+            # (tamaños de las carpetas que quedan sin desglose, tamaño medio
+            # de las quitadas de cada nodo)
+            quedan, quitadas = [], []
+            for h in n.get("children") or []:
+                q, x = hojas_y_resumenes(h)
+                quedan += q or [h["used_bytes"]]
+                quitadas += x
+            if n.get("children_omitted"):
+                quitadas.append(n["omitted_bytes"] // n["children_omitted"])
+            return quedan, quitadas
+
+        quedan, quitadas = hojas_y_resumenes(r)
+        # Toda carpeta que queda ocupa más que la media de las quitadas en
+        # cualquier sitio del árbol: se quita por tamaño, no por posición.
+        self.assertGreater(min(quedan), max(quitadas))
 
 
 # ── OS (FR-013…FR-015) ────────────────────────────────────────────────────────
