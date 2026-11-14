@@ -9,7 +9,42 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 ### Diagnóstico
 
-_Pendiente: la añade la sub-feature que lo implemente._
+#### Diagnóstico de Core (spec 012)
+
+_Tramo A (logs) hecho; la validación, los diagnósticos de integraciones y las
+notificaciones persistentes llegan con el tramo B._
+
+- **Familia nueva `core_diagnostics`** (desactivable con
+  `tool_families_disabled`), con cinco tools de logs de Core:
+  - `ha_list_system_log`: el log del sistema (Ajustes > Sistema > Registros)
+    tal como lo agrupa Home Assistant, con `count`, primera y última vez
+    (ISO 8601) y origen; filtra por nivel y por integración (sus sub-loggers
+    incluidos). Mensajes y trazas, redactados y marcados como texto de
+    terceros; de cada traza, solo su última línea salvo
+    `include_tracebacks=true`.
+  - `ha_get_error_log(lines)`: las últimas líneas (1 a 1000) del fichero de
+    log de Core, leído en flujo sin cargarlo entero, con los secretos
+    redactados. En HA OS y Supervised ese fichero solo existe con la opción de
+    Core `duplicate_log_file`; sin él, `error_log_unavailable`, que remite a
+    leer el log de Core por el Supervisor (`sv_get_core_logs`).
+  - `ha_get_log_levels`: el nivel efectivo de cada integración.
+  - `ha_set_log_level`: fija el nivel de una integración o de un logger de
+    Python, con persistencia `none`, `once` o `permanent`; `NOTSET` lo quita.
+    En dos pasos: la vista previa da el nivel actual de la integración.
+  - `ha_clear_system_log`: vacía el log del sistema, en dos pasos (no toca el
+    fichero de log ni el journal).
+- `ha_set_log_level` y `ha_clear_system_log` se anuncian destructivas: bajar
+  un nivel o vaciar un log oculta rastros, la misma razón por la que sus
+  acciones están en la denylist.
+- **`logger.set_default_level` entra en la denylist** de `ha_call_service`:
+  por ahí pide confirmación, igual que `logger.set_level`.
+- Tabla de comandos: `system_log/list`, `logger/log_info`, `logger/log_level`
+  y `logger/integration_log_level` pasan de `deny` a `dedicated`; las
+  genéricas responden `use_dedicated_tool` con su tool.
+- Tema nuevo de la guía, `hermes_guide("core_diagnostics")` (alias `logs`),
+  con la receta «¿por qué falla esta integración?».
+- Probadas contra HA Core real en el banco de pruebas: las cinco, con las dos
+  que modifican comprobadas por el lector independiente.
 
 ### Integraciones
 

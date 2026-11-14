@@ -86,3 +86,12 @@ frontend:
 # hardware ni internet. `uptime`, la de los flujos de configuración, no se
 # carga aquí: la crean y la borran las propias tools durante el test.
 kitchen_sink:
+
+# ── Spec 012 (tramo A): logs de Core ────────────────────────────────────────
+#
+# system_log: registra `system_log/list` y las acciones `system_log.write` y
+# `system_log.clear`, que necesitan `ha_list_system_log` y
+# `ha_clear_system_log` (y el lector, para sembrar). Sin `default_config:` no
+# se carga sola. `logger:` (arriba) ya da `logger/log_info` y los comandos que
+# fijan niveles. Todo es local.
+system_log:

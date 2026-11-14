@@ -373,5 +373,42 @@ class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.guide(tema, search=None), texto)
 
 
+class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
+    """Spec 012 (FR-016, T014): el tema `core_diagnostics` existe con sus
+    alias, el índice lo lista, `diagnostics` remite a él y nombra TODAS las
+    tools registradas de la familia `core_diagnostics` (genérico: el tramo B
+    no tiene que tocar este test, solo el texto del tema).
+
+    Control negativo comprobado: quitar `ha_clear_system_log` del tema → cae
+    `test_nombra_cada_tool_de_la_familia` nombrándola.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        tema = _GUIDE["core_diagnostics"]
+        for alias in ("core_diagnostics", "logs", "log", "LOGS"):
+            self.assertEqual(await self.guide(alias), tema, alias)
+        for clave in ("duplicate_log_file", "NOTSET", "persistence", "error_log_unavailable"):
+            self.assertIn(clave, tema)
+
+    async def test_indice_y_diagnostics(self) -> None:
+        self.assertIn("core_diagnostics", await self.guide())
+        self.assertIn('hermes_guide("core_diagnostics")', _GUIDE["diagnostics"])
+
+    def test_nombra_cada_tool_de_la_familia(self) -> None:
+        from tests.test_tools_registration import _do_register
+
+        completo = set(_do_register().tools)
+        sin = set(_do_register(["core_diagnostics"]).tools)
+        de_la_familia = sorted(completo - sin)
+        self.assertTrue(de_la_familia)
+        faltan = [n for n in de_la_familia if f"`{n}" not in _GUIDE["core_diagnostics"]]
+        self.assertEqual(faltan, [])
+
+
 if __name__ == "__main__":
     unittest.main()
