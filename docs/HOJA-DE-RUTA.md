@@ -35,6 +35,21 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
   dinámico (DCR) que usa Hermes sigue funcionando, pero está deprecado. Los dos
   están en la 1.1.0 (spec 003).
 
+## Problemas conocidos de 1.1.1
+
+- **Las escrituras con confirmación y un documento grande caducan antes de
+  poder confirmarse.** El `confirmation_token` dura 60 s, y la segunda llamada
+  tiene que repetir los mismos argumentos. Un modelo escribe unos 0,4 KB por
+  segundo. En la prueba en vivo, la confirmación de un dashboard de 41 KB llegó
+  a los 104 s de la vista previa y dio `confirmation_token expired`. Por encima
+  de unos 20–25 KB no da tiempo. Afecta a `ha_save_lovelace_dashboard` y, por
+  el mismo mecanismo, a `fs_write_file` y a `ha_create_or_update_*` cuando el
+  documento es largo. No hay pérdida de datos, porque falla cerrado: no se
+  guarda nada. El arreglo está pendiente de decisión. Las opciones son
+  confirmar solo con el token (el servidor guarda los argumentos de la vista
+  previa) o dar al token más tiempo; con la segunda, el documento se sigue
+  escribiendo dos veces.
+
 ## Problemas conocidos de 1.0.11
 
 Severidad, de mayor a menor: **pérdida de datos** > **rota** > **degradada** >
@@ -275,7 +290,11 @@ La suite no puede cubrir esto; anota aquí el resultado:
   del 443 al 8443 siguiendo los README.
 - [ ] **Dashboards grandes**: leer por vistas un dashboard de más de 128 KiB
   (`too_large`, `view_index`, `top_level`) y guardarlo entero sin perder
-  claves de nivel superior.
+  claves de nivel superior. **Bloqueada** por el primer problema conocido de
+  la 1.1.1: a través de Hermes no se puede guardar un dashboard de más de unos
+  25 KB, y por tanto tampoco crear uno de más de 128 KiB para leerlo. Sobre un
+  dashboard de prueba, borrado al terminar, sí funcionan en vivo el guardado
+  pequeño y el control negativo `top_level_keys_missing`.
 
 ### 1.2.x y posteriores
 
