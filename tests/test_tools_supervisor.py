@@ -1371,6 +1371,41 @@ class TestLogsDeAddonPorArranque(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((r["error"], r["field"]), ("invalid_argument", "boot"))
         self.assertEqual(self.sv.llamadas, [])
 
+    async def test_error_del_supervisor_redactado(self) -> None:
+        """T030: el error del Supervisor se redacta como el log (FR-024), con
+        y sin `boot`/`latest`, sin cambiar la forma `{"error": …}`. Control
+        negativo: volver a `{"error": str(exc)}` → cae (el centinela sale en
+        claro)."""
+        from hermes.ha import HAConnectionError
+        from tests.fixtures.supervisor_diagnostico import CENTINELA_PASSWORD
+        for ruta, extra in (
+            ("/addons/core_ficticio/logs", {}),
+            ("/addons/core_ficticio/logs/boots/-1", {"boot": -1}),
+            ("/addons/core_ficticio/logs/latest", {"latest": True}),
+        ):
+            with self.subTest(ruta=ruta):
+                self.sv.texto(ruta, HAConnectionError(
+                    f"Supervisor GET {ruta} failed 400: password: {CENTINELA_PASSWORD}",
+                    status=400))
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", **extra)
+                self.assertEqual(list(r), ["error"])
+                self.assertNotIn(CENTINELA_PASSWORD, r["error"])
+                self.assertIn("***REDACTED***", r["error"])
+
+    async def test_error_del_log_de_hermes_tapa_la_red(self) -> None:
+        """T030: en el log de Hermes el error lleva además la red tapada.
+        Control negativo: quitar `redact_network` del error → cae."""
+        from hermes.ha import HAConnectionError
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        try:
+            self.sv.texto(f"/addons/{self._HERMES}/logs/boots/-1", HAConnectionError(
+                "Supervisor failed: conexión desde 192.0.2.10", status=500))
+            r = await self.tools["sv_get_addon_logs"](self._HERMES, boot=-1)
+        finally:
+            configure_network_redaction(False, "")
+        self.assertNotIn("192.0.2.10", r["error"])
+
     async def test_hermes_con_boot_sigue_tapando_la_red(self) -> None:
         from hermes.logging_setup import configure_network_redaction
         configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")

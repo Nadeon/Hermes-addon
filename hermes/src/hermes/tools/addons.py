@@ -1006,7 +1006,14 @@ def register(
                 params={"lines": str(lines)},
             )
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            # El mensaje del Supervisor puede repetir parte de la petición o
+            # del log: se redacta como el log (FR-024 de la 013), y con la red
+            # tapada si es el de Hermes. La forma `{"error": …}` es la de la
+            # 1.1.2.
+            mensaje = redact_secrets(str(exc))
+            if _es_hermes(slug):
+                mensaje = redact_network(mensaje)
+            return {"error": mensaje}
 
         redacted = redact_secrets(raw)
         secrets_redacted = redacted != raw
