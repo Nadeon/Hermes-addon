@@ -292,7 +292,10 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
     ) -> object:
         """Read Home Assistant's system health report (what Settings > System > Repairs > System information shows), per domain.
 
-        Read only: it changes nothing. Each domain (homeassistant, cloud,
+        Read only: it changes nothing, but some of Home Assistant's checks
+        (Home Assistant Cloud, the Marketplace and other integrations) make
+        Home Assistant contact internet services to see if they are
+        reachable. Each domain (homeassistant, cloud,
         hassio, recorder and any integration that reports health) comes with
         its `info` and, when Home Assistant gives one, its `manage_url`.
         Slow values are awaited up to `timeout_seconds`; the ones that did not

@@ -535,7 +535,9 @@ la ruta concreta (`/addons/<slug>/info`).
     "system_status": """\
 # Estado del sistema (familia `system_status`)
 
-Cinco tools de SOLO LECTURA: ninguna cambia nada ni pide token.
+Cinco tools de SOLO LECTURA: ninguna cambia nada ni pide token. La salud es
+de mundo abierto: algunas comprobaciones de HA consultan servicios de internet
+(si llega a la nube, al Marketplace en GitHub…).
 
 - `ha_get_system_health(domain=None, timeout_seconds=10)` — lo que enseña
   «Ajustes → Sistema → Reparaciones → Información del sistema»: por dominio

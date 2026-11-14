@@ -100,7 +100,9 @@ la lista de tools es la de la 1.1.2.
     a 30, 10 por defecto); los que no llegan salen en `pending` y los que HA
     da por fallidos, en `failed`. Si no cabe en el tope de respuesta, quita
     dominios enteros por el final y los nombra en `omitted_domains`; `domain`
-    pide uno solo. La suscripción de HA se cancela siempre.
+    pide uno solo. La suscripción de HA se cancela siempre. Se anuncia de
+    mundo abierto: algunas comprobaciones de salud de HA consultan servicios
+    de internet.
   - `ha_get_system_state`: si HA o el host piden reinicio, por qué y si el
     aviso se pospuso. No lo descarta.
   - `ha_list_integration_setup_times`: cuánto tardó cada integración en

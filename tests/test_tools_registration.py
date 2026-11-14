@@ -738,8 +738,11 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
     # Spec 029 (CAP-043, familia `system_status`): solo leen; el prefijo
-    # `ha_get_`/`ha_list_` da el `readOnlyHint` (FR-017).
-    "ha_get_system_health": ("R-I-", "Get system health (Home Assistant)"),
+    # `ha_get_`/`ha_list_` da el `readOnlyHint` (FR-017). La salud es además
+    # de mundo abierto (T037): HA comprueba si llega a servicios de internet
+    # al pedirla. Control negativo comprobado: quitarla de `_OPEN_WORLD` →
+    # cae `test_hints_y_titulos_de_las_nuevas` (sale `R-I-`).
+    "ha_get_system_health": ("R-IO", "Get system health (Home Assistant)"),
     "ha_get_system_state": ("R-I-", "Get system state (Home Assistant)"),
     "ha_list_integration_setup_times": ("R-I-", "List integration setup times (Home Assistant)"),
     "ha_list_integration_manifests": ("R-I-", "List integration manifests (Home Assistant)"),

@@ -1,6 +1,7 @@
 # Contratos de las tools (029)
 
-Ocho tools nuevas, todas de solo lectura, sin `confirmation_token`. Nombre,
+Ocho tools nuevas, todas de solo lectura, sin `confirmation_token`; solo
+`ha_get_system_health` es de mundo abierto (T037). Nombre,
 argumentos, hints (código `R`ead-only, `D`estructive, `I`dempotent,
 `O`pen world) y lo que la descripción (en inglés) tiene que decir. Formas de
 respuesta y errores en [data-model.md](../data-model.md).
@@ -9,8 +10,10 @@ respuesta y errores en [data-model.md](../data-model.md).
 
 ### `ha_get_system_health(domain: str | None = None, timeout_seconds: float = 10) -> str`
 
-- Hints `R-I-`. Comando `system_health/info` (suscripción recogida hasta
-  `finish` o el plazo, y cancelada).
+- Hints `R-IO` (mundo abierto desde la convergencia, T037: los callbacks de
+  salud de HA comprueban si llegan a servicios de internet). Comando
+  `system_health/info` (suscripción recogida hasta `finish` o el plazo, y
+  cancelada).
 - Validación: `domain` con forma `^[a-z0-9_]+$` (≤ 64); `timeout_seconds` en
   [1, 30].
 - Descripción: lo que enseña «System information» de HA, por dominio; los

@@ -373,7 +373,11 @@ Cada FR cita el FR y la CAP de la 008 que cumple.
   ninguna entrada con «(spec 029)» (FR-012 de la 008; CAP-001).
 - **FR-017**: Las ocho tools son de solo lectura y lo anuncian: las de prefijo
   `ha_get_`/`ha_list_` por el prefijo; `ha_validate_statistics` por nombre
-  exacto en `_READ_ONLY_EXACT`. Ninguna de mundo abierto ni destructiva;
+  exacto en `_READ_ONLY_EXACT`. Ninguna destructiva y, salvo
+  `ha_get_system_health`, ninguna de mundo abierto (desviación de la
+  convergencia, T037: `system_health/info` hace que HA salga a internet con
+  `async_check_can_reach_url`, así que va en `_OPEN_WORLD` y su código es
+  `R-IO`);
   ninguna pide token. Hints y títulos en `_HINTS_NUEVAS_1_2_0` (FR-018 de la
   008; principio V).
 - **FR-018**: Toda respuesta pasa por `redact_structure` y `redact_secrets`
