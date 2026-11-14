@@ -861,6 +861,145 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(addons_mod._load_jobs_sync(), {}, contenido)
 
 
+class TestJobStatusSubJobs(unittest.IsolatedAsyncioTestCase):
+    """Spec 027, FR-001, FR-002 y D-1: los errores de los sub-jobs.
+
+    El Supervisor 2026.11.0 no sube al padre los errores de un sub-job
+    (`supervisor/jobs/__init__.py`, `capture_error`; `api/jobs.py`,
+    `_list_jobs`): un backup completo con una app que no se pudo guardar
+    terminaba con `errors: []` y `sv_get_job_status` daba `success: true`.
+
+    Controles negativos comprobados: sin la línea que añade `child_errors` al
+    resultado → 7 en rojo; calculando `success` solo con `errors` → 3 en rojo
+    (sub-job, recorte y seguimiento local).
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+
+        import hermes.tools.backups as backups_mod
+        from hermes.tools.backups import register
+
+        self._tmp = tempfile.TemporaryDirectory()
+        datos = Path(self._tmp.name)
+        self._patches = [
+            patch.object(addons_mod, "_PENDING_JOBS_PATH", datos / "pending_jobs.json"),
+            patch.object(backups_mod, "_SAFETY_BACKUP_STATE_PATH",
+                         datos / "last_safety_backup.json"),
+        ]
+        for p in self._patches:
+            p.start()
+        self.client = MockHAClient()
+        mcp = DummyMCP()
+        register(mcp, self.client, safety_backup_window_minutes=30)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        for p in self._patches:
+            p.stop()
+        self._tmp.cleanup()
+
+    @staticmethod
+    def _sub(name: str, mensajes: list[str], hijos: list | None = None) -> dict:
+        job: dict[str, Any] = {
+            "name": name, "done": True,
+            "errors": [{"type": "BackupError", "message": m, "stage": None}
+                       for m in mensajes],
+        }
+        if hijos is not None:
+            job["child_jobs"] = hijos
+        return job
+
+    async def _estado(self, data: dict) -> dict:
+        self.client.set_sv_response("GET", "/jobs/job_abc123", data)
+        return await self.tools["sv_get_job_status"]("job_abc123")
+
+    async def test_error_en_un_sub_job_es_un_fallo(self) -> None:
+        result = await self._estado({
+            "name": "backup_manager_full_backup", "done": True, "errors": [],
+            "progress": 100, "reference": "<slug>",
+            "child_jobs": [self._sub("backup_store_apps",
+                                     ["Can't create backup for <slug>"])],
+        })
+        self.assertIs(result["success"], False)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["child_errors"], [
+            {"job": "backup_store_apps", "message": "Can't create backup for <slug>"}])
+        self.assertEqual(result["reference"], "<slug>")
+        self.assertNotIn("child_errors_truncated", result)
+
+    async def test_el_seguimiento_local_lo_marca_fallido(self) -> None:
+        self.client.set_sv_response("POST", "/backups/new/full", {"job_id": "job_abc123"})
+        await self.tools["sv_create_backup_full"]("Backup con una app fallida")
+        await self._estado({"name": "backup_full", "done": True, "errors": [],
+                            "child_jobs": [self._sub("backup_store_apps", ["fallo"])]})
+        en_disco = json.loads(addons_mod._PENDING_JOBS_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(en_disco["job_abc123"]["status"], "failed")
+
+    async def test_error_propio_sigue_siendo_un_fallo(self) -> None:
+        result = await self._estado({
+            "name": "backup_full", "done": True,
+            "errors": [{"type": "BackupError", "message": "Not enough free space"}],
+        })
+        self.assertIs(result["success"], False)
+        self.assertEqual(result["errors"], ["Not enough free space"])
+        self.assertEqual(result["child_errors"], [])
+
+    async def test_sin_sub_jobs_todo_igual_que_antes(self) -> None:
+        data = {"name": "backup_full", "done": True, "errors": [], "progress": 100,
+                "stage": None, "reference": "deadbeef"}
+        result = await self._estado(data)
+        self.assertEqual(result, {
+            "job_id": "job_abc123", "name": "backup_full", "done": True,
+            "success": True, "errors": [], "child_errors": [], "progress": 100,
+            "stage": None, "reference": "deadbeef", "child_jobs": None,
+        })
+
+    async def test_sub_jobs_sin_errores_es_un_exito(self) -> None:
+        result = await self._estado({"name": "backup_full", "done": True, "errors": [],
+                                     "child_jobs": [self._sub("backup_store_apps", [])]})
+        self.assertIs(result["success"], True)
+        self.assertEqual(result["child_errors"], [])
+
+    async def test_en_curso_success_null(self) -> None:
+        result = await self._estado({"name": "backup_full", "done": False, "errors": [],
+                                     "child_jobs": [self._sub("x", ["ya falló"])]})
+        self.assertIsNone(result["success"])
+        self.assertEqual(result["child_errors"], [{"job": "x", "message": "ya falló"}])
+
+    async def test_recorte(self) -> None:
+        from hermes.supervisor_jobs import CHILD_ERRORS_MAX
+
+        result = await self._estado({
+            "name": "backup_full", "done": True, "errors": [],
+            "child_jobs": [self._sub(f"app_{i}", ["f"]) for i in range(CHILD_ERRORS_MAX + 5)],
+        })
+        self.assertIs(result["child_errors_truncated"], True)
+        self.assertEqual(len(result["child_errors"]), CHILD_ERRORS_MAX)
+        self.assertIs(result["success"], False)
+
+    async def test_centinela_tapado(self) -> None:
+        result = await self._estado({
+            "name": "backup_full", "done": True,
+            "errors": [{"message": "fallo: password=centinela-027"}],
+            "child_jobs": [self._sub("x", ["fallo: token=centinela-027"])],
+        })
+        self.assertNotIn("centinela-027", json.dumps(result["errors"]))
+        self.assertNotIn("centinela-027", json.dumps(result["child_errors"]))
+
+    def test_descripcion(self) -> None:
+        texto = self.tools["sv_get_job_status"].__doc__ or ""
+        for frase in (
+            "`done` es True también cuando el job FALLA",
+            "CUALQUIER entrada en `errors`",
+            "no distingue avisos de errores fatales",
+            "`child_errors`",
+            "TAMBIÉN dan success=false",
+            "sv_get_backup",
+        ):
+            self.assertIn(frase, texto)
+
+
 class TestOpcionesDeAddon(unittest.IsolatedAsyncioTestCase):
     """`sv_get_addon_options` leía un endpoint que el Supervisor le negaba.
 

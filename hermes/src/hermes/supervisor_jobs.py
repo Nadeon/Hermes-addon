@@ -16,6 +16,12 @@ from hermes.security import redact_secrets
 # largas; al cliente le basta el motivo.
 JOB_ERROR_MAX_CHARS = 500
 
+# Topes del recorrido de los sub-jobs (`child_jobs`). Un backup completo tiene
+# un sub-job por app: 20 errores bastan para decidir, y 5 niveles cubren con
+# holgura los anidamientos del Supervisor 2026.11.0 (backup → apps → app).
+CHILD_ERRORS_MAX = 20
+CHILD_JOBS_MAX_DEPTH = 5
+
 
 def job_errors(data: Any) -> list[str]:
     """Mensajes de error de un job del Supervisor (`GET /jobs/{uuid}`), saneados.
@@ -39,3 +45,76 @@ def job_errors(data: Any) -> list[str]:
             mensaje = "unknown error"
         mensajes.append(redact_secrets(mensaje[:JOB_ERROR_MAX_CHARS]))
     return mensajes
+
+
+def _mensaje(error: Any) -> str:
+    mensaje = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(mensaje, str) or not mensaje:
+        mensaje = "unknown error"
+    return redact_secrets(mensaje[:JOB_ERROR_MAX_CHARS])
+
+
+def child_job_errors(data: Any) -> tuple[list[dict[str, Any]], bool]:
+    """Errores de los sub-jobs (`child_jobs`) de un job, en profundidad.
+
+    El Supervisor 2026.11.0 guarda cada error en el job que lo captura y NO lo
+    copia al padre (`jobs/__init__.py`, `capture_error`; `api/jobs.py`,
+    `_list_jobs`): una app que no se pudo guardar en un backup completo deja
+    el error en un sub-job y el job del backup termina con `errors: []`.
+    Mirando solo `errors`, ese backup incompleto pasaba por correcto.
+
+    Devuelve `([{job, message}], recortado)`. `job` es el `name` del sub-job
+    si es texto (un identificador interno como `backup_store_apps`) o `None`;
+    `message` se trata igual que en `job_errors`. `recortado` es `True` si se
+    alcanzó el tope de entradas o si había sub-jobs por debajo del tope de
+    niveles: quien decide si el job salió bien no puede darlo por bueno sin
+    haberlo mirado todo (principio III).
+
+    Recorrido iterativo con pila, en el orden de la respuesta, para no
+    depender de la recursión con una respuesta rara. Las entradas que no
+    tienen la forma esperada se ignoran: nunca se inventa un error.
+    """
+    if not isinstance(data, dict):
+        return [], False
+    salida: list[dict[str, Any]] = []
+    recortado = False
+    hijos = data.get("child_jobs")
+    # Pila de (sub-job, nivel), con los hermanos en orden inverso para que el
+    # primero de la respuesta salga el primero.
+    pila: list[tuple[Any, int]] = (
+        [(h, 1) for h in reversed(hijos)] if isinstance(hijos, list) else []
+    )
+    while pila:
+        hijo, nivel = pila.pop()
+        if not isinstance(hijo, dict):
+            continue
+        if nivel > CHILD_JOBS_MAX_DEPTH:
+            recortado = True
+            continue
+        errores = hijo.get("errors")
+        if isinstance(errores, list):
+            nombre = hijo.get("name")
+            for error in errores:
+                if len(salida) >= CHILD_ERRORS_MAX:
+                    return salida, True
+                salida.append({
+                    "job": nombre if isinstance(nombre, str) else None,
+                    "message": _mensaje(error),
+                })
+        nietos = hijo.get("child_jobs")
+        if isinstance(nietos, list):
+            pila.extend((n, nivel + 1) for n in reversed(nietos))
+    return salida, recortado
+
+
+def child_errors_as_text(errores: list[dict[str, Any]], recortado: bool) -> list[str]:
+    """Los errores de los sub-jobs como líneas `"<sub-job>: <mensaje>"`.
+
+    Para los sitios que informan con una lista de textos (el sondeo del safety
+    backup). Si el recorrido se recortó, lo dice en una línea más: callarlo
+    daría por revisado lo que no se miró.
+    """
+    lineas = [f"{e['job'] or 'sub-job'}: {e['message']}" for e in errores]
+    if recortado:
+        lineas.append("more sub-jobs not checked (limit reached)")
+    return lineas
