@@ -214,10 +214,26 @@ dashboard principal y los tokens DCR emitidos antes de actualizar.
   documento en el host `claude.ai`; si solo usas Claude,
   `oauth_cimd_allowed_hosts: ["claude.ai"]` basta.
 
+### Pruebas manuales hechas en una instalación real (1.1.1)
+
+- [x] **Publicación con el CI nuevo** (spec 002): las etiquetas `v1.1.0` y
+  `v1.1.1` publicaron las dos arquitecturas con `build-image` a la primera.
+- [x] **Actualización con la clave `homeassistant`** en una HA soportada: el
+  Supervisor actualizó a 1.1.0 y a 1.1.1 sin problemas.
+- [x] **Valores heredados**: `config_legacy_default_replaced` para
+  `response_max_bytes` (1 MiB → 128 KiB) y `ha_ws_max_msg_size_bytes`
+  (4 MiB → 16 MiB).
+- [x] **Marketplace**: `ha_hacs_list_updates` y `ha_hacs_list_repositories`
+  responden sin cortar la WebSocket (ningún `ha_ws_reconnect_failure`).
+- [x] **`ha_get_states(domain="sensor")` en una casa con cientos de
+  sensores**: llega recortada por debajo de 128 KiB con `truncated`.
+- [x] **`ha_get_history`**: datos útiles con `truncated` y `truncated_at`,
+  nunca `response_too_large`.
+- [x] **Log**: solo `pattern_len` y `template_len`, y la red sigue redactada.
+
 ### Pruebas manuales pendientes en una instalación real
 
-La suite no puede cubrir esto; hay que hacerlo justo después de publicar la
-1.1.1, y anotar el resultado aquí:
+La suite no puede cubrir esto; anota aquí el resultado:
 
 - [ ] **Tools nuevas de la 1.1.0 desde un cliente sin la lista cacheada**: el
   cliente de las pruebas en vivo guardaba la lista de antes de actualizar y no
@@ -227,9 +243,6 @@ La suite no puede cubrir esto; hay que hacerlo justo después de publicar la
   `ha_list_categories`, `ha_list_repairs`, `ha_list_traces`, `ha_get_trace`,
   `ha_search_related`, `sv_get_resolution`, `ha_list_backups` y
   `ha_get_backup_config` (que solo exponga `password_set`).
-- [ ] **`ha_get_states(domain="sensor")` en una casa grande**: que llegue
-  recortada con `truncated: true` y por debajo de `response_max_bytes`.
-
 - [ ] **CIMD con Claude Code** (con claude.ai ya está hecho): autorizar,
   comprobar la pantalla de autorización (host, nombre y destino del código) y
   el evento `oauth_cimd_document` del log
@@ -237,22 +250,27 @@ La suite no puede cubrir esto; hay que hacerlo justo después de publicar la
 - [ ] **Primer byte tras el proxy**: Claude Code con una espera de 90 s detrás
   del proxy. Si corta a los 60 s, completar DOCS.md con lo que haga falta en
   ese proxy.
-- [ ] **Actualización con la clave `homeassistant`** del manifiesto: que el
-  Supervisor actualice sin problemas en una HA soportada y rechace la
-  actualización en una HA anterior a 2024.10.
+- [ ] **Clave `homeassistant` en una HA antigua**: que el Supervisor rechace
+  la actualización en una HA anterior a 2024.10 (en una soportada ya está
+  comprobado).
 - [ ] **Funnel en el 8443**: publicar Hermes en el 8443 con
   `public_hostname: homeassistant.tailXXXX.ts.net:8443`, con
   `share_homeassistant: funnel` en el 443, y pasar una instalación existente
   del 443 al 8443 siguiendo los README.
-- [ ] **Publicación de la imagen con el CI nuevo** (spec 002): la primera
-  etiqueta con `build-image`, las dos arquitecturas, la firma, y que las
-  imágenes ya publicadas siguen disponibles.
+- [ ] **Imágenes antiguas**: comprobar que las versiones publicadas con el
+  builder anterior siguen descargándose desde GHCR.
 - [ ] **Dashboards grandes**: leer por vistas un dashboard de más de 128 KiB
   (`too_large`, `view_index`, `top_level`) y guardarlo entero sin perder
   claves de nivel superior.
 
 ### 1.2.x y posteriores
 
+- **Menores vistos en las pruebas en vivo de la 1.1.1**:
+  `sv_get_addon_logs` informa `redacted: false` aunque el log ya trae la red
+  redactada (el campo solo mira los secretos); `auto_classify_restricted`
+  escribe en el log los `entity_id` de automatizaciones y scripts; y
+  `ha_get_history` marca `truncated` pero no añade el bloque
+  `_response_limit` que llevan las demás tools recortadas.
 - **Pruebas manuales en una instalación real**: las de la sección anterior
   (CIMD con Claude Code, primer byte tras el proxy, actualización
   con la clave `homeassistant`, Funnel en el 8443, publicación de la imagen
