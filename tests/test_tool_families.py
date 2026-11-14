@@ -134,15 +134,19 @@ class TestCatalogo(unittest.TestCase):
 
     def test_core_diagnostics_de_la_1_2_0(self) -> None:
         """Spec 012 (FR-013, T002): la familia del diagnóstico de Core, nueva,
-        desactivable y con exactamente los módulos de lo implementado (tramo
-        A: `core_logs`). Control negativo (T018 h): sacar `core_logs` de la
-        familia → cae este test (y `test_cada_modulo_con_tools_en_una_familia`).
+        desactivable y con exactamente sus cuatro módulos (tramo A:
+        `core_logs`; tramo B, T026: los otros tres). Control negativo (T018
+        h): sacar `core_logs` de la familia → cae este test (y
+        `test_cada_modulo_con_tools_en_una_familia`).
         """
         familia = FAMILIAS["core_diagnostics"]
         self.assertEqual(familia.desde, "1.2.0")
         self.assertTrue(familia.desactivable)
-        self.assertEqual(familia.modulos, ("core_logs",))
-        self.assertEqual(familia_de_modulo("core_logs"), "core_diagnostics")
+        self.assertEqual(familia.modulos, ("core_logs", "core_validation",
+                                           "integration_diagnostics",
+                                           "persistent_notifications"))
+        for modulo in familia.modulos:
+            self.assertEqual(familia_de_modulo(modulo), "core_diagnostics")
         self.assertEqual(validar_desactivadas(["core_diagnostics"]),
                          frozenset({"core_diagnostics"}))
 

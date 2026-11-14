@@ -90,13 +90,13 @@ _CATALOGO: tuple[Familia, ...] = (
     # Spec 012: una sola familia para el diagnóstico de Core y no una por
     # módulo (research R-9): es un área y un tema de la guía, y partirla
     # daría opciones que nadie pediría. No es `diagnostics` (1.1.2: Repairs,
-    # trazas, relaciones y resolución del Supervisor), que no cambia. El
-    # tramo B de la 012 le añade `core_validation`,
-    # `integration_diagnostics` y `persistent_notifications`.
+    # trazas, relaciones y resolución del Supervisor), que no cambia.
     Familia("core_diagnostics",
             "Home Assistant system log, error log and log levels, configuration "
             "validation, integration diagnostics and persistent notifications.",
-            "1.2.0", True, ("core_logs",)),
+            "1.2.0", True,
+            ("core_logs", "core_validation", "integration_diagnostics",
+             "persistent_notifications")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **225 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **232 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 225 herramientas
+## Qué puede hacer — 232 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -47,7 +47,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Marketplace (antes HACS)** | 11 | De solo lectura: estado, repositorios, actualizaciones disponibles, versiones publicadas y repositorios críticos o retirados. Detecta en cada llamada si Home Assistant trae el Marketplace integrado (2026.11 o posterior) o HACS 2.x. Las actualizaciones se instalan con la entidad `update`, con confirmación. Las 4 tools `ha_hacs_*` siguen como alias deprecados hasta 1.3.0 |
 | **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
-| **Diagnóstico de Core** | 5 | El log del sistema de Home Assistant (errores agrupados, y limpiarlo), el log de errores en bruto cuando HA escribe uno, y los niveles de log (leerlos y subir una integración a DEBUG para depurarla) |
+| **Diagnóstico de Core** | 12 | El log del sistema de Home Assistant (errores agrupados, y limpiarlo), el log de errores en bruto cuando HA escribe uno, los niveles de log (leerlos y subir una integración a DEBUG para depurarla), validar automatizaciones y scripts antes de guardarlos, probar una condición, los diagnósticos de integraciones y dispositivos, y las notificaciones persistentes (listarlas y descartarlas) |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 
 Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y

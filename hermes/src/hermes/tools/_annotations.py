@@ -70,6 +70,10 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # internet. Por nombre exacto: ningún prefijo las cubre.
     "ha_read_ws_command",
     "sv_read_api",
+    # Diagnóstico de Core (spec 012): validan y evalúan con los validadores de
+    # HA y no guardan nada. Su nombre no tiene prefijo de lectura.
+    "ha_validate_config",
+    "ha_test_condition",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -151,6 +155,9 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # la denylist de `ha_call_service` («Ofuscación de rastros»).
     "ha_set_log_level",
     "ha_clear_system_log",
+    # Y descartar una notificación persistente borra un aviso de HA que no se
+    # recupera (`persistent_notification.dismiss` también está en la denylist).
+    "ha_dismiss_persistent_notification",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

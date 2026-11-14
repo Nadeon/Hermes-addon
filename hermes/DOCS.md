@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 225 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 232 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -172,7 +172,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `lovelace` | 10 | Dashboards y recursos de Lovelace |
 | `marketplace` | 11 | Marketplace y alias `ha_hacs_*` (solo lectura) |
 | `generic_commands` | 4 | Las tools genéricas (nueva en 1.2.0, ver abajo) |
-| `core_diagnostics` | 5 | Log del sistema, log de errores y niveles de log de Home Assistant (nueva en 1.2.0) |
+| `core_diagnostics` | 12 | Log del sistema, log de errores y niveles de log, validación de configuración, diagnósticos de integraciones y notificaciones persistentes de Home Assistant (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 

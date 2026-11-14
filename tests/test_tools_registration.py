@@ -744,6 +744,16 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_get_log_levels": ("R-I-", "Get log levels (Home Assistant)"),
     "ha_set_log_level": ("-DI-", "Set log level (Home Assistant)"),
     "ha_clear_system_log": ("-DI-", "Clear system log (Home Assistant)"),
+    # Spec 012, tramo B: validar y probar una condición no guardan nada y van
+    # en `_READ_ONLY_EXACT` (no tienen prefijo de lectura); descartar una
+    # notificación pide token y va en `_DESTRUCTIVE_EXACT`.
+    "ha_validate_config": ("R-I-", "Validate config (Home Assistant)"),
+    "ha_test_condition": ("R-I-", "Test condition (Home Assistant)"),
+    "ha_list_diagnostics_handlers": ("R-I-", "List diagnostics handlers (Home Assistant)"),
+    "ha_get_config_entry_diagnostics": ("R-I-", "Get config entry diagnostics (Home Assistant)"),
+    "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
+    "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
+    "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
 }
 
 
@@ -1192,6 +1202,62 @@ class TestCoreLogsRegistration:
         from hermes.tools._annotations import classify
 
         assert [n for n in _CORE_LOGS if classify(n).open_world_hint] == []
+
+
+# ── Spec 012, tramo B: validación, diagnósticos y notificaciones (T026) ─────
+
+_CORE_DIAGNOSTICS_B = (
+    "ha_validate_config", "ha_test_condition",
+    "ha_list_diagnostics_handlers", "ha_get_config_entry_diagnostics",
+    "ha_get_device_diagnostics",
+    "ha_list_persistent_notifications", "ha_dismiss_persistent_notification",
+)
+
+
+class TestCoreDiagnosticsTramoBRegistration:
+    """Las siete tools del tramo B se registran bajo `core_diagnostics`, con
+    los hints del contrato (`_HINTS_NUEVAS_1_2_0`); con la familia
+    desactivada no aparece ninguna de las 12.
+
+    Control negativo (T033 f): quitar `ha_validate_config` de
+    `_READ_ONLY_EXACT` → cae `test_hints_y_titulos_de_las_nuevas` (y
+    `test_validar_y_probar_son_de_lectura`).
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _CORE_DIAGNOSTICS_B if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna_de_las_12(self):
+        mcp = _do_register(["core_diagnostics"])
+        assert [n for n in _CORE_LOGS + _CORE_DIAGNOSTICS_B if n in mcp.tools] == []
+        assert "ha_list_repairs" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        for modulo in ("integration_diagnostics", "persistent_notifications"):
+            with patch(f"hermes.tools.{modulo}.register") as reg:
+                register_all_tools(
+                    _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                    response_max_bytes=54_321, call_service_auto_classify=False,
+                    tool_families_disabled=[],
+                )
+            assert reg.call_args.kwargs.get("response_max_bytes") == 54_321, modulo
+
+    def test_validar_y_probar_son_de_lectura(self):
+        from hermes.tools._annotations import classify
+
+        for nombre in ("ha_validate_config", "ha_test_condition"):
+            ann = classify(nombre)
+            assert ann.read_only_hint and not ann.destructive_hint, nombre
+        ann = classify("ha_dismiss_persistent_notification")
+        assert ann.destructive_hint and not ann.read_only_hint
+
+    def test_ninguna_sale_a_internet(self):
+        from hermes.tools._annotations import classify
+
+        assert [n for n in _CORE_DIAGNOSTICS_B if classify(n).open_world_hint] == []
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────
