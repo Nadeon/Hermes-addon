@@ -870,6 +870,15 @@ class TestToolTitles:
                                   "installed_only", "limit"]),
             "required": esperado["ha_marketplace_list_removed"]["required"],
         }
+        # Tercera diferencia permitida, de la spec 018 (FR-016 de la 018,
+        # FR-063 de la 008): `ha_save_lovelace_dashboard` gana `view_index` y
+        # `view`, OPCIONALES, para guardar una sola vista. Sin ellos el
+        # guardado completo es el de la 1.1.2; `required` no cambia.
+        esperado["ha_save_lovelace_dashboard"] = {
+            "properties": sorted([*esperado["ha_save_lovelace_dashboard"]["properties"],
+                                  "view", "view_index"]),
+            "required": esperado["ha_save_lovelace_dashboard"]["required"],
+        }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
         distintos = []
@@ -1302,3 +1311,18 @@ class TestArgumentosCambiadosAnteLaValidacionDelSdk:
             args = meta.validate_arguments({destino: "ficticio", "config": {"a": 1}})
             assert args["config"] == {"a": 1}, nombre
             assert meta.validate_arguments({destino: "ficticio"})["config"] is None, nombre
+
+    def test_view_se_preparsea_como_config(self):
+        """Spec 018 (FR-016): `view` de `ha_save_lovelace_dashboard` es
+        `dict | None` como `config`: un objeto mandado como texto JSON llega
+        como dict y omitido llega None (se puede omitir al confirmar)."""
+        meta = _real_registry()["ha_save_lovelace_dashboard"].fn_metadata
+        base = {"url_path": "panel-prueba", "view_index": 1}
+        args = meta.validate_arguments({**base, "view": '{"title": "Cocina"}'})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments({**base, "view": {"title": "Cocina"}})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments(base)
+        assert args["view"] is None
+        assert args["view_index"] == 1
+        assert meta.validate_arguments({"url_path": "panel-prueba"})["view_index"] is None

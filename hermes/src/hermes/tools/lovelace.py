@@ -36,6 +36,8 @@ import structlog
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
+    ESTADO_CAMBIADO,
+    canonicalize_for_hash,
     complete_confirmation_token,
     create_confirmation_token,
     resolve_confirmation_token,
@@ -52,6 +54,18 @@ logger = structlog.get_logger(__name__)
 # guarda en el servidor. `url_path` no está aquí a propósito: el destino
 # tiene que venir en las dos llamadas.
 _OMITIBLES_GUARDAR = ("config",)
+
+# Lo omitible al guardar UNA vista (spec 018): `view`, por lo mismo que
+# `config` (la vista de un dashboard grande puede pesar decenas de KB). Es una
+# tupla aparte, y no `("config", "view")` para los dos modos, porque
+# `resolve_confirmation_token` rechaza la confirmación si falta un omitible que
+# no se guardó: con una tupla común, la confirmación completa de la 1.1.2 (sin
+# `config` ni `view`) daría «has no stored value for: view».
+_OMITIBLES_VISTA = ("view",)
+
+# Recorte de los textos de la configuración del usuario (título, ruta, tipo)
+# que la vista previa por vista enseña para identificar cada vista.
+_MAX_TEXTO_VISTA = 80
 
 
 # ── Helpers internos ───────────────────────────────────────────────────────────
@@ -134,6 +148,266 @@ def _con_claves_superiores(
     if len(json.dumps(con_valores, ensure_ascii=False).encode("utf-8")) <= max_bytes:
         return con_valores
     return {**respuesta, "top_level_keys": sorted(superiores)}
+
+
+def _texto_corto(valor: Any) -> str | None:
+    """Título, ruta o tipo de una vista para la vista previa, recortado."""
+    if valor is None:
+        return None
+    return str(valor)[:_MAX_TEXTO_VISTA]
+
+
+def _resumen_vista(vista: Any) -> dict[str, Any]:
+    """Qué es una vista sin su contenido: identificación y recuentos.
+
+    `cards` suma las tarjetas de la vista y las de sus secciones, como
+    `_count_cards`, pero separadas de `badges` y `sections` para que el
+    cliente vea qué cambia.
+    """
+    if not isinstance(vista, dict):
+        vista = {}
+    secciones = vista.get("sections") or []
+    if not isinstance(secciones, list):
+        secciones = []
+    tarjetas = len(vista.get("cards") or [])
+    for seccion in secciones:
+        if isinstance(seccion, dict):
+            tarjetas += len(seccion.get("cards") or [])
+    return {
+        "title": _texto_corto(vista.get("title")),
+        "path": _texto_corto(vista.get("path")),
+        "type": _texto_corto(vista.get("type")),
+        "cards": tarjetas,
+        "badges": len(vista.get("badges") or []),
+        "sections": len(secciones),
+    }
+
+
+def _vistas_conservadas(vistas: list[Any], indice: int) -> list[dict[str, Any]]:
+    """Índice, título y ruta de cada vista que el guardado por vista conserva."""
+    out = []
+    for i, vista in enumerate(vistas):
+        if i == indice:
+            continue
+        resumen = _resumen_vista(vista)
+        out.append({"index": i, "title": resumen["title"], "path": resumen["path"]})
+    return out
+
+
+def _con_vista(actual: dict[str, Any], indice: int, vista: Any) -> dict[str, Any]:
+    """El dashboard actual con `views[indice]` sustituida; lo demás, intacto."""
+    vistas = actual["views"]
+    return {**actual, "views": [*vistas[:indice], vista, *vistas[indice + 1:]]}
+
+
+def _error_argumento(campo: str, detalle: str) -> dict[str, Any]:
+    return {"error": "invalid_argument", "field": campo, "detail": detalle}
+
+
+async def _guardar_vista(
+    ha_client: HAClient,
+    url_path: str | None,
+    config: Any,
+    confirmation_token: str | None,
+    remove_top_level_keys: Any,
+    view_index: Any,
+    view: Any,
+) -> dict[str, Any]:
+    """Guardado de UNA vista de `ha_save_lovelace_dashboard` (spec 018).
+
+    El documento guardado es el dashboard ACTUAL con `views[view_index]`
+    sustituida por `view`: el cliente no reescribe (ni puede perder) el resto
+    de un dashboard grande. Como la vista previa promete conservar lo demás y
+    eso puede cambiar en los 60 s del token, el token se ata también al
+    documento leído (`estado`): si al confirmar no es el mismo,
+    `dashboard_changed` y no se guarda nada.
+    """
+    # Mezclas e incoherencias, antes de leer nada (FR-005): `config` y
+    # `remove_top_level_keys` son del guardado completo y aquí no significan
+    # nada; aceptarlos en silencio haría creer al cliente que se usaron.
+    if config is not None:
+        return _error_argumento(
+            "config", "config replaces the whole dashboard; do not send it "
+            "together with view_index (send the view in view).")
+    if remove_top_level_keys is not None:
+        return _error_argumento(
+            "remove_top_level_keys", "saving a single view keeps every "
+            "top-level key; remove_top_level_keys only applies to a full save.")
+    if view_index is None:
+        return _error_argumento(
+            "view_index", "view needs view_index: the index of the existing "
+            "view to replace (0-based, as in ha_get_lovelace_dashboard).")
+    if view is None and not confirmation_token:
+        return _error_argumento(
+            "view", "view is required to request a preview; it can only be "
+            "omitted when confirming with confirmation_token.")
+    # `bool` es un `int` en Python: `True` no es un índice.
+    if isinstance(view_index, bool) or not isinstance(view_index, int):
+        return _error_argumento("view_index", "must be an integer")
+    if view is not None:
+        if not isinstance(view, dict):
+            return _error_argumento("view", "must be a JSON object (one view)")
+        if "views" in view:
+            # Parece un dashboard entero pasado por error: guardarlo como una
+            # vista lo anidaría dentro de otra.
+            return _error_argumento(
+                "view", "view is a single view, not a dashboard: it cannot "
+                "have a 'views' key.")
+
+    if url_path is not None:
+        try:
+            meta = await _get_dashboard_meta_by_url_path(ha_client, url_path)
+        except HAConnectionError as exc:
+            return {"error": str(exc)}
+        if meta is not None and meta.get("mode") == "yaml":
+            return {
+                "error": "yaml_mode",
+                "url_path": url_path,
+                "message": (
+                    f"Dashboard '{url_path}' is in YAML mode. "
+                    "Use fs_write_file to modify it."
+                ),
+            }
+
+    get_payload: dict[str, Any] = {"type": "lovelace/config"}
+    if url_path is not None:
+        get_payload["url_path"] = url_path
+
+    args: dict[str, Any] = {"url_path": url_path, "view_index": view_index}
+    if view is not None:
+        # Ausente si se omite al confirmar: lo pone resolve_confirmation_token.
+        args["view"] = view
+
+    if not confirmation_token:
+        try:
+            actual = await ha_client.ws_send(get_payload)
+        except HAConnectionError as exc:
+            if exc.code == "config_not_found":
+                # Sin configuración guardada no hay vista que sustituir.
+                return {"error": "no_views", "url_path": url_path}
+            return {"error": "preview_unavailable", "url_path": url_path,
+                    "detail": f"lovelace/config failed: {exc}"}
+        if not isinstance(actual, dict):
+            return {"error": "preview_unavailable", "url_path": url_path,
+                    "detail": "lovelace/config returned an unexpected shape"}
+        vistas = actual.get("views")
+        if not isinstance(vistas, list):
+            # Dashboard de estrategia: no tiene vistas guardadas.
+            return {"error": "no_views", "url_path": url_path}
+        if view_index < 0 or view_index >= len(vistas):
+            return {
+                "error": "view_index_out_of_range",
+                "url_path": url_path,
+                "views_count": len(vistas),
+                "requested": view_index,
+            }
+        conservadas = len(vistas) - 1
+        plural = "s" if conservadas != 1 else ""
+        preview: dict[str, Any] = {
+            "url_path": url_path,
+            "mode": "single_view",
+            "view_index": view_index,
+            "views_total": len(vistas),
+            "view_before": _resumen_vista(vistas[view_index]),
+            "view_after": _resumen_vista(view),
+            # Con la canonicalización del token: `1` y `1.0` son lo mismo,
+            # `True` y `1` no.
+            "view_unchanged": (canonicalize_for_hash(vistas[view_index])
+                               == canonicalize_for_hash(view)),
+            "views_kept": _vistas_conservadas(vistas, view_index),
+            "top_level_keys_kept": sorted(_claves_superiores(actual)),
+            "diff": _summarize_dashboard_diff(
+                actual, _con_vista(actual, view_index, view)),
+            "warning": (
+                f"Only view {view_index} is replaced. The other {conservadas} "
+                f"view{plural} and the top-level keys are kept exactly as "
+                "they are now; if anything in the dashboard changes before "
+                "you confirm, the confirmation is refused."
+            ),
+        }
+        return await create_confirmation_token(
+            "ha_save_lovelace_dashboard", args, preview=preview,
+            omitibles=_OMITIBLES_VISTA, estado=actual,
+        )
+
+    # Confirmación: se relee el dashboard justo antes de resolver. Un fallo de
+    # lectura deja el token pendiente (se puede reintentar dentro del TTL).
+    try:
+        actual = await ha_client.ws_send(get_payload)
+    except HAConnectionError as exc:
+        return {"error": str(exc)}
+    valid, error, resueltos = await resolve_confirmation_token(
+        confirmation_token, "ha_save_lovelace_dashboard", args,
+        omitibles=_OMITIBLES_VISTA, estado=actual,
+    )
+    if not valid:
+        logger.warning(
+            "ha_save_lovelace_dashboard_token_invalid",
+            url_path=url_path,
+            view_index=view_index,
+            reason=error,
+        )
+        if error == ESTADO_CAMBIADO:
+            return {
+                "error": "dashboard_changed",
+                "url_path": url_path,
+                "view_index": view_index,
+                "detail": (
+                    "The dashboard changed since the preview, so what the "
+                    "preview said would be kept is no longer true. Nothing was "
+                    "saved; read it again and request a new preview."
+                ),
+            }
+        return {"error": error}
+
+    try:
+        # Mismo estado que en la vista previa, así que `views` es una lista y
+        # el índice está en rango; se comprueba igual (fail-closed).
+        vistas = actual.get("views") if isinstance(actual, dict) else None
+        if not isinstance(vistas, list) or not 0 <= view_index < len(vistas):
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="no_views")
+            return {"error": "no_views", "url_path": url_path}
+        resultante = _con_vista(actual, view_index, resueltos["view"])
+        err = _validate_dashboard_config(resultante)
+        if err:
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="invalid_config")
+            return {"error": f"invalid_config: {err}"}
+        save_payload: dict[str, Any] = {
+            "type": "lovelace/config/save",
+            "config": resultante,
+        }
+        if url_path is not None:
+            save_payload["url_path"] = url_path
+        await ha_client.ws_send(save_payload)
+        result: dict[str, Any] = {"result": "ok", "url_path": url_path,
+                                  "view_index": view_index}
+        await complete_confirmation_token(
+            confirmation_token, success=True, result=result
+        )
+        # Al log, solo el destino y el índice: nunca el contenido (FR-018).
+        logger.info("ha_save_lovelace_dashboard_view_ok",
+                    url_path=url_path, view_index=view_index)
+        return result
+    except HAConnectionError as exc:
+        await complete_confirmation_token(
+            confirmation_token, success=False, error=str(exc)
+        )
+        logger.warning("ha_save_lovelace_dashboard_view_failed",
+                       url_path=url_path, view_index=view_index)
+        return {"error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "ha_save_lovelace_dashboard_view_failed",
+            url_path=url_path,
+            view_index=view_index,
+            error_type=type(exc).__name__,
+        )
+        await complete_confirmation_token(
+            confirmation_token, success=False, error=type(exc).__name__
+        )
+        return {"error": f"{type(exc).__name__}: {exc}"}
 
 
 async def _list_extra_dashboards(ha_client: HAClient) -> list[dict[str, Any]]:
@@ -314,14 +588,17 @@ def register(
                 dashboard salvo `views`). Útil cuando el dashboard entero
                 supera el límite de respuesta.
 
-        Para reconstruir un dashboard leído por vistas, guarda
+        Para cambiar una sola vista, guárdala con
+        `ha_save_lovelace_dashboard(url_path, view_index=N, view=...)`: el
+        resto del dashboard se conserva tal cual. Para reconstruir un dashboard leído por vistas, guarda
         `{**top_level, "views": [vista0, vista1, ...]}`: si falta alguna clave
         de nivel superior, `ha_save_lovelace_dashboard` se niega a guardar.
 
         Errores posibles:
         - `yaml_mode`: el dashboard es YAML mode — leer con `fs_read_file`.
         - `too_large`: config > `response_max_bytes`. Usar `view_index`; la
-          respuesta ya trae `top_level`.
+          respuesta ya trae `top_level`. Para cambiar una vista, guarda solo
+          esa vista con `view_index` en `ha_save_lovelace_dashboard`.
         - `view_index_out_of_range`: índice fuera de rango.
         """
         try:
@@ -390,9 +667,11 @@ def register(
                         "hint": (
                             "Dashboard config exceeds the response limit. "
                             "Call ha_get_lovelace_dashboard with view_index=N "
-                            "to read individual views, and save "
-                            "{**top_level, 'views': [...]} so no top-level key "
-                            "is lost."
+                            "to read individual views. To change one view, "
+                            "save only that view with ha_save_lovelace_dashboard "
+                            "(view_index=N, view); to save the whole "
+                            "dashboard, save {**top_level, 'views': [...]} so "
+                            "no top-level key is lost."
                         ),
                     },
                     config,
@@ -417,8 +696,11 @@ def register(
         config: dict[str, Any] | None = None,
         confirmation_token: str | None = None,
         remove_top_level_keys: list[str] | None = None,
+        view_index: int | None = None,
+        view: dict[str, Any] | None = None,
     ) -> object:
-        """Sobrescribe la configuración completa de un dashboard Lovelace.
+        """Sobrescribe la configuración completa de un dashboard Lovelace, o
+        solo una de sus vistas con `view_index` y `view`.
 
         Esta operación **siempre requiere `confirmation_token`** porque sustituye
         el dashboard entero (no es un merge parcial). El preview muestra un diff
@@ -438,8 +720,26 @@ def register(
         puede leer el dashboard actual, tampoco hay token
         (`preview_unavailable`).
 
-        **Concurrencia**: last-write-wins. Si dos clientes guardan
-        simultáneamente, el último gana. HA no tiene locking de dashboard.
+        **Guardar una sola vista** (`view_index` + `view`, sin `config`):
+        sustituye la vista `view_index` (0-based, el mismo índice de
+        `ha_get_lovelace_dashboard`) del dashboard ACTUAL por `view` y
+        conserva exactamente las demás vistas y todas las claves de nivel
+        superior; útil en dashboards grandes. Solo sustituye una vista que
+        existe (no añade ni borra vistas). La vista previa dice qué vista
+        cambia (`view_before`/`view_after`), qué vistas se conservan
+        (`views_kept`) y qué claves (`top_level_keys_kept`). Para confirmar
+        basta con lo que diga `confirm_with` (`url_path`, `view_index` y
+        `confirmation_token`): `view` se puede omitir. Si el dashboard cambia
+        entre la vista previa y la confirmación, se rechaza con
+        `dashboard_changed` sin guardar nada: pide otra vista previa. No se
+        puede mezclar con `config` ni con `remove_top_level_keys`
+        (`invalid_argument`). Otros errores: `view_index_out_of_range`,
+        `no_views` (sin vistas guardadas o de estrategia), `yaml_mode`,
+        `preview_unavailable`.
+
+        **Concurrencia**: last-write-wins en el guardado completo. Si dos
+        clientes guardan simultáneamente, el último gana. HA no tiene locking
+        de dashboard.
 
         Args:
             url_path: URL path del dashboard. `null` para el dashboard principal.
@@ -449,9 +749,20 @@ def register(
                 previa sin token.
             remove_top_level_keys: Claves de nivel superior del dashboard
                 actual que se quieren eliminar a propósito.
+            view_index: Índice (0-based) de la vista que se sustituye, en el
+                guardado de una sola vista. Obligatorio en sus dos llamadas.
+            view: La vista nueva (un objeto, sin `views`). Obligatoria en la
+                vista previa; se puede omitir al confirmar.
 
         Rechaza si el dashboard está en YAML mode (usar `fs_write_file`).
         """
+        # Modo por vista (spec 018): todo en su propio camino, para que el
+        # guardado completo de la 1.1.2 de abajo no cambie ni una línea.
+        if view_index is not None or view is not None:
+            return await _guardar_vista(
+                ha_client, url_path, config, confirmation_token,
+                remove_top_level_keys, view_index, view,
+            )
         if config is None and not confirmation_token:
             return {
                 "error": "invalid_argument", "field": "config",

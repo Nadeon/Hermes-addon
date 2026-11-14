@@ -1018,3 +1018,402 @@ class TestConfirmarSoloConTokenLovelace(unittest.IsolatedAsyncioTestCase):
                                   remove_top_level_keys=["title"])
         self.assertEqual(res, {"error": "confirmation_token does not match this action."})
         await self._sigue_sirviendo(token)
+
+
+# ── Spec 018: guardado por vista (US1) ────────────────────────────────────────
+
+
+def _dashboard_tres_vistas() -> dict[str, Any]:
+    """Dashboard ficticio de tres vistas (T002 de la 018).
+
+    `Inicio` sin `path`, `Cocina` con `path` y tarjetas, `Jardín` de tipo
+    `sections`; claves de nivel superior `title` y `background`. Nuevo en cada
+    llamada, para que un test pueda cambiarlo sin afectar a los demás. El
+    `FakeWSSender` ya guarda cada `lovelace/config/save` recibido y su `set`
+    cambia el documento devuelto entre llamadas.
+    """
+    return {
+        "title": "Casa ficticia",
+        "background": "var(--fondo-ficticio)",
+        "views": [
+            {"title": "Inicio", "cards": [{"type": "markdown", "content": "hola"}]},
+            {
+                "title": "Cocina",
+                "path": "cocina",
+                "badges": [{"entity": "sensor.temperatura_cocina"}],
+                "cards": [
+                    {"type": "light", "entity": "light.salon"},
+                    {"type": "entities", "entities": ["light.cocina"]},
+                ],
+            },
+            {
+                "title": "Jardín",
+                "path": "jardin",
+                "type": "sections",
+                "sections": [
+                    {"type": "grid", "cards": [{"type": "tile", "entity": "light.jardin"}]},
+                ],
+            },
+        ],
+    }
+
+
+class TestGuardarPorVista(unittest.IsolatedAsyncioTestCase):
+    """`ha_save_lovelace_dashboard` con `view_index` y `view` (spec 018,
+    FR-001…FR-006 y FR-018).
+
+    Guardar una vista sustituye solo esa vista del dashboard ACTUAL; lo demás
+    queda igual. El token se ata al estado del dashboard: si cambia entre la
+    vista previa y la confirmación, `dashboard_changed` y nada guardado.
+
+    Control negativo comprobado (T011):
+    (a) fusionar sustituyendo `views` entera por `[view]` → caen las
+        comprobaciones de vistas conservadas;
+    (b) no pasar `estado` al resolver → caen los de `dashboard_changed`;
+    (c) aceptar `config` junto a `view_index` → cae su caso;
+    (d) sacar `view` de los omitibles → caen `omit_on_confirm` y la
+        confirmación sin `view`;
+    (e) una sola tupla `("config", "view")` para los dos modos → caen los de
+        `TestConfirmarSoloConTokenLovelace` y el de compatibilidad de aquí.
+    Los recuentos exactos van en el mensaje del commit.
+    """
+
+    asyncSetUp_base = TestToolsLovelace.asyncSetUp
+    asyncTearDown = TestToolsLovelace.asyncTearDown
+
+    URL = "panel-prueba"
+
+    async def asyncSetUp(self) -> None:
+        await self.asyncSetUp_base()
+        self.actual = _dashboard_tres_vistas()
+        self.ws.set("lovelace/config", self.actual)
+        self.ws.set("lovelace/config/save", None)
+        self.nueva = {
+            "title": "Cocina",
+            "path": "cocina",
+            "cards": [
+                {"type": "light", "entity": "light.salon"},
+                {"type": "entities", "entities": ["light.cocina"]},
+                {"type": "markdown", "content": "nueva"},
+            ],
+        }
+
+    async def _guardar(self, *args: Any, **kwargs: Any) -> Any:
+        return await self.mcp.tools["ha_save_lovelace_dashboard"](*args, **kwargs)
+
+    async def _vista_previa(self, view_index: int = 1, view: Any = None) -> dict:
+        return await self._guardar(
+            self.URL, view_index=view_index,
+            view=self.nueva if view is None else view)
+
+    def _sin_token_ni_guardado(self, res: Any) -> None:
+        self.assertNotIn("confirmation_token", res)
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+        self.assertEqual(list(security.CONFIRMATIONS_DIR.glob("*.json")), [])
+
+    # ── Vista previa ──────────────────────────────────────────────────────────
+
+    async def test_vista_previa(self) -> None:
+        r = await self._vista_previa()
+        p = r["preview"]
+        self.assertEqual(p["url_path"], self.URL)
+        self.assertEqual(p["mode"], "single_view")
+        self.assertEqual(p["view_index"], 1)
+        self.assertEqual(p["views_total"], 3)
+        self.assertEqual(p["view_before"], {"title": "Cocina", "path": "cocina",
+                                            "type": None, "cards": 2, "badges": 1,
+                                            "sections": 0})
+        self.assertEqual(p["view_after"], {"title": "Cocina", "path": "cocina",
+                                           "type": None, "cards": 3, "badges": 0,
+                                           "sections": 0})
+        self.assertIs(p["view_unchanged"], False)
+        self.assertEqual(p["views_kept"], [
+            {"index": 0, "title": "Inicio", "path": None},
+            {"index": 2, "title": "Jardín", "path": "jardin"},
+        ])
+        self.assertEqual(p["top_level_keys_kept"], ["background", "title"])
+        self.assertEqual(p["diff"]["views_count_before"], 3)
+        self.assertEqual(p["diff"]["views_count_after"], 3)
+        self.assertEqual(p["diff"]["total_cards_badges_before"], 5)
+        self.assertEqual(p["diff"]["total_cards_badges_after"], 5)
+        self.assertIn("Only view 1 is replaced", p["warning"])
+        self.assertIn("refused", p["warning"])
+        self.assertEqual(r["confirm_with"],
+                         ["confirmation_token", "url_path", "view_index"])
+        self.assertEqual(r["omit_on_confirm"], ["view"])
+        self.assertIn("view can be omitted", r["confirm_hint"])
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+        # Nunca el JSON de la vista en la vista previa: solo recuentos.
+        self.assertNotIn("nueva", json.dumps(r))
+
+    async def test_vista_de_secciones_en_el_resumen(self) -> None:
+        r = await self._vista_previa(2, {"title": "Jardín", "type": "sections",
+                                         "sections": []})
+        self.assertEqual(r["preview"]["view_before"],
+                         {"title": "Jardín", "path": "jardin", "type": "sections",
+                          "cards": 1, "badges": 0, "sections": 1})
+        self.assertEqual([v["index"] for v in r["preview"]["views_kept"]], [0, 1])
+
+    async def test_titulos_largos_se_recortan(self) -> None:
+        self.actual["views"][0]["title"] = "T" * 200
+        r = await self._vista_previa()
+        self.assertEqual(r["preview"]["views_kept"][0]["title"], "T" * 80)
+
+    async def test_vista_identica_dice_view_unchanged(self) -> None:
+        r = await self._vista_previa(1, json.loads(json.dumps(self.actual["views"][1])))
+        self.assertIs(r["preview"]["view_unchanged"], True)
+        self.assertIn("confirmation_token", r)
+
+    # ── Confirmación ──────────────────────────────────────────────────────────
+
+    def _comprobar_guardado(self, vista: dict) -> None:
+        guardados = self.ws.calls_for("lovelace/config/save")
+        self.assertEqual(len(guardados), 1)
+        self.assertEqual(guardados[0]["url_path"], self.URL)
+        doc = guardados[0]["config"]
+        original = _dashboard_tres_vistas()
+        self.assertEqual(doc["views"][1], vista)
+        # Lo demás, idéntico: vistas 0 y 2 y las claves de nivel superior.
+        self.assertEqual(len(doc["views"]), 3)
+        self.assertEqual(doc["views"][0], original["views"][0])
+        self.assertEqual(doc["views"][2], original["views"][2])
+        self.assertEqual({k: v for k, v in doc.items() if k != "views"},
+                         {k: v for k, v in original.items() if k != "views"})
+
+    async def test_confirmar_sin_reenviar_view(self) -> None:
+        r = await self._vista_previa()
+        res = await self._guardar(self.URL, view_index=1,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res, {"result": "ok", "url_path": self.URL, "view_index": 1})
+        self._comprobar_guardado(self.nueva)
+
+    async def test_confirmar_reenviando_view_identica(self) -> None:
+        r = await self._vista_previa()
+        res = await self._guardar(self.URL, view_index=1, view=dict(self.nueva),
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["result"], "ok")
+        self._comprobar_guardado(self.nueva)
+
+    async def test_confirmar_con_otra_view_no_vale(self) -> None:
+        r = await self._vista_previa()
+        otra = {"title": "Otra vista ficticia", "cards": []}
+        res = await self._guardar(self.URL, view_index=1, view=otra,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    async def test_confirmar_con_otro_indice_no_vale(self) -> None:
+        r = await self._vista_previa()
+        res = await self._guardar(self.URL, view_index=0,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    async def _cambiado(self, cambiar) -> None:
+        r = await self._vista_previa()
+        cambiado = _dashboard_tres_vistas()
+        cambiar(cambiado)
+        self.ws.set("lovelace/config", cambiado)
+        res = await self._guardar(self.URL, view_index=1,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["error"], "dashboard_changed")
+        self.assertEqual(res["url_path"], self.URL)
+        self.assertEqual(res["view_index"], 1)
+        self.assertIn("detail", res)
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+        # El token no se gastó: con el dashboard de la vista previa, vale.
+        self.ws.set("lovelace/config", _dashboard_tres_vistas())
+        ok = await self._guardar(self.URL, view_index=1,
+                                 confirmation_token=r["confirmation_token"])
+        self.assertEqual(ok["result"], "ok")
+
+    async def test_otra_vista_cambiada_da_dashboard_changed(self) -> None:
+        def cambiar(d: dict) -> None:
+            d["views"][0]["cards"].append({"type": "markdown", "content": "otro"})
+        await self._cambiado(cambiar)
+
+    async def test_clave_superior_cambiada_da_dashboard_changed(self) -> None:
+        def cambiar(d: dict) -> None:
+            d["title"] = "Otro título ficticio"
+        await self._cambiado(cambiar)
+
+    async def test_vista_insertada_antes_da_dashboard_changed(self) -> None:
+        def cambiar(d: dict) -> None:
+            d["views"].insert(0, {"title": "Nueva primera"})
+        await self._cambiado(cambiar)
+
+    async def test_lectura_fallida_al_confirmar_deja_el_token(self) -> None:
+        r = await self._vista_previa()
+        self.ws.set("lovelace/config", HAConnectionError("ws down"))
+        res = await self._guardar(self.URL, view_index=1,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res, {"error": "ws down"})
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+        datos = json.loads((security.CONFIRMATIONS_DIR /
+                            f"{r['confirmation_token']}.json").read_text(encoding="utf-8"))
+        self.assertEqual(datos["state"], "pending")
+
+    async def test_fallo_de_ha_al_guardar(self) -> None:
+        r = await self._vista_previa()
+        self.ws.set("lovelace/config/save", HAConnectionError("save failed"))
+        res = await self._guardar(self.URL, view_index=1,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res, {"error": "save failed"})
+        otra = await self._guardar(self.URL, view_index=1,
+                                   confirmation_token=r["confirmation_token"])
+        self.assertIn("error", otra)
+        self.assertEqual(len(self.ws.calls_for("lovelace/config/save")), 1)
+
+    # ── Tokens cruzados entre los dos modos ───────────────────────────────────
+
+    async def test_token_completo_no_vale_por_vista(self) -> None:
+        r = await self._guardar(self.URL, _dashboard_tres_vistas())
+        res = await self._guardar(self.URL, view_index=1, view=self.nueva,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        res = await self._guardar(self.URL, view_index=1,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertIn("error", res)
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    async def test_token_por_vista_no_vale_completo(self) -> None:
+        r = await self._vista_previa()
+        res = await self._guardar(self.URL, confirmation_token=r["confirmation_token"])
+        self.assertIn("error", res)
+        res = await self._guardar(self.URL, _dashboard_tres_vistas(),
+                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    # ── Errores sin token ni escritura ────────────────────────────────────────
+
+    async def _error(self, codigo: str, *args: Any, campo: str | None = None,
+                     **kwargs: Any) -> dict:
+        res = await self._guardar(*args, **kwargs)
+        self.assertEqual(res["error"], codigo, res)
+        if campo is not None:
+            self.assertEqual(res["field"], campo)
+        self._sin_token_ni_guardado(res)
+        return res
+
+    async def test_mezclas_se_rechazan_sin_leer(self) -> None:
+        await self._error("invalid_argument", self.URL, _dashboard_tres_vistas(),
+                          view_index=1, view=self.nueva, campo="config")
+        await self._error("invalid_argument", self.URL, view_index=1, view=self.nueva,
+                          remove_top_level_keys=["title"], campo="remove_top_level_keys")
+        await self._error("invalid_argument", self.URL, view=self.nueva,
+                          campo="view_index")
+        await self._error("invalid_argument", self.URL, view_index=1, campo="view")
+        # FR-005: las mezclas, antes de leer el dashboard.
+        self.assertEqual(self.ws.calls_for("lovelace/config"), [])
+        self.assertEqual(self.ws.calls_for("lovelace/dashboards/list"), [])
+
+    async def test_view_invalida(self) -> None:
+        await self._error("invalid_argument", self.URL, view_index=1, view=["x"],
+                          campo="view")
+        await self._error("invalid_argument", self.URL, view_index=1,
+                          view={"views": [self.nueva]}, campo="view")
+        await self._error("invalid_argument", self.URL, view_index=True,
+                          view=self.nueva, campo="view_index")
+        await self._error("invalid_argument", self.URL, view_index="1",
+                          view=self.nueva, campo="view_index")
+
+    async def test_indice_fuera_de_rango(self) -> None:
+        for indice in (-1, 3):
+            res = await self._error("view_index_out_of_range", self.URL,
+                                    view_index=indice, view=self.nueva)
+            self.assertEqual(res["views_count"], 3)
+            self.assertEqual(res["requested"], indice)
+
+    async def test_sin_configuracion_es_no_views(self) -> None:
+        self.ws.set("lovelace/config",
+                    HAConnectionError("No config found.", code="config_not_found"))
+        await self._error("no_views", self.URL, view_index=0, view=self.nueva)
+
+    async def test_estrategia_es_no_views(self) -> None:
+        self.ws.set("lovelace/config", FAKE_MAP_CONFIG)
+        await self._error("no_views", self.URL, view_index=0, view=self.nueva)
+
+    async def test_modo_yaml(self) -> None:
+        await self._error("yaml_mode", "yaml-dash", view_index=0, view=self.nueva)
+
+    async def test_lectura_fallida_es_preview_unavailable(self) -> None:
+        self.ws.set("lovelace/config", HAConnectionError("ws down"))
+        await self._error("preview_unavailable", self.URL, view_index=1, view=self.nueva)
+
+    # ── Tope de guardados, log y compatibilidad ───────────────────────────────
+
+    async def test_tope_lleno_pide_reenviar_view(self) -> None:
+        import unittest.mock as mock
+
+        with mock.patch.object(security, "CONFIRMATION_STORED_MAX_BYTES", 10):
+            r = await self._vista_previa()
+        self.assertEqual(r["confirm_with"],
+                         ["confirmation_token", "url_path", "view", "view_index"])
+        self.assertNotIn("omit_on_confirm", r)
+        sin = await self._guardar(self.URL, view_index=1,
+                                  confirmation_token=r["confirmation_token"])
+        self.assertIn("no stored value for: view", sin["error"])
+        ok = await self._guardar(self.URL, view_index=1, view=self.nueva,
+                                 confirmation_token=r["confirmation_token"])
+        self.assertEqual(ok["result"], "ok")
+
+    async def test_el_contenido_de_la_vista_no_llega_al_log(self) -> None:
+        centinela = "CENTINELA-VISTA-3b7e"
+        vista = {"title": "Cocina", "cards": [{"type": "markdown", "content": centinela}]}
+        with capture_logs() as logs:
+            r = await self._vista_previa(1, vista)
+            await self._guardar(self.URL, view_index=0,
+                                confirmation_token=r["confirmation_token"])
+            ok = await self._guardar(self.URL, view_index=1,
+                                     confirmation_token=r["confirmation_token"])
+        self.assertEqual(ok["result"], "ok")
+        evento = [e for e in logs if e["event"] == "ha_save_lovelace_dashboard_view_ok"]
+        self.assertEqual(len(evento), 1)
+        self.assertEqual(evento[0]["url_path"], self.URL)
+        self.assertEqual(evento[0]["view_index"], 1)
+        self.assertNotIn(centinela, repr(logs))
+
+    async def test_compatibilidad_guardado_completo_de_la_1_1_2(self) -> None:
+        """FR-006: sin `view_index` ni `view`, la vista previa es la de la
+        1.1.2 (salvo el token), el token no se ata al estado y la
+        confirmación sin `config` funciona.
+
+        Control negativo comprobado: con una sola tupla de omitibles
+        `("config", "view")` para los dos modos, la confirmación sin `config`
+        se rechaza («has no stored value for: view») y cae este test.
+        """
+        nuevo = _dashboard_tres_vistas()
+        nuevo["views"].append({"title": "Cuarta", "cards": []})
+        r = await self._guardar(self.URL, nuevo)
+        token = r.pop("confirmation_token")
+        self.assertEqual(r, {
+            "expires_in_seconds": 60,
+            "preview": {
+                "url_path": self.URL,
+                "diff": {
+                    "views_count_before": 3, "views_count_after": 4,
+                    "total_cards_badges_before": 5, "total_cards_badges_after": 5,
+                    "theme_changed": False, "title_changed": False,
+                    "has_strategy": False,
+                },
+                "warning": "This replaces the ENTIRE dashboard configuration.",
+            },
+            "confirm_with": ["confirmation_token", "url_path"],
+            "omit_on_confirm": ["config"],
+            "confirm_hint": (
+                "To confirm, call ha_save_lovelace_dashboard again with only "
+                "confirmation_token, url_path. config can be omitted: the server "
+                "kept the one from this preview. Any argument you do send must be "
+                "identical to the preview."
+            ),
+        })
+        datos = json.loads((security.CONFIRMATIONS_DIR / f"{token}.json")
+                           .read_text(encoding="utf-8"))
+        self.assertNotIn("state_hash", datos)
+        # Aunque el dashboard cambie, el guardado completo no se ata al estado
+        # (last-write-wins de la 1.1.2).
+        self.ws.set("lovelace/config", {"views": []})
+        res = await self._guardar(self.URL, confirmation_token=token)
+        self.assertEqual(res, {"result": "ok", "url_path": self.URL})
+        self.assertEqual(self.ws.calls_for("lovelace/config/save")[0]["config"], nuevo)

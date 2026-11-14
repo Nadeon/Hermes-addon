@@ -373,5 +373,25 @@ class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.guide(tema, search=None), texto)
 
 
+class TestGuiaGuardadoPorVista(unittest.TestCase):
+    """Spec 018 (FR-007, FR-016): la guía y las instrucciones explican el
+    guardado de una sola vista; si siguieran diciendo solo que
+    `ha_save_lovelace_dashboard` reemplaza el dashboard entero, el cliente
+    seguiría reescribiendo dashboards grandes (y perdiendo tarjetas).
+
+    Control negativo comprobado: con `guide.py` anterior a la 018 caen los dos.
+    """
+
+    def test_tema_lovelace(self) -> None:
+        texto = _GUIDE["lovelace"]
+        self.assertIn("view_index", texto)
+        self.assertIn("dashboard_changed", texto)
+        self.assertIn("omit_on_confirm", texto)
+
+    def test_instrucciones_mencionan_una_sola_vista(self) -> None:
+        self.assertIn("view_index", INSTRUCTIONS)
+        self.assertIn("una sola vista", INSTRUCTIONS)
+
+
 if __name__ == "__main__":
     unittest.main()
