@@ -355,6 +355,11 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
             dominios = {domain: dominios[domain]}
             pendientes = _de(pendientes, dominios)
             fallidos = _de(fallidos, dominios)
+            # Con `domain`, `complete` es el de ESE dominio (T039): sin
+            # `finish` porque otro seguía pendiente, el pedido puede estar
+            # entero, y decir `complete: false` con `pending: []` se
+            # contradice. Sus pendientes ya están filtrados arriba.
+            completo = True
 
         dominios = _limpio(dominios)
         out = _recortar_salud(dominios, pendientes, fallidos,

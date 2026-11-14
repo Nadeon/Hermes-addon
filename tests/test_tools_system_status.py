@@ -228,6 +228,16 @@ class TestSalud(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(r["domains"]), ["homeassistant"])
         # Lo pendiente de otro dominio no cuenta.
         self.assertEqual(r["pending"], [])
+        # Y la respuesta no se contradice: el dominio pedido llegó entero
+        # aunque la recogida venciera por otro (T039). Control negativo
+        # comprobado: sin `completo = True` en la rama de `domain`, sale
+        # `complete: false` con `pending: []` y cae esta línea.
+        self.assertTrue(r["complete"])
+
+    async def test_un_dominio_con_pendientes_no_esta_completo(self) -> None:
+        r = await self._salud([_inicial(_salud_basica())], completo=False, domain="cloud")
+        self.assertFalse(r["complete"])
+        self.assertEqual(r["pending"], ["cloud.can_reach_cert_server", "cloud.can_reach_cloud"])
 
     async def test_dominio_que_no_esta(self) -> None:
         r = await self._salud([_inicial(_salud_basica()), _FIN], domain="zigbee")

@@ -81,6 +81,8 @@ Todas con `json.dumps(..., ensure_ascii=False)`, redactadas con
 - Valor `{"type": "date", "value": iso}` → `iso`.
 - Valor `{"type": "pending"}` sin actualización → `null` y en `pending`.
 - Actualización `success: false` → `null` y en `failed`.
+- Con `domain`, `complete` es el de ese dominio: verdadero si no le queda
+  nada en `pending`, aunque otro dominio no hubiera terminado (T039).
 - Valor `{"type": "failed", "error": …}` de una clave, en el inicial o en una
   actualización con `success: true` (`hassio.healthy`/`supported` con el
   Supervisor «Unhealthy»/«Unsupported», `async_check_can_reach_url` sin
