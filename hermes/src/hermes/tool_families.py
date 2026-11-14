@@ -119,19 +119,19 @@ def validar_desactivadas(nombres: Iterable[str]) -> frozenset[str]:
     for nombre in nombres:
         if not isinstance(nombre, str) or not _FORMA_NOMBRE.match(nombre):
             raise ValueError(
-                f"tool_families_disabled: nombre de familia inválido {nombre!r}; "
-                f"válidos: {', '.join(validos)}"
+                f"tool_families_disabled: nombre de familia inválido {nombre!r}. "
+                f"Válidas: {', '.join(validos)}"
             )
         if nombre not in FAMILIAS:
             raise ValueError(
-                f"tool_families_disabled: la familia {nombre!r} no existe; "
-                f"válidas: {', '.join(validos)}"
+                f"tool_families_disabled: la familia {nombre!r} no existe. "
+                f"Válidas: {', '.join(validos)}"
             )
         if not FAMILIAS[nombre].desactivable:
             raise ValueError(
                 f"tool_families_disabled: la familia {nombre!r} no se puede "
-                f"desactivar (ping y hermes_guide son necesarios); "
-                f"válidas: {', '.join(validos)}"
+                f"desactivar (ping y hermes_guide son necesarios). "
+                f"Válidas: {', '.join(validos)}"
             )
         resultado.add(nombre)
     return frozenset(resultado)
