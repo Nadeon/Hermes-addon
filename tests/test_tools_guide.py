@@ -111,6 +111,15 @@ class TestGuiaMarketplace(unittest.IsolatedAsyncioTestCase):
         # Nombres y descripciones los escriben terceros.
         self.assertIn("terceros", tema)
 
+    async def test_retirados_con_filtros_y_resumen(self) -> None:
+        """009 (FR-007, FR-013): la guía dice cómo acotar los retirados; sin
+        esto el modelo pedía la lista entera (~500 entradas) para buscar lo
+        suyo."""
+        tema = await self.guide("marketplace")
+        linea = tema[tema.index("ha_marketplace_list_removed"):]
+        for texto in ("installed_only", "limit", "by_removal_type"):
+            self.assertIn(texto, linea)
+
     async def test_index_mentions_marketplace(self) -> None:
         self.assertIn("marketplace", await self.guide())
         self.assertIn("marketplace", INSTRUCTIONS)
@@ -181,6 +190,21 @@ class TestInstructions(unittest.TestCase):
                        "sv_read_api", "sv_call_api"):
             self.assertIn(nombre, INSTRUCTIONS)
         self.assertIn("tabla", INSTRUCTIONS)
+
+    def test_instrucciones_sin_la_familia_generic_commands(self) -> None:
+        """T049: sin la familia, ni el párrafo de las genéricas ni su tema
+        en la lista; el resto, idéntico. Control negativo comprobado: con
+        `activas` siempre verdadero en `instrucciones` → cae."""
+        from hermes.tools.guide import instrucciones
+
+        sin = instrucciones(frozenset({"generic_commands"}))
+        for nombre in ("ha_read_ws_command", "ha_call_ws_command",
+                       "sv_read_api", "sv_call_api", "generic_commands"):
+            self.assertNotIn(nombre, sin)
+        self.assertIn("security) y", sin)
+        self.assertEqual(instrucciones(), INSTRUCTIONS)
+        self.assertEqual(instrucciones(frozenset({"lovelace"})), INSTRUCTIONS)
+        self.assertNotIn("@", INSTRUCTIONS)
 
     def test_instructions_accepted_and_exposed_by_fastmcp(self) -> None:
         # Verifica end-to-end que el SDK entrega instructions en el initialize.

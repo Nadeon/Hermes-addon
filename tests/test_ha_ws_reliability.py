@@ -304,5 +304,170 @@ class TestGetStateToolNotFound(unittest.IsolatedAsyncioTestCase):
                 await self.mcp.tools["ha_get_state"]("light.salon")
 
 
+class TestUrlsDeHAAlConectar(unittest.IsolatedAsyncioTestCase):
+    """FR-002 (009): al conectar, `HAClient` lee `/api/config` y pasa los
+    hosts de `external_url`/`internal_url` a la redacción del log.
+
+    Control negativo (T015): llamando a `_aprender_urls_de_ha` después de
+    `ha_ws_connected` cae `test_se_leen_antes_de_anunciar_la_conexion`;
+    dejando que la excepción se propague caen los subtests de
+    `test_un_fallo_no_corta_la_conexion`.
+    """
+
+    def setUp(self) -> None:
+        from hermes import logging_setup
+
+        logging_setup.configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        self.addCleanup(logging_setup.configure_network_redaction, False, "")
+
+    def _cliente(self, respuesta_config, orden: list[str]):
+        from hermes.ha import HAClient
+
+        class _Salud:
+            def set_ws_connected(self, _v):
+                orden.append("salud")
+
+        class _CtxWS:
+            async def __aenter__(self):
+                return object()
+
+            async def __aexit__(self, *exc):
+                return False
+
+        class _Sesion:
+            closed = False
+
+            def ws_connect(self, url, **kw):
+                return _CtxWS()
+
+        cliente = HAClient(
+            supervisor_base_url="http://supervisor",
+            supervisor_token="t",
+            health_server=_Salud(),
+        )
+        cliente._session = _Sesion()
+
+        async def _marca(nombre):
+            orden.append(nombre)
+
+        cliente._authenticate_ws = lambda: _marca("auth")
+        cliente._subscribe_state_changes = lambda: _marca("suscribir")
+        cliente._populate_state_cache = lambda: _marca("snapshot")
+
+        async def _request_json(method, path, *a, **kw):
+            orden.append(f"{method} {path}")
+            if isinstance(respuesta_config, BaseException):
+                raise respuesta_config
+            return respuesta_config
+
+        cliente._request_json = _request_json
+
+        async def _leer():
+            orden.append("leer")
+
+        cliente._read_ws_messages = _leer
+        return cliente
+
+    async def _conectar(self, respuesta_config) -> tuple[list[str], list[dict]]:
+        from structlog.testing import capture_logs
+
+        orden: list[str] = []
+        cliente = self._cliente(respuesta_config, orden)
+        with capture_logs() as eventos:
+            await cliente._connect_and_watch()
+        return orden, eventos
+
+    async def test_se_leen_antes_de_anunciar_la_conexion(self) -> None:
+        from hermes.logging_setup import redact_network
+
+        orden: list[str] = []
+        cliente = self._cliente(
+            {"external_url": "https://casa.example.org",
+             "internal_url": "http://ha.lan.example:8123"},
+            orden,
+        )
+        conectado_al_leer: list[bool] = []
+        original = cliente._request_json
+
+        async def _vigilado(method, path, *a, **kw):
+            conectado_al_leer.append(cliente._connected_event.is_set())
+            return await original(method, path, *a, **kw)
+
+        cliente._request_json = _vigilado
+        from structlog.testing import capture_logs
+
+        with capture_logs() as eventos:
+            await cliente._connect_and_watch()
+        self.assertEqual(conectado_al_leer, [False])
+        self.assertLess(orden.index("auth"), orden.index("GET /config"))
+        self.assertLess(orden.index("GET /config"), orden.index("salud"))
+        nombres = [e["event"] for e in eventos]
+        self.assertIn("ha_ws_connected", nombres)
+        self.assertEqual(
+            redact_network("https://casa.example.org http://ha.lan.example:8123"),
+            "https://<ha_external_host> http://<ha_internal_host>:8123",
+        )
+
+    async def test_se_actualizan_al_reconectar(self) -> None:
+        from hermes.logging_setup import redact_network
+
+        await self._conectar({"external_url": "https://casa.example.org",
+                              "internal_url": None})
+        self.assertEqual(redact_network("casa.example.org"), "<ha_external_host>")
+        await self._conectar({"external_url": "https://otra.example.net",
+                              "internal_url": "http://ha.lan.example"})
+        self.assertEqual(redact_network("casa.example.org"), "casa.example.org")
+        self.assertEqual(redact_network("otra.example.net"), "<ha_external_host>")
+        self.assertEqual(redact_network("ha.lan.example"), "<ha_internal_host>")
+
+    async def test_un_fallo_no_corta_la_conexion(self) -> None:
+        import aiohttp
+
+        from hermes.ha import HAConnectionError
+
+        casos = {
+            "HAConnectionError": HAConnectionError("https://casa.example.org caída"),
+            "ClientError": aiohttp.ClientError("https://casa.example.org"),
+            "TimeoutError": TimeoutError(),
+            "lista": ["https://casa.example.org"],
+        }
+        for nombre, respuesta in casos.items():
+            with self.subTest(caso=nombre):
+                orden, eventos = await self._conectar(respuesta)
+                self.assertIn("leer", orden, "la conexión no llegó al bucle de lectura")
+                avisos = [e for e in eventos
+                          if e.get("event") == "ha_url_redaction_unavailable"]
+                self.assertEqual(len(avisos), 1)
+                self.assertIn("error_type", avisos[0])
+                texto = repr(avisos[0])
+                self.assertNotIn("casa.example", texto)
+                self.assertNotIn("http", texto)
+
+    async def test_una_url_mal_formada_no_impide_tapar_la_otra(self) -> None:
+        """T045: cada campo se trata por separado y sin aviso.
+
+        `urlsplit("http://[fe80::1").hostname` lanza `ValueError`; antes eso
+        saltaba al `except` común, avisaba con `ha_url_redaction_unavailable`
+        y el host externo, que sí era válido, salía en claro. Lo mismo con una
+        URL que no es texto. La spec (casos límite): «URL sin host o mal
+        formada: se ignora sin error».
+
+        Control negativo: con el `try` alrededor de los dos campos (la forma
+        anterior) fallan los dos subtests: hay aviso y el host sale en claro.
+        """
+        from hermes.logging_setup import redact_network
+
+        for nombre, interna in (("mal_formada", "http://[fe80::1"), ("no_texto", 5)):
+            with self.subTest(caso=nombre):
+                orden, eventos = await self._conectar(
+                    {"external_url": "https://casa.example.org",
+                     "internal_url": interna})
+                self.assertIn("leer", orden)
+                self.assertNotIn("ha_url_redaction_unavailable",
+                                 [e.get("event") for e in eventos])
+                self.assertEqual(redact_network("https://casa.example.org/x"),
+                                 "https://<ha_external_host>/x")
+
+
 if __name__ == "__main__":
     unittest.main()

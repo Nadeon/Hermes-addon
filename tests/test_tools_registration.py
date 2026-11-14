@@ -728,11 +728,12 @@ _HINTS_SNAPSHOT: dict[str, str] = {
 
 
 # Tools nuevas de la 1.2.0: código de hints y título exactos (spec 011,
-# contracts/tools.md). Las de lectura no son de mundo abierto (ninguna entrada
-# `read` de la tabla sale a internet); las de escritura son destructivas, no
+# contracts/tools.md). La de lectura de Core es de mundo abierto porque
+# `media_source/browse_media` y `search_media` salen a internet con fuentes
+# remotas (T047); la del Supervisor no. Las de escritura son destructivas, no
 # idempotentes y de mundo abierto, porque ejecutan lo que la tabla permita.
 _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
-    "ha_read_ws_command": ("R-I-", "Read WS command (Home Assistant)"),
+    "ha_read_ws_command": ("R-IO", "Read WS command (Home Assistant)"),
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
@@ -858,6 +859,16 @@ class TestToolTitles:
         esperado["hermes_guide"] = {
             "properties": sorted([*esperado["hermes_guide"]["properties"], "search"]),
             "required": esperado["hermes_guide"]["required"],
+        }
+        # Segunda diferencia permitida, de la spec 009 (FR-007 de la 009,
+        # FR-031 de la 008): `ha_marketplace_list_removed` gana los argumentos
+        # OPCIONALES `installed_only` y `limit`. Sin ellos la lista es la de la
+        # 1.1.2. Esta excepción entra al integrar la 011 con la 009: cada rama
+        # tenía la suya y la referencia es común.
+        esperado["ha_marketplace_list_removed"] = {
+            "properties": sorted([*esperado["ha_marketplace_list_removed"]["properties"],
+                                  "installed_only", "limit"]),
+            "required": esperado["ha_marketplace_list_removed"]["required"],
         }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
@@ -1054,6 +1065,14 @@ class TestMarketplaceRegistration:
         from hermes.tools._annotations import classify
 
         assert not classify("ha_marketplace_install").read_only_hint
+
+    def test_retirados_con_argumentos_nuevos_opcionales(self):
+        """009 (FR-007, FR-014): `installed_only` y `limit` existen en el
+        esquema que ve el cliente y no son obligatorios: una llamada de la
+        1.1.2 sin argumentos sigue valiendo."""
+        esquema = _real_registry()["ha_marketplace_list_removed"].parameters
+        assert {"installed_only", "limit"} <= set(esquema["properties"])
+        assert not {"installed_only", "limit"} & set(esquema.get("required", []))
 
 
 # ── Spec 005, bloques A y B: plantas, etiquetas, categorías y diagnóstico ────

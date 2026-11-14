@@ -39,7 +39,7 @@ import structlog
 
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
-from hermes.logging_setup import redact_network
+from hermes.logging_setup import network_redaction_enabled, redact_network
 from hermes.security import (
     REDACTED_MARKER,
     redact_structure,
@@ -849,6 +849,10 @@ def register(
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
+        Hermes no puede actualizarse a sí mismo: con su propio slug (o `self`)
+        responde `self_update_not_supported`, sin token; se actualiza desde la
+        interfaz de Home Assistant.
+
         Args:
             slug: Identificador del add-on.
             confirmation_token: Token del preview anterior.
@@ -857,9 +861,23 @@ def register(
             Sin token: {"confirmation_token": "...", "preview": {...}}
             Con token: {"job_id": "...", "status": "running",
                         "poll_with": "sv_get_job_status"}
+            Sobre Hermes: {"error": "self_update_not_supported", "detail": "..."}
         """
         if (err := _bad_slug(slug)):
             return err
+        if _es_hermes(slug):
+            # El Supervisor responde 403 («can't update itself») cuando un
+            # add-on pide su propia actualización: la vista previa de la 1.1.2
+            # daba un token para algo imposible. Se rechaza antes de cualquier
+            # petición y sin tocar el token que se traiga (FR-010 de la 009).
+            return {
+                "error": "self_update_not_supported",
+                "detail": (
+                    "Hermes cannot update itself through the Supervisor API. "
+                    "Update it from the Home Assistant UI: "
+                    "Settings > Add-ons > Hermes > Update."
+                ),
+            }
         tool_name = "sv_update_addon"
         args: dict[str, Any] = {"slug": slug}
 
@@ -883,9 +901,6 @@ def register(
             }
             if not avail and avail is not None:
                 preview["note"] = "No update available at this time."
-            w = _self_warning(slug, "updating")
-            if w:
-                preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
 
         valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
@@ -937,7 +952,13 @@ def register(
 
         Returns:
             {"slug": "...", "lines_requested": N, "redacted": bool,
+             "secrets_redacted": bool, "network_redacted": bool,
              "logs": "texto del log"}
+            `redacted`: el texto devuelto difiere del leído.
+            `secrets_redacted`: esta llamada sustituyó al menos un secreto.
+            `network_redacted`: se aplicó la redacción de red (log de Hermes
+            con `log_redact_network` activo), aunque el texto ya viniera
+            redactado y no cambie; `false` para otros add-ons.
             `lines_requested` es el número pedido después de acotarlo a
             [1, 1000]; el log devuelto puede traer menos líneas si el add-on
             no tiene más. Si el log no cabe en `response_max_bytes`, se
@@ -956,6 +977,12 @@ def register(
             return {"error": str(exc)}
 
         redacted = redact_secrets(raw)
+        secrets_redacted = redacted != raw
+        # `redacted` solo dice si el texto cambió. El log de Hermes ya se
+        # escribe con la red tapada, así que lo normal es que no cambie aunque
+        # la redacción de red se haya aplicado: sin este campo el agente leía
+        # `redacted: false` y no podía saberlo (FR-005 de la 009).
+        network_redacted = _es_hermes(slug) and network_redaction_enabled()
         if _es_hermes(slug):
             # El log de Hermes se pide para pegarlo en un issue, y las líneas
             # escritas por versiones anteriores (o con la opción recién
@@ -969,9 +996,17 @@ def register(
             lines=lines,
             bytes=len(raw),
             redacted=was_redacted,
+            secrets_redacted=secrets_redacted,
+            network_redacted=network_redacted,
         )
         return _ultimas_lineas_que_caben(
-            {"slug": slug, "lines_requested": lines, "redacted": was_redacted},
+            {
+                "slug": slug,
+                "lines_requested": lines,
+                "redacted": was_redacted,
+                "secrets_redacted": secrets_redacted,
+                "network_redacted": network_redacted,
+            },
             redacted,
             response_max_bytes,
         )

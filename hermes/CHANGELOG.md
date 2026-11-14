@@ -36,18 +36,22 @@ _Pendiente: la añade la sub-feature que lo implemente._
   a Home Assistant ni al Supervisor, con un código que dice por qué
   (`command_not_classified`, `command_denied`, `use_dedicated_tool`,
   `wrong_generic_tool`, `family_disabled`, `path_not_allowed`). Las de lectura
-  llevan `readOnlyHint`; las de escritura van siempre en dos pasos: la vista
-  previa enseña exactamente lo que se enviará (comando o ruta, categoría,
-  motivo y cada clave de la carga con su tipo y tamaño; el valor, solo si es
-  corto y no es sensible) y el token queda atado a la tool, al comando o a la
+  llevan `readOnlyHint`; la de Core se anuncia además de mundo abierto, porque
+  navegar o buscar en una fuente de medios remota consulta internet. Las de
+  escritura van siempre en dos pasos: la vista previa enseña lo que se
+  enviará (comando o ruta, categoría, motivo y cada clave de la carga con su
+  tipo y tamaño; un valor corto, entero; uno largo, sus 32 primeros
+  caracteres, su tamaño y un hash corto; uno sensible, tapado) y el token
+  queda atado a la tool, al comando o a la
   ruta y método, y a la carga entera. Junto al token solo se guarda
   `{"executed": true}`, nunca la respuesta. Las respuestas pasan por la
   redacción de secretos y por el tope de tamaño, y el log lleva un evento
-  `generic_command` por llamada, sin valores.
+  `generic_command` por llamada, sin valores. `logbook/get_action_calls` tapa
+  el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 117 y 29), `read` (36 y 26),
-  `confirm` (20 y 25) o `deny` (450 y 174, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 115 y 29), `read` (36 y 26),
+  `confirm` (20 y 25) o `deny` (452 y 174, con su motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -83,8 +87,152 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Banco de pruebas
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de
+  Core`, arranca Home Assistant Core 2026.11.1 en un contenedor (imagen fijada
+  por digest y sin salida a internet), completa el onboarding sin
+  intervención humana y conecta Hermes a ella por un Supervisor simulado, por
+  el mismo camino que en un add-on (`/core/api` y `/core/api/websocket` con el
+  token de add-on). Corre en cada push y cada pull request. Ejecuta los tests
+  de humo (arranque, lectura de estados y servicios, una llamada a servicio
+  con su efecto comprobado directamente en Core, los filtros del Supervisor y
+  que ninguna credencial del banco sale en el log, tampoco durante el
+  onboarding) y los de los helpers del punto siguiente. El job falla si algún
+  test del banco se salta, se deselecciona o queda como fallo esperado sin
+  ser un hallazgo documentado.
+- **Las tools que modifican helpers, ejecutadas de verdad.** En el mismo
+  job, las escrituras de `input_boolean`, `input_button`, `input_datetime`,
+  `input_number`, `input_select`, `input_text`, `counter`, `timer`, `schedule`,
+  `zone` y `person` se ejecutan contra esa HA: crear y editar en dos pasos (la
+  vista previa no toca nada y, al editar, lo que no se cambia se conserva),
+  cada acción sobre el valor, las recargas y los borrados. El efecto lo
+  comprueba un lector que habla directamente con Core, no Hermes. Un test de
+  la suite normal obliga a que cualquier tool nueva de esos dominios se pruebe
+  en el banco o diga por qué no se puede, y el job comprueba que cada una se
+  ha llamado con éxito en un test que ha pasado. 46 de las 47 funcionan.
+- **Hallazgo: `ha_reload_counters` falla contra HA real.** HA Core 2026.11.1
+  no tiene el servicio `counter.reload`; Core responde 400. No cuenta como
+  probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
+  033, y en el banco como fallo esperado que solo admite ese error. Esta
+  sección no cambia la tool.
+- **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
+  automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
+  configuración guardada leída de HA; activar, desactivar, disparar,
+  ejecutar, recargar y borrar), `ha_call_service` directo y en dos pasos con un
+  servicio de la denylist, `ha_call_service_response`, `ha_fire_event`,
+  `ha_cancel_wait` y las siete de dashboards y recursos Lovelace.
+  `ha_run_script` y `ha_trigger_automation` se prueban también por su camino
+  con token (script o automatización restringidos). Un test de la suite
+  normal obliga a que las tools que modifican (las 124 de la 1.1.2 y, desde
+  la integración con la 011, sus 2 genéricas de escritura) estén clasificadas, y el job
+  comprueba que cada una de las probadas se ha llamado con éxito en un test
+  que ha pasado.
+- **Y las 27 que quedaban: las 100 `ha_*` que modifican, en el banco.** Con
+  la integración de demostración `kitchen_sink` cargada en la HA del banco
+  (dispositivos, avisos de reparación y flujo de opciones sin hardware ni
+  internet): áreas, plantas, etiquetas y categorías (crear, editar en dos
+  pasos y borrar), editar y borrar dispositivos, renombrar una entidad y
+  quitarla del registro, ignorar y volver a mostrar un aviso de reparación,
+  el flujo de opciones, y el ciclo entero de una config entry de `uptime`
+  creada por las propias tools (abrir, abortar y completar el flujo,
+  recargar, deshabilitar, habilitar y borrar). De las 100, 99 funcionan
+  contra HA real; `ha_reload_counters` falla (hallazgo de arriba). Solo quedan
+  fuera del banco las 5 `fs_*` y las 19 `sv_*`, cada una con su motivo.
+- **Hallazgo: `ha_create_scene_from_current` con `name` falla siempre.** El
+  servicio `scene.create` de HA Core 2026.11.1 no admite `name` y Core
+  responde 400; la descripción de la tool dice que «HA decide». Tampoco es
+  cierto que una colisión de `scene_id` dé error: Core reemplaza la escena.
+  Sin `name` funciona. Pendiente de arreglo en la spec 033; en el banco, fallo
+  esperado que solo admite ese error.
+- **Hallazgo de seguridad: el token de `ha_run_script` y
+  `ha_trigger_automation` no cubre `variables`.** Con un script o una
+  automatización restringidos, se acepta una confirmación con variables
+  distintas de las de la vista previa, y la vista previa no las enseña.
+  Pendiente de arreglo en la spec 033 (prioridad máxima); en el banco, fallo
+  esperado que solo admite ese caso.
+- Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
+  y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
+  onboarding, reglas de salto, comprobaciones del workflow, inventario de
+  cobertura) se prueban en la suite normal. Sin cambios en el código del
+  add-on.
+- **Banco del Supervisor: procedimiento y matriz de pruebas.** Las 25 tools
+  del Supervisor y de ficheros que modifican (24 y `sv_call_api`) no se pueden ejecutar en el banco
+  de Core. `docs/BANCO-SUPERVISOR.md` documenta cómo probarlas en una máquina
+  virtual con Home Assistant OS (Core 2026.11.1 fijado y la versión real
+  del Supervisor anotada, porque no se puede fijar; instantánea antes de cada prueba destructiva, Hermes como add-on
+  local) y la prueba de `hassio_role: manager`; nadie la ha ejecutado todavía
+  y queda como prueba manual. La hoja de ruta tiene una matriz con una fila
+  por cada tool que modifica (dónde se prueba contra el software real y con
+  qué resultado), que un test compara con las tools registradas y con los
+  inventarios del banco, y las pruebas manuales pendientes dicen dónde se
+  hace cada una.
+- **El comentario de `hassio_role` dice la verdad.** Decía que con `manager`
+  el Supervisor devolvía 403 en `/addons/self/options/config` y que Hermes la
+  necesitaba para `bashio::config`; en el Supervisor 2026.11.0 esa ruta pasa
+  con cualquier rol y Hermes no usa `bashio::config`. El rol sigue en `admin`
+  hasta probar `manager` en vivo. Un test nuevo comprueba que todas las rutas
+  del Supervisor que usa Hermes caben en `manager` según el código del
+  Supervisor 2026.11.0.
 
+### Correcciones
+
+- **La redacción de secretos era cuadrática** (FR-001). Tres de las expresiones
+  de `redact_secrets` recorrían el texto desde cada posición de una misma
+  racha: 30 KB de ciertas formas (`eyJ` repetido, `a://b:c` repetido sin `@`,
+  `"` seguido de `password` repetido) tardaban medio segundo, en el bucle de
+  eventos, al leer un log con `sv_get_addon_logs`. Ahora son lineales (1 MiB,
+  decenas de milisegundos) y redactan exactamente lo mismo que en la 1.1.2,
+  comprobado con un test diferencial.
+- **El log ya no lleva los hosts de las URLs de Home Assistant** (FR-002). Al
+  conectar (y en cada reconexión), Hermes lee `external_url` e `internal_url`
+  de `/api/config` y la redacción de red sustituye sus hosts por
+  `<ha_external_host>` y `<ha_internal_host>`. No se tapan los literales IP
+  (ya se seudonimizan), ni `localhost`, `homeassistant` y
+  `homeassistant.local`. Si no se pueden leer, la conexión sigue y el log lo
+  avisa con `ha_url_redaction_unavailable`, sin la URL.
+- **La clasificación automática no escribe `entity_id` al log** (FR-003).
+  `auto_classify_restricted` lleva `count` y `new_count`, y
+  `auto_classify_on_save` lleva `restricted` y `count`: los id de
+  automatizaciones y scripts salen de sus alias, que nombran la casa.
+- **Los nombres `ip-a-b-c-d` se redactan** (FR-004). `ip-10-0-0-5.ec2.internal`
+  sale como `<ip:private:…>.ec2.internal`, con el mismo seudónimo que
+  `10.0.0.5`.
+- **Las vistas previas con documento ya no releen todos los tokens** (FR-009).
+  El barrido de tokens caducados se hace como mucho una vez por segundo y,
+  entre medias, el total de lo guardado sale de memoria. El tope de 16 MiB no
+  cambia: el total solo puede sobrestimarse hasta el siguiente barrido, así
+  que, como mucho, un documento no se guarda y hay que reenviarlo entero.
+- **`sv_get_addon_logs` dice qué redactó** (FR-005). `redacted` solo decía si
+  el texto cambió, y el log de Hermes, que ya se escribe con la red tapada,
+  salía con `redacted: false`. Ahora la respuesta y el evento llevan además
+  `secrets_redacted` (se sustituyó algún secreto) y `network_redacted` (se
+  aplicó la redacción de red: el log de Hermes con `log_redact_network`
+  activa, cambie o no el texto).
+- **Un historial recortado dice cuánto falta** (FR-006). Con `truncated`,
+  `ha_get_history` añade `_response_limit` con `list: "history"`, los estados
+  devueltos, los que dio HA, el tope y una pista; la respuesta entera, con el
+  bloque, cabe en `response_max_bytes`.
+- **`ha_marketplace_list_removed` con filtros y resumen** (FR-007). En HA
+  2026.11 la lista tiene unas 500 entradas (~97 KB). Dos argumentos
+  opcionales: `installed_only` (solo los retirados que están instalados) y
+  `limit` (1–500). La respuesta añade `by_removal_type` (los 20 tipos más
+  frecuentes) y `by_removal_type_other`, y `removal_type` pasa a tratarse como
+  texto de terceros (recortado a 300 caracteres). Sin argumentos, la lista es
+  la de la 1.1.2.
+- **Eventos `*_ok` del Marketplace y de `sv_get_resolution`** (FR-008). Cada
+  tool `ha_marketplace_*` y `sv_get_resolution` deja en el log, cuando termina
+  bien, qué API respondió y cuántas entradas devolvió; nunca nombres de
+  repositorio ni textos de terceros.
+- **`sv_update_addon` ya no promete actualizar al propio Hermes** (FR-010). El
+  Supervisor responde 403 a un add-on que se actualiza a sí mismo; la 1.1.2
+  daba vista previa y token y la confirmación fallaba. Ahora responde
+  `self_update_not_supported` sin token y sin llamar al Supervisor: Hermes se
+  actualiza desde la interfaz de Home Assistant.
+- **Apagado sin traza** (FR-011, problema 23). Al reiniciar el add-on con una
+  petición en vuelo, uvicorn cancelaba la petición y registraba
+  `Exception in ASGI application` con la traza de un `CancelledError`. Ahora
+  sale una línea `request_cancelled_on_shutdown`; cualquier otra excepción
+  conserva su traza. Un `CancelledError` que llegue a `main()` se registra
+  como `interrupted`, y la espera del servidor recoge su cancelación.
 
 ## [1.1.2] — 2026-11-14
 

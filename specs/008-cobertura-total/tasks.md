@@ -33,7 +33,7 @@ diagnóstico, US5 qué está probado, US6 deriva, US7 familias.
 
 ## Fase 2: Fundacional — ola 0 (bloquea el resto)
 
-- [ ] T002 [P] [US3] Sub-feature 009 `correcciones-pendientes` en `specs/009-correcciones-pendientes/`: CAP-010…CAP-018, CAP-021, CAP-024 (FR-025…FR-035) y versión 1.2.0 en `hermes/config.yaml`, `hermes/src/hermes/__init__.py` y `HA_CORE_LAST_TESTED_IN_HERMES` de `hermes/src/hermes/config.py`, con la entrada `## [1.2.0] — <fecha de publicación>` y sus secciones por bloque en `hermes/CHANGELOG.md` (FR-022). M, 2 tramos: (a) redacción y log (`security.py`, `logging_setup.py`); (b) tools y apagado
+- [X] T002 [P] [US3] Sub-feature 009 `correcciones-pendientes` en `specs/009-correcciones-pendientes/`: CAP-010…CAP-018, CAP-021, CAP-024 (FR-025…FR-035) y versión 1.2.0 en `hermes/config.yaml`, `hermes/src/hermes/__init__.py` y `HA_CORE_LAST_TESTED_IN_HERMES` de `hermes/src/hermes/config.py`, con la entrada `## [1.2.0] — <fecha de publicación>` y sus secciones por bloque en `hermes/CHANGELOG.md` (FR-022). M, 2 tramos: (a) redacción y log (`security.py`, `logging_setup.py`); (b) tools y apagado
 - [ ] T003 [P] [US5] Sub-feature 010 `banco-de-pruebas-core` en `specs/010-banco-de-pruebas-core/`: job del CI en `.github/workflows/tests.yml` (o uno nuevo) con HA Core 2026.11.1 por digest, onboarding con credenciales del job, Supervisor simulado en `tests/`, y las escrituras de helpers ejecutadas y comprobadas en el banco (CAP-005, CAP-034 parte; FR-013, FR-014). M, 2 tramos: (a) infraestructura y humo; (b) helpers
 
 ## Fase 3: Ola 1 — política de comandos y resto del banco
