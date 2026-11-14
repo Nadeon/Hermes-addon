@@ -348,3 +348,95 @@ class TestEntradaDelChangelog(unittest.TestCase):
             list(SECCIONES_1_2_0),
             "faltan secciones o no están en el orden del programa",
         )
+
+
+RUN_SH = Path(__file__).resolve().parent.parent / "hermes" / "run.sh"
+
+
+class TestComentarioDelRol(unittest.TestCase):
+    """El comentario de `hassio_role` dice la verdad (spec 014, FR-007, SC-005).
+
+    Hasta la 1.2.0 decía que `manager` y `default` devolvían 403 en
+    `/addons/self/options/config` y que esa ruta hacía falta para
+    `bashio::config`. Ninguna de las dos cosas es cierta con el Supervisor
+    2026.11.0: la ruta está en `api_bypass` (pasa con cualquier rol, en
+    `supervisor/api/middleware/security.py`) y Hermes no usa `bashio::config`
+    (`run.sh` lee `/data/options.json`). Un comentario de permisos que miente
+    es peor que ninguno: justifica un rol que nadie se atreve a revisar
+    (principio V). El rol NO cambia (D-02 de la 008): bajarlo exige probar
+    `manager` en vivo, y esa prueba está en la hoja de ruta.
+
+    Control negativo (014, T005): con el comentario viejo caen
+    `test_no_afirma_lo_que_no_es_cierto` y `test_dice_lo_que_si_es_cierto`;
+    con `hassio_role: manager` cae `test_el_rol_sigue_en_admin`.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.texto = CONFIG.read_text(encoding="utf-8")
+        cls.manifiesto = yaml.safe_load(cls.texto)
+        cls.bloque = cls._bloque_del_rol(cls.texto)
+
+    @staticmethod
+    def _bloque_del_rol(texto: str) -> str:
+        # De la línea de `hassio_role` hasta la siguiente clave de primer
+        # nivel: el comentario sigue a la clave en líneas sangradas.
+        lineas = texto.splitlines()
+        inicio = next(
+            (i for i, l in enumerate(lineas) if l.startswith("hassio_role:")), None
+        )
+        assert inicio is not None, "no hay `hassio_role:` en el manifiesto"
+        bloque = [lineas[inicio]]
+        for linea in lineas[inicio + 1 :]:
+            if re.match(r"^[A-Za-z_]", linea):
+                break
+            bloque.append(linea)
+        return "\n".join(bloque)
+
+    def test_el_rol_sigue_en_admin(self) -> None:
+        self.assertEqual(
+            self.manifiesto.get("hassio_role"),
+            "admin",
+            "la 014 no cambia el rol: bajar a manager es la duda D-02 y exige "
+            "probarlo en vivo (docs/BANCO-SUPERVISOR.md)",
+        )
+
+    def test_no_afirma_lo_que_no_es_cierto(self) -> None:
+        self.assertNotIn(
+            "403",
+            self.bloque,
+            "el 403 con manager no ocurre en el Supervisor 2026.11.0 (api_bypass)",
+        )
+        self.assertNotIn(
+            "necesario para bashio::config",
+            self.bloque,
+            "Hermes no usa bashio::config: run.sh lee /data/options.json",
+        )
+
+    def test_dice_lo_que_si_es_cierto(self) -> None:
+        for clave in (
+            "api_bypass",
+            "2026.11.0",
+            "/addons/self/options/config",
+            "manager",
+        ):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, self.bloque)
+        self.assertTrue(
+            "docs/HOJA-DE-RUTA.md" in self.bloque
+            or "docs/BANCO-SUPERVISOR.md" in self.bloque,
+            "el comentario tiene que remitir a la prueba pendiente",
+        )
+
+    def test_run_sh_no_usa_bashio_config(self) -> None:
+        # Es el hecho en que se apoya el comentario: si alguien vuelve a
+        # usar bashio::config en run.sh, el comentario tiene que revisarse.
+        codigo = [
+            linea
+            for linea in RUN_SH.read_text(encoding="utf-8").splitlines()
+            if not linea.lstrip().startswith("#")
+        ]
+        self.assertFalse(
+            any("bashio::config" in linea for linea in codigo),
+            "run.sh ejecuta bashio::config: revisa el comentario de hassio_role",
+        )
