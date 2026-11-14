@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 185 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 186 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -9,6 +9,10 @@ gestionar add-ons y backups.
 Hermes **no habla TLS** y no se publica solo en internet. Necesitas algo delante
 que termine el TLS y le haga proxy: Tailscale Funnel, Cloudflare Tunnel o un
 proxy inverso clásico. La opción `network_mode` le dice con cuál cuenta.
+
+Hace falta Home Assistant **2024.10.0** o posterior: Hermes guarda las
+automatizaciones con las claves en plural (`triggers`, `actions`), que las
+versiones anteriores no entienden.
 
 Necesitas además un plan de pago de Claude: los Custom Connectors, que es como
 se conecta Hermes, no están en el plan gratuito.
@@ -23,7 +27,7 @@ Dos opciones son obligatorias y sin ellas el add-on no arranca:
 | Opción | Qué es |
 |---|---|
 | `auth_password` | La contraseña con la que autorizarás a Claude. Mínimo 12 caracteres, y se rechaza si es adivinable —repetitiva, una tirada del abecedario, de los dígitos o del teclado, de las más usadas, o con «hermes», «homeassistant» o tu hostname dentro—. Genérala con `openssl rand -base64 18` o con tu gestor de contraseñas. Es el único secreto que protege tu casa: no reutilices ninguna |
-| `public_hostname` | El hostname público por el que se llega a Hermes, **sin** `https://` y **sin** path final |
+| `public_hostname` | El hostname público por el que se llega a Hermes, **sin** `https://` y **sin** path final. Si no se sirve en el 443, con el puerto: con Tailscale Funnel se recomienda el 8443 (`homeassistant.tailXXXX.ts.net:8443`), para no chocar con `share_homeassistant: funnel`, que publica Home Assistant en el 443 |
 
 Y una que conviene revisar:
 
@@ -38,7 +42,8 @@ documentadas en el README.
 
 1. Arranca el add-on y comprueba en el log que aparece `hermes_started`.
 2. En Claude: **Configuración → Conectores → Añadir conector personalizado**.
-3. Pega `https://<tu_public_hostname>/mcp`.
+3. Pega `https://<tu_public_hostname>/mcp`, con el puerto si lo lleva (ej.
+   `https://homeassistant.tailXXXX.ts.net:8443/mcp`).
 4. Claude abre una página de autorización. Introduce tu `auth_password`.
 
 La pantalla de autorización te dice **qué cliente** pide acceso y **a dónde**
@@ -50,6 +55,17 @@ de autorización propio.
 Las acciones destructivas no se ejecutan a la primera. Devuelven una vista
 previa de lo que van a hacer y un token; solo se ejecutan cuando Claude vuelve a
 llamarlas con ese token. Verás a Claude enseñarte el cambio antes de aplicarlo.
+
+Si activas `safety_backup_enabled`, cada escritura en `/config` espera a que
+termine un backup completo de HAOS (como mucho uno cada
+`safety_backup_window_minutes`). Si el backup falla, la escritura no se hace y
+el error dice `safety_backup_job_failed` con el motivo que da el Supervisor.
+Si Hermes no puede saber cómo acabó —el Supervisor no responde o ya no conoce
+el job—, tampoco se escribe: `safety_backup_state_unknown`. Si el backup
+tarda más de 5 minutos, la escritura se rechaza con `safety_backup_timeout` y
+el `job_id`, que puedes seguir con `sv_get_job_status`. La escritura siguiente
+comprueba ese mismo backup en vez de lanzar otro: si aún no ha terminado, se
+rechaza con `safety_backup_in_progress`.
 
 ## Problemas
 

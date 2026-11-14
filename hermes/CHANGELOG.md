@@ -1,5 +1,203 @@
 # Changelog
 
+## [1.0.12] — 2026-11-14
+
+Solo arreglos, tras revisar Hermes contra Home Assistant 2026.11. Varios
+venían de cambios de HA (2026.2, 2026.4, 2026.9, 2026.11) que Hermes no había
+seguido; otros eran fallos propios. La lista completa, con su severidad, está
+en `docs/HOJA-DE-RUTA.md`.
+
+### Fixed — Editar los alias de una entidad le quitaba el nombre por voz
+
+Desde HA 2026.4, un `null` dentro de `aliases` significa «el nombre calculado
+de la entidad». `ha_update_entity_registry` lo convertía en el texto `"None"`,
+así que leer los alias, añadir uno y guardarlos dejaba la entidad sin
+responder a su nombre en Assist, sin ningún error. Ahora el `null` llega a HA
+tal cual.
+
+`aliases: null`, que la descripción presentaba como «limpiar alias», lo
+rechazaba HA. Ahora lo rechaza Hermes antes de llamar a HA y explica qué usar:
+`[]` para vaciar, `[null]` para dejar solo el nombre calculado. La
+descripción avisa también de que, desde HA 2026.11, `name` es solo la parte de
+la entidad: HA le antepone el nombre del dispositivo.
+
+### Fixed — `ha_remove_device_from_config_entry` borraba el dispositivo entero
+
+Desde HA 2026.9, el comando que usa es un alias del borrado de dispositivos:
+si la integración es la del dispositivo, lo borra del registro con todas sus
+entidades. La tool anunciaba que solo quitaba la asociación, y su vista
+previa también. La vista previa es la única revisión antes de confirmar, y
+mentía. Ver *Added* y *Deprecated*.
+
+### Fixed — El dashboard principal se podía borrar
+
+En las instalaciones migradas en HA 2026.2, el dashboard principal es uno
+normal con `url_path: "lovelace"`, y `ha_delete_lovelace_dashboard` lo borraba
+con un token, aunque su descripción decía que no se podía. Sus vistas solo
+vuelven desde un backup.
+
+Ahora la tool se niega siempre, antes de emitir token, con `lovelace`, con el
+dashboard que HA abre por defecto y sin `url_path`
+(`cannot_delete_default_dashboard`). Si no puede saber cuál es el de por
+defecto, también se niega (`default_panel_unknown`). Quien quiera borrarlo de
+verdad tiene la interfaz de HA. `ha_list_lovelace_dashboards` ya no lo enseña
+dos veces.
+
+### Fixed — Con `safety_backup_enabled` activada no se escribía ningún fichero
+
+Solo afectaba a quien activó esa opción, que viene desactivada. Hermes
+sondeaba un endpoint del Supervisor que no existe, así que el backup completo
+nunca se daba por terminado: cada escritura `fs_*` esperaba 5 minutos, fallaba
+y dejaba otro backup completo de varios GB en disco.
+
+Ahora consulta el job del backup y solo escribe si terminó sin errores. Es
+fail-closed:
+
+- Si el backup falla, no se escribe: `safety_backup_job_failed`, con los
+  errores del Supervisor.
+- Si Hermes no puede saber cómo acabó —el Supervisor no responde o ya no
+  conoce el job—, tampoco: `safety_backup_state_unknown`.
+- Si tarda más de 5 minutos, la escritura se rechaza
+  (`safety_backup_timeout`), pero el backup queda anotado. La escritura
+  siguiente comprueba ese mismo backup en vez de lanzar otro: escribe si ya
+  terminó bien y, si sigue en marcha, responde `safety_backup_in_progress`.
+- Entre dos intentos pasan al menos 60 s, también después de uno fallido, para
+  que un fallo no encadene backups completos.
+
+### Fixed — `sv_get_job_status` daba por terminado un job que había fallado
+
+El Supervisor marca `done: true` también cuando el job falla, y Hermes no
+miraba sus errores. Ahora la respuesta trae `errors` y `success`, y
+`sv_list_pending_jobs` marca esos jobs como `failed`.
+
+### Fixed — No se podía guardar un script con `trace`
+
+`ha_create_or_update_script` esperaba `trace` como lista, pero en HA es un
+objeto (`stored_traces`…). Cualquier script con trazas configuradas se
+rechazaba.
+
+### Fixed — Errores genéricos donde debía decir `not_found`
+
+Borrar un helper que no existe, o pedir la entrada del registro de una entidad
+que no existe, devolvía el texto crudo de HA. Hermes buscaba en el mensaje
+una frase que el de HA no siempre contiene. Ahora decide por el
+código de error de HA (`not_found`), que no cambia entre versiones, y responde
+`{"error": "not_found", …}`.
+
+### Fixed — `ha_render_template` perdía el resultado si la plantilla daba un aviso
+
+Con un simple aviso de HA (una variable sin definir, por ejemplo), la tool
+devolvía error y el resultado se perdía. Ahora devuelve el resultado con los
+avisos en `warnings`. Si HA informa de que la plantilla tardó demasiado, el
+error es `template_timeout`.
+
+### Fixed — Los dispositivos hijo no salían al filtrar por área
+
+Desde HA 2026.9 un dispositivo puede colgar de otro y, si no tiene área
+propia, está en la de su padre. `ha_list_devices`, `ha_list_entities_registry`
+y la vista previa de `ha_delete_area` usan ahora esa área efectiva. Las vistas
+previas de deshabilitar o borrar una integración cuentan sus dispositivos por
+`config_entry_id`, con `config_entries` solo como respaldo, así que siguen
+bien cuando HA retire ese campo (2027.8). Los hijos no tienen fabricante y
+quedan fuera del filtro `manufacturer`; la descripción lo dice.
+
+### Fixed — Campos siempre a `null` en la información del sistema
+
+`sv_get_supervisor_info` y `sv_get_host_info` devolvían `null` en la máquina,
+la versión de Docker y el kernel porque los leían de donde el Supervisor no
+los pone. Ahora salen de `/info` y del campo `kernel` del host.
+
+### Fixed — Las tools de HACS fallaban con «Unknown command» en HA 2026.11
+
+Desde HA 2026.11, HACS viene integrado como el Marketplace y los comandos
+`hacs/*` ya no existen. Las tools `ha_hacs_*` todavía no lo soportan (es
+trabajo de la 1.1.0), pero ahora lo dicen claro: `hacs_moved_to_marketplace`
+con la forma de ver las actualizaciones pendientes, o `hacs_not_installed` en
+versiones anteriores. Antes sugerían actualizar Hermes, que no lo arreglaba.
+También usan las categorías reales de HACS y cuentan como pendientes las
+actualizaciones que HACS marca con `pending_upgrade`.
+
+### Fixed — `period: "year"` en estadísticas con HA antiguo
+
+`ha_statistics_during_period` lo aceptaba sin mirar la versión, y HA lo
+rechaza antes de la 2026.3. Ahora Hermes da un error claro en esas versiones.
+
+### Fixed — Descripciones de tools que no coincidían con la respuesta real
+
+`ha_list_statistic_ids`, `sv_get_host_info`, `sv_get_addon_stats` y
+`sv_list_backups` describían campos que no devuelven o una ubicación de los
+backups que no es la real. Ahora describen lo que hay.
+
+### Fixed — La guía enseñaba sintaxis antigua de automatizaciones
+
+El ejemplo de `hermes_guide("automations")` usaba `platform:` y `service:`.
+Ahora usa `triggers`/`trigger:` y `actions`/`action:`, como el editor de HA.
+La guía de registros presenta `ha_remove_device` y la de servicios recomienda
+filtrar `ha_list_services` por dominio.
+
+### Added — `ha_remove_device`
+
+Borra un dispositivo del registro junto con sus entidades, y la vista previa
+dice qué comando de HA va a usar:
+
+- HA 2026.9 o posterior: el borrado de dispositivos.
+- Versiones anteriores: quitar la única integración del dispositivo, que HA
+  convierte en borrado. Si tiene varias, se niega (`multiple_config_entries`)
+  sin tocar nada.
+- Si no puede leer la versión de HA, se niega (`ha_version_unknown`). Si entre
+  la vista previa y la confirmación HA se actualiza y el comando que toca usar
+  cambia, aborta (`ha_version_changed`) en vez de ejecutar algo distinto de lo
+  revisado.
+
+### Added — Filtro `domain` en `ha_list_services`
+
+Sin filtro, la lista de servicios de una casa grande podía superar el límite
+de respuesta del cliente. `ha_list_services(domain="light")` devuelve solo los
+de ese dominio.
+
+### Changed — Home Assistant 2024.10 como versión mínima
+
+Hermes guarda las automatizaciones con las claves en plural (`triggers`,
+`conditions`, `actions`), que HA solo entiende desde la 2024.10. La 1.0.11
+declaraba la 2024.1, así que una HA 2024.1–2024.9 arrancaba sin aviso y luego
+no podía guardar ninguna automatización. Ahora, con una HA anterior a la
+2024.10, el add-on no arranca y el log dice
+`HA core … < minimum supported 2024.10.0`: actualiza Home Assistant antes de
+actualizar Hermes.
+
+### Changed — Tailscale Funnel en el 8443 en lugar del 443
+
+Los README recomiendan publicar Hermes con
+`tailscale funnel --bg --https=8443 8765` (o 10000) y
+`public_hostname: homeassistant.tailXXXX.ts.net:8443`. La opción
+`share_homeassistant: funnel` del add-on de Tailscale publica Home Assistant en
+el 443 por defecto y, en el mismo puerto, uno de los dos deja de responder. El
+443 sigue valiendo si no se usa esa opción. Los README explican cómo pasar del
+443 al 8443: quitar el Funnel viejo, crear el nuevo, cambiar
+`public_hostname` y volver a añadir el conector en Claude.
+
+No hace falta cambiar nada si tu instalación ya funciona.
+
+### Changed — Publicación de la imagen con las actions nuevas de Home Assistant
+
+La action `home-assistant/builder` que compilaba la imagen está retirada; sin
+cambiarla, la próxima versión se habría anunciado en la tienda sin imagen que
+instalar. La imagen se compila ahora con la action `build-image` de Home
+Assistant, cada arquitectura en su propia máquina y firmada. `build.yaml`
+desaparece: el Dockerfile trae su imagen base.
+
+El add-on declara `timeout: 20`: al pararlo, Docker espera 20 s antes de
+matarlo, en vez de 10, para que el apagado ordenado termine.
+
+### Deprecated — `ha_remove_device_from_config_entry`
+
+Usa `ha_remove_device`. La antigua sigue funcionando para no romper a quien la
+use, pero su descripción y su vista previa dicen ahora la verdad: en HA 2026.9
+o posterior borra el dispositivo entero, no solo la asociación. HA retira el
+comando que usa en la 2027.9, así que la tool desaparecerá en una versión de
+Hermes anterior a esa.
+
+
 ## [1.0.11] — 2026-11-14
 
 ### Fixed — Cambiar `auth_password` no cerraba ninguna sesión

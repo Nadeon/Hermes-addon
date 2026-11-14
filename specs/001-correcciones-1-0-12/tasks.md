@@ -46,8 +46,8 @@ Notas de reparto:
 
 **Objetivo**: entorno de pruebas y línea base.
 
-- [ ] T001 Crear el entorno `.venv` con `hermes/requirements.txt` y `pytest pytest-asyncio aioresponses httpx` según `CONTRIBUTING.es.md:71-73`, y ejecutar `.venv/bin/pytest`; anotar el número de tests que pasan como línea base en el informe del supervisor
-- [ ] T002 Comprobar que el árbol de trabajo está limpio y en la rama indicada por el mantenedor; cada lote crea su worktree desde el commit con la fase 0 fusionada
+- [X] T001 Crear el entorno `.venv` con `hermes/requirements.txt` y `pytest pytest-asyncio aioresponses httpx` según `CONTRIBUTING.es.md:71-73`, y ejecutar `.venv/bin/pytest`; anotar el número de tests que pasan como línea base en el informe del supervisor — entorno ya creado fuera del repo; línea base de la integración: 1319 tests
+- [X] T002 Comprobar que el árbol de trabajo está limpio y en la rama indicada por el mantenedor; cada lote crea su worktree desde el commit con la fase 0 fusionada
 
 ---
 
@@ -244,18 +244,23 @@ Notas de reparto:
 
 **Prueba independiente**: `.venv/bin/pytest tests/test_addon_manifest.py tests/test_tools_guide.py` y la suite completa.
 
-- [ ] T078 Fusionar los lotes A, B, C y D en la rama de trabajo (sin conflictos esperados: no comparten ficheros) y ejecutar la suite completa
-- [ ] T079 [P] [US5] Test de regresión en `tests/test_addon_manifest.py`: `HA_CORE_MIN_SUPPORTED == "2024.10.0"` (FR-041, R4)
-- [ ] T080 [P] [US8] Test de regresión en `tests/test_tools_guide.py`: la guía de automatizaciones no contiene `"platform":` ni `"service":` y la de registros menciona `ha_remove_device` (FR-042, C4)
-- [ ] T081 [US5] `HA_CORE_MIN_SUPPORTED = "2024.10.0"` en `hermes/src/hermes/config.py:27`, con el comentario del porqué (plurales de automatizaciones desde HA 2024.10) (FR-041)
-- [ ] T082 [US8] Guía en `hermes/src/hermes/tools/guide.py`: ejemplo `:145-146` con `triggers`/`trigger:` y `actions`/`action:`; `:212-214` con `ha_remove_device` y la antigua marcada como deprecada; `:23` con el número aproximado de tools actualizado (FR-042)
-- [ ] T083 Control negativo de integración: deshacer T081 y T082 y comprobar que caen T079 y T080; anotar
-- [ ] T084 [US8] Versión 1.0.12 en `hermes/config.yaml:7`, `hermes/src/hermes/__init__.py:6` y `HA_CORE_LAST_TESTED_IN_HERMES` en `hermes/src/hermes/config.py:41`; `HA_CORE_LAST_TESTED` se queda en `2026.11.1` (FR-044, spec S-11)
-- [ ] T085 [US8] Entrada `## [1.0.12] — 2026-11-14` al principio de `hermes/CHANGELOG.md`, con una sección `### Fixed` por arreglo (qué fallaba, por qué y desde qué versión de HA), `### Added` para `ha_remove_device` y `### Deprecated` para `ha_remove_device_from_config_entry` (FR-044)
-- [ ] T086 [P] [US8] `README.md` y `README.es.md`, sincronizados: versión mínima 2024.10.0 (`README.md:63, 278`; `README.es.md:65, 283`); opción de Tailscale Funnel (`README.md:87-150`; `README.es.md:89-152`) recomendando `tailscale funnel --bg --https=8443 8765` (o 10000), `public_hostname: homeassistant.tailXXXX.ts.net:8443`, URL del conector `https://homeassistant.tailXXXX.ts.net:8443/mcp`, cómo pasar de 443 a 8443 (quitar el Funnel viejo, crear el nuevo, cambiar `public_hostname`, volver a añadir el conector) y que 443 sigue valiendo si no se usa `share_homeassistant: funnel`; solo marcadores genéricos (FR-041, FR-043)
-- [ ] T087 [P] [US8] Revisar `hermes/DOCS.md`: actualizar solo si menciona la versión mínima, el puerto del Funnel o la URL del conector (FR-043)
-- [ ] T088 [P] [US8] `docs/HOJA-DE-RUTA.md`: revisión sobre 1.0.12; marcar como corregidos los problemas 1–5, 7–20 y 22 de la tabla `:30-61`, el 6 como mitigado (mensaje claro; la migración al Marketplace es de 1.1.0) y dejar 21 y 23 pendientes; sustituir la recomendación provisional `:62-66`; corregir el párrafo de Tailscale `:89-93` (Funnel de Hermes en 8443/10000); mover el plan de 1.0.12 a «hecho» (FR-045)
-- [ ] T089 Ejecutar la suite completa (SC-008); comprobar a mano que README.md y README.es.md dicen lo mismo; grep de privacidad e identificadores de modelos de IA sobre todo el diff de la versión (SC-009); commit de integración
+- [X] T078 Fusionar los lotes A, B, C y D en la rama de trabajo (sin conflictos esperados: no comparten ficheros) y ejecutar la suite completa — ya fusionados en la rama (commits de fase 0 y lotes A–D); suite 1319 antes de la integración
+- [X] T079 [P] [US5] Test de regresión en `tests/test_addon_manifest.py`: `HA_CORE_MIN_SUPPORTED == "2024.10.0"` (FR-041, R4)
+- [X] T080 [P] [US8] Test de regresión en `tests/test_tools_guide.py`: la guía de automatizaciones no contiene `"platform":` ni `"service":` y la de registros menciona `ha_remove_device` (FR-042, C4) (más: la guía de servicios recomienda `ha_list_services(domain=...)`)
+- [X] T081 [US5] `HA_CORE_MIN_SUPPORTED = "2024.10.0"` en `hermes/src/hermes/config.py:27`, con el comentario del porqué (plurales de automatizaciones desde HA 2024.10) (FR-041)
+- [X] T082 [US8] Guía en `hermes/src/hermes/tools/guide.py`: ejemplo `:145-146` con `triggers`/`trigger:` y `actions`/`action:`; `:212-214` con `ha_remove_device` y la antigua marcada como deprecada; `:23` con el número aproximado de tools actualizado (FR-042) — el recuento real en producción es 186 (187 con `HERMES_DEV=1`): «~186» ya era correcto y se mantiene
+- [X] T083 Control negativo de integración: deshacer T081 y T082 y comprobar que caen T079 y T080; anotar — caen 7 tests: R4 1, guía 3, `status` del Supervisor 2 y la pareja de versión 1
+- [X] T084 [US8] Versión 1.0.12 en `hermes/config.yaml:7`, `hermes/src/hermes/__init__.py:6` y `HA_CORE_LAST_TESTED_IN_HERMES` en `hermes/src/hermes/config.py:41`; `HA_CORE_LAST_TESTED` se queda en `2026.11.1` (FR-044, spec S-11)
+- [X] T085 [US8] Entrada `## [1.0.12] — 2026-11-14` al principio de `hermes/CHANGELOG.md`, con una sección `### Fixed` por arreglo (qué fallaba, por qué y desde qué versión de HA), `### Added` para `ha_remove_device` y `### Deprecated` para `ha_remove_device_from_config_entry` (FR-044) (más *Added* del filtro `domain`, *Changed* de versión mínima, Funnel y publicación de la imagen de la spec 002)
+- [X] T086 [P] [US8] `README.md` y `README.es.md`, sincronizados: versión mínima 2024.10.0 (`README.md:63, 278`; `README.es.md:65, 283`); opción de Tailscale Funnel (`README.md:87-150`; `README.es.md:89-152`) recomendando `tailscale funnel --bg --https=8443 8765` (o 10000), `public_hostname: homeassistant.tailXXXX.ts.net:8443`, URL del conector `https://homeassistant.tailXXXX.ts.net:8443/mcp`, cómo pasar de 443 a 8443 (quitar el Funnel viejo, crear el nuevo, cambiar `public_hostname`, volver a añadir el conector) y que 443 sigue valiendo si no se usa `share_homeassistant: funnel`; solo marcadores genéricos (FR-041, FR-043)
+- [X] T087 [P] [US8] Revisar `hermes/DOCS.md`: actualizar solo si menciona la versión mínima, el puerto del Funnel o la URL del conector (FR-043) — sí lo hacía (requisitos, `public_hostname`, URL); también el safety backup fail-closed
+- [X] T088 [P] [US8] `docs/HOJA-DE-RUTA.md`: revisión sobre 1.0.12; marcar como corregidos los problemas 1–5, 7–20 y 22 de la tabla `:30-61`, el 6 como mitigado (mensaje claro; la migración al Marketplace es de 1.1.0) y dejar 21 y 23 pendientes; sustituir la recomendación provisional `:62-66`; corregir el párrafo de Tailscale `:89-93` (Funnel de Hermes en 8443/10000); mover el plan de 1.0.12 a «hecho» (FR-045)
+- [X] T089 Ejecutar la suite completa (SC-008); comprobar a mano que README.md y README.es.md dicen lo mismo; grep de privacidad e identificadores de modelos de IA sobre todo el diff de la versión (SC-009); commit de integración — 1327 tests pasan
+
+Añadido en la integración (pendiente que dejó el lote A): `_parse_sv_response`
+y `sv_request_text` pasan `status=resp.status` al `HAConnectionError`, y
+`_es_404` de `fs_write.py` decide solo por `status`. Test en
+`tests/test_ha_sv_status.py`; sin el cambio caen 2.
 
 **Punto de control**: US5 y US8 completas; versión 1.0.12 lista para revisión del mantenedor.
 
@@ -263,8 +268,8 @@ Notas de reparto:
 
 ## Fase 8: Cierre transversal
 
-- [ ] T090 Recorrer quickstart.md completo y la tabla de trazabilidad de abajo; cada FR-001…FR-047 tiene su tarea y su test con control negativo anotado (SC-006)
-- [ ] T091 Redactar la descripción del PR para el mantenedor: arreglos, recuentos de control negativo por lote, supuestos de la spec (S-01…S-14) y lo que queda fuera (C7, C9, §2.5, Marketplace, CI). Sin push ni fusión: lo decide el mantenedor (principio XI)
+- [X] T090 Recorrer quickstart.md completo y la tabla de trazabilidad de abajo; cada FR-001…FR-047 tiene su tarea y su test con control negativo anotado (SC-006) — T003–T089 marcadas; cada FR tiene test o es documentación (FR-043, FR-045)
+- [ ] T091 (pendiente: se redacta al abrir la PR, que decide el mantenedor) Redactar la descripción del PR para el mantenedor: arreglos, recuentos de control negativo por lote, supuestos de la spec (S-01…S-14) y lo que queda fuera (C7, C9, §2.5, Marketplace, CI). Sin push ni fusión: lo decide el mantenedor (principio XI)
 
 ---
 

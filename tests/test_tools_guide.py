@@ -53,6 +53,34 @@ class TestHermesGuide(unittest.IsolatedAsyncioTestCase):
         self.assertIn("services", out)
 
 
+class TestGuiaAlDia(unittest.TestCase):
+    """Regresión FR-042 (C4): la guía es lo que el modelo copia al pie de la
+    letra, así que tiene que enseñar lo que HA espera hoy."""
+
+    def test_automatizaciones_sin_sintaxis_heredada(self) -> None:
+        # `platform:` dentro de un trigger y `service:` en una acción son la
+        # sintaxis anterior a HA 2024.8/2024.10; HA la sigue aceptando, pero
+        # el editor y la documentación ya solo usan `trigger:` y `action:`.
+        guia = _GUIDE["automations"]
+        self.assertNotIn('"platform":', guia)
+        self.assertNotIn('"service":', guia)
+        self.assertIn('"triggers":', guia)
+        self.assertIn('"actions":', guia)
+
+    def test_registros_mencionan_ha_remove_device(self) -> None:
+        guia = _GUIDE["registries"]
+        self.assertIn("ha_remove_device`", guia)
+        # La antigua sigue registrada, pero solo como deprecada: desde HA
+        # 2026.9 borra el dispositivo entero.
+        self.assertIn("ha_remove_device_from_config_entry", guia)
+        self.assertIn("deprecada", guia)
+
+    def test_servicios_recomienda_filtrar_por_dominio(self) -> None:
+        # Sin filtro, la lista de servicios de una casa grande supera el
+        # límite de respuesta del cliente (problema 14 de la hoja de ruta).
+        self.assertIn("ha_list_services(domain=", _GUIDE["services"])
+
+
 class TestInstructions(unittest.TestCase):
     def test_instructions_mention_key_concepts(self) -> None:
         self.assertGreater(len(INSTRUCTIONS), 200)

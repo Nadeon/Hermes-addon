@@ -154,6 +154,17 @@ class TestManifiesto(unittest.TestCase):
             "súbela, o deja la versión de HA y actualiza solo la pareja",
         )
 
+    def test_la_version_minima_de_ha_es_2024_10(self) -> None:
+        """Regresión FR-041 (R4): la mínima declarada era 2024.1.0, pero Hermes
+        guarda las automatizaciones con las claves en plural (`triggers`,
+        `conditions`, `actions`), que HA solo entiende desde 2024.10. Con una
+        HA 2024.1–2024.9 el arranque no avisaba y las automatizaciones no se
+        podían guardar.
+        """
+        from hermes.config import HA_CORE_MIN_SUPPORTED
+
+        self.assertEqual(HA_CORE_MIN_SUPPORTED, "2024.10.0")
+
     def test_toda_opcion_por_defecto_esta_declarada_en_el_schema(self) -> None:
         """Una opción en `options` que no esté en `schema` la rechaza HA."""
         for clave in self.options:

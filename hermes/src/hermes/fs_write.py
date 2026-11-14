@@ -676,12 +676,10 @@ _SAFETY_POLL_INTERVAL_SECONDS = 15.0
 def _es_404(exc: Exception) -> bool:
     """¿El Supervisor dijo que el job no existe?
 
-    Se prefiere `status`, pero `sv_request` aún no lo rellena en los errores
-    REST; entonces se mira el formato del mensaje que construye el propio
-    `ha.py` («failed 404:»), que es nuestro y estable, no el texto del
-    Supervisor.
+    Solo por `status`: `sv_request` lo rellena en todos los errores HTTP, así
+    que no hace falta mirar el texto del mensaje.
     """
-    return getattr(exc, "status", None) == 404 or " failed 404:" in str(exc)
+    return getattr(exc, "status", None) == 404
 
 
 def _evaluar_job(job_data: Any) -> tuple[str, list[str]]:

@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **185 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **186 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 185 herramientas
+## Qué puede hacer — 186 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -35,7 +35,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Escenas** | 7 | Incluido capturar el estado actual de la casa como escena nueva |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zonas y personas** | 10 | Zonas geográficas y seguimiento de personas |
-| **Registros** | 13 | Entidades, dispositivos y áreas: renombrar, mover, ocultar, deshabilitar |
+| **Registros** | 14 | Entidades, dispositivos y áreas: renombrar, mover, ocultar, deshabilitar, borrar |
 | **Integraciones** | 13 | Config entries y sus flujos de configuración, incluidos los de opciones |
 | **Ficheros de `/config`** | 11 | Leer, escribir, mover, borrar, buscar, gestionar `secrets.yaml` y restaurar copias |
 | **Lovelace** | 10 | Dashboards y recursos |
@@ -43,7 +43,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Backups** | 10 | Completos y parciales, crear y restaurar |
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
 | **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
-| **HACS** | 4 | Consultar repositorios y actualizaciones disponibles. En HA 2026.11 o posterior, HACS pasó a ser la integración Marketplace; las tools `ha_hacs_*` todavía no la soportan |
+| **HACS** | 4 | Consultar repositorios y actualizaciones disponibles. En HA 2026.11 o posterior, HACS pasó a ser la integración Marketplace; las tools `ha_hacs_*` todavía no la soportan y lo dicen con un mensaje claro |
 | **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
 
@@ -62,7 +62,9 @@ ese token. Es lo que impide que un malentendido acabe reiniciando tu casa.
   hace por ti; la siguiente sección explica las tres formas de conseguirlo.
 - **Un plan de pago de Claude.** Los Custom Connectors, que es como se conecta
   Hermes, no están disponibles en el plan gratuito.
-- Arquitectura `amd64` o `aarch64`, y Home Assistant **2024.1.0** o superior.
+- Arquitectura `amd64` o `aarch64`, y Home Assistant **2024.10.0** o superior. Hermes guarda las
+  automatizaciones con las claves en plural (`triggers`, `actions`), que Home
+  Assistant solo entiende desde la 2024.10.
 
 ## Cómo se expone Hermes a internet
 
@@ -113,12 +115,21 @@ Es la opción con la que Hermes está más probado.
       eso no hay comando `docker`. Puedes volver a activarlo al terminar.
    3. Desde su terminal web:
       ```
-      docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg 8765
+      docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg --https=8443 8765
       docker exec -it addon_a0d7b954_tailscale tailscale funnel status
       ```
       Si el nombre del contenedor no coincide, `docker ps | grep tailscale`
-      lo da. `funnel status` debe listar `https://<hostname>` apuntando a
-      `http://127.0.0.1:8765`.
+      lo da. `funnel status` debe listar `https://<hostname>:8443` apuntando
+      a `http://127.0.0.1:8765`.
+
+   **Por qué 8443 y no 443.** Funnel solo admite los puertos 443, 8443 y
+   10000. La opción `share_homeassistant: funnel` del add-on de Tailscale
+   publica Home Assistant en el 443 por defecto, en la misma ruta `/`, y un
+   segundo Funnel en el mismo puerto y ruta sustituye al primero: gana el
+   último que se configuró y el otro deja de responder. Con Hermes en el 8443
+   (o el 10000) no chocan nunca, ni ahora ni si activas esa opción más
+   adelante. Si no usas `share_homeassistant: funnel`, el 443 sigue valiendo:
+   `tailscale funnel --bg 8765` y un `public_hostname` sin puerto.
 
    Cuatro cosas a saber:
    - **Funnel tiene que estar permitido en tu tailnet**: HTTPS habilitado y
@@ -134,26 +145,45 @@ Es la opción con la que Hermes está más probado.
      add-on de Tailscale 0.14.0 o posterior, ejecuta una sola vez
      `tailscale serve reset`, que borra toda la configuración de Serve y
      Funnel, también esta. Si configuraste el Funnel con una versión anterior
-     y luego actualizaste, vuelve a lanzar el comando `funnel --bg 8765`. No
-     vuelve a ocurrir.
+     y luego actualizaste, vuelve a lanzar el comando
+     `funnel --bg --https=8443 8765`. No vuelve a ocurrir.
    - `--bg` es lo que lo hace persistente. Sin él, el Funnel dura lo que dure
      el comando en primer plano.
-   - **No lo combines con `share_homeassistant: funnel` en el puerto 443.**
-     Esa opción publica Home Assistant con `tailscale funnel
+   - **Hermes y `share_homeassistant: funnel` tienen que ir en puertos
+     distintos.** Esa opción publica Home Assistant con `tailscale funnel
      --https=<share_on_port> --set-path=/`, y `share_on_port` vale `443` por
-     defecto: el mismo puerto y la misma ruta que el Funnel de Hermes. Lo
-     notarás porque `tailscale funnel status` muestra `/` en el puerto 443
-     apuntando al puerto de Home Assistant (`8123` por defecto) en vez de a
-     `http://127.0.0.1:8765`. Si también quieres publicar Home Assistant, pon
-     `share_on_port` a `8443` o `10000` en el add-on de Tailscale, reinícialo
-     y vuelve a lanzar el comando `funnel --bg 8765` si `funnel status` ya no
-     lo lista.
+     defecto. Con Hermes en el 8443, déjalo en 443 (o usa el 10000); solo no
+     lo pongas en 8443. Notarás que han chocado porque `tailscale funnel
+     status` muestra `/` en el puerto de Hermes apuntando al de Home Assistant
+     (`8123` por defecto) en vez de a `http://127.0.0.1:8765`.
 4. En las opciones de Hermes:
    - `network_mode`: `tailscale`
-   - `public_hostname`: el hostname que te da Funnel (ej.
-     `homeassistant.tailXXXX.ts.net`), **sin esquema ni path**
+   - `public_hostname`: el hostname que te da Funnel **seguido del puerto**
+     (ej. `homeassistant.tailXXXX.ts.net:8443`), **sin esquema ni path**. Con
+     el Funnel en el 443, el hostname solo.
    - `mcp_bind`: `127.0.0.1` (el add-on de Tailscale comparte la red del host,
      así que alcanza el loopback)
+
+   La URL del conector en Claude será
+   `https://homeassistant.tailXXXX.ts.net:8443/mcp`.
+
+**Pasar una instalación existente del 443 al 8443.** El puerto forma parte de
+la dirección que usa Claude y de las URL de OAuth que anuncia Hermes, así que
+hay que volver a añadir el conector:
+
+1. Quita el Funnel viejo y crea el nuevo, desde el mismo terminal:
+   ```
+   docker exec -it addon_a0d7b954_tailscale tailscale funnel --https=443 off
+   docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg --https=8443 8765
+   ```
+   Si también publicas Home Assistant con `share_homeassistant: funnel`, sáltate
+   la primera línea: el 443 pasa a ser de Home Assistant. Reinicia el add-on
+   de Tailscale para que lo vuelva a publicar.
+2. En las opciones de Hermes, cambia `public_hostname` a
+   `homeassistant.tailXXXX.ts.net:8443` y reinicia el add-on.
+3. En Claude, quita el conector de Hermes y vuelve a añadirlo con
+   `https://homeassistant.tailXXXX.ts.net:8443/mcp`. Autorízalo con tu
+   `auth_password`.
 
 ---
 
@@ -234,7 +264,8 @@ expuesto a internet, así que es la opción con más superficie de ataque.
      Genérala con tu gestor de contraseñas, o con `openssl rand -base64 18`.
      Es el único secreto que protege tu casa.
    - **`public_hostname`** *(obligatorio)*: el hostname público, sin `https://`
-     ni path final.
+     ni path final. Si no se sirve en el 443, añade el puerto
+     (`homeassistant.tailXXXX.ts.net:8443`).
    - **`network_mode`**: `tailscale` o `reverse_proxy`, según la opción que
      hayas montado arriba.
    - **`mcp_bind`**: `127.0.0.1` por defecto; cámbialo solo si tu proxy no
@@ -280,7 +311,7 @@ un x86, y bastante más en una Raspberry Pi, porque `pydantic-core`, `aiohttp` y
 | `trusted_proxy_ips contiene un valor que no es una IP ni una red` | Una errata en esa lista. Escribe IPs sueltas (`172.30.32.2`) o rangos CIDR (`172.30.32.0/23`). |
 | `SUPERVISOR_TOKEN no está disponible` | No estás en Home Assistant OS ni Supervised. Hermes es un add-on y necesita el Supervisor. |
 | `network_mode inválido` | Solo se admiten `tailscale` y `reverse_proxy`. |
-| `HA core … < minimum supported 2024.1.0` | Tu Home Assistant es demasiado antiguo. Actualízalo. |
+| `HA core … < minimum supported 2024.10.0` | Tu Home Assistant es demasiado antiguo. Actualízalo. |
 | `No se puede escuchar el health en …` | Otro proceso ocupa el puerto 8766, o falta la red puente de HAOS. El mensaje termina con una pista de cuál de las dos. |
 | `Crash loop detectado` | Hermes arrancó 10 veces en 5 minutos y se detuvo solo. Corrige la causa que aparece antes en el log y arranca el add-on a mano. Los reinicios manuales también cuentan. |
 | El túnel da *connection refused* | `mcp_bind` no es alcanzable desde tu proxy. Si está en la red puente, usa `172.30.32.1`. Un `mcp_bind` en blanco se convierte sin aviso en `127.0.0.1`. |
@@ -352,6 +383,9 @@ límite pre-auth de 20 por minuto: si fallan, es Funnel; si no, es aguas arriba.
    https://<tu_public_hostname>/mcp
    ```
 
+   `public_hostname` lleva el puerto cuando lo hay: con el Funnel de Tailscale
+   en el 8443 es `https://homeassistant.tailXXXX.ts.net:8443/mcp`.
+
 3. Claude abre la página de autorización de Hermes. Introduce la
    `auth_password` que pusiste en la configuración del add-on.
 
@@ -388,12 +422,12 @@ hacer nada.
 | Opción | Default | Descripción |
 |--------|---------|-------------|
 | `auth_password` | _(obligatorio)_ | Contraseña del flujo OAuth. Mínimo 12 caracteres y se comprueba que no sea adivinable: Hermes no arranca con una débil |
-| `public_hostname` | _(obligatorio)_ | Hostname público por el que se llega a Hermes, sin esquema ni path |
+| `public_hostname` | _(obligatorio)_ | Hostname público por el que se llega a Hermes, sin esquema ni path. Con un puerto distinto del 443, inclúyelo (`host:8443`) |
 | `network_mode` | `tailscale` | Quién publica el hostname: `tailscale` (Funnel) o `reverse_proxy` (Cloudflare Tunnel, Nginx, Caddy…) |
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `safety_backup_enabled` | `false` | Backup **completo** de HAOS automático antes de escribir en `/config`. Desactivado por defecto (genera varios GB). El backup por-fichero se hace siempre |
+| `safety_backup_enabled` | `false` | Backup **completo** de HAOS automático antes de escribir en `/config`. Desactivado por defecto (genera varios GB). El backup por-fichero se hace siempre. Si el backup falla, o Hermes no puede saber si terminó, la escritura no se hace (`safety_backup_job_failed`, `safety_backup_state_unknown`) |
 | `mcp_max_requests_per_minute` | `120` | Rate limit global post-auth |
 | `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Rate limit pre-auth por IP. Aplica a la superficie pública (OAuth y discovery), y el mismo valor acota por IP las peticiones a rutas protegidas que llegan sin token o con uno inválido. Las válidas las gobierna `mcp_max_requests_per_minute` |
 | `response_max_bytes` | `1048576` | Cap de respuesta por tool (1 MB) |

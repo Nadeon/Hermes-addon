@@ -109,7 +109,9 @@ El núcleo del día a día.
 - `ha_get_states(domain="light", compact=True)` — lista estados. SIEMPRE filtra
   por `domain` salvo que necesites todo (la lista completa es enorme).
 - `ha_get_state("light.cocina")` — estado de una entidad concreta.
-- `ha_list_services()` — qué servicios existen y sus campos.
+- `ha_list_services(domain="light")` — qué servicios existen y sus campos.
+  Pasa siempre `domain`: sin él devuelve todos los de la casa y la respuesta
+  puede no caber.
 - `ha_call_service(domain, service, service_data)` — ejecuta una acción.
 - `ha_call_service_response(...)` — para servicios que devuelven datos
   (return_response). No admite servicios de la denylist.
@@ -142,9 +144,9 @@ Ejemplo (crear/editar una automatización — devuelve preview + token, repite c
 el token para aplicar):
   `ha_create_or_update_automation("automation.luz_noche", {
      "alias": "Luz noche",
-     "trigger": [{"platform": "sun", "event": "sunset"}],
-     "action": [{"service": "light.turn_on",
-                 "target": {"entity_id": "light.salon"}}]})`
+     "triggers": [{"trigger": "sun", "event": "sunset"}],
+     "actions": [{"action": "light.turn_on",
+                  "target": {"entity_id": "light.salon"}}]})`
 
 Tras crear/editar, HA recarga sola (no hace falta `reload` manual). Si un
 script/automation llama a un servicio peligroso, Hermes lo marca como
@@ -211,7 +213,10 @@ Respuestas potencialmente grandes: acota siempre por entidad y rango de fechas.
   `ha_update_entity_registry` (renombrar, ocultar, mover de área…),
   `ha_remove_entity_registry`.
 - Dispositivos: `ha_list_devices`, `ha_get_device`, `ha_update_device`,
-  `ha_remove_device_from_config_entry`.
+  `ha_remove_device` (token — borra el dispositivo y sus entidades; la
+  preview dice qué comando de HA usará).
+  `ha_remove_device_from_config_entry` está deprecada: desde HA 2026.9 borra
+  el dispositivo entero, no solo la asociación. Usa `ha_remove_device`.
 - Áreas: `ha_list_areas`, `ha_get_area`, `ha_create_area`, `ha_update_area`,
   `ha_delete_area`.
 
@@ -338,7 +343,7 @@ CONTROLAR ALGO
 2. `ha_call_service("light", "turn_on", {"entity_id": "light.cocina"})`.
 
 CREAR UNA AUTOMATIZACIÓN
-1. Define trigger/condition/action.
+1. Define `triggers`, `conditions` y `actions` (claves en plural, HA ≥ 2024.10).
 2. `ha_create_or_update_automation(entity_id, config)` → devuelve preview + token.
 3. Repite con `confirmation_token` para aplicar (HA recarga sola).
 4. Pruébala: `ha_trigger_automation(entity_id)` y revisa el resultado.

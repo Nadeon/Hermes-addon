@@ -1177,7 +1177,8 @@ class HAClient:
             text = await resp.text()
             if resp.status >= 400:
                 raise HAConnectionError(
-                    f"Supervisor GET {sv_path} failed {resp.status}: {text}"
+                    f"Supervisor GET {sv_path} failed {resp.status}: {text}",
+                    status=resp.status,
                 )
             return text
 
@@ -1186,11 +1187,15 @@ class HAClient:
 
         Extrae el campo data si result==ok; lanza HAConnectionError si
         result==error.
+
+        Los errores HTTP llevan `status`, como los del Core: quien captura
+        distingue un 404 sin buscar « failed 404:» en el mensaje.
         """
         text = await resp.text()
         if resp.status >= 400:
             raise HAConnectionError(
-                f"Supervisor REST {resp.method} {resp.url} failed {resp.status}: {text}"
+                f"Supervisor REST {resp.method} {resp.url} failed {resp.status}: {text}",
+                status=resp.status,
             )
 
         if not text:

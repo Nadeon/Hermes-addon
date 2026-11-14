@@ -24,7 +24,11 @@ from .password_policy import (
 # Topologías de red admitidas (ver `network_mode`).
 NETWORK_MODES = frozenset({"tailscale", "reverse_proxy"})
 
-HA_CORE_MIN_SUPPORTED = "2024.1.0"
+# 2024.10: Hermes guarda las automatizaciones con las claves en plural
+# (`triggers`, `conditions`, `actions`), que HA solo entiende desde esa
+# versión. Con la 2024.1 declarada antes, una HA 2024.1–2024.9 arrancaba sin
+# aviso y luego no podía guardar ninguna automatización.
+HA_CORE_MIN_SUPPORTED = "2024.10.0"
 
 # Última versión de Home Assistant contra la que se comprobó Hermes de
 # verdad, con el conector real y no solo con la suite. Con una más nueva, el
@@ -38,7 +42,7 @@ HA_CORE_MIN_SUPPORTED = "2024.1.0"
 # decidir: o se comprueba contra la HA actual y se sube, o se deja a
 # sabiendas y solo se actualiza la pareja.
 HA_CORE_LAST_TESTED = "2026.11.1"
-HA_CORE_LAST_TESTED_IN_HERMES = "1.0.11"
+HA_CORE_LAST_TESTED_IN_HERMES = "1.0.12"
 
 MCP_PORT = 8765
 HEALTH_PORT = 8766

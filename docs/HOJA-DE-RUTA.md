@@ -4,7 +4,8 @@
 
 # Hoja de ruta de Hermes
 
-**Revisión:** 2026-11-14, sobre Hermes **1.0.11**.
+**Revisión:** 2026-11-14, sobre Hermes **1.0.12** (la revisión de
+compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró).
 
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
@@ -15,13 +16,15 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
 ## Estado de compatibilidad
 
 - **Funciona en lo esencial.** Ningún comando WebSocket o REST que usa Hermes ha
-  cambiado de nombre en HA 2026.11.1, y todos los endpoints del Supervisor que
-  usa existen, salvo uno (el del sondeo del backup de seguridad).
+  cambiado de nombre en HA 2026.11.1. En la 1.0.11 todos los endpoints del
+  Supervisor que usaba existían salvo uno (el del sondeo del backup de
+  seguridad); la 1.0.12 usa el correcto.
 - **Las tools de HACS no funcionan en HA ≥ 2026.11**: HACS se ha integrado en el
-  core como el **Marketplace**, con otra API. Mientras se adaptan, las
-  actualizaciones pendientes se ven con `ha_get_states(domain="update")`.
-- **La versión mínima real es HA 2024.10**, no la 2024.1 declarada: por debajo
-  no se pueden crear ni editar automatizaciones.
+  core como el **Marketplace**, con otra API. Desde la 1.0.12 lo explican con un
+  mensaje claro; adaptarlas es de la 1.1.0. Mientras tanto, las actualizaciones
+  pendientes se ven con `ha_get_states(domain="update")`.
+- **La versión mínima es HA 2024.10**: por debajo no se pueden crear ni editar
+  automatizaciones. La 1.0.11 declaraba 2024.1; la 1.0.12 declara la real.
 - **MCP:** transporte Streamable HTTP sin estado y SDK oficial 2.x, al día. En
   OAuth faltan **CIMD** (Client ID Metadata Documents, el registro preferido
   desde la revisión 2026-07-28) y el parámetro **`iss`** (RFC 9207). El registro
@@ -31,49 +34,52 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
 
 Severidad, de mayor a menor: **pérdida de datos** > **rota** > **degradada** >
 **cosmética**. Todas las acciones afectadas de pérdida de datos exigen
-`confirmation_token`; el problema es que la vista previa no describe bien lo que
-va a pasar.
+`confirmation_token`; el problema era que la vista previa no describía bien lo
+que iba a pasar. La última columna dice qué hace con cada uno la 1.0.12; el
+detalle está en el CHANGELOG.
 
-| # | Problema | Severidad | Origen |
-|---|---|---|---|
-| 1 | Al reenviar los alias de una entidad, el marcador de «nombre calculado» (`null`) se guarda como el texto `"None"`: la entidad deja de responder a su nombre en Assist | Pérdida de datos | Cambio de HA 2026.4 |
-| 2 | `ha_remove_device_from_config_entry` borra el dispositivo entero del registro, no solo la asociación que anuncia | Pérdida de datos | Cambio de HA 2026.9 |
-| 3 | El dashboard principal (`url_path: "lovelace"`) se puede borrar con `ha_delete_lovelace_dashboard`, aunque la documentación de la tool dice que no | Pérdida de datos | Cambio de HA 2026.2 |
-| 4 | Solo con la opción `safety_backup_enabled` activada (viene desactivada por defecto): el backup de seguridad previo nunca se da por terminado y las escrituras `fs_*` no llegan a ejecutarse | Rota | Hermes |
-| 5 | `sv_get_job_status` informa como terminado (`done`) un job que ha fallado, sin sus errores | Rota | Hermes |
-| 6 | Las tools `ha_hacs_*` responden «Unknown command» en HA ≥ 2026.11 | Rota | Cambio de HA 2026.11 |
-| 7 | Con HA 2024.1–2024.9 no se pueden guardar automatizaciones (versión mínima declarada incorrecta) | Rota | Hermes |
-| 8 | No se puede guardar un script que tenga la clave `trace` | Rota | Hermes |
-| 9 | `aliases: null`, documentado como «limpiar alias», lo rechaza HA | Rota | Cambio de HA 2026.4 |
-| 10 | Borrar un helper que no existe da un error genérico en lugar de `not_found` | Degradada | Hermes |
-| 11 | `ha_render_template` devuelve error y pierde el resultado cuando la plantilla solo genera un aviso | Degradada | Hermes |
-| 12 | Los dispositivos hijo (HA 2026.9) quedan fuera de los filtros por área y fabricante | Degradada | Cambio de HA 2026.9 |
-| 13 | `sv_get_supervisor_info` y `sv_get_host_info` devuelven siempre `null` en algunos campos (máquina, versión de Docker, kernel) | Degradada | Hermes |
-| 14 | `ha_list_services` no admite filtro y su respuesta puede superar el límite del cliente | Degradada | Hermes |
-| 15 | Desde HA 2026.11, `name` en el registro de entidades es solo la parte de la entidad; la documentación no lo avisa y se duplica el nombre del dispositivo | Cosmética | Cambio de HA 2026.11 |
-| 16 | `ha_list_lovelace_dashboards` puede mostrar dos veces el dashboard principal | Cosmética | Cambio de HA 2026.2 |
-| 17 | Descripciones de tools que no coinciden con la respuesta real (estadísticas, stats de add-ons, ubicación de backups) | Cosmética | Hermes |
-| 18 | La guía enseña sintaxis heredada de automatizaciones (`platform:`, `service:`) | Cosmética | Hermes |
-| 19 | Defectos menores de las tools de HACS (categorías, cálculo de actualizaciones, mensaje de error poco claro) | Cosmética | Hermes |
-| 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes |
-| 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes |
-| 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes |
-| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes |
+| # | Problema | Severidad | Origen | En 1.0.12 |
+|---|---|---|---|---|
+| 1 | Al reenviar los alias de una entidad, el marcador de «nombre calculado» (`null`) se guarda como el texto `"None"`: la entidad deja de responder a su nombre en Assist | Pérdida de datos | Cambio de HA 2026.4 | Corregido |
+| 2 | `ha_remove_device_from_config_entry` borra el dispositivo entero del registro, no solo la asociación que anuncia | Pérdida de datos | Cambio de HA 2026.9 | Corregido: nueva `ha_remove_device`; la antigua queda deprecada y su vista previa dice la verdad |
+| 3 | El dashboard principal (`url_path: "lovelace"`) se puede borrar con `ha_delete_lovelace_dashboard`, aunque la documentación de la tool dice que no | Pérdida de datos | Cambio de HA 2026.2 | Corregido |
+| 4 | Solo con la opción `safety_backup_enabled` activada (viene desactivada por defecto): el backup de seguridad previo nunca se da por terminado y las escrituras `fs_*` no llegan a ejecutarse | Rota | Hermes | Corregido |
+| 5 | `sv_get_job_status` informa como terminado (`done`) un job que ha fallado, sin sus errores | Rota | Hermes | Corregido |
+| 6 | Las tools `ha_hacs_*` responden «Unknown command» en HA ≥ 2026.11 | Rota | Cambio de HA 2026.11 | Mitigado: mensaje claro; la adaptación al Marketplace es de 1.1.0 |
+| 7 | Con HA 2024.1–2024.9 no se pueden guardar automatizaciones (versión mínima declarada incorrecta) | Rota | Hermes | Corregido |
+| 8 | No se puede guardar un script que tenga la clave `trace` | Rota | Hermes | Corregido |
+| 9 | `aliases: null`, documentado como «limpiar alias», lo rechaza HA | Rota | Cambio de HA 2026.4 | Corregido |
+| 10 | Borrar un helper que no existe da un error genérico en lugar de `not_found` | Degradada | Hermes | Corregido |
+| 11 | `ha_render_template` devuelve error y pierde el resultado cuando la plantilla solo genera un aviso | Degradada | Hermes | Corregido |
+| 12 | Los dispositivos hijo (HA 2026.9) quedan fuera de los filtros por área y fabricante | Degradada | Cambio de HA 2026.9 | Corregido el área; el filtro por fabricante los deja fuera a propósito (no lo tienen) y la descripción lo dice |
+| 13 | `sv_get_supervisor_info` y `sv_get_host_info` devuelven siempre `null` en algunos campos (máquina, versión de Docker, kernel) | Degradada | Hermes | Corregido |
+| 14 | `ha_list_services` no admite filtro y su respuesta puede superar el límite del cliente | Degradada | Hermes | Corregido |
+| 15 | Desde HA 2026.11, `name` en el registro de entidades es solo la parte de la entidad; la documentación no lo avisa y se duplica el nombre del dispositivo | Cosmética | Cambio de HA 2026.11 | Corregido |
+| 16 | `ha_list_lovelace_dashboards` puede mostrar dos veces el dashboard principal | Cosmética | Cambio de HA 2026.2 | Corregido |
+| 17 | Descripciones de tools que no coinciden con la respuesta real (estadísticas, stats de add-ons, ubicación de backups) | Cosmética | Hermes | Corregido |
+| 18 | La guía enseña sintaxis heredada de automatizaciones (`platform:`, `service:`) | Cosmética | Hermes | Corregido |
+| 19 | Defectos menores de las tools de HACS (categorías, cálculo de actualizaciones, mensaje de error poco claro) | Cosmética | Hermes | Corregido |
+| 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes | Corregido |
+| 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente |
+| 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes | Corregido |
+| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Pendiente |
 
-Recomendación mientras sale 1.0.12: no reenviar `aliases` leídos del registro,
-no usar `ha_remove_device_from_config_entry` salvo que se quiera borrar el
-dispositivo, no borrar el dashboard `lovelace` y mantener
-`safety_backup_enabled` desactivada, que es su valor por defecto, hasta el
-arreglo. Con la opción desactivada, el problema 4 no aparece.
+Recomendación: actualizar a la 1.0.12. Quien siga en la 1.0.11 no debe
+reenviar `aliases` leídos del registro, ni usar
+`ha_remove_device_from_config_entry` salvo para borrar el dispositivo entero, ni
+borrar el dashboard `lovelace`, y debe mantener `safety_backup_enabled`
+desactivada, que es su valor por defecto. En la 1.0.12,
+`ha_remove_device_from_config_entry` sigue disponible pero deprecada: usa
+`ha_remove_device`.
 
 ## Deprecaciones con fecha
 
 | Qué | Cuándo | Efecto en Hermes |
 |---|---|---|
-| Acción `home-assistant/builder@master` y `build.yaml` | Deprecados (aviso del 2026-04-02); retirada anunciada sin fecha | El flujo de publicación de imágenes dejará de funcionar |
-| Campos `config_entries` y `config_entries_subentries` del dispositivo | HA **2027.8** (`primary_config_entry`: **2027.10**) | Recuentos de dispositivos por integración |
-| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry` dará «Unknown command» |
-| Comando `lovelace/resources` (alias) | Anunciado para 2025.1; sigue presente, puede desaparecer sin aviso | `ha_list_lovelace_resources` |
+| Acción `home-assistant/builder@master` y `build.yaml` | Deprecados (aviso del 2026-04-02); retirada anunciada sin fecha | Ninguno: el flujo de publicación ya usa las actions nuevas y `build.yaml` se ha quitado (spec 002) |
+| Campos `config_entries` y `config_entries_subentries` del dispositivo | HA **2027.8** (`primary_config_entry`: **2027.10**) | Ninguno desde la 1.0.12: los recuentos de dispositivos por integración usan `config_entry_id` y solo recurren a `config_entries` como respaldo |
+| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry`, deprecada en la 1.0.12, se retirará antes; `ha_remove_device` usa `config/device_registry/remove` desde HA 2026.9 |
+| Comando `lovelace/resources` (alias de `lovelace/resources/list`) | Anunciado para 2025.1; sigue presente, puede desaparecer sin aviso | Ninguno desde la 1.0.12: `ha_list_lovelace_resources` usa `lovelace/resources/list` |
 | Campo `has_mean` de estadísticas | Plazo vencido; sigue presente | Solo documentación |
 | Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha; preparado en la rama principal del Supervisor, no publicado en 2026.11.0 | Hermes usa solo TCP |
 | API `/v2` del Supervisor (`addons` → `apps`) | Sin fecha; hoy detrás de una opción de desarrollo y sin retirar la V1 | Ninguno hoy |
@@ -88,14 +94,17 @@ Hermes.
 Para quien publique Hermes con el add-on de Tailscale: desde la versión 0.14.0
 gestiona `share_homeassistant` como servicio propio y, una sola vez, borra la
 configuración Serve/Funnel existente. Comprueba el Funnel de Hermes tras
-actualizarlo y, si también publicas HA con `share_homeassistant: funnel`, pon
-su `share_on_port` en 8443 o 10000 para que no choque con Hermes en el 443.
+actualizarlo. Desde la 1.0.12 los README recomiendan publicar Hermes en el 8443
+(o el 10000) con `tailscale funnel --bg --https=8443 8765` y
+`public_hostname: homeassistant.tailXXXX.ts.net:8443`, y dejar el 443 a
+`share_homeassistant: funnel`, que lo usa por defecto: así no chocan. Los
+README explican cómo pasar una instalación existente del 443 al 8443.
 
 ## Plan por versiones
 
 > **Propuesta pendiente de decisión.** El orden y el contenido pueden cambiar.
 
-### 1.0.12 — solo arreglos (esfuerzo M)
+### Hecho en 1.0.12 — solo arreglos
 
 1. Backup de seguridad y estado de jobs (problemas 4 y 5), con tests.
 2. Alias de entidades (1 y 9).
@@ -112,16 +121,19 @@ su `share_on_port` en 8443 o 10000 para que no choque con Hermes en el 443.
 13. Filtro por dominio en `ha_list_services` (14).
 14. Documentación de tools y guía (15, 17, 18).
 
-Riesgos: los cambios tocan tools destructivas y necesitan tests de regresión;
-subir la versión mínima deja fuera HA 2024.1–2024.9.
+Todo con test de regresión y control negativo. Subir la versión mínima deja
+fuera HA 2024.1–2024.9, que de todos modos no podía guardar automatizaciones.
+Se añadió `ha_remove_device` y `ha_remove_device_from_config_entry` quedó
+deprecada.
 
-### PR aparte — publicación de imágenes (esfuerzo S–M)
+### Hecho — publicación de imágenes (spec 002)
 
-Antes de que se retire el builder: actions `build-image` y
-`publish-multi-arch-manifest`, `FROM` con valor por defecto en el Dockerfile,
-etiquetas `io.hass.*` explícitas y fuera `build.yaml`. Riesgo: la primera
-publicación con el flujo nuevo debe probarse con un tag de prueba, y las
-imágenes ya publicadas deben seguir disponibles.
+El flujo de publicación usa la action `build-image` de Home Assistant, fijada
+por SHA, con cada arquitectura en un runner nativo y firma cosign; el
+Dockerfile trae su imagen base por defecto y `build.yaml` desaparece.
+`config.yaml` declara `timeout: 20` para que el apagado ordenado termine antes
+del SIGKILL de Docker. Pendiente: probar la primera publicación con una
+etiqueta y comprobar que las imágenes ya publicadas siguen disponibles.
 
 ### 1.1.0 — Marketplace, OAuth moderno y diagnóstico (esfuerzo L)
 
