@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests.banco import entorno
-from tests.banco.cobertura import PROBADAS_EN_BANCO, XFAIL_PERMITIDOS
+from tests.banco.cobertura import PROBADAS_EN_BANCO, PROBADAS_GENERICAS, XFAIL_PERMITIDOS
 from tests.banco.obligatorio import ComprobacionDelJob
 
 
@@ -24,7 +24,7 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
         ComprobacionDelJob(
             carpeta=Path(__file__).resolve().parent,
             xfail_permitidos=XFAIL_PERMITIDOS,
-            tools_exigidas=PROBADAS_EN_BANCO,
+            tools_exigidas=PROBADAS_EN_BANCO | PROBADAS_GENERICAS,
             tomar_tools_del_test=entorno.tomar_tools_del_test,
         ),
         "banco-obligatorio",

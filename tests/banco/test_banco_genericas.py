@@ -7,13 +7,15 @@ en dos pasos y borrar con `ha_call_ws_command("tag/delete")` en dos pasos. El
 efecto lo comprueba el lector independiente (directo a Core, sin Hermes), y
 además se lee de vuelta por la genérica de lectura.
 
-PENDIENTE DE INTEGRAR: el banco (sub-feature 010) vive en otra rama. Hasta
-que se integre, `tests.banco.base_helpers` no existe aquí y este fichero se
-salta entero con su motivo. Al integrar:
-- la configuración de HA del banco (`tests/banco/ha_config/configuration.yaml`)
-  necesita `tag:`, porque los comandos `tag/*` solo existen con la integración
-  cargada;
-- este test corre en el job `banco-core` como los demás (`-m banco`).
+Corre en el job `banco-core` como los demás (`-m banco`). La configuración de
+HA del banco carga `tag:`, porque los comandos `tag/*` solo existen con la
+integración cargada.
+
+Inventario (`tests/banco/cobertura.py`): `ha_call_ws_command` es de
+`PROBADAS_GENERICAS`, así que el job exige que este test la llame con éxito y
+pase; `sv_call_api` está en `NO_EJECUTABLES_GENERICAS` (el Supervisor del
+banco es simulado). La lectura, `ha_read_ws_command`, se ejecuta aquí también,
+pero el inventario, como el de los helpers, solo exige las escrituras.
 """
 
 from __future__ import annotations
@@ -22,13 +24,8 @@ import secrets
 
 import pytest
 
-pytest.importorskip(
-    "tests.banco.base_helpers",
-    reason="banco de Core (spec 010) aún no integrado en esta rama: T027 se valida al integrar",
-)
-
-from tests.banco.base_helpers import BancoHelpers, sin_error  # noqa: E402
-from tests.banco.entorno import confirmar, llamar  # noqa: E402
+from tests.banco.base_helpers import BancoHelpers, sin_error
+from tests.banco.entorno import confirmar, llamar
 
 pytestmark = pytest.mark.banco
 

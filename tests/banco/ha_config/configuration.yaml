@@ -14,6 +14,8 @@
 #   nadie. Nombre genérico. Con la ubicación escrita aquí, HA no la intenta
 #   detectar por internet (el contenedor tampoco tiene salida).
 #
+# La 011 añade `tag:` (abajo) para las genéricas de Core.
+#
 # Las sub-features que necesiten más dominios (automation:, script:, scene:,
 # lovelace:, template:…) los añaden aquí en su propio cambio.
 
@@ -47,3 +49,7 @@ timer:
 schedule:
 zone:
 person:
+
+# Spec 011 (T027): las genéricas de Core se prueban con `tag/list`,
+# `tag/create` y `tag/delete`, que solo existen con la integración cargada.
+tag:

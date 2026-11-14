@@ -1,4 +1,5 @@
-"""Invariante de cobertura del banco de Core para los helpers (spec 010, FR-009).
+"""Invariante de cobertura del banco de Core para los helpers (spec 010, FR-009)
+y para las genéricas (spec 011, T027).
 
 Suite normal (no necesita HA): toda tool que modifica de los 11 dominios de
 helpers tiene que estar, o bien probada en el banco contra HA Core real, o
@@ -35,14 +36,17 @@ import importlib
 import unittest
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.banco.cobertura import (
     DOMINIOS_HELPERS,
     FALLAN_EN_BANCO,
+    FAMILIA_GENERICAS,
     MODULOS_HELPERS,
     NO_EJECUTABLES,
+    NO_EJECUTABLES_GENERICAS,
     PROBADAS_EN_BANCO,
+    PROBADAS_GENERICAS,
     XFAIL_PERMITIDOS,
 )
 
@@ -73,14 +77,18 @@ def _de_los_modulos_de_helpers() -> set[str]:
     return nombres
 
 
-def _registro_de_produccion() -> dict[str, Any]:
+def _registro_de_produccion(desactivadas: tuple[str, ...] = ()) -> dict[str, Any]:
     from hermes.__main__ import _build_mcp
     from hermes.config import HermesConfig
 
     # Sin la clasificación automática de `ha_call_service`: al registrarse
     # programa una tarea en el bucle, y este test es síncrono. No cambia qué
     # tools se registran.
-    mcp = _build_mcp(HermesConfig(call_service_auto_classify_dangerous=False), MagicMock())
+    config = HermesConfig(
+        call_service_auto_classify_dangerous=False,
+        tool_families_disabled=list(desactivadas),
+    )
+    mcp = _build_mcp(config, MagicMock())
     return {t.name: t for t in mcp._tool_manager.list_tools()}
 
 
@@ -102,6 +110,17 @@ def _escrituras_de_helpers() -> set[str]:
         for nombre, tool in _registro_de_produccion().items()
         if _de_estos_dominios(nombre, de_los_modulos) and not _solo_lectura(tool)
     }
+
+
+def _escrituras_genericas() -> set[str]:
+    """Tools de la familia de las genéricas sin `readOnlyHint`.
+
+    La familia se saca del registro de producción (lo que desaparece al
+    apagarla), no de una lista de nombres: una genérica nueva entra sola.
+    """
+    todas = _registro_de_produccion()
+    sin_familia = set(_registro_de_produccion((FAMILIA_GENERICAS,)))
+    return {n for n, t in todas.items() if n not in sin_familia and not _solo_lectura(t)}
 
 
 class TestCoberturaDelBanco(unittest.TestCase):
@@ -172,6 +191,58 @@ class TestCoberturaDelBanco(unittest.TestCase):
         self.assertNotIn("ha_reload_counters", PROBADAS_EN_BANCO)
         self.assertIn("spec 033", FALLAN_EN_BANCO["ha_reload_counters"])
         self.assertEqual(len(PROBADAS_EN_BANCO), 46)
+
+
+
+class TestCoberturaDeLasGenericas(unittest.TestCase):
+    """Spec 011, T027: las genéricas de escritura, probadas en el banco o con motivo.
+
+    Control negativo (T027), comprobado en local y restaurado: sacar
+    `ha_call_ws_command` de `PROBADAS_GENERICAS` hace caer
+    `test_inventario_exacto` nombrándola; ponerla también en
+    `NO_EJECUTABLES_GENERICAS` hace caer `test_partes_disjuntas`; pasar al
+    plugin del job solo `PROBADAS_EN_BANCO` hace caer
+    `test_el_job_exige_las_probadas`.
+    """
+
+    def test_inventario_exacto(self) -> None:
+        reales = _escrituras_genericas()
+        declaradas = set(PROBADAS_GENERICAS) | set(NO_EJECUTABLES_GENERICAS)
+        self.assertEqual(
+            reales,
+            declaradas,
+            "inventario de las genéricas desalineado (tests/banco/cobertura.py): "
+            f"de escritura sin declarar {sorted(reales - declaradas)}; declaradas "
+            f"que no existen o son de solo lectura {sorted(declaradas - reales)}",
+        )
+        self.assertEqual(reales, {"ha_call_ws_command", "sv_call_api"})
+
+    def test_partes_disjuntas(self) -> None:
+        repetidas = sorted(set(PROBADAS_GENERICAS) & set(NO_EJECUTABLES_GENERICAS))
+        self.assertFalse(repetidas, f"genéricas probadas y no ejecutables a la vez: {repetidas}")
+
+    def test_motivos(self) -> None:
+        self.assertEqual(
+            NO_EJECUTABLES_GENERICAS["sv_call_api"],
+            "Supervisor simulado; se prueba en la VM (spec 014)",
+        )
+        for tool, motivo in NO_EJECUTABLES_GENERICAS.items():
+            self.assertTrue(str(motivo).strip(), tool)
+
+    def test_el_job_exige_las_probadas(self) -> None:
+        # El conftest del banco pasa al plugin del job las de los helpers y
+        # las de las genéricas: si no, `ha_call_ws_command` quedaría «probada»
+        # solo de nombre. Se registra el plugin como en el job y se mira qué
+        # tools exige.
+        from tests.banco import conftest
+        from tests.banco.obligatorio import ComprobacionDelJob
+
+        config = MagicMock()
+        with patch.object(conftest.entorno, "_obligatorio", return_value=True):
+            conftest.pytest_configure(config)
+        plugin = config.pluginmanager.register.call_args.args[0]
+        self.assertIsInstance(plugin, ComprobacionDelJob)
+        self.assertEqual(plugin.tools_exigidas, PROBADAS_EN_BANCO | PROBADAS_GENERICAS)
 
 
 if __name__ == "__main__":
