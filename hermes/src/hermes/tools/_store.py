@@ -53,8 +53,14 @@ def es_integrado(slug: str) -> bool:
 def slug_de_repositorio(url: str) -> str:
     """El `slug` que el Supervisor da a un repositorio propio:
     `sha1(url.lower())[:8]` sobre la cadena entera, `#rama` incluida
-    (`store/utils.py`, `get_hash_from_repository`)."""
-    return hashlib.sha1(url.lower().encode()).hexdigest()[:8]  # noqa: S324 - no es criptográfico: es el id del Supervisor
+    (`store/utils.py`, `get_hash_from_repository`).
+
+    SHA-1 aquí no protege nada: es el identificador que calcula el
+    Supervisor, y solo sirve si se calcula igual. Por eso la supresión de
+    Semgrep (revisada) y `usedforsecurity=False`.
+    """
+    clave = url.lower().encode()
+    return hashlib.sha1(clave, usedforsecurity=False).hexdigest()[:8]  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
 
 
 def _partes_de_credenciales(url: str) -> tuple[str, str, str] | None:
