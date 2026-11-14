@@ -1,13 +1,27 @@
 # Hermes — MCP Home Assistant Add-on
-# Patrón estándar de add-ons de HA: ARG BUILD_FROM → FROM $BUILD_FROM
+#
+# La imagen base va aquí, con valor por defecto, y no en build.yaml: el flujo de
+# compilación nuevo de Home Assistant (BuildKit, actions de home-assistant/
+# builder) no lee build.yaml, y el Supervisor solo lo lee ya por compatibilidad
+# y avisando de que está deprecado. Sin build.yaml, el Supervisor no pasa
+# BUILD_FROM, así que sin este valor por defecto la compilación local fallaría.
+#
+# Es una imagen multi-arquitectura: el mismo nombre sirve en amd64 y en aarch64.
+# Python 3.13 sobre Alpine 3.24 (la Alpine por defecto de las bases de HA). La
+# etiqueta sin fecha recibe los parches de esa combinación; las fechadas
+# (`…-2026.10.3`) existen si alguna vez hace falta congelarla.
+ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.13-alpine3.24
+FROM ${BUILD_FROM}
 
-ARG BUILD_FROM
-FROM $BUILD_FROM
-
+# Los pasa la action build-image (y el Supervisor al compilar en local). Solo
+# alimentan labels: compilar sin ellos funciona.
 ARG BUILD_ARCH
 ARG BUILD_VERSION
+# "app" es el valor vigente; "addon" queda como legado y el Supervisor acepta
+# los dos. Nombre, descripción y URL se ponen desde el manifiesto en el
+# workflow de publicación, para no duplicarlos aquí.
 LABEL io.hass.version="${BUILD_VERSION}" \
-      io.hass.type="addon" \
+      io.hass.type="app" \
       io.hass.arch="${BUILD_ARCH}"
 
 # ── Layer caching: dependencias primero, código después ───────

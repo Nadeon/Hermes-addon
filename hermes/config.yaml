@@ -36,6 +36,12 @@ boot: auto                 # Arranca con HAOS
 init: false               # Las imágenes base oficiales ya incluyen s6-overlay como PID 1.
                           # init: true mete tini encima y rompe s6 con
                           # "s6-overlay-suexec: fatal: can only run as pid 1".
+# Segundos que el Supervisor espera al parar antes de que Docker mande SIGKILL.
+# Por defecto son 10, lo mismo que S6_KILL_GRACETIME en el Dockerfile: s6 no
+# llegaba a terminar el apagado ordenado (cerrar las conexiones MCP y borrar
+# los temporales de /data) antes del SIGKILL. Tiene que ser MAYOR que ese
+# margen; el workflow de publicación lo comprueba.
+timeout: 20
 
 # ── Red ────────────────────────────────────────────────────────
 # host_network: true → el contenedor comparte el netns del host.

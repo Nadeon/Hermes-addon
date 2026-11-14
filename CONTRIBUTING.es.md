@@ -159,6 +159,11 @@ imagen se niega a ejecutarse cuando un tag `v*.*.*` no coincide con ella. Subir
 la versión es una decisión de publicación: déjasela a quien mantiene el proyecto,
 salvo que tu PR sea la publicación.
 
+Si tu PR toca algo que entra en la imagen (`hermes/Dockerfile`,
+`hermes/requirements.txt`, `hermes/run.sh`, `hermes/src/`, `hermes/config.yaml`)
+o el propio workflow, ese mismo workflow compila la imagen de `amd64` y de
+`aarch64` sin publicarla. Si no compila en la PR, tampoco se podría publicar.
+
 ## Revisión
 
 Espera preguntas sobre modos de fallo más que sobre estilo. No hay una puerta de

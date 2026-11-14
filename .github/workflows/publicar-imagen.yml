@@ -10,6 +10,16 @@ name: Publicar imagen
 # coincidir con el `version:` del config.yaml: el paso de comprobación de abajo
 # aborta si no, porque una imagen etiquetada con una versión que el manifiesto
 # no declara es una que el Supervisor nunca pedirá.
+#
+# En una PR que toca lo que entra en la imagen, el MISMO flujo compila las dos
+# arquitecturas sin publicar nada. Es la única forma de saber que la
+# publicación funciona antes de etiquetar: hasta ahora solo se ejecutaba con la
+# versión ya anunciada.
+#
+# Usa las actions compuestas de home-assistant/builder. La action antigua
+# (`home-assistant/builder@master`) está retirada y se va a borrar; ver
+# specs/002-ci-publicacion/research.md. Se fijan por SHA, con la release en el
+# comentario: una etiqueta se puede mover, un commit no.
 
 on:
   push:
@@ -20,63 +30,211 @@ on:
       version:
         description: "Versión a publicar (sin la v)"
         required: true
+  pull_request:
+    paths:
+      - "hermes/Dockerfile"
+      - "hermes/requirements.txt"
+      - "hermes/run.sh"
+      - "hermes/src/**"
+      - "hermes/config.yaml"
+      - ".github/workflows/publicar-imagen.yml"
+
+# Por defecto, solo lectura. Escribir en el registro y pedir el token OIDC con
+# el que firma cosign se concede únicamente al job que publica.
+permissions:
+  contents: read
 
 jobs:
   comprobar:
-    name: El tag coincide con el manifiesto
+    name: El manifiesto es publicable
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.v.outputs.version }}
+      version: ${{ steps.manifiesto.outputs.version }}
+      publicar: ${{ steps.manifiesto.outputs.publicar }}
+      matrix: ${{ steps.manifiesto.outputs.matrix }}
+      name: ${{ steps.manifiesto.outputs.name }}
+      description: ${{ steps.manifiesto.outputs.description }}
+      url: ${{ steps.manifiesto.outputs.url }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
-      - id: v
+      - name: Leer y comprobar el manifiesto
+        id: manifiesto
+        env:
+          # Por variable de entorno, no interpolado en el script: así el valor
+          # que se escribe a mano al lanzar el workflow no puede convertirse en
+          # código del shell.
+          EVENTO: ${{ github.event_name }}
+          VERSION_PEDIDA: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            TAG="${{ inputs.version }}"
+          set -euo pipefail
+          M=hermes/config.yaml
+          MANIFIESTO=$(yq -r '.version' "$M")
+
+          if [ "$EVENTO" = "pull_request" ]; then
+            # En una PR no hay tag que comparar: se compila la versión que
+            # declara el manifiesto, solo para validar, sin publicar.
+            VERSION="$MANIFIESTO"
+            PUBLICAR=false
           else
-            TAG="${GITHUB_REF_NAME#v}"
+            if [ -n "$VERSION_PEDIDA" ]; then
+              VERSION="$VERSION_PEDIDA"
+            else
+              VERSION="${GITHUB_REF_NAME#v}"
+            fi
+            echo "tag=$VERSION  manifiesto=$MANIFIESTO"
+            if [ "$VERSION" != "$MANIFIESTO" ]; then
+              echo "El tag ($VERSION) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
+              exit 1
+            fi
+            PUBLICAR=true
           fi
-          MANIFIESTO=$(grep -Po '^version:\s*"\K[^"]+' hermes/config.yaml)
-          echo "tag=$TAG  manifiesto=$MANIFIESTO"
-          if [ "$TAG" != "$MANIFIESTO" ]; then
-            echo "El tag ($TAG) no coincide con hermes/config.yaml ($MANIFIESTO)." >&2
+          # La versión acaba como etiqueta de imagen y como label: solo se
+          # acepta x.y.z, lo mismo que exige el test del manifiesto.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "La versión '$VERSION' no tiene la forma x.y.z." >&2
             exit 1
           fi
-          echo "version=$TAG" >> "$GITHUB_OUTPUT"
 
-  construir:
-    name: ${{ matrix.arch }}
+          # El nombre de cada imagen sale del `image:` del manifiesto, el mismo
+          # que usa el Supervisor para descargarla: si el workflow lo
+          # construyera por su cuenta, podría publicar con un nombre que nadie
+          # pide. Las actions de HA nombran `<arch>-<imagen>`; Hermes publica
+          # `hermes-<arch>` desde el principio y no lo cambia.
+          IMAGEN=$(yq -r '.image' "$M")
+          if [[ "$IMAGEN" != *"{arch}"* ]]; then
+            echo "image: ($IMAGEN) no contiene {arch}; este workflow publica una imagen por arquitectura." >&2
+            exit 1
+          fi
+          if [ "$PUBLICAR" = "true" ]; then
+            # Los nombres de imagen van en minúsculas y el propietario en
+            # GitHub no tiene por qué; GITHUB_TOKEN solo puede escribir en el
+            # espacio del propietario del repositorio.
+            PREFIJO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/"
+            if [[ "$IMAGEN" != "$PREFIJO"* ]]; then
+              echo "image: ($IMAGEN) no está bajo $PREFIJO; no se puede publicar desde aquí." >&2
+              exit 1
+            fi
+          fi
+
+          # El Supervisor espera `timeout` segundos (10 por defecto) antes de
+          # que Docker mande SIGKILL; s6 se da S6_KILL_GRACETIME para el
+          # apagado ordenado. Si el primero no es mayor, Docker corta a s6 a
+          # mitad y los temporales se quedan en /data.
+          TIMEOUT=$(yq -r '.timeout // 10' "$M")
+          GRACE=$(grep -Po '^ENV\s+S6_KILL_GRACETIME=\K[0-9]+' hermes/Dockerfile || true)
+          if [ -z "$GRACE" ]; then
+            echo "hermes/Dockerfile no fija S6_KILL_GRACETIME." >&2
+            exit 1
+          fi
+          if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || (( TIMEOUT * 1000 <= GRACE )); then
+            echo "timeout: $TIMEOUT s en config.yaml no supera S6_KILL_GRACETIME=$GRACE ms." >&2
+            exit 1
+          fi
+
+          # Cada arquitectura en un runner nativo: la action no emula, compila
+          # para la plataforma en la que corre.
+          MATRIX='{"include":[]}'
+          for ARCH in $(yq -r '.arch[]' "$M"); do
+            case "$ARCH" in
+              amd64) OS=ubuntu-24.04 ;;
+              aarch64) OS=ubuntu-24.04-arm ;;
+              *)
+                echo "Arquitectura sin runner: $ARCH" >&2
+                exit 1
+                ;;
+            esac
+            MATRIX=$(jq -c --arg arch "$ARCH" --arg os "$OS" --arg image "${IMAGEN//\{arch\}/$ARCH}" \
+              '.include += [{arch: $arch, os: $os, image: $image}]' <<< "$MATRIX")
+          done
+          if [ "$(jq '.include | length' <<< "$MATRIX")" -eq 0 ]; then
+            echo "hermes/config.yaml no declara ninguna arquitectura." >&2
+            exit 1
+          fi
+          jq . <<< "$MATRIX"
+
+          {
+            echo "version=$VERSION"
+            echo "publicar=$PUBLICAR"
+            echo "matrix=$MATRIX"
+            echo "name=$(yq -r '.name' "$M")"
+            echo "description=$(yq -r '.description' "$M")"
+            echo "url=$(yq -r '.url' "$M")"
+          } >> "$GITHUB_OUTPUT"
+
+  validar:
+    name: Validar ${{ matrix.arch }}
     needs: comprobar
-    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    # Solo lectura: la PR puede venir de un fork y no publica ni firma nada.
     permissions:
       contents: read
-      packages: write
     strategy:
       fail-fast: false
-      matrix:
-        arch: [amd64, aarch64]
-
+      matrix: ${{ fromJSON(needs.comprobar.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v5
-
-      - name: Emular arm64
-        if: matrix.arch == 'aarch64'
-        uses: docker/setup-qemu-action@v3
-
-      - name: Entrar en GHCR
-        uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
-      - name: Construir y publicar
-        uses: home-assistant/builder@master
+      # Las mismas entradas que «Publicar», salvo push y skip-existing: lo que
+      # se valida aquí es lo que se publicará.
+      - name: Compilar sin publicar
+        uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
-          args: |
-            --${{ matrix.arch }} \
-            --target /data/hermes \
-            --image hermes-{arch} \
-            --docker-hub ghcr.io/${{ github.repository_owner }} \
-            --addon
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          context: hermes
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.comprobar.outputs.version }}
+            latest
+          labels: |
+            io.hass.type=app
+            io.hass.name=${{ needs.comprobar.outputs.name }}
+            io.hass.description=${{ needs.comprobar.outputs.description }}
+            io.hass.url=${{ needs.comprobar.outputs.url }}
+          push: "false"
+          version: ${{ needs.comprobar.outputs.version }}
+
+  construir:
+    name: Publicar ${{ matrix.arch }}
+    needs: comprobar
+    if: needs.comprobar.outputs.publicar == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write # token OIDC para firmar con cosign sin clave
+      packages: write # subir la imagen a GHCR
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.comprobar.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # skip-existing: una versión ya publicada no se sobrescribe. Quien la
+      # tiene instalada, o quien reinstala con `ha docker reset-storage`, debe
+      # recibir los mismos bytes; si hay que cambiar algo, es otra versión.
+      - name: Construir, publicar y firmar
+        uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          context: hermes
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.comprobar.outputs.version }}
+            latest
+          labels: |
+            io.hass.type=app
+            io.hass.name=${{ needs.comprobar.outputs.name }}
+            io.hass.description=${{ needs.comprobar.outputs.description }}
+            io.hass.url=${{ needs.comprobar.outputs.url }}
+          push: "true"
+          skip-existing: ${{ needs.comprobar.outputs.version }}
+          version: ${{ needs.comprobar.outputs.version }}
