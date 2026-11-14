@@ -78,7 +78,7 @@ Consulta el progreso con `sv_get_job_status(job_id)` en vez de reintentar.
 
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
-events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_DIAGNOSTICO@,
+events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
 backups, lovelace, marketplace, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
@@ -108,6 +108,10 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     texto = texto.replace(
         "@TEMA_DIAGNOSTICO@",
         ", system_diagnostics" if "system_diagnostics" not in desactivadas else "")
+    # Spec 015: y el de las actualizaciones, igual.
+    texto = texto.replace(
+        "@TEMA_ACTUALIZACIONES@",
+        ", updates" if "system_updates" not in desactivadas else "")
     return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
 
 
@@ -134,6 +138,7 @@ para el detalle de un área. Temas disponibles:
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
+- `updates`        — qué hay que actualizar, buscar actualizaciones y actualizar Core
 - `backups`        — crear, restaurar y gestionar backups
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
@@ -375,6 +380,8 @@ reversible con `fs_restore_file_backup`.
   `sv_reboot_host` (token).
 - Logs de Core, del Supervisor, de los plugins y del host:
   `hermes_guide("system_diagnostics")`.
+- Actualizar Core (y ver qué tiene actualización): `hermes_guide("updates")`.
+  Las apps siguen con `sv_update_addon`.
 
 Cuidado con el propio Hermes (`local_hermes`): pararlo/desinstalarlo te deja sin
 acceso; el preview lo advierte. Operaciones largas devuelven `job_id`: pollea
@@ -477,6 +484,48 @@ Otros límites: escritura en /config con rate limit (intervalo mínimo + máx/mi
 respuestas truncadas por tamaño, y `/config` con anti-traversal + blacklist de
 secretos. Si algo te pide confirmación, es por diseño: confirma sólo lo que el
 usuario quiere.
+""",
+    "updates": """\
+# Actualizaciones del sistema (Supervisor)
+
+- `sv_list_available_updates` — qué tiene actualización: Core, OS,
+  Supervisor, apps y plugins, con la versión instalada, la disponible y
+  `update_with` (la tool con que se actualiza). Es la caché del Supervisor.
+  Si una lectura falla, `partial: true` y `unavailable`: no es «no hay nada».
+- `sv_check_for_updates` — pide al Supervisor que busque ya (sale a internet
+  y refresca la tienda) y devuelve la misma lista. No pide token.
+- `sv_update_core(version=None, backup=True)` — actualiza Core, en dos pasos.
+
+Orden recomendado: Supervisor → Core → OS (y reiniciar el host). El
+Supervisor rechaza actualizar Core con él mismo pendiente.
+
+Vista previa de `sv_update_core`: versión de origen y de destino (la última si
+no pasas `version`; si es menor, `downgrade: true`), `release_url` (HA no
+tiene en local las notas de Core), el backup que hace el Supervisor (parcial,
+solo de Core, `core_<versión actual>`; `backup=false` para no hacerlo), qué
+se reinicia (Core; las `ha_*` fallan mientras, Hermes sigue), la salud del
+sistema y la comprobación de la configuración.
+
+Si algo la haría fallar, `error: update_blocked` con la vista previa y SIN
+token. Mira `preview.blocked`:
+- `unhealthy` — sistema no saludable (`sv_get_resolution`);
+- `supervisor_update_pending` — actualiza antes el Supervisor;
+- `plugins_outdated` — plugins viejos con la actualización automática del
+  Supervisor apagada (con ella encendida, solo un aviso: los actualiza él);
+- `low_disk_space` — menos de 2 GB libres (`sv_get_disk_usage`);
+- `config_invalid` / `config_check_failed` — configuración de Core inválida o
+  sin comprobar. No se puede saltar: arréglala y pide otra vista previa.
+
+El token está atado a los argumentos Y a las versiones de origen y destino:
+si entre la vista previa y la confirmación cambian (otra búsqueda de
+actualizaciones), la confirmación devuelve `preview_outdated: true` sin enviar
+nada; pide otra vista previa. Al confirmar devuelve `job_id`: síguelo con
+`sv_get_job_status(job_id)`.
+
+Hermes no se actualiza a sí mismo: en la lista sale con `update_with: null`;
+se actualiza desde la interfaz de Home Assistant. Las demás apps, con
+`sv_update_addon(slug)`. Los plugins los actualiza el Supervisor (o
+`sv_call_api("POST", "/<plugin>/update")`).
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)
@@ -713,6 +762,9 @@ _ALIASES: dict[str, str] = {
     "storage": "system_diagnostics",
     "os": "system_diagnostics",
     "jobs": "system_diagnostics",
+    # Spec 015.
+    "update": "updates",
+    "upgrade": "updates",
     "backup": "backups",
     "dashboards": "lovelace",
     "dashboard": "lovelace",
@@ -831,7 +883,7 @@ def register(mcp: object) -> None:
         Args:
             topic (str, opcional): Tema. Uno de: overview, services, automations,
                 helpers, events, data, registries, diagnostics, config_entries,
-                filesystem, supervisor, system_diagnostics, backups, lovelace,
+                filesystem, supervisor, system_diagnostics, updates, backups, lovelace,
                 marketplace, security, generic_commands, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists

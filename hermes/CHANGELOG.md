@@ -86,7 +86,58 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Supervisor
 
-_Pendiente: la añade la sub-feature que lo implemente._
+#### Actualizaciones del sistema
+
+- **Saber qué hay que actualizar y buscar actualizaciones.** Familia nueva
+  `system_updates` (desactivable con `tool_families_disabled`).
+  `sv_list_available_updates` (solo lee) lista lo que tiene actualización
+  —Home Assistant Core, OS, Supervisor, apps y plugins del Supervisor— con la
+  versión instalada, la disponible y la tool con que se actualiza
+  (`update_with`), en el orden en que conviene actualizar. La app de Hermes
+  sale con `update_with: null` y una nota: Hermes no se actualiza a sí mismo,
+  se actualiza desde la interfaz de Home Assistant. Si una lectura del
+  Supervisor falla, la lista lo dice (`partial`, `unavailable`) en vez de
+  parecer vacía. `sv_check_for_updates` pide al Supervisor que busque ya
+  (descarga el registro de versiones y refresca la tienda: sale a internet)
+  y devuelve la misma lista; no pide confirmación.
+- **Actualizar Core con una vista previa que no miente.** `sv_update_core`
+  (versión opcional, `backup` activado por defecto), en dos pasos. La vista
+  previa dice de qué versión a qué versión (y si es una bajada), el backup
+  parcial de Core que hace el Supervisor antes (nombre `core_<versión>`, sin
+  apps), qué se reinicia, la salud del sistema y el resultado de la
+  comprobación de la configuración de Core, que se hace en la vista previa
+  sin levantar el bloqueo de reinicio de `sv_restart_core`. Si el Supervisor
+  la rechazaría —sistema no saludable, Supervisor con actualización
+  pendiente, plugins desactualizados con su actualización automática
+  apagada, menos de 2 GB libres— o la configuración no es válida o no se pudo
+  comprobar, responde `update_blocked` con la vista previa y **sin** token;
+  lo de la configuración no se puede saltar. El token queda atado a los
+  argumentos y a las versiones de origen y destino: si cambian entre la
+  vista previa y la confirmación (por ejemplo, tras buscar actualizaciones),
+  la confirmación responde `preview_outdated` sin enviar nada. La ejecución
+  manda siempre la versión explícita y devuelve el `job_id`, que se sigue con
+  `sv_get_job_status`. Los errores del Supervisor y el detalle de la
+  comprobación pasan por la redacción de secretos; el log de Hermes anota
+  tool, componente y versiones (`system_update_started`), nunca el texto de
+  un error.
+- **Notas de la versión**: Home Assistant no tiene en local las notas de Core
+  y Hermes no las descarga de internet, así que la vista previa lo dice y da
+  la `release_url` de la entidad `update` de Core (buscada por el registro de
+  entidades, no por su nombre). Es una desviación de la spec 008, que pedía
+  las notas recortadas.
+- **Tabla de comandos**: `GET /available_updates`, `POST /refresh_updates`,
+  `POST /reload_updates`, `POST /core/update` y `hassio/update/core` pasan a
+  `dedicated` hacia estas tools: las genéricas remiten a ellas y nunca son una
+  forma de actualizar sin la vista previa. `/reload_updates` va a
+  `sv_check_for_updates` aunque la tool use `/refresh_updates`, que además
+  recarga la tienda.
+- **Guía**: tema nuevo `hermes_guide("updates")` (alias `update`, `upgrade`)
+  con el orden recomendado, los bloqueos y el token atado a las versiones; el
+  tema `supervisor` remite a él.
+- `sv_check_for_updates` y `sv_update_core` se prueban con un Supervisor
+  simulado con la forma de las respuestas del 2026.11.0; su prueba contra un
+  Supervisor real queda pendiente en la VM de la 014 (matriz de pruebas de la
+  hoja de ruta).
 
 ### Sistema
 

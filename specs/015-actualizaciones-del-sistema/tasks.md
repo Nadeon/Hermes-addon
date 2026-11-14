@@ -55,34 +55,90 @@ separado. Cada uno necesita el anterior integrado.
 
 ### Preparación
 
-- [ ] T001 Integrar en la rama lo que falta de las dependencias (S-01) desde `feat/cobertura-total` (009 y 010 integradas) y la 011 completa; la 013 si ya está integrada. Resolver conflictos sin cambiar comportamiento. Ejecutar la suite y anotar la línea base en el mensaje del commit. Comprobar que existen `self_update_not_supported` en `sv_update_addon`, `tests/banco/` con su inventario de cobertura, `sv_read_api`/`sv_call_api`/`ha_call_ws_command` y `tests/fixtures/esquemas_1_1_2.json`
-- [ ] T002 [P] [US5] Tests en `tests/test_tool_families.py`: `system_updates` existe, `desde="1.2.0"`, desactivable, con los módulos `("system_updates",)`, `familia_de_modulo("system_updates") == "system_updates"`; en `tests/test_config_validation.py`, `tool_families_disabled: [system_updates]` es válido. Después, la familia en `hermes/src/hermes/tool_families.py` con un comentario del porqué (research R-1) (FR-017)
+- [X] T001 Integrar en la rama lo que falta de las dependencias (S-01) desde `feat/cobertura-total` (009 y 010 integradas) y la 011 completa; la 013 si ya está integrada. Resolver conflictos sin cambiar comportamiento. Ejecutar la suite y anotar la línea base en el mensaje del commit. Comprobar que existen `self_update_not_supported` en `sv_update_addon`, `tests/banco/` con su inventario de cobertura, `sv_read_api`/`sv_call_api`/`ha_call_ws_command` y `tests/fixtures/esquemas_1_1_2.json`
+- [X] T002 [P] [US5] Tests en `tests/test_tool_families.py`: `system_updates` existe, `desde="1.2.0"`, desactivable, con los módulos `("system_updates",)`, `familia_de_modulo("system_updates") == "system_updates"`; en `tests/test_config_validation.py`, `tool_families_disabled: [system_updates]` es válido. Después, la familia en `hermes/src/hermes/tool_families.py` con un comentario del porqué (research R-1) (FR-017)
 
 ### Tests primero (deben fallar)
 
-- [ ] T003 [P] [US2] Tests de las funciones puras en `tests/test_tools_system_updates.py` (`TestValidacion`, `TestBloqueos`): `_validar_version` acepta `2026.11.1`, `2026.12.0b1`, `16.3`, y rechaza vacío, espacios, `/`, `..`, 33 caracteres; `_bloqueos` devuelve cada código de data-model con sus datos y ninguno con un sistema sano; plugins desactualizados con `auto_update` activo → aviso y no bloqueo; `_comparar` con versiones inválidas → `None` (FR-004, FR-010)
-- [ ] T004 [P] [US1] Fixture `tests/fixtures/supervisor_actualizaciones.py` (Supervisor simulado, research R-12) y tests `TestListar`/`TestBuscar`: `sv_list_available_updates` con Core, una app, Hermes y un plugin desactualizados → elementos con `installed_version`, `latest_version`, `update_with` correctos, Hermes con `update_with: null` y nota, el plugin con la ruta de la tabla, orden supervisor → core → os → plugins → apps, sobre `{count, items, truncated}` y `_third_party_text`; sin HAOS (`/os/info` 404) → sin elemento `os` y sin error; una lectura que falla → `partial: true` y `unavailable`; solo peticiones `GET`. `sv_check_for_updates` → exactamente un `POST /refresh_updates` con `timeout_seconds=120` y después la lista; error del Supervisor → `error` redactado (FR-001, FR-002)
-- [ ] T005 [US2] Tests `TestVistaPreviaCore` y `TestUpdateCore` (vista previa): todos los bloques de data-model con los valores del simulado; `backup.name == "core_<from>"` y `exclude_database` de `/core/info`; `backup=False` → `will_create: false`; `release_notes.available: false` con la `release_url` del estado de la entidad de plataforma `hassio` y `unique_id` `home_assistant_core_version_latest`, y `null` con motivo si Core no responde; `config_check` con `POST /core/check` y `timeout_seconds=120`, y SIN escribir `check_config_state.json` (comprobar que el fichero no cambia); cada bloqueo (`unhealthy`, `supervisor_update_pending`, `plugins_outdated`, `low_disk_space`, `config_invalid`, `config_check_failed`) → `error: update_blocked` con la vista previa y sin `confirmation_token`; `already_installed`, `no_update_available`, `versions_unavailable`, `invalid_argument` → sin token; `version` menor → `downgrade: true` y aviso; en ningún caso hay `POST /core/update` (FR-003, FR-004, FR-005, FR-010)
-- [ ] T006 [US2] Tests `TestTokenAtado` y ejecución de `sv_update_core`: confirmar → exactamente un `POST /core/update` con `{"version": <to_version>, "backup": true, "background": true}` y respuesta `{job_id, status: "running", poll_with: "sv_get_job_status", from_version, to_version}`, job registrado con `_track_job`; sin `job_id` en la respuesta → `result: ok`; `version_latest` cambiada entre vista previa y confirmación → `preview_outdated: true`, ninguna llamada `POST` y el token sigue `pending` (se puede pedir otra vista previa sin esperar a que caduque); argumentos distintos → mismo rechazo; error del Supervisor al ejecutar → `error` redactado y token completado con fallo. Centinelas (`password: centinela-…`, un JWT) en el detalle de `/core/check` y en el error del Supervisor → no aparecen en la respuesta ni en el log capturado; el log tiene `system_update_started` con tool, versiones y `job_id` (FR-005, FR-008, FR-018)
+- [X] T003 [P] [US2] Tests de las funciones puras en `tests/test_tools_system_updates.py` (`TestValidacion`, `TestBloqueos`): `_validar_version` acepta `2026.11.1`, `2026.12.0b1`, `16.3`, y rechaza vacío, espacios, `/`, `..`, 33 caracteres; `_bloqueos` devuelve cada código de data-model con sus datos y ninguno con un sistema sano; plugins desactualizados con `auto_update` activo → aviso y no bloqueo; `_comparar` con versiones inválidas → `None` (FR-004, FR-010)
+- [X] T004 [P] [US1] Fixture `tests/fixtures/supervisor_actualizaciones.py` (Supervisor simulado, research R-12) y tests `TestListar`/`TestBuscar`: `sv_list_available_updates` con Core, una app, Hermes y un plugin desactualizados → elementos con `installed_version`, `latest_version`, `update_with` correctos, Hermes con `update_with: null` y nota, el plugin con la ruta de la tabla, orden supervisor → core → os → plugins → apps, sobre `{count, items, truncated}` y `_third_party_text`; sin HAOS (`/os/info` 404) → sin elemento `os` y sin error; una lectura que falla → `partial: true` y `unavailable`; solo peticiones `GET`. `sv_check_for_updates` → exactamente un `POST /refresh_updates` con `timeout_seconds=120` y después la lista; error del Supervisor → `error` redactado (FR-001, FR-002)
+- [X] T005 [US2] Tests `TestVistaPreviaCore` y `TestUpdateCore` (vista previa): todos los bloques de data-model con los valores del simulado; `backup.name == "core_<from>"` y `exclude_database` de `/core/info`; `backup=False` → `will_create: false`; `release_notes.available: false` con la `release_url` del estado de la entidad de plataforma `hassio` y `unique_id` `home_assistant_core_version_latest`, y `null` con motivo si Core no responde; `config_check` con `POST /core/check` y `timeout_seconds=120`, y SIN escribir `check_config_state.json` (comprobar que el fichero no cambia); cada bloqueo (`unhealthy`, `supervisor_update_pending`, `plugins_outdated`, `low_disk_space`, `config_invalid`, `config_check_failed`) → `error: update_blocked` con la vista previa y sin `confirmation_token`; `already_installed`, `no_update_available`, `versions_unavailable`, `invalid_argument` → sin token; `version` menor → `downgrade: true` y aviso; en ningún caso hay `POST /core/update` (FR-003, FR-004, FR-005, FR-010)
+- [X] T006 [US2] Tests `TestTokenAtado` y ejecución de `sv_update_core`: confirmar → exactamente un `POST /core/update` con `{"version": <to_version>, "backup": true, "background": true}` y respuesta `{job_id, status: "running", poll_with: "sv_get_job_status", from_version, to_version}`, job registrado con `_track_job`; sin `job_id` en la respuesta → `result: ok`; `version_latest` cambiada entre vista previa y confirmación → `preview_outdated: true`, ninguna llamada `POST` y el token sigue `pending` (se puede pedir otra vista previa sin esperar a que caduque); argumentos distintos → mismo rechazo; error del Supervisor al ejecutar → `error` redactado y token completado con fallo. Centinelas (`password: centinela-…`, un JWT) en el detalle de `/core/check` y en el error del Supervisor → no aparecen en la respuesta ni en el log capturado; el log tiene `system_update_started` con tool, versiones y `job_id` (FR-005, FR-008, FR-018)
 
 ### Implementación
 
-- [ ] T007 [US1] `hermes/src/hermes/tools/system_updates.py`: `register(mcp, ha_client, *, response_max_bytes)`, los comunes de plan.md (`_validar_version`, `_leer`, `_salud`, `_plugins`, `_bloqueos`, `_notas_de_entidad`, `_comparar`, `_args_atados`, `_respuesta_token_invalido`), `sv_list_available_updates` y `sv_check_for_updates` según contracts/tools.md, con comentarios del porqué (research R-2, R-9, R-12). T003 y T004 en verde (FR-001, FR-002, FR-004, FR-010)
-- [ ] T008 [US2] `sv_update_core` en el mismo módulo: vista previa, bloqueos sin token, token atado a versiones (research R-3), ejecución con `background: true`, `_track_job` y `job_errors` reutilizados de `tools/addons.py` y `supervisor_jobs.py` (sin moverlos), eventos de log sin contenido. T005 y T006 en verde (FR-003…FR-005, FR-008, FR-010, FR-018)
-- [ ] T009 [US5] Registro en `hermes/src/hermes/tools/__init__.py` dentro de la comprobación de la familia `system_updates` (patrón de la 011), con `response_max_bytes`; `_annotations.py`: `sv_update_core` en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD`, `sv_check_for_updates` en `_OPEN_WORLD`, con comentario. Tests en `tests/test_tools_registration.py`: las tres registradas por defecto con las anotaciones de contracts/tools.md (`sv_check_for_updates` no `readOnlyHint`); ninguna con la familia desactivada; con las familias de la 1.2.0 desactivadas la lista es la de la 1.1.2 (SC-005 de la 011); la instantánea `esquemas_1_1_2.json` sin diferencias nuevas; actualizar los recuentos y la comprobación «las únicas tools de más» (FR-017, FR-019)
+- [X] T007 [US1] `hermes/src/hermes/tools/system_updates.py`: `register(mcp, ha_client, *, response_max_bytes)`, los comunes de plan.md (`_validar_version`, `_leer`, `_salud`, `_plugins`, `_bloqueos`, `_notas_de_entidad`, `_comparar`, `_args_atados`, `_respuesta_token_invalido`), `sv_list_available_updates` y `sv_check_for_updates` según contracts/tools.md, con comentarios del porqué (research R-2, R-9, R-12). T003 y T004 en verde (FR-001, FR-002, FR-004, FR-010)
+- [X] T008 [US2] `sv_update_core` en el mismo módulo: vista previa, bloqueos sin token, token atado a versiones (research R-3), ejecución con `background: true`, `_track_job` y `job_errors` reutilizados de `tools/addons.py` y `supervisor_jobs.py` (sin moverlos), eventos de log sin contenido. T005 y T006 en verde (FR-003…FR-005, FR-008, FR-010, FR-018)
+- [X] T009 [US5] Registro en `hermes/src/hermes/tools/__init__.py` dentro de la comprobación de la familia `system_updates` (patrón de la 011), con `response_max_bytes`; `_annotations.py`: `sv_update_core` en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD`, `sv_check_for_updates` en `_OPEN_WORLD`, con comentario. Tests en `tests/test_tools_registration.py`: las tres registradas por defecto con las anotaciones de contracts/tools.md (`sv_check_for_updates` no `readOnlyHint`); ninguna con la familia desactivada; con las familias de la 1.2.0 desactivadas la lista es la de la 1.1.2 (SC-005 de la 011); la instantánea `esquemas_1_1_2.json` sin diferencias nuevas; actualizar los recuentos y la comprobación «las únicas tools de más» (FR-017, FR-019)
 
 ### Tabla
 
-- [ ] T010 [US2] Tests en `tests/test_command_table.py`: `GET /available_updates`, `POST /refresh_updates`, `POST /reload_updates`, `POST /core/update` y `hassio/update/core` son `dedicated` con su tool de data-model, familia `system_updates` y la CAP del inventario en las de clase A; `/homeassistant/update` y `/supervisor/available_updates` siguen `deny`. Si la 013 no está integrada, `test_clase_a_de_via_dedicada_pendiente_de_su_spec` admite `dedicated` (el mismo cambio que la 013, para que la fusión sea trivial) (FR-016)
-- [ ] T011 [US2] `hermes/src/hermes/command_table.py`: las 5 entradas a mano, una línea cada una, con «cubierto por `<tool>`» (y el porqué de `/reload_updates` y `hassio/update/core`, data-model), familia y CAP; ejecutar `scripts/inventario/generar_tabla.py` y comprobar que la tabla no cambia (`git diff --exit-code`); anotarlo en el commit. T010 y `TestDedicadas` en verde (necesita T009) (FR-016)
-- [ ] T012 [P] [US2] Tests en `tests/test_tools_generic_commands.py` (o un fichero nuevo `tests/test_tools_actualizaciones_tabla.py`): `sv_read_api("/available_updates")`, `sv_call_api("POST", "/core/update")`, `sv_call_api("POST", "/refresh_updates")` y `ha_call_ws_command("hassio/update/core", …)` → `use_dedicated_tool` con la tool correcta y ninguna llamada, también con `system_updates` desactivada (FR-016)
+- [X] T010 [US2] Tests en `tests/test_command_table.py`: `GET /available_updates`, `POST /refresh_updates`, `POST /reload_updates`, `POST /core/update` y `hassio/update/core` son `dedicated` con su tool de data-model, familia `system_updates` y la CAP del inventario en las de clase A; `/homeassistant/update` y `/supervisor/available_updates` siguen `deny`. Si la 013 no está integrada, `test_clase_a_de_via_dedicada_pendiente_de_su_spec` admite `dedicated` (el mismo cambio que la 013, para que la fusión sea trivial) (FR-016)
+- [X] T011 [US2] `hermes/src/hermes/command_table.py`: las 5 entradas a mano, una línea cada una, con «cubierto por `<tool>`» (y el porqué de `/reload_updates` y `hassio/update/core`, data-model), familia y CAP; ejecutar `scripts/inventario/generar_tabla.py` y comprobar que la tabla no cambia (`git diff --exit-code`); anotarlo en el commit. T010 y `TestDedicadas` en verde (necesita T009) (FR-016)
+- [X] T012 [P] [US2] Tests en `tests/test_tools_generic_commands.py` (o un fichero nuevo `tests/test_tools_actualizaciones_tabla.py`): `sv_read_api("/available_updates")`, `sv_call_api("POST", "/core/update")`, `sv_call_api("POST", "/refresh_updates")` y `ha_call_ws_command("hassio/update/core", …)` → `use_dedicated_tool` con la tool correcta y ninguna llamada, también con `system_updates` desactivada (FR-016)
 
 ### Guía, documentación y cierre del tramo 1
 
-- [ ] T013 [US1] [US2] Tema `updates` en `hermes/src/hermes/tools/guide.py` (alias `update`, `upgrade`): listado, búsqueda y Core (bloqueos, backup, token atado, `job_id`); el tema `supervisor` remite a `updates`. Tests en `tests/test_tools_guide.py`: el tema existe, cita las tres tools registradas y los alias resuelven (FR-020)
-- [ ] T014 Documentación del tramo 1: sección «Actualizaciones del sistema» dentro de `### Supervisor` en `## [1.2.0] — <fecha de publicación>` de `hermes/CHANGELOG.md` (las tres tools, la familia, las 5 entradas y la desviación de las notas de R-4); `hermes/DOCS.md`, familia `system_updates` en la lista de `tool_families_disabled` (FR-022)
-- [ ] T015 Control negativo del tramo 1, anotando recuentos: (a) emitir token con `blocked` no vacío → cae; (b) no atar `_to_version` al token → cae el de versión cambiada; (c) enviar `/core/update` sin `version` → cae; (d) escribir `check_config_state.json` en la vista previa → cae; (e) quitar `redact_secrets` del detalle de `/core/check` → caen los centinelas; (f) usar `/reload_updates` en vez de `/refresh_updates` → cae; (g) dejar `/core/update` como `deny` → cae el de dedicadas. Restaurar y comprobar verde
-- [ ] T016 Cierre del tramo 1: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII: nada de hostnames, IPs reales, slugs reales, rutas `C:\`), commit con los recuentos de T015 y el resultado de la regeneración de T011
+- [X] T013 [US1] [US2] Tema `updates` en `hermes/src/hermes/tools/guide.py` (alias `update`, `upgrade`): listado, búsqueda y Core (bloqueos, backup, token atado, `job_id`); el tema `supervisor` remite a `updates`. Tests en `tests/test_tools_guide.py`: el tema existe, cita las tres tools registradas y los alias resuelven (FR-020)
+- [X] T014 Documentación del tramo 1: sección «Actualizaciones del sistema» dentro de `### Supervisor` en `## [1.2.0] — <fecha de publicación>` de `hermes/CHANGELOG.md` (las tres tools, la familia, las 5 entradas y la desviación de las notas de R-4); `hermes/DOCS.md`, familia `system_updates` en la lista de `tool_families_disabled` (FR-022)
+- [X] T015 Control negativo del tramo 1, anotando recuentos: (a) emitir token con `blocked` no vacío → cae; (b) no atar `_to_version` al token → cae el de versión cambiada; (c) enviar `/core/update` sin `version` → cae; (d) escribir `check_config_state.json` en la vista previa → cae; (e) quitar `redact_secrets` del detalle de `/core/check` → caen los centinelas; (f) usar `/reload_updates` en vez de `/refresh_updates` → cae; (g) dejar `/core/update` como `deny` → cae el de dedicadas. Restaurar y comprobar verde
+- [X] T016 Cierre del tramo 1: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII: nada de hostnames, IPs reales, slugs reales, rutas `C:\`), commit con los recuentos de T015 y el resultado de la regeneración de T011
+
+### Notas del tramo 1 (desviaciones y decisiones)
+
+- **Línea base** tras la fusión (T001): 2451 passed, 65 skipped, 6 failed (los
+  6 de Windows). La rama del programa traía la 009, 010, 011, 028, 014 y 013;
+  la 018 aún no estaba integrada.
+- **`hassio/update/core`** ya no era `dedicated` hacia `ha_call_service` (lo
+  cambió el T046 de la 011 a `deny` «pendiente (spec 015)»). Pasa a
+  `dedicated` hacia `sv_update_core`; `TestPistasYMotivos` de
+  `tests/test_command_table.py` se adapta (la otra entrada de T046 sigue
+  igual). La regla de `test_clase_a_de_via_dedicada_pendiente_de_su_spec` ya
+  admitía `dedicated` (la trajo la 013): sin cambios.
+- **D-3 (decisión del supervisor)**: la configuración de Core inválida o sin
+  comprobar bloquea siempre, sin argumento para saltarlo.
+- **D-1 (decisión del supervisor)**: en `sv_list_available_updates` la app de
+  Hermes sale con `update_with: null` y la nota de actualizarla desde la
+  interfaz. El rechazo de la entidad `update` de Hermes en
+  `ha_install_update` es del tramo 3.
+- **Código de error** de un fallo del Supervisor al buscar o al actualizar:
+  `supervisor_error` con `detail` redactado (el contrato no nombraba uno).
+  `sv_check_for_updates` añade `refreshed: true` a la lista.
+- **Descripción de la familia**: la final de data-model (nombra ya OS,
+  Supervisor y las entidades `update`, que llegan en los tramos 2 y 3).
+- **Guía**: además del tema y los alias, las instrucciones del servidor
+  nombran el tema `updates` solo con la familia activa (como la 013 con
+  `system_diagnostics`).
+- **Matriz de la 014**: `sv_check_for_updates` y `sv_update_core` entran como
+  «VM / pendiente», con su línea en «Tandas de pruebas» de
+  `docs/BANCO-SUPERVISOR.md`.
+- **Inventario del banco, adelantado de T043**: el invariante de escrituras
+  de la 028 ya exige clasificar toda tool que modifica, así que el tramo 1
+  crea `tests/banco/cobertura_015.py` con `PROBADAS_015` vacía y
+  `NO_EJECUTABLES_015` con `sv_check_for_updates` y `sv_update_core` (motivo
+  de T043), sumado en `tests/test_banco_cobertura_escrituras.py` (128 tools
+  que modifican). El tramo 3 añade `ha_install_update` y el tramo 2, las
+  suyas. Control negativo: sin `sv_update_core` en la lista → cae el
+  invariante.
+- **Rol del Supervisor (014)**: las lecturas por `_leer(ha_client, ruta)` van
+  declaradas en `LLAMADAS_DECLARADAS` de `tests/test_rutas_supervisor_rol.py`;
+  todas caben en `manager`. Las rutas de los plugins están escritas enteras
+  (`_RUTA_INFO_PLUGIN`), sin interpolar, como pide
+  `test_every_module_that_builds_a_path_has_a_validator`.
+- **Inventario de argumentos atados de la 033**
+  (`tests/test_confirmation_args_inventory.py`): no está integrado en la rama.
+  Al integrarlo, `sv_update_core` entra con `{"version": atado, "backup":
+  atado}` (las versiones de origen y destino se atan además dentro de la
+  tool, research R-3).
+- **Control negativo (T015)**, con los tests de la 015, la tabla, el registro
+  y la guía: (a) token con `blocked` → 6 rojos; (b) sin `_to_version` → 1;
+  (c) `/core/update` sin `version` → 2; (d) escribir `check_config_state.json`
+  → 2; (e) sin `redact_secrets` en el detalle → 3; (f) `/reload_updates` en
+  vez de `/refresh_updates` → 2; (g) `/core/update` de vuelta a `deny` → 4
+  (tabla, las dos genéricas y el registro con la familia apagada); (h) sin el
+  alias `upgrade` → 2 subtests. Además, sin la fila de `sv_update_core` en la
+  matriz → cae `test_una_fila_por_tool_que_modifica`. Todo restaurado y en
+  verde.
 
 ---
 

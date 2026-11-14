@@ -477,5 +477,60 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(real, huella)
 
 
+class TestTemaUpdates(unittest.IsolatedAsyncioTestCase):
+    """Spec 015, FR-020 (T013): tema `updates` (alias `update`, `upgrade`) con
+    las tres tools del tramo 1, el orden, los bloqueos y el token atado; el
+    tema `supervisor` remite a él; las instrucciones solo lo anuncian con la
+    familia `system_updates` activa (principio V).
+
+    Control negativo: quitar el alias `upgrade` → cae `test_tema_y_alias`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("updates")
+        self.assertIs(texto, _GUIDE["updates"])
+        for alias in ("update", "upgrade", "UPDATE", " Upgrade "):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    def test_cita_las_tools_y_lo_que_hay_que_saber(self) -> None:
+        texto = _GUIDE["updates"]
+        for palabra in ("sv_list_available_updates", "sv_check_for_updates",
+                        "sv_update_core", "sv_get_job_status", "sv_update_addon",
+                        "update_blocked", "preview_outdated", "unhealthy",
+                        "supervisor_update_pending", "plugins_outdated",
+                        "low_disk_space", "config_invalid", "config_check_failed",
+                        "Supervisor → Core → OS", "release_url", "update_with: null"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    def test_las_tools_que_cita_existen(self) -> None:
+        # La guía no puede anunciar tools que el servidor no tiene (principio
+        # V): toda `sv_*`/`ha_*` citada está registrada.
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        tools = _real_registry()
+        citadas = set(re.findall(r"`((?:sv|ha)_[a-z_]+)", _GUIDE["updates"]))
+        self.assertTrue(citadas)
+        self.assertEqual(sorted(citadas - set(tools)), [])
+
+    async def test_supervisor_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn('hermes_guide("updates")', _GUIDE["supervisor"])
+        self.assertIn("`updates`", await self.guide())
+        self.assertIn(", updates,", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"system_updates"}))
+        self.assertNotIn("updates", sin.replace("ha_update_", ""))
+        self.assertNotIn("@", sin)
+
+
 if __name__ == "__main__":
     unittest.main()
