@@ -12,6 +12,12 @@ on:
   schedule:
     - cron: "23 5 * * 1"
 
+# Solo lectura del contenido del repositorio. Hoy coincide con el valor por
+# defecto del repositorio, pero se declara aquí para no depender de él: el job
+# del banco ejecuta una imagen de terceros y usa `sudo`.
+permissions:
+  contents: read
+
 jobs:
   pytest:
     name: pytest (${{ matrix.python }})
@@ -62,3 +68,150 @@ jobs:
             exit 1
           fi
           echo "Sin escrituras fuera del árbol."
+
+  # ── Banco de pruebas de Core (spec 010) ─────────────────────────────────────
+  #
+  # Arranca HA Core real en un contenedor y ejecuta contra ella los tests de
+  # `tests/banco/`. Hermes se conecta por un Supervisor simulado
+  # (tests/banco/supervisor_simulado.py), por el mismo camino que en un
+  # add-on: así se prueba contra la misma versión de Core que se despliega
+  # (principio VI) y no contra un simulador escrito por el propio proyecto.
+  #
+  # La clave del job y el nombre del check no llevan la versión de HA, para que
+  # el check obligatorio no cambie de nombre al subir de versión. Sin
+  # `continue-on-error`: si el banco falla, el CI se pone en rojo.
+  banco-core:
+    name: banco de Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Imagen fijada por digest del índice multiplataforma: una etiqueta se
+      # puede republicar y cambiar lo que se prueba sin que nadie lo vea. La
+      # etiqueta va delante solo para leerla: tiene que ser igual a
+      # HA_CORE_LAST_TESTED (lo comprueba tests/test_banco_workflow.py). Al
+      # subir de versión se cambian las dos cosas en el mismo commit; el digest
+      # se lee con `docker buildx imagetools inspect <imagen>:<versión>`.
+      HA_IMAGEN: ghcr.io/home-assistant/home-assistant:2026.11.1@sha256:6785d1eca68747a524c156faae1b139ed415c07357386ae6fe17291986e59e82
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          # La del add-on (ver el FROM de hermes/Dockerfile).
+          python-version: "3.13"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r hermes/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov aioresponses httpx pytest-timeout
+
+      - name: Descargar la imagen de HA Core
+        run: |
+          # Hasta 3 intentos: un fallo puntual del registro no debe tumbar el
+          # job, pero tres seguidos ya no son puntuales.
+          for intento in 1 2 3; do
+            if docker pull "$HA_IMAGEN"; then
+              exit 0
+            fi
+            if [ "$intento" = 1 ]; then sleep 10; elif [ "$intento" = 2 ]; then sleep 30; fi
+          done
+          echo "No se pudo descargar la imagen de HA Core tras 3 intentos." >&2
+          exit 1
+
+      - name: Preparar la configuración de HA
+        run: |
+          # Se monta una copia: HA escribe en /config (.storage, la base de
+          # datos) y el checkout tiene que quedar limpio.
+          cp -r tests/banco/ha_config "$RUNNER_TEMP/ha_config"
+
+      - name: Red sin salida a internet
+        run: |
+          # Al completar el onboarding, HA lanza en segundo plano integraciones
+          # que salen a internet (met, radio_browser, google_translate). El banco
+          # no puede depender de la red exterior: el contenedor va en una red
+          # propia y se rechaza todo lo que salga de su subred hacia fuera de
+          # ella. El puerto publicado en 127.0.0.1 sigue funcionando porque ese
+          # tráfico no pasa por FORWARD. La subred se lee, no se escribe a mano.
+          docker network create hermes-banco
+          subred="$(docker network inspect hermes-banco --format '{{(index .IPAM.Config 0).Subnet}}')"
+          echo "Subred del banco: $subred"
+          sudo iptables -I DOCKER-USER -s "$subred" ! -d "$subred" -j REJECT
+
+      - name: Arrancar HA Core
+        run: |
+          docker run -d --name ha-banco --network hermes-banco \
+            -p 127.0.0.1:8123:8123 \
+            -v "$RUNNER_TEMP/ha_config:/config" \
+            -e TZ=Etc/UTC \
+            "$HA_IMAGEN"
+
+      - name: Esperar a que HA responda
+        run: |
+          # El onboarding de pytest espera además a `state: RUNNING`; aquí solo
+          # se espera al HTTP, para que un arranque fallido se vea en este paso.
+          for _ in $(seq 1 150); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8123/api/onboarding; then
+              echo "HA responde."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "HA no respondió en 300 s." >&2
+          exit 1
+
+      - name: Comprobar que HA no tiene salida a internet
+        run: |
+          # Con el python3 de la propia imagen. Si alguna conexión se
+          # establece, la regla de arriba no está cortando nada (por ejemplo,
+          # porque los runners cambien de cortafuegos) y el banco dependería de
+          # internet sin saberlo. Fail-closed (ver tests/banco/sin_salida.py):
+          # TCP a IP literal, sin DNS ni HTTP; solo un fallo de conexión cuenta
+          # como «sin salida». Una respuesta HTTP de error (429, 5xx) ya no
+          # puede pasar por buena, y si falta python3 o el script falla por
+          # otra cosa, el paso falla.
+          if docker exec -i ha-banco python3 - 1.1.1.1:443 8.8.8.8:443 < tests/banco/sin_salida.py; then
+            echo "Sin salida a internet, como se esperaba."
+          else
+            echo "El contenedor de HA tiene salida a internet (o no se pudo comprobar)." >&2
+            exit 1
+          fi
+
+      - name: Preparar la comprobación de escrituras fuera del árbol
+        run: sudo mkdir -p /data && sudo chmod 777 /data
+
+      - name: Ejecutar el banco
+        env:
+          HERMES_BANCO_HA_URL: http://127.0.0.1:8123
+          # Convierte en fallo cualquier salto: el job no puede quedar verde
+          # sin haber ejecutado el banco.
+          HERMES_BANCO_OBLIGATORIO: "1"
+          HERMES_CONFIG_BASE: ${{ runner.temp }}/hermes_config
+        # Tope de 120 s por test; ningún test se reintenta: una intermitencia
+        # del banco es un fallo que hay que entender, no esconder. Si pytest
+        # no recoge ningún test sale con 5 y el paso falla igual.
+        run: pytest -m banco tests/banco -q -p no:cacheprovider --timeout=120 -rs
+
+      - name: La suite no debe escribir fuera del árbol
+        run: |
+          if [ -n "$(ls -A /data 2>/dev/null)" ]; then
+            echo "El banco ha escrito en /data. Debe aislarse en tests/conftest.py." >&2
+            ls -la /data >&2
+            exit 1
+          fi
+          echo "Sin escrituras fuera del árbol."
+
+      - name: Log de HA (solo si algo falla)
+        if: failure()
+        # HA no registra contraseñas ni tokens.
+        run: docker logs --tail 200 ha-banco || true
+
+      - name: Limpiar
+        if: always()
+        run: |
+          docker rm -f ha-banco || true
+          docker network rm hermes-banco || true

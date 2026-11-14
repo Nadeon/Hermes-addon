@@ -33,7 +33,38 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Banco de pruebas
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de
+  Core`, arranca Home Assistant Core 2026.11.1 en un contenedor (imagen fijada
+  por digest y sin salida a internet), completa el onboarding sin
+  intervención humana y conecta Hermes a ella por un Supervisor simulado, por
+  el mismo camino que en un add-on (`/core/api` y `/core/api/websocket` con el
+  token de add-on). Corre en cada push y cada pull request. Ejecuta los tests
+  de humo (arranque, lectura de estados y servicios, una llamada a servicio
+  con su efecto comprobado directamente en Core, los filtros del Supervisor y
+  que ninguna credencial del banco sale en el log, tampoco durante el
+  onboarding) y los de los helpers del punto siguiente. El job falla si algún
+  test del banco se salta, se deselecciona o queda como fallo esperado sin
+  ser un hallazgo documentado.
+- **Las tools que modifican helpers, ejecutadas de verdad.** En el mismo
+  job, las escrituras de `input_boolean`, `input_button`, `input_datetime`,
+  `input_number`, `input_select`, `input_text`, `counter`, `timer`, `schedule`,
+  `zone` y `person` se ejecutan contra esa HA: crear y editar en dos pasos (la
+  vista previa no toca nada y, al editar, lo que no se cambia se conserva),
+  cada acción sobre el valor, las recargas y los borrados. El efecto lo
+  comprueba un lector que habla directamente con Core, no Hermes. Un test de
+  la suite normal obliga a que cualquier tool nueva de esos dominios se pruebe
+  en el banco o diga por qué no se puede, y el job comprueba que cada una se
+  ha llamado con éxito en un test que ha pasado. 46 de las 47 funcionan.
+- **Hallazgo: `ha_reload_counters` falla contra HA real.** HA Core 2026.11.1
+  no tiene el servicio `counter.reload`; Core responde 400. No cuenta como
+  probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
+  033, y en el banco como fallo esperado que solo admite ese error. Esta
+  sección no cambia la tool.
+- Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
+  y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
+  onboarding, reglas de salto, comprobaciones del workflow, inventario de
+  cobertura) se prueban en la suite normal. Sin cambios en el código del
+  add-on.
 
 ### Correcciones
 

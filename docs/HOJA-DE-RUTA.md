@@ -14,10 +14,13 @@ las pruebas en vivo de la 1.1.0 y la 1.1.2, lo que encontraron las de la
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
 leyó en esos tags; las tools de lectura se probaron en una instalación de prueba
-con HA 2026.11.1. De las 124 tools que modifican, solo las de dashboards se
-han ejecutado contra una HA real (1.1.2); el resto se verificó leyendo el
-código de Hermes y el de Home Assistant. El banco de pruebas de la spec 008
-cierra ese hueco.
+con HA 2026.11.1. De las 124 tools que modifican, las de dashboards se han
+ejecutado contra una HA real (1.1.2) y las 47 de helpers se ejecutan en cada
+push en el CI contra HA Core 2026.11.1 real (46 funcionan; `ha_reload_counters`
+falla, ver más abajo) (banco de pruebas, spec 010; ver
+«Banco de Core: helpers» más abajo); el resto se verificó leyendo el código de
+Hermes y el de Home Assistant. La 028 lleva al banco las demás escrituras de
+Core.
 
 ## Estado de compatibilidad
 
@@ -373,7 +376,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | N.º | Sub-feature | CAP | Estado |
 |---|---|---|---|
 | 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
-| 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | pendiente |
+| 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | pendiente |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
@@ -396,6 +399,55 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
+
+#### Banco de Core: helpers (010)
+
+El job `banco de Core` del workflow `Tests` arranca HA Core 2026.11.1 (imagen
+fijada por digest), conecta Hermes por un Supervisor simulado como en un
+add-on y ejecuta las tools que modifican de los 11 dominios de helpers; el
+efecto lo comprueba un lector que habla directamente con Core. El inventario
+está en `tests/banco/cobertura.py` y un test de la suite normal impide que una
+tool nueva de estos dominios entre sin probarse en el banco.
+
+Ejecutadas en el banco con su efecto comprobado (46; el job exige que cada
+una se haya llamado con éxito en un test que ha pasado):
+
+- `input_boolean`: `ha_create_or_update_input_boolean`, `ha_set_input_boolean`,
+  `ha_toggle_input_boolean`, `ha_delete_input_boolean`.
+- `input_button`: `ha_create_or_update_input_button`, `ha_press_input_button`,
+  `ha_delete_input_button`.
+- `input_datetime`: `ha_create_or_update_input_datetime`,
+  `ha_set_input_datetime`, `ha_delete_input_datetime`.
+- `input_number`: `ha_create_or_update_input_number`, `ha_set_input_number`,
+  `ha_increment_input_number`, `ha_decrement_input_number`,
+  `ha_delete_input_number`.
+- `input_select`: `ha_create_or_update_input_select`, `ha_set_input_select`,
+  `ha_cycle_input_select`, `ha_set_input_select_options`,
+  `ha_delete_input_select`.
+- `input_text`: `ha_create_or_update_input_text`, `ha_set_input_text`,
+  `ha_delete_input_text`.
+- `counter`: `ha_create_or_update_counter`, `ha_increment_counter`,
+  `ha_decrement_counter`, `ha_set_counter_value`, `ha_reset_counter`,
+  `ha_delete_counter`.
+- `timer`: `ha_create_or_update_timer`, `ha_start_timer`, `ha_pause_timer`,
+  `ha_change_timer`, `ha_cancel_timer`, `ha_finish_timer`, `ha_reload_timers`,
+  `ha_delete_timer`.
+- `schedule`: `ha_create_or_update_schedule`, `ha_reload_schedules`,
+  `ha_delete_schedule`.
+- `zone`: `ha_create_or_update_zone`, `ha_reload_zones`, `ha_delete_zone`.
+- `person`: `ha_create_person`, `ha_update_person`, `ha_delete_person`.
+
+No ejecutables en el banco: ninguna.
+
+Se ejecuta en el banco pero falla (`FALLAN_EN_BANCO`; no cuenta como probada).
+Hallazgo pendiente de arreglo en la spec 033:
+
+- **`ha_reload_counters` no funciona.** HA Core 2026.11.1 no tiene el servicio
+  `counter.reload` (la integración `counter` solo registra `increment`,
+  `decrement`, `reset` y `set_value`): Core responde 400 y la tool termina en
+  «Error executing tool». En el banco está como fallo esperado estricto
+  (`xfail`) que solo admite ese error y que se pondrá en rojo cuando deje de
+  fallar.
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las
