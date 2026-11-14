@@ -667,6 +667,7 @@ class HAClient:
         self,
         payload: dict[str, Any],
         event_timeout_seconds: float = 10.0,
+        collect_warnings: bool = False,
     ) -> dict[str, Any]:
         """Envía un comando WS de suscripción, espera el primer evento y cancela.
 
@@ -678,6 +679,11 @@ class HAClient:
         Garantiza que no quedan suscripciones huérfanas incluso en caso de
         timeout o error. Si no llega el event en event_timeout_seconds, lanza
         HAConnectionError con el template/payload original en el mensaje.
+
+        Con `collect_warnings=True`, los eventos `{"error", "level": "WARNING"}`
+        sin `result` se acumulan y se sigue esperando hasta el primer evento
+        con `result` o con un error de otro nivel, que se devuelve con
+        `"warnings": [...]` si hubo alguno. Todo dentro del mismo plazo.
 
         Raises:
             HAConnectionError: WS no disponible, suscripción rechazada por HA,
@@ -694,9 +700,18 @@ class HAClient:
 
             result_future: asyncio.Future[Any] = loop.create_future()
             event_future: asyncio.Future[Any] = loop.create_future()
+            event_queue: asyncio.Queue[Any] = asyncio.Queue()
 
             self._pending_ws_responses[request_id] = result_future
-            self._pending_ws_subscriptions[request_id] = event_future
+            if collect_warnings:
+                # Con `report_errors` HA emite cada aviso como un evento
+                # ANTES del resultado; un future único se quedaba con el
+                # primer aviso y perdía el resultado. La cola de las
+                # suscripciones persistentes recibe todos los eventos, y la
+                # caída de la WS la avisa con el sentinel.
+                self._event_subscription_queues[request_id] = event_queue
+            else:
+                self._pending_ws_subscriptions[request_id] = event_future
 
             payload_with_id = dict(payload)
             payload_with_id["id"] = request_id
@@ -722,6 +737,33 @@ class HAClient:
 
         # Esperar el primer evento con los datos reales
         try:
+            if collect_warnings:
+                # El plazo es el total de la espera, no el de cada evento:
+                # una ristra de avisos no puede alargarla sin tope.
+                deadline = loop.time() + event_timeout_seconds
+                warnings: list[str] = []
+                while True:
+                    restante = deadline - loop.time()
+                    if restante <= 0:
+                        raise asyncio.TimeoutError
+                    item = await asyncio.wait_for(event_queue.get(), timeout=restante)
+                    if item is _WS_CLOSED_SENTINEL:
+                        raise HAConnectionError(
+                            "WebSocket connection lost while waiting for "
+                            f"subscription event: {payload.get('type')}"
+                        )
+                    if not isinstance(item, dict):
+                        continue
+                    if (
+                        "error" in item
+                        and "result" not in item
+                        and item.get("level") == "WARNING"
+                    ):
+                        warnings.append(str(item.get("error")))
+                        continue
+                    if warnings:
+                        item = {**item, "warnings": warnings}
+                    return item
             event_data = await asyncio.wait_for(event_future, timeout=event_timeout_seconds)
             return event_data if isinstance(event_data, dict) else {}
         except asyncio.TimeoutError:
@@ -875,7 +917,7 @@ class HAClient:
     ) -> bool:
         """Borra un item. Devuelve True si se borró, False si no existía.
 
-        HA WS devuelve error `not_found` (o similar) si el id no existe.
+        HA WS devuelve el código `not_found` si el id no existe.
         Otros errores se propagan como HAConnectionError.
         """
         id_key = f"{domain}_id"
@@ -887,7 +929,10 @@ class HAClient:
             await self.ws_send(payload)
             return True
         except HAConnectionError as exc:
-            if "not found" in str(exc).lower() or "not_found" in str(exc).lower():
+            # Se decide por el código y no por el texto: HA responde «Unable
+            # to find counter_id …», que no contiene «not found», y un texto
+            # cualquiera con «not found» no significa que el id falte.
+            if exc.code == "not_found":
                 return False
             raise
 

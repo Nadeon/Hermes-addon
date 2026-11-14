@@ -16,6 +16,7 @@ from typing import Any
 import structlog
 
 from hermes.ha import HAClient, HAConnectionError
+from hermes.ha_version import ha_at_least
 from hermes.tools._common import requires_ready
 
 logger = structlog.get_logger(__name__)
@@ -23,10 +24,37 @@ logger = structlog.get_logger(__name__)
 _HACS_DISCLAIMER = (
     "HACS integration is best-effort. Its API is not officially stable and may "
     "change between HACS versions. If this tool returns unexpected errors, verify "
-    "the HACS version installed and update Hermes if needed."
+    "the HACS version installed."
 )
 
-_VALID_CATEGORIES = {"integration", "plugin", "theme", "python_script", "appdaemon", "netdaemon"}
+# Categorías reales de HACS: `template` existe y `netdaemon` se retiró.
+_VALID_CATEGORIES = {"integration", "plugin", "theme", "python_script", "appdaemon", "template"}
+
+
+async def _hacs_error(ha_client: HAClient, exc: HAConnectionError) -> dict[str, Any]:
+    """Traduce un error de los comandos `hacs/*` a una respuesta útil.
+
+    `unknown_command` significa que HA no conoce `hacs/*`. Desde 2026.11 HACS
+    viene integrado como Marketplace y esos comandos ya no existen; antes,
+    significa que HACS no está instalado. En ningún caso lo arregla actualizar
+    Hermes, que es lo que sugería el mensaje genérico. Con versión desconocida
+    no se puede afirmar lo del Marketplace, así que se dice lo seguro.
+    """
+    if exc.code == "unknown_command":
+        if await ha_at_least(ha_client, "2026.11.0") is True:
+            return {
+                "error": "hacs_moved_to_marketplace",
+                "hint": (
+                    "HACS is built into Home Assistant as the Marketplace since "
+                    "2026.11 and the hacs/* commands no longer exist. Pending "
+                    'updates: ha_get_states(domain="update").'
+                ),
+            }
+        return {
+            "error": "hacs_not_installed",
+            "hint": "Home Assistant does not know the hacs/* commands: HACS is not installed.",
+        }
+    return {"error": str(exc), "_disclaimer": _HACS_DISCLAIMER}
 
 
 def register(mcp: object, ha_client: HAClient) -> None:
@@ -51,7 +79,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 result["_disclaimer"] = _HACS_DISCLAIMER
             return result
         except HAConnectionError as exc:
-            return {"error": str(exc), "_disclaimer": _HACS_DISCLAIMER}
+            return await _hacs_error(ha_client, exc)
 
     @mcp.tool()
     @ready
@@ -67,7 +95,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 "integration" — integraciones custom
                 "plugin"      — Lovelace custom cards (frontend)
                 "theme"       — temas
-                "python_script", "appdaemon", "netdaemon"
+                "python_script", "appdaemon", "template"
                 Omitir para listar todos.
 
         Returns:
@@ -97,7 +125,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 }
             return {"error": f"Unexpected response: {type(result).__name__}", "_disclaimer": _HACS_DISCLAIMER}
         except HAConnectionError as exc:
-            return {"error": str(exc), "_disclaimer": _HACS_DISCLAIMER}
+            return await _hacs_error(ha_client, exc)
 
     @mcp.tool()
     @ready
@@ -123,7 +151,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 result["_disclaimer"] = _HACS_DISCLAIMER
             return result
         except HAConnectionError as exc:
-            return {"error": str(exc), "_disclaimer": _HACS_DISCLAIMER}
+            return await _hacs_error(ha_client, exc)
 
     @mcp.tool()
     @ready
@@ -132,8 +160,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         NOTE: HACS integration is best-effort. Its API is not officially stable.
 
-        Filtra de ha_hacs_list_repositories() los repos donde
-        installed=true y available_version != installed_version.
+        Filtra de ha_hacs_list_repositories() los repos instalados con
+        actualización: usa `pending_upgrade` de HACS cuando lo trae y, si no,
+        available_version != installed_version.
 
         Returns:
             {"count": N, "updates": [...], "_disclaimer": "..."}
@@ -158,7 +187,15 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     or repo.get("version_available")
                     or (releases[0] if releases else None)
                 )
-                if installed and available and installed != available:
+                # `pending_upgrade` lo calcula HACS comparando de verdad
+                # (commits, versiones con o sin prefijo); el texto de las
+                # versiones puede coincidir y haber actualización, o al revés.
+                pending = repo.get("pending_upgrade")
+                if isinstance(pending, bool):
+                    has_update = pending
+                else:
+                    has_update = bool(installed and available and installed != available)
+                if has_update:
                     updates.append({
                         "id": repo.get("id"),
                         "name": repo.get("name"),
@@ -173,4 +210,4 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 "_disclaimer": _HACS_DISCLAIMER,
             }
         except HAConnectionError as exc:
-            return {"error": str(exc), "_disclaimer": _HACS_DISCLAIMER}
+            return await _hacs_error(ha_client, exc)

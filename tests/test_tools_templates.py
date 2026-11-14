@@ -33,7 +33,7 @@ def _make_client_with_subscription(session, event_payload: dict, delay: float = 
 
     client = make_ready_client(session, {})
 
-    async def fake_one_shot(payload, event_timeout_seconds=10.0):
+    async def fake_one_shot(payload, event_timeout_seconds=10.0, collect_warnings=False):
         if fail_result:
             raise HAConnectionError("HA WS command failed: template error")
         if delay > 0:
@@ -50,7 +50,7 @@ def _make_client_with_timeout(session):
 
     client = make_ready_client(session, {})
 
-    async def fake_timeout(payload, event_timeout_seconds=10.0):
+    async def fake_timeout(payload, event_timeout_seconds=10.0, collect_warnings=False):
         raise HAConnectionError("Timeout waiting for subscription event: render_template")
 
     client.ws_one_shot_subscription = fake_timeout  # type: ignore[method-assign]
@@ -134,7 +134,7 @@ class TestToolsTemplates(unittest.IsolatedAsyncioTestCase):
         session = self.session
         client = make_ready_client(session, {})
 
-        async def capture_payload(payload, event_timeout_seconds=10.0):
+        async def capture_payload(payload, event_timeout_seconds=10.0, collect_warnings=False):
             received_payload.append(payload)
             return {"result": "hola mundo", "listeners": {}}
 
@@ -154,7 +154,7 @@ class TestToolsTemplates(unittest.IsolatedAsyncioTestCase):
         session = self.session
         client = make_ready_client(session, {})
 
-        async def capture_payload(payload, event_timeout_seconds=10.0):
+        async def capture_payload(payload, event_timeout_seconds=10.0, collect_warnings=False):
             received_payload.append(payload)
             return {"result": "x", "listeners": {}}
 
@@ -175,7 +175,7 @@ class TestToolsTemplates(unittest.IsolatedAsyncioTestCase):
         recibidos: list[tuple[dict, float]] = []
         client = make_ready_client(self.session, {})
 
-        async def capture(payload, event_timeout_seconds=10.0):
+        async def capture(payload, event_timeout_seconds=10.0, collect_warnings=False):
             recibidos.append((payload, event_timeout_seconds))
             return {"result": "x", "listeners": {}}
 
@@ -190,3 +190,131 @@ class TestToolsTemplates(unittest.IsolatedAsyncioTestCase):
             payload, event_timeout = recibidos[0]
             self.assertEqual(event_timeout, esperado)
             self.assertEqual(payload["timeout"], esperado)
+
+    # ── D2: avisos y timeout de HA (FR-033, FR-034) ─────────
+
+    async def test_render_with_warning_returns_result_and_warnings(self) -> None:
+        """(b) Un aviso de nivel WARNING no es un error: la plantilla se
+        renderizó y el resultado no se puede perder."""
+        llamadas: list[bool] = []
+        client = make_ready_client(self.session, {})
+
+        async def fake_one_shot(payload, event_timeout_seconds=10.0, collect_warnings=False):
+            llamadas.append(collect_warnings)
+            if not collect_warnings:
+                # Sin recoger avisos, HA entrega primero el aviso.
+                return {"error": "'x' is undefined", "level": "WARNING"}
+            return {"result": "ok", "listeners": {}, "warnings": ["'x' is undefined"]}
+
+        client.ws_one_shot_subscription = fake_one_shot  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        mod.register(mcp, client)
+        result = json.loads(await mcp.tools["ha_render_template"]("{{ x }}ok"))
+        self.assertEqual(llamadas, [True])
+        self.assertNotIn("error", result)
+        self.assertEqual(result["result"], "ok")
+        self.assertEqual(result["warnings"], ["'x' is undefined"])
+
+    async def test_render_error_level_is_still_template_error(self) -> None:
+        """(c) Un error de nivel ERROR sigue siendo `template_error`."""
+        client = _make_client_with_subscription(
+            self.session, {"error": "boom", "level": "ERROR"}
+        )
+        mcp = DummyMCP()
+        mod.register(mcp, client)
+        result = json.loads(await mcp.tools["ha_render_template"]("{{ x }}"))
+        self.assertEqual(result["error"], "template_error")
+
+    async def test_ha_side_timeout_is_template_timeout(self) -> None:
+        """(d) Cuando el timeout lo detecta HA, llega como error del comando
+        con código `template_error`; antes salía como error genérico."""
+        from hermes.ha import HAConnectionError
+
+        client = make_ready_client(self.session, {})
+
+        async def fake_one_shot(payload, event_timeout_seconds=10.0, collect_warnings=False):
+            raise HAConnectionError(
+                "HA WS command failed: Exceeded maximum execution time of 5s",
+                code="template_error",
+            )
+
+        client.ws_one_shot_subscription = fake_one_shot  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        mod.register(mcp, client)
+        result = json.loads(
+            await mcp.tools["ha_render_template"]("{{ states | list }}", timeout=5)
+        )
+        self.assertEqual(result["error"], "template_timeout")
+
+
+class _ScriptedWS:
+    """WebSocket falsa: al recibir la suscripción, entrega por el manejador
+    real la confirmación y después `events`, como haría HA."""
+
+    closed = False
+
+    def __init__(self, client, events: list[dict]) -> None:
+        self.client = client
+        self.events = events
+        self.sent: list[dict] = []
+        self._tasks: list[asyncio.Task] = []
+
+    async def send_json(self, msg: dict) -> None:
+        self.sent.append(msg)
+        if msg.get("type") == "render_template":
+            self._tasks.append(asyncio.create_task(self._feed(msg["id"])))
+
+    async def _feed(self, request_id: int) -> None:
+        await self.client._handle_ws_message(
+            {"id": request_id, "type": "result", "success": True, "result": None}
+        )
+        for event in self.events:
+            await asyncio.sleep(0)
+            await self.client._handle_ws_message(
+                {"id": request_id, "type": "event", "event": event}
+            )
+
+
+class TestOneShotSubscriptionWarnings(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+        self.client = make_ready_client(self.session, {})
+        # make_ready_client no crea las colas de suscripciones persistentes.
+        self.client._event_subscription_queues = {}
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    _EVENTS = [
+        {"error": "'x' is undefined", "level": "WARNING"},
+        {"result": "ok", "listeners": {}},
+    ]
+
+    async def test_collect_warnings_returns_result_with_warnings(self) -> None:
+        """(a) Con `collect_warnings`, el aviso se acumula y se devuelve el
+        resultado; la suscripción se cancela al terminar."""
+        ws = _ScriptedWS(self.client, self._EVENTS)
+        self.client._ws = ws  # type: ignore[assignment]
+        event = await self.client.ws_one_shot_subscription(
+            {"type": "render_template", "template": "{{ x }}ok"},
+            event_timeout_seconds=2,
+            collect_warnings=True,
+        )
+        self.assertEqual(
+            event,
+            {"result": "ok", "listeners": {}, "warnings": ["'x' is undefined"]},
+        )
+        self.assertTrue(any(m["type"] == "unsubscribe_events" for m in ws.sent))
+        self.assertEqual(self.client._event_subscription_queues, {})
+
+    async def test_without_collect_warnings_behaviour_unchanged(self) -> None:
+        """(e) Sin `collect_warnings`, se devuelve el primer evento, como
+        antes."""
+        ws = _ScriptedWS(self.client, self._EVENTS)
+        self.client._ws = ws  # type: ignore[assignment]
+        event = await self.client.ws_one_shot_subscription(
+            {"type": "render_template", "template": "{{ x }}ok"},
+            event_timeout_seconds=2,
+        )
+        self.assertEqual(event, {"error": "'x' is undefined", "level": "WARNING"})
+        self.assertTrue(any(m["type"] == "unsubscribe_events" for m in ws.sent))

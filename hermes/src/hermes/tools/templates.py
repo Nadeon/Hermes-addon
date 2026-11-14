@@ -22,6 +22,12 @@ logger = structlog.get_logger(__name__)
 _RENDER_TIMEOUT_MIN = 1.0
 _RENDER_TIMEOUT_MAX = 60.0
 
+# Texto con el que HA informa de que la plantilla agotó su `timeout`. Llega
+# como error del comando con código `template_error`, el mismo que cualquier
+# otro fallo de la plantilla, así que el código no distingue el timeout y hay
+# que mirar el texto.
+_HA_TIMEOUT_TEXT = "Exceeded maximum execution time"
+
 
 def _clamp_timeout(timeout: float) -> float:
     """Acota el timeout al rango admitido; los valores no numéricos caen al mínimo."""
@@ -52,6 +58,8 @@ def register(mcp: object, ha_client: HAClient) -> None:
         Usa report_errors=True internamente: errores del template se devuelven
         como dict estructurado en vez de silenciarse. Así el cliente LLM puede
         identificar y corregir templates rotos sin depender de respuestas vacías.
+        Los avisos de nivel WARNING no impiden el render: se devuelven en
+        `warnings` junto al resultado.
 
         Args:
             template: Template Jinja2 de HA.
@@ -71,9 +79,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         Returns:
             JSON con {"result": "<string_renderizado>", "listeners": {...}}
-            en éxito, o {"error": "template_error", "detail": "..."} si el
-            template falla, o {"error": "template_timeout", "template": "..."}
-            si HA no responde en el tiempo configurado.
+            en éxito (más "warnings": [...] si HA emitió avisos), o
+            {"error": "template_error", "detail": "..."} si el template falla,
+            o {"error": "template_timeout", "template": "..."} si HA no
+            responde en el tiempo configurado o informa de que se agotó.
 
         Note:
             states('sensor.no_existe') devuelve "unknown" (comportamiento HA
@@ -92,11 +101,15 @@ def register(mcp: object, ha_client: HAClient) -> None:
             payload["variables"] = variables
 
         try:
+            # Con `report_errors`, HA manda cada aviso como evento antes del
+            # resultado; sin recogerlos, el primer aviso se tomaba como error
+            # y el resultado se perdía.
             event = await ha_client.ws_one_shot_subscription(
-                payload, event_timeout_seconds=timeout
+                payload, event_timeout_seconds=timeout, collect_warnings=True
             )
         except HAConnectionError as exc:
-            if "Timeout" in str(exc):
+            # "Timeout" es el plazo local de Hermes; el otro texto, el de HA.
+            if "Timeout" in str(exc) or _HA_TIMEOUT_TEXT in str(exc):
                 logger.warning(
                     "ha_render_template_timeout",
                     template=template[:100],
@@ -137,4 +150,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
             template=template[:100],
             result_type=type(result).__name__,
         )
-        return json.dumps({"result": result, "listeners": listeners})
+        response: dict[str, Any] = {"result": result, "listeners": listeners}
+        if event.get("warnings"):
+            response["warnings"] = event["warnings"]
+        return json.dumps(response)

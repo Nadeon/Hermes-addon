@@ -367,3 +367,53 @@ class TestToolsScripts(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result, [])
 
+    # ── R5: `trace` es un diccionario (FR-032) ──────────────
+
+    async def test_update_script_accepts_trace_dict(self) -> None:
+        """HA define `trace` como diccionario (`stored_traces`); el modelo lo
+        declaraba como lista y rechazaba cualquier script con trazas
+        configuradas. Debe pasar la validación y llegar intacto a HA."""
+        new_config = {
+            "sequence": [{"action": "light.turn_on"}],
+            "trace": {"stored_traces": 20},
+        }
+        with aioresponses() as m:
+            m.get(
+                f"{REST_BASE}/config/script/config/saludar",
+                status=200,
+                payload={"alias": "Viejo", "sequence": []},
+            )
+            preview = await self.mcp.tools["ha_create_or_update_script"](
+                "script.saludar", new_config
+            )
+        self.assertIn("confirmation_token", preview, preview)
+        self.assertEqual(preview["preview"]["new"]["trace"], {"stored_traces": 20})
+
+        with aioresponses() as m:
+            m.post(
+                f"{REST_BASE}/config/script/config/saludar",
+                status=200,
+                payload={"result": "ok"},
+            )
+            result = await self.mcp.tools["ha_create_or_update_script"](
+                "script.saludar",
+                new_config,
+                confirmation_token=preview["confirmation_token"],
+            )
+            posted = None
+            for (method, _url), calls in m.requests.items():
+                if method.upper() == "POST":
+                    posted = calls[0].kwargs.get("json")
+                    break
+        self.assertEqual(result, {"result": "ok"})
+        self.assertEqual(posted["trace"], {"stored_traces": 20})
+
+    async def test_update_script_rejects_trace_list(self) -> None:
+        result = await self.mcp.tools["ha_create_or_update_script"](
+            "script.saludar",
+            {"sequence": [], "trace": [{"stored_traces": 20}]},
+        )
+        self.assertIn("error", result)
+        self.assertIn("config validation", result["error"])
+        self.assertNotIn("confirmation_token", result)
+

@@ -18,6 +18,7 @@ from typing import Any
 import structlog
 
 from hermes.ha import HAClient, HAConnectionError
+from hermes.ha_version import ha_at_least
 from hermes.tools._common import requires_ready
 
 logger = structlog.get_logger(__name__)
@@ -143,14 +144,22 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = 1_048_5
                   "statistic_id": "sensor.energia_total",
                   "name": "Energía total",
                   "source": "recorder",
-                  "unit_of_measurement": "kWh",
-                  "has_mean": false,
-                  "has_sum": true
+                  "statistics_unit_of_measurement": "kWh",
+                  "display_unit_of_measurement": "kWh",
+                  "unit_class": "energy",
+                  "mean_type": 0,
+                  "has_sum": true,
+                  "has_mean": false
                 },
 ...
               ],
               "count": 42
             }
+
+            `statistics_unit_of_measurement` es la unidad en que se guardan
+            las estadísticas y `display_unit_of_measurement` la que muestra
+            HA. `mean_type` dice si hay media (0 = ninguna, 1 = aritmética,
+            2 = circular). `has_mean` está deprecated en HA: usa `mean_type`.
         """
         payload: dict[str, Any] = {"type": "recorder/list_statistic_ids"}
         if statistic_type is not None:
@@ -190,8 +199,8 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = 1_048_5
             statistic_ids: Lista de statistic_ids a consultar
                            (ej. ["sensor.energia_total", "sensor.temperatura_salon"]).
             period: Granularidad de agregación: "5minute", "hour", "day", "week",
-                    "month", "year". Rangos >7 días rechazan "5minute"
-                    (demasiados puntos).
+                    "month", "year" ("year" requiere HA 2026.3 o posterior).
+                    Rangos >7 días rechazan "5minute" (demasiados puntos).
             hours_back: Horas hacia atrás desde ahora. Default 24h. Ignorado si
                         se proporciona start_time.
             start_time: Inicio del rango en ISO 8601
@@ -230,7 +239,8 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = 1_048_5
             }
 
             En caso de error de validación devuelve:
-            {"error": "invalid_period" | "range_too_large_for_5minute", "detail": "..."}
+            {"error": "invalid_period" | "range_too_large_for_5minute"
+                      | "period_not_supported", "detail": "..."}
         """
         # Calcular rango temporal y estimar range_hours para validación
         if start_time is None:
@@ -256,6 +266,15 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = 1_048_5
                 "error": "invalid_period",
                 "detail": f"period must be one of {sorted(_VALID_PERIODS)}",
                 "given": period,
+            })
+
+        # HA añadió "year" en 2026.3; antes responde con un error de esquema
+        # que no dice qué falla. Con versión desconocida se envía igual: es una
+        # lectura y, si HA no lo admite, el error no hace daño.
+        if period == "year" and await ha_at_least(ha_client, "2026.3.0") is False:
+            return json.dumps({
+                "error": "period_not_supported",
+                "detail": "period 'year' requires Home Assistant 2026.3 or newer",
             })
 
         # Validar 5minute solo para rangos ≤7 días

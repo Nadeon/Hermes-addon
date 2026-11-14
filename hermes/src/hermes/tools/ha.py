@@ -158,11 +158,12 @@ _auto_restricted = _policy._auto_restricted
 
 
 # Claves con las que un paso de script/automatización nombra el servicio a
-# ejecutar. `service` es la forma histórica; `action` es la estándar desde HA
-# 2024.8 y la que escribe la propia interfaz, y `perform_action` es el alias que
-# introdujo la misma versión. Hay que mirar las tres: escanear solo `service`
-# deja que un script escrito con la sintaxis moderna —la normal hoy— cuele un
-# `shell_command.*` sin que se clasifique como peligroso.
+# ejecutar. `service` es la forma histórica y `action` la estándar desde HA
+# 2024.8, la que escribe la propia interfaz: escanear solo `service` deja que un
+# script escrito con la sintaxis moderna —la normal hoy— cuele un
+# `shell_command.*` sin que se clasifique como peligroso. `perform_action` NO
+# es una clave de HA (se creyó un alias de `action`); se mantiene como defensa
+# en profundidad, porque mirarla solo puede dar falsos positivos.
 _SERVICE_CALL_KEYS: frozenset[str] = frozenset({"service", "action", "perform_action"})
 
 # Variantes con plantilla: no se pueden analizar estáticamente, se marcan siempre.
@@ -457,13 +458,26 @@ def register(
 
     @mcp.tool()
     @ready
-    async def ha_list_services() -> object:
+    async def ha_list_services(domain: str | None = None) -> object:
         """Lista los servicios disponibles en Home Assistant.
 
-        Nota:
-            El resultado puede ser extenso porque incluye todos los dominios y servicios.
+        Args:
+            domain: Dominio cuyos servicios se quieren (ej. "light"). Úsalo
+                siempre que sepas el dominio: sin él la respuesta incluye
+                todos los dominios y puede superar los 100 KB. Un dominio
+                inexistente devuelve [].
         """
-        return json.dumps(await ha_client.get_services(), ensure_ascii=False, separators=(",", ":"))
+        services = await ha_client.get_services()
+        # El filtro se aplica aquí porque la API REST de HA no lo admite, y la
+        # lista completa excede lo que algunos clientes aceptan en una
+        # respuesta.
+        if domain is not None and isinstance(services, list):
+            services = [
+                item
+                for item in services
+                if isinstance(item, dict) and item.get("domain") == domain
+            ]
+        return json.dumps(services, ensure_ascii=False, separators=(",", ":"))
 
     @mcp.tool()
     @ready

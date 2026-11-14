@@ -189,50 +189,50 @@ Notas de reparto:
 
 ### R5 — `trace` en scripts (US5)
 
-- [ ] T055 [P] [US5] Tests de regresión en `tests/test_tools_scripts.py`: `ha_create_or_update_script` con `{"sequence": [...], "trace": {"stored_traces": 20}}` pasa la validación y llega a HA con `trace` intacto; `trace` como lista → error de validación (FR-032)
-- [ ] T056 [US5] `trace: dict[str, Any] | None = None` en `hermes/src/hermes/models/script.py:21` (FR-032)
-- [ ] T057 [US5] Control negativo R5: deshacer T056 y comprobar que cae T055; anotar
+- [X] T055 [P] [US5] Tests de regresión en `tests/test_tools_scripts.py`: `ha_create_or_update_script` con `{"sequence": [...], "trace": {"stored_traces": 20}}` pasa la validación y llega a HA con `trace` intacto; `trace` como lista → error de validación (FR-032)
+- [X] T056 [US5] `trace: dict[str, Any] | None = None` en `hermes/src/hermes/models/script.py:21` (FR-032)
+- [X] T057 [US5] Control negativo R5: deshacer T056 y comprobar que cae T055; anotar
 
 ### C8 — `period: "year"` según versión (US5)
 
-- [ ] T058 [P] [US5] Tests de regresión en `tests/test_tools_statistics.py` (con `ha_at_least` parcheado): `year` con HA 2026.2 → `period_not_supported` sin llamada a `recorder/statistics_during_period`; con 2026.3 → se envía; con versión desconocida → se envía; la descripción de `ha_list_statistic_ids` nombra `mean_type` y `statistics_unit_of_measurement` y no promete `unit_of_measurement` (FR-036, FR-037)
-- [ ] T059 [US5] Guarda de versión en `ha_statistics_during_period`, `hermes/src/hermes/tools/statistics.py:254-260`, con `ha_at_least(…, "2026.3.0")`; docstring de `ha_list_statistic_ids` (`:124-160`) con los campos reales y `has_mean` deprecado (FR-036, FR-037)
-- [ ] T060 [US5] Control negativo C8 y C3: deshacer la guarda y luego el docstring de T059 y comprobar que caen los tests de T058 correspondientes; anotar
+- [X] T058 [P] [US5] Tests de regresión en `tests/test_tools_statistics.py` (con `ha_at_least` parcheado): `year` con HA 2026.2 → `period_not_supported` sin llamada a `recorder/statistics_during_period`; con 2026.3 → se envía; con versión desconocida → se envía; la descripción de `ha_list_statistic_ids` nombra `mean_type` y `statistics_unit_of_measurement` y no promete `unit_of_measurement` (FR-036, FR-037)
+- [X] T059 [US5] Guarda de versión en `ha_statistics_during_period`, `hermes/src/hermes/tools/statistics.py:254-260`, con `ha_at_least(…, "2026.3.0")`; docstring de `ha_list_statistic_ids` (`:124-160`) con los campos reales y `has_mean` deprecado (FR-036, FR-037)
+- [X] T060 [US5] Control negativo C8 y C3: deshacer la guarda y luego el docstring de T059 y comprobar que caen los tests de T058 correspondientes; anotar
 
 ### D1 — `not_found` por código en el borrado de colecciones (US6)
 
-- [ ] T061 [P] [US6] Test de regresión en `tests/test_tools_counter.py`: `ha_delete_counter("counter.no_existe")` con token, cuando `counter/delete` lanza `HAConnectionError("HA WS command failed: Unable to find counter_id no_existe", code="not_found")`, devuelve la respuesta `not_found`; un error con otro código se propaga como error (FR-031)
-- [ ] T062 [US6] En `ws_collection_delete`, `hermes/src/hermes/ha.py:858-875`, decidir por `exc.code == "not_found"` y quitar la búsqueda por texto (FR-031)
-- [ ] T063 [US6] Control negativo D1: deshacer T062 y comprobar que cae T061; anotar
+- [X] T061 [P] [US6] Test de regresión en `tests/test_tools_counter.py`: `ha_delete_counter("counter.no_existe")` con token, cuando `counter/delete` lanza `HAConnectionError("HA WS command failed: Unable to find counter_id no_existe", code="not_found")`, devuelve la respuesta `not_found`; un error con otro código se propaga como error (FR-031)
+- [X] T062 [US6] En `ws_collection_delete`, `hermes/src/hermes/ha.py:858-875`, decidir por `exc.code == "not_found"` y quitar la búsqueda por texto (FR-031)
+- [X] T063 [US6] Control negativo D1: deshacer T062 y comprobar que cae T061; anotar
 
 ### D2 — avisos y timeout de plantillas (US6)
 
-- [ ] T064 [P] [US6] Tests de regresión en `tests/test_tools_templates.py`: (a) `ws_one_shot_subscription(..., collect_warnings=True)` con un evento `{"error": "'x' is undefined", "level": "WARNING"}` seguido de `{"result": "ok", "listeners": {}}` devuelve el resultado con `warnings`; (b) `ha_render_template` en ese caso devuelve `result` y `warnings` y no `template_error`; (c) un evento `{"error": …, "level": "ERROR"}` sigue siendo `template_error`; (d) `HAConnectionError("HA WS command failed: Exceeded maximum execution time of 5s", code="template_error")` → `template_timeout`; (e) sin `collect_warnings`, el comportamiento de `ws_one_shot_subscription` no cambia (FR-033, FR-034)
-- [ ] T065 [US6] Parámetro `collect_warnings` en `ws_one_shot_subscription`, `hermes/src/hermes/ha.py:649-717` (cola de eventos en lugar de future único cuando está activo; mismo plazo total; desuscripción garantizada), con comentario del porqué (FR-033, research R-D1)
-- [ ] T066 [US6] En `hermes/src/hermes/tools/templates.py:94-133`, llamar con `collect_warnings=True`, devolver `warnings` y reconocer «Exceeded maximum execution time» como `template_timeout`; docstring `:44-82` (FR-033, FR-034)
-- [ ] T067 [US6] Control negativo D2: deshacer T065/T066 por separado y comprobar que caen los tests de T064 correspondientes; anotar
+- [X] T064 [P] [US6] Tests de regresión en `tests/test_tools_templates.py`: (a) `ws_one_shot_subscription(..., collect_warnings=True)` con un evento `{"error": "'x' is undefined", "level": "WARNING"}` seguido de `{"result": "ok", "listeners": {}}` devuelve el resultado con `warnings`; (b) `ha_render_template` en ese caso devuelve `result` y `warnings` y no `template_error`; (c) un evento `{"error": …, "level": "ERROR"}` sigue siendo `template_error`; (d) `HAConnectionError("HA WS command failed: Exceeded maximum execution time of 5s", code="template_error")` → `template_timeout`; (e) sin `collect_warnings`, el comportamiento de `ws_one_shot_subscription` no cambia (FR-033, FR-034)
+- [X] T065 [US6] Parámetro `collect_warnings` en `ws_one_shot_subscription`, `hermes/src/hermes/ha.py:649-717` (cola de eventos en lugar de future único cuando está activo; mismo plazo total; desuscripción garantizada), con comentario del porqué (FR-033, research R-D1)
+- [X] T066 [US6] En `hermes/src/hermes/tools/templates.py:94-133`, llamar con `collect_warnings=True`, devolver `warnings` y reconocer «Exceeded maximum execution time» como `template_timeout`; docstring `:44-82` (FR-033, FR-034)
+- [X] T067 [US6] Control negativo D2: deshacer T065/T066 por separado y comprobar que caen los tests de T064 correspondientes; anotar
 
 ### D5 — filtro `domain` en `ha_list_services` (US6)
 
-- [ ] T068 [P] [US6] Tests de regresión en `tests/test_tools_ha_services.py` (nuevo): con `get_services()` simulado de tres dominios, `ha_list_services(domain="light")` devuelve solo `light`; `domain="no_existe"` → `[]`; sin `domain` → la lista completa como antes; la respuesta filtrada mide menos del 10 % de la completa en el fake (FR-035, SC-007)
-- [ ] T069 [US6] Parámetro `domain` en `ha_list_services`, `hermes/src/hermes/tools/ha.py:460-466`, con docstring que recomienda usarlo (FR-035)
-- [ ] T070 [US6] Control negativo D5: deshacer T069 y comprobar que cae T068; anotar
+- [X] T068 [P] [US6] Tests de regresión en `tests/test_tools_ha_services.py` (nuevo): con `get_services()` simulado de tres dominios, `ha_list_services(domain="light")` devuelve solo `light`; `domain="no_existe"` → `[]`; sin `domain` → la lista completa como antes; la respuesta filtrada mide menos del 10 % de la completa en el fake (FR-035, SC-007)
+- [X] T069 [US6] Parámetro `domain` en `ha_list_services`, `hermes/src/hermes/tools/ha.py:460-466`, con docstring que recomienda usarlo (FR-035)
+- [X] T070 [US6] Control negativo D5: deshacer T069 y comprobar que cae T068; anotar
 
 ### R3 + C5 — HACS (US6)
 
-- [ ] T071 [P] [US6] Tests de regresión en `tests/test_tools_hacs.py` (nuevo): con `hacs/info` que lanza `HAConnectionError("HA WS command failed: Unknown command.", code="unknown_command")` y HA 2026.11 → `hacs_moved_to_marketplace` con `hint` que nombra `ha_get_states(domain="update")`; con HA 2026.10 o versión desconocida → `hacs_not_installed`; ningún mensaje contiene «update Hermes»; lo mismo en las otras tres tools `ha_hacs_*`; `category="template"` aceptada y `"netdaemon"` rechazada; `ha_hacs_list_updates` usa `pending_upgrade: true` aunque las versiones coincidan en texto (FR-038, FR-039)
-- [ ] T072 [US6] Helper `_hacs_error(ha_client, exc)` y su uso en `hermes/src/hermes/tools/hacs.py:49-54, 91, 118, 144`; `_VALID_CATEGORIES` y disclaimer en `:22-29`; `pending_upgrade` en `:150-160` (FR-038, FR-039)
-- [ ] T073 [US6] Control negativo R3/C5: deshacer T072 y comprobar que caen los tests de T071; anotar
+- [X] T071 [P] [US6] Tests de regresión en `tests/test_tools_hacs.py` (nuevo): con `hacs/info` que lanza `HAConnectionError("HA WS command failed: Unknown command.", code="unknown_command")` y HA 2026.11 → `hacs_moved_to_marketplace` con `hint` que nombra `ha_get_states(domain="update")`; con HA 2026.10 o versión desconocida → `hacs_not_installed`; ningún mensaje contiene «update Hermes»; lo mismo en las otras tres tools `ha_hacs_*`; `category="template"` aceptada y `"netdaemon"` rechazada; `ha_hacs_list_updates` usa `pending_upgrade: true` aunque las versiones coincidan en texto (FR-038, FR-039)
+- [X] T072 [US6] Helper `_hacs_error(ha_client, exc)` y su uso en `hermes/src/hermes/tools/hacs.py:49-54, 91, 118, 144`; `_VALID_CATEGORIES` y disclaimer en `:22-29`; `pending_upgrade` en `:150-160` (FR-038, FR-039)
+- [X] T073 [US6] Control negativo R3/C5: deshacer T072 y comprobar que caen los tests de T071; anotar
 
 ### C4 — `perform_action` (US6)
 
-- [ ] T074 [P] [US6] Redocumentar el test de `tests/test_security_regressions.py:211-212` como defensa en profundidad (no alias de HA) y añadir un test que compruebe que `action` (la clave real) sí se detecta (FR-040)
-- [ ] T075 [US6] Corregir el comentario de `hermes/src/hermes/tools/ha.py:161-167` (FR-040, research R-D7)
-- [ ] T076 [US6] Control negativo C4: quitar `action` de `_SERVICE_CALL_KEYS` en `hermes/src/hermes/tools/ha.py:167` y comprobar que cae el test nuevo de T074; restaurar y anotar
+- [X] T074 [P] [US6] Redocumentar el test de `tests/test_security_regressions.py:211-212` como defensa en profundidad (no alias de HA) y añadir un test que compruebe que `action` (la clave real) sí se detecta (FR-040)
+- [X] T075 [US6] Corregir el comentario de `hermes/src/hermes/tools/ha.py:161-167` (FR-040, research R-D7)
+- [X] T076 [US6] Control negativo C4: quitar `action` de `_SERVICE_CALL_KEYS` en `hermes/src/hermes/tools/ha.py:167` y comprobar que cae el test nuevo de T074; restaurar y anotar
 
 ### Cierre del lote D
 
-- [ ] T077 Ejecutar los tests del lote D y la suite completa; grep de privacidad del diff; commit del lote con los recuentos
+- [X] T077 Ejecutar los tests del lote D y la suite completa; grep de privacidad del diff; commit del lote con los recuentos
 
 **Punto de control**: US5 (salvo R4) y US6 completas.
 
