@@ -6,7 +6,7 @@ motivo de `tests/banco/entorno.py`, y dentro, un salto es un fallo.
 Cubre FR-004 y FR-005 (Hermes llega a Core por el Supervisor simulado con las
 funciones de arranque, `HAClient` y el registro de tools de producción), la
 parte de humo de FR-008 (el efecto lo ve el lector independiente, no Hermes) y
-FR-012 (ninguna credencial en el log).
+FR-012 (ninguna credencial en el log, tampoco en el onboarding real).
 
 Control negativo en el CI (T021): con el simulado sin reenviar al add-on los
 mensajes de la WebSocket de Core, este fichero tiene que caer en rojo en el job
@@ -32,6 +32,7 @@ from tests.banco.entorno import (
     hermes_conectado,
     llamar,
     obtener_entorno,
+    registro_del_arranque,
 )
 from tests.banco.lector import Lector
 
@@ -138,7 +139,23 @@ class TestFiltrosDelSimulado(_Banco):
 
 
 class TestSinCredencialesEnElLog(_Banco):
-    """FR-012, SC-005: ni el token de add-on ni el de Core salen en el log."""
+    """FR-012, SC-005: ninguna credencial sale en el log.
+
+    El arranque completo (onboarding contra la HA real: usuario, contraseña,
+    código, token de acceso, token de larga duración y token de add-on) pasa
+    una vez por proceso, antes del primer test; `tests/banco/entorno.py` lo
+    captura y aquí se comprueba (T042). Después, la conexión de Hermes.
+    """
+
+    def test_onboarding_real_sin_credenciales_en_el_log(self) -> None:
+        registro = registro_del_arranque()
+        self.assertIsNotNone(registro, "el entorno no guardó el log de su arranque")
+        assert registro is not None
+        self.assertEqual(len(registro.secretos), 6)
+        self.assertIn(self.entorno.token_core, registro.secretos)
+        self.assertGreater(registro.eventos, 0, "el onboarding debería registrar sus pasos")
+        for secreto in registro.secretos:
+            self.assertNotIn(secreto, registro.log)
 
     async def test_arranque_y_llamada_sin_tokens_en_el_log(self) -> None:
         with self.assertLogs(level=logging.DEBUG) as caplog, structlog.testing.capture_logs() as eventos:

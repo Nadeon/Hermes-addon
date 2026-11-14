@@ -25,14 +25,17 @@ import asyncio
 import atexit
 import concurrent.futures
 import json
+import logging
 import os
 import secrets
 import threading
 import unittest
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Iterator
 
+import structlog
+import structlog.testing
 from aiohttp import web
 
 from tests.banco import onboarding
@@ -102,17 +105,19 @@ _runner: web.AppRunner | None = None
 _parada_registrada = False
 
 
-async def _crear(core_url: str) -> EntornoBanco:
+async def _crear(core_url: str, secretos: list[str]) -> EntornoBanco:
     global _runner
     cred = await onboarding.preparar_core(
         core_url,
         timeout_http=TIMEOUT_HTTP,
         timeout_running=TIMEOUT_RUNNING,
         intervalo=INTERVALO,
+        anotar_secreto=secretos.append,
     )
     # El token que Hermes usa como SUPERVISOR_TOKEN: solo lo conoce el
     # simulado, como en producción.
     token_addon = secrets.token_urlsafe(32)
+    secretos.append(token_addon)
     _runner, supervisor_url = await arrancar(
         core_url, token_addon, cred.token_core, cred.version_core
     )
@@ -151,19 +156,93 @@ def obtener_entorno() -> EntornoBanco:
         if not _parada_registrada:
             atexit.register(_parar)
             _parada_registrada = True
-        futuro = asyncio.run_coroutine_threadsafe(_crear(core_url), bucle)
-        try:
-            _entorno = futuro.result(timeout=TIMEOUT_HTTP + TIMEOUT_RUNNING + 60)
-            return _entorno
-        except onboarding.BancoNoDisponible as exc:
-            # El mensaje solo lleva el paso y el estado (FR-012).
-            _fallo = f"banco de Core no disponible en {core_url}: {exc}"
-        except concurrent.futures.TimeoutError:
-            futuro.cancel()
-            _fallo = f"banco de Core no disponible en {core_url}: tiempo agotado"
-        except Exception as exc:  # noqa: BLE001 — cualquier otra cosa también es un fallo
-            _fallo = f"banco de Core no disponible en {core_url}: {type(exc).__name__}"
+        with _capturar_arranque() as secretos:
+            futuro = asyncio.run_coroutine_threadsafe(_crear(core_url, secretos), bucle)
+            try:
+                _entorno = futuro.result(timeout=TIMEOUT_HTTP + TIMEOUT_RUNNING + 60)
+                return _entorno
+            except onboarding.BancoNoDisponible as exc:
+                # El mensaje solo lleva el paso y el estado (FR-012).
+                _fallo = f"banco de Core no disponible en {core_url}: {exc}"
+            except concurrent.futures.TimeoutError:
+                futuro.cancel()
+                _fallo = f"banco de Core no disponible en {core_url}: tiempo agotado"
+            except Exception as exc:  # noqa: BLE001 — cualquier otra cosa también es un fallo
+                _fallo = f"banco de Core no disponible en {core_url}: {type(exc).__name__}"
+            except BaseException as exc:
+                # El tope por test de pytest-timeout (y un Ctrl+C) no son
+                # `Exception`: cortan la espera del onboarding en el primer
+                # test. Sin fijar `_fallo` aquí, el test siguiente repetiría
+                # el onboarding y recibiría 403 «already done», que esconde
+                # la causa real (Core lento). Se anota y se deja pasar.
+                futuro.cancel()
+                _fallo = (
+                    f"banco de Core no disponible en {core_url}: la espera del onboarding "
+                    f"se cortó con {type(exc).__name__} (¿el tope por test de pytest?)"
+                )
+                raise
         raise AssertionError(_fallo)
+
+
+# ── Log del arranque (FR-012) ───────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class RegistroDelArranque:
+    """Lo que se registró mientras se creaba el entorno, y los secretos de
+    entonces (usuario, contraseña, código, token de acceso, token de larga
+    duración y token de add-on). Solo vive en memoria y no sale en `repr`."""
+
+    log: str = field(repr=False)
+    secretos: tuple[str, ...] = field(repr=False)
+    eventos: int
+
+
+_arranque: RegistroDelArranque | None = None
+
+
+def registro_del_arranque() -> RegistroDelArranque | None:
+    """El registro del onboarding de este proceso; None si no se ha hecho."""
+    return _arranque
+
+
+class _Lista(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.setFormatter(logging.Formatter("%(name)s %(levelname)s %(message)s"))
+        self.lineas: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lineas.append(self.format(record))
+
+
+@contextmanager
+def _capturar_arranque() -> Iterator[list[str]]:
+    """Captura el log (stdlib y structlog, a nivel DEBUG) mientras se crea el
+    entorno, junto con los secretos que se generan o se reciben.
+
+    El onboarding pasa una sola vez por proceso y antes del primer test, así
+    que el test de FR-012 del banco no puede capturarlo por su cuenta: lo
+    captura aquí y el test lo lee con `registro_del_arranque()`.
+    """
+    global _arranque
+    secretos: list[str] = []
+    raiz = logging.getLogger()
+    nivel = raiz.level
+    lista = _Lista()
+    raiz.addHandler(lista)
+    raiz.setLevel(logging.DEBUG)
+    try:
+        with structlog.testing.capture_logs() as eventos:
+            yield secretos
+    finally:
+        raiz.removeHandler(lista)
+        raiz.setLevel(nivel)
+        _arranque = RegistroDelArranque(
+            log="\n".join(lista.lineas) + "\n" + repr(eventos),
+            secretos=tuple(secretos),
+            eventos=len(eventos),
+        )
 
 
 def _parar() -> None:
@@ -188,11 +267,12 @@ def _parar() -> None:
 
 def _reiniciar() -> None:
     """Solo para los tests de este módulo: vuelve al estado `sin_crear`."""
-    global _entorno, _fallo
+    global _entorno, _fallo, _arranque
     with _cerrojo:
         _parar()
         _entorno = None
         _fallo = None
+        _arranque = None
 
 
 # ── Hermes conectado como en producción ─────────────────────────────────────
