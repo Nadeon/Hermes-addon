@@ -170,6 +170,33 @@ class TestPrimeraGeneracion(_Base):
         self.assertEqual(self.resultado.quitadas, [])
 
 
+class TestClaseAConToolDedicada(_Base):
+    """Spec 016 (T010, research R-7): una fila de clase A de una CAP de vía D
+    cuya clave ya está en `_DEDICADAS_INICIALES` sale `dedicated` en la
+    primera generación, con la familia de su tool; sin entrada en el mapa,
+    sigue «pendiente». Es el mismo diseño que la 012 (S-03): lo hace la
+    primera que se implemente.
+
+    Control negativo comprobado: sin la consulta al mapa en `_clasificar` →
+    cae `test_dedicada_con_la_familia_de_su_tool` («pendiente…»)."""
+
+    def test_dedicada_con_la_familia_de_su_tool(self) -> None:
+        mapa = dict(gt._DEDICADAS_INICIALES)
+        mapa["demo/via_d"] = "ha_update_config_entry"
+        original = gt._DEDICADAS_INICIALES
+        gt._DEDICADAS_INICIALES = mapa
+        try:
+            self._generar()
+        finally:
+            gt._DEDICADAS_INICIALES = original
+        e = self._tabla().CORE_WS["demo/via_d"]
+        self.assertEqual((e.category, e.tool, e.family, e.cap),
+                         ("dedicated", "ha_update_config_entry", "integration_flows", "CAP-041"))
+        self.assertEqual(e.reason, "cubierto por ha_update_config_entry")
+        # Las demás de vía D siguen pendientes.
+        self.assertEqual(self._tabla().CORE_WS["demo/via_dt"].category, "deny")
+
+
 class TestRegeneracion(_Base):
     def test_determinista(self) -> None:
         self._generar()

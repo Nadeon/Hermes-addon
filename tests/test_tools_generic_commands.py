@@ -742,6 +742,45 @@ class TestFamiliasDesactivadasInyectadas(_Base):
         self.ha.sv_request.assert_not_awaited()
 
 
+class TestDedicadasDeLa016(_Base):
+    """Spec 016 (T010, FR-018): con la tabla real, los tres comandos del tramo
+    A van a su tool dedicada; nada llega a HA ni se emite token.
+
+    Control negativo (T016 g): dejar `config_entries/update` en `deny` →
+    cae `test_update_hacia_la_dedicada` (`command_denied`)."""
+
+    inyectadas = False
+
+    async def test_progreso_hacia_la_dedicada(self) -> None:
+        r = await self.t["ha_read_ws_command"]("config_entries/flow/progress")
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_list_discovered_integrations",
+                          "integration_flows", False))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_update_hacia_la_dedicada(self) -> None:
+        r = await self.t["ha_call_ws_command"](
+            "config_entries/update", {"entry_id": "entrada-1", "pref_disable_polling": True})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_update_config_entry"))
+        self.assertNotIn("confirmation_token", r)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_ignorar_hacia_la_dedicada(self) -> None:
+        r = await self.t["ha_call_ws_command"](
+            "config_entries/ignore_flow", {"flow_id": "flow-1", "title": "x"})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_ignore_discovery"))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp = DummyMCP()
+        mod.register(mcp, self.ha, response_max_bytes=self.max_bytes,
+                     familias_desactivadas=frozenset({"integration_flows"}))
+        r = await mcp.tools["ha_read_ws_command"]("config_entries/flow/progress")
+        self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_list_discovered_integrations", True))
+        self.ha.ws_send.assert_not_awaited()
+
+
 def _registrar_todo(desactivadas: list[str]) -> tuple[DummyMCP, MagicMock]:
     """`register_all_tools` de verdad con un cliente simulado."""
     from hermes.tools import register_all_tools

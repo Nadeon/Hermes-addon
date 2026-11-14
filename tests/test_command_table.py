@@ -345,7 +345,17 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
         self.assertEqual(malas, [])
 
     def test_clase_a_de_via_dedicada_pendiente_de_su_spec(self) -> None:
+        """Una entrada de clase A de una CAP de vía D (o D+T, D+X) está `deny`
+        «pendiente de tool dedicada (spec NNN)» hasta que su sub-feature la
+        implementa, y entonces pasa a `dedicated` hacia una tool registrada de
+        una familia de la 1.2.0 (spec 016, research R-7; el mismo cambio que
+        diseña la 012). `read` o `confirm` nunca: serían la genérica haciendo
+        el trabajo de una dedicada que la 008 exige.
+
+        Control negativo comprobado (016, T016 g): con `config_entries/update`
+        en `read` → cae nombrándola."""
         matriz = _matriz_008()
+        tools = _tool_a_familia()
         malas = []
         for inventario, tabla in ((_CORE, ct.CORE_WS), (_SV, ct.SUPERVISOR)):
             for k, f in inventario.items():
@@ -355,6 +365,14 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                 if via not in {"D", "D+T", "D+X"}:
                     continue
                 e = tabla[k]
+                if e.category == "dedicated":
+                    familia = FAMILIAS.get(tools.get(e.tool or "", ""))
+                    if (familia is None or familia.desde != "1.2.0"
+                            or e.family != familia.nombre):
+                        malas.append(f"{k} ({f['cap']}): dedicated hacia {e.tool!r} "
+                                     f"de {e.family!r}, que no es una tool de una "
+                                     "familia de la 1.2.0")
+                    continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)
                 if e.category != "deny" or not m or m.group(1) not in subs:
                     malas.append(f"{k} ({f['cap']}, {via}, {subs}): {e.category} {e.reason!r}")

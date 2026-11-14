@@ -260,6 +260,10 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "config_entries/disable": "ha_disable_config_entry",
     "config_entries/get": "ha_list_config_entries",
     "config_entries/get_single": "ha_get_config_entry",
+    # Spec 016 (tramo A, CAP-044): clase A de vía D con tool dedicada.
+    "config_entries/flow/progress": "ha_list_discovered_integrations",
+    "config_entries/ignore_flow": "ha_ignore_discovery",
+    "config_entries/update": "ha_update_config_entry",
     # Datos.
     "history/history_during_period": "ha_get_history",
     "logbook/get_events": "ha_get_logbook",
@@ -441,6 +445,20 @@ def _clasificar(
     if clase == "C":
         return deny("pendiente de revisión (spec 025)")
     if clase.startswith("A") and cap in MATRIZ:
+        # Spec 016 (research R-7, mismo diseño que la 012): cuando la
+        # sub-feature de una CAP de vía D ya tiene su tool, la clave entra en
+        # el mapa y la fila sale `dedicated` con la familia de esa tool, en vez
+        # de «pendiente». La tabla es la fuente de verdad tras la primera
+        # generación, pero así el generador y la tabla dicen lo mismo.
+        destino = _DEDICADAS_INICIALES.get(clave)
+        if isinstance(destino, str):
+            return {
+                "category": "dedicated",
+                "reason": f"cubierto por {destino}",
+                "family": tools[destino],
+                "tool": destino,
+                "cap": cap,
+            }
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")
         if via in ("D", "D+T", "D+X"):
