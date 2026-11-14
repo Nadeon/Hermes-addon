@@ -104,6 +104,41 @@ class Lector:
         return respuesta.get("result")
 
     # ── Operaciones ──────────────────────────────────────────────────────
+    async def comando(self, mensaje: dict[str, Any]) -> Any:
+        """Cualquier comando WebSocket de Core; devuelve su `result`.
+
+        Spec 028: las escrituras que no son de helpers se comprueban con
+        comandos propios de cada dominio (`lovelace/dashboards/list`,
+        `lovelace/config`, `lovelace/resources/list`…). Un `success: false`
+        lanza `ErrorCore` con el código de Core.
+        """
+        return await self._comando(mensaje)
+
+    async def rest(
+        self, metodo: str, ruta: str, cuerpo: Any = None
+    ) -> tuple[int, Any]:
+        """REST directo a Core con el token de larga duración: `(estado, cuerpo)`.
+
+        Spec 028: la configuración guardada de automatizaciones, scripts y
+        escenas solo se lee por `/api/config/<dominio>/config/<id>`. No falla
+        con un estado de error: quien llama decide (un 404 es justo lo que
+        se espera tras un borrado). El cuerpo sale como JSON si lo es y como
+        texto si no.
+        """
+        assert self._session is not None
+        opciones: dict[str, Any] = {}
+        if cuerpo is not None:
+            opciones["json"] = cuerpo
+        async with self._session.request(
+            metodo, f"{self._core_url}{ruta}", **opciones
+        ) as resp:
+            texto = await resp.text()
+            try:
+                datos: Any = json.loads(texto) if texto else None
+            except ValueError:
+                datos = texto
+            return resp.status, datos
+
     async def listar(self, dominio: str) -> list[dict[str, Any]]:
         """Elementos de un dominio de helpers (`<dominio>/list`)."""
         return await self._comando({"type": f"{dominio}/list"})
