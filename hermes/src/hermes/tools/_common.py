@@ -627,7 +627,7 @@ async def guarded_entity_invoke(
     entity_id: str,
     tool_name: str,
     confirmation_token: str | None,
-    extra_data: dict[str, Any] | None = None,
+    variables: dict[str, Any] | None = None,
 ) -> object:
     """Ejecuta `domain.service` sobre una entidad, con token si está restringida.
 
@@ -641,17 +641,28 @@ async def guarded_entity_invoke(
     Aquí se consulta el set y, si la entidad está restringida, se aplica el
     mismo flujo de dos pasos que en `ha_call_service`. Si no lo está, la
     llamada es directa y de un solo paso.
+
+    El token ata también `variables` (spec 033): un script restringido puede
+    hacer cosas muy distintas según sus variables, así que lo que se confirma
+    tiene que ser exactamente lo que se previsualizó. Se atan tal como llegan
+    (`None` si no llegan): pedir la vista previa con variables y confirmar sin
+    ellas, o al revés, es otra acción y se rechaza. La vista previa las enseña
+    para que el usuario vea qué está aprobando.
     """
     from hermes.service_policy import get_auto_restricted_entities
 
     payload: dict[str, Any] = {"entity_id": entity_id}
-    if extra_data:
-        payload.update(extra_data)
+    if variables is not None:
+        payload["variables"] = variables
 
     if entity_id not in get_auto_restricted_entities():
         return await ha_client.call_service(domain, service, payload)
 
-    args = {"entity_id": entity_id, "service": f"{domain}.{service}"}
+    args = {
+        "entity_id": entity_id,
+        "service": f"{domain}.{service}",
+        "variables": variables,
+    }
     if not confirmation_token:
         return await create_confirmation_token(
             tool_name,
@@ -659,6 +670,7 @@ async def guarded_entity_invoke(
             preview={
                 "action": f"{domain}.{service}",
                 "entity_id": entity_id,
+                "variables": variables,
                 "reason": (
                     "Esta entidad está restringida: su contenido invoca "
                     "servicios de la denylist (borrado, reinicio, ejecución "

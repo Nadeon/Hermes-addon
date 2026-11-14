@@ -345,6 +345,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
     ) -> object:
         """Ejecuta un script de Home Assistant con variables opcionales.
 
+        Si el script está restringido (su secuencia invoca servicios de la
+        denylist), pide confirmación en dos pasos: la vista previa enseña
+        `variables` y el `confirmation_token` las cubre, así que hay que
+        confirmar con exactamente las mismas.
+
         Ejemplo:
             await ha_run_script(
                 "script.saludar",
@@ -364,7 +369,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
             entity_id,
             "ha_run_script",
             confirmation_token,
-            {"variables": variables} if variables is not None else None,
+            variables,
         )
 
     @mcp.tool()

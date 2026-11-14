@@ -402,7 +402,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
         variables: dict[str, Any] | None = None,
         confirmation_token: str | None = None,
     ) -> object:
-        """Dispara una automatización de Home Assistant."""
+        """Dispara una automatización de Home Assistant.
+
+        Si la automatización está restringida (sus acciones invocan servicios
+        de la denylist), pide confirmación en dos pasos: la vista previa enseña
+        `variables` y el `confirmation_token` las cubre, así que hay que
+        confirmar con exactamente las mismas.
+        """
         if not await entity_exists(ha_client, automation_id):
             logger.warning("ha_trigger_automation_not_found", automation_id=automation_id)
             return not_found_response(automation_id)
@@ -413,7 +419,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
             automation_id,
             "ha_trigger_automation",
             confirmation_token,
-            {"variables": variables} if variables is not None else None,
+            variables,
         )
 
     @mcp.tool()
