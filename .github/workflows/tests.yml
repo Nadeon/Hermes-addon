@@ -163,12 +163,22 @@ jobs:
           # Con el python3 de la propia imagen. Si esta petición llega, la regla
           # de arriba no está cortando nada (por ejemplo, porque los runners
           # cambien de cortafuegos) y el banco dependería de internet sin
-          # saberlo.
-          if docker exec ha-banco python3 -c "import urllib.request; urllib.request.urlopen('https://github.com', timeout=5)"; then
-            echo "El contenedor de HA tiene salida a internet." >&2
+          # saberlo. Fail-closed: solo un error de red cuenta como «sin
+          # salida»; si falta python3 o el script falla por otra cosa, el paso
+          # falla en vez de darlo por bueno.
+          if docker exec ha-banco python3 -c "
+          import sys, urllib.request
+          try:
+              urllib.request.urlopen('https://github.com', timeout=5)
+          except OSError:
+              sys.exit(0)
+          sys.exit(1)
+          "; then
+            echo "Sin salida a internet, como se esperaba."
+          else
+            echo "El contenedor de HA tiene salida a internet (o no se pudo comprobar)." >&2
             exit 1
           fi
-          echo "Sin salida a internet, como se esperaba."
 
       - name: Preparar la comprobación de escrituras fuera del árbol
         run: sudo mkdir -p /data && sudo chmod 777 /data

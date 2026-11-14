@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0] — <fecha de publicación>
+
+### Banco de pruebas
+
+- **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de
+  Core`, arranca Home Assistant Core 2026.11.1 en un contenedor (imagen fijada
+  por digest y sin salida a internet), completa el onboarding sin
+  intervención humana y conecta Hermes a ella por un Supervisor simulado, por
+  el mismo camino que en un add-on (`/core/api` y `/core/api/websocket` con el
+  token de add-on). Corre en cada push y cada pull request. De momento ejecuta
+  los tests de humo: arranque, lectura de estados y servicios, una llamada a
+  servicio con su efecto comprobado directamente en Core, los filtros del
+  Supervisor y que ninguna credencial del banco sale en el log.
+- Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
+  y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
+  onboarding, reglas de salto, comprobaciones del workflow) se prueban en la
+  suite normal. Sin cambios en el código del add-on.
+
 ## [1.1.2] — 2026-11-14
 
 Arreglo de lo que encontraron las pruebas en vivo de la 1.1.1 con Home

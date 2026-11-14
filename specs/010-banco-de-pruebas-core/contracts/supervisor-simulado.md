@@ -49,8 +49,10 @@ al arrancar. Escucha solo en `127.0.0.1`, en un puerto libre.
 4. Del cliente hacia Core, cada mensaje de texto se analiza como JSON (objeto
    o lista de objetos). Si alguno no tiene `type` de texto o su `type` empieza
    por `supervisor/` o `hassio/`, no se reenvía **nada** de ese mensaje y se
-   responde al cliente, por cada comando con `id`, con
-   `{"id": <id>, "type": "result", "success": false, "error": {"code": "unauthorized", "message": "Unauthorized"}}`.
+   responde al cliente con **una sola** respuesta
+   `{"id": <id>, "type": "result", "success": false, "error": {"code": "unauthorized", "message": "Unauthorized"}}`,
+   con el `id` del mensaje si es un objeto y `id: null` si es una lista (como
+   `_proxy_app_text` del real; corregido al implementar, tramo A).
 5. Cierre en cualquiera de los dos lados → cierre del otro.
 
 ## Lo que no hace

@@ -85,6 +85,27 @@ image instead of building your changes. Then `ha apps rebuild local_hermes`
 after any change, Python included (the code is copied into the image, so a
 plain restart keeps running the old one), and `ha apps logs local_hermes -f`.
 
+**Core test bench.** The tests in `tests/banco/` run against a real Home
+Assistant Core in a container, which only exists in the `banco de Core` CI job.
+On your machine they are skipped with a reason that names the missing variable
+(`pytest -rs` shows it); everything else in the bench — the simulated
+Supervisor, the automatic onboarding, the skip rules and the workflow checks —
+is tested in the normal suite against local doubles. To run the bench locally
+you need Docker (Linux, macOS or WSL) and a fresh container each time, because
+the onboarding can only be done once:
+
+```bash
+cp -r tests/banco/ha_config /tmp/ha_config_banco
+docker run -d --name ha-banco -p 127.0.0.1:8123:8123 \
+  -v /tmp/ha_config_banco:/config -e TZ=Etc/UTC "<HA_IMAGEN from tests.yml>"
+# wait until http://127.0.0.1:8123/api/onboarding answers 200
+HERMES_BANCO_HA_URL=http://127.0.0.1:8123 HERMES_BANCO_OBLIGATORIO=1 \
+  pytest -m banco tests/banco -q
+docker rm -f ha-banco && rm -rf /tmp/ha_config_banco
+```
+
+The exact steps are in `specs/010-banco-de-pruebas-core/quickstart.md`.
+
 ## The three conventions that matter
 
 Almost every review comment on this project comes back to one of these.
@@ -132,6 +153,10 @@ describe the rule that failed, never the value that failed it.
    are skipped on Windows, so CI covers paths your machine may not.
 5. **CI must be green.** Two required checks: `Tests` and `SAST (Semgrep)`
    (`CodeQL` joins them on the public repository, where it is free).
+   Inside `Tests`, the `banco de Core` job starts Home Assistant Core
+   2026.11.1 (image pinned by digest), completes its onboarding, and runs
+   `tests/banco/` with Hermes connected through a simulated Supervisor, as in
+   production; a skipped bench test is a failure there.
    Semgrep runs in blocking mode; if it flags a line you have reviewed and
    consider a false positive, suppress it with `# nosemgrep` on the exact line
    plus one line of justification, not by weakening the rule.
