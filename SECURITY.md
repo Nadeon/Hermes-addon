@@ -96,7 +96,9 @@ report about one of them will be closed with a pointer to this section:
 - **Authentication**: OAuth 2.1 with mandatory PKCE (S256), Dynamic Client
   Registration, high-entropy opaque tokens stored only as a SHA-256 hash,
   single-use auth codes, and revocation (RFC 7009). Refresh tokens rotate, with
-  reuse detection.
+  reuse detection. Changing `auth_password` closes every open session on the
+  next start; to notice the change, Hermes keeps a salted scrypt fingerprint of
+  the password in `/data`, never the password itself.
 - **The add-on password (`auth_password`) is the only secret protecting the whole
   system.** Hermes enforces a minimum of 12 characters at startup and rejects
   guessable passwords — repetitive ones, keyboard and alphabet runs, entries from
@@ -175,5 +177,8 @@ them into account:
   slug shown on the add-on's page) for repeated `oauth_login_locked`,
   `oauth_login_locked_global`, `oauth_login_throttled` or `auth_rejected`
   events.
+- If you suspect the password has been seen, change `auth_password` and restart
+  the add-on: every open session is closed and every client must authorize
+  again with the new one.
 - If you stop using Hermes, uninstall the add-on rather than just stopping it:
   uninstalling clears `/data`, and with it the stored OAuth keys and tokens.

@@ -347,10 +347,13 @@ obtiene un token. No hay que copiar ni pegar ninguna clave.
 **Cuánto dura.** Cada autorización vale **7 días**: Claude renueva su acceso cada
 hora dentro de esa semana, pero cuando se agota el conector vuelve a pedirte la
 contraseña. Puede haber hasta 5 autorizaciones vivas a la vez (móvil,
-escritorio…); la sexta cierra la que lleva más tiempo sin usarse. Cambiar
-`auth_password` **no** cierra las sesiones ya abiertas: siguen funcionando hasta
-que se cumplen sus 7 días. Para cortarlas todas de golpe, desinstala y reinstala el add-on, que borra
-sus tokens guardados (y sus opciones, así que apúntalas antes).
+escritorio…); la sexta cierra la que lleva más tiempo sin usarse.
+
+**Cerrar todas las sesiones.** Cambia `auth_password` y reinicia el add-on: al
+arrancar, Hermes detecta la contraseña nueva y cierra todas las sesiones
+abiertas, así que cada cliente tiene que autorizarse otra vez con ella. En el
+log aparece `oauth_sessions_revoked_password_changed`. Desde la 1.0.11; en
+versiones anteriores las sesiones seguían vivas hasta cumplir sus 7 días.
 
 **Qué esperar la primera vez.** Al conectar, Hermes le entrega a Claude un
 resumen de las familias de herramientas disponibles. Cuando necesita detalle de

@@ -20,12 +20,25 @@ from .password_policy import (
 
 # ── Constantes del proyecto ───────────────────────────────────
 # Bump HA_CORE_MIN_SUPPORTED solo cuando se use un endpoint que no
-# existía antes. Bump HA_CORE_LAST_TESTED en cada release que pase CI.
+# existía antes.
 # Topologías de red admitidas (ver `network_mode`).
 NETWORK_MODES = frozenset({"tailscale", "reverse_proxy"})
 
 HA_CORE_MIN_SUPPORTED = "2024.1.0"
-HA_CORE_LAST_TESTED = "2026.9.0"
+
+# Última versión de Home Assistant contra la que se comprobó Hermes de
+# verdad, con el conector real y no solo con la suite. Con una más nueva, el
+# arranque avisa con `ha_core_version_untested`.
+#
+# Va en pareja con la versión de Hermes en la que se revisó. La regla de
+# subirla "en cada release" estaba solo en un comentario, y la 1.0.10 salió
+# sin tocarla: todas las instalaciones al día avisaban en cada arranque de
+# una versión "no probada" que sí funcionaba. Un test exige ahora que la
+# pareja coincida con la versión de Hermes, así que cada release obliga a
+# decidir: o se comprueba contra la HA actual y se sube, o se deja a
+# sabiendas y solo se actualiza la pareja.
+HA_CORE_LAST_TESTED = "2026.11.1"
+HA_CORE_LAST_TESTED_IN_HERMES = "1.0.11"
 
 MCP_PORT = 8765
 HEALTH_PORT = 8766

@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.0.11] — 2026-11-14
+
+### Fixed — Cambiar `auth_password` no cerraba ninguna sesión
+
+Los tokens solo dependen de la contraseña en el momento del login. Cambiarla
+dejaba vivas todas las sesiones abiertas hasta cumplir sus 7 días, justo lo
+contrario de lo que espera quien la cambia porque sospecha que se la han
+visto. La única forma de cortarlas era desinstalar el add-on.
+
+Ahora, al arrancar, Hermes compara la contraseña con la del arranque
+anterior. Si cambió, borra todos los tokens y los códigos de autorización
+pendientes, y lo registra como `oauth_sessions_revoked_password_changed`.
+Cada cliente tiene que autorizarse otra vez con la contraseña nueva.
+
+Para notar el cambio guarda en `/data/oauth` una huella scrypt de la
+contraseña con sal propia, nunca la contraseña. Detalles:
+
+- Sin huella previa no hay con qué comparar y no se cierra nada. Es el caso
+  de esta misma actualización: pasar a la 1.0.11 no obliga a nadie a
+  autorizar de nuevo.
+- Una huella ilegible cuenta como cambio: ante la duda, se cierra.
+- Si la huella no se puede calcular o guardar, Hermes arranca igual y lo
+  registra como `oauth_password_fingerprint_failed`.
+
+### Fixed — `sv_get_core_info` devolvía siempre `state: null`
+
+Leía el estado del `/core/info` del Supervisor, que no tiene ese campo. El
+test pasaba porque su respuesta simulada se lo inventaba. Ahora el estado se
+lo pregunta al propio Core por la WebSocket (`get_config`): `running`,
+`starting`, `stopping`, `not_running`… Sin conexión con el Core, por
+ejemplo mientras reinicia, devuelve `unreachable` en vez de colgarse.
+
+### Fixed — Aviso de versión de Home Assistant «no probada» con versiones que funcionan
+
+La 1.0.10 salió con 2026.9.0 como última versión probada de Home Assistant,
+así que cualquier instalación al día avisaba en cada arranque con
+`ha_core_version_untested`. Hermes está comprobado contra 2026.11.1. La regla
+de revisar ese valor en cada versión estaba solo en un comentario; ahora un
+test la exige.
+
 ## [1.0.10] — 2026-11-07
 
 ### Fixed — `sv_set_addon_options` borraba las opciones que no se le pasaban
