@@ -115,7 +115,13 @@ report about one of them will be closed with a pointer to this section:
   - `confirmation_token` for every destructive operation (writing or deleting
     files, restarting, uninstalling add-ons, restoring backups, dangerous
     services…). The token is bound to the tool **and its arguments**, expires,
-    and is single-use.
+    and is single-use. For the five tools that carry a large document
+    (`ha_save_lovelace_dashboard`, `fs_write_file` and
+    `ha_create_or_update_automation`/`_script`/`_scene`), the preview keeps
+    that document in the add-on storage next to the token, so the
+    confirmation does not have to resend it. It is deleted when the token is
+    completed (successfully or not) or, if the token expires unconfirmed, at
+    most 60 s after it expires; it is never written to the log.
   - Service denylist + recursive `service_data` sanitisation + automatic
     classification of dangerous scripts and automations.
   - `/config` filesystem: anti-traversal (resolve + boundary check), secret

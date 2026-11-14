@@ -39,6 +39,14 @@ CONFIRMATIONS_DIR = Path("/data/pending_confirmations")
 # ── TTL de tokens ─────────────────────────────────────────────
 CONFIRMATION_TTL_SECONDS = 60
 
+# ── Tope de lo guardado junto a los tokens ───────────────────
+# Suma de los bytes de los documentos guardados en los tokens vigentes. Cada
+# documento cabe en una petición (`max_request_body_bytes`, 4 MiB por defecto)
+# y el techo global es de 120 peticiones por minuto: sin tope, un cliente
+# podría dejar unos 480 MiB en /data durante un minuto. 16 MiB caben cuatro
+# documentos del tamaño máximo y cientos de dashboards reales.
+CONFIRMATION_STORED_MAX_BYTES = 16 * 1024 * 1024
+
 
 # ── Canonicalización robusta para action_hash ─────────────────
 
@@ -155,22 +163,73 @@ def is_valid_confirmation_token_format(token: object) -> bool:
     return isinstance(token, str) and _TOKEN_RE.match(token) is not None
 
 
+def _bytes_guardados(guardados: dict[str, Any]) -> int:
+    """Tamaño de lo guardado tal como se escribe en el fichero del token."""
+    return len(json.dumps(guardados, ensure_ascii=False).encode("utf-8"))
+
+
+def _pistas_de_confirmacion(
+    tool_name: str,
+    args: dict[str, Any],
+    guardados: dict[str, Any],
+    no_guardados: list[str],
+) -> dict[str, Any]:
+    """Campos de la vista previa que dicen al agente cómo confirmar.
+
+    Sin ellos el agente reenvía el documento entero como en 1.1.1 y la
+    confirmación sigue llegando tarde: a unos 0,4 KB/s, uno de 41 KB tarda más
+    que los 60 s del token solo en escribirse. Si el documento no se pudo
+    guardar (tope), se dice que hay que reenviarlo todo: el comportamiento de
+    1.1.1, nunca uno más permisivo.
+    """
+    confirm_with = sorted(
+        {k for k in args if k not in guardados} | {"confirmation_token"}
+    )
+    pistas: dict[str, Any] = {"confirm_with": confirm_with}
+    if guardados:
+        omitir = sorted(guardados)
+        pistas["omit_on_confirm"] = omitir
+        pistas["confirm_hint"] = (
+            f"To confirm, call {tool_name} again with only "
+            f"{', '.join(confirm_with)}. {', '.join(omitir)} can be omitted: "
+            "the server kept the one from this preview. Any argument you do "
+            "send must be identical to the preview."
+        )
+    else:
+        pistas["confirm_hint"] = (
+            "Repeat the same call with all the same arguments plus "
+            "confirmation_token: the server could not keep "
+            f"{', '.join(no_guardados)} this time."
+        )
+    return pistas
+
+
 async def create_confirmation_token(
     tool_name: str,
     args: dict[str, Any],
     preview: dict[str, Any] | None = None,
+    *,
+    omitibles: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Crea un token de confirmación vinculado a una acción.
 
-    Devuelve: {confirmation_token, action_hash, expires_at, preview}
+    `omitibles` son los argumentos que la tool deja omitir al confirmar (su
+    documento grande). Se guardan junto al token para que la confirmación no
+    tenga que reescribirlos; las tools que no los declaran guardan lo mismo
+    que en 1.1.1.
+
+    Devuelve: {confirmation_token, expires_in_seconds, preview} y, si la tool
+    declara omitibles, {confirm_with, omit_on_confirm, confirm_hint}.
     """
     CONFIRMATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     token = str(uuid.uuid4())
+    # El hash se calcula con TODOS los argumentos, como siempre: es lo que ata
+    # el token a la acción previsualizada, se omita después lo que se omita.
     action_hash = compute_action_hash(tool_name, args)
     expires_at = time.time() + CONFIRMATION_TTL_SECONDS
 
-    token_data = {
+    token_data: dict[str, Any] = {
         "token": token,
         "action_hash": action_hash,
         "expires_at": expires_at,
@@ -179,6 +238,35 @@ async def create_confirmation_token(
         "created_at": time.time(),
         "retries": 0,
     }
+
+    # Solo los omitibles de la tool presentes en la vista previa, con el valor
+    # que entró en el hash. Nada más: guardar todos los argumentos escribiría
+    # en disco, por ejemplo, las opciones con contraseñas de
+    # sv_set_addon_options, y los demás ya los ata el action_hash.
+    guardados = {k: args[k] for k in omitibles if args.get(k) is not None}
+    no_guardados: list[str] = []
+    if guardados:
+        # Los documentos pendientes pueden llevar datos sensibles: cada vista
+        # previa nueva barre los caducados, y el mismo barrido da lo que
+        # ocupan los vigentes para el tope.
+        _, en_uso = _barrer_caducados()
+        tam = _bytes_guardados(guardados)
+        if en_uso + tam <= CONFIRMATION_STORED_MAX_BYTES:
+            token_data["stored_args"] = guardados
+            token_data["stored_bytes"] = tam
+        else:
+            # Fail-closed: el token se emite igual, pero sin documento; la
+            # confirmación tendrá que reenviarlo todo, como en 1.1.1. Al log,
+            # solo nombres y bytes, nunca el contenido.
+            no_guardados = sorted(guardados)
+            logger.warning(
+                "confirmation_args_not_stored",
+                tool=tool_name,
+                reason="storage_cap",
+                keys=no_guardados,
+                bytes=tam,
+            )
+            guardados = {}
 
     # Escribir atómicamente — un fichero por token
     token_path = CONFIRMATIONS_DIR / f"{token}.json"
@@ -194,6 +282,10 @@ async def create_confirmation_token(
     }
     if preview:
         result["preview"] = preview
+    if omitibles:
+        result.update(
+            _pistas_de_confirmacion(tool_name, args, guardados, no_guardados)
+        )
 
     return result
 
@@ -205,10 +297,38 @@ async def validate_confirmation_token(
 ) -> tuple[bool, str]:
     """Valida un token de confirmación.
 
+    Envoltorio de `resolve_confirmation_token` sin omitibles: las tools que no
+    declaran ninguno siguen exigiendo todos los argumentos, como en 1.1.1.
+
     Devuelve: (is_valid, error_message)
     """
+    ok, error, _ = await resolve_confirmation_token(token, tool_name, args)
+    return ok, error
+
+
+async def resolve_confirmation_token(
+    token: str,
+    tool_name: str,
+    args: dict[str, Any],
+    *,
+    omitibles: tuple[str, ...] = (),
+) -> tuple[bool, str, dict[str, Any]]:
+    """Valida un token y devuelve los argumentos con los que se ejecuta.
+
+    Un omitible ausente (o `None`) en `args` se toma de lo guardado en la
+    vista previa; uno presente se usa tal cual. El action_hash se comprueba
+    sobre los argumentos resultantes, así que un documento distinto, otro
+    destino, un argumento añadido u otra tool dan «does not match», como
+    siempre, y el token no se gasta.
+
+    Entre leer el estado y escribir `executing` no hay ningún `await`: en un
+    solo bucle de eventos eso es atómico frente a otra confirmación del mismo
+    token, y solo una de las dos ejecuta.
+
+    Devuelve: (is_valid, error_message, args_resueltos)
+    """
     if not is_valid_confirmation_token_format(token):
-        return False, "confirmation_token malformed. Request a new preview."
+        return False, "confirmation_token malformed. Request a new preview.", {}
 
     token_path = CONFIRMATIONS_DIR / f"{token}.json"
 
@@ -216,32 +336,53 @@ async def validate_confirmation_token(
         return False, (
             "confirmation_token expired or lost across restart. "
             "Request a new preview."
-        )
+        ), {}
 
     try:
         token_data = json.loads(token_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return False, "confirmation_token corrupted. Request a new preview."
+        return False, "confirmation_token corrupted. Request a new preview.", {}
 
     # Verificar expiración
     if time.time() > token_data.get("expires_at", 0):
         _safe_unlink(token_path)
-        return False, "confirmation_token expired. Request a new preview."
+        return False, "confirmation_token expired. Request a new preview.", {}
 
     # Verificar estado
     state = token_data.get("state", "")
     if state == "completed":
-        return False, "confirmation_token already used."
+        return False, "confirmation_token already used.", {}
     if state == "executing":
-        return False, "confirmation_token is currently being executed."
+        return False, "confirmation_token is currently being executed.", {}
     if state != "pending":
-        return False, f"confirmation_token in unexpected state: {state}"
+        return False, f"confirmation_token in unexpected state: {state}", {}
 
-    # Verificar action_hash
+    guardados = token_data.get("stored_args")
+    if not isinstance(guardados, dict):
+        guardados = {}
+    # Omitido sin nada guardado (token emitido con el tope lleno, o por la
+    # 1.1.1 antes de actualizar): se rechaza sin tocar el estado, para que el
+    # cliente pueda repetir la llamada completa dentro del TTL.
+    faltan = [k for k in omitibles if args.get(k) is None and k not in guardados]
+    if faltan:
+        return False, (
+            f"confirmation_token has no stored value for: {', '.join(faltan)}. "
+            "Repeat the call with all its arguments."
+        ), {}
+    resueltos = {
+        k: v for k, v in args.items() if not (k in omitibles and v is None)
+    }
+    for k in omitibles:
+        if args.get(k) is None:
+            resueltos[k] = guardados[k]
+
+    # Verificar action_hash sobre los argumentos resultantes: lo que se manda
+    # tiene que coincidir con lo previsualizado, y lo que se omite sale de lo
+    # que se previsualizó.
     expected_hash = token_data.get("action_hash", "")
-    actual_hash = compute_action_hash(tool_name, args)
+    actual_hash = compute_action_hash(tool_name, resueltos)
     if expected_hash != actual_hash:
-        return False, "confirmation_token does not match this action."
+        return False, "confirmation_token does not match this action.", {}
 
     # Marcar como executing
     token_data["state"] = "executing"
@@ -251,7 +392,7 @@ async def validate_confirmation_token(
     )
     os.replace(str(tmp_path), str(token_path))
 
-    return True, ""
+    return True, "", resueltos
 
 
 async def complete_confirmation_token(
@@ -275,6 +416,11 @@ async def complete_confirmation_token(
 
     token_data["state"] = "completed" if success else "failed"
     token_data["completed_at"] = time.time()
+    # El documento guardado ya no hace falta: el token no se puede volver a
+    # usar. Se borra ya, y no al caducar, porque puede llevar datos sensibles
+    # (un fs_write_file) y /data entra en los backups del add-on.
+    token_data.pop("stored_args", None)
+    token_data.pop("stored_bytes", None)
     # Mantener 60s más para idempotencia ante reintentos
     token_data["expires_at"] = time.time() + CONFIRMATION_TTL_SECONDS
 
@@ -290,17 +436,24 @@ async def complete_confirmation_token(
     os.replace(str(tmp_path), str(token_path))
 
 
-async def cleanup_expired_confirmations() -> int:
-    """Elimina tokens expirados y ficheros corruptos.
+def _barrer_caducados() -> tuple[int, int]:
+    """Borra tokens caducados, ficheros corruptos y `.tmp` huérfanos.
 
-    Devuelve el número de ficheros limpiados.
+    Síncrona a propósito: la llama también `create_confirmation_token`, y sin
+    ningún `await` dentro no se intercala con la escritura de otro token.
+
+    Devuelve (ficheros limpiados, bytes de documentos guardados en los tokens
+    vigentes). Lo segundo sale del mismo recorrido, que ya lee cada fichero
+    para mirar su `expires_at`, y es lo que se compara con
+    CONFIRMATION_STORED_MAX_BYTES.
     Tolerante a fallos: si un fichero no se puede procesar, sigue con el resto.
     """
     if not CONFIRMATIONS_DIR.exists():
         CONFIRMATIONS_DIR.mkdir(parents=True, exist_ok=True)
-        return 0
+        return 0, 0
 
     cleaned = 0
+    en_uso = 0
     now = time.time()
 
     for token_file in CONFIRMATIONS_DIR.glob("*.json"):
@@ -309,6 +462,8 @@ async def cleanup_expired_confirmations() -> int:
             if now > data.get("expires_at", 0):
                 _safe_unlink(token_file)
                 cleaned += 1
+            elif isinstance(data.get("stored_bytes"), int):
+                en_uso += data["stored_bytes"]
         except (json.JSONDecodeError, OSError, KeyError):
             # Fichero corrupto (crash durante escritura atómica)
             _safe_unlink(token_file)
@@ -322,6 +477,15 @@ async def cleanup_expired_confirmations() -> int:
     if cleaned > 0:
         logger.info("confirmations_cleanup", cleaned=cleaned)
 
+    return cleaned, en_uso
+
+
+async def cleanup_expired_confirmations() -> int:
+    """Elimina tokens expirados y ficheros corruptos.
+
+    Devuelve el número de ficheros limpiados.
+    """
+    cleaned, _ = _barrer_caducados()
     return cleaned
 
 

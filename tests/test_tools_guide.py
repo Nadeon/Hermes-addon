@@ -170,5 +170,32 @@ class TestInstructions(unittest.TestCase):
         self.assertEqual(server.instructions, INSTRUCTIONS)
 
 
+class TestGuiaConfirmarSinDocumento(unittest.TestCase):
+    """Spec 007 (FR-008): las instrucciones y la guía ya no piden repetir «los
+    MISMOS argumentos». Si lo siguieran pidiendo, el agente reenviaría el
+    documento grande y la confirmación volvería a caducar antes de llegar.
+
+    Control negativo comprobado: con `guide.py` de 1.1.1 cae este test.
+    """
+
+    def test_ya_no_piden_repetir_los_mismos_argumentos(self) -> None:
+        textos = {"INSTRUCTIONS": INSTRUCTIONS, **{t: _GUIDE[t] for t in
+                  ("security", "filesystem", "workflows")}}
+        for nombre, texto in textos.items():
+            with self.subTest(texto=nombre):
+                self.assertNotIn("MISMOS argumentos", texto)
+                self.assertNotIn("mismos argumentos", texto)
+
+    def test_explican_la_omision(self) -> None:
+        for nombre, texto in (("INSTRUCTIONS", INSTRUCTIONS), ("security", _GUIDE["security"])):
+            with self.subTest(texto=nombre):
+                self.assertIn("omit_on_confirm", texto)
+                self.assertIn("confirm_with", texto)
+                self.assertIn("idéntico", texto)
+        self.assertIn("omit_on_confirm", _GUIDE["filesystem"])
+        self.assertIn("sin reenviar", _GUIDE["workflows"])
+
+
+
 if __name__ == "__main__":
     unittest.main()

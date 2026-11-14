@@ -12,6 +12,7 @@ from hermes.models.scene import SceneConfig
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    resolve_confirmation_token,
     validate_confirmation_token,
 )
 from hermes.tools._common import (
@@ -27,6 +28,13 @@ def _dump_config(model: SceneConfig) -> dict[str, Any]:
     return model.model_dump(exclude_none=True, by_alias=True, mode="json")
 
 logger = structlog.get_logger(__name__)
+
+# Argumentos que se pueden omitir al confirmar (spec 007). `config` es lo único
+# grande de la llamada: a unos 0,4 KB/s, un cliente LLM no reescribe uno de
+# 20–25 KB antes de que caduque el token (60 s), así que la vista previa lo
+# guarda en el servidor. `scene_id` no está aquí a propósito: el destino
+# tiene que venir en las dos llamadas.
+_OMITIBLES_GUARDAR = ("config",)
 
 
 async def _resolve_scene_config_id(
@@ -135,7 +143,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
     @ready
     async def ha_create_or_update_scene(
         scene_id: str,
-        config: dict[str, Any],
+        config: dict[str, Any] | None = None,
         confirmation_token: str | None = None,
     ) -> object:
         """Crea o modifica una scene en Home Assistant.
@@ -147,7 +155,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
           directamente.
         - **Scene existente**: si no se suministra `confirmation_token`,
           devuelve un preview con el diff `current` vs `new` y un token
-          para confirmar. Con token, valida y aplica.
+          para confirmar. Con token, valida y aplica. Para confirmar basta
+          con `scene_id` y `confirmation_token` (`confirm_with`): la vista
+          previa guarda `config` en el servidor; si se reenvía, tiene que ser
+          idéntico. Sin token, `config` es obligatorio (también al crear).
 
         Tras el save, HA recarga automáticamente las scenes editables
         (post_write_hook → scene.reload). No es necesario llamar a
@@ -159,20 +170,29 @@ def register(mcp: object, ha_client: HAClient) -> None:
         `scene.create`. Un intento de actualizar una scene YAML devolverá
         error por parte de HA.
         """
-        try:
-            normalized_config = _dump_config(SceneConfig.model_validate(config))
-        except Exception as exc:
-            logger.warning(
-                "ha_create_or_update_scene_validation_failed",
-                scene_id=scene_id,
-                error=str(exc),
-            )
-            return {"error": f"config validation: {exc}"}
-
-        args = {
-            "scene_id": scene_id,
-            "config": normalized_config,
-        }
+        if config is None and not confirmation_token:
+            return {
+                "error": "invalid_argument", "field": "config",
+                "detail": (
+                    "config is required to request a preview; it can only be "
+                    "omitted when confirming with confirmation_token."
+                ),
+            }
+        args: dict[str, Any] = {"scene_id": scene_id}
+        # El documento guardado en la vista previa ya se validó y normalizó;
+        # solo se valida el que llega. Ausente si se omite al confirmar: lo
+        # pone resolve_confirmation_token.
+        if config is not None:
+            try:
+                normalized_config = _dump_config(SceneConfig.model_validate(config))
+            except Exception as exc:
+                logger.warning(
+                    "ha_create_or_update_scene_validation_failed",
+                    scene_id=scene_id,
+                    error=str(exc),
+                )
+                return {"error": f"config validation: {exc}"}
+            args["config"] = normalized_config
 
         if not confirmation_token:
             try:
@@ -223,6 +243,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     "ha_create_or_update_scene",
                     args,
                     preview=preview,
+                    omitibles=_OMITIBLES_GUARDAR,
                 )
             except Exception as exc:
                 logger.error(
@@ -233,10 +254,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 )
                 return {"error": f"{type(exc).__name__}: {exc}"}
 
-        valid, error = await validate_confirmation_token(
+        valid, error, resueltos = await resolve_confirmation_token(
             confirmation_token,
             "ha_create_or_update_scene",
             args,
+            omitibles=_OMITIBLES_GUARDAR,
         )
         if not valid:
             logger.warning(
@@ -245,6 +267,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 reason=error,
             )
             return {"error": error}
+        # Se guarda lo previsualizado: el reenviado (idéntico, porque el hash
+        # casa) o el que se guardó en la vista previa.
+        normalized_config = resueltos["config"]
 
         try:
             config_id = await _resolve_scene_config_id(ha_client, scene_id)

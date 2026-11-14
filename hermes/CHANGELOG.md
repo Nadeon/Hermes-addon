@@ -1,5 +1,53 @@
 # Changelog
 
+## [1.1.2] — 2026-11-14
+
+Arreglo de lo que encontraron las pruebas en vivo de la 1.1.1 con Home
+Assistant 2026.11.1: los documentos grandes no se podían guardar con
+confirmación. Ninguna tool cambia de nombre; en cinco, el documento deja de
+ser obligatorio al confirmar (ver «Changed»). Confirmar como en la 1.1.1,
+reenviando todos los argumentos, sigue funcionando igual.
+
+### Fixed
+
+- **Los documentos grandes caducaban antes de confirmarse.** La confirmación
+  en dos pasos exigía repetir en la segunda llamada todos los argumentos,
+  documento incluido, y el token caduca a los 60 s. Un cliente LLM escribe
+  unos 0,4 KB/s: la confirmación de un dashboard de 41 KB llegó a los 104 s de
+  la vista previa y dio `confirmation_token expired`. Por encima de unos
+  20–25 KB era imposible guardar con `ha_save_lovelace_dashboard`,
+  `fs_write_file`, `ha_create_or_update_automation`,
+  `ha_create_or_update_script` o `ha_create_or_update_scene`. Fallaba cerrado
+  (no se perdía nada), pero no se podía guardar. Ahora la vista previa guarda
+  el documento junto al token y la confirmación puede omitirlo.
+
+### Changed
+
+- **El documento es opcional al confirmar** en `ha_save_lovelace_dashboard`
+  (`config`), `fs_write_file` (`content`), `ha_create_or_update_automation`,
+  `ha_create_or_update_script` y `ha_create_or_update_scene` (`config`). Basta
+  con el destino (`url_path`, `path`, `automation_id`, `script_id`,
+  `scene_id`) y `confirmation_token`; si se reenvía el documento, tiene que
+  ser idéntico al de la vista previa. El token sigue atado a la tool y a sus
+  argumentos: otro destino, otro documento o un argumento que no estaba en la
+  vista previa dan `confirmation_token does not match this action`. Sin token
+  y sin documento, la respuesta es `invalid_argument`. Ninguna otra tool
+  cambia.
+- **La vista previa de esas cinco tools dice cómo confirmar**: trae
+  `confirm_with` (los argumentos que bastan), `omit_on_confirm` (los que se
+  pueden omitir) y `confirm_hint`. El límite de respuesta nunca los quita al
+  recortar una vista previa. Las instrucciones de conexión y `hermes_guide`
+  ya no piden repetir «los mismos argumentos».
+- **Los documentos pendientes se guardan en el almacenamiento del add-on**
+  hasta completar el token (con éxito o con fallo) o, si caduca sin
+  confirmarse, como mucho un minuto más: la limpieza de confirmaciones
+  caducadas pasa de cada hora a cada 60 s, y cada vista previa nueva barre las
+  caducadas. Nunca van al log. Entre todos los tokens vigentes no pasan de
+  16 MiB; por encima, el token se emite sin guardar el documento, la
+  confirmación tiene que reenviarlo como en la 1.1.1 y el log lo anota como
+  `confirmation_args_not_stored`, sin contenido.
+
+
 ## [1.1.1] — 2026-11-14
 
 Arreglos de lo que encontraron las pruebas en vivo de la 1.1.0 con Home

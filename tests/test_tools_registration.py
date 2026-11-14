@@ -995,3 +995,31 @@ class TestToolCountInDocs:
         for nombre, texto in textos.items():
             numeros = {int(n) for n in patron.findall(texto)}
             assert numeros == {total}, f"{nombre}: {sorted(numeros)} != {total}"
+
+
+class TestDocumentoOmitibleEnElEsquema:
+    """Spec 007 (FR-006): en las cinco tools con documento grande, el
+    documento deja de ser obligatorio en el esquema de entrada MCP (se puede
+    omitir al confirmar) y el destino sigue siéndolo. Comprobado sobre el
+    registro real, que es lo que ve el cliente.
+
+    Control negativo comprobado: con las firmas de 1.1.1 (documento sin valor
+    por defecto) el documento vuelve a `required` y este test cae.
+    """
+
+    DOCUMENTO_Y_DESTINO = {
+        "ha_save_lovelace_dashboard": ("config", "url_path"),
+        "fs_write_file": ("content", "path"),
+        "ha_create_or_update_automation": ("config", "automation_id"),
+        "ha_create_or_update_script": ("config", "script_id"),
+        "ha_create_or_update_scene": ("config", "scene_id"),
+    }
+
+    def test_documento_opcional_y_destino_obligatorio(self):
+        tools = _real_registry()
+        for nombre, (documento, destino) in self.DOCUMENTO_Y_DESTINO.items():
+            esquema = tools[nombre].parameters
+            requeridos = esquema.get("required", [])
+            assert documento in esquema["properties"], nombre
+            assert documento not in requeridos, nombre
+            assert destino in requeridos, nombre

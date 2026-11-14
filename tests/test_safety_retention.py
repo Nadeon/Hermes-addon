@@ -699,8 +699,9 @@ class TestEnganches(unittest.IsolatedAsyncioTestCase):
         disparo = AsyncMock(return_value={"error": "safety_backup_failed: parar aquí"})
         with patch.object(fw, "maybe_trigger_safety_backup", new=disparo), \
              patch.object(fw, "reserve_write_slot", new=AsyncMock()), \
-             patch.object(fw, "validate_confirmation_token",
-                          new=AsyncMock(return_value=(True, ""))), \
+             patch.object(fw, "resolve_confirmation_token",  # 1.1.2 (spec 007)
+                          new=AsyncMock(return_value=(
+                              True, "", {"path": "notas.txt", "content": "hola"}))), \
              patch.object(fw, "complete_confirmation_token", new=AsyncMock()):
             await mcp.tools["fs_write_file"]("notas.txt", "hola", confirmation_token="t")
         disparo.assert_awaited_once()
