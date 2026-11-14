@@ -128,7 +128,15 @@ report about one of them will be closed with a pointer to this section:
     changes before the confirmation, it is refused (`dashboard_changed`) and
     nothing is saved.
   - Service denylist + recursive `service_data` sanitisation + automatic
-    classification of dangerous scripts and automations.
+    classification of dangerous scripts and automations. The denylist asks
+    for confirmation in both `ha_call_service` and
+    `ha_call_service_response`: a denylisted service, or one that reaches a
+    restricted script or automation, only runs with a `confirmation_token`
+    bound to that tool and its arguments (the response tool stores only
+    `{"called": true}` next to the token, never the response). The HA client
+    enforces the same denylist on both service endpoints, so no other code
+    path can run a denylisted service; only those two tools lift it, after
+    validating their token.
   - **Generic tools behind a fail-closed command table.**
     `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and
     `sv_read_api`/`sv_call_api` (Supervisor API routes) cover what no

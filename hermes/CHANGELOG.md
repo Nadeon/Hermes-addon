@@ -42,6 +42,22 @@ _Pendiente: la añade la sub-feature que lo implemente._
   rechaza con `dashboard_changed` y no se guarda nada. Mezclarlo con `config`
   o `remove_top_level_keys` es `invalid_argument`. Sin los argumentos nuevos,
   el guardado completo es exactamente el de la 1.1.2.
+- **Servicios con respuesta de la denylist, con confirmación**:
+  `ha_call_service_response` acepta `confirmation_token` (opcional). Los
+  servicios de la denylist (por ejemplo `conversation.process`) y los que
+  alcanzan un script o una automatización restringidos ya no quedan
+  bloqueados sin remedio: sin token siguen sin ejecutarse y devuelven el mismo
+  `error` que en la 1.1.2 (`service_in_denylist` o `entity_restricted`), y
+  además el `confirmation_token` y una vista previa como la de
+  `ha_call_service`; repitiendo la llamada con el token se ejecutan una vez y
+  devuelven su respuesta. La respuesta no se guarda junto al token. Fuera de
+  la denylist, todo igual que antes. Como defensa en profundidad, la capa de
+  cliente que llama a HA aplica también la denylist a los servicios con
+  respuesta, y solo la levanta esta tool tras validar el token.
+- **Sobre común de las listas nuevas**: toda tool de lista nueva de la 1.2.0
+  (y las genéricas) devuelve `{..., "count", "items", "truncated"}`; un test
+  lo exige a cada `ha_list_*` y `sv_list_*` nueva. Las tools de lista
+  anteriores conservan su forma, para no romper a sus clientes.
 
 ### Política y genéricas
 

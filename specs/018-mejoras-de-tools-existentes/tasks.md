@@ -101,25 +101,59 @@ instantánea de esquemas).
 
 ### Tests primero
 
-- [ ] T014 [P] [US2] `TestCallServiceResponseConfirmacion` en `tests/test_call_service_security.py` (FR-008…FR-010): `conversation.process` sin token → `error == "service_in_denylist"`, `hint` que menciona `confirmation_token`, `confirmation_token`, `expires_in_seconds`, `preview` con `action == "call_service_response"` y los mismos `domain`, `service`, `service_data` y `reason` que daría `ha_call_service`, y `call_service_response` no llamado; confirmar con los mismos argumentos → llamado una vez y se devuelve su valor tal cual; segunda confirmación → «already used» sin llamar; otro `service_data` → rechazo sin llamar; token de `ha_call_service` usado aquí y token de aquí usado en `ha_call_service` → rechazo sin llamar; entidad restringida → `error == "entity_restricted"` + token + `restricted_entities`, y confirmado → llamado; servicio fuera de denylist con un token cualquiera → llamado a la primera; `service_data` inseguro → `unsafe_service_data` sin token; fallo de HA al confirmar → `ha_call_service_response_failed` y el token queda `failed`; el fichero del token tras confirmar no contiene un centinela puesto en la respuesta simulada (`cached_result == {"called": true}`). Los tests existentes `test_denylist_service_rejected_in_response_tool` y el de `entity_restricted` siguen sin cambios y en verde
-- [ ] T015 [P] [US3] `tests/test_sobre_de_lista.py`, parte del constructor (FR-012, FR-015): `sobre_de_lista([a, b])` → `{"count": 2, "items": [a, b], "truncated": False}`; con cabecera y `truncated=True`; cabecera con `count`, `items` o `truncated` → `ValueError`; un sobre mayor que el tope pasado por `recortar_a_bytes` → `truncated: true`, `count == len(items)` y `_response_limit`; las genéricas devuelven lo mismo que antes del cambio (comparar con la forma de `contracts/tools.md` de la 011 para una lista)
-- [ ] T016 [P] [US2] [US3] Tests de guía en `tests/test_tools_guide.py` (FR-011, FR-013): el índice (`hermes_guide()`) describe `count`, `items` y `truncated` y dice que las tools anteriores a la 1.2.0 conservan su forma; el tema `services` dice que `ha_call_service_response` acepta `confirmation_token` para la denylist; ningún texto de la guía ni de `INSTRUCTIONS` dice ya que `ha_call_service_response` «no admite» la denylist
+- [x] T014 [P] [US2] `TestCallServiceResponseConfirmacion` en `tests/test_call_service_security.py` (FR-008…FR-010): `conversation.process` sin token → `error == "service_in_denylist"`, `hint` que menciona `confirmation_token`, `confirmation_token`, `expires_in_seconds`, `preview` con `action == "call_service_response"` y los mismos `domain`, `service`, `service_data` y `reason` que daría `ha_call_service`, y `call_service_response` no llamado; confirmar con los mismos argumentos → llamado una vez y se devuelve su valor tal cual; segunda confirmación → «already used» sin llamar; otro `service_data` → rechazo sin llamar; token de `ha_call_service` usado aquí y token de aquí usado en `ha_call_service` → rechazo sin llamar; entidad restringida → `error == "entity_restricted"` + token + `restricted_entities`, y confirmado → llamado; servicio fuera de denylist con un token cualquiera → llamado a la primera; `service_data` inseguro → `unsafe_service_data` sin token; fallo de HA al confirmar → `ha_call_service_response_failed` y el token queda `failed`; el fichero del token tras confirmar no contiene un centinela puesto en la respuesta simulada (`cached_result == {"called": true}`). Los tests existentes `test_denylist_service_rejected_in_response_tool` y el de `entity_restricted` siguen sin cambios y en verde
+- [x] T015 [P] [US3] `tests/test_sobre_de_lista.py`, parte del constructor (FR-012, FR-015): `sobre_de_lista([a, b])` → `{"count": 2, "items": [a, b], "truncated": False}`; con cabecera y `truncated=True`; cabecera con `count`, `items` o `truncated` → `ValueError`; un sobre mayor que el tope pasado por `recortar_a_bytes` → `truncated: true`, `count == len(items)` y `_response_limit`; las genéricas devuelven lo mismo que antes del cambio (comparar con la forma de `contracts/tools.md` de la 011 para una lista)
+- [x] T016 [P] [US2] [US3] Tests de guía en `tests/test_tools_guide.py` (FR-011, FR-013): el índice (`hermes_guide()`) describe `count`, `items` y `truncated` y dice que las tools anteriores a la 1.2.0 conservan su forma; el tema `services` dice que `ha_call_service_response` acepta `confirmation_token` para la denylist; ningún texto de la guía ni de `INSTRUCTIONS` dice ya que `ha_call_service_response` «no admite» la denylist
 
 ### Implementación
 
-- [ ] T017 [US2] `ha_call_service_response` con `confirmation_token` en `hermes/src/hermes/tools/ha.py` según plan (Tramo 2, punto 1) y contrato; helper de vista previa compartido con `ha_call_service` sin cambiar la de esta (sus tests existentes siguen verdes); docstring nuevo. T014 en verde
-- [ ] T018 [US3] `sobre_de_lista` en `hermes/src/hermes/tools/_common.py` y `_respuesta` de `hermes/src/hermes/tools/generic_commands.py` usándolo. T015 y los tests de la 011 en verde
-- [ ] T019 [US3] Test transversal en `tests/test_sobre_de_lista.py` (FR-014, research R-4): una función `incumplen(fuentes, nuevas)` que, por AST de los módulos de `hermes/src/hermes/tools/`, devuelve las tools de `nuevas` con nombre `ha_list_*` o `sv_list_*` cuya función no llama a `sobre_de_lista`; el test aplica `nuevas = registro real − tests/fixtures/esquemas_1_1_2.json − EXCEPCIONES_SOBRE` y exige `[]`, con un mensaje que nombra el constructor; otro test exige que cada clave de `EXCEPCIONES_SOBRE` sea una tool registrada y nueva. Control negativo dentro del propio fichero: una fuente sintética con `@mcp.tool()` `ha_list_algo` que devuelve una lista suelta → `incumplen` la señala; con `return sobre_de_lista(...)` → no
-- [ ] T020 [US2] En `tests/test_tools_registration.py`: añadir la diferencia permitida `ha_call_service_response` + `confirmation_token` a `test_schemas_did_not_change`, y vaciar `SIN_TOKEN_A_PROPOSITO` cambiando su comentario (ya acepta token; la excepción deja de hacer falta) (FR-016)
-- [ ] T021 [US2] [US3] Guía en `hermes/src/hermes/tools/guide.py`: párrafo «Listas» en `_OVERVIEW` y línea de `ha_call_service_response` en el tema `services` (FR-011, FR-013). T016 en verde
-- [ ] T022 [P] [US2] Banco, parte de conversación en `tests/banco/test_banco_mejoras.py` (FR-017): `ha_call_service_response("conversation", "process", {"text": "<frase ficticia>", "language": "en"})` sin token → `service_in_denylist` con token y vista previa; confirmado → respuesta con la forma de `conversation.process` (`response` con `response_type`). Sin entidades no acciona nada
-- [ ] T023 Control negativo del tramo 2: (a) ejecutar sin token en la denylist → caen los «no llamado»; (b) atar el token a `ha_call_service` en vez de a su nombre → cae el de tokens cruzados; (c) guardar la respuesta en `cached_result` → cae el del centinela; (d) `sobre_de_lista` con `count` fijo a 0 → cae el constructor; (e) `incumplen` que devuelve siempre `[]` → cae el control sintético. Anotar recuentos. Restaurar y comprobar verde
+- [x] T017 [US2] `ha_call_service_response` con `confirmation_token` en `hermes/src/hermes/tools/ha.py` según plan (Tramo 2, punto 1) y contrato; helper de vista previa compartido con `ha_call_service` sin cambiar la de esta (sus tests existentes siguen verdes); docstring nuevo. T014 en verde
+- [x] T018 [US3] `sobre_de_lista` en `hermes/src/hermes/tools/_common.py` y `_respuesta` de `hermes/src/hermes/tools/generic_commands.py` usándolo. T015 y los tests de la 011 en verde
+- [x] T019 [US3] Test transversal en `tests/test_sobre_de_lista.py` (FR-014, research R-4): una función `incumplen(fuentes, nuevas)` que, por AST de los módulos de `hermes/src/hermes/tools/`, devuelve las tools de `nuevas` con nombre `ha_list_*` o `sv_list_*` cuya función no llama a `sobre_de_lista`; el test aplica `nuevas = registro real − tests/fixtures/esquemas_1_1_2.json − EXCEPCIONES_SOBRE` y exige `[]`, con un mensaje que nombra el constructor; otro test exige que cada clave de `EXCEPCIONES_SOBRE` sea una tool registrada y nueva. Control negativo dentro del propio fichero: una fuente sintética con `@mcp.tool()` `ha_list_algo` que devuelve una lista suelta → `incumplen` la señala; con `return sobre_de_lista(...)` → no
+- [x] T020 [US2] En `tests/test_tools_registration.py`: añadir la diferencia permitida `ha_call_service_response` + `confirmation_token` a `test_schemas_did_not_change`, y vaciar `SIN_TOKEN_A_PROPOSITO` cambiando su comentario (ya acepta token; la excepción deja de hacer falta) (FR-016)
+- [x] T021 [US2] [US3] Guía en `hermes/src/hermes/tools/guide.py`: párrafo «Listas» en `_OVERVIEW` y línea de `ha_call_service_response` en el tema `services` (FR-011, FR-013). T016 en verde
+- [x] T022 [P] [US2] Banco, parte de conversación en `tests/banco/test_banco_mejoras.py` (FR-017): `ha_call_service_response("conversation", "process", {"text": "<frase ficticia>", "language": "en"})` sin token → `service_in_denylist` con token y vista previa; confirmado → respuesta con la forma de `conversation.process` (`response` con `response_type`). Sin entidades no acciona nada
+- [x] T023 Control negativo del tramo 2: (a) ejecutar sin token en la denylist → caen los «no llamado»; (b) atar el token a `ha_call_service` en vez de a su nombre → cae el de tokens cruzados; (c) guardar la respuesta en `cached_result` → cae el del centinela; (d) `sobre_de_lista` con `count` fijo a 0 → cae el constructor; (e) `incumplen` que devuelve siempre `[]` → cae el control sintético. Anotar recuentos. Restaurar y comprobar verde
 
 ### Documentación y cierre
 
-- [ ] T024 Documentación (FR-011, FR-019): en `hermes/CHANGELOG.md`, sección `### Mejoras de tools existentes` de la 1.2.0, entradas de `ha_call_service_response` (confirmación para la denylist y las entidades restringidas, respuesta sin token con el mismo `error` y el token añadido) y del sobre común en las tools nuevas; en `docs/HOJA-DE-RUTA.md`, estado de la 018 en la tabla «Programa de cobertura total (spec 008)» («hecha salvo el banco, preparado y que se valida al integrar la 010») y el problema 21 «Parcial (1.2.0: sobre común en las tools nuevas; las existentes, duda D-07)»; en `SECURITY.md`, la denylist pide confirmación también en `ha_call_service_response`
-- [ ] T025 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-019, CAP-020 y CAP-023 con los nombres y ficheros de test definitivos (`TestGuardarPorVista`, `TestTokenAtadoAlEstado`, `TestCallServiceResponseConfirmacion`, `tests/test_sobre_de_lista.py`, `tests/banco/test_banco_mejoras.py` pendiente de la 010)
-- [ ] T026 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII), commit con los recuentos de T023
+- [x] T024 Documentación (FR-011, FR-019): en `hermes/CHANGELOG.md`, sección `### Mejoras de tools existentes` de la 1.2.0, entradas de `ha_call_service_response` (confirmación para la denylist y las entidades restringidas, respuesta sin token con el mismo `error` y el token añadido) y del sobre común en las tools nuevas; en `docs/HOJA-DE-RUTA.md`, estado de la 018 en la tabla «Programa de cobertura total (spec 008)» («hecha salvo el banco, preparado y que se valida al integrar la 010») y el problema 21 «Parcial (1.2.0: sobre común en las tools nuevas; las existentes, duda D-07)»; en `SECURITY.md`, la denylist pide confirmación también en `ha_call_service_response`
+- [x] T025 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-019, CAP-020 y CAP-023 con los nombres y ficheros de test definitivos (`TestGuardarPorVista`, `TestTokenAtadoAlEstado`, `TestCallServiceResponseConfirmacion`, `tests/test_sobre_de_lista.py`, `tests/banco/test_banco_mejoras.py` pendiente de la 010)
+- [x] T026 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII), commit con los recuentos de T023
+
+### Notas del tramo 2 (cierre)
+
+- **Línea base** (punta del tramo 1, `4c900a1`): 2356 passed, 66 skipped,
+  6 failed (los 6 de Windows). Al cerrar: 2388 passed, 67 skipped (el banco),
+  los mismos 6.
+- **Extra pedido por el supervisor (defensa en profundidad)**:
+  `HAClient.call_service_response` tiene ya la misma guarda de denylist que
+  `call_service` (`allow_dangerous`, falso por defecto); research R-3 lo
+  dejaba fuera de alcance. La tool solo pasa `allow_dangerous=True` tras
+  validar su token. Tests: `TestGuardaDeClienteConRespuesta` (incluida la
+  tool con la guarda real del cliente).
+- **Desviación (`sobre_de_lista`)**: `items` es solo posicional (`items, /`)
+  para que una cabecera `items=` llegue a `**cabecera` y se rechace con
+  `ValueError`; `truncated` es el propio argumento y no puede ir en la
+  cabecera, así que el test de cabecera reservada cubre `count` e `items`.
+  Contrato actualizado.
+- **Desviación (`SIN_TOKEN_A_PROPOSITO`)**: al vaciarlo, el test que fijaba
+  su tamaño (`test_the_documented_exception_is_still_only_one`) pasa a exigir
+  0, y el docstring de la clase dice que la excepción duró hasta la 018. Es
+  parte de la diferencia permitida por FR-016.
+- **Banco**: `conversation:` añadido a `tests/banco/ha_config/configuration.yaml`
+  (lo preveía R-5). `TestRespuestaConfirmada` lee el rechazo sin token con
+  `_rechazo` (Hermes marca `isError` en toda respuesta `{"error": …}`) y
+  cuenta con el lector que la vista previa no llama y la confirmación llama
+  una vez.
+- **Controles negativos** (T023), sobre `test_call_service_security.py`,
+  `test_sobre_de_lista.py` y `test_security_regressions.py`:
+  (a) ejecutar sin token en la denylist → 11 fallos; (b) token atado a
+  `ha_call_service` → 1 (`test_tokens_cruzados`); (c) la respuesta en
+  `cached_result` → 1; (d) `count` fijo a 0 → 4; (e) `incumplen` siempre `[]`
+  → 2 (incluido el control sintético); (f) sin la guarda del cliente → 2;
+  (g) la tool sin `allow_dangerous=True` → 2. Guía anterior al tramo 2 → caen
+  los 3 de `TestGuiaRespuestaConfirmadaYListas`. Todo restaurado y en verde.
 
 ---
 
