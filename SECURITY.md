@@ -121,7 +121,12 @@ report about one of them will be closed with a pointer to this section:
     that document in the add-on storage next to the token, so the
     confirmation does not have to resend it. It is deleted when the token is
     completed (successfully or not) or, if the token expires unconfirmed, at
-    most 60 s after it expires; it is never written to the log.
+    most 60 s after it expires; it is never written to the log. The same goes
+    for the single view of `ha_save_lovelace_dashboard` (`view_index` +
+    `view`). Saving a single view also binds the token to the state of the
+    dashboard read in the preview (only its hash is stored): if the dashboard
+    changes before the confirmation, it is refused (`dashboard_changed`) and
+    nothing is saved.
   - Service denylist + recursive `service_data` sanitisation + automatic
     classification of dangerous scripts and automations.
   - **Generic tools behind a fail-closed command table.**

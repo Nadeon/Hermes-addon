@@ -387,7 +387,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
-| 018 | Mejoras de tools existentes | 019, 020, 023 | pendiente |
+| 018 | Mejoras de tools existentes | 019, 020, 023 | en curso: tramo 1 hecho (guardado por vista); falta el tramo 2 (denylist con token y sobre común) |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |

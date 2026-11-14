@@ -27,6 +27,22 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 _Pendiente: la añade la sub-feature que lo implemente._
 
+### Mejoras de tools existentes
+
+- **Guardar una sola vista de un dashboard**: `ha_save_lovelace_dashboard`
+  acepta `view_index` y `view` (opcionales). Con ellos sustituye solo esa
+  vista del dashboard actual y conserva exactamente las demás vistas y las
+  claves de nivel superior, así que en un dashboard grande ya no hay que
+  reescribirlo entero (ni arriesgarse a perder tarjetas). Va en dos pasos: la
+  vista previa dice qué vista cambia (`view_before`, `view_after`,
+  `view_unchanged`), qué vistas se conservan (`views_kept`) y qué claves
+  (`top_level_keys_kept`), y al confirmar no hace falta reenviar `view` (se
+  guarda junto al token, como `config`). El token queda atado también al
+  estado del dashboard: si cambia entre la vista previa y la confirmación, se
+  rechaza con `dashboard_changed` y no se guarda nada. Mezclarlo con `config`
+  o `remove_top_level_keys` es `invalid_argument`. Sin los argumentos nuevos,
+  el guardado completo es exactamente el de la 1.1.2.
+
 ### Política y genéricas
 
 - **Cuatro tools genéricas para lo que ninguna otra cubre**:
