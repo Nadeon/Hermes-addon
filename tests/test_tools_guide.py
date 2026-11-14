@@ -81,6 +81,67 @@ class TestGuiaAlDia(unittest.TestCase):
         self.assertIn("ha_list_services(domain=", _GUIDE["services"])
 
 
+class TestGuiaMarketplace(unittest.IsolatedAsyncioTestCase):
+    """Spec 004, FR-028: desde HA 2026.11 HACS es el Marketplace. El modelo
+    tiene que saber qué tools hay, que Hermes no instala nada desde ahí y
+    cómo se actualiza (entidad `update` con token)."""
+
+    _TOOLS = (
+        "ha_marketplace_info", "ha_marketplace_list_repositories",
+        "ha_marketplace_get_repository", "ha_marketplace_list_updates",
+        "ha_marketplace_list_releases", "ha_marketplace_list_critical",
+        "ha_marketplace_list_removed",
+    )
+
+    def setUp(self) -> None:
+        mcp = _MockMCP()
+        register(mcp)
+        self.guide = mcp.tools["hermes_guide"]
+
+    async def test_marketplace_topic_and_hacs_alias(self) -> None:
+        tema = await self.guide("marketplace")
+        self.assertEqual(await self.guide("hacs"), tema)
+        for nombre in self._TOOLS:
+            self.assertIn(nombre, tema)
+        self.assertIn("update.install", tema)
+        self.assertIn("confirmation_token", tema)
+        # El aviso de riesgos lo acepta una persona, por usuario de HA.
+        self.assertIn("aviso", tema)
+        self.assertIn("usuario", tema)
+        # Nombres y descripciones los escriben terceros.
+        self.assertIn("terceros", tema)
+
+    async def test_index_mentions_marketplace(self) -> None:
+        self.assertIn("marketplace", await self.guide())
+        self.assertIn("marketplace", INSTRUCTIONS)
+
+
+class TestGuiaDiagnosticoYOrganizacion(unittest.IsolatedAsyncioTestCase):
+    """Spec 005, FR-041: plantas, etiquetas y categorías en `registries`, y un
+    tema `diagnostics` para Repairs, trazas y relaciones."""
+
+    def setUp(self) -> None:
+        mcp = _MockMCP()
+        register(mcp)
+        self.guide = mcp.tools["hermes_guide"]
+
+    async def test_diagnostics_topic_and_aliases(self) -> None:
+        tema = await self.guide("diagnostics")
+        for alias in ("repairs", "traces"):
+            self.assertEqual(await self.guide(alias), tema, alias)
+        for nombre in ("ha_list_repairs", "ha_ignore_repair", "ha_list_traces",
+                       "ha_get_trace", "ha_search_related"):
+            self.assertIn(nombre, tema)
+        self.assertIn("diagnostics", await self.guide())
+
+    def test_registries_name_floors_labels_and_categories(self) -> None:
+        guia = _GUIDE["registries"]
+        for nombre in ("ha_list_floors", "ha_update_floor", "ha_delete_floor",
+                       "ha_list_labels", "ha_delete_label",
+                       "ha_list_categories", "ha_delete_category"):
+            self.assertIn(nombre, guia)
+
+
 class TestInstructions(unittest.TestCase):
     def test_instructions_mention_key_concepts(self) -> None:
         self.assertGreater(len(INSTRUCTIONS), 200)

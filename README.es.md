@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **186 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **210 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 186 herramientas
+## Qué puede hacer — 210 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -35,7 +35,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Escenas** | 7 | Incluido capturar el estado actual de la casa como escena nueva |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zonas y personas** | 10 | Zonas geográficas y seguimiento de personas |
-| **Registros** | 14 | Entidades, dispositivos y áreas: renombrar, mover, ocultar, deshabilitar, borrar |
+| **Registros** | 26 | Entidades, dispositivos, áreas, plantas, etiquetas y categorías: renombrar, mover, ocultar, deshabilitar, borrar. Al borrar una planta o una etiqueta, la vista previa dice qué automatizaciones, scripts y escenas siguen apuntando a ella |
 | **Integraciones** | 13 | Config entries y sus flujos de configuración, incluidos los de opciones |
 | **Ficheros de `/config`** | 11 | Leer, escribir, mover, borrar, buscar, gestionar `secrets.yaml` y restaurar copias |
 | **Lovelace** | 10 | Dashboards y recursos |
@@ -43,7 +43,8 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Backups** | 10 | Completos y parciales, crear y restaurar |
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
 | **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
-| **HACS** | 4 | Consultar repositorios y actualizaciones disponibles. En HA 2026.11 o posterior, HACS pasó a ser la integración Marketplace; las tools `ha_hacs_*` todavía no la soportan y lo dicen con un mensaje claro |
+| **Diagnóstico** | 5 | Avisos de Reparaciones (listar e ignorar), trazas de automatizaciones y scripts, y qué está relacionado con un elemento |
+| **Marketplace (antes HACS)** | 11 | De solo lectura: estado, repositorios, actualizaciones disponibles, versiones publicadas y repositorios críticos o retirados. Detecta en cada llamada si Home Assistant trae el Marketplace integrado (2026.11 o posterior) o HACS 2.x. Las actualizaciones se instalan con la entidad `update`, con confirmación. Las 4 tools `ha_hacs_*` siguen como alias deprecados hasta 1.3.0 |
 | **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
 

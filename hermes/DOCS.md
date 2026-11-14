@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 186 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 210 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -66,6 +66,14 @@ tarda más de 5 minutos, la escritura se rechaza con `safety_backup_timeout` y
 el `job_id`, que puedes seguir con `sv_get_job_status`. La escritura siguiente
 comprueba ese mismo backup en vez de lanzar otro: si aún no ha terminado, se
 rechaza con `safety_backup_in_progress`.
+
+El Marketplace (HACS hasta HA 2026.10) es de **solo lectura** para Hermes:
+Claude puede consultar repositorios, actualizaciones y versiones, pero no
+instalar ni aceptar nada ahí. Para actualizar algo usa su entidad `update`, que
+pide confirmación como cualquier otra acción. El aviso de riesgos del
+Marketplace lo tiene que aceptar una persona en la interfaz de Home Assistant,
+con el usuario con el que se conecta Hermes; si no está aceptado, la
+actualización falla y Claude te lo dirá.
 
 ## Límites y Claude Code
 

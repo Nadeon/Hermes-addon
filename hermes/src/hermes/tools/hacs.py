@@ -1,213 +1,100 @@
-"""Hermes — Tools MCP para HACS (best-effort).
+"""Hermes — Alias deprecados `ha_hacs_*` de las tools `ha_marketplace_*`.
 
-IMPORTANTE: La API de HACS no es oficial y puede cambiar entre versiones.
-Estas tools son best-effort. Si devuelven errores inesperados, verifica
-la versión de HACS instalada y actualiza Hermes si es necesario.
+Desde HA 2026.11 HACS viene integrado en Home Assistant como el Marketplace y
+los comandos `hacs/*` ya no existen. Las tools nuevas viven en
+`marketplace.py`, que detecta en cada llamada cuál de las dos API hay.
 
-Comandos WS usados:
-    hacs/info             — información del sistema HACS
-    hacs/repositories/list — lista repositorios (filtro por categoría opcional)
-    hacs/repository/info  — detalles de un repositorio por ID
+Estos alias se mantienen hasta 1.3.0 para no romper a quien ya los usa
+(prompts, automatizaciones de clientes). Llaman a las MISMAS funciones que las
+`ha_marketplace_*` en vez de tener código propio: así no pueden divergir, y
+cualquier arreglo en `marketplace.py` les llega sin tocar este fichero. Lo
+único que añaden es `_deprecated`, para que el agente sepa a qué tool pasarse.
 """
 from __future__ import annotations
 
 from typing import Any
 
-import structlog
-
-from hermes.ha import HAClient, HAConnectionError
-from hermes.ha_version import ha_at_least
+from hermes.ha import HAClient
+from hermes.tools import marketplace
 from hermes.tools._common import requires_ready
 
-logger = structlog.get_logger(__name__)
-
-_HACS_DISCLAIMER = (
-    "HACS integration is best-effort. Its API is not officially stable and may "
-    "change between HACS versions. If this tool returns unexpected errors, verify "
-    "the HACS version installed."
-)
-
-# Categorías reales de HACS: `template` existe y `netdaemon` se retiró.
-_VALID_CATEGORIES = {"integration", "plugin", "theme", "python_script", "appdaemon", "template"}
+# Versión en la que se retiran los alias (spec 004, FR-022).
+_REMOVED_IN = "1.3.0"
 
 
-async def _hacs_error(ha_client: HAClient, exc: HAConnectionError) -> dict[str, Any]:
-    """Traduce un error de los comandos `hacs/*` a una respuesta útil.
-
-    `unknown_command` significa que HA no conoce `hacs/*`. Desde 2026.11 HACS
-    viene integrado como Marketplace y esos comandos ya no existen; antes,
-    significa que HACS no está instalado. En ningún caso lo arregla actualizar
-    Hermes, que es lo que sugería el mensaje genérico. Con versión desconocida
-    no se puede afirmar lo del Marketplace, así que se dice lo seguro.
-    """
-    if exc.code == "unknown_command":
-        if await ha_at_least(ha_client, "2026.11.0") is True:
-            return {
-                "error": "hacs_moved_to_marketplace",
-                "hint": (
-                    "HACS is built into Home Assistant as the Marketplace since "
-                    "2026.11 and the hacs/* commands no longer exist. Pending "
-                    'updates: ha_get_states(domain="update").'
-                ),
-            }
-        return {
-            "error": "hacs_not_installed",
-            "hint": "Home Assistant does not know the hacs/* commands: HACS is not installed.",
-        }
-    return {"error": str(exc), "_disclaimer": _HACS_DISCLAIMER}
+def _deprecated(result: Any, alias: str, replacement: str) -> Any:
+    """Añade el aviso de retirada a la respuesta de la sustituta."""
+    if isinstance(result, dict):
+        result["_deprecated"] = (
+            f"{alias} is deprecated and will be removed in {_REMOVED_IN}; "
+            f"use {replacement}"
+        )
+    return result
 
 
 def register(mcp: object, ha_client: HAClient) -> None:
-    """Registra las tools de HACS."""
+    """Registra los cuatro alias `ha_hacs_*`."""
 
     ready = requires_ready(ha_client)
 
     @mcp.tool()
     @ready
     async def ha_hacs_info() -> object:
-        """Devuelve información del sistema HACS instalado.
+        """DEPRECATED (removed in 1.3.0): use ha_marketplace_info.
 
-        NOTE: HACS integration is best-effort. Its API is not officially stable.
-
-        Returns:
-            Información de HACS: version, categorías activas, modo de desarrollo,
-            país configurado, estado de la cola de descarga, etc.
+        Same response as ha_marketplace_info plus `_deprecated`.
         """
-        try:
-            result = await ha_client.ws_send({"type": "hacs/info"})
-            if isinstance(result, dict):
-                result["_disclaimer"] = _HACS_DISCLAIMER
-            return result
-        except HAConnectionError as exc:
-            return await _hacs_error(ha_client, exc)
+        return _deprecated(
+            await marketplace.info(ha_client), "ha_hacs_info", "ha_marketplace_info"
+        )
 
     @mcp.tool()
     @ready
     async def ha_hacs_list_repositories(
         category: str | None = None,
+        installed_only: bool = True,
+        search: str | None = None,
+        limit: int = 50,
     ) -> object:
-        """Lista repositorios HACS instalados o disponibles.
+        """DEPRECATED (removed in 1.3.0): use ha_marketplace_list_repositories.
 
-        NOTE: HACS integration is best-effort. Its API is not officially stable.
-
-        Args:
-            category: Filtra por categoría. Valores válidos:
-                "integration" — integraciones custom
-                "plugin"      — Lovelace custom cards (frontend)
-                "theme"       — temas
-                "python_script", "appdaemon", "template"
-                Omitir para listar todos.
-
-        Returns:
-            {"count": N, "repositories": [...], "_disclaimer": "..."}
-            Cada repo incluye: id, name, description, installed, installed_version,
-            available_version, category, authors, stars, last_updated, issues, etc.
+        Same arguments and response as ha_marketplace_list_repositories plus
+        `_deprecated`. By default only installed repositories.
         """
-        if category is not None and category not in _VALID_CATEGORIES:
-            return {
-                "error": f"Invalid category '{category}'. Valid: {sorted(_VALID_CATEGORIES)}",
-                "_disclaimer": _HACS_DISCLAIMER,
-            }
-        try:
-            payload: dict[str, Any] = {"type": "hacs/repositories/list"}
-            if category is not None:
-                # El schema de HACS es `{Optional("categories"): [str]}` con
-                # PREVENT_EXTRA: mandar `category` (singular, string) hacía que
-                # el WS de HA rechazara el comando entero, así que CUALQUIER
-                # llamada filtrada fallaba.
-                payload["categories"] = [category]
-            result = await ha_client.ws_send(payload)
-            if isinstance(result, list):
-                return {
-                    "count": len(result),
-                    "repositories": result,
-                    "_disclaimer": _HACS_DISCLAIMER,
-                }
-            return {"error": f"Unexpected response: {type(result).__name__}", "_disclaimer": _HACS_DISCLAIMER}
-        except HAConnectionError as exc:
-            return await _hacs_error(ha_client, exc)
+        return _deprecated(
+            await marketplace.list_repositories(
+                ha_client, category, installed_only, search, limit
+            ),
+            "ha_hacs_list_repositories",
+            "ha_marketplace_list_repositories",
+        )
 
     @mcp.tool()
     @ready
     async def ha_hacs_get_repository(repository_id: str) -> object:
-        """Devuelve información detallada de un repositorio HACS.
+        """DEPRECATED (removed in 1.3.0): use ha_marketplace_get_repository.
 
-        NOTE: HACS integration is best-effort. Its API is not officially stable.
-
-        Args:
-            repository_id: ID del repositorio (obtenido de ha_hacs_list_repositories).
-
-        Returns:
-            Detalles del repositorio: name, full_name, description, installed,
-            installed_version, available_version, release_notes, authors,
-            stars, issues, last_updated, etc.
+        Same arguments and response as ha_marketplace_get_repository plus
+        `_deprecated`.
         """
-        try:
-            result = await ha_client.ws_send({
-                "type": "hacs/repository/info",
-                "repository_id": repository_id,
-            })
-            if isinstance(result, dict):
-                result["_disclaimer"] = _HACS_DISCLAIMER
-            return result
-        except HAConnectionError as exc:
-            return await _hacs_error(ha_client, exc)
+        return _deprecated(
+            await marketplace.get_repository(ha_client, repository_id),
+            "ha_hacs_get_repository",
+            "ha_marketplace_get_repository",
+        )
 
     @mcp.tool()
     @ready
     async def ha_hacs_list_updates() -> object:
-        """Lista repositorios HACS con actualizaciones disponibles.
+        """DEPRECATED (removed in 1.3.0): use ha_marketplace_list_updates.
 
-        NOTE: HACS integration is best-effort. Its API is not officially stable.
-
-        Filtra de ha_hacs_list_repositories() los repos instalados con
-        actualización: usa `pending_upgrade` de HACS cuando lo trae y, si no,
-        available_version != installed_version.
-
-        Returns:
-            {"count": N, "updates": [...], "_disclaimer": "..."}
-            Cada item incluye: id, name, category, installed_version,
-            available_version.
+        Same response as ha_marketplace_list_updates plus `_deprecated`.
+        Hermes does not install anything from the Marketplace: to update, call
+        ha_call_service('update', 'install', {'entity_id': <update_entity_id>}),
+        which requires a confirmation_token.
         """
-        try:
-            result = await ha_client.ws_send({"type": "hacs/repositories/list"})
-            if not isinstance(result, list):
-                return {"error": "Unexpected HACS response", "_disclaimer": _HACS_DISCLAIMER}
-
-            updates = []
-            for repo in result:
-                if not isinstance(repo, dict):
-                    continue
-                if not repo.get("installed"):
-                    continue
-                installed = repo.get("installed_version") or repo.get("version_installed")
-                releases = repo.get("releases")
-                available = (
-                    repo.get("available_version")
-                    or repo.get("version_available")
-                    or (releases[0] if releases else None)
-                )
-                # `pending_upgrade` lo calcula HACS comparando de verdad
-                # (commits, versiones con o sin prefijo); el texto de las
-                # versiones puede coincidir y haber actualización, o al revés.
-                pending = repo.get("pending_upgrade")
-                if isinstance(pending, bool):
-                    has_update = pending
-                else:
-                    has_update = bool(installed and available and installed != available)
-                if has_update:
-                    updates.append({
-                        "id": repo.get("id"),
-                        "name": repo.get("name"),
-                        "full_name": repo.get("full_name"),
-                        "category": repo.get("category"),
-                        "installed_version": installed,
-                        "available_version": available,
-                    })
-            return {
-                "count": len(updates),
-                "updates": updates,
-                "_disclaimer": _HACS_DISCLAIMER,
-            }
-        except HAConnectionError as exc:
-            return await _hacs_error(ha_client, exc)
+        return _deprecated(
+            await marketplace.list_updates(ha_client),
+            "ha_hacs_list_updates",
+            "ha_marketplace_list_updates",
+        )

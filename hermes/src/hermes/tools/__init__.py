@@ -157,7 +157,7 @@ def register_all_tools(
     from hermes.tools.statistics import register as register_statistics
     register_statistics(mcp, ha_client, response_max_bytes=response_max_bytes)
 
-    # registries (entity, device, area)
+    # registries (entity, device, area, floor, label, category)
     from hermes.tools.registry_entity import register as register_registry_entity
     register_registry_entity(mcp, ha_client, response_max_bytes=response_max_bytes)
 
@@ -166,6 +166,27 @@ def register_all_tools(
 
     from hermes.tools.registry_area import register as register_registry_area
     register_registry_area(mcp, ha_client)
+
+    from hermes.tools.registry_floor import register as register_registry_floor
+    register_registry_floor(mcp, ha_client)
+
+    from hermes.tools.registry_label import register as register_registry_label
+    register_registry_label(mcp, ha_client)
+
+    from hermes.tools.registry_category import register as register_registry_category
+    register_registry_category(mcp, ha_client)
+
+    # Diagnóstico: repairs, trazas y relaciones. Las trazas reciben
+    # `response_max_bytes` porque una sola traza de una automatización larga
+    # puede pesar megas; las otras dos devuelven listas acotadas.
+    from hermes.tools.repairs import register as register_repairs
+    register_repairs(mcp, ha_client)
+
+    from hermes.tools.traces import register as register_traces
+    register_traces(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    from hermes.tools.search import register as register_search
+    register_search(mcp, ha_client)
 
     # config entries y flows
     from hermes.tools.config_entries import register as register_config_entries
@@ -212,7 +233,7 @@ def register_all_tools(
     from hermes.tools.lovelace import register as register_lovelace
     register_lovelace(mcp, ha_client, response_max_bytes=response_max_bytes)
 
-    # wait_for_event y HACS
+    # wait_for_event, Marketplace y alias HACS
     from hermes.tools.wait_for_event import register as register_wait_for_event
     register_wait_for_event(
         mcp,
@@ -220,6 +241,11 @@ def register_all_tools(
         wait_for_event_max_seconds=wait_for_event_max_seconds,
         wait_for_event_max_concurrent=wait_for_event_max_concurrent,
     )
+
+    # El Marketplace va antes que los alias `ha_hacs_*` para que el cliente vea
+    # primero las tools nuevas; los alias solo reenvían a sus funciones.
+    from hermes.tools.marketplace import register as register_marketplace
+    register_marketplace(mcp, ha_client)
 
     from hermes.tools.hacs import register as register_hacs
     register_hacs(mcp, ha_client)

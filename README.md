@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **186 tools**: turn on lights, write automations,
+external systems). It ships **210 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 186 tools
+## What it can do — 210 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -33,7 +33,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Scenes** | 7 | Including capturing the current state of the house as a new scene |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zones and people** | 10 | Geographic zones and person tracking |
-| **Registries** | 14 | Entities, devices and areas: rename, move, hide, disable, delete |
+| **Registries** | 26 | Entities, devices, areas, floors, labels and categories: rename, move, hide, disable, delete. Deleting a floor or a label previews which automations, scripts and scenes still point at it |
 | **Integrations** | 13 | Config entries and their config flows, options flows included |
 | **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
 | **Lovelace** | 10 | Dashboards and resources |
@@ -41,7 +41,8 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Backups** | 10 | Full and partial, create and restore |
 | **Supervisor and system** | 6 | Host and core info, validate configuration, restart |
 | **History and statistics** | 4 | History, logbook and long-term statistics |
-| **HACS** | 4 | Query repositories and available updates. On HA 2026.11 or later, HACS became the built-in Marketplace integration; the `ha_hacs_*` tools do not support it yet and say so with a clear message |
+| **Diagnostics** | 5 | Repairs issues (list and ignore), automation and script traces, and what is related to an item |
+| **Marketplace (formerly HACS)** | 11 | Read-only: status, repositories, available updates, published versions, critical and removed repositories. Detects on every call whether Home Assistant has the built-in Marketplace (2026.11 or later) or HACS 2.x. Updates are installed through the `update` entity, with confirmation. The 4 `ha_hacs_*` tools remain as deprecated aliases until 1.3.0 |
 | **Event waiting** | 3 | Wait for something to happen, with filters |
 | **Utilities** | 2 | `ping` and `hermes_guide` |
 

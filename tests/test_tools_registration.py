@@ -291,7 +291,7 @@ class TestToolAnnotations(unittest.TestCase):
             "ha_get_states", "ha_get_state", "ha_list_automations",
             "sv_get_host_info", "sv_list_backups", "fs_read_file",
             "fs_search_in_config", "ha_render_template", "hermes_guide",
-            "ping", "ha_hacs_info",
+            "ping", "ha_hacs_info", "ha_marketplace_info",
         ):
             ann = classify(name)
             self.assertTrue(ann.read_only_hint, f"{name} debería ser de solo lectura")
@@ -346,7 +346,11 @@ class TestToolAnnotations(unittest.TestCase):
         from hermes.tools._annotations import classify
 
         self.assertTrue(classify("sv_install_addon").open_world_hint)
-        self.assertTrue(classify("ha_hacs_list_repositories").open_world_hint)
+        # Los alias `ha_hacs_*` ya no salen a GitHub (spec 004, FR-018): leen
+        # la lista que HA tiene en memoria. Solo las versiones publicadas se
+        # piden a GitHub.
+        self.assertFalse(classify("ha_hacs_list_repositories").open_world_hint)
+        self.assertTrue(classify("ha_marketplace_list_releases").open_world_hint)
         self.assertFalse(classify("ha_get_states").open_world_hint)
         self.assertFalse(classify("fs_read_file").open_world_hint)
 
@@ -516,6 +520,9 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_continue_config_entry_flow": "--I-",
     "ha_continue_options_flow": "--I-",
     "ha_create_area": "----",
+    "ha_create_category": "----",
+    "ha_create_floor": "----",
+    "ha_create_label": "----",
     "ha_create_lovelace_dashboard": "----",
     "ha_create_lovelace_resource": "-D-O",
     "ha_create_or_update_automation": "-DI-",
@@ -538,14 +545,17 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_decrement_input_number": "----",
     "ha_delete_area": "-DI-",
     "ha_delete_automation": "-DI-",
+    "ha_delete_category": "-DI-",
     "ha_delete_config_entry": "-DI-",
     "ha_delete_counter": "-DI-",
+    "ha_delete_floor": "-DI-",
     "ha_delete_input_boolean": "-DI-",
     "ha_delete_input_button": "-DI-",
     "ha_delete_input_datetime": "-DI-",
     "ha_delete_input_number": "-DI-",
     "ha_delete_input_select": "-DI-",
     "ha_delete_input_text": "-DI-",
+    "ha_delete_label": "-DI-",
     "ha_delete_lovelace_dashboard": "-DI-",
     "ha_delete_lovelace_resource": "-DI-",
     "ha_delete_person": "-DI-",
@@ -583,37 +593,51 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_get_state": "R-I-",
     "ha_get_states": "R-I-",
     "ha_get_timer": "R-I-",
+    "ha_get_trace": "R-I-",
     "ha_get_zone": "R-I-",
-    "ha_hacs_get_repository": "R-IO",
-    "ha_hacs_info": "R-IO",
-    "ha_hacs_list_repositories": "R-IO",
-    "ha_hacs_list_updates": "R-IO",
+    "ha_hacs_get_repository": "R-I-",
+    "ha_hacs_info": "R-I-",
+    "ha_hacs_list_repositories": "R-I-",
+    "ha_hacs_list_updates": "R-I-",
+    "ha_ignore_repair": "-DI-",
     "ha_increment_counter": "----",
     "ha_increment_input_number": "----",
     "ha_list_active_waits": "R-I-",
     "ha_list_areas": "R-I-",
     "ha_list_automations": "R-I-",
+    "ha_list_categories": "R-I-",
     "ha_list_config_entries": "R-I-",
     "ha_list_configured_domains": "R-I-",
     "ha_list_counters": "R-I-",
     "ha_list_devices": "R-I-",
     "ha_list_entities_registry": "R-I-",
+    "ha_list_floors": "R-I-",
     "ha_list_input_booleans": "R-I-",
     "ha_list_input_buttons": "R-I-",
     "ha_list_input_datetimes": "R-I-",
     "ha_list_input_numbers": "R-I-",
     "ha_list_input_selects": "R-I-",
     "ha_list_input_texts": "R-I-",
+    "ha_list_labels": "R-I-",
     "ha_list_lovelace_dashboards": "R-I-",
     "ha_list_lovelace_resources": "R-I-",
     "ha_list_persons": "R-I-",
+    "ha_list_repairs": "R-I-",
     "ha_list_scenes": "R-I-",
     "ha_list_schedules": "R-I-",
     "ha_list_scripts": "R-I-",
     "ha_list_services": "R-I-",
     "ha_list_statistic_ids": "R-I-",
     "ha_list_timers": "R-I-",
+    "ha_list_traces": "R-I-",
     "ha_list_zones": "R-I-",
+    "ha_marketplace_get_repository": "R-I-",
+    "ha_marketplace_info": "R-I-",
+    "ha_marketplace_list_critical": "R-I-",
+    "ha_marketplace_list_releases": "R-IO",
+    "ha_marketplace_list_removed": "R-I-",
+    "ha_marketplace_list_repositories": "R-I-",
+    "ha_marketplace_list_updates": "R-I-",
     "ha_pause_timer": "--I-",
     "ha_press_input_button": "----",
     "ha_reload_automations": "-DI-",
@@ -631,6 +655,7 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_reset_counter": "--I-",
     "ha_run_script": "-D--",
     "ha_save_lovelace_dashboard": "-DI-",
+    "ha_search_related": "R-I-",
     "ha_set_counter_value": "--I-",
     "ha_set_input_boolean": "--I-",
     "ha_set_input_datetime": "--I-",
@@ -645,8 +670,11 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_toggle_input_boolean": "----",
     "ha_trigger_automation": "-D--",
     "ha_update_area": "-DI-",
+    "ha_update_category": "-DI-",
     "ha_update_device": "-DI-",
     "ha_update_entity_registry": "-DI-",
+    "ha_update_floor": "-DI-",
+    "ha_update_label": "-DI-",
     "ha_update_lovelace_dashboard_metadata": "-DI-",
     "ha_update_lovelace_resource": "-DIO",
     "ha_update_person": "-DI-",
@@ -758,3 +786,109 @@ class TestToolTitles:
             for n, t in tools.items()
             if _hint_code(t.annotations) != _HINTS_SNAPSHOT[n])
         assert cambiados == [], f"hints cambiados: {cambiados}"
+
+
+# ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
+
+_MARKETPLACE_TOOLS = (
+    "ha_marketplace_info", "ha_marketplace_list_repositories",
+    "ha_marketplace_get_repository", "ha_marketplace_list_updates",
+    "ha_marketplace_list_releases", "ha_marketplace_list_critical",
+    "ha_marketplace_list_removed",
+)
+_HACS_ALIASES = (
+    "ha_hacs_info", "ha_hacs_list_repositories",
+    "ha_hacs_get_repository", "ha_hacs_list_updates",
+)
+
+
+class TestMarketplaceRegistration:
+    def test_marketplace_and_aliases_are_registered(self):
+        mcp = _register_all()
+        faltan = sorted(n for n in _MARKETPLACE_TOOLS + _HACS_ALIASES if n not in mcp.tools)
+        assert faltan == [], f"no registradas: {faltan}"
+
+    def test_all_read_only_and_only_releases_is_open_world(self):
+        from hermes.tools._annotations import classify
+
+        for name in _MARKETPLACE_TOOLS + _HACS_ALIASES:
+            ann = classify(name)
+            assert ann.read_only_hint, name
+            assert not ann.destructive_hint, name
+            # Solo `list_releases` pide datos a GitHub; el resto lee lo que HA
+            # ya tiene en memoria.
+            assert ann.open_world_hint is (name == "ha_marketplace_list_releases"), name
+
+    def test_read_only_is_by_exact_name_not_prefix(self):
+        """Fail-closed: una tool de escritura futura con el prefijo
+        `ha_marketplace_` no puede heredar el `readOnlyHint` por el nombre."""
+        from hermes.tools._annotations import classify
+
+        assert not classify("ha_marketplace_install").read_only_hint
+
+
+# ── Spec 005, bloques A y B: plantas, etiquetas, categorías y diagnóstico ────
+
+_ORGANIZACION_Y_DIAGNOSTICO = (
+    "ha_list_floors", "ha_create_floor", "ha_update_floor", "ha_delete_floor",
+    "ha_list_labels", "ha_create_label", "ha_update_label", "ha_delete_label",
+    "ha_list_categories", "ha_create_category", "ha_update_category",
+    "ha_delete_category",
+    "ha_list_repairs", "ha_ignore_repair",
+    "ha_list_traces", "ha_get_trace", "ha_search_related",
+)
+
+
+class TestOrganizationAndDiagnosticsRegistration:
+    def test_registered(self):
+        mcp = _register_all()
+        faltan = sorted(n for n in _ORGANIZACION_Y_DIAGNOSTICO if n not in mcp.tools)
+        assert faltan == [], f"no registradas: {faltan}"
+
+    def test_read_only(self):
+        from hermes.tools._annotations import classify
+
+        for name in ("ha_list_floors", "ha_list_labels", "ha_list_categories",
+                     "ha_list_repairs", "ha_list_traces", "ha_get_trace",
+                     "ha_search_related"):
+            ann = classify(name)
+            assert ann.read_only_hint, name
+            assert not ann.destructive_hint, name
+
+    def test_token_tools_are_destructive(self):
+        from hermes.tools._annotations import classify
+
+        for name in ("ha_update_floor", "ha_update_label", "ha_update_category",
+                     "ha_ignore_repair", "ha_delete_floor", "ha_delete_label",
+                     "ha_delete_category"):
+            ann = classify(name)
+            assert not ann.read_only_hint, name
+            assert ann.destructive_hint, name
+
+    def test_creates_are_additive_and_not_idempotent(self):
+        from hermes.tools._annotations import classify
+
+        for name in ("ha_create_floor", "ha_create_label", "ha_create_category"):
+            ann = classify(name)
+            assert not ann.read_only_hint, name
+            assert not ann.destructive_hint, name
+            assert not ann.idempotent_hint, name
+
+    def test_traces_receive_response_max_bytes(self):
+        """Una sola traza de una automatización larga puede pesar megas: si el
+        módulo no recibe el límite configurado, usa su tope interno y la
+        opción `response_max_bytes` deja de mandar sobre `ha_get_trace`."""
+        from unittest.mock import patch
+
+        with patch("hermes.tools.traces.register") as reg:
+            mcp = _RecordingMCP()
+            register_all_tools(
+                mcp, MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
+
+    def test_none_is_open_world(self):
+        from hermes.tools._annotations import classify
+
+        assert [n for n in _ORGANIZACION_Y_DIAGNOSTICO if classify(n).open_world_hint] == []

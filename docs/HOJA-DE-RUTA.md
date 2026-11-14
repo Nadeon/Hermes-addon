@@ -19,10 +19,11 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
   cambiado de nombre en HA 2026.11.1. En la 1.0.11 todos los endpoints del
   Supervisor que usaba existían salvo uno (el del sondeo del backup de
   seguridad); la 1.0.12 usa el correcto.
-- **Las tools de HACS no funcionan en HA ≥ 2026.11**: HACS se ha integrado en el
-  core como el **Marketplace**, con otra API. Desde la 1.0.12 lo explican con un
-  mensaje claro; adaptarlas es de la 1.1.0. Mientras tanto, las actualizaciones
-  pendientes se ven con `ha_get_states(domain="update")`.
+- **HACS es el Marketplace desde HA 2026.11**: se ha integrado en el core con
+  otra API. En la 1.0.12 las tools `ha_hacs_*` solo lo explicaban con un mensaje
+  claro; la 1.1.0 añade las `ha_marketplace_*`, de solo lectura, que detectan en
+  cada llamada si hay Marketplace o HACS 2.x, y deja las `ha_hacs_*` como alias
+  deprecados hasta la 1.3.0.
 - **La versión mínima es HA 2024.10**: por debajo no se pueden crear ni editar
   automatizaciones. La 1.0.11 declaraba 2024.1; la 1.0.12 declara la real.
 - **MCP:** transporte Streamable HTTP sin estado y SDK oficial 2.x, al día. En
@@ -46,7 +47,7 @@ detalle está en el CHANGELOG.
 | 3 | El dashboard principal (`url_path: "lovelace"`) se puede borrar con `ha_delete_lovelace_dashboard`, aunque la documentación de la tool dice que no | Pérdida de datos | Cambio de HA 2026.2 | Corregido |
 | 4 | Solo con la opción `safety_backup_enabled` activada (viene desactivada por defecto): el backup de seguridad previo nunca se da por terminado y las escrituras `fs_*` no llegan a ejecutarse | Rota | Hermes | Corregido |
 | 5 | `sv_get_job_status` informa como terminado (`done`) un job que ha fallado, sin sus errores | Rota | Hermes | Corregido |
-| 6 | Las tools `ha_hacs_*` responden «Unknown command» en HA ≥ 2026.11 | Rota | Cambio de HA 2026.11 | Mitigado: mensaje claro; la adaptación al Marketplace es de 1.1.0 |
+| 6 | Las tools `ha_hacs_*` responden «Unknown command» en HA ≥ 2026.11 | Rota | Cambio de HA 2026.11 | Mitigado: mensaje claro. Resuelto en 1.1.0: tools `ha_marketplace_*` y alias `ha_hacs_*` |
 | 7 | Con HA 2024.1–2024.9 no se pueden guardar automatizaciones (versión mínima declarada incorrecta) | Rota | Hermes | Corregido |
 | 8 | No se puede guardar un script que tenga la clave `trace` | Rota | Hermes | Corregido |
 | 9 | `aliases: null`, documentado como «limpiar alias», lo rechaza HA | Rota | Cambio de HA 2026.4 | Corregido |
@@ -59,7 +60,7 @@ detalle está en el CHANGELOG.
 | 16 | `ha_list_lovelace_dashboards` puede mostrar dos veces el dashboard principal | Cosmética | Cambio de HA 2026.2 | Corregido |
 | 17 | Descripciones de tools que no coinciden con la respuesta real (estadísticas, stats de add-ons, ubicación de backups) | Cosmética | Hermes | Corregido |
 | 18 | La guía enseña sintaxis heredada de automatizaciones (`platform:`, `service:`) | Cosmética | Hermes | Corregido |
-| 19 | Defectos menores de las tools de HACS (categorías, cálculo de actualizaciones, mensaje de error poco claro) | Cosmética | Hermes | Corregido |
+| 19 | Defectos menores de las tools de HACS (categorías, cálculo de actualizaciones, mensaje de error poco claro) | Cosmética | Hermes | Corregido; en 1.1.0 las `ha_hacs_*` pasan a ser alias de las `ha_marketplace_*` |
 | 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes | Corregido |
 | 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente |
 | 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes | Corregido |
@@ -157,11 +158,13 @@ que completar DOCS.md con lo que haga falta en ese proxy.
 
 ### 1.1.0 — Marketplace y diagnóstico (esfuerzo L)
 
-- Tools del Marketplace de **solo lectura**, con alias de las `ha_hacs_*`.
+- Tools del Marketplace de **solo lectura**, con alias de las `ha_hacs_*`:
+  hecho (spec 004), sin publicar.
 - CIMD, `iss`, límites y protocolo: hechos (ver el apartado anterior).
-- Repairs de HA y resolución del Supervisor; trazas de automatizaciones y
-  `search/related`; estado de los backups de HA y retención de los backups de
-  seguridad; plantas, etiquetas y categorías.
+- Plantas, etiquetas y categorías; Repairs de HA; trazas de automatizaciones y
+  scripts; `search/related`: hechos (spec 005), sin publicar.
+- Resolución del Supervisor; estado de los backups de HA y retención de los
+  backups de seguridad.
 
 Riesgos: CIMD añade descargas salientes que hay que acotar; límites más bajos
 pueden truncar respuestas que hoy pasan; más tools ocupan más contexto.
@@ -170,6 +173,8 @@ pueden truncar respuestas que hoy pasan; más tools ocupan más contexto.
 
 - Escritura en el Marketplace, solo si se decide, desactivada por defecto y con
   confirmación, backup previo y vista previa completa.
+- Flujos de reparación de Repairs (hoy solo se listan e ignoran) y textos de
+  los avisos traducidos.
 - Subentries y reconfigure; helpers por config entry; triggers y condiciones
   por propósito; resolución de targets.
 - Auditoría de llamadas a acciones (`logbook/get_action_calls`), estado del

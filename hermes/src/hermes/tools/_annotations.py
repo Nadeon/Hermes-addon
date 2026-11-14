@@ -14,10 +14,10 @@ pydantic serializa por alias.
 
 Los clientes las usan para decidir la experiencia de permisos: autorizar sin
 preguntar lo que solo lee, y avisar antes de lo que borra o reinicia. Hermes
-expone ~186 tools sobre una casa entera, así que esa distinción importa.
+expone ~210 tools sobre una casa entera, así que esa distinción importa.
 
 Se aplican de forma centralizada tras registrar las tools (ver
-`apply_tool_annotations`) en vez de repetir `annotations=...` en 187
+`apply_tool_annotations`) en vez de repetir `annotations=...` en 211
 decoradores: una sola tabla, revisable de un vistazo y verificada por tests.
 
 Nota de la spec: son *hints*, no garantías. La seguridad real de Hermes no
@@ -49,6 +49,20 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     "ha_render_template",
     "ha_statistics_during_period",
     "ha_wait_for_event",      # bloquea a la espera, pero no cambia nada
+    # `search/related` solo consulta el grafo de relaciones de HA; su nombre
+    # no encaja con ningún prefijo de lectura.
+    "ha_search_related",
+    # Marketplace (spec 004): por nombre exacto y NO por el prefijo
+    # `ha_marketplace_`. Si un día se añade una tool que instala o acepta el
+    # aviso de riesgos con ese prefijo, heredaría `readOnlyHint` sin que nadie
+    # lo decidiera: fail-closed, la que no esté aquí no se anuncia inofensiva.
+    "ha_marketplace_info",
+    "ha_marketplace_list_repositories",
+    "ha_marketplace_get_repository",
+    "ha_marketplace_list_updates",
+    "ha_marketplace_list_releases",
+    "ha_marketplace_list_critical",
+    "ha_marketplace_list_removed",
     # Dos que parecen encajar aquí y no encajan: sv_check_core_config y
     # sv_get_job_status escriben. Ver _NOT_READ_ONLY_EXACT más abajo.
 })
@@ -112,6 +126,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "sv_start_addon",
     "sv_install_addon",
     "sv_update_addon",            # puede romper un add-on que funcionaba
+    # Spec 005: se hacen confirmar y su nombre no lo delata.
+    "ha_update_floor",            # renombrarla cambia cómo la llaman Assist y la UI
+    "ha_update_label",            # la etiqueta la usan automatizaciones y tarjetas
+    "ha_update_category",         # reorganiza automatizaciones, scripts o helpers
+    "ha_ignore_repair",           # oculta un aviso de HA que puede ser importante
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -123,8 +142,11 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # HA del navegador. Mismo criterio que sv_install_addon: quien descarga no
     # es Hermes, pero la descarga la provoca esta tool.
     "ha_create_lovelace_resource", "ha_update_lovelace_resource",
-    "ha_hacs_info", "ha_hacs_list_repositories",
-    "ha_hacs_get_repository", "ha_hacs_list_updates",
+    # De todo el Marketplace, solo las versiones publicadas se piden a GitHub
+    # (a través de HA). El resto, y los alias `ha_hacs_*`, leen lo que HA ya
+    # tiene en memoria; antes de 1.1.0 los alias se anunciaban de mundo abierto
+    # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
+    "ha_marketplace_list_releases",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

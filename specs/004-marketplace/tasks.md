@@ -129,13 +129,13 @@ Notas de reparto:
 
 **Prueba independiente**: `.venv/bin/pytest tests/test_tools_hacs.py tests/test_tools_registration.py tests/test_tools_wait_for_event.py`.
 
-- [ ] T025 [P] [US5] Tests en `tests/test_tools_hacs.py`: sustituir los casos de `hacs_moved_to_marketplace` de la 1.0.12 por: (a) con el Marketplace simulado, cada `ha_hacs_*` devuelve lo mismo que su `ha_marketplace_*` más `_deprecated` con el nombre nuevo; (b) ya no aparece `hacs_moved_to_marketplace` ni `_disclaimer`; (c) HA ≤ 2026.10 sin HACS → `hacs_not_installed`; (d) la descripción de cada alias empieza por `DEPRECATED` y nombra la sustituta y `1.3.0`; (e) `ha_hacs_list_repositories` acepta `installed_only`, `search` y `limit`. Mover aquí los casos útiles de `TestHACSTools` (`tests/test_tools_wait_for_event.py:318-415`) adaptados a la forma nueva (FR-021, FR-022)
-- [ ] T026 [P] [US5] Tests en `tests/test_tools_registration.py`: las 7 `ha_marketplace_*` y las 4 `ha_hacs_*` están registradas en el servidor; todas `read_only_hint` y no `destructive_hint`; `open_world_hint` solo en `ha_marketplace_list_releases`; cambiar `:349` (`ha_hacs_list_repositories` deja de ser de mundo abierto) y añadir `ha_marketplace_info` a la lista de `:291-298`; un nombre hipotético `ha_marketplace_install` NO es de solo lectura (FR-018, SC-006)
-- [ ] T027 [US5] Reescribir `hermes/src/hermes/tools/hacs.py` como módulo de alias según plan.md (lote B); quitar `TestHACSTools` y el import de `hacs_mod` de `tests/test_tools_wait_for_event.py` (FR-021, FR-022)
-- [ ] T028 [US5] Registrar `marketplace` antes de `hacs` en `hermes/src/hermes/tools/__init__.py:215-225` (FR-021)
-- [ ] T029 [US5] En `hermes/src/hermes/tools/_annotations.py`: las siete `ha_marketplace_*` por nombre exacto en `_READ_ONLY_EXACT` (`:45-55`), no como prefijo (fail-closed); en `_OPEN_WORLD` (`:113-128`), quitar los cuatro `ha_hacs_*` y añadir `ha_marketplace_list_releases`, con el porqué (ya no salen a GitHub) (FR-018)
-- [ ] T030 [US5] Control negativo US5: (1) quitar `_deprecated`, (2) dejar los `ha_hacs_*` en `_OPEN_WORLD`, (3) no registrar `marketplace` en `__init__.py`, (4) clasificar por el prefijo `ha_marketplace_` en vez de por nombre exacto; ejecutar T025–T026 cada vez, restaurar y anotar
-- [ ] T031 Ejecutar la suite completa; grep de privacidad; commit del lote B con los recuentos
+- [X] T025 [P] [US5] Tests en `tests/test_tools_hacs.py`: sustituir los casos de `hacs_moved_to_marketplace` de la 1.0.12 por: (a) con el Marketplace simulado, cada `ha_hacs_*` devuelve lo mismo que su `ha_marketplace_*` más `_deprecated` con el nombre nuevo; (b) ya no aparece `hacs_moved_to_marketplace` ni `_disclaimer`; (c) HA ≤ 2026.10 sin HACS → `hacs_not_installed`; (d) la descripción de cada alias empieza por `DEPRECATED` y nombra la sustituta y `1.3.0`; (e) `ha_hacs_list_repositories` acepta `installed_only`, `search` y `limit`. Mover aquí los casos útiles de `TestHACSTools` (`tests/test_tools_wait_for_event.py:318-415`) adaptados a la forma nueva (FR-021, FR-022)
+- [X] T026 [P] [US5] Tests en `tests/test_tools_registration.py`: las 7 `ha_marketplace_*` y las 4 `ha_hacs_*` están registradas en el servidor; todas `read_only_hint` y no `destructive_hint`; `open_world_hint` solo en `ha_marketplace_list_releases`; cambiar `:349` (`ha_hacs_list_repositories` deja de ser de mundo abierto) y añadir `ha_marketplace_info` a la lista de `:291-298`; un nombre hipotético `ha_marketplace_install` NO es de solo lectura (FR-018, SC-006)
+- [X] T027 [US5] Reescribir `hermes/src/hermes/tools/hacs.py` como módulo de alias según plan.md (lote B); quitar `TestHACSTools` y el import de `hacs_mod` de `tests/test_tools_wait_for_event.py` (FR-021, FR-022)
+- [X] T028 [US5] Registrar `marketplace` antes de `hacs` en `hermes/src/hermes/tools/__init__.py:215-225` (FR-021)
+- [X] T029 [US5] En `hermes/src/hermes/tools/_annotations.py`: las siete `ha_marketplace_*` por nombre exacto en `_READ_ONLY_EXACT` (`:45-55`), no como prefijo (fail-closed); en `_OPEN_WORLD` (`:113-128`), quitar los cuatro `ha_hacs_*` y añadir `ha_marketplace_list_releases`, con el porqué (ya no salen a GitHub) (FR-018)
+- [X] T030 [US5] Control negativo US5: (1) quitar `_deprecated`, (2) dejar los `ha_hacs_*` en `_OPEN_WORLD`, (3) no registrar `marketplace` en `__init__.py`, (4) clasificar por el prefijo `ha_marketplace_` en vez de por nombre exacto; ejecutar T025–T026 cada vez, restaurar y anotar
+- [X] T031 Ejecutar la suite completa; grep de privacidad; commit del lote B con los recuentos
 
 ---
 
@@ -156,23 +156,23 @@ Notas de reparto:
 
 **Prueba independiente**: `.venv/bin/pytest tests/test_tools_guide.py` y revisión manual de los documentos.
 
-- [ ] T038 [P] [US6] Tests en `tests/test_tools_guide.py`: `hermes_guide("marketplace")` y `hermes_guide("hacs")` devuelven el tema, que nombra las 7 tools, `update.install`, `confirmation_token`, el aviso por usuario y la advertencia de texto de terceros; el índice menciona `marketplace` (FR-028)
-- [ ] T039 [US6] Añadir el tema `marketplace` y el alias `hacs` en `hermes/src/hermes/tools/guide.py`; actualizar el recuento aproximado de `:23` con el número real de tools registradas y el índice de temas (`:71`) (FR-028)
-- [ ] T040 [US6] Control negativo de la guía: quitar el tema y comprobar que cae T038; restaurar y anotar
-- [ ] T041 [P] [US6] `README.md` (`:10`, `:24`, fila `:44`) y `README.es.md` (equivalentes, fila `:46`), sincronizados: familia «Marketplace (formerly HACS)» / «Marketplace (antes HACS)» con las 7 tools, de solo lectura, detección automática y alias `ha_hacs_*` deprecados hasta 1.3.0; quitar «do not support it yet» / «todavía no la soportan»; recuento total al día; ejemplos solo con marcadores (FR-025)
-- [ ] T042 [P] [US6] `hermes/DOCS.md`, sección «Qué esperar»: un párrafo sobre el Marketplace (solo lectura; actualizar con las entidades `update` y confirmación; el aviso de riesgos lo acepta una persona en la interfaz) (FR-026)
-- [ ] T043 [P] [US6] `docs/HOJA-DE-RUTA.md`: estado de compatibilidad (`:20-22`) sin «no funcionan»; problemas 6 y 19 (`:44`, `:57`) resueltos en 1.1.0; plan de 1.1.0 (`:126-129`) con el Marketplace hecho; escritura en 1.2.x (`:141`) sin cambios (FR-027)
-- [ ] T044 [US6] `hermes/CHANGELOG.md`: en `## [1.1.0]` (crear la cabecera si no existe; la fecha la fija la integración), `### Added` con las 7 tools, `### Changed` con la forma nueva de las respuestas (`api`, sin `_disclaimer`), `installed_only=True` por defecto y `openWorldHint` de los alias, `### Deprecated` con los 4 alias (retirada en 1.3.0) y `### Fixed` con el ejemplo de Lovelace; explicar el porqué (HA 2026.11) (FR-029)
-- [ ] T045 Comprobar a mano que README.md y README.es.md dicen lo mismo; suite completa; grep de privacidad e identificadores de modelos de IA; commit del lote D
+- [X] T038 [P] [US6] Tests en `tests/test_tools_guide.py`: `hermes_guide("marketplace")` y `hermes_guide("hacs")` devuelven el tema, que nombra las 7 tools, `update.install`, `confirmation_token`, el aviso por usuario y la advertencia de texto de terceros; el índice menciona `marketplace` (FR-028)
+- [X] T039 [US6] Añadir el tema `marketplace` y el alias `hacs` en `hermes/src/hermes/tools/guide.py`; actualizar el recuento aproximado de `:23` con el número real de tools registradas y el índice de temas (`:71`) (FR-028)
+- [X] T040 [US6] Control negativo de la guía: quitar el tema y comprobar que cae T038; restaurar y anotar
+- [X] T041 [P] [US6] `README.md` (`:10`, `:24`, fila `:44`) y `README.es.md` (equivalentes, fila `:46`), sincronizados: familia «Marketplace (formerly HACS)» / «Marketplace (antes HACS)» con las 7 tools, de solo lectura, detección automática y alias `ha_hacs_*` deprecados hasta 1.3.0; quitar «do not support it yet» / «todavía no la soportan»; recuento total al día; ejemplos solo con marcadores (FR-025)
+- [X] T042 [P] [US6] `hermes/DOCS.md`, sección «Qué esperar»: un párrafo sobre el Marketplace (solo lectura; actualizar con las entidades `update` y confirmación; el aviso de riesgos lo acepta una persona en la interfaz) (FR-026)
+- [X] T043 [P] [US6] `docs/HOJA-DE-RUTA.md`: estado de compatibilidad (`:20-22`) sin «no funcionan»; problemas 6 y 19 (`:44`, `:57`) resueltos en 1.1.0; plan de 1.1.0 (`:126-129`) con el Marketplace hecho; escritura en 1.2.x (`:141`) sin cambios (FR-027)
+- [X] T044 [US6] (Hecho en `specs/004-marketplace/notas-changelog.md`: la cabecera `## [1.1.0]` y la copia al CHANGELOG las hace la integración final) `hermes/CHANGELOG.md`: en `## [1.1.0]` (crear la cabecera si no existe; la fecha la fija la integración), `### Added` con las 7 tools, `### Changed` con la forma nueva de las respuestas (`api`, sin `_disclaimer`), `installed_only=True` por defecto y `openWorldHint` de los alias, `### Deprecated` con los 4 alias (retirada en 1.3.0) y `### Fixed` con el ejemplo de Lovelace; explicar el porqué (HA 2026.11) (FR-029)
+- [X] T045 Comprobar a mano que README.md y README.es.md dicen lo mismo; suite completa; grep de privacidad e identificadores de modelos de IA; commit del lote D
 
 ---
 
 ## Fase 10: Cierre transversal
 
-- [ ] T046 Fusionar A, B, C y D en la rama de trabajo (sin conflictos esperados: no comparten ficheros); suite completa (SC-008)
-- [ ] T047 Recorrer quickstart.md y la tabla de trazabilidad; cada FR con comportamiento tiene test y control negativo anotado (SC-007)
-- [ ] T048 Grep final del diff de la spec: hostnames reales, IPs, slugs, nombres de repositorios o entidades de una instalación concreta e identificadores de modelos de IA → 0 coincidencias (SC-009, FR-031)
-- [ ] T049 Redactar la descripción del PR: tools nuevas, alias, recuentos de control negativo por lote, supuestos S-01…S-10 y lo que queda fuera (escritura, README del repositorio, notas de versión, `.storage/marketplace.*`, subida de versión). Sin push ni fusión: lo decide el mantenedor (principio XI)
+- [X] T046 Fusionar A, B, C y D en la rama de trabajo (sin conflictos esperados: no comparten ficheros); suite completa (SC-008)
+- [X] T047 Recorrer quickstart.md y la tabla de trazabilidad; cada FR con comportamiento tiene test y control negativo anotado (SC-007)
+- [X] T048 Grep final del diff de la spec: hostnames reales, IPs, slugs, nombres de repositorios o entidades de una instalación concreta e identificadores de modelos de IA → 0 coincidencias (SC-009, FR-031)
+- [ ] T049 (Pendiente: la descripción del PR la redacta la integración final de 1.1.0) Redactar la descripción del PR: tools nuevas, alias, recuentos de control negativo por lote, supuestos S-01…S-10 y lo que queda fuera (escritura, README del repositorio, notas de versión, `.storage/marketplace.*`, subida de versión). Sin push ni fusión: lo decide el mantenedor (principio XI)
 
 ---
 
