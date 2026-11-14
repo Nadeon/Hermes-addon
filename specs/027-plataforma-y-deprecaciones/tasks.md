@@ -185,7 +185,7 @@ B no depende del código de A salvo para citar sus tests en la documentación
 | FR-014 | T016, T027 |
 | FR-015 | T023, T024, T025, T026 |
 | FR-016 | T002, T009, T010, T016, T017, T027 |
-| FR-017 | T005a, T005b |
+| FR-017 | T005a, T005b, T030 |
 
 ---
 
@@ -197,3 +197,10 @@ revisión que hay que arreglar.
 
 - [x] T028 [BAJO] `child_errors` (y `errors`, por la misma función) recorta el mensaje a 500 caracteres ANTES de pasar `redact_secrets`: un secreto que cruza el corte deja de reconocerse y sale a medias (un JWT cortado deja ver su cabecera y parte del payload; `child_jobs`, que no se recorta, sí lo tapa entero). Arreglo: en `hermes/src/hermes/supervisor_jobs.py`, `redact_secrets(mensaje)[:JOB_ERROR_MAX_CHARS]` en `_mensaje` y en `job_errors`; test con un JWT centinela que cruce el carácter 500 en `tests/test_supervisor_jobs.py`, con control negativo per FR-002, FR-016, Constitution II (contradicts)
 - [x] T029 [BAJO] La descripción de `call_service_auto_classify_dangerous` en `hermes/translations/en.yaml` y `es.yaml` («Turn it off only to manage the list by hand» / «Desactívalo solo para gestionar la lista a mano») da a entender que con `false` no se clasifica nada, pero `classify_saved_config` (`tools/ha.py`, llamada desde `ha_create_or_update_script` y `ha_create_or_update_automation`) marca como restringidos los guardados peligrosos con la opción en `false`; la opción solo apaga la clasificación del arranque y tras un `reload` por `ha_call_service`. Arreglo: decir eso en las dos traducciones (y en la fila de `README.md`/`README.es.md` de la que salen, sincronizadas) per FR-006, Constitution V (contradicts)
+
+Extras por decisión del supervisor (hallazgo O-1 y los dos «fuera de alcance»
+de la revisión):
+
+- [x] T030 [BAJO] Retención de los safety backups (`hermes/src/hermes/safety_retention.py`, `_clasificar_job`): un job sin errores propios pero con errores en sus sub-jobs (o con el recorrido recortado) y con `reference` se clasifica `incompleto`, un backup FALLIDO que existe (D-1: error en un sub-job = fallo). Su entrada queda con `incomplete: true` (también si ya estaba confirmada por la respuesta síncrona), se poda la primera y NO cuenta como una de las `keep` copias buenas; sin `reference` es un fallo sin backup y sale de la anotación. FR-017, research R-1 y la sesión de clarificación corregidos (decían que la retención no cambiaba). Tests en `tests/test_safety_retention.py`, `TestSafetyBackupIncompleto`. **Controles negativos**: sin mirar los sub-jobs en `_clasificar_job` → 4 en rojo; tratando las `incomplete` como buenas en la poda → 2 en rojo (FR-017)
+- [x] T031 [BAJO] `sv_get_job_status` (`hermes/src/hermes/tools/backups.py`): el error HTTP (`except HAConnectionError`, con el cuerpo de la respuesta del Supervisor) pasa por `redact_secrets`. Test centinela `test_centinela_tapado_en_el_error_http` en `tests/test_tools_supervisor.py`. **Control negativo**: con `{"error": str(exc)}` → en rojo (FR-002, FR-016)
+- [x] T032 [BAJO] `classify_saved_config` (`hermes/src/hermes/tools/ha.py`) clasifica con la denylist EFECTIVA (base + `call_service_denylist_extra`), la misma que `ha_call_service`, que fija `register`. Tests en `tests/test_call_service_security.py`, `TestClasificarAlGuardarConLaDenylistExtra`, con un servicio que solo está en la extra. **Control negativo**: con `CALL_SERVICE_DENYLIST` en `classify_saved_config` → `test_servicio_solo_en_la_extra_se_restringe` en rojo (FR-006)

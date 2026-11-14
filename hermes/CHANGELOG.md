@@ -190,11 +190,23 @@ _Pendiente: la añade la sub-feature que lo implemente._
 - **`child_jobs` sale redactado.** `sv_get_job_status` devuelve el árbol de
   sub-jobs entero, y antes iba en bruto: un secreto en el error de un sub-job
   salía por ahí aunque `child_errors` lo tapara. Ahora pasa por la misma
-  redacción.
+  redacción, igual que el error HTTP de la tool. Los mensajes de `errors` y
+  `child_errors` se redactan antes de recortarlos a 500 caracteres: un
+  secreto que cruzaba el corte salía a medias.
+- **Al guardar scripts y automatizaciones, cuenta la denylist extra.** La
+  clasificación de lo peligroso al guardar con `ha_create_or_update_script` o
+  `ha_create_or_update_automation` usaba solo la lista de serie; ahora usa
+  también `call_service_denylist_extra`, como `ha_call_service`. Y la
+  descripción de `call_service_auto_classify_dangerous` dice lo que hace: con
+  `false` solo se apagan la revisión del arranque y la de tras un `reload`;
+  lo que se guarda con Hermes se revisa siempre.
 - **El safety backup con sub-jobs fallidos ya no deja escribir.** El sondeo
   del safety backup de las escrituras `fs_*` cuenta esos errores como fallo
   (`safety_backup_job_failed` con el mensaje del sub-job): no se escribe sin
-  un backup válido. La retención de los safety backups no cambia.
+  un backup válido. La retención (`safety_backup_keep`) aplica el mismo
+  criterio: ese backup incompleto se poda el primero y ya no cuenta como una
+  de las copias buenas que se conservan, así que no queda una copia completa
+  menos de las prometidas.
 - **Nada se retira en la 1.2.0.** Los alias `ha_hacs_*` siguen hasta la 1.3.0
   y `ha_remove_device_from_config_entry` sigue registrada y deprecada, con
   sus argumentos y anotaciones de siempre. Si Home Assistant retira su comando
