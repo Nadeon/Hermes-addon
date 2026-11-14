@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.1.1] — 2026-11-14
+
+Arreglos de lo que encontraron las pruebas en vivo de la 1.1.0 con Home
+Assistant 2026.11.1. No cambia ninguna opción ni el nombre o los argumentos de
+ninguna tool.
+
+### Fixed
+
+- **`ha_marketplace_list_updates` (y su alias `ha_hacs_list_updates`) fallaba
+  siempre** con el Marketplace, con `ha_error` «WebSocket error en la conexión
+  de HA.». Pedía el catálogo entero del Marketplace en un solo mensaje, y el
+  catálogo, con miles de repositorios, pasa del tamaño máximo de mensaje
+  WebSocket: la conexión con Home Assistant se cerraba y se rehacía, y fallaba
+  también cualquier otra llamada en curso. Lo mismo pasaba con
+  `ha_marketplace_get_repository` y con `ha_marketplace_list_repositories` sin
+  `category`. Ahora el catálogo se pide categoría a categoría.
+- **`response_max_bytes` vale para todas las tools.** En la 1.1.0 solo lo
+  respetaban las que recortaban por su cuenta: `ha_get_states(domain="sensor")`
+  devolvía unos 245 KB con el tope en 128 KiB, sin recorte ni aviso, y lo mismo
+  podía pasar con las listas de automatizaciones, scripts, escenas, helpers,
+  áreas, servicios, add-ons o logs. Ahora lo aplica el servidor a la salida de
+  cualquier tool: se recorta la lista más larga y se indica con
+  `truncated: true` y `_response_limit` (cuántos se devuelven, cuántos había y
+  una pista para filtrar). Una respuesta que es solo una lista, como la de
+  `ha_get_states`, llega entonces como `{truncated, count, total, items}`. Si
+  no hay lista que recortar, la respuesta es el error `response_too_large`. Lo
+  que cabe sale igual que antes.
+- **El log guardaba argumentos de texto libre.** El `pattern` de
+  `fs_search_in_config` y la plantilla de `ha_render_template` iban en claro, y
+  un patrón puede llevar IPs o MACs escritas como regex que la redacción de red
+  no reconoce. Ahora el log solo guarda su longitud (`pattern_len`,
+  `template_len`).
+
 ## [1.1.0] — 2026-11-14
 
 Tools nuevas para organizar la casa y diagnosticar problemas, el Marketplace

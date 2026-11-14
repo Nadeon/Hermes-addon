@@ -42,7 +42,7 @@ HA_CORE_MIN_SUPPORTED = "2024.10.0"
 # decidir: o se comprueba contra la HA actual y se sube, o se deja a
 # sabiendas y solo se actualiza la pareja.
 HA_CORE_LAST_TESTED = "2026.11.1"
-HA_CORE_LAST_TESTED_IN_HERMES = "1.1.0"
+HA_CORE_LAST_TESTED_IN_HERMES = "1.1.1"
 
 MCP_PORT = 8765
 HEALTH_PORT = 8766

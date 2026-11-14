@@ -150,6 +150,40 @@ async def _ws_read(
         }) from exc
 
 
+async def _list_catalog(
+    ha_client: HAClient, category: str | None = None
+) -> tuple[str, list[Any]]:
+    """`(api, repositorios)` sin pedir nunca el catálogo entero de una vez.
+
+    Sin `categories`, HA 2026.11.1 manda en un solo mensaje el resumen de cada
+    repositorio del catálogo (miles, con `authors` y `topics`): pasa del tope
+    de mensaje WS (`ha_ws_max_msg_size_bytes`, 4 MiB), aiohttp cierra la
+    conexión y la tool falla con «WebSocket error en la conexión de HA.» tras
+    tumbar la WebSocket de todas las demás (spec 006, R-1). HA solo sabe
+    filtrar por categoría, así que se pide una por mensaje. `integration` va
+    primero: existe en las dos API y su respuesta decide cuál hay.
+    """
+    if category is not None:
+        api, raw = await _ws_read(ha_client, "repositories/list", {"categories": [category]})
+        if not isinstance(raw, list):
+            raise _unexpected("a list", raw)
+        return api, raw
+
+    api, raw = await _ws_read(ha_client, "repositories/list", {"categories": ["integration"]})
+    if not isinstance(raw, list):
+        raise _unexpected("a list", raw)
+    repos = list(raw)
+    # Con HACS también `appdaemon` y `python_script`; una categoría que la API
+    # no tenga activa vuelve vacía (HA filtra con `in`), no da error.
+    resto = MARKETPLACE_CATEGORIES if api == "marketplace" else ALL_CATEGORIES
+    for cat in sorted(resto - {"integration"}):
+        _, parte = await _ws_read(ha_client, "repositories/list", {"categories": [cat]})
+        if not isinstance(parte, list):
+            raise _unexpected("a list", parte)
+        repos.extend(parte)
+    return api, repos
+
+
 def _unexpected(what: str, value: Any) -> _ApiError:
     return _ApiError({
         "error": "unexpected_response",
@@ -314,8 +348,7 @@ async def list_repositories(
         if error:
             return error
 
-    extra = {"categories": [category]} if category is not None else None
-    api, raw = await _ws_read(ha_client, "repositories/list", extra)
+    api, raw = await _list_catalog(ha_client, category)
     if api == "marketplace" and category in HACS_ONLY_CATEGORIES:
         # El Marketplace respondería con una lista vacía: decir «no hay nada»
         # cuando la verdad es «esa categoría ya no existe» engaña al agente.
@@ -324,8 +357,6 @@ async def list_repositories(
             "detail": f"Category {category!r} only exists in HACS, not in the Marketplace.",
             "valid": sorted(MARKETPLACE_CATEGORIES),
         }
-    if not isinstance(raw, list):
-        raise _unexpected("a list", raw)
 
     repos = _summaries(raw)
     if installed_only:
@@ -366,9 +397,7 @@ async def get_repository(ha_client: HAClient, repository_id: str) -> dict[str, A
 
     # Se construye con la lista y no con `repository/info`, que sale a GitHub y
     # escribe en el storage (research R-02).
-    api, raw = await _ws_read(ha_client, "repositories/list")
-    if not isinstance(raw, list):
-        raise _unexpected("a list", raw)
+    api, raw = await _list_catalog(ha_client)
     for repo in _summaries(raw):
         if repo["id"] == repository_id:
             ids = await _update_entity_ids(ha_client, api)
@@ -400,9 +429,7 @@ def _has_update(repo: dict[str, Any]) -> bool:
 
 @_api_errors
 async def list_updates(ha_client: HAClient, max_bytes: int | None = None) -> dict[str, Any]:
-    api, raw = await _ws_read(ha_client, "repositories/list")
-    if not isinstance(raw, list):
-        raise _unexpected("a list", raw)
+    api, raw = await _list_catalog(ha_client)
     pending = [r for r in _summaries(raw) if _has_update(r)]
     # El registro solo se pide si hay algo que actualizar: es una lista grande.
     ids = await _update_entity_ids(ha_client, api) if pending else {}

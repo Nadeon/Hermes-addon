@@ -88,7 +88,7 @@ Claude:
 
 | Opción | Defecto | Máximo efectivo | Qué es |
 |---|---|---|---|
-| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de una tool. Por encima, la tool recorta y lo indica |
+| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de cualquier tool. Por encima, se recorta la lista más larga y se indica con `truncated: true` (una lista sola, como la de `ha_get_states`, llega como `{truncated, count, total, items}`); si no hay lista que recortar, la respuesta es el error `response_too_large` |
 | `wait_for_event_max_seconds` | `90` | `220` | Espera máxima que admite `ha_wait_for_event` |
 
 **Si tenías valores guardados.** La interfaz guarda el valor por defecto

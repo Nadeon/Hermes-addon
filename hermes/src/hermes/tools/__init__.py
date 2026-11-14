@@ -81,6 +81,12 @@ def register_all_tools(
         if safety_backup_keep is None:
             safety_backup_keep = cfg.safety_backup_keep
 
+    # El tope vale para TODAS las tools, no solo para las que lo reciben
+    # (spec 006): lo aplica el servidor al final de cada `tools/call`.
+    from hermes.mcp_server import HermesMCPServer
+    if isinstance(mcp, HermesMCPServer):
+        mcp.response_max_bytes = response_max_bytes
+
     # ping y test_progress
     from hermes.tools.ping import register as register_ping
     register_ping(mcp)

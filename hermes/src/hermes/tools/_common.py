@@ -57,6 +57,65 @@ def ajustar_lista_a_bytes(
         n -= 1
 
 
+_LIMIT_HINT = (
+    "The response was cut to fit response_max_bytes. Filter more (by domain, "
+    "entity, dates or a search argument) instead of repeating the same call."
+)
+
+
+def recortar_a_bytes(payload: Any, max_bytes: int) -> Any:
+    """`payload` tal cual si cabe en `max_bytes`; si no, recortado y dicho.
+
+    Es la red de seguridad de `HermesMCPServer` para las tools que no recortan
+    por su cuenta (spec 006). Una lista se envuelve en un objeto, porque una
+    lista no tiene dónde decir `truncated`. En un objeto se recorta su lista
+    más grande del nivel superior. Si no hay lista que recortar (un texto
+    enorme, un objeto de objetos), se devuelve un error en vez de cortar a
+    ciegas: un JSON partido o un texto cortado sin aviso engañan al agente.
+    """
+    if tam_json(payload) <= max_bytes:
+        return payload
+
+    def aviso(clave: str | None, devueltos: int, total: int) -> dict[str, Any]:
+        return {
+            "list": clave, "returned": devueltos, "total": total,
+            "max_bytes": max_bytes, "hint": _LIMIT_HINT,
+        }
+
+    out: Any = None
+    if isinstance(payload, list):
+        def construir(items: list[Any], _recortada: bool) -> dict[str, Any]:
+            return {
+                "truncated": True, "count": len(items), "total": len(payload),
+                "items": items, "_response_limit": aviso("items", len(items), len(payload)),
+            }
+        out = ajustar_lista_a_bytes(payload, construir, max_bytes)
+    elif isinstance(payload, dict):
+        listas = [k for k, v in payload.items() if isinstance(v, list) and v]
+        if listas:
+            clave = max(listas, key=lambda k: tam_json(payload[k]))
+            lista = payload[clave]
+
+            def construir(items: list[Any], _recortada: bool) -> dict[str, Any]:
+                # `truncated` se fuerza a true aunque la tool ya lo trajera a
+                # false: ahora sí se ha recortado.
+                return {
+                    **payload, clave: items, "truncated": True,
+                    "_response_limit": aviso(clave, len(items), len(lista)),
+                }
+            out = ajustar_lista_a_bytes(lista, construir, max_bytes)
+    if out is not None and tam_json(out) <= max_bytes:
+        return out
+    return {
+        "error": "response_too_large",
+        "detail": (
+            f"The response ({tam_json(payload)} bytes) exceeds response_max_bytes "
+            f"({max_bytes}) and has no list that can be cut."
+        ),
+        "hint": _LIMIT_HINT,
+    }
+
+
 def requires_ready(ha_client: HAClient, timeout: float = 5.0) -> Callable:
     """Decorator: espera a que HAClient esté listo antes de ejecutar.
 

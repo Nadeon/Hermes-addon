@@ -431,8 +431,11 @@ def _run_scan_in_subprocess(
                 break
 
         if timed_out:
+            # Solo la longitud: el patrón lo escribe el cliente y puede llevar
+            # IPs o MACs como regex (`192\.0\.2\.1`), que la redacción de
+            # red no reconoce; en 1.1.0 llegaron así al log (spec 006).
             logger.warning(
-                "fs_search_subprocess_killed", pattern=pattern, timeout=timeout
+                "fs_search_subprocess_killed", pattern_len=len(pattern), timeout=timeout
             )
             return {
                 "error": "search_timeout",
@@ -878,7 +881,10 @@ def register(
             })
         risk = _pattern_redos_risk(pattern)
         if risk is not None:
-            logger.warning("fs_search_pattern_rejected", pattern=pattern, risk=risk)
+            # Longitud y no patrón: ver `fs_search_subprocess_killed`.
+            logger.warning(
+                "fs_search_pattern_rejected", pattern_len=len(pattern), risk=risk
+            )
             return json.dumps({
                 "error": "pattern_too_complex",
                 "detail": f"Pattern rejected as potentially catastrophic: {risk}",
@@ -932,7 +938,7 @@ def register(
         if result_payload.get("error") == "search_timeout":
             logger.warning(
                 "fs_search_timeout",
-                pattern=pattern,
+                pattern_len=len(pattern),
                 glob=glob,
                 timeout_seconds=_SEARCH_TIMEOUT_SECONDS,
             )
@@ -940,7 +946,7 @@ def register(
         if "error" in result_payload:
             logger.warning(
                 "fs_search_failed",
-                pattern=pattern,
+                pattern_len=len(pattern),
                 glob=glob,
                 detail=result_payload.get("detail"),
             )
@@ -954,7 +960,7 @@ def register(
 
         logger.info(
             "fs_search_in_config_ok",
-            pattern=pattern,
+            pattern_len=len(pattern),
             glob=glob,
             count=len(matches),
             searched=searched,

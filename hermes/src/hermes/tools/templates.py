@@ -110,9 +110,12 @@ def register(mcp: object, ha_client: HAClient) -> None:
         except HAConnectionError as exc:
             # "Timeout" es el plazo local de Hermes; el otro texto, el de HA.
             if "Timeout" in str(exc) or _HA_TIMEOUT_TEXT in str(exc):
+                # Solo la longitud en todos los eventos: la plantilla nombra
+                # entidades de la casa y puede llevar IPs o MACs, y el log se
+                # pega al pedir ayuda (spec 006).
                 logger.warning(
                     "ha_render_template_timeout",
-                    template=template[:100],
+                    template_len=len(template),
                     timeout=timeout,
                 )
                 return json.dumps({
@@ -125,7 +128,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 })
             logger.error(
                 "ha_render_template_ws_error",
-                template=template[:100],
+                template_len=len(template),
                 error=str(exc),
             )
             return json.dumps({"error": str(exc)})
@@ -134,7 +137,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         if "error" in event:
             logger.warning(
                 "ha_render_template_error",
-                template=template[:100],
+                template_len=len(template),
                 detail=event.get("error"),
             )
             return json.dumps({
@@ -147,7 +150,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         listeners = event.get("listeners", {})
         logger.info(
             "ha_render_template_ok",
-            template=template[:100],
+            template_len=len(template),
             result_type=type(result).__name__,
         )
         response: dict[str, Any] = {"result": result, "listeners": listeners}

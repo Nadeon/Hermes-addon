@@ -64,6 +64,18 @@ class FakeHA:
             value = value(payload)
         if isinstance(value, BaseException):
             raise value
+        if payload["type"].endswith("/repositories/list") and isinstance(value, list):
+            if "categories" not in payload:
+                # El catálogo entero de HA 2026.11.1 pasa del tope de mensaje
+                # WS (4 MiB): aiohttp cierra la conexión y el cliente falla
+                # con este texto genérico (spec 006, R-1). El simulador lo
+                # reproduce para que pedirlo entero no pase nunca en verde.
+                raise HAConnectionError("WebSocket error en la conexión de HA.")
+            # HA filtra por `categories` en el servidor (`websocket/repositories.py`).
+            value = [
+                r for r in value
+                if not isinstance(r, dict) or r.get("category") in payload["categories"]
+            ]
         return value
 
 
@@ -845,6 +857,76 @@ class TestRespetaTope(_Base):
         result = await mcp.tools["ha_marketplace_list_releases"]("123456")
         self.assertEqual(result["error"], "unknown")
         self.assertIn("try again later", result["hint"])
+
+
+class TestCatalogoPorCategorias(_Base):
+    """Regresión 1.1.1: `ha_marketplace_list_updates` (y su alias
+    `ha_hacs_list_updates`) fallaba siempre en HA 2026.11.1 con «WebSocket
+    error en la conexión de HA.». Pedía el catálogo entero en un solo mensaje,
+    que pasa del tope de mensaje WS, y aiohttp cerraba la conexión. Ahora se
+    pide categoría a categoría."""
+
+    def _repos(self) -> list[dict[str, Any]]:
+        return [
+            _repo("1", "owner/integ", category="integration", installed=True,
+                  installed_version="1.0", available_version="1.1", pending_upgrade=True),
+            _repo("2", "owner/card", category="plugin", installed=True,
+                  installed_version="2.0", available_version="2.1", pending_upgrade=True),
+            _repo("3", "owner/theme", category="theme", installed=True,
+                  installed_version="3.0", available_version="3.0"),
+            _repo("4", "owner/tpl", category="template"),
+            _repo("5", "owner/apps", category="appdaemon", installed=True,
+                  installed_version="0.1", available_version="0.2", pending_upgrade=True),
+        ]
+
+    def _lists(self, fake: FakeHA) -> list[dict[str, Any]]:
+        return [p for p in fake.sent if p["type"].endswith("/repositories/list")]
+
+    async def test_updates_por_categoria_sin_catalogo_entero(self) -> None:
+        responses = _marketplace("marketplace", {"repositories/list": self._repos()})
+        responses["config/entity_registry/list"] = []
+        fake = FakeHA(responses)
+        result = await self._mcp(fake).tools["ha_marketplace_list_updates"]()
+        self.assertNotIn("error", result)
+        self.assertEqual(sorted(u["id"] for u in result["updates"]), ["1", "2"])
+        enviados = self._lists(fake)
+        self.assertTrue(all("categories" in p for p in enviados), enviados)
+        self.assertEqual(
+            sorted(c for p in enviados for c in p["categories"]),
+            ["integration", "plugin", "template", "theme"],
+        )
+        # Una categoría por mensaje: así ninguno lleva el catálogo entero.
+        self.assertTrue(all(len(p["categories"]) == 1 for p in enviados))
+
+    async def test_list_y_get_sin_categoria_juntan_todas_sin_duplicar(self) -> None:
+        fake = FakeHA(_marketplace("marketplace", {"repositories/list": self._repos()}))
+        mcp = self._mcp(fake)
+        result = await mcp.tools["ha_marketplace_list_repositories"](installed_only=False)
+        self.assertEqual(sorted(r["id"] for r in result["repositories"]), ["1", "2", "3", "4"])
+        self.assertEqual(result["total"], 4)
+        got = await mcp.tools["ha_marketplace_get_repository"]("3")
+        self.assertEqual(got["repository"]["full_name"], "owner/theme")
+        self.assertTrue(all("categories" in p for p in self._lists(fake)))
+
+    async def test_hacs_incluye_sus_categorias_propias(self) -> None:
+        responses = _marketplace("hacs", {"repositories/list": self._repos()})
+        responses["config/entity_registry/list"] = []
+        fake = FakeHA(responses)
+        result = await self._mcp(fake).tools["ha_marketplace_list_updates"]()
+        self.assertEqual(result["api"], "hacs")
+        self.assertEqual(sorted(u["id"] for u in result["updates"]), ["1", "2", "5"])
+        self.assertTrue(all("categories" in p for p in self._lists(fake)))
+
+    async def test_alias_hacs_list_updates_funciona(self) -> None:
+        from hermes.tools import hacs as hacs_mod
+        responses = _marketplace("marketplace", {"repositories/list": self._repos()})
+        responses["config/entity_registry/list"] = []
+        self._install(FakeHA(responses))
+        mcp = DummyMCP()
+        hacs_mod.register(mcp, self.client)
+        result = await mcp.tools["ha_hacs_list_updates"]()
+        self.assertNotIn("error", result)
+        self.assertEqual(result["count"], 2)
 
 
 if __name__ == "__main__":

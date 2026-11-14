@@ -4,10 +4,11 @@
 
 # Hoja de ruta de Hermes
 
-**Revisión:** 2026-11-14, sobre Hermes **1.1.0** (la revisión de
-compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró y
-la 1.1.0 añade lo planificado para ella). La 1.0.12 no se publicó por
-separado: llega a los usuarios dentro de la 1.1.0.
+**Revisión:** 2026-11-14, sobre Hermes **1.1.1** (la revisión de
+compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró,
+la 1.1.0 añade lo planificado para ella y la 1.1.1 corrige lo que encontraron
+las pruebas en vivo de la 1.1.0). La 1.0.12 no se publicó por separado: llega
+a los usuarios dentro de la 1.1.0.
 
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
@@ -167,10 +168,39 @@ etiqueta y comprobar que las imágenes ya publicadas siguen disponibles.
 Son 216 tools. Riesgos que quedan: límites más bajos pueden truncar respuestas
 que antes pasaban, y más tools ocupan más contexto en el cliente.
 
+### Hecho en 1.1.1 — correcciones de la 1.1.0 (spec 006)
+
+Las pruebas en vivo de la 1.1.0 con HA 2026.11.1 encontraron tres fallos:
+
+- `ha_marketplace_list_updates` (y `ha_hacs_list_updates`) fallaba siempre:
+  pedía el catálogo entero del Marketplace en un mensaje que pasa del tope WS
+  y tumbaba la conexión. Ahora se pide por categorías.
+- `response_max_bytes` no se aplicaba a las tools que no recortaban por su
+  cuenta (`ha_get_states`, entre otras). Ahora lo aplica el servidor a todas.
+- El log guardaba el `pattern` de `fs_search_in_config` y la plantilla de
+  `ha_render_template`; ahora solo su longitud.
+
+Lo que las pruebas en vivo de la 1.1.0 dieron por bueno: arranque y redacción
+de red, `sv_get_supervisor_info`, `sv_get_host_info`, dashboards y recursos de
+Lovelace, `ha_list_services(domain=…)`, avisos de `ha_render_template`, los
+alias `ha_hacs_info` y `ha_hacs_list_repositories`, la protección del
+dashboard principal y los tokens DCR emitidos antes de actualizar.
+
 ### Pruebas manuales pendientes en una instalación real
 
-La suite no puede cubrir esto; hay que hacerlo antes o justo después de
-publicar la 1.1.0, y anotar el resultado aquí:
+La suite no puede cubrir esto; hay que hacerlo justo después de publicar la
+1.1.1, y anotar el resultado aquí:
+
+- [ ] **Tools nuevas de la 1.1.0 desde un cliente sin la lista cacheada**: el
+  cliente de las pruebas en vivo guardaba la lista de antes de actualizar y no
+  veía ninguna de las tools nuevas. Con una sesión nueva o tras quitar y volver
+  a añadir el conector, probar en lectura las `ha_marketplace_*` (sobre todo
+  `ha_marketplace_list_updates`), `ha_list_floors`, `ha_list_labels`,
+  `ha_list_categories`, `ha_list_repairs`, `ha_list_traces`, `ha_get_trace`,
+  `ha_search_related`, `sv_get_resolution`, `ha_list_backups` y
+  `ha_get_backup_config` (que solo exponga `password_set`).
+- [ ] **`ha_get_states(domain="sensor")` en una casa grande**: que llegue
+  recortada con `truncated: true` y por debajo de `response_max_bytes`.
 
 - [ ] **CIMD con Claude Code y con claude.ai**: autorizar con los dos clientes,
   comprobar la pantalla de autorización (host, nombre y destino del código) y
