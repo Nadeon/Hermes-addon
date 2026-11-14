@@ -399,12 +399,40 @@ class TestSetLogLevel(_Base):
             self.assertIsNone(p["previous_level_note"])
             self.assertEqual(p["new_level"], "DEBUG")
             self.assertEqual(p["persistence"], persistencia)
-            self.assertEqual(p["persistence_effect"], mod._PERSISTENCIAS[persistencia])
+            self.assertEqual(p["persistence_effect"], {
+                "none": "Until Home Assistant restarts. Also removes any level saved "
+                        "before for this target (once or permanent): Home Assistant "
+                        "replaces it and does not save 'none'.",
+                "once": "Now and on the next start of Home Assistant; dropped after that.",
+                "permanent": "Saved: applied on every start until changed.",
+            }[persistencia])
             self.assertIn("every logger of this integration", p["effect"])
             self.assertIsInstance(r["confirmation_token"], str)
             # Lee el nivel y NO escribe nada.
             self.assertEqual(self.tipos(), ["logger/log_info"])
-        self.assertEqual(mod._PERSISTENCIAS["none"], "Until Home Assistant restarts.")
+
+    async def test_vista_previa_dice_lo_que_hace_la_persistencia(self) -> None:
+        # T037 (principio V), según `LoggerSettings.async_update` y
+        # `_async_data_to_save` de HA: con NOTSET se borra lo guardado sea
+        # cual sea la persistencia; con `none` se pierde también un nivel
+        # guardado antes para ese objetivo.
+        # Control negativo (comprobado): con `_PERSISTENCIAS[persistence]` en
+        # la vista previa (lo de antes) caen los seis subtests NOTSET, la
+        # comprobación final de `none` y `test_vista_previa_de_integracion`.
+        for persistencia in ("none", "once", "permanent"):
+            for kw in ({"integration": "mqtt"}, {"module": "a.b"}):
+                with self.subTest(persistencia=persistencia, kw=kw):
+                    p = (await self.t["ha_set_log_level"](
+                        level="NOTSET", persistence=persistencia, **kw))["preview"]
+                    self.assertEqual(
+                        p["persistence_effect"],
+                        "Does not apply: NOTSET removes any level saved for this "
+                        "target, whatever the persistence.")
+                    self.assertNotIn("Saved", p["persistence_effect"])
+        p = (await self.t["ha_set_log_level"](
+            level="DEBUG", module="a.b", persistence="none"))["preview"]
+        self.assertIn("Also removes any level saved before for this target",
+                      p["persistence_effect"])
 
     async def test_vista_previa_integracion_no_cargada(self) -> None:
         r = await self.t["ha_set_log_level"](level="INFO", integration="demo")

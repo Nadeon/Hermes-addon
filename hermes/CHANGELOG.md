@@ -32,7 +32,9 @@ argumento existente cambia ni pasa a ser obligatorio.
   - `ha_get_log_levels`: el nivel efectivo de cada integración.
   - `ha_set_log_level`: fija el nivel de una integración o de un logger de
     Python, con persistencia `none`, `once` o `permanent`; `NOTSET` lo quita.
-    En dos pasos: la vista previa da el nivel actual de la integración.
+    En dos pasos: la vista previa da el nivel actual de la integración y lo
+    que hará la persistencia (con `NOTSET` no aplica; `none` borra también un
+    nivel guardado antes para ese objetivo, como hace Home Assistant).
   - `ha_clear_system_log`: vacía el log del sistema, en dos pasos (no toca el
     fichero de log ni el journal).
 - Dos de validación, que no guardan nada:

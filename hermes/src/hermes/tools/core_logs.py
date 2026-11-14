@@ -77,6 +77,28 @@ _PERSISTENCIAS = {
     "once": "Now and on the next start of Home Assistant; dropped after that.",
     "permanent": "Saved: applied on every start until changed.",
 }
+# Lo que HA hace de verdad con la persistencia (`logger/helpers.py`,
+# `LoggerSettings.async_update` y `_async_data_to_save`; spec 012, T037):
+# - con NOTSET borra la entrada guardada de ese objetivo, sea cual sea la
+#   persistencia: la persistencia no aplica;
+# - con `none` sustituye la entrada de ese objetivo y no la guarda, así que un
+#   nivel `once` o `permanent` guardado antes para él se pierde también.
+_PERSISTENCIA_NOTSET = (
+    "Does not apply: NOTSET removes any level saved for this target, "
+    "whatever the persistence."
+)
+_PERSISTENCIA_NONE_BORRA = (
+    " Also removes any level saved before for this target (once or "
+    "permanent): Home Assistant replaces it and does not save 'none'."
+)
+
+
+def _efecto_persistencia(nivel: str, persistencia: str) -> str:
+    if nivel == "NOTSET":
+        return _PERSISTENCIA_NOTSET
+    if persistencia == "none":
+        return _PERSISTENCIAS["none"] + _PERSISTENCIA_NONE_BORRA
+    return _PERSISTENCIAS[persistencia]
 
 _DOMINIO = re.compile(r"^[a-z0-9_]+$")
 _MODULO = re.compile(r"^[A-Za-z0-9_.]+$")
@@ -477,7 +499,9 @@ def register(
                 not expose its current level, so the preview cannot show it.
             persistence: "none" (until Home Assistant restarts, default),
                 "once" (also on the next start, then dropped) or "permanent"
-                (on every start until changed).
+                (on every start until changed). "none" also removes a level
+                saved before for the same target; with NOTSET the
+                persistence does not apply (the saved level is removed).
             confirmation_token: Token from the preview call.
 
         Returns:
@@ -553,7 +577,7 @@ def register(
                 "previous_level_note": nota,
                 "new_level": nivel,
                 "persistence": persistence,
-                "persistence_effect": _PERSISTENCIAS[persistence],
+                "persistence_effect": _efecto_persistencia(nivel, persistence),
                 "effect": efecto,
             }
             return await create_confirmation_token("ha_set_log_level", args, preview=preview)

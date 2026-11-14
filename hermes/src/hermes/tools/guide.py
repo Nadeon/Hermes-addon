@@ -347,9 +347,12 @@ NIVELES DE LOG
   de la integración; el de un módulo HA no lo expone.
 - `persistence`: `none` (por defecto: hasta reiniciar HA), `once` (también en
   el siguiente arranque, y luego se olvida) o `permanent` (en cada arranque
-  hasta que se cambie).
+  hasta que se cambie). OJO: `none` también borra un nivel guardado antes
+  (`once` o `permanent`) para ese mismo objetivo; HA lo sustituye y no guarda
+  `none`.
 - `level="NOTSET"` quita el ajuste guardado y el logger vuelve a su nivel por
-  defecto. Úsalo al terminar de depurar: DEBUG llena el log.
+  defecto, sea cual sea `persistence` (con NOTSET no aplica). Úsalo al
+  terminar de depurar: DEBUG llena el log.
 
 LIMPIAR
 `ha_clear_system_log` (token) vacía el log del sistema. NO toca el fichero de
