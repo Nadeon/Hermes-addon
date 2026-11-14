@@ -238,6 +238,25 @@ class TestRegeneracion(_Base):
         self.assertIn("REVISA A MANO", texto.split('"""')[1])
 
 
+class TestRender(unittest.TestCase):
+    def test_marcas_booleanas_y_ejemplo_son_python(self) -> None:
+        # La revisión T013-T015 fue la primera en escribir `open_world=True`:
+        # el render con `json.dumps` sacaba `true` y la tabla no se importaba.
+        # Control negativo: con el `_lit` anterior (solo `json.dumps`) este
+        # test cae con NameError.
+        from hermes.command_policy import Entrada
+
+        linea = gt._render("demo/escribe", {
+            "category": "confirm", "reason": "r", "family": "generic_commands",
+            "open_world": True, "redact_extra": ("clave",),
+            "example": {"activo": False, "nada": None, "lista": [True, 1, "x"]},
+        })
+        entrada = eval(linea.strip().split(": ", 1)[1].rstrip(","), {"E": Entrada})
+        self.assertTrue(entrada.open_world)
+        self.assertEqual(entrada.redact_extra, ("clave",))
+        self.assertEqual(entrada.example, {"activo": False, "nada": None, "lista": [True, 1, "x"]})
+
+
 class TestMatriz(unittest.TestCase):
     def test_copia_de_la_matriz_de_la_008(self) -> None:
         # La matriz del generador es una copia revisada de la de la 008: si la

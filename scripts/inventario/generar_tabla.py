@@ -176,6 +176,10 @@ _SUSCRIPCION_NO_USADA = _Deny(
     "suscripción/streaming: MCP es petición-respuesta (Hermes no la usa)"
 )
 
+# Solo sirve para la PRIMERA generación: la revisión manual (T015 de la 011)
+# reclasificó después en command_table.py lo que la tool dedicada no expone
+# igual (p. ej. `automation/config`, `frontend/get_system_data`, `GET /info`).
+#
 # Clave → nombre de la tool que lo cubre, o `_Deny`. Lo cubierto por una
 # acción de HA va a `ha_call_service` (o a `ha_call_service_response` si la
 # acción devuelve datos). La genérica rechaza estas entradas con
@@ -462,7 +466,18 @@ _POR_DEFECTO = {"tool": None, "cap": None, "one_shot": False, "response": "json"
 
 def _lit(valor: object) -> str:
     # JSON produce literales de cadena válidos en Python con comillas dobles,
-    # sin depender de cómo `repr` elija las comillas.
+    # sin depender de cómo `repr` elija las comillas. Pero `true`, `false` y
+    # `null` no son Python: los booleanos y `None` (también dentro de un
+    # `example` o de `redact_extra`) se escriben a mano.
+    if valor is None or isinstance(valor, bool):
+        return repr(valor)
+    if isinstance(valor, dict):
+        return "{" + ", ".join(f"{_lit(k)}: {_lit(v)}" for k, v in valor.items()) + "}"
+    if isinstance(valor, (list, tuple)):
+        cuerpo = ", ".join(_lit(v) for v in valor)
+        if isinstance(valor, tuple):
+            return f"({cuerpo},)" if len(valor) == 1 else f"({cuerpo})"
+        return f"[{cuerpo}]"
     return json.dumps(valor, ensure_ascii=False)
 
 
