@@ -38,6 +38,7 @@ from typing import Any
 import structlog
 
 from hermes.ha import HAClient, HAConnectionError
+from hermes.logging_setup import redact_network
 from hermes.security import (
     REDACTED_MARKER,
     redact_structure,
@@ -870,6 +871,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
         passwords, tokens, JWT, URLs con auth básica son sustituidos
         por ***REDACTED*** / ***JWT_REDACTED***.
 
+        En el log del PROPIO Hermes, con `log_redact_network` activo (por
+        defecto), también se redactan el hostname público (`<public_hostname>`),
+        los nombres `*.ts.net` y las IPs que no son de loopback
+        (`<ip:CLASE:HHHHHHHH>`, misma IP → mismo seudónimo), incluidas las
+        líneas escritas antes de actualizar. Los logs de otros add-ons
+        conservan sus IPs, que suelen ser justo lo que se quiere diagnosticar.
+
         Args:
             slug: Identificador del add-on.
             lines: Número de líneas a devolver (default 100, máx 1000).
@@ -893,6 +901,12 @@ def register(mcp: object, ha_client: HAClient) -> None:
             return {"error": str(exc)}
 
         redacted = redact_secrets(raw)
+        if _es_hermes(slug):
+            # El log de Hermes se pide para pegarlo en un issue, y las líneas
+            # escritas por versiones anteriores (o con la opción recién
+            # activada) traen hostname e IPs en claro. `redact_network` no
+            # hace nada si la opción está desactivada.
+            redacted = redact_network(redacted)
         was_redacted = redacted != raw
         logger.info(
             "sv_get_addon_logs",
