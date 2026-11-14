@@ -12,8 +12,13 @@ Contra HA Core 2026.11.1 real, con la integración de prueba `banco_flujos`
   crea el lector por el flujo `user`; la vista previa no cambia nada y el
   token sí.
 
-Hermes hace; el lector independiente comprueba en Core y limpia lo suyo. El
-tramo B añade aquí las subentries y el reconfigure.
+- `TestSubentries` (T027): crear, reconfigurar, abortar, renombrar y borrar
+  (con token) una subentry `elemento`; el lector ve la subentry y su sensor.
+- `TestReconfigure` (T027, decisión del supervisor): reconfigure de la entrada
+  con token en cada paso; la tool general lo rechaza; el campo de contraseña
+  (nombre inocente, selector de contraseña) sale tapado.
+
+Hermes hace; el lector independiente comprueba en Core y limpia lo suyo.
 
 Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 """
@@ -25,6 +30,7 @@ from typing import Any
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufijo
+from tests.banco.entorno import llamar
 from tests.banco.lector import ErrorCore
 
 pytestmark = pytest.mark.banco
@@ -183,23 +189,27 @@ class TestDominiosConfigurables(BancoEscrituras):
             self.assertNotIn(DOMINIO, helpers["items"])
 
 
+async def _entrada_nueva(s: SesionEscrituras) -> str:
+    """El lector crea una entrada de `banco_flujos` por el flujo `user`."""
+    estado, paso = await s.lector.rest("POST", _RUTA_FLUJOS, {"handler": DOMINIO})
+    assert (estado, paso["type"], paso["step_id"]) == (200, "form", "user"), paso
+    estado, hecho = await s.lector.rest(
+        "POST", f"{_RUTA_FLUJOS}/{paso['flow_id']}", {"valor": f"banco-{sufijo()}"}
+    )
+    assert (estado, hecho["type"]) == (200, "create_entry"), hecho
+    entry_id = hecho["result"]["entry_id"]
+    _borrar_entrada(s, entry_id)
+    await s.lector.esperar(
+        lambda: _entrada(s, entry_id),
+        lambda e: e is not None and e["state"] == "loaded",
+        descripcion=f"entrada {entry_id} de banco_flujos en estado loaded",
+    )
+    return entry_id
+
+
 class TestPreferencias(BancoEscrituras):
     async def _entrada_nueva(self, s: SesionEscrituras) -> str:
-        """El lector crea una entrada de `banco_flujos` por el flujo `user`."""
-        estado, paso = await s.lector.rest("POST", _RUTA_FLUJOS, {"handler": DOMINIO})
-        self.assertEqual((estado, paso["type"], paso["step_id"]), (200, "form", "user"), paso)
-        estado, hecho = await s.lector.rest(
-            "POST", f"{_RUTA_FLUJOS}/{paso['flow_id']}", {"valor": f"banco-{sufijo()}"}
-        )
-        self.assertEqual((estado, hecho["type"]), (200, "create_entry"), hecho)
-        entry_id = hecho["result"]["entry_id"]
-        _borrar_entrada(s, entry_id)
-        await s.lector.esperar(
-            lambda: _entrada(s, entry_id),
-            lambda e: e is not None and e["state"] == "loaded",
-            descripcion=f"entrada {entry_id} de banco_flujos en estado loaded",
-        )
-        return entry_id
+        return await _entrada_nueva(s)
 
     async def test_titulo_y_preferencias(self) -> None:
         tool = "ha_update_config_entry"
@@ -249,3 +259,204 @@ class TestPreferencias(BancoEscrituras):
             self.assertEqual(
                 await s.accion(tool, entry_id=entry_id, title=titulo), {"result": "unchanged"}
             )
+
+
+# ── Tramo B (T027) ────────────────────────────────────────────────────────────
+
+_TAPADO = "***REDACTED***"
+
+
+async def _subentries(s: SesionEscrituras, entry_id: str) -> list[dict[str, Any]]:
+    return await s.lector.comando(
+        {"type": "config_entries/subentries/list", "entry_id": entry_id}
+    )
+
+
+async def _entidades_de(s: SesionEscrituras, entry_id: str, subentry_id: str) -> list[str]:
+    return [
+        e["entity_id"]
+        for e in await s.lector.comando({"type": "config/entity_registry/list"})
+        if e.get("config_entry_id") == entry_id and e.get("config_subentry_id") == subentry_id
+    ]
+
+
+async def _datos_de_la_entrada(s: SesionEscrituras, entry_id: str) -> dict[str, Any]:
+    """Los datos guardados de la entrada, vistos por el lector.
+
+    `config_entries/get_single` no trae `data`: el lector abre su propio
+    reconfigure, lee los valores por defecto del formulario (los actuales,
+    en claro: el lector habla con Core directamente) y lo aborta.
+    """
+    estado, paso = await s.lector.rest(
+        "POST", _RUTA_FLUJOS, {"handler": DOMINIO, "entry_id": entry_id}
+    )
+    assert (estado, paso.get("step_id")) == (200, "reconfigure"), paso
+    await s.lector.rest("DELETE", f"{_RUTA_FLUJOS}/{paso['flow_id']}")
+    return {c["name"]: c.get("default") for c in paso["data_schema"]}
+
+
+async def _paso_del_flujo(s: SesionEscrituras, flow_id: str) -> tuple[int, Any]:
+    return await s.lector.rest("GET", f"{_RUTA_FLUJOS}/{flow_id}")
+
+
+class TestSubentries(BancoEscrituras):
+    async def test_ciclo_de_una_subentry(self) -> None:
+        async with self.sesion() as s:
+            entry_id = await _entrada_nueva(s)
+
+            listado = await s.accion("ha_list_config_subentries", entry_id=entry_id)
+            self.assertIn("elemento", listado["supported_subentry_types"])
+            self.assertTrue(listado["supported_subentry_types"]["elemento"]["supports_reconfigure"])
+            self.assertEqual(listado["count"], 0)
+
+            # Crear: el lector ve la subentry y su sensor.
+            nombre = f"Elemento {sufijo()}"
+            paso = await s.accion(
+                "ha_start_subentry_flow", entry_id=entry_id, subentry_type="elemento"
+            )
+            self.assertEqual((paso["type"], paso["step_id"]), ("form", "user"), paso)
+            hecho = await s.accion(
+                "ha_continue_subentry_flow",
+                flow_id=paso["flow_id"],
+                user_input={"nombre": nombre, "valor": "7"},
+            )
+            self.assertEqual((hecho["type"], hecho["status"]), ("create_entry", "ok"), hecho)
+            subs = await s.lector.esperar(
+                lambda: _subentries(s, entry_id),
+                lambda ss: any(x["title"] == nombre for x in ss),
+                descripcion=f"subentry «{nombre}» de la entrada {entry_id}",
+            )
+            subentry_id = next(x["subentry_id"] for x in subs if x["title"] == nombre)
+            sensores = await s.lector.esperar(
+                lambda: _entidades_de(s, entry_id, subentry_id),
+                lambda es: len(es) == 1,
+                descripcion=f"sensor de la subentry {subentry_id}",
+            )
+
+            # Reconfigurarla por su flujo (sin token).
+            nombre2 = f"Elemento {sufijo()}"
+            paso = await s.accion(
+                "ha_start_subentry_flow",
+                entry_id=entry_id, subentry_type="elemento", subentry_id=subentry_id,
+            )
+            self.assertEqual(paso["step_id"], "reconfigure", paso)
+            hecho = await s.accion(
+                "ha_continue_subentry_flow",
+                flow_id=paso["flow_id"],
+                user_input={"nombre": nombre2, "valor": "8"},
+            )
+            self.assertEqual((hecho["type"], hecho["reason"]), ("abort", "reconfigure_successful"))
+            await s.lector.esperar(
+                lambda: _subentries(s, entry_id),
+                lambda ss: [x["title"] for x in ss] == [nombre2],
+                descripcion=f"subentry {subentry_id} reconfigurada como «{nombre2}»",
+            )
+
+            # Abrir otro flujo y abortarlo: no aparece ninguna subentry nueva.
+            paso = await s.accion(
+                "ha_start_subentry_flow", entry_id=entry_id, subentry_type="elemento"
+            )
+            self.assertEqual(
+                await s.accion("ha_abort_subentry_flow", flow_id=paso["flow_id"]),
+                {"result": "ok"},
+            )
+            self.assertEqual(len(await _subentries(s, entry_id)), 1)
+
+            # Renombrar (sin token).
+            nombre3 = f"Elemento {sufijo()}"
+            hecho = await s.accion(
+                "ha_update_subentry", entry_id=entry_id, subentry_id=subentry_id, title=nombre3
+            )
+            self.assertEqual(hecho["result"], "ok")
+            self.assertEqual([x["title"] for x in await _subentries(s, entry_id)], [nombre3])
+
+            # Borrar: la vista previa enumera el sensor y su dispositivo, y no
+            # borra nada; con el token, el lector ya no ve ni la subentry ni
+            # el sensor.
+            tool = "ha_delete_subentry"
+            vista = await s.vista(tool, entry_id=entry_id, subentry_id=subentry_id)
+            enumeradas = [e["entity_id"] for e in vista["preview"]["entities"]["items"]]
+            self.assertEqual(enumeradas, sensores)
+            self.assertEqual(vista["preview"]["devices"]["count"], 1, vista["preview"])
+            self.assertEqual(len(await _subentries(s, entry_id)), 1)
+            self.assertEqual(await _entidades_de(s, entry_id, subentry_id), sensores)
+            hecho = await s.confirmar(tool, vista, entry_id=entry_id, subentry_id=subentry_id)
+            self.assertEqual(hecho, {"result": "ok"})
+            self.assertEqual(await _subentries(s, entry_id), [])
+            await s.lector.esperar(
+                lambda: _entidades_de(s, entry_id, subentry_id),
+                lambda es: es == [],
+                descripcion=f"sin entidades de la subentry borrada {subentry_id}",
+            )
+
+
+class TestReconfigure(BancoEscrituras):
+    async def test_reconfigure_con_token_en_cada_paso(self) -> None:
+        async with self.sesion() as s:
+            entry_id = await _entrada_nueva(s)
+            antes = await _datos_de_la_entrada(s, entry_id)
+
+            inicio = await s.accion("ha_start_reconfigure_flow", entry_id=entry_id)
+            self.assertEqual((inicio["type"], inicio["step_id"]), ("form", "reconfigure"), inicio)
+            self.assertIn("ha_continue_reconfigure_flow", inicio["continue_with"])
+            flow_id = inicio["flow_id"]
+
+            async def abortar() -> None:
+                await s.lector.rest("DELETE", f"{_RUTA_FLUJOS}/{flow_id}")
+
+            s.limpiezas.append(abortar)
+            nuevo = {"valor": f"banco-{sufijo()}", "clave": f"clave-{sufijo()}"}
+
+            # La tool general lo rechaza y el flujo sigue donde estaba.
+            rechazo = await llamar(
+                s.cliente, "ha_continue_config_entry_flow", flow_id=flow_id, user_input=nuevo
+            )
+            self.assertEqual(
+                (rechazo.get("error"), rechazo.get("tool")),
+                ("use_dedicated_tool", "ha_continue_reconfigure_flow"),
+            )
+            estado, paso = await _paso_del_flujo(s, flow_id)
+            self.assertEqual((estado, paso.get("step_id")), (200, "reconfigure"), paso)
+
+            # Vista previa: el campo de contraseña (nombre inocente) sale
+            # tapado porque el formulario de HA lo marca con su selector; la
+            # vista previa no cambia nada.
+            tool = "ha_continue_reconfigure_flow"
+            vista = await s.vista(tool, flow_id=flow_id, user_input=nuevo)
+            p = vista["preview"]
+            self.assertEqual(p["step_id"], "reconfigure")
+            self.assertEqual(p["user_input"], {"valor": nuevo["valor"], "clave": _TAPADO})
+            self.assertEqual(p["secret_fields"], ["clave"])
+            self.assertNotIn(nuevo["clave"], str(vista))
+            estado, paso = await _paso_del_flujo(s, flow_id)
+            self.assertEqual((estado, paso.get("step_id")), (200, "reconfigure"), paso)
+
+            # Con el token: HA guarda los datos y recarga la entrada.
+            hecho = await s.confirmar(tool, vista, flow_id=flow_id, user_input=nuevo)
+            self.assertEqual(
+                (hecho["type"], hecho["reason"], hecho["status"]),
+                ("abort", "reconfigure_successful", "ok"),
+            )
+            estado, _ = await _paso_del_flujo(s, flow_id)
+            self.assertEqual(estado, 404)
+            await s.lector.esperar(
+                lambda: _entrada(s, entry_id),
+                lambda e: e is not None and e["state"] == "loaded",
+                descripcion=f"entrada {entry_id} recargada tras el reconfigure",
+            )
+            despues = await _datos_de_la_entrada(s, entry_id)
+            self.assertNotEqual(despues["valor"], antes["valor"])
+            self.assertEqual((despues["valor"], despues["clave"]), (nuevo["valor"], nuevo["clave"]))
+
+            # Otro reconfigure: la contraseña actual llega de HA como valor
+            # por defecto del formulario, y Hermes la tapa.
+            otro = await s.accion("ha_start_reconfigure_flow", entry_id=entry_id)
+            campos = {c["name"]: c for c in otro["data_schema"]}
+            self.assertEqual(campos["clave"].get("default"), _TAPADO)
+            self.assertNotIn(nuevo["clave"], str(otro))
+            self.assertEqual(
+                await s.accion("ha_abort_config_entry_flow", flow_id=otro["flow_id"]),
+                {"result": "ok"},
+            )
+            estado, _ = await _paso_del_flujo(s, otro["flow_id"])
+            self.assertEqual(estado, 404)

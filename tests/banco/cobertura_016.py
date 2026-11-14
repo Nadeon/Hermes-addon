@@ -18,10 +18,20 @@ from __future__ import annotations
 # Tramo A (T013): las dos que modifican. Las dos de lectura
 # (`ha_list_discovered_integrations`, `ha_list_config_flow_domains`) también
 # se ejecutan en el banco, pero el invariante es de las que modifican.
+# Tramo B (T027): las siete que modifican. `ha_list_config_subentries`
+# también se ejecuta. El reconfigure se prueba con token en cada paso y con
+# el rechazo de `ha_continue_config_entry_flow` (decisión del supervisor).
 PROBADAS_016: frozenset[str] = frozenset(
     {
         "ha_ignore_discovery",
         "ha_update_config_entry",
+        "ha_start_subentry_flow",
+        "ha_continue_subentry_flow",
+        "ha_abort_subentry_flow",
+        "ha_update_subentry",
+        "ha_delete_subentry",
+        "ha_start_reconfigure_flow",
+        "ha_continue_reconfigure_flow",
     }
 )
 

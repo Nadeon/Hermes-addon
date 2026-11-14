@@ -18,10 +18,20 @@ from homeassistant.config_entries import (
     SubentryFlowResult,
 )
 from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import DOMAIN, NOMBRE_INICIAL, SUBENTRY_ELEMENTO
 
 CAMPO = "valor"
+# Campo de contraseña del reconfigure (tramo B): su nombre es inocente a
+# propósito, para que solo el selector de contraseña lo delate. Su valor
+# actual va como `default` del formulario, como hacen muchas integraciones:
+# es lo que Hermes tiene que tapar.
+CLAVE = "clave"
 
 
 class BancoFlujosConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -79,12 +89,18 @@ class BancoFlujosConfigFlow(ConfigFlow, domain=DOMAIN):
         entrada = self._get_reconfigure_entry()
         if user_input is not None:
             return self.async_update_reload_and_abort(
-                entrada, data_updates={CAMPO: user_input[CAMPO]}
+                entrada,
+                data_updates={CAMPO: user_input[CAMPO], CLAVE: user_input.get(CLAVE, "")},
             )
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=probatio.Schema(
-                {probatio.Required(CAMPO, default=entrada.data.get(CAMPO, "")): str}
+                {
+                    probatio.Required(CAMPO, default=entrada.data.get(CAMPO, "")): str,
+                    probatio.Optional(CLAVE, default=entrada.data.get(CLAVE, "")): TextSelector(
+                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                    ),
+                }
             ),
         )
 
