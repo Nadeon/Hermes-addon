@@ -1,0 +1,97 @@
+# Names and descriptions of the options on the configuration page of the app.
+# The Supervisor reads this file next to config.yaml; tests/test_translations.py
+# checks that the keys match the schema one to one. Full detail: DOCS.md.
+configuration:
+  auth_password:
+    name: "Authorization password"
+    description: "Password you type when authorizing Claude. At least 12 characters, and not guessable: Hermes will not start with a weak one. It is the only secret that protects your home."
+  public_hostname:
+    name: "Public hostname"
+    description: "Public hostname Hermes is reached at, without https:// and without a path. If it is not served on port 443, include the port (host:8443)."
+  network_mode:
+    name: "Network mode"
+    description: "Who publishes the hostname: tailscale (Tailscale Funnel) or reverse_proxy (Cloudflare Tunnel, Nginx, Caddy or another proxy)."
+  mcp_bind:
+    name: "Listen address"
+    description: "Address Hermes listens on. The default, loopback, is right with Tailscale Funnel; use the HAOS bridge network address if your proxy runs on that network."
+  trusted_proxy_ips:
+    name: "Trusted proxies"
+    description: "Proxies whose X-Forwarded-For header is trusted, as single IPs or CIDR ranges. Empty trusts only loopback, which under reverse_proxy turns every per-IP limit into a single global one. Anybody inside a trusted range can forge the client IP (rate limits and logs only, never authorization)."
+  log_level:
+    name: "Log level"
+    description: "Log level: debug, info, warning or error."
+  mcp_max_requests_per_minute:
+    name: "Requests per minute"
+    description: "Global rate limit for authenticated requests."
+  mcp_preauth_max_requests_per_minute_per_ip:
+    name: "Unauthenticated requests per minute per IP"
+    description: "Per-IP rate limit for the public surface (OAuth and discovery) and for requests to protected routes with a missing or invalid token."
+  safety_backup_enabled:
+    name: "Safety backup before writing"
+    description: "Automatic full backup before writing to /config. Off by default because it takes several GB; the per-file backup always happens. If the backup fails, or Hermes cannot tell whether it finished, the write is not made."
+  safety_backup_window_minutes:
+    name: "Safety backup window (minutes)"
+    description: "If Hermes made its own safety backup more recently than this, it does not make another one. Backups made by hand or by other tools do not count."
+  safety_backup_keep:
+    name: "Safety backups to keep"
+    description: "Automatic safety backups kept after each successful one (0 turns retention off). Only backups Hermes recorded when creating them are deleted, never yours. Applies only with the safety backup on."
+  file_backup_max_per_path:
+    name: "Copies per file"
+    description: "Copies kept of each file before it is overwritten."
+  file_backup_max_total_mb:
+    name: "Per-file backups size (MB)"
+    description: "Total cap, in MB, of the directory with the per-file copies."
+  config_write_min_interval_seconds:
+    name: "Seconds between writes"
+    description: "Minimum seconds between two writes to /config."
+  config_write_max_per_minute:
+    name: "Writes per minute"
+    description: "Maximum writes per minute to /config."
+  response_max_bytes:
+    name: "Maximum response size (bytes)"
+    description: "Size cap for the answer of any tool (128 KiB by default); above it the answer is cut and flagged with truncated. Effective maximum 512 KiB: a larger value is clamped."
+  ha_ws_max_msg_size_bytes:
+    name: "Maximum Home Assistant message (bytes)"
+    description: "Size cap for a WebSocket message from Home Assistant (16 MiB). A larger one closes the whole connection, not just that call. Lower it only if memory is very tight."
+  max_request_body_bytes:
+    name: "Maximum request body (bytes)"
+    description: "Body cap for an authenticated HTTP request (4 MB). The public OAuth endpoints have their own fixed cap."
+  max_concurrent_requests:
+    name: "Concurrent requests"
+    description: "Simultaneous requests the server accepts. It bounds the memory in flight; Claude sends bursts of about 24 calls, so 64 leaves headroom."
+  wait_for_event_max_seconds:
+    name: "Maximum event wait (seconds)"
+    description: "Longest wait ha_wait_for_event accepts (10 to 220; a larger value is clamped)."
+  wait_for_event_max_concurrent:
+    name: "Simultaneous event waits"
+    description: "Maximum ha_wait_for_event calls running at the same time (1 to 20)."
+  health_startup_grace_seconds:
+    name: "Startup grace per step (seconds)"
+    description: "Startup grace for each boot step, not in total: the Tailscale, Core info and Home Assistant WebSocket steps may each use all of it."
+  health_reconnect_tolerance_seconds:
+    name: "Reconnection tolerance (seconds)"
+    description: "How long the WebSocket to Home Assistant may stay down before the health check reports degraded_long instead of degraded."
+  call_service_denylist_extra:
+    name: "Extra services that need confirmation"
+    description: "Services that will need explicit confirmation on top of the ones Hermes already ships, written as domain dot service. Wildcards are allowed (shell_command.*)."
+  call_service_restricted_entities:
+    name: "Entities that need confirmation"
+    description: "Specific entities that will need confirmation even when the service is not on the list."
+  call_service_auto_classify_dangerous:
+    name: "Classify dangerous scripts automatically"
+    description: "On startup and on save, Hermes reads your scripts and automations and marks as restricted the ones calling dangerous services. Turn it off only to manage the list by hand."
+  fire_event_allowlist:
+    name: "Events that can be fired"
+    description: "Event types ha_fire_event may fire. Empty means the tool is disabled: every allowed event has to be named."
+  oauth_cimd_enabled:
+    name: "Accept CIMD clients"
+    description: "Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working."
+  oauth_cimd_allowed_hosts:
+    name: "Allowed CIMD hosts"
+    description: "Hosts whose CIMD documents Hermes accepts (for example claude.ai). Empty means any public host: each download leaves from your home IP towards a host anyone can pick without the password. List only the hosts you use."
+  log_redact_network:
+    name: "Hide network data in the log"
+    description: "Replaces your public hostname, the Home Assistant URLs, Tailscale names and non-loopback IPs in the log with placeholders, so you can paste it when asking for help. Secrets are always redacted."
+  tool_families_disabled:
+    name: "Disabled tool families"
+    description: "Tool families Hermes does not register, so the client loads fewer tools (for example lovelace or marketplace). Empty means all of them. base cannot be switched off, and an unknown name stops the app from starting."
