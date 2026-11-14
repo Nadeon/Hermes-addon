@@ -177,6 +177,9 @@ Servicios peligrosos piden confirmation_token (ver `security`).
   `ha_reload_automations`.
 - Scripts: `ha_list_scripts`, `ha_get_script`, `ha_create_or_update_script` (token),
   `ha_run_script`, `ha_delete_script` (token), `ha_reload_scripts`.
+- `ha_trigger_automation` y `ha_run_script` piden token si la entidad está
+  restringida (sus acciones llaman a servicios peligrosos). El token cubre
+  también `variables`: confirma con las mismas que enseña el preview.
 - Scenes: `ha_list_scenes`, `ha_get_scene`, `ha_create_or_update_scene` (token),
   `ha_activate_scene`, `ha_create_scene_from_current`, `ha_delete_scene` (token).
 

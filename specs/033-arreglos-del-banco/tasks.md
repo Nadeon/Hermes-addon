@@ -50,31 +50,47 @@ en su propio commit (solo las rutas que toca, añadidas por nombre).
 
 ## Fase 1: Preparación
 
-- [ ] T001 Línea base del tramo 1: comprobar que `feat/cobertura-total` tiene integradas la 011 y la 028 (con su T033: script y automatización restringidos del banco); si no, integrar la rama del programa en `feat/033-arreglos-del-banco` y resolver conflictos (S-01). Ejecutar la suite completa y anotar el recuento
+- [x] T001 Línea base del tramo 1: comprobar que `feat/cobertura-total` tiene integradas la 011 y la 028 (con su T033: script y automatización restringidos del banco); si no, integrar la rama del programa en `feat/033-arreglos-del-banco` y resolver conflictos (S-01). Ejecutar la suite completa y anotar el recuento
+
+**Notas del tramo 1** (implementación):
+
+- T001: `feat/cobertura-total` integrada (009, 010, 011 y 028 con su T033).
+  Línea base en Windows: 2320 passed, 65 skipped, 6 failed (los 6 conocidos).
+- T006: son **81** tools con `confirmation_token`, no 79: la 011 integró
+  después de la auditoría `ha_call_ws_command` y `sv_call_api`, que atan todo
+  lo que envían (`type`/`payload`; `method`/`path`/`body`). Desviación anotada
+  en el test.
+- T007: el control negativo queda permanente en el propio test
+  (`TestControlNegativo`, sobre una copia temporal de `tools/`).
+- T008: el efecto se ve en un `input_boolean` del lector elegido por la
+  variable `objetivo` (como el `xfail` de la 028), no en un `input_text` con
+  su valor; hay un test para cada tool (`TestScript` y `TestAutomatizacion`).
+  Se quita `TokenSinAtarLaAccion` de `tests/banco/base_escrituras.py`, que ya
+  no usa nadie.
 
 ## Fase 2: Historia 1 — Lo que se confirma es lo que se vio (P1) 🎯
 
 **Objetivo**: el token de `ha_run_script` y `ha_trigger_automation` ata `variables` y la vista previa las enseña.
 **Prueba independiente**: confirmar con variables distintas se rechaza sin llamar a HA.
 
-- [ ] T002 [P] [US1] Tests unitarios en `tests/test_security_regressions.py` (clase de `guarded_entity_invoke`, con `CONFIRMATIONS_DIR` temporal y el espía de `call_service`): (a) la vista previa de una entidad restringida trae `variables`; (b) confirmar con otras variables, sin ellas, o con ellas tras una vista previa sin ellas → error de token y el espía no ve ninguna llamada; (c) mismas variables con otro orden de claves → una llamada con `allow_dangerous=True` y el payload con esas variables; (d) entidad no restringida con variables → un paso, como hoy. Ver (a)–(c) en rojo
-- [ ] T003 [P] [US1] Tests de las tools en `tests/test_tools_scripts.py` y `tests/test_tools_automations.py`: `ha_run_script` y `ha_trigger_automation` sobre una entidad restringida con variables A en la vista previa y B en la confirmación → rechazo sin llamada a HA; con A → HA recibe A. En rojo
-- [ ] T004 [US1] Arreglo en `hermes/src/hermes/tools/_common.py` (`guarded_entity_invoke`: argumento `variables` explícito, atado en `args` tal como llega y enseñado en la vista previa; docstring con el porqué) y en sus dos llamadores `hermes/src/hermes/tools/scripts.py` y `hermes/src/hermes/tools/automations.py`. Docstrings de `ha_run_script` y `ha_trigger_automation`: con entidad restringida, el token cubre también `variables`. T002 y T003 en verde
-- [ ] T005 [US1] Control negativo de T004: quitar `variables` de `args` (dejando la vista previa) → caen T002 (b) y T003; quitarla solo de la vista previa → cae T002 (a). Restaurar y anotar los recuentos
+- [x] T002 [P] [US1] Tests unitarios en `tests/test_security_regressions.py` (clase de `guarded_entity_invoke`, con `CONFIRMATIONS_DIR` temporal y el espía de `call_service`): (a) la vista previa de una entidad restringida trae `variables`; (b) confirmar con otras variables, sin ellas, o con ellas tras una vista previa sin ellas → error de token y el espía no ve ninguna llamada; (c) mismas variables con otro orden de claves → una llamada con `allow_dangerous=True` y el payload con esas variables; (d) entidad no restringida con variables → un paso, como hoy. Ver (a)–(c) en rojo
+- [x] T003 [P] [US1] Tests de las tools en `tests/test_tools_scripts.py` y `tests/test_tools_automations.py`: `ha_run_script` y `ha_trigger_automation` sobre una entidad restringida con variables A en la vista previa y B en la confirmación → rechazo sin llamada a HA; con A → HA recibe A. En rojo
+- [x] T004 [US1] Arreglo en `hermes/src/hermes/tools/_common.py` (`guarded_entity_invoke`: argumento `variables` explícito, atado en `args` tal como llega y enseñado en la vista previa; docstring con el porqué) y en sus dos llamadores `hermes/src/hermes/tools/scripts.py` y `hermes/src/hermes/tools/automations.py`. Docstrings de `ha_run_script` y `ha_trigger_automation`: con entidad restringida, el token cubre también `variables`. T002 y T003 en verde
+- [x] T005 [US1] Control negativo de T004: quitar `variables` de `args` (dejando la vista previa) → caen T002 (b) y T003; quitarla solo de la vista previa → cae T002 (a). Restaurar y anotar los recuentos
 
 ## Fase 3: Inventario de argumentos atados (FR-003)
 
-- [ ] T006 [US1] `tests/test_confirmation_args_inventory.py` (nuevo): dict `tool → {argumento: "atado" | "exento: <motivo>"}` para las 79 tools con `confirmation_token` (research R-1); comprobación por AST de las firmas de `@mcp.tool` en `hermes/src/hermes/tools/*.py`: el dict cubre exactamente esas tools y, en cada una, exactamente sus argumentos; ningún motivo vacío; `confirmation_token` siempre exento. Docstring con la regla para las sub-features siguientes (una tool nueva con token añade su entrada)
-- [ ] T007 [US1] Control negativo de T006: añadir en una copia temporal una tool con token sin entrada, y un argumento nuevo a una tool existente → el test cae nombrándolos; restaurar y anotar
+- [x] T006 [US1] `tests/test_confirmation_args_inventory.py` (nuevo): dict `tool → {argumento: "atado" | "exento: <motivo>"}` para las 79 tools con `confirmation_token` (research R-1); comprobación por AST de las firmas de `@mcp.tool` en `hermes/src/hermes/tools/*.py`: el dict cubre exactamente esas tools y, en cada una, exactamente sus argumentos; ningún motivo vacío; `confirmation_token` siempre exento. Docstring con la regla para las sub-features siguientes (una tool nueva con token añade su entrada)
+- [x] T007 [US1] Control negativo de T006: añadir en una copia temporal una tool con token sin entrada, y un argumento nuevo a una tool existente → el test cae nombrándolos; restaurar y anotar
 
 ## Fase 4: Banco (FR-010, parte del tramo 1)
 
-- [ ] T008 [US7] Test del banco en `tests/banco/test_banco_escrituras_automatizacion.py` con el script y la automatización restringidos inocuos de la 028 (T033), ampliados para usar una variable (por ejemplo, poner un `input_text` del lector al valor de `variables.valor`): vista previa con la variable visible; confirmación con otro valor → error de token y el lector no ve el servicio ni el cambio; confirmación con el mismo valor → el lector ve el `input_text` con ese valor. Las dos tools siguen en `PROBADAS_028` y se exigen por ejecución
+- [x] T008 [US7] Test del banco en `tests/banco/test_banco_escrituras_automatizacion.py` con el script y la automatización restringidos inocuos de la 028 (T033), ampliados para usar una variable (por ejemplo, poner un `input_text` del lector al valor de `variables.valor`): vista previa con la variable visible; confirmación con otro valor → error de token y el lector no ve el servicio ni el cambio; confirmación con el mismo valor → el lector ve el `input_text` con ese valor. Las dos tools siguen en `PROBADAS_028` y se exigen por ejecución
 - [ ] T009 [US7] Control negativo del test del banco: si el tramo sube la rama, un commit temporal con T004 revertido pone el job en rojo en el test de T008 (la confirmación con otro valor se ejecuta) y se descarta después; si no se sube, se anota como pendiente y el control negativo del arreglo queda cubierto por T005
 
 ## Fase 5: Cierre del tramo 1
 
-- [ ] T010 [P] Documentación: subsección «Arreglos destapados por el banco (033)» en `### Correcciones` de `## [1.2.0]` en `hermes/CHANGELOG.md` con la viñeta del token; en `hermes/src/hermes/tools/guide.py`, tema de automatizaciones y scripts: el token de una entidad restringida cubre también `variables`; en `specs/008-cobertura-total/plan.md`, fila CAP-039 de la matriz con los tests del tramo 1
+- [x] T010 [P] Documentación: subsección «Arreglos destapados por el banco (033)» en `### Correcciones` de `## [1.2.0]` en `hermes/CHANGELOG.md` con la viñeta del token; en `hermes/src/hermes/tools/guide.py`, tema de automatizaciones y scripts: el token de una entidad restringida cubre también `variables`; en `specs/008-cobertura-total/plan.md`, fila CAP-039 de la matriz con los tests del tramo 1
 - [ ] T011 Suite completa (solo los 6 conocidos en Windows), revisión del diff buscando datos personales, y commit del tramo 1 con los recuentos de T005, T007 y T009. Si se sube la rama: CI y banco en verde
 
 ---

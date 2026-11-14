@@ -402,7 +402,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
-| 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | pendiente |
+| 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | en curso: tramo 1 hecho (el token de `ha_run_script` y `ha_trigger_automation` ata `variables`; inventario de argumentos atados; banco en verde); tramo 2 (honestidad del resto) pendiente |
 
 #### Banco de Core: helpers (010)
 
@@ -522,18 +522,19 @@ directo y con token (script o automatización restringidos por llamar a la
 denylist). El job exige por ejecución las 53 (cada una llamada con éxito en
 un test que ha pasado), igual que las 46 de la 010.
 
-Hallazgos de la 028, pendientes de arreglo en la spec 033 (en el banco, fallo
-esperado estricto que solo admite ese error; las dos tools siguen contando
-como probadas porque su camino normal funciona):
+Hallazgos de la 028 para la spec 033 (en el banco, fallo esperado estricto
+que solo admite ese error mientras esté pendiente; las dos tools siguen
+contando como probadas porque su camino normal funciona):
 
 - `ha_create_scene_from_current` con `name` falla siempre: `scene.create` de
   Core 2026.11.1 no admite ese campo y responde 400. Su descripción dice que
   «HA decide» y que una colisión de `scene_id` da error; Core reemplaza la
   escena (o, si es de configuración, solo avisa en el log).
-- **Seguridad, prioridad máxima:** el token de `ha_run_script` y
-  `ha_trigger_automation` con una entidad restringida no cubre `variables`:
-  se acepta una confirmación con variables distintas de las de la vista
-  previa.
+- **Seguridad, arreglado en el tramo 1 de la 033:** el token de
+  `ha_run_script` y `ha_trigger_automation` con una entidad restringida no
+  cubría `variables` y se aceptaba una confirmación con variables distintas
+  de las de la vista previa. Ahora las ata y la vista previa las enseña; el
+  banco lo comprueba contra HA real sin `xfail`.
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las

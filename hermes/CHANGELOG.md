@@ -216,6 +216,21 @@ _Pendiente: la añade la sub-feature que lo implemente._
   conserva su traza. Un `CancelledError` que llegue a `main()` se registra
   como `interrupted`, y la espera del servidor recoge su cancelación.
 
+#### Arreglos destapados por el banco (033)
+
+- **El token de un script o una automatización restringidos cubre
+  `variables`** (seguridad). Con una entidad restringida (sus acciones llaman
+  a servicios de la denylist), `ha_run_script` y `ha_trigger_automation` piden
+  confirmación, pero el token solo ataba la entidad y el servicio: se podía
+  pedir la vista previa con unas variables y confirmar con otras, y la vista
+  previa no las enseñaba. Ahora la vista previa trae `variables` y el token
+  las ata tal como llegan: confirmar con otras, sin ellas o con ellas tras una
+  vista previa sin ellas se rechaza sin llamar a HA. Un script o una
+  automatización no restringidos siguen en un paso. Un test de inventario
+  exige que cada argumento de cada tool con `confirmation_token` esté atado
+  al token o exento con un motivo escrito; el banco lo comprueba contra HA
+  real con las dos tools.
+
 ## [1.1.2] — 2026-11-14
 
 Arreglo de lo que encontraron las pruebas en vivo de la 1.1.1 con Home

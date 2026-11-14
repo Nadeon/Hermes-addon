@@ -227,7 +227,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
 | CAP-038 | baja | 017 | FR-061 | D | espera de trigger (banco) |
-| CAP-039 | alta | 033 | FR-099 | X | token atado a `variables` (unitario, inventario de argumentos atados y banco); `not_supported` y canario de `counter.reload` (banco); esquema sin `ctx`; escenas, opciones y `amount` (unitario y banco) |
+| CAP-039 | alta | 033 | FR-099 | X | token atado a `variables`: `tests/test_security_regressions.py` (`TestRestrictedEntityVariables`), `tests/test_tools_scripts.py`, `tests/test_tools_automations.py`, inventario `tests/test_confirmation_args_inventory.py` y banco `tests/banco/test_banco_escrituras_automatizacion.py` (`test_el_token_ata_las_variables`, tramo 1); `not_supported` y canario de `counter.reload` (banco); esquema sin `ctx`; escenas, opciones y `amount` (unitario y banco) |
 | CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | validación (banco) |
 | CAP-041 | alta | 012 | FR-037 | D | logs y niveles (banco) |
 | CAP-042 | alta | 012 | FR-038 | D | diagnósticos (banco) |
