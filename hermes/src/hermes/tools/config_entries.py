@@ -37,6 +37,7 @@ from hermes.security import (
 )
 from hermes.tools._common import requires_ready
 from hermes.tools._validation import InvalidIdentifier, validate_identifier
+from hermes.tools.registry_device import device_config_entries
 
 logger = structlog.get_logger(__name__)
 
@@ -65,10 +66,13 @@ async def _count_config_entry_dependents(
             {"type": "config/device_registry/list"}
         )
         if isinstance(raw_devs, list):
+            # `config_entry_id` es el campo vigente: los dispositivos hijo
+            # (HA 2026.9) solo traen ese, y `config_entries` es retirable en
+            # 2027.8. Se mira la unión de ambos, contando cada device una vez.
             devices_count = sum(
                 1
                 for d in raw_devs
-                if entry_id in (d.get("config_entries") or [])
+                if isinstance(d, dict) and entry_id in device_config_entries(d)
             )
     except HAConnectionError:
         pass

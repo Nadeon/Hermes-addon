@@ -359,6 +359,38 @@ class TestDeleteArea(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(preview["impact"]["entities_orphaned"], 3)
         self.assertEqual(preview["impact"]["devices_orphaned"], 1)
 
+    async def test_preview_counts_child_devices_without_own_area(self) -> None:
+        """D3: un dispositivo hijo sin área propia está en el área del padre
+        (HA 2026.9); la preview lo dejaba fuera, a él y a sus entidades."""
+        areas = [{"area_id": "salon", "name": "Salón"}]
+        devices = [
+            {"id": "padre", "area_id": "salon"},
+            {"id": "hijo", "area_id": None, "parent_device_id": "padre"},
+            {"id": "otro", "area_id": "cocina"},
+        ]
+        entities = [
+            {"entity_id": "light.p", "area_id": None, "device_id": "padre"},
+            {"entity_id": "light.h1", "area_id": None, "device_id": "hijo"},
+            {"entity_id": "light.h2", "area_id": None, "device_id": "hijo"},
+            {"entity_id": "light.o", "area_id": None, "device_id": "otro"},
+        ]
+        client = make_ready_client(self.session, {})
+        async def fake_ws(payload, timeout_seconds=30):
+            t = payload.get("type", "")
+            if t == "config/area_registry/list":
+                return areas
+            if t == "config/entity_registry/list":
+                return entities
+            if t == "config/device_registry/list":
+                return devices
+            return None
+        client.ws_send = fake_ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        area_mod.register(mcp, client)
+        preview = json.loads(await mcp.tools["ha_delete_area"]("salon"))["preview"]
+        self.assertEqual(preview["impact"]["devices_orphaned"], 2)
+        self.assertEqual(preview["impact"]["entities_orphaned"], 3)
+
     async def test_delete_with_valid_token(self) -> None:
         areas = [{"area_id": "salon", "name": "Salón"}]
         received: list[dict] = []

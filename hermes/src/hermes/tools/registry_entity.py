@@ -30,6 +30,7 @@ from hermes.security import (
 )
 from hermes.tools._validation import build_ws_payload
 from hermes.tools._common import requires_ready
+from hermes.tools.registry_device import devices_by_id, effective_area_id
 
 logger = structlog.get_logger(__name__)
 
@@ -72,9 +73,20 @@ def _validate_updates(updates: dict[str, Any]) -> tuple[dict[str, Any], str | No
                 return {}, f"hidden_by must be 'user', null, true or false; got {v!r}"
             out[k] = coerced
         elif k == "aliases":
-            if v is not None and not isinstance(v, list):
-                return {}, "aliases must be a list of strings or null"
-            out[k] = [str(a) for a in v] if v is not None else v
+            # Desde HA 2026.4 un `null` dentro de la lista es el marcador del
+            # nombre calculado y toda entidad nace con `[null]`: convertirlo
+            # en el texto "None" creaba un alias falso y perdía el nombre al
+            # reenviar lo leído. `aliases: null` a secas no lo admite el
+            # esquema de HA (`[Any(str, None)]`), así que se rechaza aquí con
+            # un mensaje útil en vez de dejar que HA falle.
+            if not isinstance(v, list):
+                return {}, (
+                    "aliases must be a list; use [] to clear or [null] to keep "
+                    "only the computed name"
+                )
+            if any(isinstance(a, (list, dict)) for a in v):
+                return {}, "aliases items must be strings or null"
+            out[k] = [a if a is None else str(a) for a in v]
         elif k == "labels":
             if not isinstance(v, list):
                 return {}, "labels must be a list of strings"
@@ -127,7 +139,9 @@ def register(
         acotar.
 
         Args:
-            area_id:   Filtrar por area asignada (string area_id de HA).
+            area_id:   Filtrar por área efectiva (string area_id de HA): la
+                       propia de la entidad o, si no tiene, la de su
+                       dispositivo (o la del padre de un dispositivo hijo).
                        Si se omite, no se filtra por área.
             device_id: Filtrar por device_id (UUID del device registry).
             platform:  Filtrar por plataforma de integración (ej. "mqtt",
@@ -167,7 +181,27 @@ def register(
 
         # Apply filters
         if area_id is not None:
-            items = [e for e in items if e.get("area_id") == area_id]
+            # Lo normal es que una entidad no tenga área propia y herede la de
+            # su dispositivo (y un dispositivo hijo, la de su padre). Filtrar
+            # solo por `area_id` propio dejaba fuera casi todo el área. El
+            # registro de dispositivos solo se lee cuando hace falta.
+            try:
+                raw_devs: Any = await ha_client.ws_send(
+                    {"type": "config/device_registry/list"}
+                )
+            except HAConnectionError as exc:
+                logger.error("ha_list_entities_registry_ws_error", error=str(exc))
+                return json.dumps({"error": str(exc)})
+            by_id = devices_by_id(raw_devs)
+
+            def _area_efectiva(e: dict) -> str | None:
+                propia = e.get("area_id")
+                if propia is not None:
+                    return propia
+                device = by_id.get(e.get("device_id"))
+                return effective_area_id(device, by_id) if device else None
+
+            items = [e for e in items if _area_efectiva(e) == area_id]
         if device_id is not None:
             items = [e for e in items if e.get("device_id") == device_id]
         if platform is not None:
@@ -219,6 +253,11 @@ def register(
                 {"type": "config/entity_registry/get", "entity_id": entity_id}
             )
         except HAConnectionError as exc:
+            # HA no devuelve `None` para una entidad inexistente: responde con
+            # error `not_found`. Se decide por el código y no por el texto, que
+            # HA puede cambiar o traducir.
+            if exc.code == "not_found":
+                return json.dumps({"error": "not_found", "entity_id": entity_id})
             logger.error(
                 "ha_get_entity_registry_ws_error",
                 entity_id=entity_id,
@@ -247,7 +286,11 @@ def register(
         renombrarla (new_entity_id), gestionar aliases y labels.
 
         Campos soportados en `updates`:
-          name (str|null)        — Override del nombre mostrado. null = usar original.
+          name (str|null)        — Override del nombre de la entidad. null = usar
+                                   original. Desde HA 2026.11 es solo la parte de
+                                   la entidad: HA le antepone el nombre del
+                                   dispositivo (p. ej. "Luz" en el dispositivo
+                                   "Salón" se muestra "Salón Luz").
           icon (str|null)        — Override del icono. null = usar original.
           area_id (str|null)     — Asignar a área. null = desasignar.
           disabled_by (str|null|bool) — Deshabilitar/habilitar entidad.
@@ -257,7 +300,14 @@ def register(
           hidden_by (str|null|bool)   — Ocultar/mostrar entidad. Mismo patrón.
           new_entity_id (str)    — DESTRUCTIVO: renombra el entity_id. Requiere
                                    confirmation_token.
-          aliases (list[str]|null) — Lista de aliases. null = limpiar aliases.
+          aliases (list[str|null]) — La lista sustituye a la anterior. Un null
+                                   DENTRO de la lista es el nombre calculado de
+                                   la entidad (HA 2026.4+; las entidades nacen
+                                   con [null]). Para añadir un alias, lee los
+                                   actuales y reenvíalos conservando el null
+                                   (ej. [null, "lámpara"]). [] vacía la lista;
+                                   [null] deja solo el nombre calculado.
+                                   aliases: null (sin lista) se rechaza.
           labels (list[str])     — Lista de labels.
           device_class (str|null) — Override del device class.
           categories (dict)      — Categorías por scope.

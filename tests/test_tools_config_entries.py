@@ -456,3 +456,51 @@ class TestDeleteConfigEntry(unittest.IsolatedAsyncioTestCase):
         result = json.loads(raw)
         preview = result["preview"]
         self.assertEqual(preview["impact"]["entities"], 2)
+
+
+class TestConfigEntryDeviceCount(unittest.IsolatedAsyncioTestCase):
+    """D3: los dispositivos hijo (HA 2026.9) solo tienen `config_entry_id`, y
+    `config_entries` es retirable en 2027.8. Contar solo por `config_entries`
+    dejaba fuera a los hijos en las previews de deshabilitar y borrar."""
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    async def _impact(self, tool_name: str) -> dict:
+        devices = [
+            # Normal: los dos campos; no puede contarse dos veces.
+            {"id": "d1", "config_entry_id": "e1", "config_entries": ["e1"]},
+            # Hijo: solo config_entry_id.
+            {"id": "hijo", "config_entry_id": "e1", "parent_device_id": "d1"},
+            # Antiguo: solo config_entries, con e1 como secundaria.
+            {"id": "d2", "config_entries": ["e2", "e1"]},
+            # De otra integración.
+            {"id": "d3", "config_entry_id": "e2", "config_entries": ["e2"]},
+        ]
+        client = make_ready_client(self.session, {})
+
+        async def fake_ws(payload, timeout_seconds=30):
+            t = payload.get("type", "")
+            if t == "config_entries/get_single":
+                return {"config_entry": _make_entry("e1")}
+            if t == "config/entity_registry/list":
+                return []
+            if t == "config/device_registry/list":
+                return devices
+            return None
+
+        client.ws_send = fake_ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        ce_mod.register(mcp, client)
+        return json.loads(await mcp.tools[tool_name]("e1"))["preview"]["impact"]
+
+    async def test_disable_preview_counts_child_once(self) -> None:
+        impact = await self._impact("ha_disable_config_entry")
+        self.assertEqual(impact["devices"], 3)
+
+    async def test_delete_preview_counts_child_once(self) -> None:
+        impact = await self._impact("ha_delete_config_entry")
+        self.assertEqual(impact["devices"], 3)

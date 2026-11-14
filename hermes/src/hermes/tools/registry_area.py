@@ -25,6 +25,7 @@ from hermes.security import (
 )
 from hermes.tools._validation import build_ws_payload
 from hermes.tools._common import requires_ready
+from hermes.tools.registry_device import devices_by_id, effective_area_id
 
 logger = structlog.get_logger(__name__)
 
@@ -72,8 +73,11 @@ async def _count_area_dependents(
             {"type": "config/device_registry/list"}
         )
         if isinstance(raw_devs, list):
+            # Área efectiva: desde HA 2026.9 un dispositivo hijo sin área
+            # propia está en la de su padre y también la pierde.
+            by_id = devices_by_id(raw_devs)
             for d in raw_devs:
-                if isinstance(d, dict) and d.get("area_id") == area_id:
+                if isinstance(d, dict) and effective_area_id(d, by_id) == area_id:
                     devices_count += 1
                     device_id = d.get("id")
                     if isinstance(device_id, str):
