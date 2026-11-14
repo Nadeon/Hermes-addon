@@ -11,13 +11,14 @@ Comandos WS usados:
     lovelace/dashboards/create   — crea dashboard nuevo
     lovelace/dashboards/update   — actualiza metadata (dashboard_id)
     lovelace/dashboards/delete   — borra dashboard (dashboard_id)
-    lovelace/resources           — lista resources
+    lovelace/resources/list      — lista resources
     lovelace/resources/create    — crea resource
     lovelace/resources/update    — modifica resource (resource_id)
     lovelace/resources/delete    — borra resource (resource_id)
 
-El dashboard principal ("default") no aparece en `lovelace/dashboards/list`.
-`ha_list_lovelace_dashboards` añade una entrada sintética para él.
+Desde la migración de HA 2026.2 el dashboard principal es la entrada `lovelace`
+de `lovelace/dashboards/list`; si no existe, `ha_list_lovelace_dashboards`
+añade una entrada sintética (`url_path: null`) para él.
 
 Concurrencia: last-write-wins. HA no tiene locking de dashboard.
 Si dos clientes guardan simultáneamente, el último gana.
@@ -127,6 +128,55 @@ async def _list_extra_dashboards(ha_client: HAClient) -> list[dict[str, Any]]:
         return []
 
 
+async def _default_panel(ha_client: HAClient) -> tuple[str | None, str | None]:
+    """Lee el panel por defecto de HA. Devuelve `(panel, error)`.
+
+    Por qué: desde la migración de HA 2026.2 el dashboard principal es la
+    entrada `lovelace` de la colección, y el usuario puede elegir otro
+    dashboard como panel por defecto. Ese valor vive en los datos de sistema
+    del frontend: `frontend/get_system_data` con `key: "core"` responde
+    `{"value": <dict o None>}`, y el dict lleva `default_panel` (str) si se
+    fijó (`components/frontend/storage.py` y `components/lovelace/__init__.py`
+    de HA 2026.11.1).
+
+    - `value` nulo o sin `default_panel`: el frontend usa `lovelace`, que ya se
+      protege aparte → `(None, None)`.
+    - `unknown_command` (HA anterior a 2025.12): no hay panel configurable por
+      esta vía → `(None, None)`.
+    - Cualquier otro error o forma: fail-closed → `(None,
+      "default_panel_unknown")`; quien llama no debe borrar nada.
+    """
+    try:
+        result = await ha_client.ws_send(
+            {"type": "frontend/get_system_data", "key": "core"}
+        )
+    except HAConnectionError as exc:
+        if exc.code == "unknown_command":
+            return None, None
+        logger.warning("lovelace_default_panel_read_failed", error=str(exc))
+        return None, "default_panel_unknown"
+    if not isinstance(result, dict) or "value" not in result:
+        logger.warning(
+            "lovelace_default_panel_unexpected_shape", got=type(result).__name__
+        )
+        return None, "default_panel_unknown"
+    core = result["value"]
+    if core is None:
+        return None, None
+    if not isinstance(core, dict):
+        logger.warning(
+            "lovelace_default_panel_unexpected_shape", got=type(core).__name__
+        )
+        return None, "default_panel_unknown"
+    panel = core.get("default_panel")
+    if panel is None or isinstance(panel, str):
+        return panel, None
+    logger.warning(
+        "lovelace_default_panel_unexpected_shape", got=type(panel).__name__
+    )
+    return None, "default_panel_unknown"
+
+
 async def _get_dashboard_meta_by_url_path(
     ha_client: HAClient,
     url_path: str,
@@ -158,33 +208,49 @@ def register(
     async def ha_list_lovelace_dashboards() -> object:
         """Lista todos los dashboards Lovelace configurados.
 
-        Devuelve el dashboard principal (synthetic `url_path: null`) más los
-        dashboards extra registrados. Cada item incluye:
+        Devuelve el dashboard principal más los dashboards extra registrados.
+        Desde la migración de HA 2026.2 el principal es la entrada `lovelace`
+        (marcada `is_default: true`); en instalaciones sin ella se añade una
+        entrada sintética con `url_path: null`. Cada item incluye:
         `url_path`, `title`, `icon`, `mode` ("storage"|"yaml"),
-        `require_admin`, `show_in_sidebar`, `id` (null para el default),
+        `require_admin`, `show_in_sidebar`, `id` (null para el sintético),
         `is_default` (bool).
 
-        El dashboard default no se puede borrar.
+        `ha_delete_lovelace_dashboard` no borra nunca el principal
+        (`url_path: null` y `lovelace`) ni el dashboard elegido como panel por
+        defecto (`default_panel` de los datos de sistema del frontend), porque
+        es la pantalla de inicio de la casa.
         Los dashboards en YAML mode no se pueden guardar con
         `ha_save_lovelace_dashboard` — usar `fs_write_file` en su lugar.
         """
         try:
             extra = await _list_extra_dashboards(ha_client)
-            result: list[dict[str, Any]] = [
-                {
-                    "url_path": None,
-                    "title": "Default",
-                    "icon": None,
-                    "mode": "storage",
-                    "require_admin": False,
-                    "show_in_sidebar": True,
-                    "id": None,
-                    "is_default": True,
-                }
-            ]
+            # HA redirige `url_path=None` a `lovelace` cuando existe: son el
+            # mismo dashboard, así que el sintético solo se añade si falta
+            # (instalaciones anteriores a la migración de 2026.2 o en YAML).
+            has_lovelace = any(
+                isinstance(d, dict) and d.get("url_path") == "lovelace"
+                for d in extra
+            )
+            result: list[dict[str, Any]] = []
+            if not has_lovelace:
+                result.append(
+                    {
+                        "url_path": None,
+                        "title": "Default",
+                        "icon": None,
+                        "mode": "storage",
+                        "require_admin": False,
+                        "show_in_sidebar": True,
+                        "id": None,
+                        "is_default": True,
+                    }
+                )
             for d in extra:
                 if isinstance(d, dict):
-                    result.append({**d, "is_default": False})
+                    result.append(
+                        {**d, "is_default": d.get("url_path") == "lovelace"}
+                    )
             return result
         except HAConnectionError as exc:
             logger.warning("ha_list_lovelace_dashboards_ws_error", error=str(exc))
@@ -575,18 +641,52 @@ def register(
     ) -> object:
         """Elimina un dashboard Lovelace extra.
 
-        Esta operación **siempre requiere `confirmation_token`**. No se puede
-        eliminar el dashboard principal (`url_path=null`).
+        Esta operación **siempre requiere `confirmation_token`**.
+
+        El dashboard principal está protegido siempre, sin token ni opción que
+        lo salte (error `cannot_delete_default_dashboard`): `url_path=null`,
+        `lovelace` (desde la migración de HA 2026.2 el principal es esa
+        entrada de la colección) y el dashboard elegido como panel por
+        defecto (`default_panel` de los datos de sistema del frontend). Si no
+        se puede leer el `default_panel`, no se borra nada
+        (`default_panel_unknown`).
 
         Args:
             url_path: URL path del dashboard a borrar.
             confirmation_token: Token de un solo uso obtenido en la llamada
                 previa sin token.
         """
-        if url_path is None:
+        # Guarda única, antes de mirar el token: borrar el dashboard principal
+        # deja la casa sin su pantalla de inicio, y desde HA 2026.2 `lovelace`
+        # es una entrada más que `lovelace/dashboards/delete` acepta. Se
+        # repite en la llamada con token porque el panel por defecto puede
+        # cambiar entre la vista previa y la confirmación.
+        if url_path is None or url_path == "lovelace":
             return {
                 "error": "cannot_delete_default_dashboard",
-                "hint": "The default Lovelace dashboard cannot be deleted.",
+                "url_path": url_path,
+                "hint": "The main Lovelace dashboard cannot be deleted.",
+            }
+        default_panel, panel_error = await _default_panel(ha_client)
+        if panel_error:
+            # Fail-closed: sin saber cuál es el panel por defecto, cualquier
+            # dashboard podría ser el principal.
+            return {
+                "error": panel_error,
+                "url_path": url_path,
+                "hint": (
+                    "Could not read the default panel from Home Assistant; "
+                    "refusing to delete any dashboard."
+                ),
+            }
+        if url_path == default_panel:
+            return {
+                "error": "cannot_delete_default_dashboard",
+                "url_path": url_path,
+                "hint": (
+                    "This dashboard is the default panel of Home Assistant "
+                    "and cannot be deleted."
+                ),
             }
 
         args: dict[str, Any] = {"url_path": url_path}
@@ -682,7 +782,10 @@ def register(
         el frontend de HA. Incluyen `id`, `url` y `type` ("module"|"css").
         """
         try:
-            result = await ha_client.ws_send({"type": "lovelace/resources"})
+            # `lovelace/resources` a secas es un alias que HA anunció retirar
+            # en 2025.1 y puede desaparecer sin aviso; `/list` existe en modo
+            # storage y en modo YAML.
+            result = await ha_client.ws_send({"type": "lovelace/resources/list"})
             return result if isinstance(result, list) else []
         except HAConnectionError as exc:
             logger.warning("ha_list_lovelace_resources_ws_error", error=str(exc))

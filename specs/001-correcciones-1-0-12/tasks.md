@@ -155,27 +155,27 @@ Notas de reparto:
 
 ### P3 — protección del dashboard principal (US4)
 
-- [ ] T043 [US4] Comprobar en el código de Home Assistant (componente `frontend`, comandos `*_system_data`) la forma exacta de la respuesta de `frontend/get_system_data` con `key: "core"` y dónde va `default_panel`; dejarlo escrito como comentario en el test y, si difiere de research R-C1, actualizar research.md (spec S-04)
-- [ ] T044 [P] [US4] Tests de regresión en `tests/test_tools_lovelace.py`: `ha_delete_lovelace_dashboard(url_path="lovelace")` → `cannot_delete_default_dashboard` sin `confirmation_token`, tanto sin token como con un token cualquiera; dashboard igual al `default_panel` → rechazado; `frontend/get_system_data` con error distinto de `unknown_command` o forma inesperada → `default_panel_unknown` para cualquier dashboard; con `unknown_command` → se puede borrar un dashboard extra que no sea `lovelace` (flujo de token normal); ninguna de las respuestas rechazadas contiene `confirmation_token`; las descripciones de las dos tools ya no dicen solo «el default no se puede borrar» y nombran `lovelace` y el panel por defecto (FR-025…FR-027)
-- [ ] T045 [US4] Añadir `_default_panel(ha_client)` cerca de `hermes/src/hermes/tools/lovelace.py:130` y la guarda única al principio de `ha_delete_lovelace_dashboard`, `hermes/src/hermes/tools/lovelace.py:586-590`, antes de mirar el token y sin opción para saltársela; comentario del porqué (migración de HA 2026.2) (FR-025, FR-026)
-- [ ] T046 [US4] Docstrings de `ha_list_lovelace_dashboards` (`hermes/src/hermes/tools/lovelace.py:159-170`) y `ha_delete_lovelace_dashboard` (`:577-585`): qué dashboards están protegidos y por qué (FR-027)
-- [ ] T047 [US4] Control negativo P3: restaurar la guarda antigua (solo `url_path is None`) y después los docstrings antiguos, y comprobar que caen los tests de T044 correspondientes; anotar
+- [X] T043 [US4] Comprobar en el código de Home Assistant (componente `frontend`, comandos `*_system_data`) la forma exacta de la respuesta de `frontend/get_system_data` con `key: "core"` y dónde va `default_panel`; dejarlo escrito como comentario en el test y, si difiere de research R-C1, actualizar research.md (spec S-04)
+- [X] T044 [P] [US4] Tests de regresión en `tests/test_tools_lovelace.py`: `ha_delete_lovelace_dashboard(url_path="lovelace")` → `cannot_delete_default_dashboard` sin `confirmation_token`, tanto sin token como con un token cualquiera; dashboard igual al `default_panel` → rechazado; `frontend/get_system_data` con error distinto de `unknown_command` o forma inesperada → `default_panel_unknown` para cualquier dashboard; con `unknown_command` → se puede borrar un dashboard extra que no sea `lovelace` (flujo de token normal); ninguna de las respuestas rechazadas contiene `confirmation_token`; las descripciones de las dos tools ya no dicen solo «el default no se puede borrar» y nombran `lovelace` y el panel por defecto (FR-025…FR-027)
+- [X] T045 [US4] Añadir `_default_panel(ha_client)` cerca de `hermes/src/hermes/tools/lovelace.py:130` y la guarda única al principio de `ha_delete_lovelace_dashboard`, `hermes/src/hermes/tools/lovelace.py:586-590`, antes de mirar el token y sin opción para saltársela; comentario del porqué (migración de HA 2026.2) (FR-025, FR-026)
+- [X] T046 [US4] Docstrings de `ha_list_lovelace_dashboards` (`hermes/src/hermes/tools/lovelace.py:159-170`) y `ha_delete_lovelace_dashboard` (`:577-585`): qué dashboards están protegidos y por qué (FR-027)
+- [X] T047 [US4] Control negativo P3: restaurar la guarda antigua (solo `url_path is None`) y después los docstrings antiguos, y comprobar que caen los tests de T044 correspondientes; anotar
 
 ### C2 — lista sin duplicado (US4)
 
-- [ ] T048 [US4] Tests de regresión en `tests/test_tools_lovelace.py`: con un extra `url_path: "lovelace"`, la lista no tiene elemento con `url_path: null` y `lovelace` lleva `is_default: true`; sin `lovelace`, el sintético sigue (los tests existentes `:198-215` se conservan) (FR-028)
-- [ ] T049 [US4] En `ha_list_lovelace_dashboards`, `hermes/src/hermes/tools/lovelace.py:172-186`, omitir el sintético si existe `lovelace` y marcarlo `is_default` (FR-028)
-- [ ] T050 [US4] Control negativo C2: deshacer T049 y comprobar que cae T048; anotar
+- [X] T048 [US4] Tests de regresión en `tests/test_tools_lovelace.py`: con un extra `url_path: "lovelace"`, la lista no tiene elemento con `url_path: null` y `lovelace` lleva `is_default: true`; sin `lovelace`, el sintético sigue (los tests existentes `:198-215` se conservan) (FR-028)
+- [X] T049 [US4] En `ha_list_lovelace_dashboards`, `hermes/src/hermes/tools/lovelace.py:172-186`, omitir el sintético si existe `lovelace` y marcarlo `is_default` (FR-028)
+- [X] T050 [US4] Control negativo C2: deshacer T049 y comprobar que cae T048; anotar
 
 ### `lovelace/resources/list` (US4)
 
-- [ ] T051 [US4] Test de regresión en `tests/test_tools_lovelace.py`: `ha_list_lovelace_resources` envía `lovelace/resources/list` y nunca `lovelace/resources`; actualizar el fake de `:186` (FR-029)
-- [ ] T052 [US4] Cambiar el comando en `hermes/src/hermes/tools/lovelace.py:685` (FR-029)
-- [ ] T053 [US4] Control negativo: deshacer T052 y comprobar que cae T051; anotar
+- [X] T051 [US4] Test de regresión en `tests/test_tools_lovelace.py`: `ha_list_lovelace_resources` envía `lovelace/resources/list` y nunca `lovelace/resources`; actualizar el fake de `:186` (FR-029)
+- [X] T052 [US4] Cambiar el comando en `hermes/src/hermes/tools/lovelace.py:685` (FR-029)
+- [X] T053 [US4] Control negativo: deshacer T052 y comprobar que cae T051; anotar
 
 ### Cierre del lote C
 
-- [ ] T054 Ejecutar `tests/test_tools_lovelace.py` y la suite completa; grep de privacidad del diff; commit del lote con los recuentos
+- [X] T054 Ejecutar `tests/test_tools_lovelace.py` y la suite completa; grep de privacidad del diff; commit del lote con los recuentos
 
 **Punto de control**: US4 completa.
 
