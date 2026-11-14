@@ -91,7 +91,7 @@ detalle está en el CHANGELOG.
 | 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes | Corregido |
 | 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente (1.2.0, spec 008: sobre común en las tools nuevas) |
 | 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes | Corregido |
-| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Pendiente (1.2.0, spec 008); la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
+| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Resuelto en 1.2.0 (009); la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
 
 Recomendación: actualizar a la 1.0.12. Quien siga en la 1.0.11 no debe
 reenviar `aliases` leídos del registro, ni usar
@@ -372,7 +372,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 
 | N.º | Sub-feature | CAP | Estado |
 |---|---|---|---|
-| 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | pendiente |
+| 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | pendiente |
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | pendiente |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
@@ -406,16 +406,6 @@ programa:
 
 - **Guardar un dashboard por vistas** (018). En la prueba en vivo de la 1.1.2
   el cliente se dejó tarjetas al reescribir 134 KB; la vista previa lo mostró.
-- **Menores de las 1.1.1 y 1.1.2** (009): coste del barrido de tokens con el
-  tope de 16 MiB casi lleno; `redacted` de `sv_get_addon_logs`; `entity_id` en
-  el log de `auto_classify_restricted`; `_response_limit` de `ha_get_history`;
-  `ha_marketplace_list_removed` (filtros, resumen, `removal_type` como texto
-  de terceros); eventos `*_ok` del Marketplace y de `sv_get_resolution`;
-  `external_url` e `internal_url` y las IPs con forma `ip-a-b-c-d` en el log;
-  `redact_secrets` cuadrático con cadenas largas sin espacios (30 KB tardan del
-  orden de medio segundo).
-- **`sv_update_addon` sobre Hermes** (009): el Supervisor responde 403; se
-  rechaza antes con un mensaje que dice que se actualiza desde la interfaz.
 - **`ha_call_service_response` y la denylist** (018): hoy rechaza todo lo de la
   denylist y no acepta `confirmation_token`, así que una acción peligrosa con
   respuesta (`conversation.process`) no puede devolverla ni confirmando.

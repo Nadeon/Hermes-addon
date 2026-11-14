@@ -571,12 +571,29 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
         self.assertIn("expired", error)
         self.assertFalse(self._fichero(token).exists())
 
+    def _reloj_simulado(self):
+        """Reloj del barrido bajo control del test (FR-009 de la 009).
+
+        Desde la 1.2.0 la vista previa barre como mucho una vez por segundo;
+        los dos tests siguientes avanzan este reloj para provocar el barrido
+        que antes ocurría en cada vista previa.
+        """
+        import unittest.mock as mock
+
+        self.reloj = [1000.0]
+        parche = mock.patch.object(security, "_monotonic", lambda: self.reloj[0])
+        parche.start()
+        self.addCleanup(parche.stop)
+
     async def test_cada_vista_previa_barre_los_caducados(self) -> None:
         """Control negativo: sin el barrido en `create_confirmation_token`
-        cae (comprobado)."""
+        cae (comprobado). Desde la 1.2.0, la vista previa que barre es la
+        primera tras un segundo (FR-009 de la 009)."""
+        self._reloj_simulado()
         r = await self._vista_previa()
         viejo = r["confirmation_token"]
         await self._caducar(viejo)
+        self.reloj[0] += 1.1
         await self._vista_previa()
         self.assertFalse(self._fichero(viejo).exists())
 
@@ -618,6 +635,7 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
         los de tokens caducados, completados ni sin documento."""
         import unittest.mock as mock
 
+        self._reloj_simulado()
         primero = await self._vista_previa()
         tam = self._datos(primero["confirmation_token"])["stored_bytes"]
         with mock.patch.object(
@@ -627,16 +645,19 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
             self.assertIn("omit_on_confirm", segundo)
             tercero = await self._vista_previa()
             self.assertNotIn("omit_on_confirm", tercero)
-            # Completar uno libera su parte.
+            # Completar uno libera su parte, en el siguiente barrido (desde la
+            # 1.2.0 el total se sobrestima hasta entonces: FR-009 de la 009).
             await security.resolve_confirmation_token(
                 segundo["confirmation_token"], self.TOOL,
                 {"url_path": "panel-ficticio"}, omitibles=self.OMITIBLES)
             await security.complete_confirmation_token(
                 segundo["confirmation_token"], success=True, result={})
+            self.reloj[0] += 1.1
             cuarto = await self._vista_previa()
             self.assertIn("omit_on_confirm", cuarto)
             # Caducar otro también.
             await self._caducar(primero["confirmation_token"])
+            self.reloj[0] += 1.1
             quinto = await self._vista_previa()
             self.assertIn("omit_on_confirm", quinto)
 
@@ -661,3 +682,129 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
             await security.cleanup_expired_confirmations()
         self.assertTrue(logs, "el test no capturó ningún evento")
         self.assertNotIn(centinela, repr(logs))
+
+
+class TestBarridoAcotado(unittest.IsolatedAsyncioTestCase):
+    """FR-009 (009): las vistas previas con documento barren como mucho una
+    vez por segundo; entre medias el total sale de memoria y el tope de
+    `CONFIRMATION_STORED_MAX_BYTES` sigue intacto.
+
+    En la 1.1.2 cada vista previa releía y parseaba todos los tokens: con el
+    tope casi lleno, decenas de milisegundos en el bucle de eventos cada vez.
+
+    Control negativo (T018): barriendo siempre (código de la 1.1.2) cae
+    `test_diez_en_el_mismo_segundo_barren_una_vez`; sin sumar lo guardado a la
+    memoria cae `test_el_tope_cuenta_lo_guardado_desde_el_ultimo_barrido`;
+    restando en `complete_confirmation_token` cae
+    `test_completar_no_baja_el_total_hasta_el_barrido`.
+    """
+
+    TOOL = "ha_save_lovelace_dashboard"
+    OMITIBLES = ("config",)
+
+    async def asyncSetUp(self) -> None:
+        import unittest.mock as mock
+
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+        self.args = {"url_path": "panel-ficticio",
+                     "config": {"views": [{"title": "Vista ficticia"}]}}
+        self.tam = security._bytes_guardados({"config": self.args["config"]})
+        self.reloj = [5000.0]
+        parche = mock.patch.object(security, "_monotonic", lambda: self.reloj[0])
+        parche.start()
+        self.addCleanup(parche.stop)
+        self.barridos = mock.patch.object(
+            security, "_barrer_caducados", wraps=security._barrer_caducados
+        ).start()
+        self.addCleanup(mock.patch.stopall)
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    async def _vista_previa(self) -> dict:
+        return await security.create_confirmation_token(
+            self.TOOL, dict(self.args), preview={"diff": {}},
+            omitibles=self.OMITIBLES,
+        )
+
+    def _caducar(self, token: str) -> Path:
+        fichero = security.CONFIRMATIONS_DIR / f"{token}.json"
+        datos = json.loads(fichero.read_text(encoding="utf-8"))
+        datos["expires_at"] = 0
+        fichero.write_text(json.dumps(datos), encoding="utf-8")
+        return fichero
+
+    async def test_diez_en_el_mismo_segundo_barren_una_vez(self) -> None:
+        for _ in range(10):
+            r = await self._vista_previa()
+            self.assertIn("omit_on_confirm", r)
+        self.assertEqual(self.barridos.call_count, 1)
+
+    async def test_pasado_un_segundo_se_barre(self) -> None:
+        viejo = (await self._vista_previa())["confirmation_token"]
+        fichero = self._caducar(viejo)
+        await self._vista_previa()
+        self.assertTrue(fichero.exists(), "barrió antes de tiempo")
+        self.reloj[0] += 1.1
+        await self._vista_previa()
+        self.assertEqual(self.barridos.call_count, 2)
+        self.assertFalse(fichero.exists())
+
+    async def test_el_tope_cuenta_lo_guardado_desde_el_ultimo_barrido(self) -> None:
+        import unittest.mock as mock
+        from structlog.testing import capture_logs
+
+        with mock.patch.object(security, "CONFIRMATION_STORED_MAX_BYTES",
+                               2 * self.tam), capture_logs() as logs:
+            primero = await self._vista_previa()
+            segundo = await self._vista_previa()
+            tercero = await self._vista_previa()
+        self.assertEqual(self.barridos.call_count, 1)
+        self.assertIn("omit_on_confirm", primero)
+        self.assertIn("omit_on_confirm", segundo)
+        self.assertNotIn("omit_on_confirm", tercero)
+        eventos = [e for e in logs if e["event"] == "confirmation_args_not_stored"]
+        self.assertEqual(len(eventos), 1)
+
+    async def test_completar_no_baja_el_total_hasta_el_barrido(self) -> None:
+        r = await self._vista_previa()
+        antes = security._en_uso_bytes
+        self.assertEqual(antes, self.tam)
+        token = r["confirmation_token"]
+        ok, error, _ = await security.resolve_confirmation_token(
+            token, self.TOOL, {"url_path": "panel-ficticio"},
+            omitibles=self.OMITIBLES)
+        self.assertTrue(ok, error)
+        await security.complete_confirmation_token(token, success=True, result={})
+        # Sobrestima (fail-closed) hasta el siguiente barrido…
+        self.assertEqual(security._en_uso_bytes, antes)
+        # …que lo corrige.
+        self.reloj[0] += 1.1
+        await self._vista_previa()
+        self.assertEqual(security._en_uso_bytes, self.tam)
+
+    async def test_la_limpieza_fija_el_total_y_la_hora(self) -> None:
+        await self._vista_previa()
+        r = await self._vista_previa()
+        self._caducar(r["confirmation_token"])
+        self.reloj[0] = 7000.0
+        await security.cleanup_expired_confirmations()
+        self.assertEqual(security._ultimo_barrido, 7000.0)
+        self.assertEqual(security._en_uso_bytes, self.tam)
+
+    async def test_si_el_reloj_retrocede_se_barre(self) -> None:
+        await self._vista_previa()
+        self.reloj[0] -= 5
+        await self._vista_previa()
+        self.assertEqual(self.barridos.call_count, 2)
+
+    async def test_sin_documento_no_se_barre(self) -> None:
+        await security.create_confirmation_token(
+            "sv_restart_addon", {"slug": "<slug>"}, preview={})
+        await security.create_confirmation_token(
+            self.TOOL, {"url_path": "panel-ficticio", "config": None},
+            preview={}, omitibles=self.OMITIBLES)
+        self.assertEqual(self.barridos.call_count, 0)

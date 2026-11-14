@@ -832,6 +832,14 @@ class TestMarketplaceRegistration:
 
         assert not classify("ha_marketplace_install").read_only_hint
 
+    def test_retirados_con_argumentos_nuevos_opcionales(self):
+        """009 (FR-007, FR-014): `installed_only` y `limit` existen en el
+        esquema que ve el cliente y no son obligatorios: una llamada de la
+        1.1.2 sin argumentos sigue valiendo."""
+        esquema = _real_registry()["ha_marketplace_list_removed"].parameters
+        assert {"installed_only", "limit"} <= set(esquema["properties"])
+        assert not {"installed_only", "limit"} & set(esquema.get("required", []))
+
 
 # ── Spec 005, bloques A y B: plantas, etiquetas, categorías y diagnóstico ────
 
