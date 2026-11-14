@@ -87,8 +87,10 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Estado del sistema y estadísticas
 
-_En curso (spec 029): falta el tramo 2 (estadísticas y recorder, auditoría de
-llamadas a acciones, red y HTTP de Core)._
+Spec 029: ocho tools nuevas de solo lectura en dos familias nuevas,
+`system_status` y `recorder`, y cuatro comandos de Core que siguen por la
+genérica de lectura. Con las dos familias desactivadas (y `generic_commands`),
+la lista de tools es la de la 1.1.2.
 
 - **Cinco tools nuevas de solo lectura, familia `system_status`**: ninguna
   modifica nada ni pide token, y se pueden apagar con
@@ -111,13 +113,38 @@ llamadas a acciones, red y HTTP de Core)._
   recuentos, nunca valores, URLs ni direcciones. Un comando que HA no conoce
   se explica por su causa: `system_health_not_loaded` o
   `unsupported_by_ha_version`.
+- **Tres tools nuevas de solo lectura, familia `recorder`**: la familia del
+  recorder y las estadísticas de largo plazo; el mantenimiento de
+  estadísticas (spec 020) se sumará a ella.
+  - `ha_get_recorder_info`: si el recorder graba, su cola y si migra la base;
+    con `entity_id` (que tiene que existir), si esa entidad se graba y quién
+    lo desactivó.
+  - `ha_validate_statistics`: los problemas que HA ve en las estadísticas
+    (unidad cambiada, sin `state_class`, entidad que ya no está…), uno por
+    fila, con recuento por tipo y filtros por estadística y por tipo. Solo
+    valida: no corrige nada ni crea avisos en Repairs.
+  - `ha_get_statistics_metadata`: los metadatos de hasta 100 estadísticas, y
+    `missing` con las que HA no conoce.
+  Sin el recorder cargado responden `recorder_not_loaded`. El log no lleva
+  ids de estadísticas ni nombres de entidades.
+- **Por la genérica de lectura** (`ha_read_ws_command`), sin tool nueva:
+  `logbook/get_action_calls` (auditoría de las acciones llamadas en un
+  intervalo, con los `code` de alarmas y cerraduras tapados y un ejemplo de
+  carga en la tabla), y `network`, `network/url` y `http/config` (red, URLs y
+  servidor HTTP de Core; el log no lleva ninguna URL ni dirección).
 - **Tabla de comandos**: `system_health/info`, `subscribe_system_state`,
-  `integration/setup_info`, `manifest/list` y `manifest/get` pasan de `deny`
-  a `dedicated` hacia su tool; las genéricas los rechazan con
-  `use_dedicated_tool`.
+  `integration/setup_info`, `manifest/list`, `manifest/get`, `recorder/info`,
+  `recorder/entity_options/get`, `recorder/validate_statistics` y
+  `recorder/get_statistics_metadata` pasan de `deny` a `dedicated` hacia su
+  tool; las genéricas los rechazan con `use_dedicated_tool`.
 - **Guía**: tema `system_status` (alias `health`, `system_health`,
-  `system_state`, `manifest`, `manifests`, `setup_times`, `urls`).
-- **Banco de Core**: las cinco se ejecutan contra HA Core 2026.11.1 real.
+  `system_state`, `manifest`, `manifests`, `setup_times`, `urls`, `network`),
+  con la red, las URLs y el HTTP de Core; tema `recorder` (alias
+  `recorder_info`, `statistics_validation`, `action_calls`, `audit`), con la
+  auditoría de llamadas a acciones.
+- **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
+  también la auditoría y la red por la genérica. La configuración del banco
+  carga `system_health:`, `network:`, `recorder:` y `logbook:`.
 
 ### Banco de pruebas
 

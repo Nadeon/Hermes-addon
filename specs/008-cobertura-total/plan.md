@@ -225,13 +225,13 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | validación (banco) |
 | CAP-041 | alta | 012 | FR-037 | D | logs y niveles (banco) |
 | CAP-042 | alta | 012 | FR-038 | D | diagnósticos (banco) |
-| CAP-043 | alta | 029 | FR-040 | D | salud y estado (banco) |
+| CAP-043 | alta | 029 | FR-040 | D | `ha_get_system_health`, `ha_get_system_state`, `ha_list_integration_setup_times`, `ha_list_integration_manifests`, `ha_get_integration_manifest` (familia `system_status`; entradas `dedicated` de `system_health/info`, `subscribe_system_state`, `integration/setup_info`, `manifest/list`, `manifest/get`): `tests/test_tools_system_status.py`, `tests/test_ha_ws_collect_subscription.py`, `TestDedicadasDeLa029` (`tests/test_tools_generic_commands.py`), `test_dedicadas_de_la_029` (`tests/test_command_table.py`); banco: `tests/banco/test_banco_estado_sistema.py` |
 | CAP-044 | alta | 016 | FR-053 | D | descubiertas y preferencias (banco) |
 | CAP-045 | alta | 016 | FR-054 | D | subentries y reconfigure (banco) |
 | CAP-046 | alta | 017 | FR-058 | D | blueprints (banco) |
 | CAP-047 | alta | 012 | FR-039 | D | notificaciones (banco) |
 | CAP-048 | media-alta | 016 | FR-055 | D | flujos de reparación (unitario; banco si hay issue reproducible) |
-| CAP-049 | media-alta | 029 | FR-041 | D | estadísticas de lectura (banco) |
+| CAP-049 | media-alta | 029 | FR-041 | D | `ha_get_recorder_info`, `ha_validate_statistics`, `ha_get_statistics_metadata` (familia `recorder`; entradas `dedicated` de `recorder/info`, `recorder/entity_options/get`, `recorder/validate_statistics`, `recorder/get_statistics_metadata`): `tests/test_tools_recorder_status.py`, `TestDedicadasDeLa029Recorder` (`tests/test_tools_generic_commands.py`), `test_dedicadas_de_la_029` (`tests/test_command_table.py`); banco: `tests/banco/test_banco_recorder.py` |
 | CAP-050 | media-alta | 020 | FR-069 | D | mantenimiento de estadísticas (banco) |
 | CAP-051 | media-alta | 017 | FR-059 | D | automatizaciones de dispositivo (banco) |
 | CAP-052 | media-alta | 017 | FR-060 | D | targets (banco) |
@@ -240,7 +240,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-055 | media | 021 | FR-072 | D | exposición (banco) |
 | CAP-056 | media | 021 | FR-073 | D | usuarios (banco; protecciones con control negativo) |
 | CAP-057 | media | 031 | FR-067 | D+T | backups de la integración (banco) |
-| CAP-058 | media | 029 | FR-042 | T | entrada `read` (banco) |
+| CAP-058 | media | 029 | FR-042 | T | entrada `read` de `logbook/get_action_calls` con `redact_extra=("code",)` y ejemplo: `test_action_calls_tapa_el_code`, `test_action_calls_sin_code_en_el_log`, `test_action_calls_tiene_ejemplo` (`tests/test_tools_generic_commands.py`), tema `recorder` (`tests/test_tools_guide.py`); banco: `test_auditoria_de_llamadas` (`tests/banco/test_banco_recorder.py`) |
 | CAP-059 | media | 024 | FR-085 | D+T | instantánea con cámara simulada (banco) |
 | CAP-060 | media-alta | 023 | FR-083 | D | conversación (banco) |
 | CAP-061 | baja | 023 | FR-084 | T | entradas de pipelines (banco) |
@@ -250,7 +250,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-065 | baja | 024 | FR-087 | T | calendario y tareas (banco con `local_calendar`/`local_todo`) |
 | CAP-066 | baja | 024 | FR-087 | T | tags (banco) |
 | CAP-067 | baja | 024 | FR-087 | T | medios (banco) |
-| CAP-068 | media | 029 | FR-043 | T | red y HTTP lectura (banco) |
+| CAP-068 | media | 029 | FR-043 | T | entradas `read` de `network`, `network/url` y `http/config`: `test_red_y_http_sin_urls_ni_ips_en_el_log` (`tests/test_tools_generic_commands.py`), tema `system_status` (`tests/test_tools_guide.py`); banco: `test_red_y_http_por_la_generica` (`tests/banco/test_banco_recorder.py`) |
 | CAP-069 | baja | 021 | FR-074 | D | red y HTTP escritura (unitario; banco solo vista previa) |
 | CAP-070 | baja | 024 | FR-087 | T | registros (banco) |
 | CAP-071 | baja | 024 | FR-086 | D+T | restablecer dashboard (banco; protección del principal) |
