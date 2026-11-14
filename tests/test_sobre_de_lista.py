@@ -9,13 +9,18 @@ Toda tool de lista NUEVA de la 1.2.0 devuelve `{..., "count", "items",
 - Las genéricas de la 011 lo usan sin cambiar su respuesta.
 - El test transversal: por AST, toda tool nueva `ha_list_*` o `sv_list_*`
   llama a `sobre_de_lista` en su función, o figura en `EXCEPCIONES_SOBRE` con
-  su motivo. Hoy no hay ninguna tool nueva de lista, así que el control
-  negativo va dentro del propio fichero, con una fuente sintética.
+  su motivo. Una tool nueva de lista cuya función no encuentra el AST se
+  señala igual (fail-closed). Hoy no hay ninguna tool nueva de lista, así
+  que el control negativo va dentro del propio fichero, con fuentes
+  sintéticas.
 
 Control negativo (T023): con `count` fijo a 0 en `sobre_de_lista` caen
 `test_forma_basica`, `test_cabecera_y_truncated` y `test_pasa_por_el_tope_central`;
 con `incumplen` devolviendo siempre `[]` cae
 `test_control_sintetico_lista_suelta_se_senala`.
+
+Control negativo (T029): sin el `malas.update(...)` de las no encontradas,
+cae `test_control_sintetico_no_encontrada_se_senala` (las dos aserciones).
 """
 
 from __future__ import annotations
@@ -129,8 +134,16 @@ def _llama_al_sobre(nodo: ast.AST) -> bool:
 
 def incumplen(fuentes: dict[str, str], nuevas: set[str]) -> list[str]:
     """Tools de `nuevas` con nombre de lista cuya función no llama a
-    `sobre_de_lista`. `fuentes`: módulo → código fuente."""
+    `sobre_de_lista`, o cuya función no se encuentra en `fuentes`.
+    `fuentes`: módulo → código fuente.
+
+    Lo segundo cierra el agujero del AST (spec 018, T029): una tool
+    registrada con un nombre dinámico, por una factoría o fuera de
+    `hermes/src/hermes/tools/` no aparece en el recorrido, y sin esta regla
+    pasaría aunque devolviera una lista suelta. Lo que no se puede comprobar
+    se señala, no se da por bueno."""
     malas: set[str] = set()
+    encontradas: set[str] = set()
     for codigo in fuentes.values():
         for nodo in ast.walk(ast.parse(codigo)):
             if not isinstance(nodo, (ast.AsyncFunctionDef, ast.FunctionDef)):
@@ -138,8 +151,12 @@ def incumplen(fuentes: dict[str, str], nuevas: set[str]) -> list[str]:
             nombre = _nombre_de_tool(nodo)
             if nombre is None or nombre not in nuevas:
                 continue
+            encontradas.add(nombre)
             if nombre.startswith(_PREFIJOS_DE_LISTA) and not _llama_al_sobre(nodo):
                 malas.add(nombre)
+    malas.update(
+        n for n in nuevas if n.startswith(_PREFIJOS_DE_LISTA) and n not in encontradas
+    )
     return sorted(malas)
 
 
@@ -159,10 +176,12 @@ class TestTransversal:
         nuevas = _tools_nuevas() - set(EXCEPCIONES_SOBRE)
         malas = incumplen(_fuentes_reales(), nuevas)
         assert malas == [], (
-            "Tools de lista nuevas de la 1.2.0 sin el sobre común: "
-            f"{malas}. Devuelve `sobre_de_lista(items, truncated=..., **cabecera)` "
-            "de `hermes.tools._common` (spec 018, FR-014), o añade la tool a "
-            "EXCEPCIONES_SOBRE de tests/test_sobre_de_lista.py con su motivo."
+            "Tools de lista nuevas de la 1.2.0 sin el sobre común, o cuya "
+            f"función no encuentra el análisis AST: {malas}. Devuelve "
+            "`sobre_de_lista(items, truncated=..., **cabecera)` de "
+            "`hermes.tools._common` (spec 018, FR-014) desde una función "
+            "decorada con `@mcp.tool` en hermes/src/hermes/tools/, o añade la "
+            "tool a EXCEPCIONES_SOBRE de tests/test_sobre_de_lista.py con su motivo."
         )
 
     def test_las_excepciones_son_tools_nuevas_registradas(self):
@@ -202,6 +221,27 @@ class TestControlSintetico:
 
     def test_control_sintetico_con_sobre_no_se_senala(self):
         assert incumplen({"sintetico": self._BUENA}, {"sv_list_algo"}) == []
+
+    def test_control_sintetico_no_encontrada_se_senala(self):
+        # Fail-closed (T029): una tool de lista del registro cuya función no
+        # aparece en las fuentes (aquí, registrada con nombre dinámico) se
+        # señala aunque no se pueda ver qué devuelve.
+        dinamica = (
+            "def register(mcp, sufijo):\n"
+            "    @mcp.tool(name='ha_list_' + sufijo)\n"
+            "    async def fabricada() -> object:\n"
+            "        return [1, 2]\n"
+        )
+        fuentes = {"buena": self._BUENA, "dinamica": dinamica}
+        assert incumplen(fuentes, {"sv_list_algo", "ha_list_fabricada"}) == [
+            "ha_list_fabricada"]
+        # Sin fuente ninguna, también.
+        assert incumplen({}, {"sv_list_fantasma"}) == ["sv_list_fantasma"]
+
+    def test_no_encontrada_sin_nombre_de_lista_no_se_senala(self):
+        # La regla es solo para las de lista: el resto de tools nuevas no
+        # tiene por qué estar en `hermes/src/hermes/tools/`.
+        assert incumplen({}, {"ha_get_fantasma"}) == []
 
     def test_solo_las_de_nombre_de_lista(self):
         otra = self._MALA.replace("ha_list_algo", "ha_get_algo")
