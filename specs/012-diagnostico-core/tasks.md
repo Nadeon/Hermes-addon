@@ -221,3 +221,14 @@ banco, decisiones.)
   genéricas. Run final en verde: pytest 3.12 y 3.13, y banco de Core con 56
   passed y 3 xfailed (los de la 028); `local_calendar` carga en la imagen y
   su diagnóstico de entrada se prueba de verdad. Semgrep en verde.
+
+---
+
+## Fase 3: Convergencia
+
+Añadida por la revisión independiente y `speckit-converge` sobre la punta de la
+rama (`32bdf50`). Severidad entre corchetes.
+
+- [ ] T035 [MEDIO] Una línea del log de errores de más de `max_line_bytes` se corta ANTES de redactarla (`HAClient.rest_get_text_tail`, `hermes/src/hermes/ha.py`, `guardar`; `ha_get_error_log` redacta después en `tools/core_logs.py`), y un secreto que cruce el corte queda a medias y sin tapar: con `{"…", "password": "hunter2-supersecret"}` cortado dentro del valor, `_JSON_SECRET_RE` ya no ve la comilla de cierre y sale `"password": "hunter2 …[line truncated]` (comprobado con un HAClient y una respuesta en flujo simulada). Arreglo mínimo: al recortar, retroceder hasta el último separador (espacio, coma, comilla, `=`, `:`) antes de la marca, de modo que no quede un trozo de valor, y redactar después; test con un centinela JSON y otro `clave=valor` justo en el corte, con control negativo per FR-017, SC-004 (partial)
+- [ ] T036 [MEDIO] El manejador de `system_log` de HA está a nivel WARNING (`system_log/__init__.py`, `handler.setLevel(logging.WARNING)`; también `system_log.write`, que pasa por `logging`): ninguna línea DEBUG ni INFO llega nunca al log del sistema. Pero la receta «¿por qué falla esta integración?» de `hermes_guide("core_diagnostics")` dice subir a DEBUG y luego mirar `ha_list_system_log`, y el argumento `level` de `ha_list_system_log` ofrece DEBUG e INFO, que nunca devuelven nada. Arreglo mínimo: la guía y el docstring dicen que el log del sistema solo guarda WARNING o más y que las líneas DEBUG van al fichero (`ha_get_error_log`) o al journal (`sv_get_core_logs`, 013); `level` acepta solo WARNING, ERROR y CRITICAL (o lo dice); test del texto per FR-016, FR-003, principio V (contradicts)
+- [ ] T037 [BAJO] La vista previa de `ha_set_log_level` (`tools/core_logs.py`, `persistence_effect`) no dice lo que hace HA con la persistencia (`logger/helpers.py`, `LoggerSettings.async_update` y `_async_data_to_save`): con `NOTSET` se borra el ajuste guardado sea cual sea `persistence`, pero con `permanent` la vista previa dice «Saved: applied on every start until changed»; y con `none` se borra además cualquier nivel guardado antes (`once`/`permanent`) para ese objetivo, cosa que la vista previa no avisa. Arreglo mínimo: con `NOTSET`, `persistence_effect` dice que la persistencia no aplica; con `none`, que también quita un nivel guardado antes; test de los dos textos per FR-006, principio V (partial)
