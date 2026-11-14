@@ -66,7 +66,16 @@ en su propio commit (solo las rutas que toca, añadidas por nombre).
   variable `objetivo` (como el `xfail` de la 028), no en un `input_text` con
   su valor; hay un test para cada tool (`TestScript` y `TestAutomatizacion`).
   Se quita `TokenSinAtarLaAccion` de `tests/banco/base_escrituras.py`, que ya
-  no usa nadie.
+  no usa nadie. El primer run cayó porque el rechazo se leía con `llamar`
+  (que convierte el `isError` en fallo); se lee con `call_tool`, como
+  `_rechazo` de `test_banco_genericas.py`.
+- T009: control negativo en el CI con la rama desechable
+  `prueba/033-control-1` (`variables` fuera del hash): el job `banco de Core`
+  cae en rojo exactamente en los dos `test_el_token_ata_las_variables` («se
+  esperaba un rechazo») y `pytest` en los 5 unitarios de rechazo. Rama borrada.
+- T011: suite en Windows 2334 passed, 66 skipped, 6 failed (los 6 conocidos);
+  CI de la rama en verde (pytest 3.12 y 3.13, banco de Core: 48 passed y los
+  2 `xfail` permitidos de la 010 y de la 028).
 
 ## Fase 2: Historia 1 — Lo que se confirma es lo que se vio (P1) 🎯
 
@@ -86,12 +95,12 @@ en su propio commit (solo las rutas que toca, añadidas por nombre).
 ## Fase 4: Banco (FR-010, parte del tramo 1)
 
 - [x] T008 [US7] Test del banco en `tests/banco/test_banco_escrituras_automatizacion.py` con el script y la automatización restringidos inocuos de la 028 (T033), ampliados para usar una variable (por ejemplo, poner un `input_text` del lector al valor de `variables.valor`): vista previa con la variable visible; confirmación con otro valor → error de token y el lector no ve el servicio ni el cambio; confirmación con el mismo valor → el lector ve el `input_text` con ese valor. Las dos tools siguen en `PROBADAS_028` y se exigen por ejecución
-- [ ] T009 [US7] Control negativo del test del banco: si el tramo sube la rama, un commit temporal con T004 revertido pone el job en rojo en el test de T008 (la confirmación con otro valor se ejecuta) y se descarta después; si no se sube, se anota como pendiente y el control negativo del arreglo queda cubierto por T005
+- [x] T009 [US7] Control negativo del test del banco: si el tramo sube la rama, un commit temporal con T004 revertido pone el job en rojo en el test de T008 (la confirmación con otro valor se ejecuta) y se descarta después; si no se sube, se anota como pendiente y el control negativo del arreglo queda cubierto por T005
 
 ## Fase 5: Cierre del tramo 1
 
 - [x] T010 [P] Documentación: subsección «Arreglos destapados por el banco (033)» en `### Correcciones` de `## [1.2.0]` en `hermes/CHANGELOG.md` con la viñeta del token; en `hermes/src/hermes/tools/guide.py`, tema de automatizaciones y scripts: el token de una entidad restringida cubre también `variables`; en `specs/008-cobertura-total/plan.md`, fila CAP-039 de la matriz con los tests del tramo 1
-- [ ] T011 Suite completa (solo los 6 conocidos en Windows), revisión del diff buscando datos personales, y commit del tramo 1 con los recuentos de T005, T007 y T009. Si se sube la rama: CI y banco en verde
+- [x] T011 Suite completa (solo los 6 conocidos en Windows), revisión del diff buscando datos personales, y commit del tramo 1 con los recuentos de T005, T007 y T009. Si se sube la rama: CI y banco en verde
 
 ---
 
