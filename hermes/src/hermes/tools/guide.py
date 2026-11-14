@@ -126,6 +126,7 @@ para el detalle de un área. Temas disponibles:
 - `registries`     — entidades, dispositivos, áreas, plantas, etiquetas, categorías
 - `diagnostics`    — Repairs, trazas, relaciones y resolución del Supervisor
 - `config_entries` — integraciones y sus flujos de configuración
+- `integration_flows` — descubiertos, dominios configurables, título y preferencias
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
 - `backups`        — crear, restaurar y gestionar backups
@@ -212,6 +213,26 @@ Ejemplos:
 Gotcha: al crear, HA deriva el `object_id` de `slugify(name)`. Si el id
 resultante no coincide con el que pediste, la respuesta te da el id real. Pasa
 un `name` cuyo slug sea el object_id deseado.
+
+HELPERS POR CONFIG ENTRY
+Otros helpers (template, group, derivative, utility_meter, threshold…) no
+tienen tools `ha_*` propias: se crean como una integración, con su flujo.
+1. Qué tipos hay: `ha_list_config_flow_domains(type="helper")` (familia
+   `integration_flows`). Si esa familia está desactivada, prueba el dominio
+   directamente con el paso 2: un dominio sin flujo da error.
+2. Crear: `ha_start_config_entry_flow("template")` abre un MENÚ (`type: menu`
+   con `menu_options`). Elige con
+   `ha_continue_config_entry_flow(flow_id, {"next_step_id": "sensor"})`; llega
+   un formulario (`type: form`, campos en `data_schema`) y se rellena con
+   `ha_continue_config_entry_flow(flow_id, {"name": "Consumo total",
+   "state": "{{ states('sensor.a') | float(0) + states('sensor.b') | float(0) }}"})`.
+   Termina en `type: create_entry`; la entrada nueva va en `result`.
+   Si lo dejas a medias: `ha_abort_config_entry_flow(flow_id)`.
+3. Listar: `ha_list_config_entries(type_filter="helper")`.
+4. Editar: `ha_start_options_flow(entry_id)` y después
+   `ha_continue_options_flow(flow_id, {campos})`.
+5. Borrar: `ha_delete_config_entry(entry_id)` (token; se lleva también su
+   entidad).
 """,
     "events": """\
 # Eventos
@@ -323,6 +344,56 @@ Los flujos `external` (OAuth de la integración) y `progress` NO son
 automatizables: Hermes los aborta y lo indica. Para deshabilitar de forma
 reversible usa `disable`, no `delete`. Ver el flujo completo en
 `hermes_guide("workflows")`.
+
+Lo descubierto, el catálogo de dominios configurables y el título y las
+preferencias de una entrada: `hermes_guide("integration_flows")`.
+""",
+    "integration_flows": """\
+# Integraciones: descubiertos, dominios configurables y preferencias
+
+Familia `integration_flows` (nueva en la 1.2.0; desactivable).
+
+DESCUBIERTOS (lo que HA ha encontrado solo y espera configuración)
+- `ha_list_discovered_integrations(domain=…)` — los flujos que HA abrió por su
+  cuenta (zeroconf, dhcp, bluetooth, descubrimiento de la integración…), y
+  también los de reautenticación (`source: "reauth"`) e importación. Cada uno
+  con `flow_id`, `domain`, `source`, `step_id`, `name` y `ignorable`. Los
+  flujos que abrió un usuario no salen.
+- Configurar uno: es un flujo de configuración ya abierto; sigue con
+  `ha_continue_config_entry_flow(flow_id, {campos})` como si lo hubieras
+  abierto tú (el `step_id` dice qué paso espera; muchos solo piden confirmar
+  con `{}`).
+- Ignorar uno: `ha_ignore_discovery(flow_id, title=…)`. Solo si
+  `ignorable: true` (HA necesita su unique ID). HA guarda una entrada con
+  `source: "ignore"` y no lo vuelve a ofrecer. Sin token: no toca nada en
+  marcha. Deshacer: borra esa entrada con `ha_delete_config_entry` y HA lo
+  vuelve a descubrir cuando la integración lo encuentre otra vez.
+
+DOMINIOS CONFIGURABLES
+- `ha_list_config_flow_domains(type=…)` — el catálogo de «Añadir
+  integración»: integraciones de Home Assistant e integraciones personalizadas
+  instaladas que se configuran por flujo, estén configuradas o no. `type`:
+  `device`, `helper`, `hub` o `service`. No confundir con
+  `ha_list_configured_domains`, que da los dominios que YA tienen entradas.
+  Para crear una: `ha_start_config_entry_flow(domain)`.
+
+TÍTULO Y PREFERENCIAS DE UNA ENTRADA
+- `ha_update_config_entry(entry_id, title=…, pref_disable_polling=…,
+  pref_disable_new_entities=…)` — solo envía lo que cambia; si nada cambia,
+  `{"result": "unchanged"}`.
+- Sin token: renombrar, volver a activar el sondeo
+  (`pref_disable_polling=false`) y volver a activar las entidades nuevas
+  (`pref_disable_new_entities=false`).
+- CON token (vista previa con lo actual, lo nuevo y los efectos): desactivar
+  el sondeo (`pref_disable_polling=true`), porque HA recarga la integración si
+  está cargada y sus entidades dejan de actualizarse solas (solo con
+  `homeassistant.update_entity` o por push); y desactivar las entidades nuevas
+  (`pref_disable_new_entities=true`), porque lo que la integración añada desde
+  entonces entra deshabilitado. Enséñale la vista previa al usuario.
+- La respuesta trae `reloaded` (HA recargó la entrada) y `require_restart`.
+
+Los flujos que piden un login externo (OAuth) o esperan un proceso
+(`external`, `progress`) no son automatizables: Hermes los aborta y lo dice.
 """,
     "filesystem": """\
 # Ficheros de /config
@@ -609,6 +680,8 @@ _ALIASES: dict[str, str] = {
     "integrations": "config_entries",
     "config_entry": "config_entries",
     "flows": "config_entries",
+    "discovery": "integration_flows",
+    "discovered": "integration_flows",
     "fs": "filesystem",
     "files": "filesystem",
     "config": "filesystem",
@@ -735,8 +808,8 @@ def register(mcp: object) -> None:
         Args:
             topic (str, opcional): Tema. Uno de: overview, services, automations,
                 helpers, events, data, registries, diagnostics, config_entries,
-                filesystem, supervisor, backups, lovelace, marketplace, security,
-                generic_commands, workflows. Acepta alias
+                integration_flows, filesystem, supervisor, backups, lovelace,
+                marketplace, security, generic_commands, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,
