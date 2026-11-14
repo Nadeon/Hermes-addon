@@ -781,6 +781,34 @@ class TestRegistro(unittest.TestCase):
         for nombre in ("ha_call_ws_command", "sv_call_api"):
             self.assertIn("confirmation_token", mcp.tools[nombre].__doc__)
 
+    def test_la_guia_que_citan_existe_y_busca(self) -> None:
+        """Las cuatro remiten a `hermes_guide(topic="generic_commands")` y a
+        `search=`: el tema existe y la búsqueda encuentra comandos de la tabla
+        (principio V: la descripción no puede prometer lo que no hay).
+
+        Control negativo comprobado: sin el tema en `_GUIDE` (tramo 2) cae.
+        """
+        import asyncio
+        import re
+
+        from hermes.tools import guide
+
+        mcp = DummyMCP()
+        mod.register(mcp, _cliente(), response_max_bytes=131_072)
+        guia = DummyMCP()
+        guide.register(guia)
+        temas = set()
+        for nombre, fn in mcp.tools.items():
+            m = re.search(r'hermes_guide\(topic="(\w+)"\)', fn.__doc__ or "")
+            self.assertIsNotNone(m, nombre)
+            self.assertIn("search=", fn.__doc__)
+            temas.add(m.group(1))
+        self.assertEqual(temas, {"generic_commands"})
+        self.assertIn("generic_commands", guide._GUIDE)
+        texto = asyncio.run(guia.tools["hermes_guide"]("generic_commands", search="tag/"))
+        self.assertIn("| `tag/list` | read |", texto)
+        self.assertIn("| `tag/create` | confirm |", texto)
+
 
 if __name__ == "__main__":
     unittest.main()

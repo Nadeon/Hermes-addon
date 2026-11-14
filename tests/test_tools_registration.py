@@ -851,6 +851,14 @@ class TestToolTitles:
 
         ruta = pathlib.Path(__file__).resolve().parent / "fixtures" / "esquemas_1_1_2.json"
         esperado = json.loads(ruta.read_text(encoding="utf-8"))
+        # Única diferencia permitida (spec 011, T032 f; research R-8):
+        # `hermes_guide` gana el argumento OPCIONAL `search`. Un argumento
+        # opcional nuevo no rompe a ningún cliente que no lo use; uno
+        # obligatorio, sí, por eso `search` no puede entrar en `required`.
+        esperado["hermes_guide"] = {
+            "properties": sorted([*esperado["hermes_guide"]["properties"], "search"]),
+            "required": esperado["hermes_guide"]["required"],
+        }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
         distintos = []

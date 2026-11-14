@@ -534,11 +534,15 @@ CORE_WS: dict[str, E] = {
     "system_health/info": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-043"),
     "system_log/list": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-041"),
     "system_log/subscribe_raw": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "tag/create": E("confirm", "crea un tag", "generic_commands", cap="CAP-066"),
-    "tag/delete": E("confirm", "borra un tag", "generic_commands", cap="CAP-066"),
-    "tag/list": E("read", "tags conocidos y su último escaneo; solo lee", "generic_commands", cap="CAP-066"),
+    # Ejemplos de tag/* (los muestra hermes_guide): campos de CREATE_FIELDS y
+    # UPDATE_FIELDS de tag/__init__.py y `tag_id` como clave del elemento en
+    # update/delete (StorageCollectionWebsocket.item_id_key = f"{model_name}_id"),
+    # Core 2026.11.1. Datos ficticios. Sin `tag_id` al crear, HA genera un uuid.
+    "tag/create": E("confirm", "crea un tag", "generic_commands", cap="CAP-066", example={"tag_id": "tag-ficticio-3", "name": "Llavero azul", "description": "Llavero de la puerta"}),
+    "tag/delete": E("confirm", "borra un tag", "generic_commands", cap="CAP-066", example={"tag_id": "tag-ficticio-3"}),
+    "tag/list": E("read", "tags conocidos y su último escaneo; solo lee", "generic_commands", cap="CAP-066", example={}),
     "tag/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "tag/update": E("confirm", "modifica un tag (nombre, descripción, dispositivo)", "generic_commands", cap="CAP-066"),
+    "tag/update": E("confirm", "modifica un tag (nombre, descripción, dispositivo)", "generic_commands", cap="CAP-066", example={"tag_id": "tag-ficticio-3", "name": "Llavero rojo"}),
     "template/start_preview": E("deny", "vista previa en vivo del formulario de un helper en la UI (clase B)", "generic_commands"),
     "test_condition": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-040"),
     "thread/add_dataset_tlv": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),

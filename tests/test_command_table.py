@@ -189,6 +189,28 @@ class TestEstructura(unittest.TestCase):
                 problemas.append(f"{k}: cap {e.cap!r}")
         self.assertEqual(problemas, [])
 
+    def test_ejemplos(self) -> None:
+        """T037 (FR-001, FR-022): los ejemplos de carga los enseña la guía tal
+        cual, así que solo van en entradas que una genérica ejecuta (`read`
+        o `confirm`), son objetos JSON y no llevan `id` ni `type` (los pone
+        Hermes; la genérica los rechaza). Los de `tag/*` existen: son los que
+        la guía promete como referencia."""
+        import json
+
+        problemas = []
+        for k, e in _todas():
+            if e.example is None:
+                continue
+            if e.category not in ("read", "confirm"):
+                problemas.append(f"{k}: ejemplo en una entrada {e.category}")
+            if not isinstance(e.example, dict) or {"id", "type"} & set(e.example):
+                problemas.append(f"{k}: ejemplo que no es un objeto o lleva id/type")
+            else:
+                json.dumps(e.example)
+        self.assertEqual(problemas, [])
+        for comando in ("tag/list", "tag/create", "tag/update", "tag/delete"):
+            self.assertIsNotNone(ct.CORE_WS[comando].example, comando)
+
     def test_a_y_c_con_su_cap(self) -> None:
         problemas = []
         for inventario, tabla in ((_CORE, ct.CORE_WS), (_SV, ct.SUPERVISOR)):
