@@ -36,6 +36,16 @@ from typing import Any
 from urllib.parse import urlencode, urlparse, urlsplit, urlunsplit
 
 from hermes import __version__
+from hermes.cimd import (
+    CimdClient,
+    CimdInvalidError,
+    CimdResolver,
+    CimdTemporaryError,
+    client_id_host,
+    is_loopback_redirect,
+    parse_client_id_url,
+    redirect_uri_matches,
+)
 import re
 
 import structlog
@@ -217,6 +227,15 @@ def _append_query(url: str, params: dict[str, str]) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
 
 
+def _is_cimd_client_id(client_id: str) -> bool:
+    """True si `client_id` es la URL de un documento CIMD (FR-002).
+
+    Los `client_id` de DCR son UUID y nunca empiezan así, de modo que las dos
+    clases de cliente no se pueden confundir.
+    """
+    return client_id.startswith("https://")
+
+
 
 # ── OAuth Server ──────────────────────────────────────────────
 
@@ -380,7 +399,12 @@ def _revoke_previous_sessions(client_id: str, keep_hash: str) -> int:
         sesiones.append((float(datos.get("created_at", 0) or 0), fichero, datos))
 
     sesiones.sort(key=lambda s: s[0], reverse=True)
-    a_revocar = [s for s in sesiones if s[2].get("client_id") == client_id and client_id]
+    # Con CIMD el `client_id` es el mismo en todos los dispositivos del dueño
+    # (la URL del documento de Claude Code): retirar «las del mismo cliente»
+    # echaría al portátil al autorizar el escritorio (FR-020). Ahí solo se
+    # aplica el tope global.
+    filtrar = bool(client_id) and not _is_cimd_client_id(client_id)
+    a_revocar = [s for s in sesiones if filtrar and s[2].get("client_id") == client_id]
     restantes = [s for s in sesiones if s not in a_revocar]
     # -1 porque la sesión que se acaba de crear ya ocupa una plaza.
     sobrantes = max(0, len(restantes) - (MAX_ACTIVE_SESSIONS - 1))
@@ -395,6 +419,28 @@ def _revoke_previous_sessions(client_id: str, keep_hash: str) -> int:
         _safe_unlink(fichero)
         revocados += 1
     return revocados
+
+
+def _revoke_client_refresh_tokens(client_id: str) -> int:
+    """Borra todos los tokens (refresh y access) emitidos a `client_id`.
+
+    Se usa cuando el documento CIMD de un cliente deja de ser válido (404,
+    contenido inválido, `client_id` distinto): quien publicó ese documento ya
+    no respalda a ese cliente, y sus sesiones no deben sobrevivirle (FR-018).
+    """
+    if not client_id:
+        return 0
+    borrados = 0
+    for fichero in _TOKENS_DIR.glob("*.json"):
+        datos = _safe_read(fichero)
+        if not datos or datos.get("client_id") != client_id:
+            continue
+        acceso = datos.get("access_token_hash", "")
+        if acceso:
+            _safe_unlink(_TOKENS_DIR / f"{acceso}.json")
+        _safe_unlink(fichero)
+        borrados += 1
+    return borrados
 
 
 # Límites del registro dinámico de clientes (RFC 7591).
@@ -415,10 +461,23 @@ MAX_REDIRECT_URI_LEN = 2048
 class OAuthServer:
     """Servidor OAuth 2.1 integrado en Hermes."""
 
-    def __init__(self, auth_password: str, public_hostname: str) -> None:
+    def __init__(
+        self,
+        auth_password: str,
+        public_hostname: str,
+        cimd_enabled: bool = True,
+        cimd_resolver: CimdResolver | None = None,
+    ) -> None:
         self._auth_password = auth_password
         self._public_hostname = public_hostname
+        # `issuer` de los metadatos e `iss` de las redirecciones salen de esta
+        # única variable: si no son idénticos carácter a carácter, el cliente
+        # descarta la respuesta (RFC 9207).
         self._base_url = f"https://{public_hostname}"
+        # Client ID Metadata Documents (opción `oauth_cimd_enabled`). DCR
+        # funciona igual con o sin CIMD.
+        self._cimd_enabled = cimd_enabled
+        self._cimd = cimd_resolver or CimdResolver()
         _ensure_dirs()
         # Un fallo aquí (disco lleno, un Python sin scrypt) no puede impedir
         # arrancar: se pierde solo el cierre de sesiones por cambio de
@@ -534,6 +593,9 @@ class OAuthServer:
             "resource": f"{self._base_url}{MCP_PATH}",
             "authorization_servers": [self._base_url],
             "bearer_methods_supported": ["header"],
+            # Spec MCP 2026-07-28: el cliente pide los scopes que anuncia el
+            # recurso; sin la lista tiene que adivinar.
+            "scopes_supported": ["mcp"],
         })
 
     async def protected_resource_metadata_unknown(self, request: Request) -> JSONResponse:
@@ -570,7 +632,7 @@ class OAuthServer:
 
     async def authorization_server_metadata(self, request: Request) -> JSONResponse:
         """GET /.well-known/oauth-authorization-server (raíz y con path /mcp)"""
-        return JSONResponse({
+        metadata: dict[str, Any] = {
             "issuer": self._base_url,
             "authorization_endpoint": f"{self._base_url}/oauth/authorize",
             "token_endpoint": f"{self._base_url}/oauth/token",
@@ -581,7 +643,93 @@ class OAuthServer:
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none"],
             "scopes_supported": ["mcp"],
-        })
+            # RFC 9207: toda redirección de éxito lleva `iss` (ver
+            # `_redirect_to_client`); el cliente la usa contra el mix-up.
+            "authorization_response_iss_parameter_supported": True,
+        }
+        if self._cimd_enabled:
+            # El registro dinámico se sigue anunciando: es el respaldo de los
+            # clientes que no saben de CIMD (FR-001).
+            metadata["client_id_metadata_document_supported"] = True
+        return JSONResponse(metadata)
+
+    # ── Redirección al cliente (RFC 9207) ─────────────────────
+
+    def _redirect_to_client(self, redirect_uri: str, params: dict[str, str]) -> RedirectResponse:
+        """ÚNICA forma de construir una redirección de /oauth/authorize al cliente.
+
+        Siempre añade `iss` con el valor exacto de `issuer`. Concentrarlo aquí
+        impide que una redirección futura —por ejemplo, de error— salga sin
+        él. Hoy Hermes no redirige ningún error (FR-027): solo llama aquí con
+        un `redirect_uri` ya validado contra el cliente.
+        """
+        full = {k: v for k, v in params.items() if k != "iss"}
+        full["iss"] = self._base_url
+        return RedirectResponse(_append_query(redirect_uri, full), status_code=302)
+
+    # ── Client ID Metadata Documents ──────────────────────────
+
+    _CIMD_MESSAGES = {
+        "disabled": "Client ID Metadata Documents are disabled on this server",
+        "bad_url": "client_id is not an acceptable metadata document URL",
+        "forbidden_address": "client metadata document host is not allowed",
+        "temporary": "could not retrieve the client metadata document; try again later",
+        "invalid": "client metadata document is invalid",
+        "redirect_uri": "redirect_uri is not registered for this client",
+    }
+
+    def _cimd_reject(self, client_id: str, reason: str, kind: str) -> HTMLResponse:
+        """Página 400 de un rechazo CIMD, con su evento en el log (FR-024).
+
+        Al log va el motivo y el host, nunca el contenido del documento: es
+        texto de un tercero.
+        """
+        logger.warning(
+            "oauth_cimd_rejected",
+            reason=reason,
+            client_host=client_id_host(client_id) or "?",
+        )
+        return self._request_error_html(self._CIMD_MESSAGES[kind])
+
+    def _is_own_url(self, client_id: str) -> bool:
+        """True si `client_id` apunta al propio Hermes (FR-003).
+
+        Un documento servido por Hermes mismo no identifica a ningún tercero,
+        y descargarlo sería Hermes haciéndose peticiones a sí mismo.
+        """
+        own = {self._base_url, self._canonical_resource}
+        if client_id in own or client_id.rstrip("/") in own:
+            return True
+        own_host = (urlsplit(self._base_url).hostname or "").lower()
+        return bool(own_host) and client_id_host(client_id) == own_host
+
+    async def _check_cimd_client(
+        self, client_id: str, redirect_uri: str
+    ) -> CimdClient | HTMLResponse:
+        """Valida un cliente CIMD y su `redirect_uri`, o devuelve la página de error.
+
+        Se llama ANTES de enseñar el formulario y ANTES de mirar la contraseña
+        (FR-013): un cliente que no se puede verificar no debe costar al dueño
+        ni la contraseña ni un intento en el freno anti-fuerza-bruta. Ningún
+        fallo redirige (FR-014): el `redirect_uri` aún no es de confianza.
+        """
+        if not self._cimd_enabled:
+            return self._cimd_reject(client_id, "disabled", "disabled")
+        reason = parse_client_id_url(client_id)
+        if reason:
+            return self._cimd_reject(client_id, reason, "bad_url")
+        if self._is_own_url(client_id):
+            return self._cimd_reject(client_id, "own_url", "bad_url")
+        try:
+            client = await self._cimd.resolve(client_id)
+        except CimdTemporaryError as exc:
+            return self._cimd_reject(client_id, exc.reason, "temporary")
+        except CimdInvalidError as exc:
+            kind = "forbidden_address" if exc.reason == "forbidden_address" else "invalid"
+            return self._cimd_reject(client_id, exc.reason, kind)
+        if not any(redirect_uri_matches(r, redirect_uri) for r in client.redirect_uris):
+            return self._cimd_reject(client_id, "redirect_uri_mismatch", "redirect_uri")
+        return client
 
     # ── Dynamic Client Registration (RFC 7591) ────────────────
 
@@ -702,6 +850,13 @@ class OAuthServer:
                 f"{self._canonical_resource}"
             )
 
+        cimd_client: CimdClient | None = None
+        if _is_cimd_client_id(client_id):
+            checked = await self._check_cimd_client(client_id, redirect_uri)
+            if isinstance(checked, HTMLResponse):
+                return checked
+            cimd_client = checked
+
         return HTMLResponse(self._login_html(
             client_id=client_id,
             redirect_uri=redirect_uri,
@@ -711,6 +866,7 @@ class OAuthServer:
             scope=scope,
             error="",
             resource=resource,
+            cimd_client=cimd_client,
         ))
 
     async def authorize_post(self, request: Request) -> Response:
@@ -744,6 +900,16 @@ class OAuthServer:
                 status_code=400,
             )
 
+        # Cliente CIMD: se verifica documento y redirect_uri antes del freno y
+        # de la contraseña, igual que en el GET (FR-013). Desde aquí el
+        # documento viene de la caché, sin otra descarga.
+        cimd_client: CimdClient | None = None
+        if _is_cimd_client_id(client_id):
+            checked = await self._check_cimd_client(client_id, redirect_uri)
+            if isinstance(checked, HTMLResponse):
+                return checked
+            cimd_client = checked
+
         # Throttle anti-fuerza-bruta: por IP, con techo global de respaldo
         # (ver LOGIN_FAIL_THRESHOLD). Tras Funnel `request.client.host` es la
         # IP real del origen: uvicorn la toma del X-Forwarded-For que tailscaled
@@ -766,6 +932,8 @@ class OAuthServer:
                     code_challenge_method=code_challenge_method,
                     scope=scope,
                     error=f"Too many failed attempts. Try again in {lock_remaining}s.",
+                    resource=resource,
+                    cimd_client=cimd_client,
                 ),
                 status_code=429,
                 headers={"Retry-After": str(lock_remaining)},
@@ -795,12 +963,29 @@ class OAuthServer:
                     code_challenge_method=code_challenge_method,
                     scope=scope,
                     error="Authentication failed. Please try again.",
+                    resource=resource,
+                    cimd_client=cimd_client,
                 ),
                 status_code=200,
             )
 
         # Password correcta: resetear el throttle de fuerza bruta
         await self._reset_login_throttle(src_ip)
+
+        if cimd_client is not None:
+            # Ya validado arriba: documento y redirect_uri (con la regla de
+            # loopback). La comparación exacta de DCR de más abajo rechazaría
+            # el puerto efímero de Claude Code.
+            return self._issue_code(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                state=state,
+                code_challenge=code_challenge,
+                code_challenge_method=code_challenge_method,
+                scope=scope,
+                client_kind="cimd",
+                allow_refresh=cimd_client.allow_refresh,
+            )
 
         # Validar cliente. El formato se comprueba ANTES de construir la ruta:
         # como guarda explícita y no como expresión condicional, para que se lea
@@ -851,6 +1036,30 @@ class OAuthServer:
                 status_code=200,
             )
 
+        return self._issue_code(
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            state=state,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            scope=scope,
+            client_kind="dcr",
+            allow_refresh=True,
+        )
+
+    def _issue_code(
+        self,
+        *,
+        client_id: str,
+        redirect_uri: str,
+        state: str,
+        code_challenge: str,
+        code_challenge_method: str,
+        scope: str,
+        client_kind: str,
+        allow_refresh: bool,
+    ) -> RedirectResponse:
+        """Emite el código para un cliente y un `redirect_uri` YA validados."""
         # Generar authorization code (PKCE ya validado arriba)
         code = secrets.token_urlsafe(32)
         # Nunca el código en claro: el fichero ya se nombra por su hash, y
@@ -866,6 +1075,10 @@ class OAuthServer:
             # servidor MCP; se guarda para que el token endpoint pueda
             # comprobar que el cliente pide lo mismo que autorizó.
             "resource": self._canonical_resource,
+            # Clase de cliente y si puede recibir refresh token (FR-010). Un
+            # código de 1.0.12 sin estos campos se trata como DCR con refresh.
+            "client_kind": client_kind,
+            "allow_refresh": allow_refresh,
             "expires_at": time.time() + AUTH_CODE_TTL,
         }
 
@@ -876,7 +1089,6 @@ class OAuthServer:
         if state:
             params["state"] = state
 
-        redirect_url = _append_query(redirect_uri, params)
         # El host del destino y si venía `state`, nunca la URL entera: lleva el
         # código dentro. Sin esto, cuando un cliente recibe la redirección y no
         # vuelve a canjear, el log no dice ni a dónde se le mandó.
@@ -886,13 +1098,16 @@ class OAuthServer:
             redirect_host=urlparse(redirect_uri).netloc or "?",
             has_state=bool(state),
             scope=scope,
+            client_kind=client_kind,
         )
-        return RedirectResponse(redirect_url, status_code=302)
+        return self._redirect_to_client(redirect_uri, params)
 
     # ── Token endpoint ────────────────────────────────────────
 
     @staticmethod
-    def _token_error(error: str, reason: str, grant: str, client_id: str = "") -> JSONResponse:
+    def _token_error(
+        error: str, reason: str, grant: str, client_id: str = "", status: int = 400
+    ) -> JSONResponse:
         """Respuesta de error del token endpoint, con el motivo en el log.
 
         Al cliente solo le llega el `error` genérico de RFC 6749; el motivo
@@ -906,7 +1121,7 @@ class OAuthServer:
             reason=reason,
             client_id=client_id or None,
         )
-        return JSONResponse({"error": error}, status_code=400)
+        return JSONResponse({"error": error}, status_code=status)
 
     async def token(self, request: Request) -> JSONResponse:
         """POST /oauth/token — exchange code for tokens or refresh."""
@@ -992,19 +1207,35 @@ class OAuthServer:
 
         # Generar tokens
         access_token = _generate_token()
-        refresh_token = _generate_token()
         now = time.time()
 
-        # Almacenar access token
+        # Almacenar access token. `resource` es su audiencia (RFC 8707): el
+        # recurso la comprueba en `validate_token`.
         _atomic_write(_TOKENS_DIR / f"{_hash_token(access_token)}.json", {
             "token_hash": _hash_token(access_token),
             "token_type": "access",
             "client_id": client_id,
             "sub": _FIXED_SUB,
             "scope": code_data.get("scope", "mcp"),
+            "resource": self._canonical_resource,
             "created_at": now,
             "expires_at": now + ACCESS_TOKEN_TTL,
         })
+
+        # Un cliente CIMD cuyo documento no declara `refresh_token` en
+        # `grant_types` no recibe refresh token (FR-010). Un código de 1.0.12
+        # (sin el campo) es de DCR y sí lo recibe, como antes.
+        if not code_data.get("allow_refresh", True):
+            logger.info("oauth_tokens_issued", client_id=client_id,
+                        grant="authorization_code", refresh=False)
+            return JSONResponse({
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_TTL,
+                "scope": code_data.get("scope", "mcp"),
+            })
+
+        refresh_token = _generate_token()
 
         # Almacenar refresh token
         _atomic_write(_TOKENS_DIR / f"{_hash_token(refresh_token)}.json", {
@@ -1013,6 +1244,7 @@ class OAuthServer:
             "client_id": client_id,
             "sub": _FIXED_SUB,
             "scope": code_data.get("scope", "mcp"),
+            "resource": self._canonical_resource,
             "created_at": now,
             "expires_at": now + REFRESH_TOKEN_TTL,
             "access_token_hash": _hash_token(access_token),
@@ -1111,9 +1343,52 @@ class OAuthServer:
         if client_id and token_data.get("client_id") != client_id:
             return self._token_error("invalid_grant", "client_id_mismatch", grant, client_id)
 
+        stored_client = str(token_data.get("client_id", ""))
+        if _is_cimd_client_id(stored_client):
+            rechazo = await self._check_cimd_refresh(stored_client, grant)
+            if rechazo is not None:
+                return rechazo
+
         return self._issue_from_refresh(
             token_data, token_hash, rotate=True, presented_token=refresh_token
         )
+
+    async def _check_cimd_refresh(self, client_id: str, grant: str) -> JSONResponse | None:
+        """Comprueba el documento de un cliente CIMD antes de renovarle tokens.
+
+        Pasa por la caché, así que normalmente no descarga nada (FR-019). Un
+        documento que ya no vale revoca las sesiones del cliente (FR-018); un
+        fallo temporal sin copia usable es un 503 y no toca nada (FR-015).
+        """
+        if not self._cimd_enabled:
+            # El dueño apagó CIMD: no se renueva a sus clientes, pero tampoco
+            # se borra nada por si lo vuelve a encender.
+            return self._token_error("invalid_client", "cimd_disabled", grant,
+                                     client_id, status=401)
+        try:
+            client = await self._cimd.resolve(client_id)
+        except CimdTemporaryError as exc:
+            logger.warning("oauth_cimd_rejected", reason=exc.reason,
+                           client_host=client_id_host(client_id) or "?")
+            return self._token_error("temporarily_unavailable", "cimd_temporary",
+                                     grant, client_id, status=503)
+        except CimdInvalidError as exc:
+            revocados = _revoke_client_refresh_tokens(client_id)
+            logger.warning("oauth_cimd_rejected", reason=exc.reason,
+                           client_host=client_id_host(client_id) or "?",
+                           revoked=revocados)
+            return self._token_error("invalid_client", "cimd_invalid", grant,
+                                     client_id, status=401)
+        if not client.allow_refresh:
+            # El documento ha dejado de declarar `refresh_token`: el cliente
+            # ya no está autorizado a usar este grant (RFC 6749 §5.2).
+            revocados = _revoke_client_refresh_tokens(client_id)
+            logger.warning("oauth_cimd_rejected", reason="refresh_not_allowed",
+                           client_host=client_id_host(client_id) or "?",
+                           revoked=revocados)
+            return self._token_error("unauthorized_client", "cimd_refresh_not_allowed",
+                                     grant, client_id)
+        return None
 
     def _issue_from_refresh(
         self,
@@ -1141,6 +1416,10 @@ class OAuthServer:
         if anterior:
             _safe_unlink(_TOKENS_DIR / f"{anterior}.json")
 
+        # Audiencia: se hereda; un refresh de 1.0.12 no la tenía y desde aquí
+        # los tokens nuevos ya la llevan (FR-031).
+        audiencia = token_data.get("resource") or self._canonical_resource
+
         nuevo_access = _generate_token()
         _atomic_write(_TOKENS_DIR / f"{_hash_token(nuevo_access)}.json", {
             "token_hash": _hash_token(nuevo_access),
@@ -1148,6 +1427,7 @@ class OAuthServer:
             "client_id": token_data.get("client_id", ""),
             "sub": _FIXED_SUB,
             "scope": token_data.get("scope", "mcp"),
+            "resource": audiencia,
             "created_at": now,
             "expires_at": now + ACCESS_TOKEN_TTL,
         })
@@ -1177,6 +1457,7 @@ class OAuthServer:
             "client_id": token_data.get("client_id", ""),
             "sub": _FIXED_SUB,
             "scope": token_data.get("scope", "mcp"),
+            "resource": audiencia,
             "created_at": now,
             "expires_at": token_data.get("expires_at", now + REFRESH_TOKEN_TTL),
             "access_token_hash": _hash_token(nuevo_access),
@@ -1248,6 +1529,11 @@ class OAuthServer:
             return False
         if time.time() > token_data.get("expires_at", 0):
             await asyncio.to_thread(_safe_unlink, token_path)
+            return False
+        # Audiencia (RFC 8707, spec MCP): un token emitido para otro recurso no
+        # vale aquí. Sin el campo es un token de 1.0.12 o anterior: se acepta
+        # hasta que caduque, para que actualizar no eche a nadie (FR-031).
+        if "resource" in token_data and token_data["resource"] != self._canonical_resource:
             return False
 
         return True
@@ -1348,6 +1634,7 @@ class OAuthServer:
         scope: str,
         error: str,
         resource: str = "",
+        cimd_client: CimdClient | None = None,
     ) -> str:
         """Genera el HTML inline del formulario de login.
 
@@ -1381,26 +1668,57 @@ class OAuthServer:
             client_label = str(registered.get("client_name") or "")
         e_client_label = html.escape(client_label or "cliente sin nombre", quote=True)
 
+        loopback = cimd_client is not None and is_loopback_redirect(redirect_uri)
         destination = redirect_uri
         try:
-            from urllib.parse import urlsplit
-
             parts = urlsplit(redirect_uri)
-            if parts.scheme and parts.netloc:
+            if loopback:
+                # El puerto de loopback es efímero y no le dice nada al dueño.
+                # `is_loopback_redirect` ya garantiza un netloc sin userinfo.
+                destination = f"{parts.scheme}://{parts.netloc.rsplit(':', 1)[0]}"
+                if parts.netloc.startswith("["):
+                    destination = f"{parts.scheme}://{parts.netloc[:parts.netloc.index(']') + 1]}"
+            elif parts.scheme and parts.netloc:
                 destination = f"{parts.scheme}://{parts.netloc}"
         except ValueError:
             pass
         e_destination = html.escape(destination or "(sin destino)", quote=True)
 
-        consent_html = (
-            '<div class="consent">'
-            f'<span class="who">{e_client_label}</span> solicita acceso completo a '
-            "tu Home Assistant.<br>El código de autorización se enviará a "
-            f'<span class="dest">{e_destination}</span>.'
-            '<span class="warn">Si no reconoces ese destino, no continúes: '
-            "quien lo reciba podrá controlar tu instalación.</span>"
-            "</div>"
-        )
+        if cimd_client is not None:
+            # CIMD: la identidad es el host del client_id, lo único que no
+            # puede elegir quien no controla ese dominio. El nombre lo escribe
+            # el propio cliente en su documento, así que se enseña como lo que
+            # es: una declaración (FR-021).
+            e_host = html.escape(client_id_host(client_id) or "?", quote=True)
+            e_declared = html.escape(cimd_client.client_name, quote=True)
+            loopback_html = ""
+            if loopback:
+                loopback_html = (
+                    '<span class="warn">El código irá a una aplicación de este '
+                    "mismo dispositivo (loopback). Continúa solo si acabas de "
+                    "iniciar tú la conexión desde aquí.</span>"
+                )
+            consent_html = (
+                '<div class="consent">'
+                f'<span class="who">{e_host}</span> solicita acceso completo a '
+                "tu Home Assistant (nombre declarado por el cliente: "
+                f"«{e_declared}»).<br>El código de autorización se enviará a "
+                f'<span class="dest">{e_destination}</span>.'
+                f"{loopback_html}"
+                '<span class="warn">Si no reconoces ese destino, no continúes: '
+                "quien lo reciba podrá controlar tu instalación.</span>"
+                "</div>"
+            )
+        else:
+            consent_html = (
+                '<div class="consent">'
+                f'<span class="who">{e_client_label}</span> solicita acceso completo a '
+                "tu Home Assistant.<br>El código de autorización se enviará a "
+                f'<span class="dest">{e_destination}</span>.'
+                '<span class="warn">Si no reconoces ese destino, no continúes: '
+                "quien lo reciba podrá controlar tu instalación.</span>"
+                "</div>"
+            )
         e_version = html.escape(__version__, quote=True)
 
         error_html = ""
