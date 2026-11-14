@@ -449,6 +449,156 @@ Hallazgo pendiente de arreglo en la spec 033:
   (`xfail`) que solo admite ese error y que se pondrá en rojo cuando deje de
   fallar.
 
+#### Matriz de pruebas: tool → entorno → resultado (014)
+
+Una fila por cada tool que modifica (sin `readOnlyHint` en el registro de
+producción, con todas las familias activas): dónde se prueba contra el
+software real y con qué resultado. Entornos: **banco de Core** (el job del CI
+con HA Core 2026.11.1 real; el resultado sale de los inventarios
+`tests/banco/cobertura*.py`), **VM** (Home Assistant OS con el Supervisor
+2026.11.0, según el procedimiento de [BANCO-SUPERVISOR.md](BANCO-SUPERVISOR.md);
+todas las `sv_*` y `fs_*` que modifican) e **instalación real**. Resultados:
+**ok**, **falla** (con la causa en la nota) y **pendiente**. Un «ok» en la VM o
+en la instalación real lleva en la nota la versión de Hermes y la fecha. Los
+simuladores de la suite normal no son un entorno de esta tabla: corren
+siempre, para todas.
+
+`tests/test_matriz_pruebas.py` compara la tabla con el registro y con los
+inventarios del banco: una tool que modifica sin fila, una fila de más o una
+fila que contradice un inventario lo ponen en rojo. Quien añade una tool que
+modifica añade su fila en el mismo cambio (y, si es del Supervisor o de
+ficheros, su línea en «Tandas de pruebas» del procedimiento); quien la prueba
+cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
+
+<!-- matriz-pruebas:inicio -->
+| Tool | Entorno | Resultado | Nota |
+|---|---|---|---|
+| `fs_delete_file` | VM | pendiente | |
+| `fs_move_file` | VM | pendiente | |
+| `fs_restore_file_backup` | VM | pendiente | |
+| `fs_set_secret` | VM | pendiente | |
+| `fs_write_file` | VM | pendiente | |
+| `ha_abort_config_entry_flow` | banco de Core | pendiente | |
+| `ha_activate_scene` | banco de Core | pendiente | |
+| `ha_call_service` | banco de Core | pendiente | |
+| `ha_call_service_response` | banco de Core | pendiente | |
+| `ha_cancel_timer` | banco de Core | ok | |
+| `ha_cancel_wait` | banco de Core | pendiente | |
+| `ha_change_timer` | banco de Core | ok | |
+| `ha_continue_config_entry_flow` | banco de Core | pendiente | |
+| `ha_continue_options_flow` | banco de Core | pendiente | |
+| `ha_create_area` | banco de Core | pendiente | |
+| `ha_create_category` | banco de Core | pendiente | |
+| `ha_create_floor` | banco de Core | pendiente | |
+| `ha_create_label` | banco de Core | pendiente | |
+| `ha_create_lovelace_dashboard` | banco de Core | pendiente | |
+| `ha_create_lovelace_resource` | banco de Core | pendiente | |
+| `ha_create_or_update_automation` | banco de Core | pendiente | |
+| `ha_create_or_update_counter` | banco de Core | ok | |
+| `ha_create_or_update_input_boolean` | banco de Core | ok | |
+| `ha_create_or_update_input_button` | banco de Core | ok | |
+| `ha_create_or_update_input_datetime` | banco de Core | ok | |
+| `ha_create_or_update_input_number` | banco de Core | ok | |
+| `ha_create_or_update_input_select` | banco de Core | ok | |
+| `ha_create_or_update_input_text` | banco de Core | ok | |
+| `ha_create_or_update_scene` | banco de Core | pendiente | |
+| `ha_create_or_update_schedule` | banco de Core | ok | |
+| `ha_create_or_update_script` | banco de Core | pendiente | |
+| `ha_create_or_update_timer` | banco de Core | ok | |
+| `ha_create_or_update_zone` | banco de Core | ok | |
+| `ha_create_person` | banco de Core | ok | |
+| `ha_create_scene_from_current` | banco de Core | pendiente | |
+| `ha_cycle_input_select` | banco de Core | ok | |
+| `ha_decrement_counter` | banco de Core | ok | |
+| `ha_decrement_input_number` | banco de Core | ok | |
+| `ha_delete_area` | banco de Core | pendiente | |
+| `ha_delete_automation` | banco de Core | pendiente | |
+| `ha_delete_category` | banco de Core | pendiente | |
+| `ha_delete_config_entry` | banco de Core | pendiente | |
+| `ha_delete_counter` | banco de Core | ok | |
+| `ha_delete_floor` | banco de Core | pendiente | |
+| `ha_delete_input_boolean` | banco de Core | ok | |
+| `ha_delete_input_button` | banco de Core | ok | |
+| `ha_delete_input_datetime` | banco de Core | ok | |
+| `ha_delete_input_number` | banco de Core | ok | |
+| `ha_delete_input_select` | banco de Core | ok | |
+| `ha_delete_input_text` | banco de Core | ok | |
+| `ha_delete_label` | banco de Core | pendiente | |
+| `ha_delete_lovelace_dashboard` | banco de Core | pendiente | |
+| `ha_delete_lovelace_resource` | banco de Core | pendiente | |
+| `ha_delete_person` | banco de Core | ok | |
+| `ha_delete_scene` | banco de Core | pendiente | |
+| `ha_delete_schedule` | banco de Core | ok | |
+| `ha_delete_script` | banco de Core | pendiente | |
+| `ha_delete_timer` | banco de Core | ok | |
+| `ha_delete_zone` | banco de Core | ok | |
+| `ha_disable_automation` | banco de Core | pendiente | |
+| `ha_disable_config_entry` | banco de Core | pendiente | |
+| `ha_enable_automation` | banco de Core | pendiente | |
+| `ha_enable_config_entry` | banco de Core | pendiente | |
+| `ha_finish_timer` | banco de Core | ok | |
+| `ha_fire_event` | banco de Core | pendiente | |
+| `ha_ignore_repair` | banco de Core | pendiente | |
+| `ha_increment_counter` | banco de Core | ok | |
+| `ha_increment_input_number` | banco de Core | ok | |
+| `ha_pause_timer` | banco de Core | ok | |
+| `ha_press_input_button` | banco de Core | ok | |
+| `ha_reload_automations` | banco de Core | pendiente | |
+| `ha_reload_config_entry` | banco de Core | pendiente | |
+| `ha_reload_counters` | banco de Core | falla | `counter.reload` no existe en Core 2026.11.1 (spec 033) |
+| `ha_reload_scenes` | banco de Core | pendiente | |
+| `ha_reload_schedules` | banco de Core | ok | |
+| `ha_reload_scripts` | banco de Core | pendiente | |
+| `ha_reload_timers` | banco de Core | ok | |
+| `ha_reload_zones` | banco de Core | ok | |
+| `ha_remove_device` | banco de Core | pendiente | |
+| `ha_remove_device_from_config_entry` | banco de Core | pendiente | |
+| `ha_remove_entity_registry` | banco de Core | pendiente | |
+| `ha_reset_counter` | banco de Core | ok | |
+| `ha_run_script` | banco de Core | pendiente | |
+| `ha_save_lovelace_dashboard` | banco de Core | pendiente | |
+| `ha_set_counter_value` | banco de Core | ok | |
+| `ha_set_input_boolean` | banco de Core | ok | |
+| `ha_set_input_datetime` | banco de Core | ok | |
+| `ha_set_input_number` | banco de Core | ok | |
+| `ha_set_input_select` | banco de Core | ok | |
+| `ha_set_input_select_options` | banco de Core | ok | |
+| `ha_set_input_text` | banco de Core | ok | |
+| `ha_start_config_entry_flow` | banco de Core | pendiente | |
+| `ha_start_options_flow` | banco de Core | pendiente | |
+| `ha_start_timer` | banco de Core | ok | |
+| `ha_toggle_input_boolean` | banco de Core | ok | |
+| `ha_trigger_automation` | banco de Core | pendiente | |
+| `ha_update_area` | banco de Core | pendiente | |
+| `ha_update_category` | banco de Core | pendiente | |
+| `ha_update_device` | banco de Core | pendiente | |
+| `ha_update_entity_registry` | banco de Core | pendiente | |
+| `ha_update_floor` | banco de Core | pendiente | |
+| `ha_update_label` | banco de Core | pendiente | |
+| `ha_update_lovelace_dashboard_metadata` | banco de Core | pendiente | |
+| `ha_update_lovelace_resource` | banco de Core | pendiente | |
+| `ha_update_person` | banco de Core | ok | |
+| `sv_check_core_config` | VM | pendiente | |
+| `sv_create_backup_full` | VM | pendiente | |
+| `sv_create_backup_partial` | VM | pendiente | |
+| `sv_create_safety_backup` | VM | pendiente | |
+| `sv_delete_backup` | VM | pendiente | instantánea antes |
+| `sv_dismiss_resolution_issue` | VM | pendiente | |
+| `sv_dismiss_resolution_suggestion` | VM | pendiente | |
+| `sv_get_job_status` | VM | pendiente | |
+| `sv_install_addon` | VM | pendiente | add-on de prueba |
+| `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_restart_addon` | VM | pendiente | add-on de prueba |
+| `sv_restart_core` | VM | pendiente | instantánea antes |
+| `sv_restore_backup_full` | VM | pendiente | instantánea antes |
+| `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
+| `sv_set_addon_options` | VM | pendiente | add-on de prueba |
+| `sv_start_addon` | VM | pendiente | add-on de prueba |
+| `sv_stop_addon` | VM | pendiente | add-on de prueba |
+| `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
+| `sv_update_addon` | VM | pendiente | add-on de prueba |
+<!-- matriz-pruebas:fin -->
+
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las
 dependencias de `specs/008-cobertura-total/plan.md`.
