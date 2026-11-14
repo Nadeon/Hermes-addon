@@ -153,8 +153,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 115 y 57), `read` (36 y 29),
-  `confirm` (20 y 25) o `deny` (452 y 143, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 124 y 64), `read` (36 y 29),
+  `confirm` (20 y 25) o `deny` (443 y 136, con su motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -254,6 +254,57 @@ la lista de tools es la de la 1.1.2.
 - **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
   también la auditoría y la red por la genérica. La configuración del banco
   carga `system_health:`, `network:`, `recorder:` y `logbook:`.
+
+### Tienda de apps
+
+Spec 030 (tramo 1): los repositorios de la tienda de apps del Supervisor, en
+una familia nueva, `app_store`. Con ella desactivada (y las demás de la
+1.2.0), la lista de tools es la de la 1.1.2.
+
+- **Cinco tools nuevas, familia `app_store`**:
+  - `sv_list_store_repositories`: los repositorios de la tienda con `builtin`
+    (los integrados del Supervisor, que no se pueden quitar), cuántas apps
+    ofrece cada uno y cuáles están instaladas; con `repository`, solo ese. Usa
+    el sobre común de las listas nuevas. Si el catálogo de apps no se puede
+    leer, la lista sale igual con los recuentos a `null` y el motivo.
+  - `sv_add_store_repository`: añade un repositorio en **dos pasos**. Es
+    código de terceros que no revisan ni Home Assistant ni Hermes: la vista
+    previa lo avisa, enseña la URL exacta que se enviará, el servidor y la
+    rama, y no descarga nada (clona el Supervisor al confirmar). Añadir no
+    instala ninguna app. Una URL que no es `http(s)://…[#rama]`, o un
+    repositorio que ya está, se rechazan sin token.
+  - `sv_remove_store_repository`: quita un repositorio en **dos pasos**. Un
+    integrado (`builtin_repository`) o uno con apps instaladas
+    (`repository_in_use`, con la lista y la pista de `sv_uninstall_addon`) se
+    rechazan sin token, como haría el Supervisor. El token se ata también al
+    repositorio y a sus apps instaladas leídos en la vista previa: si se
+    instala una app suya antes de confirmar, no vale.
+  - `sv_repair_store_repository`: vuelve a clonar un repositorio roto (el
+    Supervisor solo sustituye la copia si la descarga sale bien); `local` no
+    se puede reparar. Sin token.
+  - `sv_reload_store`: actualiza todos los repositorios y relee el catálogo,
+    sin instalar ni actualizar nada. Sin token.
+- **Credenciales y textos de terceros**: la contraseña de una URL con
+  credenciales sale como `***REDACTED***` en las vistas previas, las
+  respuestas y los errores del Supervisor (que repiten la URL), y el log
+  (`app_store_action`) solo lleva el `slug` del repositorio, nunca la URL.
+  El nombre, la URL y el mantenedor de un repositorio van marcados como texto
+  de terceros (`_third_party_text`), con el aviso del Marketplace.
+- **Anotaciones**: añadir y quitar son destructivas (piden token); añadir,
+  reparar y recargar, de mundo abierto (el Supervisor descarga).
+- **Tabla de comandos**: `GET /store`, `GET /store/repositories`,
+  `GET /store/repositories/{repository}`, `POST /store/repositories`,
+  `DELETE /store/repositories/{repository}`,
+  `POST /store/repositories/{repository}/repair` y `POST /store/reload` pasan
+  de `deny` a `dedicated`; las genéricas los rechazan con
+  `use_dedicated_tool`. Los iconos y logos de las apps siguen `deny`.
+- **Guía**: tema `app_store` (alias `store`, `tienda`, `repositories`,
+  `repository`, `repositorios`), que el índice y las instrucciones del
+  servidor nombran solo con la familia activa.
+- **Pruebas**: con un Supervisor simulado con la forma del 2026.11.0. Las
+  cuatro que modifican no se pueden ejecutar en el banco de Core (su
+  Supervisor es un simulado): quedan en la matriz como `VM` / `pendiente` y
+  en la tanda 2 del procedimiento de la VM.
 
 ### Banco de pruebas
 

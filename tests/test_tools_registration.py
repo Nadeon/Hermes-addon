@@ -768,7 +768,23 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_validate_statistics": ("R-I-", "Validate statistics (Home Assistant)"),
     "ha_get_statistics_metadata": ("R-I-", "Get statistics metadata (Home Assistant)"),
     "ha_get_recorder_info": ("R-I-", "Get recorder info (Home Assistant)"),
+    # Spec 030, tramo 1 (contracts/tools.md, familia `app_store`). Añadir y
+    # quitar piden token, así que son destructivas (invariante de la 1.1.2);
+    # añadir, reparar y recargar provocan descargas en el Supervisor (mundo
+    # abierto). Todas idempotentes: añadir dos veces da «ya añadido».
+    "sv_list_store_repositories": ("R-I-", "List store repositories (Supervisor)"),
+    "sv_add_store_repository": ("-DIO", "Add store repository (Supervisor)"),
+    "sv_remove_store_repository": ("-DI-", "Remove store repository (Supervisor)"),
+    "sv_repair_store_repository": ("--IO", "Repair store repository (Supervisor)"),
+    "sv_reload_store": ("--IO", "Reload store (Supervisor)"),
 }
+
+# Las cinco de la spec 030, tramo 1 (repositorios y recarga, CAP-082).
+_TIENDA_030 = (
+    "sv_list_store_repositories", "sv_add_store_repository",
+    "sv_remove_store_repository", "sv_repair_store_repository",
+    "sv_reload_store",
+)
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
 _LOGS_013 = (
@@ -1263,6 +1279,44 @@ class TestRecorderRegistration:
         sin = set(_real_registry(["system_status", "recorder"]))
         assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
         assert sin <= completo
+
+
+class TestTiendaDeApps030:
+    """Spec 030, T008 (FR-015, FR-016): las cinco tools de repositorios se
+    registran por defecto con las anotaciones de contracts/tools.md; añadir y
+    quitar llevan `confirmation_token`, reparar y recargar no; con `app_store`
+    desactivada no queda ninguna y el resto no cambia.
+
+    Control negativo comprobado: quitar `sv_remove_store_repository` de
+    `_DESTRUCTIVE_EXACT` → caen `test_anotaciones` y el invariante de
+    `TestDestructiveToolsAskBeforeActing`."""
+
+    def test_anotaciones(self):
+        tools = _real_registry()
+        for nombre in _TIENDA_030:
+            assert nombre in tools, nombre
+            codigo, titulo = _HINTS_NUEVAS_1_2_0[nombre]
+            assert _hint_code(tools[nombre].annotations) == codigo, nombre
+            assert tools[nombre].title == titulo, nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _TIENDA_030}
+        assert props == {
+            "sv_list_store_repositories": {"repository"},
+            "sv_add_store_repository": {"repository", "confirmation_token"},
+            "sv_remove_store_repository": {"repository", "confirmation_token"},
+            "sv_repair_store_repository": {"repository"},
+            "sv_reload_store": set(),
+        }
+        for nombre in ("sv_add_store_repository", "sv_remove_store_repository",
+                       "sv_repair_store_repository"):
+            assert tools[nombre].parameters.get("required") == ["repository"], nombre
+
+    def test_con_la_familia_apagada(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["app_store"]))
+        assert completo - sin == set(_TIENDA_030)
 
 
 class TestMarketplaceRegistration:

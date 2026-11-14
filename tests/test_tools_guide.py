@@ -632,5 +632,72 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"end_time": "2026-01-01T06:00:00+00:00"', texto)
 
 
+class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
+    """Spec 030, T010 (FR-020), tramo 1: tema `app_store` con las cinco
+    tools de repositorios y recarga, el aviso de terceros al añadir, que
+    quitar exige desinstalar antes y reparar frente a recargar; sus alias; el
+    índice lo nombra y las instrucciones del servidor solo con la familia
+    activa; los temas que este tramo no toca no cambian.
+
+    Control negativo comprobado: sin `@TEMA_TIENDA@` en las instrucciones →
+    cae `test_indice_e_instrucciones`."""
+
+    # sha256 (16 hex) de temas que el tramo 1 no toca. El tramo 2 cambiará
+    # `supervisor` (remitir a `app_store`) y actualizará su huella.
+    _HUELLAS = {
+        "supervisor": "c98824cfe8ee20c1",
+        "marketplace": "f83ec233a87ad95b",
+        "system_diagnostics": "50509e336b5ca215",
+        "security": "157ee929e7db08ae",
+        "workflows": "53b81454a6708b9a",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_cinco_tools(self) -> None:
+        texto = await self.guide("app_store")
+        self.assertIs(texto, _GUIDE["app_store"])
+        for palabra in ("sv_list_store_repositories", "sv_add_store_repository",
+                        "sv_remove_store_repository", "sv_repair_store_repository",
+                        "sv_reload_store", "CÓDIGO DE TERCEROS", "DOS PASOS",
+                        "EXACTA", "***REDACTED***", "NO instala",
+                        "repository_already_added", "builtin_repository",
+                        "repository_in_use", "sv_uninstall_addon", "not_supported",
+                        "_third_party_text", "Marketplace", "marketplace"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        # Reparar frente a recargar.
+        self.assertIn("Reparar arregla UN repositorio roto; recargar trae lo nuevo de todos",
+                      texto)
+
+    async def test_alias(self) -> None:
+        texto = _GUIDE["app_store"]
+        for alias in ("store", "tienda", "repositories", "repository",
+                      "repositorios", "STORE"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`app_store`", await self.guide())
+        self.assertIn("app_store", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"app_store"}))
+        self.assertNotIn("app_store", sin)
+        self.assertNotIn("@", sin)
+        self.assertIn("marketplace, security", sin)
+
+    def test_los_temas_que_no_toca_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)
+
+
 if __name__ == "__main__":
     unittest.main()

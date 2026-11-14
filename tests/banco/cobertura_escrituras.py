@@ -8,7 +8,7 @@ suite normal (sin HA ni Docker):
         ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 0 + 1)
       ∪ cobertura.PROBADAS_GENERICAS ∪ cobertura.NO_EJECUTABLES_GENERICAS (011, 1 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
-      ∪ FUERA_DEL_BANCO                                              (24)
+      ∪ FUERA_DEL_BANCO                                              (28)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el
@@ -185,6 +185,13 @@ _SV_AVISOS = (
     "avisos del Supervisor: solo existen en el Supervisor real; se prueba con "
     "simuladores en la suite normal y en la VM de la 014"
 )
+# Spec 030 (FR-022): repositorios de la tienda de apps.
+_SV_TIENDA = (
+    "tienda de apps: la tienda y sus repositorios solo existen en el "
+    "Supervisor real, con internet (clonar, git pull); el del banco es un "
+    "simulado que solo reenvía a Core; se prueba con simuladores en la suite "
+    "normal y en la VM de la 014"
+)
 
 # Solo `fs_*` y `sv_*`: una `ha_*` que no se pueda ejecutar va a
 # `NO_EJECUTABLES_028` con su motivo, nunca aquí (lo vigila el invariante).
@@ -213,4 +220,8 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_reboot_host": _SV_REINICIOS,
     "sv_dismiss_resolution_issue": _SV_AVISOS,
     "sv_dismiss_resolution_suggestion": _SV_AVISOS,
+    "sv_add_store_repository": _SV_TIENDA,
+    "sv_remove_store_repository": _SV_TIENDA,
+    "sv_repair_store_repository": _SV_TIENDA,
+    "sv_reload_store": _SV_TIENDA,
 }

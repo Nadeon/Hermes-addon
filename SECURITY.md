@@ -170,6 +170,19 @@ report about one of them will be closed with a pointer to this section:
     Tests keep the table in step with the inventories of the HA source and
     forbid `read` for any command with a write verb or any route other than
     `GET`.
+  - **App store repositories** (`sv_add_store_repository`): adding a
+    repository to the Supervisor app store brings in third-party code that
+    neither Home Assistant nor Hermes reviews, so it takes two steps. The
+    preview shows the exact URL that will be sent and a third-party code
+    warning, and Hermes downloads nothing for it (the Supervisor clones the
+    repository only when the token is confirmed). The password of a URL
+    with credentials is replaced by `***REDACTED***` in previews, answers
+    and errors, and the log records only the repository slug, never the
+    URL. Repository names, URLs and maintainers are marked as third-party
+    text (`_third_party_text`). Removing a repository also takes two steps;
+    a built-in one, or one with installed apps, is refused without a token,
+    and the token is bound to the repository and its installed apps read
+    in the preview.
   - **Tool families** (`tool_families_disabled`): whole groups of tools can
     be left unregistered. An unknown family name, or `base`, stops the add-on
     from starting rather than silently leaving tools on.

@@ -112,6 +112,18 @@ _CATALOGO: tuple[Familia, ...] = (
             "Recorder status and long-term statistics: validation and metadata "
             "(read only).",
             "1.2.0", True, ("recorder_status",)),
+    # Spec 030 (research R-1): la tienda de apps del Supervisor. Va aparte de
+    # `supervisor` (familia de la 1.1.2) para que apagar las familias de la
+    # 1.2.0 deje exactamente la lista de la 1.1.2 (FR-010 de la 008), y es una
+    # sola familia para repositorios y fichas de apps porque es un mismo caso
+    # de uso y un tema de la guía. El tramo 1 trae el módulo de repositorios y
+    # recarga; el tramo 2 añadirá `store_apps` (changelog, documentación,
+    # disponibilidad y reconstrucción) y completará la descripción, que hoy
+    # solo puede nombrar lo que hay (principio V).
+    Familia("app_store",
+            "App store: add, remove, repair and list store repositories, and "
+            "reload the store.",
+            "1.2.0", True, ("store_repositories",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

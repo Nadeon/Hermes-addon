@@ -589,5 +589,72 @@ class TestDiscoHostYOsDeLa013(unittest.TestCase):
         self.assertEqual(pendientes, [])
 
 
+# Spec 030, tramo 1 (data-model, «Entradas de la tabla que cambian»): las siete
+# rutas de repositorios y recarga de la tienda (CAP-082) → (tool, motivo).
+_TIENDA_030_T1: dict[tuple[str, str], tuple[str, str]] = {
+    ("GET", "/store"): (
+        "sv_list_store_repositories",
+        "cubierto por sv_list_store_repositories (repositorios) y sv_list_addons (apps)"),
+    ("GET", "/store/repositories"): (
+        "sv_list_store_repositories", "cubierto por sv_list_store_repositories"),
+    ("GET", "/store/repositories/{repository}"): (
+        "sv_list_store_repositories",
+        "cubierto por sv_list_store_repositories(repository=…)"),
+    ("POST", "/store/repositories"): (
+        "sv_add_store_repository", "cubierto por sv_add_store_repository"),
+    ("DELETE", "/store/repositories/{repository}"): (
+        "sv_remove_store_repository", "cubierto por sv_remove_store_repository"),
+    ("POST", "/store/repositories/{repository}/repair"): (
+        "sv_repair_store_repository", "cubierto por sv_repair_store_repository"),
+    ("POST", "/store/reload"): ("sv_reload_store", "cubierto por sv_reload_store"),
+}
+
+# Iconos, logos y alias legados de la tienda: clase B, siguen `deny`.
+_TIENDA_DENY_030: tuple[tuple[str, str], ...] = (
+    ("GET", "/store/addons/{app}/icon"), ("GET", "/store/addons/{app}/logo"),
+    ("GET", "/addons/{app}/icon"), ("GET", "/addons/{app}/logo"),
+    ("GET", "/addons/{app}/changelog"), ("GET", "/addons/{app}/documentation"),
+    ("POST", "/addons/{app}/install"), ("POST", "/addons/{app}/update"),
+    ("POST", "/addons/reload"),
+)
+
+
+class TestTiendaDeLa030(unittest.TestCase):
+    """FR-014 de la 030 (tramo 1): las siete rutas de repositorios y recarga
+    pasan a `dedicated` hacia su tool de `app_store`, con CAP-082; iconos,
+    logos y alias legados siguen `deny` (clase B); quedan ocho «spec 030»
+    para el tramo 2.
+
+    Control negativo (T012 g): dejar `POST /store/repositories` como `deny`
+    → cae `test_siete_rutas_dedicadas` nombrándola."""
+
+    def test_siete_rutas_dedicadas(self) -> None:
+        self.assertEqual(len(_TIENDA_030_T1), 7)
+        malas = []
+        for k, (tool, motivo) in _TIENDA_030_T1.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "app_store", "CAP-082", motivo)
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_iconos_logos_y_alias_siguen_deny(self) -> None:
+        abiertas = sorted(
+            str(k) for k in _TIENDA_DENY_030
+            if ct.SUPERVISOR[k].category != "deny" or "clase B" not in ct.SUPERVISOR[k].reason)
+        self.assertEqual(abiertas, [])
+
+    def test_quedan_las_del_tramo_2(self) -> None:
+        pendientes = sorted(
+            k for k, e in ct.SUPERVISOR.items()
+            if e.reason == "pendiente de tool dedicada (spec 030)")
+        self.assertEqual(len(pendientes), 8, pendientes)
+        self.assertFalse(set(pendientes) & set(_TIENDA_030_T1))
+        texto = (_RAIZ / "hermes" / "src" / "hermes" / "command_table.py").read_text(
+            encoding="utf-8")
+        self.assertEqual(texto.count("spec 030"), 8)
+
+
 if __name__ == "__main__":
     unittest.main()

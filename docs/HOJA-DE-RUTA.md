@@ -434,7 +434,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
-| 030 | Tienda de apps | 082, 093 | pendiente |
+| 030 | Tienda de apps | 082, 093 | en curso: tramo 1 hecho (familia `app_store`, cinco tools de repositorios y recarga, siete rutas a `dedicated`, guía y matriz; las cuatro que modifican, en la VM pendientes); falta el tramo 2 (changelog, documentación, disponibilidad, reconstrucción y vistas previas de instalar, actualizar y opciones) |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
 
@@ -701,6 +701,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
+| `sv_add_store_repository` | VM | pendiente | repositorio de prueba |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_create_backup_full` | VM | pendiente | |
@@ -712,6 +713,9 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_get_job_status` | VM | pendiente | |
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_reload_store` | VM | pendiente | |
+| `sv_remove_store_repository` | VM | pendiente | repositorio de prueba |
+| `sv_repair_store_repository` | VM | pendiente | repositorio de prueba |
 | `sv_restart_addon` | VM | pendiente | add-on de prueba |
 | `sv_restart_core` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_full` | VM | pendiente | instantánea antes |

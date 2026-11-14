@@ -151,6 +151,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # peor. Siempre piden confirmation_token.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 030: piden token. Añadir un repositorio mete código de terceros
+    # sin revisar en la tienda (cadena de suministro); quitarlo deja sus apps
+    # sin poder instalarse. Ninguna lo delata con el prefijo.
+    "sv_add_store_repository",
+    "sv_remove_store_repository",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -183,6 +188,12 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
     # Es de solo lectura, pero no puede decir que no sale.
     "ha_get_system_health",
+    # Spec 030: provocan descargas en el Supervisor. Añadir y reparar clonan
+    # el repositorio; recargar hace `git pull` de todos. Quitar y listar no
+    # salen (listar lee lo que el Supervisor ya tiene).
+    "sv_add_store_repository",
+    "sv_repair_store_repository",
+    "sv_reload_store",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
