@@ -143,6 +143,17 @@ en su propio commit (solo las rutas que toca, añadidas por nombre).
   `ServicioInexistente`/`RechazadoPorCore` se quedan en `tests/banco/`: no los
   usa ya ningún test del banco, pero son la herramienta para el próximo
   hallazgo y tienen sus tests.
+- T036 (CI): el primer run del banco cayó en los 5 casos que esperan un
+  error, porque Hermes marca con `isError` toda respuesta `{"error": …}` y
+  `llamar` la convierte en fallo; se leen con el ayudante nuevo `rechazo` de
+  `tests/banco/entorno.py` (el resto pasó a la primera contra HA real). Con
+  eso, CI de la rama en verde: pytest 3.12 y 3.13, banco de Core 55 passed,
+  sin ningún `xfail`, y Semgrep en verde. Control negativo en el CI (T025 y
+  T028) con la rama desechable `prueba/033-control-2` (`_value_problem`
+  siempre None): el banco cae en `TestCounter.test_valores_que_ha_rechaza`
+  con el 500 de Core a `/services/counter/set_value` (la sospecha de R-7,
+  confirmada contra HA real), y pytest en los 6 unitarios de
+  `TestValorDeContadorValido`. Rama borrada.
 - T036: nuevo `test_ningun_xfail_en_el_banco_fuera_de_la_lista` en
   `tests/test_banco_cobertura.py`: cada `xfail` de `tests/banco/` está en la
   lista del job y la lista está vacía.
@@ -203,7 +214,7 @@ en su propio commit (solo las rutas que toca, añadidas por nombre).
 - [x] T033 [P] Documentación: en `hermes/CHANGELOG.md`, viñetas del tramo 2 en la subsección de la 033; en `hermes/src/hermes/tools/guide.py`, contadores (sin recarga, regla de `amount`), escenas (temporal, `name`, `scenes.yaml`) y opciones de config entries (no publicadas, flujo de opciones); en `docs/HOJA-DE-RUTA.md`, deprecaciones con retirada en la 1.3.0 (`ha_reload_counters`, `ha_get_config_entry_options`, argumento `name` de `ha_create_scene_from_current`), fila 033 a «hecha», y el recuento del banco de helpers (46 probadas y 1 no ejecutable con motivo); en `specs/008-cobertura-total/plan.md`, la fila CAP-039 de la matriz completa con los tests
 - [x] T034 Revisión de honestidad (SC-005): releer las docstrings de las siete tools y los textos de la guía tocados contra el código y contra HA (research); la lista de frases revisadas va al commit
 - [x] T035 Suite completa (solo los 6 conocidos en Windows); revisión del diff buscando datos personales e identificadores de modelos
-- [ ] T036 Commit del tramo 2 con los recuentos de T017, T020, T024, T028 y T032; si se sube la rama, CI y banco en verde (`FALLAN_EN_BANCO` vacío, ningún `xfail` de estas tools)
+- [x] T036 Commit del tramo 2 con los recuentos de T017, T020, T024, T028 y T032; si se sube la rama, CI y banco en verde (`FALLAN_EN_BANCO` vacío, ningún `xfail` de estas tools)
 
 ## Dependencias y orden
 
