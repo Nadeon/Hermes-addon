@@ -36,9 +36,11 @@ env:
 8. Esperar al HTTP: sondear `http://127.0.0.1:8123/api/onboarding` cada 2 s,
    como mucho 300 s; si no llega, fallar con «HA no respondió en 300 s».
 9. Comprobar la red: desde dentro del contenedor, con el `python3` de la
-   propia imagen (`urllib`), una petición HTTPS a `https://github.com` con 5 s
-   de tope tiene que **fallar**; si responde, fallar con «el contenedor de HA
-   tiene salida a internet».
+   propia imagen, `tests/banco/sin_salida.py` abre TCP a IP literales
+   (`1.1.1.1:443` y `8.8.8.8:443`, 5 s de tope, sin DNS ni HTTP). Solo si todas
+   fallan a nivel de red el paso pasa; si alguna se establece, o el script no
+   se puede ejecutar, falla con «el contenedor de HA tiene salida a internet».
+   (T040: la versión con `urllib` daba por buena una respuesta 429 o 5xx.)
 10. Preparar `/data` como el job `pytest` (`sudo mkdir -p /data && sudo chmod 777 /data`).
 11. Ejecutar: `pytest -m banco tests/banco -q -p no:cacheprovider --timeout=120`
     con `HERMES_BANCO_HA_URL=http://127.0.0.1:8123`,
