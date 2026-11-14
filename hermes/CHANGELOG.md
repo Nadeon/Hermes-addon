@@ -29,7 +29,61 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Política y genéricas
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **Cuatro tools genéricas para lo que ninguna otra cubre**:
+  `ha_read_ws_command` y `ha_call_ws_command` (comandos WebSocket de Core) y
+  `sv_read_api` y `sv_call_api` (API del Supervisor). Solo ejecutan lo que
+  permite la tabla de comandos de Hermes; todo lo demás se rechaza sin llegar
+  a Home Assistant ni al Supervisor, con un código que dice por qué
+  (`command_not_classified`, `command_denied`, `use_dedicated_tool`,
+  `wrong_generic_tool`, `family_disabled`, `path_not_allowed`). Las de lectura
+  llevan `readOnlyHint`; la de Core se anuncia además de mundo abierto, porque
+  navegar o buscar en una fuente de medios remota consulta internet. Las de
+  escritura van siempre en dos pasos: la vista previa enseña lo que se
+  enviará (comando o ruta, categoría, motivo y cada clave de la carga con su
+  tipo y tamaño; un valor corto, entero; uno largo, sus 32 primeros
+  caracteres, su tamaño y un hash corto; uno sensible, tapado) y el token
+  queda atado a la tool, al comando o a la
+  ruta y método, y a la carga entera. Junto al token solo se guarda
+  `{"executed": true}`, nunca la respuesta. Las respuestas pasan por la
+  redacción de secretos y por el tope de tamaño, y el log lleva un evento
+  `generic_command` por llamada, sin valores. `logbook/get_action_calls` tapa
+  el `code` de alarmas y cerraduras de cada llamada.
+- **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
+  Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
+  cada uno `dedicated` (tiene tool propia: 115 y 29), `read` (36 y 26),
+  `confirm` (20 y 25) o `deny` (452 y 174, con su motivo). Lo que no está se
+  rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
+  y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
+  la compara con los inventarios de la spec 008 y otro impide clasificar como
+  `read` un comando con verbo de escritura o una ruta que no sea `GET`.
+- **Familias de tools y opción `tool_families_disabled`** (vacía por defecto):
+  apaga grupos enteros de tools para ahorrar contexto al cliente. Las familias
+  de la 1.1.2 son `services`, `automations`, `helpers`, `events`, `data`,
+  `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`,
+  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade `generic_commands`.
+  `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre
+  desconocido, o `base`, impide arrancar con un mensaje que nombra el valor y
+  los válidos. Con las familias de la 1.2.0 desactivadas, la lista de tools es
+  exactamente la de la 1.1.2. Una genérica tampoco ejecuta lo de una familia
+  desactivada. El log de arranque dice cuáles se desactivaron y cuántas tools
+  quedan (`tool_families`). Si una versión futura renombra una familia, el
+  nombre viejo seguirá valiendo como alias.
+- **Guía**: `hermes_guide(topic="generic_commands")` (alias `commands`,
+  `generic`, `ws`, `api`, `table`) explica cuándo usar las genéricas, las
+  categorías, los dos pasos y los rechazos; con `search="tag"` lista hasta 50
+  entradas de la tabla con su categoría, su tool dedicada o su motivo y, si la
+  tabla lo tiene, un ejemplo de carga. `search` es un argumento nuevo y
+  opcional: sin él, la guía responde lo mismo que en la 1.1.2. Las
+  instrucciones del servidor ya no dan un número de tools, que depende de las
+  familias activas.
+- **Inventarios y tabla regenerables** (para el mantenedor; no van dentro del
+  add-on): `scripts/inventario/extraer.py` saca los comandos de Core y las
+  rutas del Supervisor de su código fuente sin importarlo ni ejecutarlo, y
+  `scripts/inventario/generar_tabla.py` añade lo nuevo a la tabla como `deny`
+  «sin revisar» sin tocar lo ya clasificado.
+- **Constitución 1.2.0**: enmiendas E-1…E-4 (vista previa de las genéricas,
+  honestidad atada a la tabla, banco de Core en las comprobaciones y fecha de
+  publicación pendiente en el CHANGELOG mientras la versión se desarrolla).
 
 ### Banco de pruebas
 

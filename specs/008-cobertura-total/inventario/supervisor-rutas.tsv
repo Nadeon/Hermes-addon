@@ -58,8 +58,20 @@ GET	/core/logs/follow	Core de Home Assistant (/core, alias /homeassistant)	no	B	
 GET	/core/logs/latest	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No	CAP-081
 GET	/core/logs/boots/{bootid}	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No	CAP-081
 GET	/core/logs/boots/{bootid}/follow	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Streaming	
-GET/POST	/homeassistant/{info,stats,options,restart,stop,start,update,rebuild,check} (9)	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
-GET	/homeassistant/logs[/follow,/latest,/boots/{b}[/follow]] (5)	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados	
+GET	/homeassistant/info	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+GET	/homeassistant/stats	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+POST	/homeassistant/options	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+POST	/homeassistant/restart	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+POST	/homeassistant/stop	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+POST	/homeassistant/start	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+POST	/homeassistant/update	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+POST	/homeassistant/rebuild	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+POST	/homeassistant/check	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+GET	/homeassistant/logs	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados	
+GET	/homeassistant/logs/follow	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados	
+GET	/homeassistant/logs/latest	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados	
+GET	/homeassistant/logs/boots/{bootid}	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados	
+GET	/homeassistant/logs/boots/{bootid}/follow	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados	
 GET	/core/api/websocket	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubierto	passthrough	Sí (todo `ha_*` por WS)	
 GET	/core/websocket	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias	
 GET	/core/api/stream	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No SSE	
@@ -67,7 +79,12 @@ GET	/core/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubie
 POST	/core/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubierto	passthrough	Sí	
 DELETE	/core/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubierto	passthrough	Sí (config entries, flujos)	
 GET	/core/api/	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Raíz de la API	
-GET/POST	/homeassistant/api/{websocket,stream,{path},''} y /homeassistant/websocket (6)	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
+GET	/homeassistant/api/websocket	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
+GET	/homeassistant/websocket	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
+GET	/homeassistant/api/stream	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
+POST	/homeassistant/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
+GET	/homeassistant/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
+GET	/homeassistant/api/	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
 GET	/backups	Backups (/backups)	si	cubierto	✔	Sí (`sv_list_backups`, retención)	
 GET	/backups/info	Backups (/backups)	no	A	✔	No Ajustes (`days_until_stale`), ubicaciones/montajes	CAP-083
 POST	/backups/new/partial	Backups (/backups)	si	cubierto	✔	Sí	
@@ -109,7 +126,9 @@ POST	/os/datadisk/move	Sistema operativo (/os)	no	D	✔	No Formatea el disco des
 GET	/os/datadisk/list	Sistema operativo (/os)	no	A	✔	No Discos candidatos (lectura)	CAP-085
 POST	/os/datadisk/wipe	Sistema operativo (/os)	no	D	✔ (✘ con `manager`)	No Borra todos los datos	
 POST	/os/boot-slot	Sistema operativo (/os)	no	A	✔	No Volver al slot anterior (rollback del OS)	CAP-086
-GET/POST/DELETE	/os/ssh/authorized_keys (3)	Sistema operativo (/os)	no	D	✘ core_only	No Acceso root por SSH; solo Core	
+GET	/os/ssh/authorized_keys	Sistema operativo (/os)	no	D	✘ core_only	No Acceso root por SSH; solo Core	
+POST	/os/ssh/authorized_keys	Sistema operativo (/os)	no	D	✘ core_only	No Acceso root por SSH; solo Core	
+DELETE	/os/ssh/authorized_keys	Sistema operativo (/os)	no	D	✘ core_only	No Acceso root por SSH; solo Core	
 GET	/os/boards/green	Sistema operativo (/os)	no	A	✔	No LEDs de Home Assistant Green	CAP-094
 POST	/os/boards/green	Sistema operativo (/os)	no	A	✔	No	CAP-094
 GET	/os/boards/raspberrypi/firmware	Sistema operativo (/os)	no	A	✔	No	CAP-094
@@ -153,24 +172,42 @@ POST	/dns/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-0
 POST	/dns/options	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No Servidores DNS	CAP-091
 POST	/dns/restart	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
 POST	/dns/reset	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-GET	/dns/logs, /dns/logs/latest, /dns/logs/boots/{b} (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
-GET	/dns/logs/follow, /dns/logs/boots/{b}/follow (2)	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/dns/logs	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/dns/logs/latest	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/dns/logs/boots/{bootid}	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/dns/logs/follow	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/dns/logs/boots/{bootid}/follow	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
 GET	/audio/info	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
 GET	/audio/stats	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-POST	/audio/update, /audio/restart, /audio/reload (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/restart	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/reload	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
 POST	/audio/profile	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-POST	/audio/volume/{source}[/application] (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-POST	/audio/mute/{source}[/application] (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/volume/{source}	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/volume/{source}/application	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/mute/{source}	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/mute/{source}/application	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
 POST	/audio/default/{source}	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-GET	/audio/logs, /latest, /boots/{b} (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
-GET	/audio/logs/follow, /boots/{b}/follow (2)	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
-GET	/multicast/info, /multicast/stats (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-POST	/multicast/options, /multicast/update, /multicast/restart (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-GET	/multicast/logs, /latest, /boots/{b} (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
-GET	/multicast/logs/follow, /boots/{b}/follow (2)	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
-GET	/observer/info, /observer/stats (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/audio/logs	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/audio/logs/latest	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/audio/logs/boots/{bootid}	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/audio/logs/follow	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/audio/logs/boots/{bootid}/follow	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/multicast/info	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/multicast/stats	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/multicast/options	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/multicast/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/multicast/restart	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/multicast/logs	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/multicast/logs/latest	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/multicast/logs/boots/{bootid}	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/multicast/logs/follow	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/multicast/logs/boots/{bootid}/follow	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/observer/info	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/observer/stats	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
 POST	/observer/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
-GET	/cli/info, /cli/stats (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/cli/info	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/cli/stats	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
 POST	/cli/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
 GET	/hardware/info	Hardware, Docker, hora, seguridad	no	A	✔	No Dispositivos (dongles Zigbee/Z-Wave, discos, serie)	CAP-088
 GET	/hardware/audio	Hardware, Docker, hora, seguridad	no	A	✔	No	CAP-088
@@ -215,4 +252,4 @@ DELETE	/discovery/{uuid}	Auth, servicios, discovery, ingress, panel	no	B	bypass	
 POST	/ingress/session	Auth, servicios, discovery, ingress, panel	no	B	✘ (solo Core)	No	
 POST	/ingress/validate_session	Auth, servicios, discovery, ingress, panel	no	B	✘ (solo Core)	No	
 GET	/ingress/panels	Auth, servicios, discovery, ingress, panel	no	B	✔ (✘ con `manager`)	No Paneles de ingress del frontend	
-GET	/app/* (estático)	Auth, servicios, discovery, ingress, panel	no	B	passthrough	No Panel del frontend del Supervisor	
+GET	/app/{filename}	Auth, servicios, discovery, ingress, panel	no	B	passthrough	No Panel del frontend del Supervisor	

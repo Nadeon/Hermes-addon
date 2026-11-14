@@ -377,7 +377,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 |---|---|---|---|
 | 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
-| 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | pendiente |
+| 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | hecha: tabla, cuatro genéricas, familias y `tool_families_disabled`, tema `generic_commands` con `search`, extractor y generador; convergencia tras la revisión independiente cerrada (T044–T049); prueba de las genéricas en el banco de Core (T027) activada al integrarla con la 010 |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | pendiente |

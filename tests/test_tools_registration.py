@@ -99,7 +99,7 @@ def _register_all(dev: bool = True) -> _RecordingMCP:
             os.environ["HERMES_DEV"] = previous
 
 
-def _do_register() -> _RecordingMCP:
+def _do_register(tool_families_disabled: list[str] | None = None) -> _RecordingMCP:
     mcp = _RecordingMCP()
     register_all_tools(
         mcp,
@@ -119,6 +119,9 @@ def _do_register() -> _RecordingMCP:
         call_service_auto_classify=False,
         wait_for_event_max_seconds=90,
         wait_for_event_max_concurrent=5,
+        # [] y no None: que una variable del entorno de quien ejecuta la
+        # suite no cambie qué se registra.
+        tool_families_disabled=tool_families_disabled or [],
     )
     return mcp
 
@@ -496,6 +499,11 @@ class TestDestructiveToolsAskBeforeActing:
 # de añadir `title`. Añadir el título no puede cambiar lo que una tool dice de
 # sí misma (principio V): si un día cambia un hint, tiene que ser a propósito y
 # actualizando esta tabla en el mismo cambio.
+#
+# Es la REFERENCIA DE LA 1.1.2 (spec 011, FR-021): las 216 tools de producción
+# más `test_progress` (desarrollo). Las tools nuevas de la 1.2.0 no se añaden
+# aquí: van en `_HINTS_NUEVAS_1_2_0`, para que esta tabla siga diciendo qué
+# prometía la 1.1.2 y un cambio en una de ellas se vea como tal.
 # Código: R = readOnlyHint, D = destructiveHint, I = idempotentHint,
 # O = openWorldHint; «-» = False.
 _HINTS_SNAPSHOT: dict[str, str] = {
@@ -719,14 +727,28 @@ _HINTS_SNAPSHOT: dict[str, str] = {
 }
 
 
+# Tools nuevas de la 1.2.0: código de hints y título exactos (spec 011,
+# contracts/tools.md). La de lectura de Core es de mundo abierto porque
+# `media_source/browse_media` y `search_media` salen a internet con fuentes
+# remotas (T047); la del Supervisor no. Las de escritura son destructivas, no
+# idempotentes y de mundo abierto, porque ejecutan lo que la tabla permita.
+_HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
+    "ha_read_ws_command": ("R-IO", "Read WS command (Home Assistant)"),
+    "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
+    "sv_read_api": ("R-I-", "Read API (Supervisor)"),
+    "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+}
+
+
 def _hint_code(ann) -> str:
     flags = (ann.read_only_hint, ann.destructive_hint,
              ann.idempotent_hint, ann.open_world_hint)
     return "".join(c if f else "-" for c, f in zip("RDIO", flags))
 
 
-def _real_registry() -> dict:
-    """Todas las tools registradas en un `MCPServer` real, ya anotadas."""
+def _real_registry(tool_families_disabled: list[str] | None = None) -> dict:
+    """Todas las tools registradas en un `MCPServer` real, ya anotadas
+    (todas las familias activas salvo `tool_families_disabled`)."""
     from mcp.server.mcpserver import MCPServer
 
     previous = os.environ.get("HERMES_DEV")
@@ -739,6 +761,7 @@ def _real_registry() -> dict:
             fire_event_allowlist=[],
             response_max_bytes=131_072,
             call_service_auto_classify=False,
+            tool_families_disabled=tool_families_disabled or [],
         )
     finally:
         if previous is None:
@@ -784,14 +807,225 @@ class TestToolTitles:
         assert tools["sv_get_addon_logs"].title == "Get add-on logs (Supervisor)"
 
     def test_hints_did_not_change(self):
+        """Las de la 1.1.2 conservan sus hints y las únicas de más son las de
+        la 1.2.0 que la spec enumera (FR-021)."""
         tools = _real_registry()
-        assert set(tools) == set(_HINTS_SNAPSHOT), (
-            "la lista de tools no coincide con la instantánea")
+        faltan = sorted(set(_HINTS_SNAPSHOT) - set(tools))
+        assert faltan == [], f"tools de la 1.1.2 que ya no están: {faltan}"
+        sobran = sorted(set(tools) - set(_HINTS_SNAPSHOT) - set(_HINTS_NUEVAS_1_2_0))
+        assert sobran == [], f"tools nuevas sin declarar: {sobran}"
         cambiados = sorted(
-            f"{n}: {_HINTS_SNAPSHOT[n]} -> {_hint_code(t.annotations)}"
-            for n, t in tools.items()
-            if _hint_code(t.annotations) != _HINTS_SNAPSHOT[n])
+            f"{n}: {_HINTS_SNAPSHOT[n]} -> {_hint_code(tools[n].annotations)}"
+            for n in _HINTS_SNAPSHOT
+            if _hint_code(tools[n].annotations) != _HINTS_SNAPSHOT[n])
         assert cambiados == [], f"hints cambiados: {cambiados}"
+
+    def test_hints_y_titulos_de_las_nuevas(self):
+        """Contrato de la 011 (contracts/tools.md): hints y títulos exactos."""
+        tools = _real_registry()
+        for nombre, (codigo, titulo) in _HINTS_NUEVAS_1_2_0.items():
+            assert nombre in tools, f"{nombre} no está registrada"
+            assert _hint_code(tools[nombre].annotations) == codigo, nombre
+            assert tools[nombre].title == titulo, (nombre, tools[nombre].title)
+
+    def test_api_no_cambia_ningun_titulo_existente(self):
+        """`"api": "API"` en `_TITLE_WORDS` solo toca a las nuevas: ninguna
+        tool de la 1.1.2 tiene `api` como palabra de su nombre."""
+        con_api = sorted(n for n in _HINTS_SNAPSHOT if "api" in n.split("_"))
+        assert con_api == [], con_api
+
+    def test_esquemas_de_la_1_1_2(self):
+        """Las tools de la 1.1.2 conservan los argumentos (nombres y
+        obligatorios) de su esquema de entrada (FR-021).
+
+        `tests/fixtures/esquemas_1_1_2.json` se generó del registro real ANTES
+        de añadir las genéricas, con:
+
+            tools = _real_registry()
+            {n: {"properties": sorted(t.parameters.get("properties", {})),
+                 "required": sorted(t.parameters.get("required", []))}
+             for n, t in sorted(tools.items())}
+
+        (json.dumps con indent=1 y sort_keys). No se regenera: es la referencia.
+        """
+        import json
+
+        ruta = pathlib.Path(__file__).resolve().parent / "fixtures" / "esquemas_1_1_2.json"
+        esperado = json.loads(ruta.read_text(encoding="utf-8"))
+        # Única diferencia permitida (spec 011, T032 f; research R-8):
+        # `hermes_guide` gana el argumento OPCIONAL `search`. Un argumento
+        # opcional nuevo no rompe a ningún cliente que no lo use; uno
+        # obligatorio, sí, por eso `search` no puede entrar en `required`.
+        esperado["hermes_guide"] = {
+            "properties": sorted([*esperado["hermes_guide"]["properties"], "search"]),
+            "required": esperado["hermes_guide"]["required"],
+        }
+        # Segunda diferencia permitida, de la spec 009 (FR-007 de la 009,
+        # FR-031 de la 008): `ha_marketplace_list_removed` gana los argumentos
+        # OPCIONALES `installed_only` y `limit`. Sin ellos la lista es la de la
+        # 1.1.2. Esta excepción entra al integrar la 011 con la 009: cada rama
+        # tenía la suya y la referencia es común.
+        esperado["ha_marketplace_list_removed"] = {
+            "properties": sorted([*esperado["ha_marketplace_list_removed"]["properties"],
+                                  "installed_only", "limit"]),
+            "required": esperado["ha_marketplace_list_removed"]["required"],
+        }
+        assert set(esperado) == set(_HINTS_SNAPSHOT)
+        tools = _real_registry()
+        distintos = []
+        for nombre, esquema in esperado.items():
+            actual = tools[nombre].parameters
+            real = {"properties": sorted(actual.get("properties", {})),
+                    "required": sorted(actual.get("required", []))}
+            if real != esquema:
+                distintos.append(f"{nombre}: {esquema} -> {real}")
+        assert distintos == [], "esquemas cambiados: " + "; ".join(distintos)
+
+
+# ── Spec 011: registro por familias (FR-020, FR-021, SC-005; T032) ────────────
+
+def _tools_por_modulo() -> dict[str, set[str]]:
+    """Módulo de `hermes/tools/` → nombres de las tools que declara (AST)."""
+    out: dict[str, set[str]] = {}
+    for path in sorted(_TOOLS_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+                continue
+            for deco in node.decorator_list:
+                is_tool = (
+                    isinstance(deco, ast.Call)
+                    and getattr(getattr(deco, "func", None), "attr", "") == "tool"
+                ) or (isinstance(deco, ast.Attribute) and deco.attr == "tool")
+                if is_tool:
+                    out.setdefault(path.stem, set()).add(node.name)
+                    break
+    return out
+
+
+class TestRegistroPorFamilias:
+    """`tool_families_disabled` quita exactamente las tools de las familias
+    nombradas, y con las familias de la 1.2.0 apagadas la lista vuelve a ser
+    la de la 1.1.2 (SC-005).
+
+    Control negativo (T042 b): registrar `lovelace` aunque esté desactivada
+    (quitar su `if _activa(...)`) → caen `test_cada_familia_quita_sus_tools`
+    («lovelace») y `test_cada_register_dentro_de_su_familia`; con
+    `generic_commands`, además `test_sc005_sin_las_de_la_1_2_0_queda_la_1_1_2`.
+    """
+
+    def test_cada_familia_quita_sus_tools(self):
+        from hermes.tool_families import FAMILIAS
+
+        completo = set(_do_register().tools)
+        por_modulo = _tools_por_modulo()
+        for nombre, familia in FAMILIAS.items():
+            if not familia.desactivable:
+                continue
+            reducido = set(_do_register([nombre]).tools)
+            esperadas = set().union(*(por_modulo.get(m, set()) for m in familia.modulos))
+            assert esperadas, f"{nombre}: la familia no declara tools"
+            assert completo - reducido == esperadas, (
+                f"{nombre}: quita {sorted(completo - reducido)}, "
+                f"debería quitar {sorted(esperadas)}")
+            assert reducido <= completo, nombre
+
+    def test_sc005_sin_las_de_la_1_2_0_queda_la_1_1_2(self):
+        """SC-005: con todas las familias `desde="1.2.0"` desactivadas, los
+        nombres son EXACTAMENTE los 216 de la 1.1.2 (más `test_progress`,
+        que solo existe con HERMES_DEV y ya estaba en la instantánea) y con
+        los mismos hints."""
+        from hermes.tool_families import FAMILIAS
+
+        nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
+        assert "generic_commands" in nuevas
+        tools = _real_registry(nuevas)
+        assert set(tools) == set(_HINTS_SNAPSHOT), (
+            f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
+            f"faltan {sorted(set(_HINTS_SNAPSHOT) - set(tools))}")
+        assert len(set(tools) - {"test_progress"}) == 216
+        cambiados = sorted(
+            n for n in _HINTS_SNAPSHOT
+            if _hint_code(tools[n].annotations) != _HINTS_SNAPSHOT[n])
+        assert cambiados == [], f"hints cambiados: {cambiados}"
+
+    def test_por_defecto_la_1_1_2_entera(self):
+        """Con la opción vacía, las 216 están y con los mismos hints."""
+        tools = _real_registry()
+        assert set(_HINTS_SNAPSHOT) <= set(tools)
+        assert all(_hint_code(tools[n].annotations) == h for n, h in _HINTS_SNAPSHOT.items())
+
+    def test_cada_register_dentro_de_su_familia(self):
+        """Por AST: cada `register_*` importado de `hermes.tools.<módulo>`
+        dentro de `register_all_tools` se llama dentro de un
+        `if _activa("<familia>")` cuya familia es la de su módulo. Un bloque
+        nuevo sin comprobación se registraría siempre, aunque el usuario
+        apagara su familia."""
+        from hermes.tool_families import familia_de_modulo
+
+        arbol = ast.parse((_TOOLS_DIR / "__init__.py").read_text(encoding="utf-8"))
+        funcion = next(n for n in ast.walk(arbol)
+                       if isinstance(n, ast.FunctionDef) and n.name == "register_all_tools")
+        padres: dict[ast.AST, ast.AST] = {}
+        for nodo in ast.walk(funcion):
+            for hijo in ast.iter_child_nodes(nodo):
+                padres[hijo] = nodo
+        modulo_de: dict[str, str] = {}
+        for nodo in ast.walk(funcion):
+            if (isinstance(nodo, ast.ImportFrom) and nodo.module
+                    and nodo.module.startswith("hermes.tools.")):
+                for alias in nodo.names:
+                    if alias.name.startswith("register"):
+                        modulo_de[alias.asname or alias.name] = nodo.module.rsplit(".", 1)[1]
+        assert len(modulo_de) >= 40, modulo_de
+
+        def familia_del_if(nodo: ast.AST) -> str | None:
+            while nodo in padres:
+                nodo = padres[nodo]
+                if (isinstance(nodo, ast.If) and isinstance(nodo.test, ast.Call)
+                        and getattr(nodo.test.func, "id", "") == "_activa"
+                        and nodo.test.args
+                        and isinstance(nodo.test.args[0], ast.Constant)):
+                    return nodo.test.args[0].value
+            return None
+
+        llamadas = [n for n in ast.walk(funcion)
+                    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                    and n.func.id in modulo_de]
+        assert {c.func.id for c in llamadas} == set(modulo_de), "register importado sin llamar"
+        errores = []
+        for llamada in llamadas:
+            modulo = modulo_de[llamada.func.id]
+            esperada = familia_de_modulo(modulo)
+            real = familia_del_if(llamada)
+            if real != esperada:
+                errores.append(f"{modulo}: dentro de {real!r}, debería ser {esperada!r}")
+        assert errores == [], errores
+
+    def test_log_de_arranque(self):
+        from structlog.testing import capture_logs
+
+        completo = len(_do_register().tools)
+        with capture_logs() as logs:
+            mcp = _do_register(["marketplace", "lovelace"])
+        eventos = [e for e in logs if e.get("event") == "tool_families"]
+        assert len(eventos) == 1, eventos
+        assert eventos[0]["disabled"] == ["lovelace", "marketplace"]
+        assert eventos[0]["tools_registered"] == len(mcp.tools) < completo
+        with capture_logs() as logs:
+            _do_register()
+        eventos = [e for e in logs if e.get("event") == "tool_families"]
+        assert eventos[0]["disabled"] == []
+        assert eventos[0]["tools_registered"] == completo
+
+    def test_un_nombre_invalido_no_registra_nada(self):
+        """Fail-closed también si se llama sin pasar por `validate()`."""
+        import pytest
+
+        with pytest.raises(ValueError, match="familia_inventada"):
+            _do_register(["familia_inventada"])
+        with pytest.raises(ValueError, match="base"):
+            _do_register(["base"])
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
@@ -976,9 +1210,11 @@ class TestResolutionAndHABackupsRegistration:
 # ── Recuento de tools en la documentación ────────────────────────────────────
 
 class TestToolCountInDocs:
-    """El número de tools que anuncian las instrucciones, la guía, los README y
-    DOCS.md es el del registro real, sin las de desarrollo. Se ha quedado
-    atrás en varias versiones porque nadie lo recontaba al añadir módulos."""
+    """El número de tools que anuncian los README y DOCS.md es el del registro
+    real, sin las de desarrollo. Se ha quedado atrás en varias versiones
+    porque nadie lo recontaba al añadir módulos. Las instrucciones del
+    servidor ya no dan ninguno (spec 011, FR-022): depende de las familias
+    desactivadas; lo comprueba también `test_tools_guide`."""
 
     def test_documented_count_matches_registry(self):
         import re
@@ -993,8 +1229,8 @@ class TestToolCountInDocs:
                 os.environ["HERMES_DEV"] = previous
         total = len(mcp.tools)
         raiz = pathlib.Path(__file__).resolve().parents[1]
+        assert re.findall(r"(\d{3}) (?:tools|herramientas)\b", INSTRUCTIONS) == []
         textos = {
-            "INSTRUCTIONS": INSTRUCTIONS,
             "README.md": (raiz / "README.md").read_text(encoding="utf-8"),
             "README.es.md": (raiz / "README.es.md").read_text(encoding="utf-8"),
             "DOCS.md": (raiz / "hermes" / "DOCS.md").read_text(encoding="utf-8"),

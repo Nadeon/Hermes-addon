@@ -569,9 +569,14 @@ def _build_mcp(config: HermesConfig, ha_client: object) -> HermesMCPServer:
     los ajustes de esa segunda carga no se registran en ningún sitio.
     """
     from hermes.tools import register_all_tools
-    from hermes.tools.guide import INSTRUCTIONS
+    from hermes.tool_families import validar_desactivadas
+    from hermes.tools.guide import instrucciones
 
-    mcp = build_mcp_server(INSTRUCTIONS)
+    # Las instrucciones solo anuncian las genéricas si su familia está activa
+    # (T049 de la 011): se validan los nombres igual que al registrar.
+    mcp = build_mcp_server(
+        instrucciones(validar_desactivadas(config.tool_families_disabled or []))
+    )
     register_all_tools(
         mcp,
         ha_client,
@@ -589,6 +594,7 @@ def _build_mcp(config: HermesConfig, ha_client: object) -> HermesMCPServer:
         wait_for_event_max_seconds=config.wait_for_event_max_seconds,
         wait_for_event_max_concurrent=config.wait_for_event_max_concurrent,
         safety_backup_keep=config.safety_backup_keep,
+        tool_families_disabled=config.tool_families_disabled,
     )
     return mcp
 

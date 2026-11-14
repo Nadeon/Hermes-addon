@@ -185,14 +185,14 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 
 | CAP | Prio. | Sub-feature | FR | Vía | Test previsto |
 |---|---|---|---|---|---|
-| CAP-001 | alta | 011 | FR-001…FR-005, FR-012 | X | deriva, verbos, guardas con control negativo |
-| CAP-002 | alta | 011 | FR-006, FR-008, FR-009 | X | genéricas de Core en unitarios y banco |
-| CAP-003 | media-alta | 011 | FR-007, FR-008 | X | genéricas del Supervisor con simulador; rutas maliciosas |
-| CAP-004 | alta | 011 | FR-010 | X | registro con familias; opción inválida no arranca |
+| CAP-001 | alta | 011 | FR-001…FR-005, FR-012 | X | `hermes/src/hermes/command_table.py` y `command_policy.py`: `TestDeriva`, `TestVerbos`, `TestEstructura`, `TestDedicadas`, `TestReglasDeLaClasificacionInicial` (`tests/test_command_table.py`); `TestDecidir`, `TestValidarRuta`, `TestCasarRuta`, `TestBuscarCore`, `TestResumirCarga` (`tests/test_command_policy.py`) |
+| CAP-002 | alta | 011 | FR-006, FR-008, FR-009 | X | `ha_read_ws_command`, `ha_call_ws_command`: `TestLecturaCore`, `TestEscrituraCore` y sus `…TablaReal` (`tests/test_tools_generic_commands.py`); banco: `tests/banco/test_banco_genericas.py` |
+| CAP-003 | media-alta | 011 | FR-007, FR-008 | X | `sv_read_api`, `sv_call_api`: `TestSupervisor`, `TestSupervisorTablaReal` (`tests/test_tools_generic_commands.py`), `TestValidarRuta` (`tests/test_command_policy.py`) |
+| CAP-004 | alta | 011 | FR-010 | X | `tool_families.py` y `tool_families_disabled`: `TestCatalogo`, `TestValidarDesactivadas`, `TestAliasDeFamilias` (`tests/test_tool_families.py`), `TestToolFamiliesDisabled` (`tests/test_config_validation.py`), `TestRegistroPorFamilias` con SC-005 (`tests/test_tools_registration.py`), `TestFamiliasDesactivadasInyectadas`, `TestFamiliasDesdeElRegistro` (`tests/test_tools_generic_commands.py`) |
 | CAP-005 | alta | 010 | FR-013 | X | job del banco en el CI: `tests/test_banco_workflow.py`, `tests/banco/test_banco_humo.py` |
 | CAP-006 | alta | 014 | FR-016 | M | procedimiento y matriz en la hoja de ruta |
-| CAP-007 | media-alta | 011 | FR-005 | X | test de deriva |
-| CAP-008 | media | 011 | FR-011 | X | test de la guía y de la consulta de la tabla |
+| CAP-007 | media-alta | 011 | FR-005 | X | `scripts/inventario/extraer.py` y `generar_tabla.py`: `TestDeriva` (`tests/test_command_table.py`), `tests/test_command_inventory.py`, `tests/test_generar_tabla.py`, `tests/test_extractor_inventario.py` |
+| CAP-008 | media | 011 | FR-011 | X | `hermes_guide(topic="generic_commands", search=…)`: `TestTemaGenericCommands` (`tests/test_tools_guide.py`), `TestRegistro.test_la_guia_que_citan_existe_y_busca` (`tests/test_tools_generic_commands.py`) |
 | CAP-010 | alta | 009 | FR-025 | X | `TestRedaccionLineal` y `TestRedaccionDiferencial` (`tests/test_redact_secrets.py`) |
 | CAP-011 | media | 009 | FR-026 | X | `TestHostsDeLasUrlsDeHA` (`tests/test_log_redact_network.py`), `TestUrlsDeHAAlConectar` (`tests/test_ha_ws_reliability.py`) |
 | CAP-012 | media | 009 | FR-027 | X | `TestClasificacionSinEntityId` (`tests/test_call_service_security.py`) |

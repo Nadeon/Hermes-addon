@@ -10,21 +10,29 @@ Dos mecanismos para que el cliente (Claude) sepa qué herramientas usar y cuánd
    de nombres, así que enumerar las familias aquí sería gastar tokens en
    información redundante.
 
-2. Tool `hermes_guide(topic)`: guía detallada bajo demanda. Claude la invoca
-   cuando necesita profundizar en un área concreta (filesystem, backups, etc.)
-   o un flujo completo (`hermes_guide("workflows")`).
+2. Tool `hermes_guide(topic, search)`: guía detallada bajo demanda. Claude la
+   invoca cuando necesita profundizar en un área concreta (filesystem,
+   backups, etc.) o un flujo completo (`hermes_guide("workflows")`). Con
+   `topic="generic_commands"` y `search`, consulta la tabla de comandos de las
+   genéricas (spec 011, FR-022): así el cliente descubre la cola larga sin que
+   la tabla entera viaje en su contexto.
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable, Mapping
+from typing import Any
+
 # ── Resumen entregado al conectar (initialize) ────────────────────────────────
 
-INSTRUCTIONS = """\
-Controlas Home Assistant a través de Hermes: ~216 tools con prefijo `ha_`
-(Home Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: add-ons, host,
+_INSTRUCCIONES_BASE = """\
+Controlas Home Assistant a través de Hermes: tools con prefijo `ha_` (Home
+Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: add-ons, host,
 backups). Los nombres son predecibles —`ha_list_*`, `ha_get_*`, `ha_update_*`,
 `sv_restart_*`, `fs_read_*`…— así que normalmente sabrás cuál usar leyendo la
 lista. Lo que sigue es lo que NO se deduce del nombre.
+@GENERICAS@
 
 1) CONFIRMACIÓN EN DOS PASOS
 Las acciones destructivas devuelven, en la primera llamada, un `preview` y un
@@ -71,9 +79,35 @@ Consulta el progreso con `sv_get_job_status(job_id)` en vez de reintentar.
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
 events, data, registries, diagnostics, config_entries, filesystem, supervisor,
-backups, lovelace, marketplace, security) y `hermes_guide("workflows")` recetas
-paso a paso. Sin argumentos devuelve el índice.
+backups, lovelace, marketplace, security@TEMA_GENERICAS@) y
+`hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
+índice.
 """
+
+# Párrafo de las genéricas: solo se anuncia con su familia activa. Con
+# `generic_commands` en `tool_families_disabled` esas tools no existen, y las
+# instrucciones no pueden anunciar lo que el servidor no ofrece (principio V;
+# T049 de la 011).
+_PARRAFO_GENERICAS = """\
+Para lo que ninguna tool cubre están las genéricas `ha_read_ws_command`,
+`ha_call_ws_command`, `sv_read_api` y `sv_call_api`: solo ejecutan lo que
+permite la tabla de comandos de Hermes, y las de escritura siempre en dos pasos.
+"""
+
+
+def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
+    """Las instrucciones del `initialize` para las familias activas.
+
+    `familias_desactivadas` son nombres ya validados (`validar_desactivadas`).
+    """
+    activas = "generic_commands" not in set(familias_desactivadas)
+    texto = _INSTRUCCIONES_BASE.replace(
+        "@GENERICAS@\n", _PARRAFO_GENERICAS if activas else "")
+    return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
+
+
+# Con todas las familias activas: la referencia de los tests.
+INSTRUCTIONS = instrucciones()
 
 
 # ── Guía detallada por tema ───────────────────────────────────────────────────
@@ -98,6 +132,7 @@ para el detalle de un área. Temas disponibles:
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
+- `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -433,6 +468,68 @@ respuestas truncadas por tamaño, y `/config` con anti-traversal + blacklist de
 secretos. Si algo te pide confirmación, es por diseño: confirma sólo lo que el
 usuario quiere.
 """,
+    "generic_commands": """\
+# Comandos genéricos y tabla de comandos
+
+Para lo que ninguna tool dedicada cubre (la cola larga de Home Assistant)
+están cuatro genéricas:
+
+- `ha_read_ws_command(type, payload)` — comando WebSocket de Core que solo lee.
+- `ha_call_ws_command(type, payload)` — comando de Core que cambia algo;
+  siempre en dos pasos.
+- `sv_read_api(path)` — `GET` de solo lectura a la API del Supervisor.
+- `sv_call_api(method, path, body)` — el resto de rutas del Supervisor;
+  siempre en dos pasos.
+
+Solo ejecutan lo que permite la tabla de comandos de Hermes, revisada a mano
+para la versión de Home Assistant con la que se publicó Hermes. Cada comando o
+ruta tiene una categoría:
+
+- `dedicated` — hay una tool dedicada: úsala. La genérica responde
+  `use_dedicated_tool` con su nombre.
+- `read` — solo por `ha_read_ws_command` / `sv_read_api`.
+- `confirm` — solo por `ha_call_ws_command` / `sv_call_api`, con vista previa.
+- `deny` — nunca; el rechazo dice el motivo.
+
+Lo que no está en la tabla se rechaza. Prefiere SIEMPRE una tool dedicada: tiene
+vista previa con significado y protecciones propias que la genérica no tiene.
+
+DOS PASOS (`confirm`)
+1. Sin `confirmation_token`: devuelve `preview` y `confirmation_token`. La vista
+   previa muestra lo que se enviará: comando o ruta, categoría, motivo, CAP y
+   un resumen de cada clave de la carga (tipo y tamaño; un valor corto, entero;
+   uno largo, sus 32 primeros caracteres en `head` y un hash corto en
+   `sha256`; uno sensible, tapado). NO interpreta qué hará el comando:
+   enséñasela al usuario.
+2. La MISMA llamada (mismo `type` y `payload`, o `method`, `path` y `body`)
+   con `confirmation_token`. Caduca en ~60 s y sirve una vez. Si la vista
+   previa no cabe en el límite de respuesta, no hay token
+   (`preview_too_large`): reduce la carga.
+
+RECHAZOS (ninguno llega a Home Assistant ni al Supervisor)
+- `command_not_classified` — no está en la tabla.
+- `command_denied` — categoría `deny`; `reason` dice por qué.
+- `use_dedicated_tool` — `tool` y `family`; `family_disabled: true` si su
+  familia está desactivada en las opciones del add-on (tampoco entonces se
+  ejecuta por la genérica).
+- `wrong_generic_tool` — es de la otra genérica; `use_tool` dice cuál.
+- `family_disabled` — la familia de la entrada está desactivada.
+- `path_not_allowed` — ruta con forma inválida (`rule: shape`), el proxy de
+  Core del Supervisor (`core_proxy`) o dirigida al propio Hermes
+  (`self_target`).
+- `invalid_argument` — un argumento con forma inválida (`field`).
+Si Home Assistant o el Supervisor fallan: `ha_command_failed` (con `ha_code`)
+o `supervisor_request_failed`.
+
+CÓMO BUSCAR EN LA TABLA
+`hermes_guide("generic_commands", search="tag")` lista hasta 50 entradas que
+contienen el texto (sin distinguir mayúsculas) en el comando o la ruta —lo que
+incluye la integración (`tag/`) o el área (`/addons/`)—, en la CAP (`CAP-066`)
+o en la familia. Cada fila da la categoría, la tool dedicada o el motivo y,
+solo si la tabla lo tiene, un ejemplo de carga. Las rutas del Supervisor salen
+como `MÉTODO /plantilla` (`GET /addons/{app}/info`); a la genérica se le pasa
+la ruta concreta (`/addons/<slug>/info`).
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -527,17 +624,108 @@ _ALIASES: dict[str, str] = {
     "confirmation": "security",
     "denylist": "security",
     "workflow": "workflows",
+    "commands": "generic_commands",
+    "generic": "generic_commands",
+    "ws": "generic_commands",
+    "api": "generic_commands",
+    "table": "generic_commands",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
 }
 
 
+# ── Búsqueda en la tabla de comandos (spec 011, FR-022, research R-8) ──────────
+
+# Tope de filas: la tabla tiene casi 900 entradas y una búsqueda corta («a»)
+# las casaría casi todas; 50 caben de sobra en el límite de respuesta.
+_MAX_FILAS = 50
+# Más largo que cualquier comando o ruta de la tabla: no es una búsqueda real.
+_MAX_SEARCH = 128
+
+
+def _celda(texto: str) -> str:
+    # Una `|` dentro de un motivo o de un ejemplo partiría la fila Markdown.
+    return texto.replace("|", "\\|").replace("\n", " ")
+
+
+def buscar_en_tabla(
+    search: str,
+    *,
+    tabla_core: Mapping[str, Any] | None = None,
+    tabla_supervisor: Mapping[tuple[str, str], Any] | None = None,
+) -> str:
+    """Entradas de la tabla que contienen `search`, como tabla Markdown.
+
+    Casa (subcadena, sin distinguir mayúsculas) con la clave —el comando de
+    Core, o `MÉTODO /plantilla` del Supervisor, que llevan la integración o el
+    área—, con la CAP y con la familia. El ejemplo de carga sale solo si la
+    entrada lo tiene: inventarlo sería decirle al cliente una forma de carga
+    que nadie ha revisado (principio V). Las tablas solo las pasan los tests.
+    """
+    from hermes import command_table
+
+    if tabla_core is None:
+        tabla_core = command_table.CORE_WS
+    if tabla_supervisor is None:
+        tabla_supervisor = command_table.SUPERVISOR
+    aguja = search.strip().lower()
+    if len(aguja) > _MAX_SEARCH:
+        return (f"`search` is too long (more than {_MAX_SEARCH} characters). Search "
+                'for part of a command or route, e.g. search="tag" or '
+                'search="/addons".')
+
+    filas: list[tuple[str, Any]] = []
+    for comando in sorted(tabla_core):
+        filas.append((comando, tabla_core[comando]))
+    for metodo, ruta in sorted(tabla_supervisor):
+        filas.append((f"{metodo} {ruta}", tabla_supervisor[(metodo, ruta)]))
+    casan = [
+        (clave, e) for clave, e in filas
+        if aguja in clave.lower()
+        or aguja in (e.cap or "").lower()
+        or aguja in e.family.lower()
+    ]
+    buscado = _celda(search.strip())
+    if not casan:
+        return (f"No entry of Hermes' command table matches `{buscado}`. "
+                'Search for part of a command (search="tag/"), an integration '
+                '(search="assist_pipeline"), a Supervisor route '
+                '(search="/addons"), a CAP (search="CAP-066") or a family '
+                '(search="lovelace"). What is not in the table is rejected by '
+                "the generic tools.")
+    lineas = [
+        (f"Hermes' command table (Home Assistant Core {command_table.TABLE_HA_CORE}, "
+         f"Supervisor {command_table.TABLE_SUPERVISOR}): {len(casan)} entries "
+         f"match `{buscado}`."),
+        "",
+        "| Command / route | Category | Dedicated tool or reason | Example payload |",
+        "|---|---|---|---|",
+    ]
+    for clave, e in casan[:_MAX_FILAS]:
+        detalle = f"`{e.tool}`" if e.category == "dedicated" else _celda(e.reason)
+        ejemplo = (f"`{_celda(json.dumps(dict(e.example), ensure_ascii=False))}`"
+                   if e.example is not None else "—")
+        lineas.append(f"| `{clave}` | {e.category} | {detalle} | {ejemplo} |")
+    if len(casan) > _MAX_FILAS:
+        lineas += ["", f"{len(casan) - _MAX_FILAS} more: refine the search."]
+    return "\n".join(lineas)
+
+
+# `search` con otro tema no es un error (el tema se responde igual), pero se
+# dice: si no, el cliente creería que buscó y no encontró nada.
+_SEARCH_IGNORADO = (
+    '\n\n---\n_`search` only applies to topic="generic_commands"; it was '
+    'ignored. Use hermes_guide(topic="generic_commands", search=...) to '
+    "search Hermes' command table._"
+)
+
+
 def register(mcp: object) -> None:
     """Registra la tool `hermes_guide` en la instancia MCP."""
 
     @mcp.tool()
-    async def hermes_guide(topic: str | None = None) -> str:
+    async def hermes_guide(topic: str | None = None, search: str | None = None) -> str:
         """Guía de uso de Hermes: qué herramientas hay y cuándo usarlas.
 
         Llama sin argumentos (o con `topic="overview"`) para el índice de temas.
@@ -548,21 +736,30 @@ def register(mcp: object) -> None:
             topic (str, opcional): Tema. Uno de: overview, services, automations,
                 helpers, events, data, registries, diagnostics, config_entries,
                 filesystem, supervisor, backups, lovelace, marketplace, security,
-                workflows. Acepta alias
+                generic_commands, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
+            search (str, optional): Only with topic="generic_commands". Lists
+                up to 50 entries of Hermes' command table whose command, route,
+                CAP or family contains this text (case-insensitive), with their
+                category, dedicated tool or reason, and an example payload when
+                the table has one. With any other topic it is ignored.
 
         Returns:
             La guía del tema en Markdown. Si el tema no existe, devuelve el
             índice con la lista de temas válidos.
         """
+        buscar = search is not None and bool(search.strip())
+        nota = _SEARCH_IGNORADO if buscar else ""
         if not topic:
-            return _OVERVIEW
+            return _OVERVIEW + nota
         key = topic.strip().lower()
         key = _ALIASES.get(key, key)
+        if key == "generic_commands" and buscar:
+            return buscar_en_tabla(search)  # type: ignore[arg-type]
         if key in _GUIDE:
-            return _GUIDE[key]
+            return _GUIDE[key] + nota
         valid = ", ".join(sorted(_GUIDE))
         return (
             f"Tema '{topic}' no reconocido.\n\nTemas disponibles: {valid}.\n\n"
-            + _OVERVIEW
+            + _OVERVIEW + nota
         )
