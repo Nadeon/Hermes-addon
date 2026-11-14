@@ -549,8 +549,8 @@ class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
     las instrucciones lo nombran solo con la familia activa. El tema
     `backups` no cambia en este tramo (lo hace el tramo 2).
 
-    Control negativo comprobado: sin el tema (y sus alias) caen
-    `test_tema_con_las_tools_y_alias` y `test_indice_e_instrucciones`.
+    Control negativo comprobado: sin el tema, su línea del índice y su
+    hueco en las instrucciones caen los tres (3 failed, 45 passed).
     """
 
     def setUp(self) -> None:
