@@ -299,6 +299,11 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "logger/log_info": "ha_get_log_levels",
     "logger/log_level": "ha_set_log_level",
     "system_log/list": "ha_list_system_log",
+    "validate_config": "ha_validate_config",
+    "test_condition": "ha_test_condition",
+    "diagnostics/list": "ha_list_diagnostics_handlers",
+    "diagnostics/get": "ha_list_diagnostics_handlers",
+    "persistent_notification/get": "ha_list_persistent_notifications",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

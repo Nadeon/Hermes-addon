@@ -820,6 +820,37 @@ class TestDedicadasDeLaSpec012(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+class TestDedicadasDelTramoBDeLa012(unittest.IsolatedAsyncioTestCase):
+    """Spec 012, tramo B (FR-014, T028): validación, diagnósticos y
+    notificaciones pasan a sus tools dedicadas; la genérica de lectura las
+    rechaza con `use_dedicated_tool` sin ejecutarlas.
+
+    Control negativo (T033 f): dejar `diagnostics/list` en `deny` → cae
+    `test_a_su_dedicada` (`command_denied`).
+    """
+
+    async def test_a_su_dedicada(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for tipo, tool in (("diagnostics/list", "ha_list_diagnostics_handlers"),
+                           ("diagnostics/get", "ha_list_diagnostics_handlers"),
+                           ("validate_config", "ha_validate_config"),
+                           ("test_condition", "ha_test_condition"),
+                           ("persistent_notification/get",
+                            "ha_list_persistent_notifications")):
+            with self.subTest(tipo=tipo):
+                r = await mcp.tools["ha_read_ws_command"](tipo)
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, "core_diagnostics", False))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["core_diagnostics"])
+        r = await mcp.tools["ha_read_ws_command"]("persistent_notification/get")
+        self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_list_persistent_notifications", True))
+        ha.ws_send.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()
