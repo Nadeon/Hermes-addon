@@ -14,6 +14,8 @@
 #   nadie. Nombre genérico. Con la ubicación escrita aquí, HA no la intenta
 #   detectar por internet (el contenedor tampoco tiene salida).
 #
+# La 011 añade `tag:` (abajo) para las genéricas de Core.
+#
 # Las sub-features que necesiten más dominios (automation:, script:, scene:,
 # lovelace:, template:…) los añaden aquí en su propio cambio.
 
@@ -47,3 +49,40 @@ timer:
 schedule:
 zone:
 person:
+
+# Spec 011 (T027): las genéricas de Core se prueban con `tag/list`,
+# `tag/create` y `tag/delete`, que solo existen con la integración cargada.
+tag:
+
+# ── Spec 028 (tramo A): escrituras de automatización, ejecución y Lovelace ──
+#
+# automation:, script: y scene: con sus ficheros: las tools
+# `ha_create_or_update_*` y `ha_delete_*` de automatizaciones, scripts y
+# escenas guardan por los endpoints `/api/config/<dominio>/config/<id>` de HA,
+# que solo existen si el dominio está cargado y escriben en estos ficheros;
+# sin el `!include`, HA no recargaría lo guardado. Las recargas, el disparo,
+# la ejecución y la activación (`ha_reload_*`, `ha_trigger_automation`,
+# `ha_run_script`, `ha_activate_scene`, `ha_create_scene_from_current`)
+# necesitan además los servicios del dominio. Los tres ficheros empiezan
+# vacíos y se versionan en esta carpeta; nada sale a internet.
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# frontend: registra Lovelace (dashboards y recursos por WebSocket, en modo
+# almacenamiento) y arrastra `repairs`; lo necesitan las 7 tools de Lovelace.
+# Sirve ficheros de la propia imagen: no sale a internet.
+frontend:
+
+# ── Spec 028 (tramo B): dispositivos, reparaciones y flujo de opciones ──────
+#
+# kitchen_sink: es la integración de demostración de Core. Al cargarse por
+# YAML importa su propia config entry y crea dispositivos que se pueden borrar
+# a mano (todos salvo `statistics_issues`), avisos de reparación propios y un
+# flujo de opciones (`options_1`). Es lo que necesitan `ha_update_device`,
+# `ha_remove_device`, `ha_remove_device_from_config_entry`,
+# `ha_ignore_repair`, `ha_start_options_flow` y `ha_continue_options_flow`:
+# sin ella, el banco no tiene ningún dispositivo ni aviso. Todo es local, sin
+# hardware ni internet. `uptime`, la de los flujos de configuración, no se
+# carga aquí: la crean y la borran las propias tools durante el test.
+kitchen_sink:

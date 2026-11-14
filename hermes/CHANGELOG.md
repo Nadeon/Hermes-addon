@@ -29,7 +29,61 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Política y genéricas
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **Cuatro tools genéricas para lo que ninguna otra cubre**:
+  `ha_read_ws_command` y `ha_call_ws_command` (comandos WebSocket de Core) y
+  `sv_read_api` y `sv_call_api` (API del Supervisor). Solo ejecutan lo que
+  permite la tabla de comandos de Hermes; todo lo demás se rechaza sin llegar
+  a Home Assistant ni al Supervisor, con un código que dice por qué
+  (`command_not_classified`, `command_denied`, `use_dedicated_tool`,
+  `wrong_generic_tool`, `family_disabled`, `path_not_allowed`). Las de lectura
+  llevan `readOnlyHint`; la de Core se anuncia además de mundo abierto, porque
+  navegar o buscar en una fuente de medios remota consulta internet. Las de
+  escritura van siempre en dos pasos: la vista previa enseña lo que se
+  enviará (comando o ruta, categoría, motivo y cada clave de la carga con su
+  tipo y tamaño; un valor corto, entero; uno largo, sus 32 primeros
+  caracteres, su tamaño y un hash corto; uno sensible, tapado) y el token
+  queda atado a la tool, al comando o a la
+  ruta y método, y a la carga entera. Junto al token solo se guarda
+  `{"executed": true}`, nunca la respuesta. Las respuestas pasan por la
+  redacción de secretos y por el tope de tamaño, y el log lleva un evento
+  `generic_command` por llamada, sin valores. `logbook/get_action_calls` tapa
+  el `code` de alarmas y cerraduras de cada llamada.
+- **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
+  Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
+  cada uno `dedicated` (tiene tool propia: 115 y 29), `read` (36 y 26),
+  `confirm` (20 y 25) o `deny` (452 y 174, con su motivo). Lo que no está se
+  rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
+  y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
+  la compara con los inventarios de la spec 008 y otro impide clasificar como
+  `read` un comando con verbo de escritura o una ruta que no sea `GET`.
+- **Familias de tools y opción `tool_families_disabled`** (vacía por defecto):
+  apaga grupos enteros de tools para ahorrar contexto al cliente. Las familias
+  de la 1.1.2 son `services`, `automations`, `helpers`, `events`, `data`,
+  `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`,
+  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade `generic_commands`.
+  `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre
+  desconocido, o `base`, impide arrancar con un mensaje que nombra el valor y
+  los válidos. Con las familias de la 1.2.0 desactivadas, la lista de tools es
+  exactamente la de la 1.1.2. Una genérica tampoco ejecuta lo de una familia
+  desactivada. El log de arranque dice cuáles se desactivaron y cuántas tools
+  quedan (`tool_families`). Si una versión futura renombra una familia, el
+  nombre viejo seguirá valiendo como alias.
+- **Guía**: `hermes_guide(topic="generic_commands")` (alias `commands`,
+  `generic`, `ws`, `api`, `table`) explica cuándo usar las genéricas, las
+  categorías, los dos pasos y los rechazos; con `search="tag"` lista hasta 50
+  entradas de la tabla con su categoría, su tool dedicada o su motivo y, si la
+  tabla lo tiene, un ejemplo de carga. `search` es un argumento nuevo y
+  opcional: sin él, la guía responde lo mismo que en la 1.1.2. Las
+  instrucciones del servidor ya no dan un número de tools, que depende de las
+  familias activas.
+- **Inventarios y tabla regenerables** (para el mantenedor; no van dentro del
+  add-on): `scripts/inventario/extraer.py` saca los comandos de Core y las
+  rutas del Supervisor de su código fuente sin importarlo ni ejecutarlo, y
+  `scripts/inventario/generar_tabla.py` añade lo nuevo a la tabla como `deny`
+  «sin revisar» sin tocar lo ya clasificado.
+- **Constitución 1.2.0**: enmiendas E-1…E-4 (vista previa de las genéricas,
+  honestidad atada a la tabla, banco de Core en las comprobaciones y fecha de
+  publicación pendiente en el CHANGELOG mientras la versión se desarrolla).
 
 ### Banco de pruebas
 
@@ -60,6 +114,41 @@ _Pendiente: la añade la sub-feature que lo implemente._
   probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
   033, y en el banco como fallo esperado que solo admite ese error. Esta
   sección no cambia la tool.
+- **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
+  automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
+  configuración guardada leída de HA; activar, desactivar, disparar,
+  ejecutar, recargar y borrar), `ha_call_service` directo y en dos pasos con un
+  servicio de la denylist, `ha_call_service_response`, `ha_fire_event`,
+  `ha_cancel_wait` y las siete de dashboards y recursos Lovelace.
+  `ha_run_script` y `ha_trigger_automation` se prueban también por su camino
+  con token (script o automatización restringidos). Un test de la suite
+  normal obliga a que las tools que modifican (las 124 de la 1.1.2 y, desde
+  la integración con la 011, sus 2 genéricas de escritura) estén clasificadas, y el job
+  comprueba que cada una de las probadas se ha llamado con éxito en un test
+  que ha pasado.
+- **Y las 27 que quedaban: las 100 `ha_*` que modifican, en el banco.** Con
+  la integración de demostración `kitchen_sink` cargada en la HA del banco
+  (dispositivos, avisos de reparación y flujo de opciones sin hardware ni
+  internet): áreas, plantas, etiquetas y categorías (crear, editar en dos
+  pasos y borrar), editar y borrar dispositivos, renombrar una entidad y
+  quitarla del registro, ignorar y volver a mostrar un aviso de reparación,
+  el flujo de opciones, y el ciclo entero de una config entry de `uptime`
+  creada por las propias tools (abrir, abortar y completar el flujo,
+  recargar, deshabilitar, habilitar y borrar). De las 100, 99 funcionan
+  contra HA real; `ha_reload_counters` falla (hallazgo de arriba). Solo quedan
+  fuera del banco las 5 `fs_*` y las 19 `sv_*`, cada una con su motivo.
+- **Hallazgo: `ha_create_scene_from_current` con `name` falla siempre.** El
+  servicio `scene.create` de HA Core 2026.11.1 no admite `name` y Core
+  responde 400; la descripción de la tool dice que «HA decide». Tampoco es
+  cierto que una colisión de `scene_id` dé error: Core reemplaza la escena.
+  Sin `name` funciona. Pendiente de arreglo en la spec 033; en el banco, fallo
+  esperado que solo admite ese error.
+- **Hallazgo de seguridad: el token de `ha_run_script` y
+  `ha_trigger_automation` no cubre `variables`.** Con un script o una
+  automatización restringidos, se acepta una confirmación con variables
+  distintas de las de la vista previa, y la vista previa no las enseña.
+  Pendiente de arreglo en la spec 033 (prioridad máxima); en el banco, fallo
+  esperado que solo admite ese caso.
 - Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
   y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
   onboarding, reglas de salto, comprobaciones del workflow, inventario de

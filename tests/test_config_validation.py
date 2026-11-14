@@ -286,5 +286,56 @@ class TestSafetyBackupKeep(unittest.TestCase):
                     self._cfg(keep).validate()
 
 
+
+class TestToolFamiliesDisabled(unittest.TestCase):
+    """Spec 011, FR-020: `tool_families_disabled`, validada al arrancar.
+
+    Fail-closed (principio III): una errata no deja activa en silencio una
+    familia que el usuario quería apagar; Hermes no arranca y el mensaje dice
+    qué valor falla y cuáles valen.
+
+    Control negativo (T042 a): quitar de `validate()` la llamada a
+    `validar_desactivadas` → caen `test_nombre_desconocido_impide_arrancar` y
+    `test_base_impide_arrancar`.
+    """
+
+    def _cfg(self, familias: list[str]) -> HermesConfig:
+        return HermesConfig(
+            auth_password=FUERTE,
+            public_hostname="hermes.tail-abc123.ts.net",
+            supervisor_token="supervisor-token",
+            tool_families_disabled=familias,
+        )
+
+    def test_por_defecto_vacia(self) -> None:
+        self.assertEqual(HermesConfig().tool_families_disabled, [])
+        self.assertEqual(_cargar().tool_families_disabled, [])
+
+    def test_se_lee_de_su_variable_como_json(self) -> None:
+        cfg = _cargar(HERMES_TOOL_FAMILIES_DISABLED='["lovelace","marketplace"]')
+        self.assertEqual(cfg.tool_families_disabled, ["lovelace", "marketplace"])
+
+    def test_validas_arrancan(self) -> None:
+        self._cfg([]).validate()
+        self._cfg(["lovelace", "generic_commands", "lovelace"]).validate()
+
+    def test_nombre_desconocido_impide_arrancar(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            self._cfg(["lovelace", "familia_inventada"]).validate()
+        msg = str(ctx.exception)
+        self.assertIn("tool_families_disabled", msg)
+        self.assertIn("familia_inventada", msg)
+        self.assertIn("no existe", msg)
+        self.assertIn("Válidas:", msg)
+        self.assertIn("generic_commands", msg)
+
+    def test_base_impide_arrancar(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            self._cfg(["base"]).validate()
+        msg = str(ctx.exception)
+        self.assertIn("'base'", msg)
+        self.assertIn("no se puede desactivar", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

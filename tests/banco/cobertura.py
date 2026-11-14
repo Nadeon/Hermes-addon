@@ -16,8 +16,10 @@ Las lecturas quedan fuera a propósito: lo que la 010 garantiza es que lo que
 MODIFICA HA se ha visto funcionar en una HA de verdad (el efecto lo comprueba
 el lector independiente, no Hermes).
 
-Este inventario es solo de los helpers. La 028 (dashboards) y las demás
-sub-features que añadan tests al banco llevan su propia lista.
+Este inventario es de los helpers y, desde la 011, de las genéricas
+(`PROBADAS_GENERICAS` y `NO_EJECUTABLES_GENERICAS`, al final). La 028
+(dashboards) y las demás sub-features que añadan tests al banco llevan su
+propia lista.
 """
 
 from __future__ import annotations
@@ -138,4 +140,24 @@ FALLAN_EN_BANCO: dict[str, str] = {
 # rojo (`tests/banco/obligatorio.py`).
 XFAIL_PERMITIDOS: dict[str, str] = {
     "tests/banco/test_banco_helpers_tiempo.py::TestCounter::test_recarga": "ha_reload_counters",
+}
+
+
+# ── Genéricas (spec 011, T027) ─────────────────────────────────────────────
+# Mismo invariante para la familia `generic_commands`: sus tools sin
+# `readOnlyHint` (las de escritura) son exactamente
+# `PROBADAS_GENERICAS` ∪ `NO_EJECUTABLES_GENERICAS`, sin solaparse
+# (`tests/test_banco_cobertura.py`). Las probadas las exige el job igual que
+# las de los helpers (`tests/banco/conftest.py`).
+FAMILIA_GENERICAS = "generic_commands"
+
+# `tests/banco/test_banco_genericas.py`: `tag/create` y `tag/delete` en dos
+# pasos, con la vista previa sin efecto comprobada por el lector.
+PROBADAS_GENERICAS: frozenset[str] = frozenset({"ha_call_ws_command"})
+
+# El Supervisor del banco de Core es un simulado que solo replica el proxy
+# hacia Core y las dos rutas que Hermes usa al arrancar: ejecutar contra él una
+# ruta de escritura del Supervisor no probaría nada. Se prueba en la VM con Supervisor real (spec 014).
+NO_EJECUTABLES_GENERICAS: dict[str, str] = {
+    "sv_call_api": "Supervisor simulado; se prueba en la VM (spec 014)",
 }

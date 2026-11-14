@@ -14,13 +14,16 @@ las pruebas en vivo de la 1.1.0 y la 1.1.2, lo que encontraron las de la
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
 leyó en esos tags; las tools de lectura se probaron en una instalación de prueba
-con HA 2026.11.1. De las 124 tools que modifican, las de dashboards se han
-ejecutado contra una HA real (1.1.2) y las 47 de helpers se ejecutan en cada
-push en el CI contra HA Core 2026.11.1 real (46 funcionan; `ha_reload_counters`
-falla, ver más abajo) (banco de pruebas, spec 010; ver
-«Banco de Core: helpers» más abajo); el resto se verificó leyendo el código de
-Hermes y el de Home Assistant. La 028 lleva al banco las demás escrituras de
-Core.
+con HA 2026.11.1. De las 124 tools que modifican, las 100 `ha_*` se ejecutan
+en cada push en el CI contra HA Core 2026.11.1 real (banco de pruebas): las 47
+de helpers en la spec 010 y las 53 restantes en la 028 (ver «Banco de Core:
+helpers» y «Banco de Core: escrituras» más abajo). Funcionan 99;
+`ha_reload_counters` falla (ver más abajo). Las 24 `fs_*` y `sv_*` no
+pasan por el banco, cada una con su motivo: las `fs_*` se ejecutan contra
+ficheros reales en la suite normal y las `sv_*` se verificaron leyendo el
+código de Hermes y el del Supervisor (su banco es la VM de la 014). A esas 124
+se suman las 2 genéricas de escritura de la 011: `ha_call_ws_command` se
+ejecuta en el mismo banco y `sv_call_api` se prueba en la VM de la 014.
 
 ## Estado de compatibilidad
 
@@ -377,7 +380,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 |---|---|---|---|
 | 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
-| 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | pendiente |
+| 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | hecha: tabla, cuatro genéricas, familias y `tool_families_disabled`, tema `generic_commands` con `search`, extractor y generador; convergencia tras la revisión independiente cerrada (T044–T049); prueba de las genéricas en el banco de Core (T027) activada al integrarla con la 010 |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | pendiente |
@@ -394,7 +397,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
-| 028 | Pruebas de las escrituras de Core en el banco | 034 | pendiente |
+| 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | pendiente |
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
@@ -449,6 +452,88 @@ Hallazgo pendiente de arreglo en la spec 033:
   «Error executing tool». En el banco está como fallo esperado estricto
   (`xfail`) que solo admite ese error y que se pondrá en rojo cuando deje de
   fallar.
+
+#### Banco de Core: escrituras (028)
+
+En el mismo job, el resto de tools `ha_*` que modifican. El inventario está en
+`tests/banco/cobertura_escrituras.py` y un test de la suite normal
+(`tests/test_banco_cobertura_escrituras.py`) obliga a que las 126 tools que
+modifican (las 124 de la 1.1.2 y las 2 genéricas de la 011) estén probadas
+en el banco (010, 011 o 028), anotadas como hallazgo que
+falla (`ha_reload_counters`) o fuera de él con su motivo.
+
+Ejecutadas en el banco (53; tramo A, 26):
+
+- automatizaciones: `ha_create_or_update_automation`, `ha_disable_automation`,
+  `ha_enable_automation`, `ha_trigger_automation`, `ha_reload_automations`,
+  `ha_delete_automation`.
+- scripts: `ha_create_or_update_script`, `ha_run_script`, `ha_reload_scripts`,
+  `ha_delete_script`.
+- escenas: `ha_create_or_update_scene`, `ha_activate_scene`,
+  `ha_create_scene_from_current`, `ha_reload_scenes`, `ha_delete_scene`.
+- servicios, eventos y esperas: `ha_call_service` (directo y en dos pasos),
+  `ha_call_service_response`, `ha_fire_event`, `ha_cancel_wait`.
+- Lovelace: `ha_create_lovelace_dashboard`,
+  `ha_update_lovelace_dashboard_metadata`, `ha_save_lovelace_dashboard`,
+  `ha_delete_lovelace_dashboard`, `ha_create_lovelace_resource`,
+  `ha_update_lovelace_resource`, `ha_delete_lovelace_resource`.
+
+Tramo B (27), con la integración de demostración `kitchen_sink` cargada en la
+HA del banco (dispositivos, avisos de reparación y flujo de opciones sin
+hardware ni internet) y una entrada de `uptime` que crean y borran las propias
+tools:
+
+- áreas: `ha_create_area`, `ha_update_area`, `ha_delete_area`.
+- plantas: `ha_create_floor`, `ha_update_floor`, `ha_delete_floor`.
+- etiquetas: `ha_create_label`, `ha_update_label`, `ha_delete_label`.
+- categorías: `ha_create_category`, `ha_update_category`,
+  `ha_delete_category`.
+- dispositivos: `ha_update_device`, `ha_remove_device`,
+  `ha_remove_device_from_config_entry`.
+- entidades: `ha_update_entity_registry` (con `new_entity_id`),
+  `ha_remove_entity_registry`.
+- reparaciones: `ha_ignore_repair` (ocultar y volver a mostrar).
+- config entries: `ha_reload_config_entry`, `ha_disable_config_entry`,
+  `ha_enable_config_entry`, `ha_delete_config_entry`.
+- flujos: `ha_start_config_entry_flow`, `ha_continue_config_entry_flow`,
+  `ha_abort_config_entry_flow`, `ha_start_options_flow`,
+  `ha_continue_options_flow`.
+
+Fuera del banco (24), con su motivo en el inventario:
+
+- `fs_write_file`, `fs_delete_file`, `fs_move_file`, `fs_restore_file_backup`
+  y `fs_set_secret`: no hablan con HA (escriben en el `/config` de Hermes); la
+  suite normal las ejecuta contra ficheros reales.
+- `sv_check_core_config`, `sv_get_job_status`, `sv_create_backup_full`,
+  `sv_create_backup_partial`, `sv_create_safety_backup`, `sv_delete_backup`,
+  `sv_restore_backup_full` y `sv_restore_backup_partial`: backups, trabajos y
+  validación del Supervisor, que en el banco es simulado.
+- `sv_install_addon`, `sv_uninstall_addon`, `sv_update_addon`,
+  `sv_start_addon`, `sv_stop_addon`, `sv_restart_addon` y
+  `sv_set_addon_options`: necesitan el Supervisor real y la tienda.
+- `sv_restart_core` y `sv_reboot_host`: el banco no sobreviviría.
+- `sv_dismiss_resolution_issue` y `sv_dismiss_resolution_suggestion`: los
+  avisos solo existen en el Supervisor real.
+
+Todas con simuladores en la suite normal; su banco es la VM de la 014.
+
+`ha_run_script` y `ha_trigger_automation` se ejecutan por sus dos caminos:
+directo y con token (script o automatización restringidos por llamar a la
+denylist). El job exige por ejecución las 53 (cada una llamada con éxito en
+un test que ha pasado), igual que las 46 de la 010.
+
+Hallazgos de la 028, pendientes de arreglo en la spec 033 (en el banco, fallo
+esperado estricto que solo admite ese error; las dos tools siguen contando
+como probadas porque su camino normal funciona):
+
+- `ha_create_scene_from_current` con `name` falla siempre: `scene.create` de
+  Core 2026.11.1 no admite ese campo y responde 400. Su descripción dice que
+  «HA decide» y que una colisión de `scene_id` da error; Core reemplaza la
+  escena (o, si es de configuración, solo avisa en el log).
+- **Seguridad, prioridad máxima:** el token de `ha_run_script` y
+  `ha_trigger_automation` con una entidad restringida no cubre `variables`:
+  se acepta una confirmación con variables distintas de las de la vista
+  previa.
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las

@@ -1,0 +1,12 @@
+metodo	ruta	area	cobertura	clase	rol_admin	nota	cap
+GET	/addons	Apps	si	cubierto	✔	Sí (`sv_list_addons`)	
+GET	/addons/{app}/logs/follow	Apps	no	B	✔	No Streaming	
+POST	/backups/freeze	Backups	no	D	✔	No Congela Core para snapshots externos	
+GET	/core/api/{path}	Proxy	si	cubierto	passthrough	Sí	
+GET	/dns/info	Plugins	no	A	✔	No	CAP-091
+POST	/dns/options	Plugins	no	A	✔	No Servidores DNS	CAP-091
+GET	/homeassistant/api/stream	Proxy	no	B	passthrough	No Alias legados	
+POST	/host/shutdown	Host	no	A	✔	No Riesgo alto	CAP-086
+GET	/jobs/info	Jobs	no	A	✔	No	CAP-087
+POST	/resolution/healthcheck	Jobs	no	A	✔	No	CAP-087
+GET	/ruta/sin/clase	Demo	no		✔		
