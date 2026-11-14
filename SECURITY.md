@@ -94,7 +94,8 @@ report about one of them will be closed with a pointer to this section:
   proxy. **Do not set it to `0.0.0.0`**: that would publish Hermes unencrypted
   across your whole local network, bypassing TLS.
 - **Authentication**: OAuth 2.1 with mandatory PKCE (S256), Dynamic Client
-  Registration, high-entropy opaque tokens stored only as a SHA-256 hash,
+  Registration and Client ID Metadata Documents (CIMD), the `iss` parameter on
+  every redirect to the client (RFC 9207), high-entropy opaque tokens stored only as a SHA-256 hash,
   single-use auth codes, and revocation (RFC 7009). Refresh tokens rotate, with
   reuse detection. Changing `auth_password` closes every open session on the
   next start; to notice the change, Hermes keeps a salted scrypt fingerprint of
@@ -123,6 +124,29 @@ report about one of them will be closed with a pointer to this section:
   - Identifier validation (slug, `entry_id`, …) before interpolating them into
     URLs, plus a central anti path-injection guard in the HA client.
 - **Secret redaction** in all logs, both Hermes's own and those of other add-ons.
+- **Network redaction** in the log (`log_redact_network`, on by default): the
+  configured `public_hostname`, any `*.ts.net` name and every IP address
+  except loopback are replaced with placeholders. IPs become a pseudonym with
+  their class (`tailnet`, `private`, `public`…) and an HMAC whose salt changes
+  on every start, so lines from one run can be correlated without revealing
+  the address. It also covers the standard Python loggers (the MCP SDK,
+  uvicorn, aiohttp) and the lines `sv_get_addon_logs` returns for Hermes
+  itself. Turning it off logs `log_network_redaction_disabled`; secrets are
+  redacted either way.
+- **CIMD downloads (SSRF).** With CIMD, the `client_id` is an `https://` URL
+  chosen by whoever calls the public `/oauth/authorize`, and Hermes downloads
+  it. To keep Hermes from becoming a proxy into the owner's network: the URL
+  shape is checked before anything is fetched; Hermes resolves the host itself
+  and refuses the request if **any** resolved address is special-use (RFC 6890:
+  loopback, private, link-local, CGNAT and therefore the tailnet, ULA,
+  multicast…), then connects to the already-validated addresses without
+  resolving again (against DNS rebinding); literal IPs are checked the same
+  way. No redirects, no environment proxies, 5 s in total, at most 5 120 bytes,
+  at most 4 downloads at once and 30 per minute. The document is parsed as
+  strict JSON and its `client_id` must match the URL exactly; errors are never
+  cached, and every rejection is logged as `oauth_cimd_rejected` with the
+  reason and the host, never the document. `oauth_cimd_enabled: false` turns
+  CIMD off and leaves DCR as it was.
 - **Security headers** (`X-Content-Type-Options`, `X-Frame-Options`,
   `Referrer-Policy`, CSP) and a body size limit (`chunked` included).
 - **Resource limits**: caps on concurrency, request body, response size and

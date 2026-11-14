@@ -28,7 +28,8 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
 - **MCP:** transporte Streamable HTTP sin estado y SDK oficial 2.x, al día. En
   OAuth faltan **CIMD** (Client ID Metadata Documents, el registro preferido
   desde la revisión 2026-07-28) y el parámetro **`iss`** (RFC 9207). El registro
-  dinámico (DCR) que usa Hermes sigue funcionando, pero está deprecado.
+  dinámico (DCR) que usa Hermes sigue funcionando, pero está deprecado. Los dos
+  están ya integrados para la 1.1.0 (spec 003).
 
 ## Problemas conocidos de 1.0.11
 
@@ -135,12 +136,29 @@ Dockerfile trae su imagen base por defecto y `build.yaml` desaparece.
 del SIGKILL de Docker. Pendiente: probar la primera publicación con una
 etiqueta y comprobar que las imágenes ya publicadas siguen disponibles.
 
-### 1.1.0 — Marketplace, OAuth moderno y diagnóstico (esfuerzo L)
+### Hecho para 1.1.0 — OAuth moderno, límites y protocolo (spec 003)
+
+Integrado en la rama de la 1.1.0, todavía sin publicar:
+
+- **CIMD** (manteniendo DCR), con la descarga acotada contra SSRF y la opción
+  `oauth_cimd_enabled`; parámetro **`iss`** en todas las redirecciones;
+  `scopes_supported` y `scope` en el 401; tokens ligados al recurso.
+- **Límites alineados con Claude**: `response_max_bytes` 128 KiB por defecto y
+  512 KiB como máximo (el 1 MiB guardado pasa a 128 KiB);
+  `wait_for_event_max_seconds` hasta 220 s. Los recortes quedan en el log.
+- **Protocolo**: `title` en las tools, versión del servidor en `serverInfo`,
+  errores marcados con `isError`.
+- **Redacción de red en el log** (`log_redact_network`, activa por defecto).
+
+Pendiente: las pruebas manuales de `specs/003-oauth-y-protocolo/quickstart.md`
+en una instalación de prueba, sobre todo la del **primer byte** (Claude Code
+con una espera de 90 s detrás del proxy). Si Claude Code corta a los 60 s, hay
+que completar DOCS.md con lo que haga falta en ese proxy.
+
+### 1.1.0 — Marketplace y diagnóstico (esfuerzo L)
 
 - Tools del Marketplace de **solo lectura**, con alias de las `ha_hacs_*`.
-- CIMD (manteniendo DCR) e `iss`.
-- Límites por defecto alineados con los de Claude, una vez confirmados.
-- `title` en las tools, versión del servidor, errores marcados como tales.
+- CIMD, `iss`, límites y protocolo: hechos (ver el apartado anterior).
 - Repairs de HA y resolución del Supervisor; trazas de automatizaciones y
   `search/related`; estado de los backups de HA y retención de los backups de
   seguridad; plantas, etiquetas y categorías.

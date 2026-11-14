@@ -12,8 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
-import unittest
-from unittest import mock
+import unittest.mock
 
 import aiohttp
 from aioresponses import aioresponses
@@ -283,7 +282,7 @@ class TestDownload(_FetchBase):
         async def lento(url, **kwargs):
             await asyncio.sleep(1)
 
-        with mock.patch.object(cimd, "FETCH_TIMEOUT_SECONDS", 0.05), aioresponses() as m:
+        with unittest.mock.patch.object(cimd, "FETCH_TIMEOUT_SECONDS", 0.05), aioresponses() as m:
             m.get(CLAUDE_CODE_URL, body=_raw(_doc()), callback=lento)
             with self.assertRaises(CimdTemporaryError) as ctx:
                 await self.resolver.resolve(CLAUDE_CODE_URL)

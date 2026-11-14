@@ -67,6 +67,39 @@ el `job_id`, que puedes seguir con `sv_get_job_status`. La escritura siguiente
 comprueba ese mismo backup en vez de lanzar otro: si aún no ha terminado, se
 rechaza con `safety_backup_in_progress`.
 
+## Límites y Claude Code
+
+Los límites por defecto están alineados con lo que aceptan los clientes de
+Claude:
+
+| Opción | Defecto | Máximo efectivo | Qué es |
+|---|---|---|---|
+| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de una tool. Por encima, la tool recorta y lo indica |
+| `wait_for_event_max_seconds` | `90` | `220` | Espera máxima que admite `ha_wait_for_event` |
+
+**Si tenías valores guardados.** La interfaz guarda el valor por defecto
+aunque nadie lo toque, así que un `response_max_bytes` de `1048576` (el defecto
+anterior, 1 MiB) se trata como no personalizado y pasa a `131072`. Un valor
+por encima de `524288`, o un `wait_for_event_max_seconds` por encima de `220`,
+se recorta al máximo. En los dos casos el add-on arranca igual y lo anota en el
+log (`config_legacy_default_replaced` o `config_value_clamped`, con el valor
+guardado y el aplicado). Si necesitas respuestas más grandes, sube
+`response_max_bytes` hasta `524288`.
+
+**Claude Code y las tools lentas.** Claude Code corta una llamada si no recibe
+ningún byte en 60 s. Hermes responde en streaming y manda un *ping* cada 15 s,
+así que una espera larga de `ha_wait_for_event` no se corta. Si el proxy de
+delante almacena la respuesta entera antes de reenviarla, los *pings* no llegan
+a tiempo: amplía el plazo en Claude Code con la variable `MCP_TOOL_TIMEOUT` (en
+milisegundos) o con `timeout` en la entrada del servidor.
+
+## Otras opciones de esta versión
+
+| Opción | Defecto | Qué es |
+|---|---|---|
+| `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
+| `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los nombres `*.ts.net` y las IPs (salvo las de loopback) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
+
 ## Problemas
 
 El apartado *Si no arranca* del [README en español](https://github.com/Nadeon/Hermes-addon/blob/main/README.es.md#si-no-arranca)

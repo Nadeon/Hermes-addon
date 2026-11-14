@@ -31,6 +31,9 @@ from typing import Any
 
 import structlog
 
+# Sin opción explícita, el mismo tope que la configuración (spec 003): el
+# antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
@@ -195,7 +198,7 @@ async def _get_dashboard_meta_by_url_path(
 def register(
     mcp: object,
     ha_client: HAClient,
-    response_max_bytes: int = 1_048_576,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las tools de Lovelace dashboards."""
 

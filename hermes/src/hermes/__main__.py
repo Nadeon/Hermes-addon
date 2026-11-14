@@ -35,6 +35,7 @@ from hermes.config import (
 from hermes.crash_loop import check_crash_loop
 from hermes.health import HealthServer
 from hermes.logging_setup import setup_logging
+from hermes.mcp_server import HermesMCPServer, build_mcp_server
 from hermes.middleware import (
     BodySizeLimitMiddleware,
     LoggingMiddleware,
@@ -216,10 +217,7 @@ async def _boot(config: HermesConfig) -> None:
     )
 
     # Crear servidor OAuth
-    oauth_server = OAuthServer(
-        auth_password=config.auth_password,
-        public_hostname=config.public_hostname,
-    )
+    oauth_server = _build_oauth_server(config)
 
     # Crear servidor MCP (MCPServer, antes FastMCP: renombrada en el SDK 2.x).
     # El SDK aplica protección DNS rebinding por defecto para HTTPS locales
@@ -231,9 +229,6 @@ async def _boot(config: HermesConfig) -> None:
     # En el SDK 2.x `stateless_http` y `transport_security` se pasan al crear
     # la app ASGI (`streamable_http_app`), no al construir el servidor; por eso
     # los ajustes se guardan aquí y se aplican más abajo, al montar la ruta.
-    from mcp.server.mcpserver import MCPServer
-    from hermes.tools.guide import INSTRUCTIONS
-
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=[
@@ -252,28 +247,7 @@ async def _boot(config: HermesConfig) -> None:
         ],
     )
 
-    mcp = MCPServer(
-        "hermes",
-        instructions=INSTRUCTIONS,
-    )
-
-    # Registrar tools
-    from hermes.tools import register_all_tools
-    register_all_tools(
-        mcp,
-        ha_client,
-        fire_event_allowlist=config.fire_event_allowlist,
-        response_max_bytes=config.response_max_bytes,
-        safety_backup_enabled=config.safety_backup_enabled,
-        safety_backup_window_minutes=config.safety_backup_window_minutes,
-        file_backup_max_per_path=config.file_backup_max_per_path,
-        file_backup_max_total_mb=config.file_backup_max_total_mb,
-        config_write_min_interval_seconds=config.config_write_min_interval_seconds,
-        config_write_max_per_minute=config.config_write_max_per_minute,
-        call_service_denylist_extra=config.call_service_denylist_extra,
-        call_service_restricted_entities=config.call_service_restricted_entities,
-        call_service_auto_classify=config.call_service_auto_classify_dangerous,
-    )
+    mcp = _build_mcp(config, ha_client)
 
     # Lifespan: arrancar el StreamableHTTPSessionManager del SDK, la task de
     # limpieza periódica de OAuth y la de confirmaciones (ambas cada hora).
@@ -459,6 +433,90 @@ async def _boot(config: HermesConfig) -> None:
     logger.info("hermes_stopped")
 
 
+# Eventos con los que se registra cada ajuste que `load_config` hizo a un valor
+# guardado (contrato de la spec 003). `load_config` no puede registrarlos él
+# mismo porque se ejecuta antes de que exista el log.
+_ADJUSTMENT_EVENTS = {
+    "legacy_default": "config_legacy_default_replaced",
+    "above_cap": "config_value_clamped",
+}
+
+
+def _setup_logging_from_config(config: HermesConfig) -> None:
+    """Configura el log con las opciones y registra lo que conviene saber.
+
+    Va en una función propia para poder probar el cableado sin arrancar el
+    servidor: si `redact_network` no llega a `setup_logging`, el hostname y
+    las IPs salen en claro en un log que la gente pega en foros.
+    """
+    setup_logging(
+        config.log_level,
+        redact_network=config.log_redact_network,
+        public_hostname=config.public_hostname,
+    )
+    if not config.log_redact_network:
+        # Aviso explícito: quien pegue este log debe saber que lleva su
+        # hostname y sus IPs (los secretos se siguen redactando).
+        logger.warning(
+            "log_network_redaction_disabled",
+            message=(
+                "log_redact_network is off: hostnames and IP addresses appear "
+                "in clear in this log. Secrets are still redacted."
+            ),
+        )
+    # Sin este registro, quien tenía 1 MiB guardado vería respuestas más
+    # cortas sin ninguna pista de por qué.
+    for ajuste in config.adjustments:
+        evento = _ADJUSTMENT_EVENTS.get(str(ajuste.get("reason")), "config_value_adjusted")
+        logger.warning(
+            evento,
+            option=ajuste.get("option"),
+            configured=ajuste.get("configured"),
+            applied=ajuste.get("applied"),
+        )
+
+
+def _build_oauth_server(config: HermesConfig) -> OAuthServer:
+    """Servidor OAuth con las opciones del add-on (CIMD incluido)."""
+    return OAuthServer(
+        auth_password=config.auth_password,
+        public_hostname=config.public_hostname,
+        cimd_enabled=config.oauth_cimd_enabled,
+    )
+
+
+def _build_mcp(config: HermesConfig, ha_client: object) -> HermesMCPServer:
+    """Servidor MCP con nombre, versión y todas las tools registradas.
+
+    Los límites se pasan TODOS de forma explícita. Si falta alguno,
+    `register_all_tools` vuelve a llamar a `load_config()` y lee el entorno
+    por su cuenta: el valor efectivo deja de ser el de esta configuración y
+    los ajustes de esa segunda carga no se registran en ningún sitio.
+    """
+    from hermes.tools import register_all_tools
+    from hermes.tools.guide import INSTRUCTIONS
+
+    mcp = build_mcp_server(INSTRUCTIONS)
+    register_all_tools(
+        mcp,
+        ha_client,
+        fire_event_allowlist=config.fire_event_allowlist,
+        response_max_bytes=config.response_max_bytes,
+        safety_backup_enabled=config.safety_backup_enabled,
+        safety_backup_window_minutes=config.safety_backup_window_minutes,
+        file_backup_max_per_path=config.file_backup_max_per_path,
+        file_backup_max_total_mb=config.file_backup_max_total_mb,
+        config_write_min_interval_seconds=config.config_write_min_interval_seconds,
+        config_write_max_per_minute=config.config_write_max_per_minute,
+        call_service_denylist_extra=config.call_service_denylist_extra,
+        call_service_restricted_entities=config.call_service_restricted_entities,
+        call_service_auto_classify=config.call_service_auto_classify_dangerous,
+        wait_for_event_max_seconds=config.wait_for_event_max_seconds,
+        wait_for_event_max_concurrent=config.wait_for_event_max_concurrent,
+    )
+    return mcp
+
+
 async def _connect_ha_ws(ha_client: HAClient, grace_seconds: int) -> bool:
     """Paso 8 del boot: conectar la WS de HA. NUNCA aborta el arranque.
 
@@ -577,7 +635,7 @@ def main() -> None:
     config = load_config()
 
     # Configurar logging antes de cualquier otra cosa
-    setup_logging(config.log_level)
+    _setup_logging_from_config(config)
 
     logger.info(
         "boot_step_1",

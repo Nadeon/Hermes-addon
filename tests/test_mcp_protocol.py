@@ -157,9 +157,7 @@ def test_no_tool_is_exempted_without_a_reason() -> None:
 
 async def test_exempted_tool_is_not_marked(monkeypatch: pytest.MonkeyPatch) -> None:
     """La lista de excepciones funciona: una tool listada no se marca."""
-    import hermes.mcp_server as ms
-
-    monkeypatch.setitem(ms._NOT_AN_ERROR, "parcial", "resultado parcial útil")
+    monkeypatch.setitem(_NOT_AN_ERROR, "parcial", "resultado parcial útil")
     server = _server_with({"parcial": {"error": "x", "items": [1]}})
     async with Client(server) as client:
         result = await client.call_tool("parcial", {})

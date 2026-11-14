@@ -29,6 +29,9 @@ from typing import Any
 
 import structlog
 
+# Sin opción explícita, el mismo tope que la configuración (spec 003): el
+# antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
@@ -79,7 +82,7 @@ async def _count_config_entry_dependents(
     return {"entities": entities_count, "devices": devices_count}
 
 
-def register(mcp: object, ha_client: HAClient, response_max_bytes: int = 1_048_576) -> None:
+def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT) -> None:
     """Registra las tools de config entries."""
 
     ready = requires_ready(ha_client)

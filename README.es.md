@@ -373,6 +373,15 @@ límite pre-auth de 20 por minuto: si fallan, es Funnel; si no, es aguas arriba.
 > de confianza puede falsificar la IP del cliente —lo que solo desvirtúa los
 > límites y los logs, nunca la autorización—.
 
+### Claude Code corta las llamadas lentas a los 60 s
+
+Claude Code abandona una llamada si no recibe ningún byte en 60 segundos.
+Hermes responde en streaming y manda un *ping* cada 15 s, así que una espera
+larga de `ha_wait_for_event` no se corta. Si el proxy de delante almacena la
+respuesta entera antes de reenviarla, los *pings* llegan tarde: amplía el plazo
+en Claude Code con la variable de entorno `MCP_TOOL_TIMEOUT` (en milisegundos)
+o con `timeout` en la entrada del servidor.
+
 ## Conectar Claude
 
 1. En Claude, móvil o escritorio: **Configuración → Conectores → Añadir conector
@@ -397,9 +406,14 @@ límite pre-auth de 20 por minuto: si fallan, es Funnel; si no, es aguas arriba.
 > que alguien te haga llegar un enlace de autorización con su propio destino.
 
 Lo que ocurre por debajo, si tienes curiosidad: Claude descubre los endpoints
-OAuth a partir del `401` que devuelve Hermes, registra un cliente
-automáticamente (RFC 7591), te manda al login, y a cambio de tu contraseña
-obtiene un token. No hay que copiar ni pegar ninguna clave.
+OAuth a partir del `401` que devuelve Hermes, se identifica, te manda al login,
+y a cambio de tu contraseña obtiene un token. No hay que copiar ni pegar
+ninguna clave. Los clientes que publican un documento de metadatos (CIMD), como
+Claude Code, se identifican con la URL de ese documento: Hermes lo descarga, lo
+comprueba, y la pantalla de autorización muestra el host de esa URL. Los demás
+registran un cliente automáticamente (RFC 7591), como hasta ahora. Cada
+redirección de vuelta al cliente lleva el parámetro `iss` (RFC 9207), para que
+el cliente sepa que la respuesta viene de Hermes.
 
 **Cuánto dura.** Cada autorización vale **7 días**: Claude renueva su acceso cada
 hora dentro de esa semana, pero cuando se agota el conector vuelve a pedirte la
@@ -427,14 +441,16 @@ hacer nada.
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
+| `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los nombres `*.ts.net` y las IPs que no sean de loopback por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
+| `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `safety_backup_enabled` | `false` | Backup **completo** de HAOS automático antes de escribir en `/config`. Desactivado por defecto (genera varios GB). El backup por-fichero se hace siempre. Si el backup falla, o Hermes no puede saber si terminó, la escritura no se hace (`safety_backup_job_failed`, `safety_backup_state_unknown`) |
 | `mcp_max_requests_per_minute` | `120` | Rate limit global post-auth |
 | `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Rate limit pre-auth por IP. Aplica a la superficie pública (OAuth y discovery), y el mismo valor acota por IP las peticiones a rutas protegidas que llegan sin token o con uno inválido. Las válidas las gobierna `mcp_max_requests_per_minute` |
-| `response_max_bytes` | `1048576` | Cap de respuesta por tool (1 MB) |
+| `response_max_bytes` | `131072` | Cap de respuesta por tool (128 KiB). Máximo efectivo `524288` (512 KiB): un valor guardado mayor se recorta. Súbelo hasta ahí si las respuestas te llegan truncadas |
 | `ha_ws_max_msg_size_bytes` | `4194304` | Cap de mensaje WS hacia HA (4 MB). Un resultado más grande cierra la WebSocket entera, no solo esa llamada: súbelo si usas `ha_get_history` con rangos amplios |
 | `max_request_body_bytes` | `4194304` | Cap del cuerpo de una petición HTTP autenticada (4 MB). Los endpoints públicos de OAuth llevan su propio tope fijo de 64 KiB, que no depende de esta opción |
 | `max_concurrent_requests` | `64` | Peticiones simultáneas que acepta el servidor. Acota la memoria máxima en vuelo (`max_concurrent_requests × max_request_body_bytes`). Claude lanza ráfagas de ~24 llamadas, así que 64 deja holgura |
-| `wait_for_event_max_seconds` | `90` | Máximo timeout permitido para `ha_wait_for_event` (10–300) |
+| `wait_for_event_max_seconds` | `90` | Máximo timeout permitido para `ha_wait_for_event` (10–220; un valor guardado por encima de 220 se recorta) |
 | `wait_for_event_max_concurrent` | `5` | Máximo de `ha_wait_for_event` simultáneos (1–20) |
 | `safety_backup_window_minutes` | `30` | Si Hermes hizo su propio backup de seguridad hace menos de esto, no se hace otro. Los backups hechos a mano o por otras herramientas no cuentan. Mientras se hace, la escritura espera hasta 5 minutos, y se cancela si el backup falla |
 | `file_backup_max_per_path` | `20` | Copias que se guardan de cada fichero antes de sobrescribirlo |
@@ -443,6 +459,17 @@ hacer nada.
 | `config_write_max_per_minute` | `10` | Escrituras máximas por minuto en `/config` |
 | `health_startup_grace_seconds` | `120` | Margen de arranque **por paso**, no total: los pasos 4 (Tailscale), 6 (`/core/info`) y 8 (WebSocket de HA) pueden usar cada uno el presupuesto entero |
 | `health_reconnect_tolerance_seconds` | `300` | Cuánto puede estar caída la WebSocket con HA antes de que `/health` diga `degraded_long` en vez de `degraded`. Nunca devuelve 503: reiniciar no arregla una caída de Core, y el bucle de reconexión se recupera solo |
+
+> [!NOTE]
+> **Si tenías valores guardados.** La interfaz del add-on guarda el valor por
+> defecto aunque no lo hayas tocado, así que un `response_max_bytes` de
+> `1048576` (el defecto anterior, 1 MiB) se trata como no personalizado y pasa
+> a `131072`. Un valor por encima de `524288`, o un
+> `wait_for_event_max_seconds` por encima de `220`, se recorta al máximo. El
+> add-on arranca igual y lo anota en el log con
+> `config_legacy_default_replaced` o `config_value_clamped`, con el valor
+> guardado y el aplicado. Estos límites son los que aceptan los clientes de
+> Claude.
 
 ### Palancas de seguridad
 
@@ -472,6 +499,8 @@ Ver `config.yaml` para el schema completo con sus rangos válidos.
 - **Cabeceras de seguridad** (`X-Content-Type-Options`, `X-Frame-Options`,
   `Referrer-Policy`, CSP) y límite de tamaño de cuerpo (incluido `chunked`).
 - **Redacción de secretos** en todos los logs.
+- **Redacción de red** en el log (`log_redact_network`, activa por defecto):
+  tu hostname y tus IPs se sustituyen por marcadores, para poder compartirlo.
 - **Rate limit** global tras autenticar, y un techo aparte para la superficie
   pública (OAuth y discovery). Los fallos de autenticación tienen su propio
   cubo, para que alguien sin credenciales no pueda gastarte el tuyo.

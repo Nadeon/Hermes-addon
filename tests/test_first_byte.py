@@ -15,7 +15,6 @@ que el resultado. Un middleware futuro que almacene la respuesta lo rompe.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import time
 from typing import Any
