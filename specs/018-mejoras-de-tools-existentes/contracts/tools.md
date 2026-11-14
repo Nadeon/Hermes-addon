@@ -74,7 +74,7 @@ reason, restricted_entities?}` (los mismos campos que `ha_call_service`).
 ## Sobre de lista (tools nuevas de la 1.2.0)
 
 ```text
-sobre_de_lista(items: list, *, truncated: bool = False, **cabecera) -> dict
+sobre_de_lista(items: list, /, *, truncated: bool = False, **cabecera) -> dict
 # → {**cabecera, "count": len(items), "items": items, "truncated": truncated}
 ```
 
