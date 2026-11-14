@@ -33,6 +33,8 @@ Primera generación (sin tabla previa), por fila (research R-4):
   mano); `deny` «uso interno de Hermes» o el motivo que diga el mapa si
   ninguna tool lo expone; `deny` «sin revisar» si no está en el mapa;
 - clase B y D → `deny` con el motivo de la nota;
+- clase A con la clave en `_DEDICADAS_INICIALES` (su sub-feature ya creó la
+  tool) → `dedicated` con esa tool (spec 029, research R-7);
 - clase A de una CAP de vía D, D+T o D+X → `deny` «pendiente de tool
   dedicada (spec NNN)» con la sub-feature de la matriz de la 008;
 - clase A de vía T → `read` o `confirm` por verbo y método, PROVISIONAL hasta
@@ -293,6 +295,17 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "person/delete": "ha_delete_person",
     "person/list": "ha_list_persons",
     "person/update": "ha_update_person",
+    # 029: estado del sistema y estadísticas (clase A de vía D: el generador
+    # consulta este mapa antes de la regla «pendiente»; research R-7).
+    "system_health/info": "ha_get_system_health",
+    "subscribe_system_state": "ha_get_system_state",
+    "integration/setup_info": "ha_list_integration_setup_times",
+    "manifest/list": "ha_list_integration_manifests",
+    "manifest/get": "ha_get_integration_manifest",
+    "recorder/info": "ha_get_recorder_info",
+    "recorder/entity_options/get": "ha_get_recorder_info",
+    "recorder/validate_statistics": "ha_validate_statistics",
+    "recorder/get_statistics_metadata": "ha_get_statistics_metadata",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
@@ -419,12 +432,7 @@ def _clasificar(
     if es_sv and texto.startswith(_PREFIJOS_PROXY_CORE):
         return deny(_MOTIVO_PROXY)
 
-    if clase == "cubierto":
-        destino = _DEDICADAS_INICIALES.get(clave)
-        if destino is None:
-            return deny("sin revisar")
-        if isinstance(destino, _Deny):
-            return deny(destino.motivo)
+    def dedicada(destino: str) -> dict[str, object]:
         de_accion = fila.get("cobertura") == "accion-generica"
         return {
             "category": "dedicated",
@@ -434,6 +442,14 @@ def _clasificar(
             "cap": cap,
         }
 
+    if clase == "cubierto":
+        destino = _DEDICADAS_INICIALES.get(clave)
+        if destino is None:
+            return deny("sin revisar")
+        if isinstance(destino, _Deny):
+            return deny(destino.motivo)
+        return dedicada(destino)
+
     if clase == "B":
         return deny(f"{nota or 'sin utilidad para un cliente MCP'} (clase B)")
     if clase == "D":
@@ -441,6 +457,13 @@ def _clasificar(
     if clase == "C":
         return deny("pendiente de revisión (spec 025)")
     if clase.startswith("A") and cap in MATRIZ:
+        # Una fila A cuya sub-feature ya creó su tool está en el mapa (spec
+        # 029, research R-7; mismo diseño que la 012): se consulta antes que
+        # la regla «pendiente», para que una generación desde cero dé la
+        # misma tabla que la revisada a mano.
+        destino = _DEDICADAS_INICIALES.get(clave)
+        if isinstance(destino, str):
+            return dedicada(destino)
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")
         if via in ("D", "D+T", "D+X"):

@@ -354,7 +354,7 @@ CORE_WS: dict[str, E] = {
     "insteon/scene/save": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "insteon/scenes/get": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "integration/descriptions": E("deny", "catálogo de marcas de la UI (ha_start_config_entry_flow ya acepta el dominio) (clase B)", "generic_commands"),
-    "integration/setup_info": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-043"),
+    "integration/setup_info": E("dedicated", "cubierto por ha_list_integration_setup_times", "system_status", tool="ha_list_integration_setup_times", cap="CAP-043"),
     "integration/wait": E("deny", "espera interna de onboarding (clase B)", "generic_commands"),
     "knx/create_device": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "knx/create_entity": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
@@ -394,7 +394,7 @@ CORE_WS: dict[str, E] = {
     # `service_data` es el de la llamada entera: un `alarm_disarm` o un `lock.unlock`
     # lleva `code` (texto o número), que no es un marcador de redact_structure.
     # Por eso HA lo hace admin-only, y aquí `code` se tapa con redact_extra (T044).
-    "logbook/get_action_calls": E("read", "auditoría de llamadas a acciones en un intervalo; el `code` de alarmas y cerraduras sale tapado; solo lee", "generic_commands", cap="CAP-058", redact_extra=("code",)),
+    "logbook/get_action_calls": E("read", "auditoría de llamadas a acciones en un intervalo; el `code` de alarmas y cerraduras sale tapado; solo lee", "generic_commands", cap="CAP-058", redact_extra=("code",), example={"start_time": "2026-01-01T00:00:00+00:00", "end_time": "2026-01-01T06:00:00+00:00"}),
     "logbook/get_events": E("dedicated", "cubierto por ha_get_logbook", "data", tool="ha_get_logbook"),
     # logger.set_level no persiste ni cubre todos los loggers de la integración;
     # ha_set_log_level es la de CAP-041 (spec 012).
@@ -418,8 +418,8 @@ CORE_WS: dict[str, E] = {
     "lovelace/resources/list": E("dedicated", "cubierto por ha_list_lovelace_resources", "lovelace", tool="ha_list_lovelace_resources"),
     "lovelace/resources/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "lovelace/resources/update": E("dedicated", "cubierto por ha_update_lovelace_resource", "lovelace", tool="ha_update_lovelace_resource"),
-    "manifest/get": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-043"),
-    "manifest/list": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-043"),
+    "manifest/get": E("dedicated", "cubierto por ha_get_integration_manifest", "system_status", tool="ha_get_integration_manifest", cap="CAP-043"),
+    "manifest/list": E("dedicated", "cubierto por ha_list_integration_manifests", "system_status", tool="ha_list_integration_manifests", cap="CAP-043"),
     "map_tiles/access_token": E("deny", "token o configuración para que el navegador cargue recursos (clase B)", "generic_commands"),
     "marketplace/critical/acknowledge": E("deny", "pendiente de tool dedicada (spec 026)", "generic_commands", cap="CAP-075"),
     "marketplace/critical/list": E("dedicated", "cubierto por ha_marketplace_list_critical", "marketplace", tool="ha_marketplace_list_critical"),
@@ -492,17 +492,17 @@ CORE_WS: dict[str, E] = {
     "recorder/adjust_sum_statistics": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
     "recorder/change_statistics_unit": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
     "recorder/clear_statistics": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
-    "recorder/entity_options/get": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-049"),
-    "recorder/get_statistics_metadata": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-049"),
+    "recorder/entity_options/get": E("dedicated", "cubierto por ha_get_recorder_info", "recorder", tool="ha_get_recorder_info", cap="CAP-049"),
+    "recorder/get_statistics_metadata": E("dedicated", "cubierto por ha_get_statistics_metadata", "recorder", tool="ha_get_statistics_metadata", cap="CAP-049"),
     "recorder/import_statistics": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
-    "recorder/info": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-049"),
+    "recorder/info": E("dedicated", "cubierto por ha_get_recorder_info", "recorder", tool="ha_get_recorder_info", cap="CAP-049"),
     "recorder/list_statistic_ids": E("dedicated", "cubierto por ha_list_statistic_ids", "data", tool="ha_list_statistic_ids"),
     # recorder.get_statistics da series por periodo, no este agregado.
     "recorder/statistic_during_period": E("read", "agregado (máximo, media, mínimo o cambio) de una estadística en un periodo; solo lee", "generic_commands"),
     "recorder/statistics_during_period": E("dedicated", "cubierto por ha_statistics_during_period", "data", tool="ha_statistics_during_period"),
     "recorder/update_statistics_issues": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
     "recorder/update_statistics_metadata": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
-    "recorder/validate_statistics": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-049"),
+    "recorder/validate_statistics": E("dedicated", "cubierto por ha_validate_statistics", "recorder", tool="ha_validate_statistics", cap="CAP-049"),
     "render_template": E("dedicated", "cubierto por ha_render_template", "data", tool="ha_render_template"),
     "repairs/get_issue_data": E("deny", "pendiente de tool dedicada (spec 016)", "generic_commands", cap="CAP-048"),
     "repairs/ignore_issue": E("dedicated", "cubierto por ha_ignore_repair", "diagnostics", tool="ha_ignore_repair"),
@@ -534,7 +534,7 @@ CORE_WS: dict[str, E] = {
     "subscribe_condition": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "subscribe_entities": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "subscribe_events": E("dedicated", "cubierto por ha_wait_for_event", "events", tool="ha_wait_for_event"),
-    "subscribe_system_state": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-043"),
+    "subscribe_system_state": E("dedicated", "cubierto por ha_get_system_state", "system_status", tool="ha_get_system_state", cap="CAP-043"),
     "subscribe_trigger": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "supervisor/api": E("deny", "proxy WS a la API del Supervisor: se saltaría las guardas de las tools sv_* (usar sv_read_api/sv_call_api)", "generic_commands"),
     "supervisor/event": E("deny", "canal interno Supervisor→Core (clase B)", "generic_commands"),
@@ -543,7 +543,7 @@ CORE_WS: dict[str, E] = {
     "supervisor/ingress/validate_session": E("deny", "sesiones de ingress del navegador (clase B)", "generic_commands"),
     "supervisor/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "supported_features": E("deny", "negociación del protocolo WS (clase B)", "generic_commands"),
-    "system_health/info": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-043"),
+    "system_health/info": E("dedicated", "cubierto por ha_get_system_health", "system_status", tool="ha_get_system_health", cap="CAP-043"),
     "system_log/list": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-041"),
     "system_log/subscribe_raw": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     # Ejemplos de tag/* (los muestra hermes_guide): campos de CREATE_FIELDS y

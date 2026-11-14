@@ -144,6 +144,35 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("system_logs"), "system_diagnostics")
         self.assertEqual(familia_de_modulo("host_system"), "system_diagnostics")
 
+    def test_system_status_es_de_la_1_2_0(self) -> None:
+        """Spec 029, T009 (FR-015): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las cinco tools de CAP-043."""
+        familia = FAMILIAS["system_status"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_status",))
+        self.assertEqual(
+            familia.descripcion,
+            "System health, pending restart state, integration setup times and "
+            "manifests (read only).")
+        self.assertEqual(familia_de_modulo("system_status"), "system_status")
+
+    def test_recorder_es_de_la_1_2_0(self) -> None:
+        """Spec 029, T020 (FR-015): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las tres tools de CAP-049. Es la del recorder entero:
+        la 020 añadirá aquí el mantenimiento de estadísticas."""
+        familia = FAMILIAS["recorder"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("recorder_status",))
+        self.assertEqual(
+            familia.descripcion,
+            "Recorder status and long-term statistics: validation and metadata "
+            "(read only).")
+        self.assertEqual(familia_de_modulo("recorder_status"), "recorder")
+        # Las dos de estadísticas de la 1.1.2 siguen en `data` (FR-010 de la 008).
+        self.assertEqual(familia_de_modulo("statistics"), "data")
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

@@ -189,6 +189,72 @@ _Pendiente: la añade la sub-feature que lo implemente._
   honestidad atada a la tabla, banco de Core en las comprobaciones y fecha de
   publicación pendiente en el CHANGELOG mientras la versión se desarrolla).
 
+### Estado del sistema y estadísticas
+
+Spec 029: ocho tools nuevas de solo lectura en dos familias nuevas,
+`system_status` y `recorder`, y cuatro comandos de Core que siguen por la
+genérica de lectura. Con las dos familias desactivadas (y `generic_commands`),
+la lista de tools es la de la 1.1.2.
+
+- **Cinco tools nuevas de solo lectura, familia `system_status`**: ninguna
+  modifica nada ni pide token, y se pueden apagar con
+  `tool_families_disabled`.
+  - `ha_get_system_health`: lo que enseña «Información del sistema» de HA,
+    por dominio. Los valores lentos se esperan hasta `timeout_seconds` (de 1
+    a 30, 10 por defecto), contados desde que HA confirma la petición; los
+    que no llegan salen en `pending` y los que HA da por fallidos (también
+    los que da como valor, como un Supervisor «Unhealthy»), en `failed`. Si no cabe en el tope de respuesta, quita
+    dominios enteros por el final y los nombra en `omitted_domains`; `domain`
+    pide uno solo. La suscripción de HA se cancela siempre. Se anuncia de
+    mundo abierto: algunas comprobaciones de salud de HA consultan servicios
+    de internet.
+  - `ha_get_system_state`: si HA o el host piden reinicio, por qué y si el
+    aviso se pospuso. No lo descarta.
+  - `ha_list_integration_setup_times`: cuánto tardó cada integración en
+    arrancar, de la más lenta a la más rápida.
+  - `ha_list_integration_manifests` y `ha_get_integration_manifest`: resumen
+    de diez campos por integración y manifiesto entero. El texto de una
+    integración que no es de HA va marcado como de terceros
+    (`_third_party_text`).
+  Las dos listas usan el sobre común de las listas nuevas (`count`, `items`
+  y `truncated`), con `total` y `total_seconds`, o `missing`, delante.
+  Las respuestas pasan por la redacción de secretos y el log solo lleva
+  recuentos, nunca valores, URLs ni direcciones. Un comando que HA no conoce
+  se explica por su causa: `system_health_not_loaded` o
+  `unsupported_by_ha_version`.
+- **Tres tools nuevas de solo lectura, familia `recorder`**: la familia del
+  recorder y las estadísticas de largo plazo; el mantenimiento de
+  estadísticas (spec 020) se sumará a ella.
+  - `ha_get_recorder_info`: si el recorder graba, su cola y si migra la base;
+    con `entity_id` (que tiene que existir), si esa entidad se graba y quién
+    lo desactivó.
+  - `ha_validate_statistics`: los problemas que HA ve en las estadísticas
+    (unidad cambiada, sin `state_class`, entidad que ya no está…), uno por
+    fila, con recuento por tipo y filtros por estadística y por tipo. Solo
+    valida: no corrige nada ni crea avisos en Repairs.
+  - `ha_get_statistics_metadata`: los metadatos de hasta 100 estadísticas, y
+    `missing` con las que HA no conoce.
+  Sin el recorder cargado responden `recorder_not_loaded`. El log no lleva
+  ids de estadísticas ni nombres de entidades.
+- **Por la genérica de lectura** (`ha_read_ws_command`), sin tool nueva:
+  `logbook/get_action_calls` (auditoría de las acciones llamadas en un
+  intervalo, con los `code` de alarmas y cerraduras tapados y un ejemplo de
+  carga en la tabla), y `network`, `network/url` y `http/config` (red, URLs y
+  servidor HTTP de Core; el log no lleva ninguna URL ni dirección).
+- **Tabla de comandos**: `system_health/info`, `subscribe_system_state`,
+  `integration/setup_info`, `manifest/list`, `manifest/get`, `recorder/info`,
+  `recorder/entity_options/get`, `recorder/validate_statistics` y
+  `recorder/get_statistics_metadata` pasan de `deny` a `dedicated` hacia su
+  tool; las genéricas los rechazan con `use_dedicated_tool`.
+- **Guía**: tema `system_status` (alias `health`, `system_health`,
+  `system_state`, `manifest`, `manifests`, `setup_times`, `urls`, `network`),
+  con la red, las URLs y el HTTP de Core; tema `recorder` (alias
+  `recorder_info`, `statistics_validation`, `action_calls`, `audit`), con la
+  auditoría de llamadas a acciones.
+- **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
+  también la auditoría y la red por la genérica. La configuración del banco
+  carga `system_health:`, `network:`, `recorder:` y `logbook:`.
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de

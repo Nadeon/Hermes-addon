@@ -388,6 +388,15 @@ un cliente contra la instalación real.
   `/resolution/issue/{issue}/suggestions`, `/host/disks`, hardware, Docker,
   hora y red) por `sv_read_api`. Solo leen; en la suite se prueban con un
   Supervisor simulado.
+- [ ] (VM, después instalación real con nube) **Estado del sistema y
+  estadísticas (spec 029), en vivo**: las ocho tools de `system_status` y
+  `recorder`. Solo leen, así que no tienen fila en la matriz de pruebas; el
+  banco de Core ya las ejecuta contra HA Core real, y lo que este no tiene
+  queda aquí. En la VM: `ha_get_system_health` con el dominio `hassio`
+  completo o con pendientes, y `ha_get_system_state` con un reinicio
+  pendiente tras instalar una integración. En la instalación real: la salud
+  con `cloud` (hace falta la nube de Home Assistant) y
+  `ha_validate_statistics` con estadísticas que tienen problemas reales.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -424,7 +433,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
-| 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | pendiente |
+| 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |

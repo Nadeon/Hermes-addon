@@ -161,3 +161,31 @@ PROBADAS_GENERICAS: frozenset[str] = frozenset({"ha_call_ws_command"})
 NO_EJECUTABLES_GENERICAS: dict[str, str] = {
     "sv_call_api": "Supervisor simulado; se prueba en la VM (spec 014)",
 }
+
+
+# ── Estado del sistema y estadísticas (spec 029, T017; FR-022) ─────────────
+# Las tools de la 029 solo leen, así que no entran en el invariante de
+# escrituras de la 028: tienen el suyo (`tests/test_banco_cobertura.py`,
+# `TestCoberturaDeLa029`): este conjunto es exactamente lo que registran los
+# módulos de sus familias, y el job exige cada una por ejecución (se suma a
+# `TOOLS_EXIGIDAS_DEL_JOB` en `cobertura_escrituras.py`). Los módulos de las
+# familias `system_status` y `recorder`. Cuando la 020 añada a `recorder` el
+# mantenimiento de estadísticas (escrituras), esas tools caerán aquí por el
+# invariante y tendrán que probarse en el banco con el lector y la vista
+# previa, como las de la 028.
+MODULOS_029: tuple[str, ...] = ("system_status", "recorder_status")
+
+PROBADAS_EN_BANCO_029: frozenset[str] = frozenset(
+    {
+        # `tests/banco/test_banco_estado_sistema.py`.
+        "ha_get_system_health",
+        "ha_get_system_state",
+        "ha_list_integration_setup_times",
+        "ha_list_integration_manifests",
+        "ha_get_integration_manifest",
+        # `tests/banco/test_banco_recorder.py`.
+        "ha_get_recorder_info",
+        "ha_validate_statistics",
+        "ha_get_statistics_metadata",
+    }
+)
