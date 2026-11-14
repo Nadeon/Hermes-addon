@@ -184,6 +184,22 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
         "/os/config/swap",
         "/os/datadisk/list",
     ),
+    # Spec 015: las lecturas de las actualizaciones del sistema pasan por
+    # `_leer(ha_client, ruta)` con rutas fijas del módulo (las de los plugins
+    # salen de su tupla cerrada `_PLUGINS`).
+    ("hermes.tools.system_updates", "_leer"): (
+        "/available_updates",
+        "/core/info",
+        "/supervisor/info",
+        "/os/info",
+        "/host/info",
+        "/resolution/info",
+        "/dns/info",
+        "/audio/info",
+        "/cli/info",
+        "/observer/info",
+        "/multicast/info",
+    ),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.

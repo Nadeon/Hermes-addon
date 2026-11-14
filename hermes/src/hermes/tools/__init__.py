@@ -327,6 +327,16 @@ def register_all_tools(
         from hermes.tools.host_system import register as register_host_system
         register_host_system(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Actualizaciones del sistema (spec 015): listar, buscar y actualizar
+    # Core con una vista previa que dice versiones, backup, bloqueos y
+    # comprobación de configuración, y un token atado a las versiones.
+    # Recibe `response_max_bytes` para recortar la lista de actualizaciones
+    # (con muchas apps) en vez de que el guardián central la cambie por un
+    # error.
+    if _activa("system_updates"):
+        from hermes.tools.system_updates import register as register_system_updates
+        register_system_updates(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

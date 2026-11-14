@@ -98,6 +98,17 @@ _CATALOGO: tuple[Familia, ...] = (
             "Supervisor, Core, host and plugin logs; host services, disk "
             "usage, OS and swap (read only).",
             "1.2.0", True, ("system_logs", "host_system")),
+    # Spec 015 (research R-1): actualizar Core, OS, Supervisor y las entidades
+    # `update` es un solo asunto para el usuario («mantener el sistema al
+    # día»), así que va en UNA familia: con dos, apagar una dejaría media
+    # funcionalidad sin que se entendiera por qué. Va aparte de `supervisor`
+    # y `services` (familias de la 1.1.2) para que apagar las de la 1.2.0
+    # deje la lista de la 1.1.2 (FR-010 de la 008). El tramo 3 añade el
+    # módulo `update_entities`.
+    Familia("system_updates",
+            "Check for and install updates of Core, OS, Supervisor and "
+            "update entities.",
+            "1.2.0", True, ("system_updates",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

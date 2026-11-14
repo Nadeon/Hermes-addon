@@ -144,6 +144,17 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("system_logs"), "system_diagnostics")
         self.assertEqual(familia_de_modulo("host_system"), "system_diagnostics")
 
+    def test_system_updates_es_de_la_1_2_0(self) -> None:
+        # Spec 015, FR-017 (research R-1): las actualizaciones del sistema van
+        # en una familia propia de la 1.2.0 para que apagarla devuelva la lista
+        # de la 1.1.2. El tramo 1 la crea con el módulo `system_updates`; el
+        # tramo 3 añade `update_entities` (data-model, «Familia»).
+        familia = FAMILIAS["system_updates"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_updates",))
+        self.assertEqual(familia_de_modulo("system_updates"), "system_updates")
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

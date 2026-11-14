@@ -34,7 +34,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tests.banco import cobertura, cobertura_escrituras as c028
+from tests.banco import cobertura, cobertura_015 as c015, cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -65,6 +65,8 @@ def _listas() -> dict[str, set[str]]:
         "PROBADAS_028": set(c028.PROBADAS_028),
         "NO_EJECUTABLES_028": set(c028.NO_EJECUTABLES_028),
         "FUERA_DEL_BANCO": set(c028.FUERA_DEL_BANCO),
+        "PROBADAS_015": set(c015.PROBADAS_015),
+        "NO_EJECUTABLES_015": set(c015.NO_EJECUTABLES_015),
     }
 
 
@@ -81,8 +83,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             f"clasificar: {sin_clasificar}; declaradas que no modifican o no existen: "
             f"{no_modifican}",
         )
-        # Las 124 de la 1.1.2 más las 2 genéricas de escritura de la 011.
-        self.assertEqual(len(reales), 126)
+        # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las 2
+        # del tramo 1 de la 015 (`sv_check_for_updates`, `sv_update_core`).
+        self.assertEqual(len(reales), 128)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -109,6 +112,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             for nombre, lista in (
                 ("NO_EJECUTABLES_028", c028.NO_EJECUTABLES_028),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
+                ("NO_EJECUTABLES_015", c015.NO_EJECUTABLES_015),
             )
             for tool, motivo in lista.items()
             if not str(motivo).strip()

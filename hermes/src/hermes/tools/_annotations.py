@@ -145,6 +145,10 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # peor. Siempre piden confirmation_token.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 015: actualizar Core lo para y lo arranca en otra versión; si la
+    # nueva no arranca, el Supervisor intenta volver atrás. Pide token y su
+    # nombre no lo delata.
+    "sv_update_core",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -172,6 +176,12 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # ninguna ruta `read` del Supervisor sale. tests/test_command_table.py
     # ata esta lista a las marcas `open_world` de la tabla.
     "ha_read_ws_command",
+    # Spec 015 (contracts/tools.md): actualizar Core descarga la imagen nueva,
+    # y buscar actualizaciones descarga el registro de versiones y refresca los
+    # repositorios de la tienda. Quien sale es el Supervisor, pero lo provoca
+    # la tool (mismo criterio que sv_install_addon). `sv_check_for_updates` no
+    # es de solo lectura (su prefijo no lo es) ni destructiva: no pide token.
+    "sv_update_core", "sv_check_for_updates",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

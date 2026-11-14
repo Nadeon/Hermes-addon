@@ -410,7 +410,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (VM de la 014, después instalación real) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
-| 015 | Actualizaciones del sistema | 064, 080 | pendiente |
+| 015 | Actualizaciones del sistema | 064, 080 | en curso: tramo 1 hecho (familia `system_updates`; `sv_list_available_updates`, `sv_check_for_updates` y `sv_update_core` con bloqueos y token atado a las versiones; 5 entradas de la tabla a `dedicated`; tema `updates`); prueba real de las `sv_*` que modifican pendiente en la VM de la 014; faltan OS y Supervisor (tramo 2) y las entidades `update` con el banco (tramo 3) |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | pendiente |
@@ -694,6 +694,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_person` | banco de Core | ok | |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
+| `sv_check_for_updates` | VM | pendiente | spec 015 |
 | `sv_create_backup_full` | VM | pendiente | |
 | `sv_create_backup_partial` | VM | pendiente | |
 | `sv_create_safety_backup` | VM | pendiente | |
@@ -712,6 +713,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |
 | `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
 | `sv_update_addon` | VM | pendiente | add-on de prueba |
+| `sv_update_core` | VM | pendiente | spec 015; instantánea antes |
 <!-- matriz-pruebas:fin -->
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las

@@ -275,7 +275,7 @@ CORE_WS: dict[str, E] = {
     # `hassio.core_update` ya no existe en 2026.11: la vía es `update.install` sobre
     # la entidad update de Core, que está en la denylist (dos pasos). Ver la nota de
     # `backup/generate_with_automatic_settings` (T046).
-    "hassio/update/core": E("deny", "pendiente de tool dedicada (spec 015); mientras, `ha_call_service` con `update.install` sobre la entidad update de Core, que pide confirmación (denylist)", "generic_commands"),
+    "hassio/update/core": E("dedicated", "cubierto por sv_update_core (la misma actualización por el Supervisor, con vista previa de versiones, backup y bloqueos)", "system_updates", tool="sv_update_core"),
     "history/history_during_period": E("dedicated", "cubierto por ha_get_history", "data", tool="ha_get_history"),
     "history/stream": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "history_stats/start_preview": E("deny", "vista previa en vivo del formulario de un helper en la UI (clase B)", "generic_commands"),
@@ -730,7 +730,7 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/audio/stats"): E("read", "CPU, memoria y red del plugin de audio; solo lee", "generic_commands", cap="CAP-091"),
     ("GET", "/auth"): E("deny", "valida usuario y contraseña de HA para el login de una app; Hermes no autentica personas (clase B)", "generic_commands"),
     ("GET", "/auth/list"): E("deny", "Usuarios; Core lo da por WS (`config/auth/list`) (clase B)", "generic_commands"),
-    ("GET", "/available_updates"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
+    ("GET", "/available_updates"): E("dedicated", "cubierto por sv_list_available_updates", "system_updates", tool="sv_list_available_updates", cap="CAP-080"),
     ("GET", "/backups"): E("dedicated", "cubierto por sv_list_backups", "backups", tool="sv_list_backups"),
     ("GET", "/backups/info"): E("deny", "pendiente de tool dedicada (spec 019)", "generic_commands", cap="CAP-083"),
     ("GET", "/backups/{slug}/download"): E("deny", "descarga el fichero del backup (cientos de MB): no cabe en una respuesta MCP (clase D)", "generic_commands"),
@@ -894,7 +894,7 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/core/restart"): E("dedicated", "cubierto por sv_restart_core", "supervisor", tool="sv_restart_core"),
     ("POST", "/core/start"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
     ("POST", "/core/stop"): E("deny", "Hermes depende del WebSocket de Core: su watchdog lo reiniciaría y el usuario queda sin UI (clase D)", "generic_commands"),
-    ("POST", "/core/update"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
+    ("POST", "/core/update"): E("dedicated", "cubierto por sv_update_core", "system_updates", tool="sv_update_core", cap="CAP-080"),
     ("POST", "/discovery"): E("deny", "Una app anuncia su integración (clase B)", "generic_commands"),
     ("POST", "/dns/options"): E("confirm", "cambia los servidores DNS del plugin DNS (`servers`) y si usa el DNS de reserva (`fallback`); es lo único que admite, y reinicia el plugin", "generic_commands", cap="CAP-091"),
     ("POST", "/dns/reset"): E("confirm", "restablece la configuración del plugin DNS", "generic_commands", cap="CAP-091"),
@@ -940,8 +940,8 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/os/datadisk/wipe"): E("deny", "Borra todos los datos (clase D)", "generic_commands"),
     ("POST", "/os/ssh/authorized_keys"): E("deny", "Acceso root por SSH; solo Core (clase D)", "generic_commands"),
     ("POST", "/os/update"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
-    ("POST", "/refresh_updates"): E("deny", "Alias «desaconsejado» de `/reload_updates` (clase B)", "generic_commands"),
-    ("POST", "/reload_updates"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
+    ("POST", "/refresh_updates"): E("dedicated", "cubierto por sv_check_for_updates", "system_updates", tool="sv_check_for_updates"),
+    ("POST", "/reload_updates"): E("dedicated", "cubierto por sv_check_for_updates (que usa /refresh_updates: recarga también la tienda)", "system_updates", tool="sv_check_for_updates", cap="CAP-080"),
     ("POST", "/resolution/check/{check}/options"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
     ("POST", "/resolution/check/{check}/run"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
     ("POST", "/resolution/healthcheck"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),

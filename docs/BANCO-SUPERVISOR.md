@@ -346,6 +346,20 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   plantilla y la categoría, y la ejecución reinicia el plugin DNS
   (`ha dns info`); una ruta `deny`, una de Hermes (`local_hermes`) o el
   proxy de Core se rechazan sin llegar al Supervisor.
+- `sv_check_for_updates` (spec 015), en la tanda 1: la lista que devuelve
+  coincide con las actualizaciones que enseña la interfaz de Home Assistant
+  (Ajustes) y con `ha core info`, `ha supervisor info` y `ha os info`; la de
+  `sv_list_available_updates` no cambia salvo por lo nuevo que encuentre el
+  Supervisor.
+- `sv_update_core` (spec 015), en la tanda 3, con una instantánea antes y
+  una versión de Core anterior instalada (`ha core update --version
+  <anterior>`): la vista previa da las versiones, el backup `core_<versión>`
+  y la comprobación de la configuración; con un error de configuración
+  introducido a propósito, `update_blocked` sin token; tras un
+  `sv_check_for_updates` que cambie la última versión, la confirmación da
+  `preview_outdated`; confirmada, `sv_get_job_status` sigue el job, Core
+  vuelve en la versión pedida (`ha core info`) y el backup aparece en
+  `ha backups list`.
 
 ## Probar hassio_role: manager
 

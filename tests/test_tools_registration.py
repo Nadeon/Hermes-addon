@@ -751,6 +751,14 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_os_info": ("R-I-", "Get OS info (Supervisor)"),
     "sv_get_swap": ("R-I-", "Get swap (Supervisor)"),
     "sv_list_datadisk_candidates": ("R-I-", "List datadisk candidates (Supervisor)"),
+    # Spec 015 (contracts/tools.md), familia `system_updates`. La lista solo
+    # lee; buscar actualizaciones no pide token pero sale a internet y no es
+    # de solo lectura (refresca la caché del Supervisor); actualizar Core es
+    # destructiva, idempotente (repetirla a la misma versión la rechaza el
+    # Supervisor) y de mundo abierto.
+    "sv_list_available_updates": ("R-I-", "List available updates (Supervisor)"),
+    "sv_check_for_updates": ("--IO", "Check for updates (Supervisor)"),
+    "sv_update_core": ("-DIO", "Update core (Supervisor)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -764,6 +772,9 @@ _HOST_013 = (
     "sv_list_host_services", "sv_get_disk_usage", "sv_get_os_info",
     "sv_get_swap", "sv_list_datadisk_candidates",
 )
+
+# Las del tramo 1 de la spec 015 (actualizaciones, CAP-080).
+_UPDATES_015 = ("sv_list_available_updates", "sv_check_for_updates", "sv_update_core")
 
 
 def _hint_code(ann) -> str:
@@ -982,7 +993,7 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert {"generic_commands", "system_diagnostics"} <= set(nuevas)
+        assert {"generic_commands", "system_diagnostics", "system_updates"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1161,6 +1172,56 @@ class TestHostSystem013:
                     and e.family == "supervisor"]
         assert len(con_boot) == 2
         assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+
+
+# ── Spec 015, tramo 1: actualizaciones del sistema (FR-017, FR-019; T009) ─────
+
+
+class TestActualizaciones015:
+    """Las tres tools del tramo 1 se registran por defecto con las anotaciones
+    de contracts/tools.md; con `system_updates` apagada no existe ninguna y
+    las entradas de la tabla siguen apuntándolas como `dedicated`.
+
+    Control negativo (T015 g, en test_command_table): dejar `/core/update`
+    como `deny` → cae `TestActualizacionesDeLa015`.
+    """
+
+    def test_registradas_con_sus_anotaciones(self):
+        tools = _real_registry()
+        for nombre in _UPDATES_015:
+            assert nombre in tools, nombre
+        ann = {n: tools[n].annotations for n in _UPDATES_015}
+        assert ann["sv_list_available_updates"].read_only_hint is True
+        assert ann["sv_list_available_updates"].open_world_hint is False
+        # Refresca la caché del Supervisor y la tienda: ni de solo lectura ni
+        # destructiva, pero sí sale a internet.
+        assert ann["sv_check_for_updates"].read_only_hint is False
+        assert ann["sv_check_for_updates"].destructive_hint is False
+        assert ann["sv_check_for_updates"].open_world_hint is True
+        assert ann["sv_update_core"].destructive_hint is True
+        assert ann["sv_update_core"].open_world_hint is True
+        assert ann["sv_update_core"].idempotent_hint is True
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _UPDATES_015}
+        assert props == {
+            "sv_list_available_updates": set(),
+            "sv_check_for_updates": set(),
+            "sv_update_core": {"version", "backup", "confirmation_token"},
+        }
+        assert not tools["sv_update_core"].parameters.get("required")
+        assert tools["sv_update_core"].parameters["properties"]["backup"].get("default") is True
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import CORE_WS, SUPERVISOR
+
+        tools = _real_registry(["system_updates"])
+        assert [n for n in _UPDATES_015 if n in tools] == []
+        dedicadas = [e.tool for e in (*CORE_WS.values(), *SUPERVISOR.values())
+                     if e.category == "dedicated" and e.family == "system_updates"]
+        assert sorted(set(dedicadas)) == sorted(_UPDATES_015[1:] + _UPDATES_015[:1])
+        assert len(dedicadas) == 5
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
