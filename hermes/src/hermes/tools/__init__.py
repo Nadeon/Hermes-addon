@@ -315,9 +315,14 @@ def register_all_tools(
     # plugins y del host, también de arranques anteriores. Solo leen. Reciben
     # `response_max_bytes` para devolver las ÚLTIMAS líneas que caben en vez
     # de que el guardián central cambie el log entero por un error.
+    # Con ellos, servicios del host, uso de disco, OS y swap (tramo 2), que
+    # recortan sus listas y podan el árbol de uso de disco a su tope.
     if _activa("system_diagnostics"):
         from hermes.tools.system_logs import register as register_system_logs
         register_system_logs(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+        from hermes.tools.host_system import register as register_host_system
+        register_host_system(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

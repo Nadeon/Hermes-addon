@@ -745,12 +745,24 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_host_logs": ("R-I-", "Get host logs (Supervisor)"),
     "sv_list_host_log_identifiers": ("R-I-", "List host log identifiers (Supervisor)"),
     "sv_list_boots": ("R-I-", "List boots (Supervisor)"),
+    # Spec 013, tramo 2: disco, host y OS, misma familia y mismas garantías.
+    "sv_list_host_services": ("R-I-", "List host services (Supervisor)"),
+    "sv_get_disk_usage": ("R-I-", "Get disk usage (Supervisor)"),
+    "sv_get_os_info": ("R-I-", "Get OS info (Supervisor)"),
+    "sv_get_swap": ("R-I-", "Get swap (Supervisor)"),
+    "sv_list_datadisk_candidates": ("R-I-", "List datadisk candidates (Supervisor)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
 _LOGS_013 = (
     "sv_get_core_logs", "sv_get_supervisor_logs", "sv_get_plugin_logs",
     "sv_get_host_logs", "sv_list_host_log_identifiers", "sv_list_boots",
+)
+
+# Las del tramo 2 de la spec 013 (disco, host y OS, CAP-085).
+_HOST_013 = (
+    "sv_list_host_services", "sv_get_disk_usage", "sv_get_os_info",
+    "sv_get_swap", "sv_list_datadisk_candidates",
 )
 
 
@@ -847,6 +859,15 @@ class TestToolTitles:
         tool de la 1.1.2 tiene `api` como palabra de su nombre."""
         con_api = sorted(n for n in _HINTS_SNAPSHOT if "api" in n.split("_"))
         assert con_api == [], con_api
+
+    def test_os_no_cambia_ningun_titulo_existente(self):
+        """Spec 013 (T021): `"os": "OS"` da `Get OS info (Supervisor)` y no
+        toca ningún título de la 1.1.2: ninguna tiene `os` como palabra."""
+        from hermes.tools._annotations import title_for
+
+        assert title_for("sv_get_os_info") == "Get OS info (Supervisor)"
+        con_os = sorted(n for n in _HINTS_SNAPSHOT if "os" in n.split("_"))
+        assert con_os == [], con_os
 
     def test_esquemas_de_la_1_1_2(self):
         """Las tools de la 1.1.2 conservan los argumentos (nombres y
@@ -1084,10 +1105,62 @@ class TestLogsDelSistema013:
 
     def test_con_la_familia_apagada(self):
         tools = _real_registry(["system_diagnostics"])
-        assert [n for n in _LOGS_013 if n in tools] == []
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
         esquema = tools["sv_get_addon_logs"].parameters
         assert {"boot", "latest"} <= set(esquema["properties"])
         assert sorted(esquema.get("required", [])) == ["slug"]
+
+
+# ── Spec 013, tramo 2: disco, host y OS (FR-021; T020, T024) ─────────────────
+
+
+class TestHostSystem013:
+    """Las cinco tools de disco, host y OS se registran por defecto, solo leen
+    y no piden token; con `system_diagnostics` apagada no existe ninguna y la
+    tabla sigue apuntándolas como `dedicated`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _HOST_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _HOST_013}
+        assert props == {
+            "sv_list_host_services": {"state"},
+            "sv_get_disk_usage": {"disk", "max_depth"},
+            "sv_get_os_info": set(),
+            "sv_get_swap": set(),
+            "sv_list_datadisk_candidates": set(),
+        }
+        assert not tools["sv_get_disk_usage"].parameters.get("required")
+
+    def test_con_la_familia_apagada_la_tabla_sigue_igual(self):
+        """T024 (FR-021; FR-012 de la 008): apagar la familia quita las tools
+        pero no cambia la tabla: sus 28 entradas siguen `dedicated` y apuntan
+        a tools de `system_diagnostics` o de `supervisor`."""
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["system_diagnostics"])
+        dedicadas = {
+            k: e for k, e in SUPERVISOR.items()
+            if e.category == "dedicated" and e.family == "system_diagnostics"
+        }
+        assert len(dedicadas) == 26
+        assert {e.tool for e in dedicadas.values()} == set(_LOGS_013 + _HOST_013)
+        con_boot = [k for k, e in SUPERVISOR.items()
+                    if e.category == "dedicated" and e.cap == "CAP-081"
+                    and e.family == "supervisor"]
+        assert len(con_boot) == 2
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

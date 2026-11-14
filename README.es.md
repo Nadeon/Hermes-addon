@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **226 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **231 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 226 herramientas
+## Qué puede hacer — 231 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -42,7 +42,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Add-ons** | 12 | Listar, instalar, arrancar, parar, actualizar, leer logs (también de arranques anteriores) y estadísticas |
 | **Backups** | 13 | Completos y parciales, crear y restaurar. Además, de solo lectura, los backups de la integración `backup` de Home Assistant (HA 2025.1 o posterior) en todas sus ubicaciones (local, red, nube) y su configuración sin la contraseña de cifrado |
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
-| **Logs del sistema** | 6 | De solo lectura: logs de Home Assistant Core, del Supervisor, de los plugins (`dns`, `audio`, `multicast`) y del journal del host, también de arranques anteriores, con los secretos redactados; los identificadores y arranques del journal |
+| **Diagnóstico del sistema** | 11 | De solo lectura: logs de Home Assistant Core, del Supervisor, de los plugins (`dns`, `audio`, `multicast`) y del journal del host, también de arranques anteriores, con los secretos redactados; los identificadores y arranques del journal; servicios del host, qué llena el disco, versión y slots de Home Assistant OS, swap y discos candidatos a disco de datos |
 | **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
 | **Diagnóstico** | 8 | Avisos de Reparaciones (listar e ignorar), trazas de automatizaciones y scripts, qué está relacionado con un elemento y el centro de resolución del Supervisor (leer y descartar issues y sugerencias; las sugerencias nunca se aplican) |
 | **Marketplace (antes HACS)** | 11 | De solo lectura: estado, repositorios, actualizaciones disponibles, versiones publicadas y repositorios críticos o retirados. Detecta en cada llamada si Home Assistant trae el Marketplace integrado (2026.11 o posterior) o HACS 2.x. Las actualizaciones se instalan con la entidad `update`, con confirmación. Las 4 tools `ha_hacs_*` siguen como alias deprecados hasta 1.3.0 |

@@ -121,3 +121,105 @@ class SupervisorSimulado:
         if isinstance(valor, Exception):
             raise valor
         return copy.deepcopy(valor)
+
+
+# ── Disco, host y OS (tramo 2, CAP-085) ──────────────────────────────────────
+# Formas de `supervisor/api/host.py` (`services`, `disk_usage`) y
+# `supervisor/api/os.py` (`info`, `config_swap_info`, `list_data`) del
+# Supervisor 2026.11.0. `sv_request` ya devuelve el campo `data`.
+
+HOST_SERVICES = {
+    "services": [
+        {"name": "servicio-ficticio.service", "description": "Servicio ficticio",
+         "state": "failed"},
+        {"name": "otro-ficticio.service", "description": "Otro servicio",
+         "state": "active"},
+        {"name": "tercero-ficticio.service", "description": "Tercero",
+         "state": "inactive"},
+        # `failed-x` no es `failed`: el filtro es por estado EXACTO.
+        {"name": "cuarto-ficticio.service", "description": "Cuarto",
+         "state": "failed-x"},
+    ]
+}
+
+
+def nodo(id_: str, used: int, hijos: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Un nodo del árbol de uso de disco, con la forma del Supervisor."""
+    out: dict[str, Any] = {"id": id_, "label": id_, "used_bytes": used}
+    if hijos is not None:
+        out["children"] = hijos
+    return out
+
+
+def uso_de_disco_ancho(n: int = 30) -> dict[str, Any]:
+    """Raíz con `n` hijos en un nivel; el hijo `c<i>` ocupa `(i + 1) * 1000`
+    bytes, y `c00` y `c01` empatan a propósito (desempate por `id`)."""
+    hijos = [nodo(f"c{i:02d}", (i + 1) * 1000) for i in range(n)]
+    hijos[0]["used_bytes"] = hijos[1]["used_bytes"]
+    return {
+        "id": "root", "label": "Root", "total_bytes": 10**12,
+        "used_bytes": sum(h["used_bytes"] for h in hijos),
+        "children": hijos,
+    }
+
+
+def uso_de_disco_profundo(ancho: int = 25) -> dict[str, Any]:
+    """Tres niveles con `ancho` hijos en cada uno (cada nodo lleva los suyos),
+    para comprobar que la poda es recursiva."""
+
+    def nivel(prefijo: str, profundidad: int) -> list[dict[str, Any]]:
+        if profundidad == 0:
+            return []
+        hijos = []
+        for i in range(ancho):
+            id_ = f"{prefijo}{i:02d}"
+            sub = nivel(id_ + "-", profundidad - 1)
+            used = sum(h["used_bytes"] for h in sub) if sub else (i + 1) * 10
+            hijos.append(nodo(id_, used, sub or None))
+        return hijos
+
+    hijos = nivel("n", 3)
+    return {
+        "id": "root", "label": "Root", "total_bytes": 10**12,
+        "used_bytes": sum(h["used_bytes"] for h in hijos), "children": hijos,
+    }
+
+
+# Disco del sistema por la API v1 del Supervisor (la que ve un add-on): los
+# ids de los add-ons salen con el nombre antiguo y Hermes no los cambia.
+USO_DE_DISCO_V1 = {
+    "id": "root", "label": "Root", "total_bytes": 32_000_000_000,
+    "used_bytes": 20_000_000_000,
+    "children": [
+        nodo("system", 3_000_000_000),
+        nodo("addons_data", 5_000_000_000),
+        nodo("addons_config", 1_000_000_000),
+        nodo("homeassistant", 9_000_000_000),
+        nodo("backup", 2_000_000_000),
+    ],
+}
+
+CENTINELA_OS = "centinela-os-3"
+
+OS_INFO = {
+    "version": "17.0", "version_latest": "17.1", "update_available": True,
+    "board": "generic-x86-64", "boot": "A", "data_disk": "disco-ficticio-1",
+    "boot_slots": {
+        "A": {"state": "booted", "status": "good", "version": "17.0"},
+        "B": {"state": "inactive", "status": None, "version": "16.3"},
+    },
+}
+
+SWAP = {"swap_size": "1G", "swappiness": 1}
+
+# El número de serie va en la respuesta (research R-7), nunca al log.
+SERIAL_FICTICIO = "SERIAL-FICTICIO-0001"
+
+DATADISK_LIST = {
+    "devices": ["disco-ficticio-2"],
+    "disks": [
+        {"name": "Disco ficticio", "vendor": "Fabricante", "model": "Modelo X",
+         "serial": SERIAL_FICTICIO, "size": 256_060_514_304,
+         "id": "disco-ficticio-2", "dev_path": "/dev/sdz"},
+    ],
+}

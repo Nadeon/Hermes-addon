@@ -238,6 +238,9 @@ _TITLE_WORDS: dict[str, str] = {
     # Spec 011: `sv_read_api` → «Read API (Supervisor)». Ninguna tool de la
     # 1.1.2 tiene `api` como palabra, así que no cambia ningún título.
     "api": "API",
+    # Spec 013: `sv_get_os_info` → «Get OS info (Supervisor)». Ninguna tool
+    # de la 1.1.2 tiene `os` como palabra (lo comprueba un test).
+    "os": "OS",
     # «addon» es como se escribe en el código; Home Assistant lo llama add-on.
     "addon": "add-on",
     "addons": "add-ons",
