@@ -318,13 +318,25 @@ class TestTemaIntegrationFlows(unittest.IsolatedAsyncioTestCase):
     async def test_tema_y_alias(self) -> None:
         texto = await self.guide("integration_flows")
         self.assertIs(texto, _GUIDE["integration_flows"])
-        for alias in ("discovery", "discovered", "DISCOVERY"):
+        for alias in ("discovery", "discovered", "DISCOVERY",
+                      "subentries", "subentry", "reconfigure"):
             with self.subTest(alias=alias):
                 self.assertEqual(await self.guide(alias), texto)
         for palabra in ("ha_continue_config_entry_flow", "ignorable", "ha_delete_config_entry",
                         "pref_disable_polling", "pref_disable_new_entities",
-                        "homeassistant.update_entity", "OAuth"):
+                        "homeassistant.update_entity", "OAuth",
+                        "supported_subentry_types", "use_dedicated_tool",
+                        "reconfigure_successful"):
             self.assertIn(palabra, texto)
+
+    def test_reconfigure_con_token_en_cada_paso(self) -> None:
+        # Decisión del supervisor (tramo B): el tema no puede dejar creer que
+        # un reconfigure se sigue con la tool general ni que va sin token.
+        texto = _GUIDE["integration_flows"]
+        self.assertIn("token en cada paso", _GUIDE["config_entries"])
+        self.assertIn("ha_continue_reconfigure_flow", _GUIDE["config_entries"])
+        self.assertIn("CADA paso", texto)
+        self.assertIn("rechaza estos flujos", texto)
 
     async def test_cada_tool_de_la_familia_nombrada(self) -> None:
         tools = _tools_de_la_familia("integration_flows")

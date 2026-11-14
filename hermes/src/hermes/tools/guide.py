@@ -346,10 +346,13 @@ reversible usa `disable`, no `delete`. Ver el flujo completo en
 `hermes_guide("workflows")`.
 
 Lo descubierto, el catálogo de dominios configurables y el título y las
-preferencias de una entrada: `hermes_guide("integration_flows")`.
+preferencias de una entrada: `hermes_guide("integration_flows")`. Ahí también
+las subentries y el reconfigure de una entrada (`ha_start_reconfigure_flow`):
+un reconfigure NO se continúa con `ha_continue_config_entry_flow`, que lo
+rechaza; va por `ha_continue_reconfigure_flow`, con token en cada paso.
 """,
     "integration_flows": """\
-# Integraciones: descubiertos, dominios configurables y preferencias
+# Integraciones: descubiertos, preferencias, subentries y reconfigure
 
 Familia `integration_flows` (nueva en la 1.2.0; desactivable).
 
@@ -391,6 +394,46 @@ TÍTULO Y PREFERENCIAS DE UNA ENTRADA
   (`pref_disable_new_entities=true`), porque lo que la integración añada desde
   entonces entra deshabilitado. Enséñale la vista previa al usuario.
 - La respuesta trae `reloaded` (HA recargó la entrada) y `require_restart`.
+
+SUBENTRIES (partes de una entrada con título, datos, entidades y dispositivos
+propios; p. ej. una por ubicación o por modelo)
+- `ha_list_config_subentries(entry_id)` — las subentries y
+  `supported_subentry_types` (`{tipo: {"supports_reconfigure": bool}}`): los
+  tipos que la entrada admite crear.
+- Crear: `ha_start_subentry_flow(entry_id, subentry_type)` →
+  `ha_continue_subentry_flow(flow_id, {campos})` hasta `create_entry`.
+- Reconfigurar una subentry: `ha_start_subentry_flow(entry_id, tipo,
+  subentry_id=…)` (si el tipo lo admite) y el mismo `ha_continue_subentry_flow`;
+  suele acabar en `abort` con `reconfigure_successful`.
+- Cerrar un flujo a medias: `ha_abort_subentry_flow(flow_id)`.
+- Renombrar: `ha_update_subentry(entry_id, subentry_id, title)`.
+- Sin token: crear, reconfigurar, renombrar y abortar (como los flujos de
+  configuración y de opciones).
+- Borrar: `ha_delete_subentry(entry_id, subentry_id)` CON token. HA se lleva
+  con ella sus dispositivos (y sus hijos) y sus entidades, y la integración
+  puede recargarse; la vista previa los enumera. No se deshace: habría que
+  crearla otra vez.
+
+RECONFIGURE DE UNA ENTRADA (el «Reconfigurar» de la interfaz)
+- `ha_start_reconfigure_flow(entry_id)` — solo si la entrada tiene
+  `supports_reconfigure: true`. Abre el flujo y devuelve el primer paso; aún
+  no cambia nada.
+- Cada paso se envía con `ha_continue_reconfigure_flow(flow_id, {campos})` en
+  DOS pasos: sin token devuelve una vista previa (entrada, paso, los campos con
+  los secretos tapados, el efecto) y un token; repite la misma llamada con el
+  token. Pide token en CADA paso porque cualquiera puede terminar el flujo: la
+  integración guarda los datos nuevos (credenciales o datos de conexión
+  incluidos) y HA la recarga. Enséñale la vista previa al usuario. Si el paso
+  cambió entre la vista previa y la confirmación, el token no vale.
+- `ha_continue_config_entry_flow` rechaza estos flujos (`use_dedicated_tool`).
+  Abortar: `ha_abort_config_entry_flow(flow_id)`. Un reconfigure sin usar en
+  una hora caduca: Hermes lo aborta la próxima vez que se abre o se continúa
+  un reconfigure. Tras reiniciar Hermes no se reconocen los de antes: abre
+  otro.
+- Los valores sugeridos de los campos de contraseña salen tapados (también
+  en los flujos de subentry). El valor tapado no se puede reenviar: Hermes
+  rechaza `***REDACTED***` en `user_input`. Si el usuario no quiere cambiar
+  una contraseña, pídesela o mira qué admite el formulario.
 
 Los flujos que piden un login externo (OAuth) o esperan un proceso
 (`external`, `progress`) no son automatizables: Hermes los aborta y lo dice.
@@ -682,6 +725,9 @@ _ALIASES: dict[str, str] = {
     "flows": "config_entries",
     "discovery": "integration_flows",
     "discovered": "integration_flows",
+    "subentries": "integration_flows",
+    "subentry": "integration_flows",
+    "reconfigure": "integration_flows",
     "fs": "filesystem",
     "files": "filesystem",
     "config": "filesystem",
