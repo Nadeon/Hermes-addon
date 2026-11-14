@@ -40,7 +40,8 @@ describe el enfoque. Sale más barato redirigir un plan que una rama terminada.
 Abre un [issue nuevo](../../issues/new). Lo que hace que un reporte sea
 accionable:
 
-- **La versión de Hermes** (Ajustes → Add-ons → Hermes, o el campo `version:` de
+- **La versión de Hermes** (Configuración → Aplicaciones → Hermes, que antes
+  de HA 2026.2 se llamaba Complementos, o el campo `version:` de
   `hermes/config.yaml`).
 - **`network_mode`** y cómo expones Hermes (Tailscale Funnel, Cloudflare Tunnel,
   proxy inverso clásico).

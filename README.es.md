@@ -11,6 +11,10 @@ habla con sistemas externos). Son **185 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
+> Desde Home Assistant 2026.2, la interfaz llama a los add-ons **aplicaciones**
+> (*Apps* en inglés). Esta guía mantiene el término «add-on», igual que el
+> nombre del repositorio y la API del Supervisor.
+
 En la práctica: le pides a Claude «apaga las luces del salón», o «créame una
 automatización que suba la persiana al amanecer pero no los domingos», y lo
 hace — enseñándote antes qué va a tocar cuando la acción es destructiva.
@@ -39,7 +43,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Backups** | 10 | Completos y parciales, crear y restaurar |
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
 | **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
-| **HACS** | 4 | Consultar repositorios y actualizaciones disponibles |
+| **HACS** | 4 | Consultar repositorios y actualizaciones disponibles. En HA 2026.11 o posterior, HACS pasó a ser la integración Marketplace; las tools `ha_hacs_*` todavía no la soportan |
 | **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
 
@@ -87,7 +91,9 @@ Lo único que Hermes necesita, sea cual sea la opción, es:
 No abre ningún puerto del router y el certificado lo gestiona Tailscale.
 Es la opción con la que Hermes está más probado.
 
-1. Instala el **add-on oficial de Tailscale** en HAOS.
+1. Instala el **add-on de Tailscale** en HAOS. Es el add-on comunitario
+   (repositorio Home Assistant Community Add-ons, `a0d7b954`), no uno oficial,
+   aunque la tienda lo muestra por defecto.
 2. Configura **`userspace_networking: false`**. Es obligatorio: sin eso no se
    crea la interfaz `tailscale0` y, en `network_mode: tailscale`, Hermes espera
    a que exista y no arranca.
@@ -103,8 +109,8 @@ Es la opción con la que Hermes está más probado.
    más directa de llegar a él:
    1. Instala **Advanced SSH & Web Terminal** (el de la comunidad; el oficial
       "Terminal & SSH" no da acceso a Docker).
-   2. En su configuración, desactiva **Protection mode**. Sin eso no hay
-      comando `docker`. Puedes volver a activarlo al terminar.
+   2. En su pestaña **Información**, desactiva **Modo de protección**. Sin
+      eso no hay comando `docker`. Puedes volver a activarlo al terminar.
    3. Desde su terminal web:
       ```
       docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg 8765
@@ -114,7 +120,7 @@ Es la opción con la que Hermes está más probado.
       lo da. `funnel status` debe listar `https://<hostname>` apuntando a
       `http://127.0.0.1:8765`.
 
-   Tres cosas a saber:
+   Cuatro cosas a saber:
    - **Funnel tiene que estar permitido en tu tailnet**: HTTPS habilitado y
      el atributo `funnel` en la política de acceso. Si no lo está, el comando
      imprime un enlace al panel de Tailscale para activarlo; no falla en
@@ -124,8 +130,24 @@ Es la opción con la que Hermes está más probado.
      y actualizaciones del add-on, pero no a reinstalarlo. Si algún día Hermes
      deja de ser alcanzable tras tocar Tailscale, lo primero es
      `tailscale funnel status`.
+     Una excepción en las actualizaciones: la primera vez que arranca un
+     add-on de Tailscale 0.14.0 o posterior, ejecuta una sola vez
+     `tailscale serve reset`, que borra toda la configuración de Serve y
+     Funnel, también esta. Si configuraste el Funnel con una versión anterior
+     y luego actualizaste, vuelve a lanzar el comando `funnel --bg 8765`. No
+     vuelve a ocurrir.
    - `--bg` es lo que lo hace persistente. Sin él, el Funnel dura lo que dure
      el comando en primer plano.
+   - **No lo combines con `share_homeassistant: funnel` en el puerto 443.**
+     Esa opción publica Home Assistant con `tailscale funnel
+     --https=<share_on_port> --set-path=/`, y `share_on_port` vale `443` por
+     defecto: el mismo puerto y la misma ruta que el Funnel de Hermes. Lo
+     notarás porque `tailscale funnel status` muestra `/` en el puerto 443
+     apuntando al puerto de Home Assistant (`8123` por defecto) en vez de a
+     `http://127.0.0.1:8765`. Si también quieres publicar Home Assistant, pon
+     `share_on_port` a `8443` o `10000` en el add-on de Tailscale, reinícialo
+     y vuelve a lanzar el comando `funnel --bg 8765` si `funnel status` ya no
+     lo lista.
 4. En las opciones de Hermes:
    - `network_mode`: `tailscale`
    - `public_hostname`: el hostname que te da Funnel (ej.
@@ -189,8 +211,9 @@ expuesto a internet, así que es la opción con más superficie de ataque.
 
 ## Instalación
 
-1. En Home Assistant: **Ajustes → Add-ons → Tienda de add-ons → ⋮ →
-   Repositorios**, y pega:
+1. En Home Assistant: **Configuración → Aplicaciones → Instalar aplicación →
+   ⋮ → Repositorios** (antes de HA 2026.2: **Configuración → Complementos →
+   Tienda de complementos → ⋮ → Repositorios**), y pega:
 
    ```
    https://github.com/Nadeon/Hermes-addon
@@ -231,8 +254,8 @@ actualiza con un clic.
 
 Si prefieres no añadir un repositorio de terceros a tu Home Assistant, copia
 **el contenido de la carpeta `hermes/`** (no la raíz del repositorio) a
-`/addons/hermes` en el host, por Samba o SSH. Aparecerá en **Local add-ons**
-tras un *Comprobar actualizaciones*.
+`/addons/hermes` en el host, por Samba o SSH. Aparecerá en **Local apps**
+(**Local add-ons** en versiones anteriores) tras un *Buscar actualizaciones*.
 
 Instalado así no recibes avisos de versión nueva: cada actualización es volver a
 copiar los ficheros.
