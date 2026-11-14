@@ -13,12 +13,12 @@ Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufijo
-from tests.banco.entorno import confirmar
 
 pytestmark = pytest.mark.banco
 
@@ -32,6 +32,18 @@ async def _dashboard(s: SesionEscrituras, url_path: str) -> dict[str, Any] | Non
 
 async def _config(s: SesionEscrituras, url_path: str) -> Any:
     return await s.lector.comando({"type": "lovelace/config", "url_path": url_path})
+
+
+async def _rechazo(s: SesionEscrituras, tool: str, **args: Any) -> dict[str, Any]:
+    """Llama a una tool que DEBE rechazar y devuelve su `{"error": …}`.
+
+    No sirve `llamar`: Hermes marca con `isError` toda respuesta `{"error": …}`
+    y `llamar` la convierte en fallo del test (como `_rechazo` de
+    `test_banco_genericas.py`).
+    """
+    resultado = await s.cliente.call_tool(tool, args)
+    assert getattr(resultado, "is_error", False), f"{tool}: se esperaba un rechazo"
+    return json.loads(resultado.content[0].text)
 
 
 def _tres_vistas(hexa: str) -> dict[str, Any]:
@@ -111,6 +123,8 @@ class TestGuardadoPorVista(BancoEscrituras):
             await s.lector.comando({"type": "lovelace/config/save",
                                     "url_path": url_path, "config": del_otro})
             self.assertEqual(await _config(s, url_path), del_otro)
-            res = await confirmar(s.cliente, tool, vista, url_path=url_path, view_index=1)
-            self.assertEqual(res.get("error"), "dashboard_changed", res)
+            res = await _rechazo(s, tool, url_path=url_path, view_index=1,
+                                 confirmation_token=vista["confirmation_token"])
+            self.assertEqual(res["error"], "dashboard_changed", res)
+            self.assertEqual(res["view_index"], 1)
             self.assertEqual(await _config(s, url_path), del_otro)
