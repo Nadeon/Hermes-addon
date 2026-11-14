@@ -362,6 +362,13 @@ La suite no puede cubrir esto; anota aquí el resultado:
 - [ ] **Las 13 tools de escritura de la 1.1.x**, en vivo.
 - [ ] **`sv_update_addon` sobre Hermes**, tras el rechazo previo de la
   spec 009 (CAP-021).
+- [ ] **Diagnóstico del Supervisor (spec 013), en vivo** (VM de la 014 o
+  cierre del programa): las once tools de `system_diagnostics` (los logs con
+  `boot=-1` y `latest`, `sv_get_disk_usage` con `max_depth` 3 y con un
+  montaje, y las tres de OS) y las rutas `read` de la tabla (`/jobs/info`,
+  `/resolution/issue/{issue}/suggestions`, `/host/disks`, hardware, Docker,
+  hora y red) por `sv_read_api`. Solo leen; en la suite se prueban con un
+  Supervisor simulado.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -382,7 +389,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | hecha: tabla, cuatro genéricas, familias y `tool_families_disabled`, tema `generic_commands` con `search`, extractor y generador; convergencia tras la revisión independiente cerrada (T044–T049); prueba de las genéricas en el banco de Core (T027) activada al integrarla con la 010 |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
-| 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | en curso: tramo 1 hecho (logs de Core, Supervisor, plugins y host, también de arranques anteriores; familia `system_diagnostics`; `boot`/`latest` en `sv_get_addon_logs`; 23 rutas a `dedicated`); tramo 2 (disco, host y OS) pendiente |
+| 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (014 o cierre) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | pendiente |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |

@@ -34,12 +34,40 @@ argumento existente cambia ni pasa a ser obligatorio.
   tools pasan de «pendiente de tool dedicada» a `dedicated`; `sv_read_api`
   remite a la tool. Las variantes `follow` (streaming) y el alias legado
   `/homeassistant/logs*` siguen rechazadas.
+- **Disco, host y OS.** Cinco tools más de solo lectura en
+  `system_diagnostics`: `sv_list_host_services` (servicios systemd del host;
+  `state="failed"` enseña los que han fallado), `sv_get_disk_usage` (qué
+  ocupa el disco del sistema o un montaje de red, con `max_depth` de 0 a 3;
+  en cada nivel quedan las 20 carpetas que más ocupan y lo quitado se resume
+  en `children_omitted` y `omitted_bytes` para que la suma cuadre),
+  `sv_get_os_info` (versión de Home Assistant OS, actualización, placa y
+  slots), `sv_get_swap` (tamaño y swappiness, OS 15 o posterior) y
+  `sv_list_datadisk_candidates` (discos que podrían ser el disco de datos;
+  solo los lista). Las de OS, sin Home Assistant OS, devuelven el error del
+  Supervisor con una pista que lo dice. Las respuestas pasan por la
+  redacción de secretos; el número de serie de un disco sí sale en la
+  respuesta (no es un secreto), pero nunca en el log de Hermes.
+- **Tabla de comandos**: las 23 rutas de logs del Supervisor que cubren estas
+  tools y las 5 de disco, host y OS pasan de «pendiente de tool dedicada» a
+  `dedicated`; `sv_read_api` remite a la tool. Las variantes `follow`
+  (streaming) y el alias legado `/homeassistant/logs*` siguen rechazadas.
+  Tres rutas de lectura pasan a `read` y se leen con `sv_read_api`:
+  `/jobs/info` (todos los jobs del Supervisor),
+  `/resolution/issue/{issue}/suggestions` y `/host/disks` (discos con
+  particiones montables). Las de hardware, audio, seguridad, Docker, hora y
+  red del host ya eran `read` y ahora tienen test.
+  `POST /security/integrity` sigue denegada: el Supervisor 2026.11 eliminó la
+  comprobación de integridad y la ruta responde 410 (la spec 008 la preveía
+  con confirmación).
 - **Guía**: tema nuevo `hermes_guide("system_diagnostics")` (alias
-  `system_logs`, `supervisor_logs`, `host_logs`, `boots`); el tema
-  `supervisor` explica `boot` y `latest` en los logs de add-ons.
+  `system_logs`, `supervisor_logs`, `host_logs`, `boots`, `disk`, `storage`,
+  `os`, `jobs`), con las once tools y las rutas de diagnóstico que se leen
+  por `sv_read_api`; el tema `supervisor` explica `boot` y `latest` en los
+  logs de add-ons.
 - La prueba en vivo contra un Supervisor real queda pendiente (spec 014 o el
-  cierre del programa): en los tests, las tools se prueban con un Supervisor
-  simulado con la forma de las respuestas del 2026.11.0.
+  cierre del programa), para las once tools y las rutas `read`: en los tests,
+  se prueban con un Supervisor simulado con la forma de las respuestas del
+  2026.11.0.
 
 ### Integraciones
 
@@ -80,8 +108,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 115 y 52), `read` (36 y 26),
-  `confirm` (20 y 25) o `deny` (452 y 151, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 115 y 57), `read` (36 y 29),
+  `confirm` (20 y 25) o `deny` (452 y 143, con su motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como

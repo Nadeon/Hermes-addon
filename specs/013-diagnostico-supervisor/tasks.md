@@ -134,22 +134,69 @@ El tramo 2 necesita el tramo 1 integrado.
 
 ### Tests (escritos antes, en rojo)
 
-- [ ] T016 [P] [US2] Fixture (ampliar `tests/fixtures/supervisor_diagnostico.py`: `/host/services`, uso de disco con 30 hijos en un nivel y tres niveles, `/os/info`, `/os/config/swap`, `/os/datadisk/list`) y tests en `tests/test_tools_host_system.py`: `sv_list_host_services` (sobre común; `state="failed"` filtra exacto); `sv_get_disk_usage` → `/host/disks/default/usage` con `params={"max_depth": "1"}` y `timeout_seconds` ≥ 75; `disk="nas_backups"` → su ruta; `disk` inválido (`"a-b"`, `"a/b"`, `""`, 65 caracteres) y `max_depth` -1 o 4 → `invalid_argument` sin llamada; poda: 20 hijos por nivel ordenados por `used_bytes` (empate por `id`), `children_omitted` y `omitted_bytes` que cuadran con lo quitado, recursiva hasta `max_depth`; ids `addons_data`/`addons_config` de v1 pasan tal cual; `sv_get_os_info` y `sv_get_swap` devuelven el objeto; `sv_list_datadisk_candidates` con el sobre común y `devices`; un centinela bajo una clave `password` inyectado en la respuesta de `/os/info` sale tapado (`redact_structure`) (FR-011…FR-016)
-- [ ] T017 [P] [US2] Tests de errores en `tests/test_tools_host_system.py`: 404 en `/os/info`, `/os/config/swap` y `/os/datadisk/list` → `error` con la pista de Home Assistant OS; 400 de un montaje desconocido → `error` redactado sin pista; `HAConnectionError` sin `status` → `error`; nunca una respuesta vacía como buena; evento de log `system_diagnostics_read` con `count`/`bytes` y sin datos de la respuesta (ni `serial` ni nombres de disco) (FR-016, FR-010)
-- [ ] T018 [P] [US3] Tests en `tests/test_tools_diagnostico_tabla.py` con `sv_read_api` (de la 011) y el Supervisor simulado: `GET /jobs/info`, `/resolution/issue/<uuid ficticio>/suggestions`, `/host/disks`, `/hardware/info`, `/hardware/audio`, `/security/info`, `/docker/info`, `/time/info`, `/network/info`, `/network/interface/eth0/info` y `/network/interface/wlan0/accesspoints` → una llamada `GET` y la respuesta redactada (un centinela bajo `password` en `/docker/info` sale tapado); `sv_call_api("POST", "/security/integrity")` y `sv_read_api` con esa ruta → rechazo sin llamada y el motivo de la tabla; `sv_read_api("/core/logs")`, `("/os/info")` y `("/addons/<slug>/logs/latest")` → `use_dedicated_tool` con la tool correcta y sin llamada; con `system_diagnostics` desactivada → `family_disabled: true`; `/network/info` con IPs, MAC y SSID ficticios → el log capturado no contiene ninguno (FR-018…FR-020)
+- [x] T016 [P] [US2] Fixture (ampliar `tests/fixtures/supervisor_diagnostico.py`: `/host/services`, uso de disco con 30 hijos en un nivel y tres niveles, `/os/info`, `/os/config/swap`, `/os/datadisk/list`) y tests en `tests/test_tools_host_system.py`: `sv_list_host_services` (sobre común; `state="failed"` filtra exacto); `sv_get_disk_usage` → `/host/disks/default/usage` con `params={"max_depth": "1"}` y `timeout_seconds` ≥ 75; `disk="nas_backups"` → su ruta; `disk` inválido (`"a-b"`, `"a/b"`, `""`, 65 caracteres) y `max_depth` -1 o 4 → `invalid_argument` sin llamada; poda: 20 hijos por nivel ordenados por `used_bytes` (empate por `id`), `children_omitted` y `omitted_bytes` que cuadran con lo quitado, recursiva hasta `max_depth`; ids `addons_data`/`addons_config` de v1 pasan tal cual; `sv_get_os_info` y `sv_get_swap` devuelven el objeto; `sv_list_datadisk_candidates` con el sobre común y `devices`; un centinela bajo una clave `password` inyectado en la respuesta de `/os/info` sale tapado (`redact_structure`) (FR-011…FR-016)
+- [x] T017 [P] [US2] Tests de errores en `tests/test_tools_host_system.py`: 404 en `/os/info`, `/os/config/swap` y `/os/datadisk/list` → `error` con la pista de Home Assistant OS; 400 de un montaje desconocido → `error` redactado sin pista; `HAConnectionError` sin `status` → `error`; nunca una respuesta vacía como buena; evento de log `system_diagnostics_read` con `count`/`bytes` y sin datos de la respuesta (ni `serial` ni nombres de disco) (FR-016, FR-010)
+- [x] T018 [P] [US3] Tests en `tests/test_tools_diagnostico_tabla.py` con `sv_read_api` (de la 011) y el Supervisor simulado: `GET /jobs/info`, `/resolution/issue/<uuid ficticio>/suggestions`, `/host/disks`, `/hardware/info`, `/hardware/audio`, `/security/info`, `/docker/info`, `/time/info`, `/network/info`, `/network/interface/eth0/info` y `/network/interface/wlan0/accesspoints` → una llamada `GET` y la respuesta redactada (un centinela bajo `password` en `/docker/info` sale tapado); `sv_call_api("POST", "/security/integrity")` y `sv_read_api` con esa ruta → rechazo sin llamada y el motivo de la tabla; `sv_read_api("/core/logs")`, `("/os/info")` y `("/addons/<slug>/logs/latest")` → `use_dedicated_tool` con la tool correcta y sin llamada; con `system_diagnostics` desactivada → `family_disabled: true`; `/network/info` con IPs, MAC y SSID ficticios → el log capturado no contiene ninguno (FR-018…FR-020)
 
 ### Implementación
 
-- [ ] T019 [US2] `hermes/src/hermes/tools/host_system.py`: cinco tools según contracts/tools.md (poda en una función pura con su porqué, `redact_structure` en las respuestas JSON, errores con pista, evento de log); `host_system` en la familia `system_diagnostics` (`tool_families.py` y su test de T002); registro en `tools/__init__.py`. T016 y T017 en verde (FR-011…FR-016, FR-021)
-- [ ] T020 [US2] Tests en `tests/test_tools_registration.py` para las cinco: registradas por defecto, `readOnlyHint`, idempotentes, sin mundo abierto, sin `confirmation_token`; ninguna con la familia desactivada; SC-005 de la 011 en verde (FR-021)
-- [ ] T021 [US2] `hermes/src/hermes/tools/_annotations.py`: `"os": "OS"` en `_TITLE_WORDS` con un comentario; test en `tests/test_tools_registration.py`: `sv_get_os_info` → `Get OS info (Supervisor)` y ningún título de las tools de `_HINTS_SNAPSHOT` (1.1.2) cambia (FR-021)
-- [ ] T022 [US2] [US3] Tests en `tests/test_command_table.py` y después `hermes/src/hermes/command_table.py`: las 5 rutas de CAP-085 a `dedicated` (`cap="CAP-085"`); `/jobs/info` y `/resolution/issue/{issue}/suggestions` a `read` (`cap="CAP-087"`) y `/host/disks` a `read` (`cap="CAP-085"`) con los motivos de data-model y un comentario encima de cada una; en el test, diccionario `_POR_LA_TABLA` (clave → «spec 013: <porqué>», research R-5) que `test_clase_a_de_via_dedicada_pendiente_de_su_spec` admite como `read`/`confirm`; ninguna entrada con «spec 013»; el test de verbos sigue en verde; regenerar la tabla sin cambios (FR-017, FR-018)
-- [ ] T023 [US3] Hacer verde T018 (sin código de producto: si algo falla, es la tabla o la genérica de la 011; un fallo de la 011 se anota y no se arregla aquí, principio IX) (FR-018…FR-020)
-- [ ] T024 [US4] Comprobar en `tests/test_tools_registration.py` que, con `system_diagnostics` desactivada, la tabla sigue con sus 28 `dedicated` y `TestDedicadas` pasa con todas las familias activas (FR-021; FR-012 de la 008)
-- [ ] T025 [US2] [US3] Guía: tests en `tests/test_tools_guide.py` (el tema `system_diagnostics` nombra las once tools, `max_depth` y la poda, la necesidad de Home Assistant OS, y las rutas que se leen con `sv_read_api`: jobs, sugerencias, hardware, seguridad, Docker, hora, red y discos montables; alias `disk`, `storage`, `os`, `jobs`; `hermes_guide(topic="generic_commands", search="jobs")` lista `/jobs/info` como `read`); después, `hermes/src/hermes/tools/guide.py` (FR-023)
-- [ ] T026 Documentación: completar la sección de la 013 en el CHANGELOG (cinco tools, tres rutas `read`, integridad `deny` por el Supervisor 2026.11, prueba en vivo pendiente); `docs/HOJA-DE-RUTA.md`: estado de la 013 en la tabla del programa y la prueba en vivo de las 11 tools y de las rutas `read` como pendiente manual (014 o cierre) en la matriz tool → entorno; `README.md` y `README.es.md` sincronizados (recuento de tools según el registro de ese momento, fila de la familia nueva y logs de arranques anteriores en la fila de add-ons); filas CAP-081, CAP-085, CAP-087, CAP-088 y CAP-089 de la matriz de `specs/008-cobertura-total/plan.md` con las tools, las rutas de la tabla y los ficheros de test, sin cambiar sus columnas de sub-feature ni de vía (las lee `_matriz_008`); la desviación de FR-047 anotada en la fila de CAP-088 (FR-025)
-- [ ] T027 Control negativo del tramo 2, anotando recuentos: (a) quitar la poda → cae el de 20 hijos; (b) no validar `max_depth` → caen los de rango; (c) no poner la pista en el 404 de `/os/*` → cae; (d) dejar `/jobs/info` como `deny` → caen el de la tabla y el de `sv_read_api`; (e) pasar `/security/integrity` a `confirm` → cae; (f) añadir al evento de la genérica un dato de la respuesta de red → cae el de log sin direcciones; (g) quitar `"os": "OS"` → cae el del título. Restaurar y comprobar verde
-- [ ] T028 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), `grep -c "spec 013" hermes/src/hermes/command_table.py` = 0, regeneración sin cambios, revisión del diff (principio VIII), commit con los recuentos de T027
+- [x] T019 [US2] `hermes/src/hermes/tools/host_system.py`: cinco tools según contracts/tools.md (poda en una función pura con su porqué, `redact_structure` en las respuestas JSON, errores con pista, evento de log); `host_system` en la familia `system_diagnostics` (`tool_families.py` y su test de T002); registro en `tools/__init__.py`. T016 y T017 en verde (FR-011…FR-016, FR-021)
+- [x] T020 [US2] Tests en `tests/test_tools_registration.py` para las cinco: registradas por defecto, `readOnlyHint`, idempotentes, sin mundo abierto, sin `confirmation_token`; ninguna con la familia desactivada; SC-005 de la 011 en verde (FR-021)
+- [x] T021 [US2] `hermes/src/hermes/tools/_annotations.py`: `"os": "OS"` en `_TITLE_WORDS` con un comentario; test en `tests/test_tools_registration.py`: `sv_get_os_info` → `Get OS info (Supervisor)` y ningún título de las tools de `_HINTS_SNAPSHOT` (1.1.2) cambia (FR-021)
+- [x] T022 [US2] [US3] Tests en `tests/test_command_table.py` y después `hermes/src/hermes/command_table.py`: las 5 rutas de CAP-085 a `dedicated` (`cap="CAP-085"`); `/jobs/info` y `/resolution/issue/{issue}/suggestions` a `read` (`cap="CAP-087"`) y `/host/disks` a `read` (`cap="CAP-085"`) con los motivos de data-model y un comentario encima de cada una; en el test, diccionario `_POR_LA_TABLA` (clave → «spec 013: <porqué>», research R-5) que `test_clase_a_de_via_dedicada_pendiente_de_su_spec` admite como `read`/`confirm`; ninguna entrada con «spec 013»; el test de verbos sigue en verde; regenerar la tabla sin cambios (FR-017, FR-018)
+- [x] T023 [US3] Hacer verde T018 (sin código de producto: si algo falla, es la tabla o la genérica de la 011; un fallo de la 011 se anota y no se arregla aquí, principio IX) (FR-018…FR-020)
+- [x] T024 [US4] Comprobar en `tests/test_tools_registration.py` que, con `system_diagnostics` desactivada, la tabla sigue con sus 28 `dedicated` y `TestDedicadas` pasa con todas las familias activas (FR-021; FR-012 de la 008)
+- [x] T025 [US2] [US3] Guía: tests en `tests/test_tools_guide.py` (el tema `system_diagnostics` nombra las once tools, `max_depth` y la poda, la necesidad de Home Assistant OS, y las rutas que se leen con `sv_read_api`: jobs, sugerencias, hardware, seguridad, Docker, hora, red y discos montables; alias `disk`, `storage`, `os`, `jobs`; `hermes_guide(topic="generic_commands", search="jobs")` lista `/jobs/info` como `read`); después, `hermes/src/hermes/tools/guide.py` (FR-023)
+- [x] T026 Documentación: completar la sección de la 013 en el CHANGELOG (cinco tools, tres rutas `read`, integridad `deny` por el Supervisor 2026.11, prueba en vivo pendiente); `docs/HOJA-DE-RUTA.md`: estado de la 013 en la tabla del programa y la prueba en vivo de las 11 tools y de las rutas `read` como pendiente manual (014 o cierre) en la matriz tool → entorno; `README.md` y `README.es.md` sincronizados (recuento de tools según el registro de ese momento, fila de la familia nueva y logs de arranques anteriores en la fila de add-ons); filas CAP-081, CAP-085, CAP-087, CAP-088 y CAP-089 de la matriz de `specs/008-cobertura-total/plan.md` con las tools, las rutas de la tabla y los ficheros de test, sin cambiar sus columnas de sub-feature ni de vía (las lee `_matriz_008`); la desviación de FR-047 anotada en la fila de CAP-088 (FR-025)
+- [x] T027 Control negativo del tramo 2, anotando recuentos: (a) quitar la poda → cae el de 20 hijos; (b) no validar `max_depth` → caen los de rango; (c) no poner la pista en el 404 de `/os/*` → cae; (d) dejar `/jobs/info` como `deny` → caen el de la tabla y el de `sv_read_api`; (e) pasar `/security/integrity` a `confirm` → cae; (f) añadir al evento de la genérica un dato de la respuesta de red → cae el de log sin direcciones; (g) quitar `"os": "OS"` → cae el del título. Restaurar y comprobar verde
+- [x] T028 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), `grep -c "spec 013" hermes/src/hermes/command_table.py` = 0, regeneración sin cambios, revisión del diff (principio VIII), commit con los recuentos de T027
+
+### Notas del tramo 2 (2026-11-14)
+
+- **Línea base** (punta `68cbd6f`, sin volver a traer `feat/cobertura-total`):
+  2363 passed, 65 skipped, 6 failed (los 6 de Windows).
+- **Desviación — `children_omitted`**: solo aparece en un nodo al que se le
+  han quitado hijos (lo que dice FR-012); el ejemplo de contracts/tools.md lo
+  ponía a 0 en la raíz. Los hijos se ordenan siempre por `used_bytes`
+  (empate por `id`), también si son 20 o menos.
+- **Desviación — respuesta de forma inesperada**: un `data` vacío o sin la
+  forma esperada (sin `services`, `disks` o `used_bytes`) da
+  `{"error": "Unexpected Supervisor response for GET <plantilla>."}` (FR-016:
+  nunca una respuesta vacía como buena). `devices` de
+  `sv_list_datadisk_candidates` pasa también por `redact_structure`.
+- **Desviación — validación de `disk`**: además de la regla de data-model,
+  el segmento pasa por `validate_path_segment` (segunda capa, como en el
+  tramo 1); `max_depth` rechaza `True` y el texto `"1"`.
+- **`_POR_LA_TABLA`** (T022): la regla del test exige además que la spec del
+  porqué («spec 013: …») sea una de las sub-features de la CAP en la matriz.
+- **T024**: en `TestHostSystem013.test_con_la_familia_apagada_la_tabla_sigue_igual`
+  (26 entradas `dedicated` de `system_diagnostics` y 2 de `supervisor`, 28).
+- **README**: la fila «System logs» / «Logs del sistema» pasa a «System
+  diagnostics» / «Diagnóstico del sistema» con 11 tools; recuento 226 → 231.
+- **CHANGELOG**: recuentos de la tabla del Supervisor del bloque de la 011:
+  `dedicated` 52 → 57, `read` 26 → 29, `deny` 151 → 143.
+- **Matriz de la 014**: no está en esta rama (la 014 se integra en
+  `feat/cobertura-total` después de que se abriera la 013 y no se ha vuelto a
+  traer). La prueba en vivo de las once tools y de las rutas `read` queda en
+  «Pruebas manuales pendientes» de la hoja de ruta; al integrar, las once
+  van a la matriz de la 014 como «VM / pendiente» (todas solo leen).
+- **Desviación de FR-047 de la 008**: `POST /security/integrity` sigue
+  `deny` (410 en el Supervisor 2026.11.0, research R-6); anotada en la fila
+  CAP-088 de la matriz de la 008 y en el CHANGELOG.
+- **Regeneración de la tabla** (T022): `generar_tabla.py` → 0 nuevas, 0
+  quitadas, contenido idéntico salvo finales de línea.
+- **Controles negativos** (T027), sobre `test_tools_host_system.py`,
+  `test_tools_diagnostico_tabla.py`, `test_command_table.py`,
+  `test_tools_registration.py` y `test_tools_guide.py`: (a) 3 caídos
+  (`test_poda_a_20_hijos`, `test_poda_recursiva`, `test_empate_por_id`);
+  (b) 1 con 4 subtests (`test_argumentos_invalidos_sin_llamada`); (c) 1 con 3
+  subtests (`test_404_de_os_con_pista`); (d) 4
+  (`test_rutas_read_se_ejecutan`, `test_tres_rutas_a_read`,
+  `test_clase_a_de_via_dedicada_pendiente_de_su_spec`,
+  `test_jobs_en_la_tabla`); (e) 2 (`test_integridad_no_llega_al_supervisor`,
+  `test_integridad_sigue_deny`); (f) 1 (`test_log_de_red_sin_direcciones`);
+  (g) 2 (`test_os_no_cambia_ningun_titulo_existente`,
+  `test_hints_y_titulos_de_las_nuevas`). Restaurado: verde.
 
 ---
 
