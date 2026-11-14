@@ -41,7 +41,8 @@ class Lector:
         self._lectura: asyncio.Task[None] | None = None
         self._ids = itertools.count(1)
         self._pendientes: dict[int, asyncio.Future[dict[str, Any]]] = {}
-        self._suscripciones: dict[int, list[tuple[str, str]]] = {}
+        # id de suscripción → función que recibe cada evento (`event` del mensaje).
+        self._suscripciones: dict[int, Callable[[dict[str, Any]], None]] = {}
 
     def __repr__(self) -> str:
         return f"Lector(core_url={self._core_url!r})"
@@ -85,10 +86,7 @@ class Lector:
                     if futuro is not None and not futuro.done():
                         futuro.set_result(item)
                 elif item.get("type") == "event" and id_ in self._suscripciones:
-                    datos_evento = (item.get("event") or {}).get("data") or {}
-                    self._suscripciones[id_].append(
-                        (str(datos_evento.get("domain")), str(datos_evento.get("service")))
-                    )
+                    self._suscripciones[id_](item.get("event") or {})
         for futuro in self._pendientes.values():
             if not futuro.done():
                 futuro.set_exception(AssertionError("lector: Core cerró la WebSocket"))
@@ -143,30 +141,58 @@ class Lector:
             await asyncio.sleep(INTERVALO)
 
     @asynccontextmanager
-    async def servicios_llamados(self) -> AsyncIterator[list[tuple[str, str]]]:
-        """Suscripción a `call_service`: la lista se llena con `(dominio, servicio)`.
-
-        Se abre ANTES de la acción y se cierra después, para no perder la
-        llamada que se quiere ver.
-        """
+    async def _suscripcion(
+        self, event_type: str, recibir: Callable[[dict[str, Any]], None]
+    ) -> AsyncIterator[None]:
+        """Suscripción a un tipo de evento del bus mientras dura el bloque."""
         id_ = next(self._ids)
-        vistos: list[tuple[str, str]] = []
-        self._suscripciones[id_] = vistos
+        self._suscripciones[id_] = recibir
         assert self._ws is not None
         futuro: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pendientes[id_] = futuro
-        await self._ws.send_json({"id": id_, "type": "subscribe_events", "event_type": "call_service"})
+        await self._ws.send_json({"id": id_, "type": "subscribe_events", "event_type": event_type})
         respuesta = await asyncio.wait_for(futuro, timeout=TIMEOUT)
         if not respuesta.get("success"):
-            raise AssertionError("lector: no se pudo suscribir a call_service")
+            raise AssertionError(f"lector: no se pudo suscribir a {event_type}")
         try:
-            yield vistos
+            yield
         finally:
             self._suscripciones.pop(id_, None)
             try:
                 await self._comando({"type": "unsubscribe_events", "subscription": id_})
             except (ErrorCore, asyncio.TimeoutError, AssertionError):
                 pass
+
+    @asynccontextmanager
+    async def servicios_llamados(self) -> AsyncIterator[list[tuple[str, str]]]:
+        """Suscripción a `call_service`: la lista se llena con `(dominio, servicio)`.
+
+        Se abre ANTES de la acción y se cierra después, para no perder la
+        llamada que se quiere ver.
+        """
+        vistos: list[tuple[str, str]] = []
+
+        def recibir(evento: dict[str, Any]) -> None:
+            datos = evento.get("data") or {}
+            vistos.append((str(datos.get("domain")), str(datos.get("service"))))
+
+        async with self._suscripcion("call_service", recibir):
+            yield vistos
+
+    @asynccontextmanager
+    async def eventos(self, event_type: str) -> AsyncIterator[list[dict[str, Any]]]:
+        """Suscripción a un tipo de evento: la lista se llena con su `data`.
+
+        Para efectos que no dejan rastro en el estado, como `timer.finished`
+        (el temporizador vuelve a `idle` igual que al cancelarlo).
+        """
+        vistos: list[dict[str, Any]] = []
+
+        def recibir(evento: dict[str, Any]) -> None:
+            vistos.append(dict(evento.get("data") or {}))
+
+        async with self._suscripcion(event_type, recibir):
+            yield vistos
 
     async def crear(self, dominio: str, datos: dict[str, Any]) -> dict[str, Any]:
         """Crea un helper sin pasar por Hermes (para preparar un caso)."""

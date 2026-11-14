@@ -194,6 +194,16 @@ class TestLector(unittest.IsolatedAsyncioTestCase):
         tipos = [c["type"] for c in self.core.registro.ws_comandos]
         self.assertEqual(tipos, ["subscribe_events", "unsubscribe_events"])
 
+    async def test_eventos_de_un_tipo(self) -> None:
+        # Tramo B: `ha_finish_timer` se comprueba por el evento `timer.finished`.
+        async with Lector(self.core.url, "token-lector") as lector:
+            async with lector.eventos("timer.finished") as vistos:
+                await lector.esperar(lambda: asyncio.sleep(0, vistos), bool, timeout=5)
+        self.assertEqual(vistos, [{"domain": "eco", "service": "prueba"}])
+        suscripcion = self.core.registro.ws_comandos[0]
+        self.assertEqual(suscripcion["type"], "subscribe_events")
+        self.assertEqual(suscripcion["event_type"], "timer.finished")
+
     async def test_borrar_lo_que_no_existe_no_es_error(self) -> None:
         async with Lector(self.core.url, "token-lector") as lector:
             await lector.borrar("input_boolean", "no_existe_1")
