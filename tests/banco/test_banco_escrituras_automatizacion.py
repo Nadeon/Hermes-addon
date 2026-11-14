@@ -43,6 +43,8 @@ Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.banco.base_escrituras import (
@@ -52,7 +54,6 @@ from tests.banco.base_escrituras import (
     sufijo,
 )
 from tests.banco.base_helpers import errores_de_tools
-from tests.banco.entorno import llamar
 
 pytestmark = pytest.mark.banco
 
@@ -91,14 +92,14 @@ async def _token_ata_variables(  # type: ignore[no-untyped-def]
         vista = await s.vista(tool, **id_args, variables={"objetivo": aprobado})
         test.assertEqual(vista["preview"]["variables"], {"objetivo": aprobado})
 
-        respuesta = await llamar(
-            s.cliente,
+        # Llamada directa, no `llamar`: Hermes marca con `isError` toda
+        # respuesta `{"error": …}` y aquí el rechazo es lo esperado.
+        resultado = await s.cliente.call_tool(
             tool,
-            **id_args,
-            variables={"objetivo": otro},
-            confirmation_token=vista["confirmation_token"],
+            {**id_args, "variables": {"objetivo": otro}, "confirmation_token": vista["confirmation_token"]},
         )
-        test.assertIsInstance(respuesta, dict)
+        test.assertTrue(getattr(resultado, "is_error", False), f"{tool}: se esperaba un rechazo")
+        respuesta = json.loads(resultado.content[0].text)
         test.assertIn("does not match", str(respuesta.get("error")), respuesta)
         await s.barrera(vistos)
         test.assertNotIn(servicio, vistos)
