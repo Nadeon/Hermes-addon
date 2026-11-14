@@ -162,10 +162,16 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
     "ha_marketplace_list_releases",
     # Genéricas de escritura (spec 011): algunas entradas `confirm` salen a
-    # internet (actualizar un plugin, calendarios remotos). Las de lectura no:
-    # ninguna entrada `read` puede llevar `open_world`.
+    # internet (actualizar un plugin, calendarios remotos).
     "ha_call_ws_command",
     "sv_call_api",
+    # Y la de lectura de Core: `media_source/browse_media` y `search_media`
+    # consultan APIs externas cuando la fuente es remota (radio_browser,
+    # google_photos, immich…). Una tool no puede decir que no sale a internet
+    # si algún comando suyo lo hace (principio V; T047). `sv_read_api` no:
+    # ninguna ruta `read` del Supervisor sale. tests/test_command_table.py
+    # ata esta lista a las marcas `open_world` de la tabla.
+    "ha_read_ws_command",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

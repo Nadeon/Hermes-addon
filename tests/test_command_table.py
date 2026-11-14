@@ -183,8 +183,6 @@ class TestEstructura(unittest.TestCase):
                 problemas.append(f"{k}: one_shot fuera de un read de Core")
             if e.response == "text" and not es_sv:
                 problemas.append(f"{k}: respuesta de texto en Core")
-            if e.category == "read" and e.open_world:
-                problemas.append(f"{k}: read de mundo abierto")
             if e.cap is not None and not re.fullmatch(r"CAP-\d{3}", e.cap):
                 problemas.append(f"{k}: cap {e.cap!r}")
         self.assertEqual(problemas, [])
@@ -243,6 +241,90 @@ class TestDedicadas(unittest.TestCase):
         otras = sorted(str(k) for k, e in _todas()
                        if e.category != "dedicated" and e.family != "generic_commands")
         self.assertEqual(otras, [])
+
+
+# Entradas `read` que salen a internet, revisadas a mano (T047): con una
+# fuente remota (radio_browser, google_photos, immich, xbox, nest…), navegar y
+# buscar consultan APIs externas (media_source de Core 2026.11.1). Clave →
+# por qué.
+_READ_QUE_SALEN: dict[str | tuple[str, str], str] = {
+    "media_source/browse_media": "las fuentes remotas consultan su API al navegar",
+    "media_source/search_media": "las fuentes remotas consultan su API al buscar",
+}
+
+
+class TestMundoAbierto(unittest.TestCase):
+    """FR-018 (T047): la anotación `openWorldHint` de cada genérica dice la
+    verdad sobre su tabla. Una tool no puede declarar que no sale a internet
+    si algún comando suyo lo hace, ni al revés (principio V).
+
+    Control negativo comprobado: quitar `ha_read_ws_command` de `_OPEN_WORLD`
+    → cae `test_anotacion_igual_a_la_tabla` (y el de hints de
+    test_tools_registration); quitar `open_world=True` de
+    `media_source/browse_media` → cae `test_reads_que_salen_revisadas`.
+    """
+
+    def test_reads_que_salen_revisadas(self) -> None:
+        salen = {k for k, e in _todas() if e.category == "read" and e.open_world}
+        self.assertEqual(salen, set(_READ_QUE_SALEN))
+
+    def test_anotacion_igual_a_la_tabla(self) -> None:
+        from hermes.tools._annotations import classify
+
+        casos = (
+            ("ha_read_ws_command", ct.CORE_WS, "read"),
+            ("ha_call_ws_command", ct.CORE_WS, "confirm"),
+            ("sv_read_api", ct.SUPERVISOR, "read"),
+            ("sv_call_api", ct.SUPERVISOR, "confirm"),
+        )
+        for tool, tabla, categoria in casos:
+            with self.subTest(tool=tool):
+                sale = any(e.open_world for e in tabla.values() if e.category == categoria)
+                self.assertEqual(classify(tool).open_world_hint, sale)
+
+
+class TestPistasYMotivos(unittest.TestCase):
+    def test_motivo_que_remite_a_ha_call_service(self) -> None:
+        """T046: un motivo que manda a `ha_call_service` con una acción dice
+        la verdad sobre ella: si dice que pide confirmación, la acción está en
+        la denylist (que es lo que la pide); si no lo dice, no lo está.
+        Control negativo comprobado: con la acción cambiada a una inexistente
+        en `hassio/update/core` → cae."""
+        from hermes.service_policy import CALL_SERVICE_DENYLIST
+
+        patron = re.compile(r"`ha_call_service` con `([a-z_]+\.[a-z_]+)`")
+        problemas = []
+        vistos = set()
+        for k, e in _todas():
+            for accion in patron.findall(e.reason):
+                vistos.add(k)
+                if ("pide confirmación" in e.reason) != (accion in CALL_SERVICE_DENYLIST):
+                    problemas.append(f"{k}: {accion} y el motivo {e.reason!r}")
+        self.assertEqual(problemas, [], "\n".join(problemas))
+        # Las dos que antes eran `dedicated` hacia `ha_call_service` sin decir
+        # qué acción (T046) y que el test no esté vacío.
+        self.assertTrue({"backup/generate_with_automatic_settings",
+                         "hassio/update/core"} <= vistos)
+
+    def test_ninguna_dedicada_a_ha_call_service_sin_accion(self) -> None:
+        # Las que quedan apuntan a una acción del mismo nombre que el comando
+        # (p. ej. `calendar/event/create` → `calendar.create_event`), ninguna
+        # de la denylist; las dos de T046 ya no son `dedicated`.
+        for k in ("backup/generate_with_automatic_settings", "hassio/update/core"):
+            with self.subTest(k=k):
+                self.assertEqual(ct.CORE_WS[k].category, "deny")
+                self.assertRegex(ct.CORE_WS[k].reason, r"^pendiente de tool dedicada \(spec \d{3}\)")
+
+    def test_motivo_de_dns_options(self) -> None:
+        # T048: `SCHEMA_OPTIONS` de supervisor/api/dns.py (2026.11.0) solo
+        # admite `servers` y `fallback`; el motivo sale en la vista previa y
+        # no puede prometer otras opciones. Control negativo comprobado: con el
+        # motivo anterior («fallback/LLMNR/mDNS») → cae.
+        motivo = ct.SUPERVISOR[("POST", "/dns/options")].reason
+        self.assertIn("`servers`", motivo)
+        self.assertIn("`fallback`", motivo)
+        for otra in ("LLMNR", "mDNS", "llmnr", "mdns"):
+            self.assertNotIn(otra, motivo)
 
 
 class TestReglasDeLaClasificacionInicial(unittest.TestCase):

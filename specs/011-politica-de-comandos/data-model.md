@@ -15,7 +15,7 @@ plantilla de ruta del Supervisor.
 | `one_shot` | `bool = False` | Solo con `category == "read"` y solo en Core: suscripción que se lee una vez y se cancela |
 | `response` | `Literal["json", "text"] = "json"` | `text` solo en el Supervisor (logs) |
 | `redact_extra` | `tuple[str, ...] = ()` | Nombres de clave que se tapan además de los marcadores de `redact_structure`, en la respuesta y en el resumen de la carga |
-| `open_world` | `bool = False` | La ejecución sale a internet. Prohibido con `read` (las genéricas de lectura no son de mundo abierto) |
+| `open_world` | `bool = False` | La ejecución sale a internet. Puede ir en `read` (T047): entonces la genérica de lectura de esa tabla se anuncia de mundo abierto, y un test lo ata |
 | `example` | `dict \| None = None` | Ejemplo de carga revisado; la guía lo muestra; nunca datos reales (principio VIII) |
 
 **Claves**:
@@ -60,6 +60,8 @@ mirar la categoría.
 | `bytes` | `int` | Bytes de `json.dumps(valor, ensure_ascii=False)` en UTF-8 |
 | `value` | escalar | Solo si: escalar; longitud ≤ 64 caracteres (cadena: el texto tal cual, sin comillas; número, booleano o `null`: su JSON); ninguna clave de la ruta sensible (`redact_structure` o `redact_extra`); `redact_secrets(str(valor)) == str(valor)` |
 | `hidden` | `str` | Si no hay `value`: `container` (objeto o lista), `sensitive` o `too_long` (en ese orden de precedencia) |
+| `head` | `str` | Solo con `too_long`: los 32 primeros caracteres del valor (cadena: el texto; número: su JSON), pasados por `redact_secrets` (T045) |
+| `sha256` | `str` | Solo con `too_long`: los 12 primeros caracteres hex del SHA-256 del texto entero en UTF-8 (T045) |
 
 Resumen: `{"bytes": <total>, "keys": <n filas>, "rows": [...]}`. Sin límite de
 filas: si la vista previa completa no cabe en `response_max_bytes`,

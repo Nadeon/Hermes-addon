@@ -36,18 +36,22 @@ _Pendiente: la añade la sub-feature que lo implemente._
   a Home Assistant ni al Supervisor, con un código que dice por qué
   (`command_not_classified`, `command_denied`, `use_dedicated_tool`,
   `wrong_generic_tool`, `family_disabled`, `path_not_allowed`). Las de lectura
-  llevan `readOnlyHint`; las de escritura van siempre en dos pasos: la vista
-  previa enseña exactamente lo que se enviará (comando o ruta, categoría,
-  motivo y cada clave de la carga con su tipo y tamaño; el valor, solo si es
-  corto y no es sensible) y el token queda atado a la tool, al comando o a la
+  llevan `readOnlyHint`; la de Core se anuncia además de mundo abierto, porque
+  navegar o buscar en una fuente de medios remota consulta internet. Las de
+  escritura van siempre en dos pasos: la vista previa enseña lo que se
+  enviará (comando o ruta, categoría, motivo y cada clave de la carga con su
+  tipo y tamaño; un valor corto, entero; uno largo, sus 32 primeros
+  caracteres, su tamaño y un hash corto; uno sensible, tapado) y el token
+  queda atado a la tool, al comando o a la
   ruta y método, y a la carga entera. Junto al token solo se guarda
   `{"executed": true}`, nunca la respuesta. Las respuestas pasan por la
   redacción de secretos y por el tope de tamaño, y el log lleva un evento
-  `generic_command` por llamada, sin valores.
+  `generic_command` por llamada, sin valores. `logbook/get_action_calls` tapa
+  el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 117 y 29), `read` (36 y 26),
-  `confirm` (20 y 25) o `deny` (450 y 174, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 115 y 29), `read` (36 y 26),
+  `confirm` (20 y 25) o `deny` (452 y 174, con su motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como

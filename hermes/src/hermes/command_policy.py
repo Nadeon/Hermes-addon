@@ -22,6 +22,7 @@ plantilla ambigua no casa; una ruta con forma dudosa no llega a buscarse.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Callable, Iterable, Mapping
@@ -80,8 +81,10 @@ class Entrada:
     response: str = "json"
     # Claves que se tapan además de los marcadores de `redact_structure`.
     redact_extra: tuple[str, ...] = ()
-    # La ejecución sale a internet. Nunca con `read`: las genéricas de lectura
-    # se anuncian sin mundo abierto.
+    # La ejecución sale a internet. Puede ir en `read` (navegar fuentes de
+    # medios remotas): entonces la genérica de lectura de esa tabla se anuncia
+    # de mundo abierto, y tests/test_command_table.py lo comprueba (FR-018,
+    # T047).
     open_world: bool = False
     # Ejemplo de carga revisado, con datos ficticios, para la guía.
     example: Mapping[str, Any] | None = None
@@ -99,8 +102,6 @@ class Entrada:
             raise ValueError("`one_shot` solo con la categoría `read`")
         if self.response not in ("json", "text"):
             raise ValueError(f"respuesta inválida: {self.response!r}")
-        if self.open_world and self.category == "read":
-            raise ValueError("una entrada `read` no puede salir a internet")
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,10 +293,17 @@ def decidir(
 
 # ── Resumen de la carga (FR-010) ─────────────────────────────────────────────
 
-# Un valor más largo no se enseña: en la vista previa, un texto largo es donde
-# se esconde un secreto sin clave que lo delate (una clave privada, un token
-# opaco) y, además, hincha la vista previa. El tamaño en bytes sí se enseña.
+# Hasta aquí, un valor se enseña entero. Uno más largo se enseña por su INICIO
+# (`_INICIO_VISIBLE` caracteres, pasados por `redact_secrets`), su tamaño y un
+# hash corto (`_HASH_VISIBLE` hex de su SHA-256): quien confirma sabe qué
+# aprueba (de qué texto se trata y cuánto mide; el hash le deja compararlo con
+# el que quería enviar) sin que la vista previa crezca con la carga. No se
+# enseña entero porque un texto largo es donde se esconde un secreto sin clave
+# que lo delate (una clave privada, un token opaco) y porque la vista previa
+# tiene tope (`preview_too_large`). Enmienda E-1 y T045 de la 011.
 _MAX_VALOR_VISIBLE = 64
+_INICIO_VISIBLE = 32
+_HASH_VISIBLE = 12
 
 
 def _tipo_json(valor: Any) -> str:
@@ -334,7 +342,9 @@ def resumir_carga(
     número, booleano o `null`, su JSON), ninguna clave de su ruta es sensible
     (`es_clave_sensible` o `redact_extra`) y `redact_secrets` no lo cambia. Si
     no, `hidden` dice por qué, con esta precedencia: `container`, `sensitive`,
-    `too_long`.
+    `too_long`. Una fila `too_long` lleva además `head` (los 32 primeros
+    caracteres, pasados por `redact_secrets`) y `sha256` (12 hex del SHA-256
+    del texto entero); una `sensitive`, solo tipo y tamaño.
 
     POR QUÉ ASÍ: la vista previa genérica no interpreta el comando; lo único
     que puede enseñar con verdad es lo que se va a enviar. Y lo enseña sin
@@ -365,6 +375,13 @@ def resumir_carga(
             fila["hidden"] = "sensitive"
         elif len(texto) > _MAX_VALOR_VISIBLE:
             fila["hidden"] = "too_long"
+            # Ya se ha comprobado que `redact_secrets` no cambia el texto
+            # entero; se vuelve a pasar el inicio por si el corte deja a la
+            # vista un trozo que sí casa con un patrón.
+            fila["head"] = redact_secrets(texto[:_INICIO_VISIBLE])
+            fila["sha256"] = hashlib.sha256(
+                texto.encode("utf-8")
+            ).hexdigest()[:_HASH_VISIBLE]
         else:
             fila["value"] = v
 

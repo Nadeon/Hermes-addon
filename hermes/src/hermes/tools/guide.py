@@ -470,9 +470,10 @@ vista previa con significado y protecciones propias que la genérica no tiene.
 
 DOS PASOS (`confirm`)
 1. Sin `confirmation_token`: devuelve `preview` y `confirmation_token`. La vista
-   previa muestra exactamente lo que se enviará: comando o ruta, categoría,
-   motivo, CAP y un resumen de cada clave de la carga (tipo y tamaño; el valor
-   solo si es corto y no es sensible). NO interpreta qué hará el comando:
+   previa muestra lo que se enviará: comando o ruta, categoría, motivo, CAP y
+   un resumen de cada clave de la carga (tipo y tamaño; un valor corto, entero;
+   uno largo, sus 32 primeros caracteres en `head` y un hash corto en
+   `sha256`; uno sensible, tapado). NO interpreta qué hará el comando:
    enséñasela al usuario.
 2. La MISMA llamada (mismo `type` y `payload`, o `method`, `path` y `body`)
    con `confirmation_token`. Caduca en ~60 s y sirve una vez. Si la vista

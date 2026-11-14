@@ -728,11 +728,12 @@ _HINTS_SNAPSHOT: dict[str, str] = {
 
 
 # Tools nuevas de la 1.2.0: código de hints y título exactos (spec 011,
-# contracts/tools.md). Las de lectura no son de mundo abierto (ninguna entrada
-# `read` de la tabla sale a internet); las de escritura son destructivas, no
+# contracts/tools.md). La de lectura de Core es de mundo abierto porque
+# `media_source/browse_media` y `search_media` salen a internet con fuentes
+# remotas (T047); la del Supervisor no. Las de escritura son destructivas, no
 # idempotentes y de mundo abierto, porque ejecutan lo que la tabla permita.
 _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
-    "ha_read_ws_command": ("R-I-", "Read WS command (Home Assistant)"),
+    "ha_read_ws_command": ("R-IO", "Read WS command (Home Assistant)"),
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
