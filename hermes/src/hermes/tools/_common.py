@@ -138,8 +138,17 @@ def _recortar_vista_previa(payload: dict[str, Any], max_bytes: int) -> dict[str,
     uno, por un resumen marcado `_omitted` con su tamaño, y la respuesta lo
     dice con `preview_truncated: true`. El token no cambia: sigue atado a los
     argumentos de la llamada, no a lo que se ve.
+
+    `confirm_with`, `omit_on_confirm` y `confirm_hint` tampoco se tocan (spec
+    007): sin ellos el agente no sabe que puede confirmar sin reenviar el
+    documento grande, lo reenvía y la confirmación vuelve a llegar tarde.
     """
-    intocables = {"confirmation_token", "expires_in_seconds"}
+    # Tupla y no conjunto: el mínimo de último recurso sale siempre en el
+    # mismo orden.
+    intocables = (
+        "confirmation_token", "expires_in_seconds",
+        "confirm_with", "omit_on_confirm", "confirm_hint",
+    )
     out = dict(payload)
     out["preview_truncated"] = True
     out["_response_limit"] = {"max_bytes": max_bytes, "hint": _PREVIEW_HINT}
@@ -163,11 +172,10 @@ def _recortar_vista_previa(payload: dict[str, Any], max_bytes: int) -> dict[str,
             contenedor[clave] = resumen
     if tam_json(out) <= max_bytes:
         return out
-    # Último recurso (un tope absurdo): el token y la marca, nada más. Aun así
-    # el token se conserva; sin él la acción sería imposible por Hermes.
-    minimo = {
-        k: payload[k] for k in ("confirmation_token", "expires_in_seconds") if k in payload
-    }
+    # Último recurso (un tope absurdo): el token, cómo confirmar y la marca,
+    # nada más. Aun así el token se conserva; sin él la acción sería imposible
+    # por Hermes.
+    minimo = {k: payload[k] for k in intocables if k in payload}
     minimo["preview_truncated"] = True
     return minimo
 

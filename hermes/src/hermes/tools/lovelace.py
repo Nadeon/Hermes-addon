@@ -38,12 +38,20 @@ from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    resolve_confirmation_token,
     validate_confirmation_token,
 )
 from hermes.tools._validation import build_ws_payload
 from hermes.tools._common import requires_ready
 
 logger = structlog.get_logger(__name__)
+
+# Argumentos que se pueden omitir al confirmar (spec 007). `config` es lo único
+# grande de la llamada: a unos 0,4 KB/s, un cliente LLM no reescribe uno de
+# 20–25 KB antes de que caduque el token (60 s), así que la vista previa lo
+# guarda en el servidor. `url_path` no está aquí a propósito: el destino
+# tiene que venir en las dos llamadas.
+_OMITIBLES_GUARDAR = ("config",)
 
 
 # ── Helpers internos ───────────────────────────────────────────────────────────
@@ -406,7 +414,7 @@ def register(
     @ready
     async def ha_save_lovelace_dashboard(
         url_path: str | None,
-        config: dict[str, Any],
+        config: dict[str, Any] | None = None,
         confirmation_token: str | None = None,
         remove_top_level_keys: list[str] | None = None,
     ) -> object:
@@ -415,6 +423,12 @@ def register(
         Esta operación **siempre requiere `confirmation_token`** porque sustituye
         el dashboard entero (no es un merge parcial). El preview muestra un diff
         resumido (vistas y cards antes/después), no el JSON completo.
+
+        **Confirmar sin reenviar `config`**: la vista previa guarda `config` en
+        el servidor. Para confirmar basta con lo que diga `confirm_with`
+        (`url_path`, `confirmation_token` y, si se usó,
+        `remove_top_level_keys`); `config` se puede omitir. Lo que se reenvíe
+        tiene que ser idéntico a la vista previa.
 
         **Claves de nivel superior**: si el dashboard actual tiene claves
         distintas de `views` (title, background, kiosk_mode…) que `config` no
@@ -430,6 +444,7 @@ def register(
         Args:
             url_path: URL path del dashboard. `null` para el dashboard principal.
             config: Configuración completa. Debe tener `views` o `strategy`.
+                Obligatoria en la vista previa; se puede omitir al confirmar.
             confirmation_token: Token de un solo uso obtenido en la llamada
                 previa sin token.
             remove_top_level_keys: Claves de nivel superior del dashboard
@@ -437,9 +452,20 @@ def register(
 
         Rechaza si el dashboard está en YAML mode (usar `fs_write_file`).
         """
-        err = _validate_dashboard_config(config)
-        if err:
-            return {"error": f"invalid_config: {err}"}
+        if config is None and not confirmation_token:
+            return {
+                "error": "invalid_argument", "field": "config",
+                "detail": (
+                    "config is required to request a preview; it can only be "
+                    "omitted when confirming with confirmation_token."
+                ),
+            }
+        # El documento guardado en la vista previa ya se validó; solo se valida
+        # el que llega.
+        if config is not None:
+            err = _validate_dashboard_config(config)
+            if err:
+                return {"error": f"invalid_config: {err}"}
         if remove_top_level_keys is not None and not (
             isinstance(remove_top_level_keys, list)
             and all(isinstance(k, str) for k in remove_top_level_keys)
@@ -464,7 +490,10 @@ def register(
                     ),
                 }
 
-        args: dict[str, Any] = {"url_path": url_path, "config": config}
+        args: dict[str, Any] = {"url_path": url_path}
+        if config is not None:
+            # Ausente si se omite al confirmar: lo pone resolve_confirmation_token.
+            args["config"] = config
         if quitar:
             # En el token solo si se usa: así un token de antes del cambio
             # sigue valiendo para la llamada de siempre.
@@ -523,7 +552,8 @@ def register(
                         k for k in quitar if current and k in current and k not in config
                     ]
                 return await create_confirmation_token(
-                    "ha_save_lovelace_dashboard", args, preview=preview
+                    "ha_save_lovelace_dashboard", args, preview=preview,
+                    omitibles=_OMITIBLES_GUARDAR,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.error(
@@ -534,8 +564,9 @@ def register(
                 )
                 return {"error": f"{type(exc).__name__}: {exc}"}
 
-        valid, error = await validate_confirmation_token(
-            confirmation_token, "ha_save_lovelace_dashboard", args
+        valid, error, resueltos = await resolve_confirmation_token(
+            confirmation_token, "ha_save_lovelace_dashboard", args,
+            omitibles=_OMITIBLES_GUARDAR,
         )
         if not valid:
             logger.warning(
@@ -544,6 +575,9 @@ def register(
                 reason=error,
             )
             return {"error": error}
+        # Lo que se guarda es lo previsualizado: el que se reenvió (idéntico,
+        # porque el hash casa) o el que se guardó en la vista previa.
+        config = resueltos["config"]
 
         try:
             save_payload: dict[str, Any] = {

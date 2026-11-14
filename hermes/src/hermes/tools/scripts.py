@@ -12,6 +12,7 @@ from hermes.models.script import ScriptConfig
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    resolve_confirmation_token,
     validate_confirmation_token,
 )
 from hermes.tools.ha import classify_saved_config
@@ -29,6 +30,13 @@ def _dump_config(model: ScriptConfig) -> dict[str, Any]:
     return model.model_dump(exclude_none=True, by_alias=True, mode="json")
 
 logger = structlog.get_logger(__name__)
+
+# Argumentos que se pueden omitir al confirmar (spec 007). `config` es lo único
+# grande de la llamada: a unos 0,4 KB/s, un cliente LLM no reescribe uno de
+# 20–25 KB antes de que caduque el token (60 s), así que la vista previa lo
+# guarda en el servidor. `script_id` no está aquí a propósito: el destino
+# tiene que venir en las dos llamadas.
+_OMITIBLES_GUARDAR = ("config",)
 
 
 def _script_object_id(script_id: str) -> str:
@@ -118,7 +126,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
     @ready
     async def ha_create_or_update_script(
         script_id: str,
-        config: dict[str, Any],
+        config: dict[str, Any] | None = None,
         confirmation_token: str | None = None,
     ) -> object:
         """Crea o modifica un script en Home Assistant.
@@ -127,21 +135,34 @@ def register(mcp: object, ha_client: HAClient) -> None:
         para confirmar la acción. Tras el save, HA recarga automáticamente
         el script (post_write_hook → script.reload); no es necesario llamar a
         `ha_reload_scripts` a mano.
-        """
-        try:
-            normalized_config = _dump_config(ScriptConfig.model_validate(config))
-        except Exception as exc:
-            logger.warning(
-                "ha_create_or_update_script_validation_failed",
-                script_id=script_id,
-                error=str(exc),
-            )
-            return {"error": f"config validation: {exc}"}
 
-        args = {
-            "script_id": script_id,
-            "config": normalized_config,
-        }
+        Para confirmar basta con `script_id` y `confirmation_token`
+        (`confirm_with`): la vista previa guarda `config` en el servidor. Si se
+        reenvía `config`, tiene que ser idéntico.
+        """
+        if config is None and not confirmation_token:
+            return {
+                "error": "invalid_argument", "field": "config",
+                "detail": (
+                    "config is required to request a preview; it can only be "
+                    "omitted when confirming with confirmation_token."
+                ),
+            }
+        args: dict[str, Any] = {"script_id": script_id}
+        # El documento guardado en la vista previa ya se validó y normalizó;
+        # solo se valida el que llega. Ausente si se omite al confirmar: lo
+        # pone resolve_confirmation_token.
+        if config is not None:
+            try:
+                normalized_config = _dump_config(ScriptConfig.model_validate(config))
+            except Exception as exc:
+                logger.warning(
+                    "ha_create_or_update_script_validation_failed",
+                    script_id=script_id,
+                    error=str(exc),
+                )
+                return {"error": f"config validation: {exc}"}
+            args["config"] = normalized_config
 
         if not confirmation_token:
             try:
@@ -165,6 +186,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     "ha_create_or_update_script",
                     args,
                     preview=preview,
+                    omitibles=_OMITIBLES_GUARDAR,
                 )
             except Exception as exc:
                 logger.error(
@@ -175,10 +197,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 )
                 return {"error": f"{type(exc).__name__}: {exc}"}
 
-        valid, error = await validate_confirmation_token(
+        valid, error, resueltos = await resolve_confirmation_token(
             confirmation_token,
             "ha_create_or_update_script",
             args,
+            omitibles=_OMITIBLES_GUARDAR,
         )
         if not valid:
             logger.warning(
@@ -187,6 +210,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 reason=error,
             )
             return {"error": error}
+        # Se guarda lo previsualizado: el reenviado (idéntico, porque el hash
+        # casa) o el que se guardó en la vista previa.
+        normalized_config = resueltos["config"]
 
         try:
             object_id = _script_object_id(script_id)

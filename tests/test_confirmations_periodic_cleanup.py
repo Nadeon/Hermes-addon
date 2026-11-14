@@ -6,8 +6,9 @@ pero solo se llamaba una vez, en el paso 7 del boot. Hermes se instala con
 `boot: auto` y no se reinicia por su cuenta: un add-on que lleve meses
 levantado acumulaba un fichero por cada preview sin confirmar, sin límite.
 
-La limpieza periódica va en el lifespan, junto a la de OAuth, y con el mismo
-periodo (una hora).
+La limpieza periódica va en el lifespan, junto a la de OAuth. Hasta 1.1.1 con
+el mismo periodo (una hora); desde 1.1.2, cada minuto, porque el fichero de un
+token guarda el documento de la vista previa (spec 007).
 """
 
 from __future__ import annotations
@@ -79,8 +80,35 @@ class TestLimpiezaPeriodicaDeConfirmaciones(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(sigue_viva)
         self.assertGreaterEqual(limpiar.await_count, 2)
 
-    def test_el_periodo_es_de_una_hora(self) -> None:
-        self.assertEqual(CONFIRMATIONS_CLEANUP_INTERVAL_SECONDS, 3600)
+    def test_el_periodo_es_de_un_minuto(self) -> None:
+        """Spec 007 (FR-009): el documento de un token caducado no sobrevive
+        más de 60 s en /data. Control negativo comprobado: con el periodo de
+        1.1.1 (3600) cae."""
+        self.assertEqual(CONFIRMATIONS_CLEANUP_INTERVAL_SECONDS, 60)
+
+    async def test_solo_registra_si_ha_limpiado_algo(self) -> None:
+        """Con una pasada por minuto, registrar las vacías llenaría el log.
+
+        Control negativo comprobado: registrando `confirmations_cleaned`
+        también con 0 cae.
+        """
+        from structlog.testing import capture_logs
+
+        limpiar = mock.AsyncMock(side_effect=[0, 0, 3] + [0] * 1000)
+        with mock.patch.object(
+            main_mod, "cleanup_expired_confirmations", limpiar
+        ), capture_logs() as logs:
+            task = asyncio.create_task(_periodic_confirmations_cleanup(0))
+            await self._correr_un_rato(task, 5)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        self.assertGreaterEqual(limpiar.await_count, 4)
+        limpiezas = [e for e in logs if e["event"] == "confirmations_cleaned"]
+        self.assertEqual(limpiezas, [
+            {"event": "confirmations_cleaned", "count": 3, "periodic": True,
+             "log_level": "info"},
+        ])
 
     def test_el_lifespan_arranca_y_cancela_la_task(self) -> None:
         """Sin esto la task no existiría en producción aunque funcione aquí.

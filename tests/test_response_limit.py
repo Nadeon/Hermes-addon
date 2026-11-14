@@ -688,3 +688,79 @@ def test_recorte_de_history_y_statistics_es_lineal() -> None:
     final_s, recortado_s, _ = _truncate_stats_to_bytes(puntos, TOPE)
     assert time.process_time() - inicio < 5
     assert recortado_s is True and all(final_s.values())
+
+
+# ── Spec 007: la vista previa recortada sigue diciendo cómo confirmar ──
+#
+# Desde 1.1.2 las cinco tools con documento grande añaden `confirm_with`,
+# `omit_on_confirm` y `confirm_hint`. Si el guardián los resumiera, el agente
+# no sabría que puede confirmar sin reenviar el documento y volvería a llegar
+# tarde. Control negativo comprobado: sin los tres campos en `intocables` de
+# `_recortar_vista_previa` caen los dos tests de Lovelace.
+
+_PISTAS = {
+    "confirm_with": ["confirmation_token", "url_path"],
+    "omit_on_confirm": ["config"],
+    "confirm_hint": "To confirm, call ha_save_lovelace_dashboard again with only "
+                    "confirmation_token, url_path. config can be omitted: the "
+                    "server kept the one from this preview. Any argument you do "
+                    "send must be identical to the preview.",
+}
+
+
+def test_vista_previa_recortada_conserva_como_confirmar() -> None:
+    payload = {
+        "confirmation_token": "tok", "expires_in_seconds": 60,
+        "preview": {"url_path": "panel-ficticio", "diff": {"x": "y" * 50_000}},
+        **_PISTAS,
+    }
+    out = recortar_a_bytes(payload, 16_384)
+    assert tam_json(out) <= 16_384
+    assert out["preview_truncated"] is True
+    assert out["confirmation_token"] == "tok"
+    for clave, valor in _PISTAS.items():
+        assert out[clave] == valor, clave
+    # Ni con un tope absurdo se pierden.
+    minimo = recortar_a_bytes(payload, 200)
+    assert minimo["confirmation_token"] == "tok"
+    for clave, valor in _PISTAS.items():
+        assert minimo[clave] == valor, clave
+
+
+async def test_ha_save_lovelace_dashboard_por_encima_del_tope_conserva_las_pistas() -> None:
+    vistas = [{"title": f"Vista ficticia {i}", "cards": []} for i in range(5)]
+    config = {"views": vistas}
+    async with ClientSession() as session:
+        ha_client = _cliente_ws(session, config)
+        _, entera = await _llamar(
+            ha_client, "ha_save_lovelace_dashboard", {"url_path": None, "config": config}, TOPE,
+        )
+        assert "preview_truncated" not in entera
+        tope = tam_json(entera) - 1
+        result, payload = await _llamar(
+            ha_client, "ha_save_lovelace_dashboard", {"url_path": None, "config": config}, tope,
+        )
+    assert result.is_error is False, payload
+    assert payload["preview_truncated"] is True
+    assert payload["confirmation_token"]
+    assert entera["confirm_with"] == _PISTAS["confirm_with"]
+    assert entera["omit_on_confirm"] == _PISTAS["omit_on_confirm"]
+    for clave in _PISTAS:
+        assert payload[clave] == entera[clave], clave
+
+
+async def test_fs_delete_file_no_trae_pistas_de_omision(tmp_path) -> None:
+    """Las tools sin omitibles responden como en 1.1.1."""
+    import hermes.fs as fs_module
+
+    (tmp_path / "ficticio.yaml").write_text("k: v\n", encoding="utf-8")
+    with patch.object(fs_module, "CONFIG_BASE", tmp_path.resolve()):
+        async with ClientSession() as session:
+            ha_client = make_ready_client(session, {})
+            result, payload = await _llamar(
+                ha_client, "fs_delete_file", {"path": "ficticio.yaml"}, TOPE,
+            )
+    assert result.is_error is False, payload
+    assert payload["confirmation_token"]
+    for clave in _PISTAS:
+        assert clave not in payload, clave

@@ -573,8 +573,12 @@ async def _connect_ha_ws(ha_client: HAClient, grace_seconds: int) -> bool:
 # Cada preview sin confirmar deja un fichero de token en
 # /data/pending_confirmations. El paso 7 del boot los barre, pero un add-on
 # `boot: auto` puede pasar meses sin reiniciar: sin esta task, el directorio
-# solo crece. Una hora es el mismo periodo que usa la limpieza de OAuth.
-CONFIRMATIONS_CLEANUP_INTERVAL_SECONDS = 3600
+# solo crece. Desde 1.1.2 (spec 007) el fichero de un token guarda además el
+# documento de la vista previa (un dashboard, el contenido de un fichero de
+# /config), que puede llevar datos sensibles y /data entra en los backups del
+# add-on: un minuto acota cuánto sobrevive un documento caducado. Antes era una
+# hora, el periodo de la limpieza de OAuth.
+CONFIRMATIONS_CLEANUP_INTERVAL_SECONDS = 60
 
 
 async def _periodic_confirmations_cleanup(
@@ -594,6 +598,8 @@ async def _periodic_confirmations_cleanup(
         except Exception as exc:
             logger.warning("confirmations_cleanup_failed", error=str(exc))
             continue
+        # Solo si se ha limpiado algo: con una pasada por minuto, registrar
+        # también las vacías llenaría el log.
         if cleaned:
             logger.info("confirmations_cleaned", count=cleaned, periodic=True)
 

@@ -29,8 +29,11 @@ lista. Lo que sigue es lo que NO se deduce del nombre.
 1) CONFIRMACIÓN EN DOS PASOS
 Las acciones destructivas devuelven, en la primera llamada, un `preview` y un
 `confirmation_token` en vez de ejecutarse. Eso NO es un error: es el paso de
-revisión. Repite la MISMA llamada con los MISMOS argumentos añadiendo
-`confirmation_token` para ejecutar. Caduca en ~60 s y sirve una sola vez.
+revisión. Repite la llamada añadiendo `confirmation_token` para ejecutar. Si la
+respuesta trae `omit_on_confirm`, basta con los argumentos de `confirm_with`:
+el documento grande (`config`, `content`) ya lo guardó el servidor. Lo que
+reenvíes tiene que ser idéntico al preview. Caduca en ~60 s y sirve una sola
+vez.
 Enseña al usuario lo que dice el `preview` antes de confirmar algo grave
 (borrados, reinicios, restauración de backups).
 
@@ -295,6 +298,8 @@ Lectura:
 
 Escritura (TODAS requieren confirmation_token):
 - `fs_write_file(path, content)` — crea/sobrescribe. Hace backup del original.
+  Si la vista previa trae `omit_on_confirm`, para confirmar basta con `path` y
+  el token (omite `content`); si no lo trae, reenvía todos los argumentos.
 - `fs_delete_file(path)`, `fs_move_file(src, dst)`.
 - `fs_set_secret(key, value)` — escribe en secrets.yaml (nunca se devuelve su
   contenido).
@@ -303,7 +308,8 @@ Escritura (TODAS requieren confirmation_token):
 Ejemplo (lee y luego escribe, segunda llamada con el token del preview):
   `fs_read_file("automations.yaml")` →
   `fs_write_file("automations.yaml", nuevo_contenido)` (preview) →
-  `fs_write_file(..., confirmation_token="…")` (aplica).
+  `fs_write_file("automations.yaml", confirmation_token="…")` (aplica; sin
+  reenviar el contenido si el preview trae `omit_on_confirm`).
 
 Seguridad: anti-traversal (no se sale de /config), secretos en blacklist
 (secrets.yaml, *.key, *.db…), `.storage/` es default-deny y NO se escribe (usa
@@ -405,7 +411,10 @@ Los `ha_hacs_*` son alias deprecados de estas tools y se retiran en 1.3.0.
 
 Confirmación en dos pasos: las acciones destructivas devuelven un `preview` +
 `confirmation_token` en la primera llamada. Revisa el preview y repite la
-llamada con el token (un solo uso, ~60 s) para ejecutar. Si el preview no cabe
+llamada con el token (un solo uso, ~60 s) para ejecutar. Si la respuesta trae
+`omit_on_confirm`, ese documento (`config`, `content`) se puede omitir al
+confirmar: basta con lo que diga `confirm_with`, y lo que reenvíes tiene que
+ser idéntico al preview. Si el preview no cabe
 en el límite de respuesta, sus campos grandes llegan resumidos (`_omitted`) y
 con `preview_truncated: true`: el token sigue valiendo, pero lee lo omitido con
 la tool de lectura que toque antes de confirmar si hace falta verlo.
@@ -431,13 +440,16 @@ CONTROLAR ALGO
 CREAR UNA AUTOMATIZACIÓN
 1. Define `triggers`, `conditions` y `actions` (claves en plural, HA ≥ 2024.10).
 2. `ha_create_or_update_automation(entity_id, config)` → devuelve preview + token.
-3. Repite con `confirmation_token` para aplicar (HA recarga sola).
+3. Repite con el mismo id y `confirmation_token` para aplicar; si el preview
+   trae `omit_on_confirm`, omite `config` (si no, reenvíalo todo). HA recarga
+   sola.
 4. Pruébala: `ha_trigger_automation(entity_id)` y revisa el resultado.
 
 CAMBIO SEGURO EN /config
 1. `fs_read_file("configuration.yaml")` (o el fichero a tocar).
 2. `fs_write_file(path, nuevo_contenido)` → preview (hace backup) → repite con
-   token para aplicar.
+   `path` y el token para aplicar; si el preview trae `omit_on_confirm`,
+   sin reenviar el contenido (si no, reenvíalo todo).
 3. `sv_check_core_config()` para validar que la config sigue siendo correcta.
 4. Recarga lo afectado (`ha_reload_automations`, …) o, si hace falta,
    `sv_restart_core()` (token). Si algo va mal: `fs_restore_file_backup`.

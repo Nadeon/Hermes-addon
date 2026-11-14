@@ -59,6 +59,7 @@ from hermes.fs_write import (
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    resolve_confirmation_token,
     validate_confirmation_token,
 )
 from hermes.yaml_include import (
@@ -69,6 +70,13 @@ from hermes.yaml_include import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Argumentos que se pueden omitir al confirmar (spec 007). `content` es lo único
+# grande de la llamada: a unos 0,4 KB/s, un cliente LLM no reescribe uno de
+# 20–25 KB antes de que caduque el token (60 s), así que la vista previa lo
+# guarda en el servidor. `path` no está aquí a propósito: el destino
+# tiene que venir en las dos llamadas.
+_OMITIBLES_ESCRIBIR = ("content",)
 
 # Caracteres que no pueden ir en el valor de un secreto: controles ASCII y los
 # separadores de línea Unicode que YAML también trata como salto de línea.
@@ -169,14 +177,25 @@ def register_write(
     @mcp.tool()
     async def fs_write_file(
         path: str,
-        content: str,
+        # `str` exactamente, y no `str | None`, aunque el valor por defecto sea
+        # None: el SDK MCP hace `json.loads` de todo argumento de texto cuya
+        # anotación no sea exactamente `str`. Con `str | None`, un contenido
+        # como `{"a": 1}`, `[1, 2]` o `true` llegaba convertido en dict, lista
+        # o bool y fallaba la validación (no se podía escribir un .json), y el
+        # texto `null` se tomaba como omisión. Así el texto llega intacto;
+        # omitir es no mandar `content`, y un `null` explícito lo rechaza el
+        # SDK.
+        content: str = None,  # type: ignore[assignment]
         confirmation_token: str | None = None,
     ) -> object:
         """Escribe el contenido de un fichero bajo /config.
 
         SIEMPRE requiere confirmation_token:
         - Primera llamada (sin token): genera preview y devuelve token.
-        - Segunda llamada (con token): escribe el fichero.
+        - Segunda llamada (con token): escribe el fichero. La vista previa
+          guarda `content` en el servidor: basta con `path` y
+          `confirmation_token` (`confirm_with`); si se reenvía `content`, tiene
+          que ser idéntico.
 
         El preview incluye:
         - current_exists: si el fichero ya existe.
@@ -191,7 +210,9 @@ def register_write(
 
         Args:
             path: Ruta relativa o absoluta bajo /config.
-            content: Contenido UTF-8 a escribir.
+            content: Contenido UTF-8 a escribir. Obligatorio en la vista
+                previa; al confirmar se puede omitir (no mandarlo; `null` no
+                vale). `""` es un fichero vacío, no una omisión.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -227,7 +248,18 @@ def register_write(
                 "hint": "fs_write_file only writes files, not directories.",
             })
 
-        args = {"path": _fs._rel_posix(abs_path), "content": content}
+        if content is None and not confirmation_token:
+            return json.dumps({
+                "error": "invalid_argument", "field": "content",
+                "detail": (
+                    "content is required to request a preview; it can only be "
+                    "omitted when confirming with confirmation_token."
+                ),
+            })
+        args: dict[str, Any] = {"path": _fs._rel_posix(abs_path)}
+        if content is not None:
+            # Ausente si se omite al confirmar: lo pone resolve_confirmation_token.
+            args["content"] = content
 
         if not confirmation_token:
             # Verificar si el fichero está en la blacklist (secretos)
@@ -249,15 +281,22 @@ def register_write(
             # Construir preview
             preview = await _build_write_preview(abs_path, content)
             return json.dumps(
-                await create_confirmation_token(tool_name, args, preview=preview),
+                await create_confirmation_token(
+                    tool_name, args, preview=preview, omitibles=_OMITIBLES_ESCRIBIR
+                ),
                 ensure_ascii=False,
             )
 
         # === CON TOKEN ===
 
-        valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
+        valid, error, resueltos = await resolve_confirmation_token(
+            confirmation_token, tool_name, args, omitibles=_OMITIBLES_ESCRIBIR
+        )
         if not valid:
             return json.dumps({"error": error})
+        # Se escribe lo previsualizado: el reenviado (idéntico, porque el hash
+        # casa) o el que se guardó en la vista previa.
+        content = resueltos["content"]
 
         # Verificar managed path de nuevo (defensa en profundidad)
         if is_managed_path(abs_path):

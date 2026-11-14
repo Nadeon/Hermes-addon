@@ -847,3 +847,174 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
             "res1", confirmation_token="bad"
         )
         self.assertIn("error", result)
+
+
+def _dashboard_ficticio(bytes_minimos: int) -> dict[str, Any]:
+    """Dashboard ficticio de al menos `bytes_minimos` bytes en JSON."""
+    vistas: list[dict[str, Any]] = []
+    doc: dict[str, Any] = {"views": vistas}
+    i = 0
+    while len(json.dumps(doc)) < bytes_minimos:
+        vistas.append({
+            "title": f"Vista ficticia {i}",
+            "path": f"vista-{i}",
+            "cards": [
+                {"type": "markdown", "content": f"Texto ficticio {i} " * 40},
+                {"type": "entities", "entities": [f"light.ficticia_{i}_{j}" for j in range(8)]},
+            ],
+        })
+        i += 1
+    return doc
+
+
+class TestConfirmarSoloConTokenLovelace(unittest.IsolatedAsyncioTestCase):
+    """`ha_save_lovelace_dashboard` se confirma sin reenviar `config` (spec 007).
+
+    En las pruebas en vivo de la 1.1.1, la confirmación de un dashboard de
+    41 KB llegó a los 104 s de la vista previa y el token (60 s) ya había
+    caducado: por encima de unos 20–25 KB era imposible guardar. Ahora la
+    vista previa guarda `config` en el servidor y basta con `url_path` y el
+    token.
+
+    Control negativo comprobado: con `lovelace.py` de 1.1.1 (`config`
+    obligatorio y `validate_confirmation_token`) caen todos los de esta clase
+    salvo el de reenviar todo, que es justo la compatibilidad con 1.1.1; con
+    `resolve_confirmation_token` tomando lo guardado aunque se envíe otro
+    `config`, cae el de config distinto; si el hash deja fuera el destino,
+    caen los dos de otro destino.
+    """
+
+    asyncSetUp = TestToolsLovelace.asyncSetUp
+    asyncTearDown = TestToolsLovelace.asyncTearDown
+
+    async def _guardar(self, *args: Any, **kwargs: Any) -> Any:
+        return await self.mcp.tools["ha_save_lovelace_dashboard"](*args, **kwargs)
+
+    async def _guarda_grande_sin_config(self, url_path: str | None, tam: int) -> None:
+        self.ws.set("lovelace/config/save", None)
+        doc = _dashboard_ficticio(tam)
+        self.assertGreaterEqual(len(json.dumps(doc)), tam)
+        r = await self._guardar(url_path, doc)
+        token = r["confirmation_token"]
+        self.assertEqual(r["omit_on_confirm"], ["config"])
+        # SC-001: lo que se escribe para confirmar no depende del tamaño.
+        confirmacion = {"url_path": url_path, "confirmation_token": token}
+        self.assertLess(len(json.dumps(confirmacion)), 1024)
+        res = await self._guardar(**confirmacion)
+        self.assertEqual(res, {"result": "ok", "url_path": url_path})
+        guardados = self.ws.calls_for("lovelace/config/save")
+        self.assertEqual(len(guardados), 1)
+        # Byte a byte: el documento de la vista previa, no una copia parecida.
+        self.assertEqual(json.dumps(guardados[0]["config"]), json.dumps(doc))
+        if url_path is None:
+            self.assertNotIn("url_path", guardados[0])
+        else:
+            self.assertEqual(guardados[0]["url_path"], url_path)
+
+    async def test_dashboard_de_41_kb_sin_reenviar_config(self) -> None:
+        await self._guarda_grande_sin_config("map", 41 * 1024)
+
+    async def test_dashboard_de_1_mb_sin_reenviar_config(self) -> None:
+        await self._guarda_grande_sin_config("map", 1024 * 1024)
+
+    async def test_dashboard_principal_url_path_null(self) -> None:
+        """`null` es el dashboard principal, un destino, no una omisión."""
+        await self._guarda_grande_sin_config(None, 41 * 1024)
+
+    async def test_confirmar_reenviando_todo_sigue_funcionando(self) -> None:
+        self.ws.set("lovelace/config/save", None)
+        config = {"views": [{"title": "Ficticia", "cards": []}]}
+        r = await self._guardar("map", config)
+        res = await self._guardar("map", config, confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["result"], "ok")
+        self.assertEqual(self.ws.calls_for("lovelace/config/save")[0]["config"], config)
+
+    async def test_sin_token_y_sin_config_es_invalid_argument(self) -> None:
+        res = await self._guardar("map")
+        self.assertEqual(res["error"], "invalid_argument")
+        self.assertEqual(res["field"], "config")
+        self.assertNotIn("confirmation_token", res)
+        self.assertEqual(self.ws.calls_for("lovelace/config"), [])
+        self.assertEqual(list(security.CONFIRMATIONS_DIR.glob("*.json")), [])
+
+    async def test_modo_yaml_se_rechaza_al_confirmar_sin_config(self) -> None:
+        self.ws.set("lovelace/config/save", None)
+        r = await security.create_confirmation_token(
+            "ha_save_lovelace_dashboard",
+            {"url_path": "yaml-dash", "config": {"views": []}},
+            omitibles=("config",),
+        )
+        res = await self._guardar("yaml-dash", confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["error"], "yaml_mode")
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    async def test_vista_previa_dice_como_confirmar(self) -> None:
+        r = await self._guardar("map", {"views": [{"title": "Ficticia", "cards": []}]})
+        self.assertEqual(r["confirm_with"], ["confirmation_token", "url_path"])
+        self.assertEqual(r["omit_on_confirm"], ["config"])
+        self.assertEqual(
+            r["confirm_hint"],
+            "To confirm, call ha_save_lovelace_dashboard again with only "
+            "confirmation_token, url_path. config can be omitted: the server "
+            "kept the one from this preview. Any argument you do send must be "
+            "identical to the preview.",
+        )
+
+    async def test_vista_previa_con_remove_top_level_keys(self) -> None:
+        self.ws.set("lovelace/config", TestToolsLovelace._GRANDE)
+        self.ws.set("lovelace/config/save", None)
+        nuevo = {"title": "Casa ficticia", "views": TestToolsLovelace._GRANDE["views"]}
+        quitar = ["background", "kiosk_mode"]
+        r = await self._guardar(None, nuevo, remove_top_level_keys=quitar)
+        self.assertEqual(
+            r["confirm_with"],
+            ["confirmation_token", "remove_top_level_keys", "url_path"],
+        )
+        # Sin la lista no vale: no es omitible.
+        sin = await self._guardar(None, confirmation_token=r["confirmation_token"])
+        self.assertEqual(sin, {"error": "confirmation_token does not match this action."})
+        ok = await self._guardar(None, confirmation_token=r["confirmation_token"],
+                                 remove_top_level_keys=quitar)
+        self.assertEqual(ok["result"], "ok")
+        self.assertEqual(self.ws.calls_for("lovelace/config/save")[0]["config"], nuevo)
+
+    # ── SC-002: ningún token ejecuta otra cosa ─────────────────────────────────
+
+    async def _token_panel_a(self) -> tuple[str, dict[str, Any]]:
+        self.ws.set("lovelace/config/save", None)
+        config = {"views": [{"title": "Panel A ficticio", "cards": []}]}
+        r = await self._guardar("panel-a", config)
+        return r["confirmation_token"], config
+
+    async def _sigue_sirviendo(self, token: str) -> None:
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+        ok = await self._guardar("panel-a", confirmation_token=token)
+        self.assertEqual(ok["result"], "ok")
+        self.assertEqual(
+            self.ws.calls_for("lovelace/config/save")[0]["url_path"], "panel-a")
+
+    async def test_otro_destino_sin_config_no_vale(self) -> None:
+        token, _ = await self._token_panel_a()
+        res = await self._guardar("panel-b", confirmation_token=token)
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        await self._sigue_sirviendo(token)
+
+    async def test_otro_destino_con_config_no_vale(self) -> None:
+        token, config = await self._token_panel_a()
+        res = await self._guardar("panel-b", config, confirmation_token=token)
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        await self._sigue_sirviendo(token)
+
+    async def test_config_distinto_no_vale(self) -> None:
+        token, _ = await self._token_panel_a()
+        otro = {"views": [{"title": "Otro panel ficticio", "cards": []}]}
+        res = await self._guardar("panel-a", otro, confirmation_token=token)
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        await self._sigue_sirviendo(token)
+
+    async def test_argumento_anadido_no_vale(self) -> None:
+        token, _ = await self._token_panel_a()
+        res = await self._guardar("panel-a", confirmation_token=token,
+                                  remove_top_level_keys=["title"])
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        await self._sigue_sirviendo(token)

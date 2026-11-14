@@ -417,3 +417,70 @@ class TestToolsScripts(unittest.IsolatedAsyncioTestCase):
         self.assertIn("config validation", result["error"])
         self.assertNotIn("confirmation_token", result)
 
+
+class TestConfirmarSinConfigScript(unittest.IsolatedAsyncioTestCase):
+    """Confirmar `ha_create_or_update_script` sin reenviar `config` (spec 007, Hermes 1.1.2).
+
+    La vista previa guarda la configuración normalizada junto al token; la
+    confirmación con solo `script_id` y `confirmation_token` guarda
+    exactamente esa. Control negativo comprobado: con `scripts.py` de 1.1.1
+    (`config` obligatorio y `validate_confirmation_token`) caen todos los de
+    esta clase; con `resolve_confirmation_token` tomando lo guardado aunque se
+    envíe otro `config`, cae el de config distinto.
+    """
+
+    asyncSetUp = TestToolsScripts.asyncSetUp
+    asyncTearDown = TestToolsScripts.asyncTearDown
+
+    URL = f"{REST_BASE}/config/script/config/saludar"
+    NUEVA = {'alias': 'Ficticio nuevo', 'sequence': [{'service': 'test'}]}
+    OTRA = {'alias': 'Ficticio distinto', 'sequence': [{'service': 'test'}]}
+
+    async def _vista_previa(self) -> dict:
+        with aioresponses() as m:
+            m.get(self.URL, status=200, payload={'alias': 'Ficticio antiguo'})
+            return await self.mcp.tools["ha_create_or_update_script"]("script.saludar", self.NUEVA)
+
+    async def _confirmar(self, token: str, **extra) -> tuple[object, list]:
+        with aioresponses() as m:
+            m.post(self.URL, status=200, payload={"result": "ok"})
+            res = await self.mcp.tools["ha_create_or_update_script"](
+                "script.saludar", confirmation_token=token, **extra)
+            enviados = [
+                c.kwargs.get("json")
+                for (metodo, _url), llamadas in m.requests.items()
+                if metodo.upper() == "POST"
+                for c in llamadas
+            ]
+        return res, enviados
+
+    async def test_confirmar_sin_config_guarda_la_de_la_vista_previa(self) -> None:
+        r = await self._vista_previa()
+        self.assertEqual(r["omit_on_confirm"], ["config"])
+        self.assertEqual(r["confirm_with"], ["confirmation_token", "script_id"])
+        self.assertIn("script_id", r["confirm_hint"])
+        res, enviados = await self._confirmar(r["confirmation_token"])
+        self.assertEqual(res, {"result": "ok"})
+        normalizada = ScriptConfig.model_validate(self.NUEVA).model_dump(
+            exclude_none=True, by_alias=True, mode="json"
+        )
+        self.assertEqual(enviados, [normalizada])
+
+    async def test_sin_token_y_sin_config_es_invalid_argument(self) -> None:
+        with aioresponses() as m:
+            res = await self.mcp.tools["ha_create_or_update_script"]("script.saludar")
+            self.assertEqual(dict(m.requests), {})
+        self.assertEqual(res["error"], "invalid_argument")
+        self.assertEqual(res["field"], "config")
+        self.assertNotIn("confirmation_token", res)
+        self.assertEqual(list(security.CONFIRMATIONS_DIR.glob("*.json")), [])
+
+    async def test_config_distinto_al_confirmar_no_vale(self) -> None:
+        r = await self._vista_previa()
+        res, enviados = await self._confirmar(r["confirmation_token"], config=self.OTRA)
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        self.assertEqual(enviados, [])
+        # El token no se ha gastado: la confirmación correcta sigue sirviendo.
+        res, enviados = await self._confirmar(r["confirmation_token"])
+        self.assertEqual(res, {"result": "ok"})
+        self.assertEqual(len(enviados), 1)

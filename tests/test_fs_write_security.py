@@ -1945,3 +1945,170 @@ class TestBackupListingAndRestoreBothFormats(_Base):
 
         self.assertEqual(result.get("error"), "backup_not_found", result)
         self.assertEqual(plano.read_text(encoding="utf-8"), "contenido plano\n")
+
+
+class TestConfirmarSinContent(_Base):
+    """`fs_write_file` se confirma sin reenviar `content` (spec 007, 1.1.2).
+
+    La vista previa guarda `content` junto al token; la confirmación con solo
+    `path` y `confirmation_token` escribe ese contenido. Al terminar, el
+    documento no se queda en el directorio de confirmaciones.
+
+    Los contenidos no llevan saltos de línea a propósito: la conversión de
+    finales de línea depende del sistema y este test no va de eso.
+
+    Control negativo comprobado: con `filesystem_write.py` de 1.1.1
+    (`content` obligatorio y `validate_confirmation_token`) caen los cinco; si
+    el hash deja fuera el destino, cae el de otro `path`; sin borrar lo
+    guardado en `complete_confirmation_token` cae el del directorio de
+    confirmaciones.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.confirmaciones = self.data_root / "pending_confirmations"
+        for p in (
+            patch.object(security, "CONFIRMATIONS_DIR", self.confirmaciones),
+            patch("hermes.tools.filesystem_write.maybe_trigger_safety_backup",
+                  new=AsyncMock(return_value=None)),
+            patch("hermes.tools.filesystem_write.reserve_write_slot",
+                  new=AsyncMock(return_value=None)),
+            patch("hermes.tools.filesystem_write.record_config_write", new=AsyncMock()),
+        ):
+            p.start()
+            self._patchers.append(p)
+
+    async def _escribir(self, *args, **kwargs) -> dict:
+        return _j(await self.tools["fs_write_file"](*args, **kwargs))
+
+    async def test_confirmar_sin_content_escribe_el_de_la_vista_previa(self) -> None:
+        # Fichero previo sin salto final: safe_write_file conserva esa forma y
+        # así el resultado no depende del sistema.
+        (self.config_root / "ficticio.yaml").write_bytes(b"anterior ficticio")
+        contenido = "clave_ficticia: " + "valor ficticio " * 3000
+        r = await self._escribir("ficticio.yaml", contenido)
+        self.assertEqual(r["omit_on_confirm"], ["content"])
+        self.assertEqual(r["confirm_with"], ["confirmation_token", "path"])
+        res = await self._escribir("ficticio.yaml", confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["result"], "ok", res)
+        self.assertEqual(
+            (self.config_root / "ficticio.yaml").read_bytes(), contenido.encode("utf-8"))
+
+    async def test_content_vacio_es_un_fichero_vacio(self) -> None:
+        (self.config_root / "vaciar.yaml").write_bytes(b"algo ficticio")
+        r = await self._escribir("vaciar.yaml", "")
+        self.assertEqual(r["omit_on_confirm"], ["content"])
+        res = await self._escribir("vaciar.yaml", confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["result"], "ok", res)
+        self.assertEqual((self.config_root / "vaciar.yaml").read_bytes(), b"")
+
+    async def test_sin_token_y_sin_content_es_invalid_argument(self) -> None:
+        raw = await self.tools["fs_write_file"]("ficticio.yaml")
+        self.assertIsInstance(raw, str, "como el resto de respuestas de la tool, en JSON")
+        res = _j(raw)
+        self.assertEqual(res["error"], "invalid_argument")
+        self.assertEqual(res["field"], "content")
+        self.assertNotIn("confirmation_token", res)
+        self.assertFalse((self.config_root / "ficticio.yaml").exists())
+
+    async def test_otro_path_no_vale_y_el_fichero_no_cambia(self) -> None:
+        (self.config_root / "otro.yaml").write_bytes(b"original ficticio")
+        r = await self._escribir("ficticio.yaml", "contenido ficticio")
+        token = r["confirmation_token"]
+        for con_content in (False, True):
+            with self.subTest(con_content=con_content):
+                extra = {"content": "contenido ficticio"} if con_content else {}
+                res = await self._escribir("otro.yaml", confirmation_token=token, **extra)
+                self.assertEqual(
+                    res, {"error": "confirmation_token does not match this action."})
+                self.assertEqual(
+                    (self.config_root / "otro.yaml").read_bytes(), b"original ficticio")
+        # El token no se ha gastado: la confirmación correcta sigue sirviendo.
+        res = await self._escribir("ficticio.yaml", confirmation_token=token)
+        self.assertEqual(res["result"], "ok", res)
+
+    async def test_el_contenido_no_se_queda_en_las_confirmaciones(self) -> None:
+        centinela = "CENTINELA-FICHERO-3b7e"
+        r = await self._escribir("ficticio.yaml", f"dato: {centinela}")
+        en_disco = " ".join(
+            f.read_text(encoding="utf-8") for f in self.confirmaciones.glob("*.json"))
+        self.assertIn(centinela, en_disco, "la vista previa tenía que guardarlo")
+        res = await self._escribir("ficticio.yaml", confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["result"], "ok", res)
+        for f in self.confirmaciones.iterdir():
+            self.assertNotIn(centinela, f.read_text(encoding="utf-8"), f.name)
+
+
+class TestContentPasaPorElSdkIntacto(TestConfirmarSinContent):
+    """`content` llega como texto a través de la validación real del SDK MCP
+    (revisión de la 1.1.2).
+
+    El SDK hace `json.loads` de todo argumento de texto cuya anotación no sea
+    exactamente `str`. Con `content: str | None`, `{"a": 1}`, `[1, 2]` o
+    `true` llegaban convertidos y fallaba la validación (no se podía escribir
+    un .json), y el texto `null` se tomaba como omisión. Estos tests llaman a
+    la tool como un cliente MCP, no a la función, para pasar por esa
+    validación.
+
+    Control negativo comprobado: con `content: str | None = None` caen los
+    dos tests de esta clase.
+    """
+
+    CONTENIDOS = ('{"a": 1}', "[1, 2]", "true", "null")
+
+    def setUp(self) -> None:
+        super().setUp()
+        from mcp.server.mcpserver import MCPServer
+
+        self.servidor = MCPServer("test-fs-write")
+        register_write(
+            self.servidor,
+            self.ha_client,
+            config_write_min_interval_seconds=5,
+            config_write_max_per_minute=10,
+        )
+
+    async def _llamar(self, client, **args) -> dict:
+        r = await client.call_tool("fs_write_file", args)
+        texto = r.content[0].text
+        self.assertFalse(r.is_error, texto)
+        return json.loads(texto)
+
+    async def test_contenido_json_llega_como_texto_y_se_confirma_sin_reenviar(self) -> None:
+        from mcp import Client
+
+        for i, contenido in enumerate(self.CONTENIDOS):
+            with self.subTest(contenido=contenido):
+                nombre = f"ficticio_{i}.json"
+                # Sin salto final: safe_write_file conserva esa forma.
+                (self.config_root / nombre).write_bytes(b"anterior")
+                async with Client(self.servidor) as client:
+                    vista = await self._llamar(client, path=nombre, content=contenido)
+                    token = vista["confirmation_token"]
+                    self.assertEqual(vista["preview"]["new_content_length"], len(contenido))
+                    guardado = json.loads(
+                        (self.confirmaciones / f"{token}.json").read_text(encoding="utf-8"))
+                    self.assertEqual(guardado["stored_args"], {"content": contenido})
+                    res = await self._llamar(client, path=nombre, confirmation_token=token)
+                self.assertEqual(res["result"], "ok", res)
+                self.assertEqual(
+                    (self.config_root / nombre).read_bytes(), contenido.encode("utf-8"))
+
+    async def test_reenviando_todo_como_en_1_1_1(self) -> None:
+        from mcp import Client
+
+        nombre = "reenviado.json"
+        (self.config_root / nombre).write_bytes(b"anterior")
+        async with Client(self.servidor) as client:
+            vista = await self._llamar(client, path=nombre, content='{"a": 1}')
+            res = await self._llamar(client, path=nombre, content='{"a": 1}',
+                                     confirmation_token=vista["confirmation_token"])
+        self.assertEqual(res["result"], "ok", res)
+        self.assertEqual((self.config_root / nombre).read_bytes(), b'{"a": 1}')
+
+    # Los tests heredados ya corren en TestConfirmarSinContent.
+    test_confirmar_sin_content_escribe_el_de_la_vista_previa = None
+    test_content_vacio_es_un_fichero_vacio = None
+    test_sin_token_y_sin_content_es_invalid_argument = None
+    test_otro_path_no_vale_y_el_fichero_no_cambia = None
+    test_el_contenido_no_se_queda_en_las_confirmaciones = None

@@ -320,3 +320,81 @@ class TestToolsScenes(unittest.IsolatedAsyncioTestCase):
                 name="Nueva",
             )
         self.assertEqual(result, [])
+
+
+class TestConfirmarSinConfigScene(unittest.IsolatedAsyncioTestCase):
+    """Confirmar `ha_create_or_update_scene` sin reenviar `config` (spec 007, Hermes 1.1.2).
+
+    La vista previa guarda la configuración normalizada junto al token; la
+    confirmación con solo `scene_id` y `confirmation_token` guarda
+    exactamente esa. Control negativo comprobado: con `scenes.py` de 1.1.1
+    (`config` obligatorio y `validate_confirmation_token`) caen todos los de
+    esta clase; con `resolve_confirmation_token` tomando lo guardado aunque se
+    envíe otro `config`, cae el de config distinto.
+    """
+
+    asyncSetUp = TestToolsScenes.asyncSetUp
+    asyncTearDown = TestToolsScenes.asyncTearDown
+
+    URL = f"{REST_BASE}/config/scene/config/1710000000001"
+    NUEVA = {'name': 'Ficticia nueva', 'entities': {'light.salon': 'on'}}
+    OTRA = {'name': 'Ficticia distinta', 'entities': {'light.salon': 'off'}}
+
+    async def _vista_previa(self) -> dict:
+        with aioresponses() as m:
+            m.get(self.URL, status=200, payload={'name': 'Ficticia antigua', 'entities': {'light.salon': 'off'}})
+            return await self.mcp.tools["ha_create_or_update_scene"]("scene.fiesta", self.NUEVA)
+
+    async def _confirmar(self, token: str, **extra) -> tuple[object, list]:
+        with aioresponses() as m:
+            m.post(self.URL, status=200, payload={"result": "ok"})
+            res = await self.mcp.tools["ha_create_or_update_scene"](
+                "scene.fiesta", confirmation_token=token, **extra)
+            enviados = [
+                c.kwargs.get("json")
+                for (metodo, _url), llamadas in m.requests.items()
+                if metodo.upper() == "POST"
+                for c in llamadas
+            ]
+        return res, enviados
+
+    async def test_confirmar_sin_config_guarda_la_de_la_vista_previa(self) -> None:
+        r = await self._vista_previa()
+        self.assertEqual(r["omit_on_confirm"], ["config"])
+        self.assertEqual(r["confirm_with"], ["confirmation_token", "scene_id"])
+        self.assertIn("scene_id", r["confirm_hint"])
+        res, enviados = await self._confirmar(r["confirmation_token"])
+        self.assertEqual(res, {"result": "ok"})
+        normalizada = SceneConfig.model_validate(self.NUEVA).model_dump(
+            exclude_none=True, by_alias=True, mode="json"
+        )
+        self.assertEqual(enviados, [normalizada])
+
+    async def test_sin_token_y_sin_config_es_invalid_argument(self) -> None:
+        with aioresponses() as m:
+            res = await self.mcp.tools["ha_create_or_update_scene"]("scene.fiesta")
+            self.assertEqual(dict(m.requests), {})
+        self.assertEqual(res["error"], "invalid_argument")
+        self.assertEqual(res["field"], "config")
+        self.assertNotIn("confirmation_token", res)
+        self.assertEqual(list(security.CONFIRMATIONS_DIR.glob("*.json")), [])
+
+    async def test_config_distinto_al_confirmar_no_vale(self) -> None:
+        r = await self._vista_previa()
+        res, enviados = await self._confirmar(r["confirmation_token"], config=self.OTRA)
+        self.assertEqual(res, {"error": "confirmation_token does not match this action."})
+        self.assertEqual(enviados, [])
+        # El token no se ha gastado: la confirmación correcta sigue sirviendo.
+        res, enviados = await self._confirmar(r["confirmation_token"])
+        self.assertEqual(res, {"result": "ok"})
+        self.assertEqual(len(enviados), 1)
+
+    async def test_escena_nueva_sin_config_no_guarda_nada(self) -> None:
+        """La escena nueva no pide token: sin `config` no hay nada que crear."""
+        with aioresponses() as m:
+            m.get(self.URL, status=404, body="nope")
+            res = await self.mcp.tools["ha_create_or_update_scene"]("scene.fiesta")
+            enviados = [k for k in m.requests if k[0].upper() == "POST"]
+        self.assertEqual(res["error"], "invalid_argument")
+        self.assertEqual(res["field"], "config")
+        self.assertEqual(enviados, [])

@@ -995,3 +995,66 @@ class TestToolCountInDocs:
         for nombre, texto in textos.items():
             numeros = {int(n) for n in patron.findall(texto)}
             assert numeros == {total}, f"{nombre}: {sorted(numeros)} != {total}"
+
+
+class TestDocumentoOmitibleEnElEsquema:
+    """Spec 007 (FR-006): en las cinco tools con documento grande, el
+    documento deja de ser obligatorio en el esquema de entrada MCP (se puede
+    omitir al confirmar) y el destino sigue siéndolo. Comprobado sobre el
+    registro real, que es lo que ve el cliente.
+
+    Control negativo comprobado: con las firmas de 1.1.1 (documento sin valor
+    por defecto) el documento vuelve a `required` y este test cae.
+    """
+
+    DOCUMENTO_Y_DESTINO = {
+        "ha_save_lovelace_dashboard": ("config", "url_path"),
+        "fs_write_file": ("content", "path"),
+        "ha_create_or_update_automation": ("config", "automation_id"),
+        "ha_create_or_update_script": ("config", "script_id"),
+        "ha_create_or_update_scene": ("config", "scene_id"),
+    }
+
+    def test_documento_opcional_y_destino_obligatorio(self):
+        tools = _real_registry()
+        for nombre, (documento, destino) in self.DOCUMENTO_Y_DESTINO.items():
+            esquema = tools[nombre].parameters
+            requeridos = esquema.get("required", [])
+            assert documento in esquema["properties"], nombre
+            assert documento not in requeridos, nombre
+            assert destino in requeridos, nombre
+
+
+class TestArgumentosCambiadosAnteLaValidacionDelSdk:
+    """Revisión de la 1.1.2: el SDK MCP hace `json.loads` de los argumentos de
+    texto cuya anotación no es exactamente `str`. Se comprueba, con la
+    validación real del registro, cada argumento que la spec 007 cambió.
+
+    - `content` de `fs_write_file` (`str`): un texto que parece JSON llega
+      intacto. Control negativo comprobado: con `str | None` cae.
+    - `config` de las otras cuatro (`dict | None`): un objeto mandado como
+      texto JSON se convierte en dict, que es lo deseado y lo que ya hacía la
+      1.1.1 con `dict`; omitirlo da None.
+    """
+
+    def test_content_no_se_preparsea(self):
+        meta = _real_registry()["fs_write_file"].fn_metadata
+        for contenido in ('{"a": 1}', "[1, 2]", "true", "false", "null", "texto"):
+            args = meta.validate_arguments({"path": "f.json", "content": contenido})
+            assert args["content"] == contenido, contenido
+        assert meta.validate_arguments({"path": "f.json"})["content"] is None
+
+    def test_config_se_sigue_preparseando_como_dict(self):
+        tools = _real_registry()
+        for nombre, destino in (
+            ("ha_save_lovelace_dashboard", "url_path"),
+            ("ha_create_or_update_automation", "automation_id"),
+            ("ha_create_or_update_script", "script_id"),
+            ("ha_create_or_update_scene", "scene_id"),
+        ):
+            meta = tools[nombre].fn_metadata
+            args = meta.validate_arguments({destino: "ficticio", "config": '{"a": 1}'})
+            assert args["config"] == {"a": 1}, nombre
+            args = meta.validate_arguments({destino: "ficticio", "config": {"a": 1}})
+            assert args["config"] == {"a": 1}, nombre
+            assert meta.validate_arguments({destino: "ficticio"})["config"] is None, nombre

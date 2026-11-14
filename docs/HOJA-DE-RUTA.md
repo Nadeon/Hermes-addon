@@ -4,11 +4,12 @@
 
 # Hoja de ruta de Hermes
 
-**Revisión:** 2026-11-14, sobre Hermes **1.1.1** (la revisión de
+**Revisión:** 2026-11-14, sobre Hermes **1.1.2** (la revisión de
 compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró,
-la 1.1.0 añade lo planificado para ella y la 1.1.1 corrige lo que encontraron
-las pruebas en vivo de la 1.1.0). La 1.0.12 no se publicó por separado: llega
-a los usuarios dentro de la 1.1.0.
+la 1.1.0 añade lo planificado para ella, la 1.1.1 corrige lo que encontraron
+las pruebas en vivo de la 1.1.0 y la 1.1.2, lo que encontraron las de la
+1.1.1). La 1.0.12 no se publicó por separado: llega a los usuarios dentro de la
+1.1.0.
 
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
@@ -34,6 +35,22 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
   desde la revisión 2026-07-28) y el parámetro **`iss`** (RFC 9207). El registro
   dinámico (DCR) que usa Hermes sigue funcionando, pero está deprecado. Los dos
   están en la 1.1.0 (spec 003).
+
+## Problemas conocidos de 1.1.1
+
+Resuelto en la 1.1.2 (spec 007, ver «Hecho en 1.1.2»).
+
+- **Resuelto en 1.1.2. Las escrituras con confirmación y un documento grande
+  caducan antes de poder confirmarse.** El `confirmation_token` dura 60 s, y la segunda llamada
+  tiene que repetir los mismos argumentos. Un modelo escribe unos 0,4 KB por
+  segundo. En la prueba en vivo, la confirmación de un dashboard de 41 KB llegó
+  a los 104 s de la vista previa y dio `confirmation_token expired`. Por encima
+  de unos 20–25 KB no da tiempo. Afecta a `ha_save_lovelace_dashboard` y, por
+  el mismo mecanismo, a `fs_write_file` y a `ha_create_or_update_*` cuando el
+  documento es largo. No hay pérdida de datos, porque falla cerrado: no se
+  guarda nada. Se eligió confirmar solo con el token: la vista previa guarda
+  el documento en el servidor y la confirmación puede omitirlo. Dar al token
+  más tiempo se descartó porque el documento se seguiría escribiendo dos veces.
 
 ## Problemas conocidos de 1.0.11
 
@@ -205,6 +222,20 @@ Lovelace, `ha_list_services(domain=…)`, avisos de `ha_render_template`, los
 alias `ha_hacs_info` y `ha_hacs_list_repositories`, la protección del
 dashboard principal y los tokens DCR emitidos antes de actualizar.
 
+### Hecho en 1.1.2 — confirmar solo con el token (spec 007)
+
+Las pruebas en vivo de la 1.1.1 encontraron que un documento grande no se
+podía guardar con confirmación (ver «Problemas conocidos de 1.1.1»). En
+`ha_save_lovelace_dashboard`, `fs_write_file` y
+`ha_create_or_update_automation`/`_script`/`_scene`, la vista previa guarda el
+documento junto al token y la confirmación basta con el destino y el token
+(`confirm_with`, `omit_on_confirm` y `confirm_hint` en la respuesta). El token
+sigue atado a la tool y a sus argumentos; reenviarlo todo, como en la 1.1.1,
+sigue funcionando. El documento guardado se borra al completar el token o, si
+caduca, como mucho un minuto después (la limpieza pasa de cada hora a cada
+60 s); nunca va al log, y entre todos los tokens no pasa de 16 MiB. El
+principio IV se enmienda en el mismo cambio.
+
 ### Pruebas manuales hechas en una instalación real (1.1.0)
 
 - [x] **Arranque y log redactado**: OK.
@@ -273,11 +304,30 @@ La suite no puede cubrir esto; anota aquí el resultado:
   `public_hostname: homeassistant.tailXXXX.ts.net:8443`, con
   `share_homeassistant: funnel` en el 443, y pasar una instalación existente
   del 443 al 8443 siguiendo los README.
+- [ ] **Confirmar sin el documento (1.1.2)**: en un dashboard de prueba,
+  guardar el de unos 41 KB que caducó en la 1.1.1 confirmando con solo
+  `url_path` y `confirmation_token` (a la primera, sin `confirmation_token
+  expired`), y lo mismo con un `fs_write_file` grande sobre un fichero de
+  prueba. Comprobar en el log que no aparece el contenido y que, pasados unos
+  dos minutos, el directorio de confirmaciones no lo conserva
+  (`specs/007-confirmar-con-token/quickstart.md`).
 - [ ] **Dashboards grandes**: leer por vistas un dashboard de más de 128 KiB
   (`too_large`, `view_index`, `top_level`) y guardarlo entero sin perder
-  claves de nivel superior.
+  claves de nivel superior. Estaba bloqueada por el primer problema conocido
+  de la 1.1.1 (no se podía guardar un dashboard de más de unos 25 KB, y por
+  tanto tampoco crear uno de más de 128 KiB para leerlo), resuelto en la
+  1.1.2. Sobre un dashboard de prueba, borrado al terminar, ya funcionan en
+  vivo el guardado pequeño y el control negativo `top_level_keys_missing`.
 
 ### 1.2.x y posteriores
+
+- **Menor conocido de la 1.1.2: coste del barrido en cada vista previa con
+  documento.** `create_confirmation_token` relee y parsea todos los ficheros de
+  token para barrer caducados y sumar el tope. Con el tope de 16 MiB casi
+  lleno, eso bloquea el bucle de eventos del orden de decenas de milisegundos
+  por vista previa. Solo lo puede provocar un cliente autenticado y no rompe
+  nada. Arreglo posible: llevar el total en memoria (sumar al emitir, restar al
+  completar o caducar) o barrer como mucho una vez por segundo.
 
 - **Menores vistos en las pruebas en vivo de la 1.1.1**:
   `sv_get_addon_logs` informa `redacted: false` aunque el log ya trae la red
