@@ -332,8 +332,11 @@ class HAClient:
         que estar aquí, donde pasa todo.
 
         Quien necesite de verdad ejecutar un servicio vetado tiene que pedirlo
-        explícitamente, y el único camino que lo hace es la tool
-        `ha_call_service`, después de validar su `confirmation_token`.
+        explícitamente, y solo lo hacen las tools con confirmación en dos
+        pasos, después de validar su `confirmation_token`: `ha_call_service`,
+        las recargas (`guarded_reload`) y las de atajo sobre una entidad
+        restringida (`guarded_entity_invoke`). La lista exacta la vigila
+        `tests/test_allow_dangerous_inventario.py`.
         """
         if not allow_dangerous and is_in_denylist(
             domain.strip().lower(), service.strip().lower(), CALL_SERVICE_DENYLIST

@@ -619,8 +619,9 @@ async def guarded_reload(
     limpia para activar un `fs_write_file` malicioso previo: escribir el YAML
     (que sí pide token) y luego recargarlo con una tool que el cliente aprueba
     sin mirar. Por eso piden confirmación como cualquier otra acción
-    destructiva, y son el único sitio que pasa `allow_dangerous=True` además
-    de `ha_call_service`.
+    destructiva, y pasan `allow_dangerous=True` solo después de validar el
+    token (como `ha_call_service`, `ha_call_service_response` y
+    `guarded_entity_invoke`; lista en `tests/test_allow_dangerous_inventario.py`).
     """
     args = {"domain": domain}
     if not confirmation_token:

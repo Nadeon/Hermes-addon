@@ -135,8 +135,16 @@ report about one of them will be closed with a pointer to this section:
     bound to that tool and its arguments (the response tool stores only
     `{"called": true}` next to the token, never the response). The HA client
     enforces the same denylist on both service endpoints, so no other code
-    path can run a denylisted service; only those two tools lift it, after
-    validating their token.
+    path can run a denylisted service. Only tools with two-step confirmation
+    lift it, and only after validating their token: `ha_call_service` and
+    `ha_call_service_response` (a denylisted service or a restricted script
+    or automation), the reload tools `ha_reload_automations`,
+    `ha_reload_counters`, `ha_reload_scenes`, `ha_reload_schedules`,
+    `ha_reload_scripts`, `ha_reload_timers` and `ha_reload_zones` (always
+    confirmed, since a reload applies whatever YAML is in `/config`), and
+    `ha_run_script` and `ha_trigger_automation` (only for a restricted
+    script or automation). A test walks the code and fails if any other
+    place lifts it.
   - **Generic tools behind a fail-closed command table.**
     `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and
     `sv_read_api`/`sv_call_api` (Supervisor API routes) cover what no

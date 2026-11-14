@@ -598,8 +598,8 @@ def register(
                 return {"error": error}
 
             try:
-                # Único punto que autoriza explícitamente un servicio vetado: se
-                # llega aquí solo con un confirmation_token ya validado.
+                # Aquí se autoriza explícitamente un servicio vetado: se llega
+                # solo con un confirmation_token ya validado.
                 result = await ha_client.call_service(
                     domain_lower, service_lower, data, allow_dangerous=True
                 )
