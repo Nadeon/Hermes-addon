@@ -414,7 +414,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
-| 019 | Montajes y ajustes de backup | 083 | pendiente |
+| 019 | Montajes y ajustes de backup | 083 | tramo 1 hecho: familia `mounts` con seis tools de montajes (CIFS, NFS y disco local; crear, editar, borrar y el por defecto con token atado también al estado), credenciales que entran y nunca salen, seis rutas de `/mounts` a `dedicated` y el `action_hash` de los tokens con HMAC; falta el tramo 2 (ajustes de backup y `location`); prueba en vivo pendiente (VM de la 014) |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
@@ -696,22 +696,27 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_create_backup_full` | VM | pendiente | |
 | `sv_create_backup_partial` | VM | pendiente | |
+| `sv_create_mount` | VM | pendiente | recurso CIFS y NFS de prueba |
 | `sv_create_safety_backup` | VM | pendiente | |
 | `sv_delete_backup` | VM | pendiente | instantánea antes |
+| `sv_delete_mount` | VM | pendiente | instantánea antes |
 | `sv_dismiss_resolution_issue` | VM | pendiente | |
 | `sv_dismiss_resolution_suggestion` | VM | pendiente | |
 | `sv_get_job_status` | VM | pendiente | |
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_reload_mount` | VM | pendiente | |
 | `sv_restart_addon` | VM | pendiente | add-on de prueba |
 | `sv_restart_core` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_full` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
 | `sv_set_addon_options` | VM | pendiente | add-on de prueba |
+| `sv_set_default_backup_mount` | VM | pendiente | |
 | `sv_start_addon` | VM | pendiente | add-on de prueba |
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |
 | `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
 | `sv_update_addon` | VM | pendiente | add-on de prueba |
+| `sv_update_mount` | VM | pendiente | instantánea antes |
 <!-- matriz-pruebas:fin -->
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las

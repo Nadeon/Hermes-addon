@@ -540,3 +540,59 @@ class TestGuiaRespuestaConfirmadaYListas(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
+    """Spec 019, FR-018 (tramo 1): tema `mounts` con las seis tools de
+    montajes, el flujo de llevar los backups a un NAS, que las credenciales
+    no se devuelven y que editar sin ellas las quita; sus alias; el índice y
+    las instrucciones lo nombran solo con la familia activa. El tema
+    `backups` no cambia en este tramo (lo hace el tramo 2).
+
+    Control negativo comprobado: sin el tema (y sus alias) caen
+    `test_tema_con_las_tools_y_alias` y `test_indice_e_instrucciones`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("mounts")
+        self.assertIs(texto, _GUIDE["mounts"])
+        for palabra in ("sv_list_mounts", "sv_create_mount", "sv_update_mount",
+                        "sv_delete_mount", "sv_reload_mount",
+                        "sv_set_default_backup_mount", "cifs", "nfs", "disk",
+                        "device", "uuid", "sv_get_resolution", "safety backup",
+                        "removed_if_present", "credentials"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        # Las frases que importan: no se devuelven y editar sin ellas las
+        # quita; el flujo del NAS.
+        for frase in ("nunca se devuelven", "las quita", "NAS"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, texto)
+        for alias in ("cifs", "nfs", "nas", "network_storage", "backup_settings",
+                      "NAS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `backup` sigue llevando a `backups`, como en la 1.1.2.
+        self.assertEqual(await self.guide("backup"), _GUIDE["backups"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b", _GUIDE["mounts"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`mounts`", await self.guide())
+        self.assertIn("mounts", INSTRUCTIONS)
+        self.assertNotIn("mounts", instrucciones(frozenset({"mounts"})))

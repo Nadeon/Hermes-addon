@@ -86,7 +86,36 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Supervisor
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **Montajes de red y ajustes de backup (019).** Familia nueva `mounts`
+  (desactivable con `tool_families_disabled`) con seis tools para los
+  montajes del Supervisor: `sv_list_mounts` (montajes, su estado y el montaje
+  por defecto de backups), `sv_create_mount` (CIFS, NFS o disco local),
+  `sv_update_mount` (funde lo que se pasa con lo actual), `sv_delete_mount`,
+  `sv_reload_mount` (vuelve a comprobar y rearma un montaje caído) y
+  `sv_set_default_backup_mount` (a dónde van los backups sin ubicación,
+  también los safety backups de Hermes). Crear, editar, borrar y el montaje
+  por defecto van en dos pasos; la vista previa dice si el montaje pasa a ser
+  (o deja de ser) el de por defecto, qué backups dejan de verse al borrarlo o
+  al cambiar su destino, y que el Supervisor lo monta al crearlo y no crea
+  nada si falla. El token ata también el estado que describe la vista
+  previa: si el montaje cambia antes de confirmar, no se ejecuta
+  (`mount_changed`).
+  - **Credenciales**: el usuario y la contraseña de un CIFS entran, pero no
+    salen nunca: ni en respuestas, vistas previas, errores, el log de Hermes
+    ni el fichero del token. Como el Supervisor reemplaza la configuración
+    entera y no las devuelve, editar un CIFS sin `username` y `password` las
+    quita; la vista previa lo avisa (`removed_if_present`).
+  - Las seis rutas de `/mounts` pasan de `deny` a `dedicated` en la tabla de
+    comandos; `sv_read_api` y `sv_call_api` remiten a su tool.
+  - Guía: tema nuevo `hermes_guide("mounts")` (alias `cifs`, `nfs`, `nas`,
+    `network_storage`, `backup_settings`).
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Tokens de confirmación con HMAC (019).** El `action_hash` que se guarda
+  junto a cada token pasa de SHA-256 a HMAC-SHA256 con una clave aleatoria
+  que solo vive en memoria y cambia en cada arranque. El hash de una acción
+  con una contraseña (montajes CIFS, `fs_set_secret`, restaurar un backup
+  cifrado) ya no se puede atacar sin conexión leyendo `/data`. Nada visible
+  cambia: un token de antes de un reinicio ya se daba por perdido.
 
 ### Sistema
 
