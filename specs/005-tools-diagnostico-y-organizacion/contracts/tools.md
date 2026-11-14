@@ -152,7 +152,7 @@ ha_get_trace(domain: str, run_id: str, item_id: str | None = None, entity_id: st
 - `domain` ∈ `automation`, `script`; `limit` 1–50; `detail` ∈ `summary`, `full`.
 - `item_id` y `entity_id` son excluyentes; en `ha_get_trace` uno de los dos es obligatorio. `entity_id` de otro dominio → `invalid_argument`; sin entrada en el registro → `{"error": "not_found", "entity_id": …}`.
 
-`ha_list_traces` → `{"count": n, "total": m, "traces": [{"run_id", "item_id", "state", "script_execution", "start", "finish", "last_step", "trigger", "error", "not_triggered"}]}` (más recientes primero; `trigger` y `error` ≤ 300 caracteres y redactados).
+`ha_list_traces` → `{"count": n, "total": m, "traces": [{"run_id", "item_id", "state", "script_execution", "start", "finish", "last_step", "trigger", "error", "not_triggered?"}]}` (más recientes primero; `not_triggered` solo si HA lo trae; `trigger` y `error` ≤ 300 caracteres y redactados).
 
 `ha_get_trace` (`summary`):
 

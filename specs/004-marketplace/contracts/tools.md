@@ -101,6 +101,8 @@ No envía `marketplace/repository/info` ni `hacs/repository/info`.
 {
   "api": "marketplace",
   "count": 1,
+  "total": 1,
+  "truncated": false,
   "updates": [
     { "id": "123456", "full_name": "owner/repo", "name": "Repo", "category": "integration",
       "installed_version": "1.2.0", "available_version": "1.3.0",
@@ -131,12 +133,17 @@ limit».
 ## `ha_marketplace_list_critical()` y `ha_marketplace_list_removed()`
 
 ```json
-{ "api": "marketplace", "count": 1,
+{ "api": "marketplace", "count": 1, "total": 1, "truncated": false,
   "repositories": [ { "repository": "owner/repo", "reason": "…", "link": "…", "acknowledged": false } ],
   "_third_party_text": { "fields": ["reason"], "…": "…" } }
 ```
 
 `list_removed` añade `removal_type` a cada elemento.
+
+En estas tres listas (`list_updates`, `list_critical` y `list_removed`),
+`total` es lo que devuelve HA y `count` lo que cabe en `response_max_bytes`;
+si no cabe todo, `truncated` es `true`. (Añadido tras las pruebas en vivo de
+la 1.1.1: el código ya lo devolvía y el ejemplo no lo mostraba.)
 
 ## Alias `ha_hacs_*`
 
