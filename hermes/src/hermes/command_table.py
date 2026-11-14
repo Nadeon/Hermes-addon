@@ -74,7 +74,10 @@ CORE_WS: dict[str, E] = {
     "backup/can_decrypt_on_download": E("deny", "comprobación de la UI antes de descargar (clase B)", "generic_commands"),
     "backup/config/info": E("dedicated", "cubierto por ha_get_backup_config", "backups", tool="ha_get_backup_config"),
     "backup/config/update": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
-    "backup/delete": E("confirm", "borra un backup de todas sus ubicaciones, también las remotas (sv_delete_backup solo las del Supervisor)", "generic_commands", open_world=True),
+    # Cubre también ubicaciones remotas, que sv_delete_backup no ve; pero la vista
+    # previa genérica (resumen de la carga) no dice qué backup es ni qué contiene.
+    # Hasta la tool dedicada de la 031, deny.
+    "backup/delete": E("deny", "pendiente de tool dedicada (spec 031): restaurar o borrar backups exige una vista previa fuerte como la de `sv_restore_backup_full`", "generic_commands"),
     "backup/details": E("dedicated", "cubierto por ha_get_backup", "backups", tool="ha_get_backup"),
     "backup/end": E("deny", "señal interna del Supervisor (clase B)", "generic_commands"),
     # backup.create crea un backup fijo en el agente local (y en HAOS ni existe);
@@ -82,7 +85,10 @@ CORE_WS: dict[str, E] = {
     "backup/generate": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands"),
     "backup/generate_with_automatic_settings": E("dedicated", "cubierto por ha_call_service (acción de HA)", "services", tool="ha_call_service"),
     "backup/info": E("dedicated", "cubierto por ha_list_backups", "backups", tool="ha_list_backups"),
-    "backup/restore": E("confirm", "restaura un backup desde cualquier ubicación, también remota: SOBRESCRIBE Core, apps y datos (sv_restore_backup_* solo restaura los del Supervisor)", "generic_commands", open_world=True),
+    # SOBRESCRIBE Core, apps y datos desde cualquier ubicación, también remota.
+    # La vista previa genérica no enseña fecha, contenido ni tamaño del backup como
+    # sv_restore_backup_full: hasta la tool dedicada de la 031, deny.
+    "backup/restore": E("deny", "pendiente de tool dedicada (spec 031): restaurar o borrar backups exige una vista previa fuerte como la de `sv_restore_backup_full`", "generic_commands"),
     "backup/start": E("deny", "señal interna del Supervisor (clase B)", "generic_commands"),
     "backup/subscribe_events": E("deny", "suscripción al progreso de los backups: MCP es petición-respuesta (clase B)", "generic_commands"),
     "blueprint/delete": E("deny", "pendiente de tool dedicada (spec 017)", "generic_commands", cap="CAP-046"),
@@ -812,7 +818,9 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/store/repositories"): E("deny", "pendiente de tool dedicada (spec 030)", "generic_commands", cap="CAP-082"),
     ("GET", "/store/repositories/{repository}"): E("deny", "pendiente de tool dedicada (spec 030)", "generic_commands", cap="CAP-082"),
     ("GET", "/supervisor/available_updates"): E("deny", "Alias «Remove: 2023» (clase B)", "generic_commands"),
-    ("GET", "/supervisor/info"): E("dedicated", "cubierto por sv_get_supervisor_info", "supervisor", tool="sv_get_supervisor_info"),
+    # sv_get_supervisor_info solo devuelve unos campos de esta ruta (versión, canal,
+    # salud, arquitectura): no es equivalente, así que la ruta completa va por la tabla.
+    ("GET", "/supervisor/info"): E("read", "estado completo del Supervisor (versiones, canal, salud, apps instaladas, opciones de diagnóstico); solo lee", "generic_commands"),
     ("GET", "/supervisor/logs"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
     ("GET", "/supervisor/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
     ("GET", "/supervisor/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
