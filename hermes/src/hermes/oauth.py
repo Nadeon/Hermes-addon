@@ -285,6 +285,67 @@ def _revoke_token_chain(token_hash: str) -> int:
     return borrados
 
 
+# ── Cambio de contraseña ──────────────────────────────────────
+# Los tokens no dependen de la contraseña: solo se comprueba al hacer login.
+# Así que cambiar `auth_password` dejaba vivas todas las sesiones abiertas
+# hasta sus 7 días, que es justo lo contrario de lo que espera quien la cambia
+# porque sospecha que se la han visto. Para notar el cambio entre arranques
+# hace falta guardar algo derivado de ella: una huella scrypt con sal propia,
+# nunca la contraseña. Con la política de contraseñas fuertes que se exige al
+# arrancar, atacar esa huella fuera de línea no es más práctico que adivinar
+# la contraseña en el login.
+_PASSWORD_FINGERPRINT_FILE = "password_fingerprint.json"
+_SCRYPT_PARAMS = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
+
+
+def _password_fingerprint(password: str, salt: bytes) -> str:
+    return hashlib.scrypt(password.encode("utf-8"), salt=salt, **_SCRYPT_PARAMS).hex()
+
+
+def _revoke_sessions_if_password_changed(password: str) -> int | None:
+    """Cierra todas las sesiones si `auth_password` cambió desde el último arranque.
+
+    Devuelve cuántos ficheros de token se borraron al detectar el cambio, o
+    None si no hubo cambio que aplicar (misma contraseña, o sin huella con
+    la que comparar). Sin huella previa (primer arranque, o recién actualizado desde una
+    versión que no la guardaba) no hay con qué comparar: se guarda y no se
+    toca ninguna sesión, para que actualizar no obligue a nadie a autorizar
+    de nuevo. Una huella ilegible sí cuenta como cambio: no se puede saber si
+    la contraseña es la misma, y ante la duda se cierra.
+    """
+    ruta = _OAUTH_DIR / _PASSWORD_FINGERPRINT_FILE
+    existe = ruta.exists()
+    guardada = _safe_read(ruta) if existe else None
+    if guardada is not None:
+        try:
+            sal = bytes.fromhex(str(guardada["salt"]))
+            igual = secrets.compare_digest(
+                _password_fingerprint(password, sal), str(guardada["fingerprint"])
+            )
+        except (KeyError, ValueError, TypeError):
+            igual = False
+        if igual:
+            return None
+
+    revocados: int | None = None
+    if existe:
+        revocados = 0
+        for directorio in (_TOKENS_DIR, _CODES_DIR):
+            for fichero in directorio.glob("*.json"):
+                _safe_unlink(fichero)
+                if directorio is _TOKENS_DIR:
+                    revocados += 1
+        logger.warning("oauth_sessions_revoked_password_changed", tokens_revoked=revocados)
+
+    sal = secrets.token_bytes(16)
+    _atomic_write(ruta, {
+        "algorithm": "scrypt",
+        "salt": sal.hex(),
+        "fingerprint": _password_fingerprint(password, sal),
+    })
+    return revocados
+
+
 def _revoke_previous_sessions(client_id: str, keep_hash: str) -> int:
     """Acota cuántas sesiones quedan vivas al autorizar una nueva.
 
@@ -359,6 +420,17 @@ class OAuthServer:
         self._public_hostname = public_hostname
         self._base_url = f"https://{public_hostname}"
         _ensure_dirs()
+        # Un fallo aquí (disco lleno, un Python sin scrypt) no puede impedir
+        # arrancar: se pierde solo el cierre de sesiones por cambio de
+        # contraseña, que es como funcionaba Hermes hasta la 1.0.10.
+        try:
+            _revoke_sessions_if_password_changed(auth_password)
+        except Exception as exc:  # noqa: BLE001 — ver comentario
+            logger.error(
+                "oauth_password_fingerprint_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
         self._cleanup_expired()
         self._cleanup_task: asyncio.Task | None = None
 

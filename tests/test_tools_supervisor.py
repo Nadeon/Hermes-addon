@@ -39,6 +39,22 @@ class MockHAClient:
     def __init__(self) -> None:
         self._sv_responses: dict[tuple, Any] = {}
         self._sv_text_responses: dict[str, str] = {}
+        # WebSocket con el Core: lista y sin respuestas configuradas.
+        self.ready = True
+        self._ws_responses: dict[str, Any] = {}
+        self.ws_sent: list[dict[str, Any]] = []
+
+    def set_ws_response(self, command_type: str, response: Any) -> None:
+        self._ws_responses[command_type] = response
+
+    async def ws_send(self, payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
+        self.ws_sent.append(payload)
+        resp = self._ws_responses.get(payload.get("type"))
+        if resp is None:
+            raise HAConnectionError(f"MockHAClient: no WS response for {payload.get('type')}")
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
 
     def set_sv_response(self, method: str, path: str, response: Any) -> None:
         self._sv_responses[(method.upper(), path)] = response
@@ -126,16 +142,51 @@ class TestSupervisorInfoTools(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["hostname"], "homeassistant")
         self.assertIn("operating_system", result)
 
+    # `/core/info` real del Supervisor: no trae `state`. El test anterior se lo
+    # inventaba ("state": "running"), y por eso nunca vio que la tool
+    # devolvía siempre null en una instalación de verdad.
+    _CORE_INFO_REAL = {
+        "version": "2026.4.0",
+        "version_latest": "2026.4.1",
+        "update_available": True,
+        "arch": "amd64",
+        "machine": "generic-x86-64",
+        "boot": True,
+        "watchdog": True,
+    }
+
     async def test_get_core_info_ok(self) -> None:
-        self.client.set_sv_response("GET", "/core/info", {
-            "version": "2026.4.0",
-            "version_latest": "2026.4.1",
-            "update_available": True,
-            "state": "running",
-        })
+        self.client.set_sv_response("GET", "/core/info", dict(self._CORE_INFO_REAL))
+        self.client.set_ws_response("get_config", {"state": "RUNNING", "version": "2026.4.0"})
         result = await self.tools["sv_get_core_info"]()
         self.assertEqual(result["version"], "2026.4.0")
         self.assertTrue(result["update_available"])
+
+    async def test_get_core_info_state_comes_from_the_core(self) -> None:
+        """`state` salía siempre null: se leía de `/core/info`, que no lo trae."""
+        self.client.set_sv_response("GET", "/core/info", dict(self._CORE_INFO_REAL))
+        for del_core, esperado in (("RUNNING", "running"), ("STARTING", "starting"),
+                                   ("NOT_RUNNING", "not_running")):
+            with self.subTest(del_core=del_core):
+                self.client.set_ws_response("get_config", {"state": del_core})
+                result = await self.tools["sv_get_core_info"]()
+                self.assertEqual(result["state"], esperado)
+        self.assertEqual(self.client.ws_sent[-1], {"type": "get_config"})
+
+    async def test_get_core_info_state_unreachable_without_websocket(self) -> None:
+        """Sin conexión con el Core (por ejemplo, reiniciando) no hay a quién
+        preguntar; la tool lo dice en vez de devolver null ni colgarse."""
+        self.client.set_sv_response("GET", "/core/info", dict(self._CORE_INFO_REAL))
+        self.client.ready = False
+        result = await self.tools["sv_get_core_info"]()
+        self.assertEqual(result["state"], "unreachable")
+        self.assertEqual(result["version"], "2026.4.0")
+        self.assertEqual(self.client.ws_sent, [], "no debe intentar la WS si no está lista")
+
+        self.client.ready = True
+        self.client.set_ws_response("get_config", HAConnectionError("Timeout waiting"))
+        result = await self.tools["sv_get_core_info"]()
+        self.assertEqual(result["state"], "unreachable")
 
     async def test_check_core_config_ok(self) -> None:
         self.client.set_sv_response("POST", "/core/check", {})

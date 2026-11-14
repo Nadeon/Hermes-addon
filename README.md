@@ -351,11 +351,13 @@ no keys to copy and paste.
 **How long it lasts.** Each authorization is good for **7 days**: Claude renews
 its access every hour within that week, but once it runs out the connector asks
 for your password again. Up to 5 authorizations can be alive at once (phone,
-desktop…); a sixth closes the one that has gone longest without use. Changing
-`auth_password` does **not** close sessions that are already open: they keep
-working until their 7 days end.
-To cut all of them at once, uninstall and reinstall the add-on, which clears
-its stored tokens (and its options, so note them down first).
+desktop…); a sixth closes the one that has gone longest without use.
+
+**Closing every session.** Change `auth_password` and restart the add-on: on
+startup Hermes notices the new password and closes every open session, so each
+client has to authorize again with it. The log shows
+`oauth_sessions_revoked_password_changed`. Since 1.0.11; on earlier versions
+the sessions kept working until their 7 days ran out.
 
 **What to expect the first time.** On connecting, Hermes hands Claude a summary of
 the available tool families. When it needs detail about a specific area, Claude

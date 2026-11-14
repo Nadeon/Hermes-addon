@@ -425,3 +425,86 @@ class TestTokenValidation(_OAuthTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPasswordChangeRevokesSessions(_OAuthTestBase):
+    """Cambiar `auth_password` no cerraba ninguna sesión: los tokens solo
+    dependen de la contraseña en el login, así que las sesiones abiertas
+    seguían vivas sus 7 días. Justo lo contrario de lo que espera quien la
+    cambia porque sospecha que se la han visto."""
+
+    def _seed(self) -> tuple[Path, Path, Path]:
+        now = time.time()
+        refresh = oauth._TOKENS_DIR / "r.json"
+        access = oauth._TOKENS_DIR / "a.json"
+        code = oauth._CODES_DIR / "c.json"
+        for ruta, tipo in ((refresh, "refresh"), (access, "access")):
+            oauth._atomic_write(ruta, {
+                "token_type": tipo, "client_id": "cid", "sub": oauth._FIXED_SUB,
+                "created_at": now, "expires_at": now + 3600,
+            })
+        oauth._atomic_write(code, {"client_id": "cid", "expires_at": now + 60})
+        return refresh, access, code
+
+    def _rearrancar(self, password: str) -> None:
+        self.server = oauth.OAuthServer(
+            auth_password=password, public_hostname="hermes.tail-xxxx.ts.net",
+        )
+
+    async def test_new_password_revokes_every_session_and_pending_code(self) -> None:
+        from structlog.testing import capture_logs
+
+        refresh, access, code = self._seed()
+        with capture_logs() as logs:
+            self._rearrancar("otra-password-distinta-9876")
+        eventos = [e for e in logs if e["event"] == "oauth_sessions_revoked_password_changed"]
+        self.assertEqual(len(eventos), 1)
+        self.assertEqual(eventos[0]["tokens_revoked"], 2)
+        self.assertFalse(refresh.exists())
+        self.assertFalse(access.exists())
+        self.assertFalse(code.exists(), "un código emitido con la contraseña vieja tampoco vale")
+
+    async def test_same_password_keeps_sessions(self) -> None:
+        refresh, access, code = self._seed()
+        self._rearrancar("test-password-1234")
+        self.assertTrue(refresh.exists())
+        self.assertTrue(access.exists())
+        self.assertTrue(code.exists())
+
+    async def test_first_start_without_fingerprint_keeps_sessions(self) -> None:
+        """Al actualizar desde una versión que no guardaba la huella no hay con
+        qué comparar: no se cierra nada, o actualizar obligaría a todo el mundo
+        a autorizar de nuevo."""
+        (oauth._OAUTH_DIR / oauth._PASSWORD_FINGERPRINT_FILE).unlink()
+        refresh, access, _ = self._seed()
+        self._rearrancar("otra-password-distinta-9876")
+        self.assertTrue(refresh.exists())
+        self.assertTrue(access.exists())
+        # Y desde ahí ya compara: volver a cambiarla sí cierra.
+        self._rearrancar("tercera-password-larga-5555")
+        self.assertFalse(refresh.exists())
+
+    async def test_unreadable_fingerprint_counts_as_change(self) -> None:
+        (oauth._OAUTH_DIR / oauth._PASSWORD_FINGERPRINT_FILE).write_text("{roto", encoding="utf-8")
+        refresh, _, _ = self._seed()
+        self._rearrancar("test-password-1234")
+        self.assertFalse(refresh.exists())
+
+    async def test_fingerprint_never_stores_the_password(self) -> None:
+        contenido = (oauth._OAUTH_DIR / oauth._PASSWORD_FINGERPRINT_FILE).read_text(encoding="utf-8")
+        self.assertNotIn("test-password-1234", contenido)
+        datos = json.loads(contenido)
+        self.assertEqual(datos["algorithm"], "scrypt")
+        self.assertEqual(len(bytes.fromhex(datos["salt"])), 16)
+
+    async def test_fingerprint_failure_never_blocks_startup(self) -> None:
+        """Si la huella no se puede calcular o guardar, Hermes arranca igual:
+        perder el cierre de sesiones es menos grave que no arrancar."""
+        from unittest.mock import patch
+        from structlog.testing import capture_logs
+
+        with patch.object(oauth.hashlib, "scrypt", side_effect=ValueError("sin scrypt")), \
+                capture_logs() as logs:
+            self._rearrancar("otra-password-distinta-9876")
+        self.assertIsNotNone(self.server)
+        self.assertIn("oauth_password_fingerprint_failed", [e["event"] for e in logs])

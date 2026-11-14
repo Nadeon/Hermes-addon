@@ -98,13 +98,36 @@ def register(mcp: object, ha_client: HAClient) -> None:
         except HAConnectionError as exc:
             return {"error": str(exc)}
 
+    async def _estado_del_core() -> str:
+        """Estado del Core según el propio Core.
+
+        `/core/info` del Supervisor no trae `state`: la tool lo leía de ahí y
+        devolvía siempre null, y el test pasaba porque su respuesta simulada
+        se inventaba el campo. El Core lo publica en `get_config` por la
+        WebSocket que Hermes ya mantiene abierta. Sin esa conexión no se
+        puede preguntar, y eso mismo es la respuesta útil: durante un
+        reinicio de HA es justo lo que hay que saber.
+        """
+        if not ha_client.ready:
+            return "unreachable"
+        try:
+            config = await ha_client.ws_send({"type": "get_config"}, timeout_seconds=5)
+        except HAConnectionError:
+            return "unreachable"
+        estado = config.get("state") if isinstance(config, dict) else None
+        return str(estado).lower() if estado else "unknown"
+
     @mcp.tool()
     async def sv_get_core_info() -> object:
         """Devuelve información sobre el core de Home Assistant.
 
         Returns:
             {"version": "...", "version_latest": "...",
-             "update_available": bool, "state": "running|stopped|..."}
+             "update_available": bool,
+             "state": "running|starting|stopping|not_running|...|unreachable"}
+            `state` es el que da el propio Core; "unreachable" significa que
+            Hermes no tiene conexión con él en ese momento (por ejemplo,
+            mientras reinicia).
         """
         try:
             data = redact_structure(await ha_client.sv_request("GET", "/core/info"))
@@ -114,7 +137,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 "version": data.get("version"),
                 "version_latest": data.get("version_latest"),
                 "update_available": data.get("update_available"),
-                "state": data.get("state"),
+                "state": await _estado_del_core(),
                 "arch": data.get("arch"),
                 "machine": data.get("machine"),
                 "boot": data.get("boot"),

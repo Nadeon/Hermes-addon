@@ -134,6 +134,26 @@ class TestManifiesto(unittest.TestCase):
             "versiones distintas",
         )
 
+    def test_la_version_de_ha_probada_se_revisa_en_cada_release(self) -> None:
+        """La 1.0.10 salió con HA_CORE_LAST_TESTED en 2026.9.0, dos versiones
+        de Home Assistant por detrás: todas las instalaciones al día avisaban
+        en cada arranque de una versión "no probada" que funcionaba bien.
+
+        La regla de subirla en cada release vivía en un comentario. Este test
+        no puede saber contra qué HA se probó, pero sí obliga a que alguien lo
+        decida: la pareja HA_CORE_LAST_TESTED_IN_HERMES tiene que coincidir
+        con la versión que se publica.
+        """
+        from hermes.config import HA_CORE_LAST_TESTED_IN_HERMES
+
+        self.assertEqual(
+            HA_CORE_LAST_TESTED_IN_HERMES,
+            __version__,
+            "Nueva versión de Hermes sin revisar HA_CORE_LAST_TESTED en "
+            "hermes/src/hermes/config.py: compruébala contra la HA actual y "
+            "súbela, o deja la versión de HA y actualiza solo la pareja",
+        )
+
     def test_toda_opcion_por_defecto_esta_declarada_en_el_schema(self) -> None:
         """Una opción en `options` que no esté en `schema` la rechaza HA."""
         for clave in self.options:
