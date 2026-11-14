@@ -23,13 +23,16 @@ guardarse (`classify_saved_config`), y `ha_run_script` y
 `ha_trigger_automation` piden token: la vista previa no ejecuta nada (barrera
 del lector) y la confirmación sí.
 
-Hallazgos de la 028, en `xfail` estricto y en `XFAIL_PERMITIDOS_028`
-(pendientes de arreglo en la spec 033; aquí no se toca la tool):
+Hallazgo de la 028, en `xfail` estricto y en `XFAIL_PERMITIDOS_028`
+(pendiente de arreglo en el tramo 2 de la spec 033; aquí no se toca la tool):
 
 - `ha_create_scene_from_current` con `name` falla siempre (T032).
-- El token de `ha_run_script` y `ha_trigger_automation` no cubre `variables`:
-  se acepta una confirmación con variables distintas de las de la vista
-  previa (T033, seguridad).
+
+El de seguridad (el token de `ha_run_script` y `ha_trigger_automation` no
+cubría `variables`) lo arregló el tramo 1 de la 033: sus dos
+`test_el_token_ata_las_variables` comprueban contra HA real que confirmar con
+otras variables se rechaza sin ejecutar nada. Control negativo en el CI (T009,
+anotado en el commit): con `variables` fuera del hash, los dos caen en rojo.
 
 Control negativo en el CI (T014, anotado en el commit del tramo A): con
 `ha_activate_scene` mandando a `scene.turn_on` un `entity_id` que no existe,
@@ -45,7 +48,6 @@ import pytest
 from tests.banco.base_escrituras import (
     BancoEscrituras,
     RechazadoPorCore,
-    TokenSinAtarLaAccion,
     rechazado_por_core,
     sufijo,
 )
@@ -63,6 +65,53 @@ def _encender(entity_id: str) -> dict[str, object]:
 # `input_boolean`, que no tiene ninguno): basta para que Hermes restrinja el
 # script o la automatización que lo llama.
 _RECARGA_INOCUA: dict[str, object] = {"action": "input_boolean.reload"}
+
+# Enciende el `input_boolean` que diga la variable `objetivo`: así el efecto
+# de unas variables u otras se ve en entidades distintas del lector.
+_ENCENDER_OBJETIVO: dict[str, object] = {
+    "action": "input_boolean.turn_on",
+    "target": {"entity_id": "{{ objetivo }}"},
+}
+
+
+async def _token_ata_variables(  # type: ignore[no-untyped-def]
+    test, s, tool: str, servicio: tuple[str, str], id_args: dict[str, str], aprobado: str, otro: str
+) -> None:
+    """Spec 033, FR-001/FR-002, contra HA real.
+
+    1. La vista previa con `objetivo=aprobado` enseña esas variables y no
+       ejecuta nada (barrera del lector).
+    2. La confirmación con `objetivo=otro` es un error de token: el lector no
+       ve el servicio y los dos `input_boolean` siguen apagados.
+    3. La confirmación con las variables de la vista previa se ejecuta: el
+       lector ve el servicio una vez y `aprobado` encendido, `otro` no.
+    """
+    await s.preparar_barrera()
+    async with s.lector.servicios_llamados() as vistos:
+        vista = await s.vista(tool, **id_args, variables={"objetivo": aprobado})
+        test.assertEqual(vista["preview"]["variables"], {"objetivo": aprobado})
+
+        respuesta = await llamar(
+            s.cliente,
+            tool,
+            **id_args,
+            variables={"objetivo": otro},
+            confirmation_token=vista["confirmation_token"],
+        )
+        test.assertIsInstance(respuesta, dict)
+        test.assertIn("does not match", str(respuesta.get("error")), respuesta)
+        await s.barrera(vistos)
+        test.assertNotIn(servicio, vistos)
+        for ib in (aprobado, otro):
+            test.assertEqual((await s.lector.estado(ib))["state"], "off", ib)
+
+        await s.confirmar(tool, vista, **id_args, variables={"objetivo": aprobado})
+        await s.esperar_estado(
+            aprobado, lambda e: e is not None and e["state"] == "on", "encendido tras confirmar"
+        )
+        await s.barrera(vistos)
+    test.assertEqual(vistos.count(servicio), 1)
+    test.assertEqual((await s.lector.estado(otro))["state"], "off")
 
 
 class TestAutomatizacion(BancoEscrituras):
@@ -174,6 +223,35 @@ class TestAutomatizacion(BancoEscrituras):
                 )
             self.assertEqual(vistos.count(("automation", "trigger")), 1)
 
+    async def test_el_token_ata_las_variables(self) -> None:
+        # Spec 033 (T008): lo mismo que en `TestScript`, por
+        # `ha_trigger_automation` (pasa por la misma función).
+        hexa = sufijo()
+        aid = f"banco_automation_{hexa}"
+        eid = f"automation.{aid}"
+        async with self.sesion() as s:
+            aprobado = await s.input_boolean(f"banco_input_boolean_{hexa}_a")
+            otro = await s.input_boolean(f"banco_input_boolean_{hexa}_b")
+            config = {
+                "alias": aid,
+                "triggers": [{"trigger": "event", "event_type": f"banco_evento_{hexa}"}],
+                "actions": [_RECARGA_INOCUA, _ENCENDER_OBJETIVO],
+                "mode": "single",
+            }
+            s.limpiar_config("automation", aid)
+            vista = await s.vista("ha_create_or_update_automation", automation_id=aid, config=config)
+            await s.confirmar("ha_create_or_update_automation", vista, automation_id=aid, config=config)
+            await s.esperar_estado(eid, lambda e: e is not None and e["state"] == "on", "creada")
+            await _token_ata_variables(
+                self,
+                s,
+                "ha_trigger_automation",
+                ("automation", "trigger"),
+                {"automation_id": eid},
+                aprobado,
+                otro,
+            )
+
 
 class TestScript(BancoEscrituras):
     async def test_ciclo_completo(self) -> None:
@@ -244,61 +322,19 @@ class TestScript(BancoEscrituras):
                 )
             self.assertEqual(vistos.count(("script", "turn_on")), 1)
 
-    # HALLAZGO de seguridad de la 028 (T033), pendiente de arreglo en la spec
-    # 033 con prioridad máxima: el token de una entidad restringida se crea
-    # con `{"entity_id", "service"}` (`guarded_entity_invoke` en
-    # `hermes/src/hermes/tools/_common.py`), sin `variables`. La vista previa
-    # no enseña las variables y se puede confirmar con otras: lo que el
-    # usuario aprueba no es lo que se ejecuta. Vale igual para
-    # `ha_trigger_automation`, que pasa por la misma función.
-    #
-    # El `xfail` espera SOLO `TokenSinAtarLaAccion`: la confirmación con otras
-    # variables se acepta Y el lector ve encendido el `input_boolean` que
-    # eligen esas variables, no el de la vista previa. Cualquier otro fallo
-    # deja el test en rojo. Estricto: cuando el token cubra `variables`, la
-    # confirmación se rechaza, nada se enciende, el test pasa y el job se
-    # pone en rojo para quitar la marca.
-    @pytest.mark.xfail(
-        strict=True,
-        raises=TokenSinAtarLaAccion,
-        reason=(
-            "HALLAZGO (spec 033): el token de ha_run_script y ha_trigger_automation "
-            "no cubre `variables`; se acepta una confirmación con otras variables"
-        ),
-    )
-    async def test_hallazgo_token_sin_variables(self) -> None:
+    async def test_el_token_ata_las_variables(self) -> None:
+        # Spec 033 (T008): antes era el `xfail` HALLAZGO de la 028
+        # (`test_hallazgo_token_sin_variables`). El token de un script
+        # restringido ata `variables`: confirmar con otras se rechaza sin que
+        # HA vea nada, y con las de la vista previa se ejecuta con ellas.
         hexa = sufijo()
         sid = f"banco_script_{hexa}"
-        tool = "ha_run_script"
         async with self.sesion() as s:
             aprobado = await s.input_boolean(f"banco_input_boolean_{hexa}_a")
             otro = await s.input_boolean(f"banco_input_boolean_{hexa}_b")
-            await self._script_restringido(
-                s,
-                sid,
-                [{"action": "input_boolean.turn_on", "target": {"entity_id": "{{ objetivo }}"}}],
-            )
-
-            vista = await s.vista(tool, script_id=sid, variables={"objetivo": aprobado})
-            respuesta = await llamar(
-                s.cliente,
-                tool,
-                script_id=sid,
-                variables={"objetivo": otro},
-                confirmation_token=vista["confirmation_token"],
-            )
-            if isinstance(respuesta, dict) and "error" in respuesta:
-                # Lo correcto: el token no vale para otra acción y no se ejecuta nada.
-                for ib in (aprobado, otro):
-                    self.assertEqual((await s.lector.estado(ib))["state"], "off", ib)
-                return
-            await s.esperar_estado(
-                otro, lambda e: e is not None and e["state"] == "on", "encendido por otras variables"
-            )
-            self.assertEqual((await s.lector.estado(aprobado))["state"], "off")
-            raise TokenSinAtarLaAccion(
-                f"{tool}: el token de la vista previa (objetivo={aprobado}) ha servido "
-                f"para ejecutar el script con objetivo={otro}"
+            await self._script_restringido(s, sid, [_ENCENDER_OBJETIVO])
+            await _token_ata_variables(
+                self, s, "ha_run_script", ("script", "turn_on"), {"script_id": sid}, aprobado, otro
             )
 
 

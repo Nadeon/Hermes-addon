@@ -55,12 +55,6 @@ class RechazadoPorCore(Exception):
     `xfail` estricto no se trague cualquier `AssertionError`."""
 
 
-class TokenSinAtarLaAccion(Exception):
-    """Se ha aceptado y ejecutado una confirmación con argumentos distintos de
-    los de la vista previa: el fallo concreto de un hallazgo de seguridad de la
-    028. Su propia clase, por el mismo motivo."""
-
-
 def rechazado_por_core(excepciones: list[BaseException], dominio: str, servicio: str) -> bool:
     """El fallo de la tool, registrado por el servidor MCP, es un 400 de Core a
     `POST /services/<dominio>/<servicio>` (el mismo criterio que

@@ -49,8 +49,10 @@ from tests.banco import cobertura
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
 # efecto lo comprueba el lector independiente (salvo `ha_cancel_wait`, cuyo
-# efecto vive en Hermes: research R-7 de la 028). Dos tienen además un
-# hallazgo con un argumento concreto (`HALLAZGOS_028`).
+# efecto vive en Hermes: research R-7 de la 028). Una tiene además un
+# hallazgo con un argumento concreto (`HALLAZGOS_028`); el otro hallazgo de la
+# 028, el token de `ha_run_script` y `ha_trigger_automation` sin `variables`,
+# lo arregló el tramo 1 de la spec 033 y su test ya no es `xfail`.
 PROBADAS_028: frozenset[str] = frozenset(
     {
         # automation (6)
@@ -130,12 +132,6 @@ HALLAZGOS_028: dict[str, str] = {
         "`scene_id` da error, y Core reemplaza en silencio una escena de "
         "`scene.create` (con una de configuración solo avisa en el log)"
     ),
-    "ha_run_script": (
-        "HALLAZGO de seguridad pendiente de arreglo (spec 033, prioridad máxima): "
-        "con una entidad restringida, el token no cubre `variables` y se acepta "
-        "una confirmación con variables distintas de las de la vista previa (lo "
-        "mismo en ha_trigger_automation, que pasa por la misma función)"
-    ),
 }
 
 # Los `xfail` de la 028 que el job admite: id del test (como lo escribe pytest
@@ -145,8 +141,6 @@ HALLAZGOS_028: dict[str, str] = {
 XFAIL_PERMITIDOS_028: dict[str, str] = {
     "tests/banco/test_banco_escrituras_automatizacion.py::TestEscena::"
     "test_hallazgo_escena_desde_el_estado_con_nombre": "ha_create_scene_from_current",
-    "tests/banco/test_banco_escrituras_automatizacion.py::TestScript::"
-    "test_hallazgo_token_sin_variables": "ha_run_script",
 }
 
 # Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
