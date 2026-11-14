@@ -455,7 +455,8 @@ Hallazgo pendiente de arreglo en la spec 033:
 En el mismo job, el resto de tools `ha_*` que modifican. El inventario está en
 `tests/banco/cobertura_escrituras.py` y un test de la suite normal
 (`tests/test_banco_cobertura_escrituras.py`) obliga a que las 124 tools que
-modifican estén probadas en el banco (010 o 028) o fuera de él con su motivo.
+modifican estén probadas en el banco (010 o 028), anotadas como hallazgo que
+falla (`ha_reload_counters`) o fuera de él con su motivo.
 
 Ejecutadas en el banco (53; tramo A, 26):
 
@@ -512,9 +513,23 @@ Fuera del banco (24), con su motivo en el inventario:
 
 Todas con simuladores en la suite normal; su banco es la VM de la 014.
 
-Hallazgos de la 028: ninguno. Las 53 hacen contra HA Core 2026.11.1 lo que
-dicen (el único hallazgo del banco sigue siendo el de `ha_reload_counters`,
-de la 010).
+`ha_run_script` y `ha_trigger_automation` se ejecutan por sus dos caminos:
+directo y con token (script o automatización restringidos por llamar a la
+denylist). El job exige por ejecución las 53 (cada una llamada con éxito en
+un test que ha pasado), igual que las 46 de la 010.
+
+Hallazgos de la 028, pendientes de arreglo en la spec 033 (en el banco, fallo
+esperado estricto que solo admite ese error; las dos tools siguen contando
+como probadas porque su camino normal funciona):
+
+- `ha_create_scene_from_current` con `name` falla siempre: `scene.create` de
+  Core 2026.11.1 no admite ese campo y responde 400. Su descripción dice que
+  «HA decide» y que una colisión de `scene_id` da error; Core reemplaza la
+  escena (o, si es de configuración, solo avisa en el log).
+- **Seguridad, prioridad máxima:** el token de `ha_run_script` y
+  `ha_trigger_automation` con una entidad restringida no cubre `variables`:
+  se acepta una confirmación con variables distintas de las de la vista
+  previa.
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las

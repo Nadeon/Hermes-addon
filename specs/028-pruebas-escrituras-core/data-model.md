@@ -131,7 +131,7 @@ lovelace 7 = **26**.
 | flujo | `ha_continue_config_entry_flow` | no | entrada nueva de `uptime` en `config_entries/get` |
 | flujo | `ha_abort_config_entry_flow` | no | el flujo ya no está en curso |
 | flujo | `ha_start_options_flow` | no | flujo de opciones de `kitchen_sink` con el paso `options_1` |
-| flujo | `ha_continue_options_flow` | no | el lector abre su propio flujo de opciones y ve los valores nuevos como actuales; lo aborta |
+| flujo | `ha_continue_options_flow` | no | el flujo de Hermes ya no existe y la entrada tiene `modified_at` mayor; el lector abre su propio flujo de opciones y lo aborta (no puede ver los valores nuevos: desviación de las notas del tramo B) |
 
 Total B: area 3, floor 3, label 3, category 3, device 3, entity 2, repairs 1,
 config entry 4, flujo 5 = **27**.

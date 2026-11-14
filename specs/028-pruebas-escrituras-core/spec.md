@@ -128,9 +128,12 @@ grupo se ejecuta y el lector encuentra el efecto en HA.
 4. **Dado** un aviso de reparación de `kitchen_sink`, **cuando** se confirma
    `ha_ignore_repair`, **entonces** el lector ve el aviso como ignorado.
 5. **Dado** el flujo de opciones de `kitchen_sink`, **cuando** se completa con
-   `ha_start_options_flow` y `ha_continue_options_flow`, **entonces** el lector,
-   abriendo él mismo un flujo de opciones, ve los valores nuevos como los
-   actuales.
+   `ha_start_options_flow` y `ha_continue_options_flow`, **entonces** el lector
+   ve que el flujo de Hermes ya no existe y que la entrada se ha modificado
+   (`modified_at`), y puede abrir él mismo otro flujo de opciones. Desviación
+   aceptada (notas del tramo B): las opciones no salen por la API de Core y el
+   formulario de `kitchen_sink` lee sus valores por defecto fuera de la
+   sección, así que el lector no puede ver los valores nuevos.
 
 ### Historia 3 — Ninguna escritura queda sin probar o sin motivo (Prioridad: P1)
 
@@ -153,7 +156,9 @@ rojo nombrándola.
    falla: una `ha_*` solo puede no ejecutarse con un motivo concreto en la
    lista de no ejecutables.
 3. **Dado** una tool de la lista de probadas de la 028 que ningún test del
-   banco llama, **entonces** el test falla y la nombra.
+   banco que haya pasado llama con éxito, **entonces** el job del banco falla
+   y la nombra (comprobación de EJECUCIÓN de la 010, `tests/banco/obligatorio.py`,
+   a la que la 028 suma su lista; sustituye a la comprobación textual).
 
 ### Historia 4 — Un fallo contra HA real se ve y no se esconde (Prioridad: P2)
 
@@ -170,7 +175,11 @@ informe al supervisor y en el propio test.
 
 1. **Dado** una tool que falla contra HA real, **entonces** su test lleva
    `xfail` estricto con un motivo que dice qué devuelve HA, el comentario
-   empieza por `HALLAZGO` y la tool sigue en la lista de probadas.
+   empieza por `HALLAZGO` y el test está en la lista de `xfail` que el job
+   admite. Contrato de la 010: si la tool falla siempre, NO cuenta como
+   probada (va a `FALLAN_EN_BANCO`); si funciona por su camino normal y falla
+   con un argumento concreto, sigue en las probadas y el hallazgo va en
+   `HALLAZGOS_028` (los dos de la 028).
 2. **Dado** ese test, **cuando** la tool empieza a funcionar, **entonces** el CI
    se pone en rojo («XPASS strict») y obliga a quitar la marca.
 
@@ -247,8 +256,11 @@ Cada requisito cita el FR o la CAP de la spec 008 del que sale.
 - **FR-007** *(encargo del supervisor; 008: FR-014, principio VI)*: Una tool que
   falla contra HA real deja su test con **`xfail` estricto**
   (`strict=True`, `raises` con la excepción concreta y un `reason` que dice qué
-  responde HA), un comentario que empieza por `HALLAZGO`, la tool en la lista de
-  probadas y una nota en `tasks.md` y en el informe del tramo. Si el arreglo es
+  responde HA), un comentario que empieza por `HALLAZGO`, el test en la lista
+  de `xfail` admitidos por el job y una nota en `tasks.md` y en el informe del
+  tramo. Con el contrato de la 010, la tool solo sigue en las probadas si su
+  camino normal funciona (y se exige por ejecución); si falla siempre, va a
+  `FALLAN_EN_BANCO` y no cuenta como probada. Si el arreglo es
   trivial, se arregla en vez de marcarla, con su test unitario, su control
   negativo y su línea en el CHANGELOG.
 - **FR-008** *(008: FR-014; principio III)*: Los tests son independientes:

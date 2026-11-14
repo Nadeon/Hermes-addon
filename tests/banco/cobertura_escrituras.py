@@ -45,10 +45,11 @@ from __future__ import annotations
 
 from tests.banco import cobertura
 
-# Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama algún
-# `tests/banco/test_banco_escrituras_*.py` y su efecto lo comprueba el lector
-# independiente (salvo `ha_cancel_wait`, cuyo efecto vive en Hermes: research
-# R-7 de la 028).
+# Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
+# algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
+# efecto lo comprueba el lector independiente (salvo `ha_cancel_wait`, cuyo
+# efecto vive en Hermes: research R-7 de la 028). Dos tienen además un
+# hallazgo con un argumento concreto (`HALLAZGOS_028`).
 PROBADAS_028: frozenset[str] = frozenset(
     {
         # automation (6)

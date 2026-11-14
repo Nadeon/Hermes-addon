@@ -97,8 +97,11 @@ Comprobación de cada tool: la columna «Efecto comprobado por el lector» de
 ### 5. Fallos contra HA real
 
 Research R-6: `xfail` estricto con `raises` y `reason`, comentario
-`HALLAZGO`, la tool sigue en `PROBADAS_028`, nota en «Notas del tramo» de
-`tasks.md` y en el informe. Arreglo trivial: test unitario en `tests/` (debe
+`HALLAZGO`, el test en la lista de `xfail` del job, nota en «Notas del tramo»
+de `tasks.md` y en el informe. Contrato de la 010 (convergencia, T030): si la
+tool falla siempre no cuenta como probada (`FALLAN_EN_BANCO`); si solo falla
+con un argumento concreto sigue en `PROBADAS_028` y el hallazgo va a
+`HALLAZGOS_028`. Arreglo trivial: test unitario en `tests/` (debe
 fallar sin el arreglo), arreglo, control negativo anotado, línea en
 «Correcciones» del CHANGELOG, y el test del banco sin marca.
 
