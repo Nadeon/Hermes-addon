@@ -37,19 +37,11 @@ def _unknown() -> HAConnectionError:
     return HAConnectionError("HA WS command failed: Unknown command.", code="unknown_command")
 
 
-class FakeHA:
-    """`ws_send` por tipo de comando; lo no configurado responde `unknown_command`."""
-
-    def __init__(self, responses: dict[str, Any]) -> None:
-        self.responses = responses
-        self.sent: list[dict[str, Any]] = []
-
-    async def __call__(self, payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
-        self.sent.append(payload)
-        value = self.responses.get(payload["type"], _unknown())
-        if isinstance(value, BaseException):
-            raise value
-        return value
+# El mismo simulador que los tests del Marketplace: filtra por `categories`
+# como HA y falla si se pide el catálogo entero, que en HA 2026.11.1 tumba la
+# WebSocket (spec 006). Con uno propio que no lo hiciera, los alias pasarían
+# en verde aunque pidieran el catálogo entero.
+from tests.test_tools_marketplace import FakeHA  # noqa: E402
 
 
 _REPOS = [

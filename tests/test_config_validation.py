@@ -191,6 +191,45 @@ class TestLimitesEfectivos(unittest.TestCase):
         )
 
 
+class TestWsMaxMsgSize(unittest.TestCase):
+    """Revisión de 1.1.1, M-3: 4 MiB cerraban la WS entera con un único
+    resultado grande. El defecto pasa a 16 MiB (el máximo del esquema) y el
+    4 194 304 guardado por la interfaz se trata como «no personalizado»."""
+
+    def test_por_defecto_16_mib(self) -> None:
+        cfg = _cargar()
+        self.assertEqual(cfg.ha_ws_max_msg_size_bytes, 16_777_216)
+        self.assertEqual(cfg.adjustments, [])
+        self.assertEqual(HermesConfig().ha_ws_max_msg_size_bytes, 16_777_216)
+
+    def test_el_antiguo_valor_por_defecto_se_sustituye(self) -> None:
+        cfg = _cargar(HERMES_WS_MAX_MSG_SIZE="4194304")
+        self.assertEqual(cfg.ha_ws_max_msg_size_bytes, 16_777_216)
+        self.assertEqual(
+            cfg.adjustments,
+            [{"option": "ha_ws_max_msg_size_bytes", "configured": 4_194_304,
+              "applied": 16_777_216, "reason": "legacy_default"}],
+        )
+
+    def test_un_valor_personalizado_se_respeta(self) -> None:
+        for valor in (1_048_576, 4_194_303, 8_388_608, 16_777_216):
+            with self.subTest(valor=valor):
+                cfg = _cargar(HERMES_WS_MAX_MSG_SIZE=str(valor))
+                self.assertEqual(cfg.ha_ws_max_msg_size_bytes, valor)
+                self.assertEqual(cfg.adjustments, [])
+
+    def test_config_yaml_trae_16_mib_dentro_del_esquema(self) -> None:
+        import pathlib
+        import re
+
+        texto = (pathlib.Path(__file__).resolve().parents[1] / "hermes/config.yaml").read_text(
+            encoding="utf-8")
+        self.assertRegex(texto, r"(?m)^  ha_ws_max_msg_size_bytes: 16777216$")
+        rango = re.search(r'ha_ws_max_msg_size_bytes: "int\((\d+),(\d+)\)\?"', texto)
+        self.assertIsNotNone(rango)
+        self.assertLessEqual(16_777_216, int(rango.group(2)))
+
+
 class TestOpcionesNuevas(unittest.TestCase):
     """FR-023 y FR-044: interruptores de CIMD y de la redacción de red."""
 

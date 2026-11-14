@@ -37,6 +37,7 @@ from typing import Any
 
 import structlog
 
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.logging_setup import redact_network
 from hermes.security import (
@@ -47,6 +48,7 @@ from hermes.security import (
     redact_secrets,
     validate_confirmation_token,
 )
+from hermes.tools._common import tam_json
 from hermes.tools._validation import InvalidIdentifier, validate_slug
 
 logger = structlog.get_logger(__name__)
@@ -211,7 +213,55 @@ def _tiene_obligatorias(schema_ui: Any) -> bool:
     return False
 
 
-def register(mcp: object, ha_client: HAClient) -> None:
+def _ultimas_lineas_que_caben(
+    respuesta: dict[str, Any], logs: str, max_bytes: int
+) -> dict[str, Any]:
+    """`respuesta` con `logs` entero si cabe; si no, sus últimas líneas.
+
+    Un log es un texto, no una lista, así que el guardián central solo podía
+    cambiarlo entero por `response_too_large`: un add-on que escribe mucho
+    dejaba de tener log por Hermes (revisión de 1.1.1, M-2). En un log lo que
+    importa es el final, así que se quitan líneas del PRINCIPIO y se dice.
+    """
+    completa = {**respuesta, "logs": logs}
+    if tam_json(completa) <= max_bytes:
+        return completa
+    lineas = logs.splitlines(keepends=True)
+
+    def armar(n: int) -> dict[str, Any]:
+        return {
+            **respuesta,
+            "logs": "".join(lineas[len(lineas) - n:]) if n else "",
+            "truncated": True,
+            "lines_returned": n,
+            "hint": (
+                "Only the last lines that fit in response_max_bytes are shown. "
+                "Ask for fewer lines instead of repeating the same call."
+            ),
+        }
+
+    # Estimación con el tamaño escapado de cada línea desde el final y
+    # verificación con el tamaño real.
+    presupuesto = max_bytes - tam_json(armar(0)) - 8
+    n = usado = 0
+    for linea in reversed(lineas):
+        coste = tam_json(linea) - 2
+        if usado + coste > presupuesto:
+            break
+        usado += coste
+        n += 1
+    out = armar(n)
+    while n > 0 and tam_json(out) > max_bytes:
+        n -= 1
+        out = armar(n)
+    return out
+
+
+def register(
+    mcp: object,
+    ha_client: HAClient,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
+) -> None:
     """Registra las tools de add-ons en la instancia MCP."""
 
     def _bad_slug(slug: str) -> dict[str, Any] | None:
@@ -890,7 +940,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
              "logs": "texto del log"}
             `lines_requested` es el número pedido después de acotarlo a
             [1, 1000]; el log devuelto puede traer menos líneas si el add-on
-            no tiene más.
+            no tiene más. Si el log no cabe en `response_max_bytes`, se
+            devuelven sus ÚLTIMAS líneas que caben, con `truncated: true`,
+            `lines_returned` y una pista.
         """
         if (err := _bad_slug(slug)):
             return err
@@ -918,12 +970,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
             bytes=len(raw),
             redacted=was_redacted,
         )
-        return {
-            "slug": slug,
-            "lines_requested": lines,
-            "redacted": was_redacted,
-            "logs": redacted,
-        }
+        return _ultimas_lineas_que_caben(
+            {"slug": slug, "lines_requested": lines, "redacted": was_redacted},
+            redacted,
+            response_max_bytes,
+        )
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:

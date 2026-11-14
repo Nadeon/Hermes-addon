@@ -4,10 +4,11 @@
 
 # Hoja de ruta de Hermes
 
-**Revisión:** 2026-11-14, sobre Hermes **1.1.0** (la revisión de
-compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró y
-la 1.1.0 añade lo planificado para ella). La 1.0.12 no se publicó por
-separado: llega a los usuarios dentro de la 1.1.0.
+**Revisión:** 2026-11-14, sobre Hermes **1.1.1** (la revisión de
+compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró,
+la 1.1.0 añade lo planificado para ella y la 1.1.1 corrige lo que encontraron
+las pruebas en vivo de la 1.1.0). La 1.0.12 no se publicó por separado: llega
+a los usuarios dentro de la 1.1.0.
 
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
@@ -167,14 +168,71 @@ etiqueta y comprobar que las imágenes ya publicadas siguen disponibles.
 Son 216 tools. Riesgos que quedan: límites más bajos pueden truncar respuestas
 que antes pasaban, y más tools ocupan más contexto en el cliente.
 
+### Hecho en 1.1.1 — correcciones de la 1.1.0 (spec 006)
+
+Las pruebas en vivo de la 1.1.0 con HA 2026.11.1 encontraron tres fallos:
+
+- `ha_marketplace_list_updates` (y `ha_hacs_list_updates`) fallaba siempre:
+  pedía el catálogo entero del Marketplace en un mensaje que pasa del tope WS
+  y tumbaba la conexión. Ahora se pide por categorías.
+- `response_max_bytes` no se aplicaba a las tools que no recortaban por su
+  cuenta (`ha_get_states`, entre otras). Ahora lo aplica el servidor a todas.
+- El log guardaba el `pattern` de `fs_search_in_config` y la plantilla de
+  `ha_render_template`; ahora solo su longitud.
+
+Una revisión independiente de la 1.1.1, antes de publicarla, encontró que el
+límite central rompía lo que ya recortaba por su cuenta: `ha_get_history` y
+`ha_statistics_during_period` devolvían `response_too_large` justo con rangos
+amplios, una vista previa grande perdía su `confirmation_token` (borrar un
+fichero grande o editar una automatización larga era imposible) y los logs
+largos de un add-on daban error. Corregido en la misma 1.1.1, junto con el tope
+de mensaje WebSocket (16 MiB por defecto y `ha_ws_message_too_big` en el log) y
+el evento `oauth_cimd_document`.
+
+Una verificación independiente de esos arreglos, también antes de publicar,
+encontró que la red de seguridad recortaba por dentro objetos que se guardan
+de vuelta (un script de muchos pasos o una vista de Lovelace de muchas
+tarjetas). Ahora solo `ha_get_history` y `ha_statistics_during_period` pueden
+recortar listas anidadas; el resto da `response_too_large`. En la misma pasada,
+los topes por cantidad de history, statistics y logbook avisan con
+`truncated`, y el recorte de history y statistics es lineal (antes, más de un
+minuto de CPU en el peor caso).
+
+Lo que las pruebas en vivo de la 1.1.0 dieron por bueno: arranque y redacción
+de red, `sv_get_supervisor_info`, `sv_get_host_info`, dashboards y recursos de
+Lovelace, `ha_list_services(domain=…)`, avisos de `ha_render_template`, los
+alias `ha_hacs_info` y `ha_hacs_list_repositories`, la protección del
+dashboard principal y los tokens DCR emitidos antes de actualizar.
+
+### Pruebas manuales hechas en una instalación real (1.1.0)
+
+- [x] **Arranque y log redactado**: OK.
+- [x] **Arreglos de la 1.0.12**: OK.
+- [x] **Protección del dashboard `lovelace`**: OK.
+- [x] **Tokens DCR emitidos antes de actualizar**: siguen valiendo. OK.
+- [x] **CIMD con claude.ai**: OK. claude.ai inicia sesión con CIMD con su
+  documento en el host `claude.ai`; si solo usas Claude,
+  `oauth_cimd_allowed_hosts: ["claude.ai"]` basta.
+
 ### Pruebas manuales pendientes en una instalación real
 
-La suite no puede cubrir esto; hay que hacerlo antes o justo después de
-publicar la 1.1.0, y anotar el resultado aquí:
+La suite no puede cubrir esto; hay que hacerlo justo después de publicar la
+1.1.1, y anotar el resultado aquí:
 
-- [ ] **CIMD con Claude Code y con claude.ai**: autorizar con los dos clientes,
+- [ ] **Tools nuevas de la 1.1.0 desde un cliente sin la lista cacheada**: el
+  cliente de las pruebas en vivo guardaba la lista de antes de actualizar y no
+  veía ninguna de las tools nuevas. Con una sesión nueva o tras quitar y volver
+  a añadir el conector, probar en lectura las `ha_marketplace_*` (sobre todo
+  `ha_marketplace_list_updates`), `ha_list_floors`, `ha_list_labels`,
+  `ha_list_categories`, `ha_list_repairs`, `ha_list_traces`, `ha_get_trace`,
+  `ha_search_related`, `sv_get_resolution`, `ha_list_backups` y
+  `ha_get_backup_config` (que solo exponga `password_set`).
+- [ ] **`ha_get_states(domain="sensor")` en una casa grande**: que llegue
+  recortada con `truncated: true` y por debajo de `response_max_bytes`.
+
+- [ ] **CIMD con Claude Code** (con claude.ai ya está hecho): autorizar,
   comprobar la pantalla de autorización (host, nombre y destino del código) y
-  que los clientes DCR de antes siguen funcionando
+  el evento `oauth_cimd_document` del log
   (`specs/003-oauth-y-protocolo/quickstart.md`).
 - [ ] **Primer byte tras el proxy**: Claude Code con una espera de 90 s detrás
   del proxy. Si corta a los 60 s, completar DOCS.md con lo que haga falta en
@@ -196,7 +254,7 @@ publicar la 1.1.0, y anotar el resultado aquí:
 ### 1.2.x y posteriores
 
 - **Pruebas manuales en una instalación real**: las de la sección anterior
-  (CIMD con Claude Code y claude.ai, primer byte tras el proxy, actualización
+  (CIMD con Claude Code, primer byte tras el proxy, actualización
   con la clave `homeassistant`, Funnel en el 8443, publicación de la imagen
   con el CI nuevo y lectura y guardado de dashboards grandes), si no se
   hicieron con la 1.1.0.

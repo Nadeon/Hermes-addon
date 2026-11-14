@@ -57,6 +57,252 @@ def ajustar_lista_a_bytes(
         n -= 1
 
 
+def recortar_grupos_a_bytes(
+    grupos: dict[str, list[Any]],
+    construir: Callable[[dict[str, list[Any]]], Any],
+    max_bytes: int,
+) -> dict[str, list[Any]]:
+    """Quita puntos del final de `grupos` (`{id: [puntos]}`) hasta que cabe.
+
+    Se quita el último punto de la lista más larga, lo que iguala las
+    longitudes. `construir(grupos)` arma la respuesta entera para medirla.
+    Antes se reserializaba la respuesta entera por cada punto quitado: con 20
+    entidades × 500 estados con atributos eran unos 60 s de CPU con el bucle
+    de eventos bloqueado, ni otras llamadas MCP ni el heartbeat de la WS
+    (verificación de 1.1.1, N-3). Ahora se descuenta el tamaño de cada punto
+    (lineal) y solo se mide de verdad cuando la estimación dice que ya cabe.
+    Modifica y devuelve `grupos`; si ni vacío cabe, lo devuelve vacío.
+    """
+    exceso = tam_json(construir(grupos)) - max_bytes
+    while exceso > 0 and any(grupos.values()):
+        mayor = max(grupos, key=lambda k: len(grupos[k]))
+        item = grupos[mayor].pop()
+        # ", " separa los elementos; el último de una lista no lleva.
+        exceso -= tam_json(item) + (2 if grupos[mayor] else 0)
+        if exceso <= 0:
+            exceso = tam_json(construir(grupos)) - max_bytes
+    return grupos
+
+
+_LIMIT_HINT = (
+    "The response was cut to fit response_max_bytes. Filter more (by domain, "
+    "entity, dates or a search argument) instead of repeating the same call."
+)
+
+# Pista propia del error: la de arriba decía «se ha recortado» cuando no se
+# había devuelto nada y proponía filtros que la tool quizá no tiene (revisión
+# de 1.1.1, L-1).
+_TOO_LARGE_HINT = (
+    "Nothing was returned: the response exceeds response_max_bytes and has no "
+    "list that can be cut safely. Ask for less (fewer lines, a single view, a "
+    "shorter range, a narrower filter) or use a paginated read tool."
+)
+
+_PREVIEW_HINT = (
+    "Some preview fields did not fit in response_max_bytes and were replaced "
+    "by a summary marked _omitted. The confirmation_token still covers exactly "
+    "the arguments of this call. If you need to see the omitted content, read "
+    "it with the matching read tool before confirming."
+)
+
+# Metadatos con los que una tool cuenta la lista que devuelve. Si el guardián
+# recorta esa lista y los deja como estaban, el agente lee un `count` que no
+# es el de la respuesta (revisión de 1.1.1, M-1).
+_RECUENTOS = ("count", "returned", "returned_lines")
+
+
+def _resumen_omitido(valor: Any) -> dict[str, Any]:
+    """Lo que queda de un campo de vista previa que no cabe: qué era y cuánto."""
+    resumen: dict[str, Any] = {"_omitted": True, "bytes": tam_json(valor)}
+    if isinstance(valor, str):
+        resumen["type"] = "text"
+        resumen["lines"] = len(valor.splitlines())
+    elif isinstance(valor, dict):
+        resumen["type"] = "object"
+        resumen["keys"] = sorted(str(k) for k in valor)[:50]
+    elif isinstance(valor, list):
+        resumen["type"] = "list"
+        resumen["items"] = len(valor)
+    return resumen
+
+
+def _recortar_vista_previa(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
+    """Vista previa que cabe en `max_bytes` SIN perder el `confirmation_token`.
+
+    Hasta 1.1.1 el guardián sustituía una vista previa grande por
+    `response_too_large`, y con ella se iba el token: no había forma de borrar
+    un fichero de texto grande ni de editar una automatización larga (revisión
+    de 1.1.1, A-1). Recortar a medias una lista de la vista previa tampoco
+    vale, porque el usuario aprobaría algo que no ha visto entero sin saberlo
+    (principio IV). Así que se sustituyen los campos más grandes, de uno en
+    uno, por un resumen marcado `_omitted` con su tamaño, y la respuesta lo
+    dice con `preview_truncated: true`. El token no cambia: sigue atado a los
+    argumentos de la llamada, no a lo que se ve.
+    """
+    intocables = {"confirmation_token", "expires_in_seconds"}
+    out = dict(payload)
+    out["preview_truncated"] = True
+    out["_response_limit"] = {"max_bytes": max_bytes, "hint": _PREVIEW_HINT}
+    preview = out.get("preview")
+    if isinstance(preview, dict):
+        preview = dict(preview)
+        out["preview"] = preview
+    candidatos: list[tuple[dict[str, Any], str]] = []
+    if isinstance(preview, dict):
+        candidatos += [(preview, k) for k in preview]
+    candidatos += [
+        (out, k) for k in payload
+        if k not in intocables and not (k == "preview" and isinstance(preview, dict))
+    ]
+    candidatos.sort(key=lambda c: tam_json(c[0][c[1]]), reverse=True)
+    for contenedor, clave in candidatos:
+        if tam_json(out) <= max_bytes:
+            return out
+        resumen = _resumen_omitido(contenedor[clave])
+        if tam_json(resumen) < tam_json(contenedor[clave]):
+            contenedor[clave] = resumen
+    if tam_json(out) <= max_bytes:
+        return out
+    # Último recurso (un tope absurdo): el token y la marca, nada más. Aun así
+    # el token se conserva; sin él la acción sería imposible por Hermes.
+    minimo = {
+        k: payload[k] for k in ("confirmation_token", "expires_in_seconds") if k in payload
+    }
+    minimo["preview_truncated"] = True
+    return minimo
+
+
+def _corregir_recuentos(
+    out: dict[str, Any], original: dict[str, Any], antes: int, ahora: int
+) -> None:
+    """Pone al día los recuentos de la tool tras recortar su lista.
+
+    Solo se toca un recuento que contaba esa lista (vale lo mismo que su
+    longitud original); un `count` que ya era el total de otra cosa se deja.
+    `truncated_at` apunta al último elemento que la tool incluyó, que ya no
+    está: paginar desde él saltaría elementos, así que se quita y manda
+    `_response_limit`.
+    """
+    for k in _RECUENTOS:
+        if original.get(k) == antes and not isinstance(original.get(k), bool):
+            out[k] = ahora
+    out.pop("truncated_at", None)
+
+
+def _es_dict_de_listas(valor: Any) -> bool:
+    return (
+        isinstance(valor, dict) and bool(valor)
+        and all(isinstance(v, list) for v in valor.values())
+        and any(valor.values())
+    )
+
+
+def _recortar_dict_de_listas(
+    payload: dict[str, Any], clave: str, max_bytes: int
+) -> dict[str, Any] | None:
+    """Recorta `payload[clave]`, un `{id: [puntos]}`, quitando por el final.
+
+    Es la forma de history y statistics. Antes de 1.1.1 no había lista en el
+    nivel superior y el guardián lo convertía todo en `response_too_large`
+    (revisión de 1.1.1, B-1). Se quita el último punto de la lista más larga,
+    el mismo criterio que esas tools, que iguala las longitudes. Solo lo
+    piden las tools de series de `RECORTE_ANIDADO` (`mcp_server.py`): mirar
+    solo la forma no basta, porque un script `{"sequence": [...]}` o una vista
+    `{"cards": [...]}` también son «todo listas» y, recortados, se guardaban
+    de vuelta con pasos o tarjetas de menos (verificación de 1.1.1, N-1).
+    """
+    grupos = {k: list(v) for k, v in payload[clave].items()}
+    total = sum(len(v) for v in grupos.values())
+
+    def construir() -> dict[str, Any]:
+        out = {
+            **payload, clave: grupos, "truncated": True,
+            "_response_limit": {
+                "list": clave, "returned": sum(len(v) for v in grupos.values()),
+                "total": total, "max_bytes": max_bytes, "hint": _LIMIT_HINT,
+            },
+        }
+        out.pop("truncated_at", None)
+        return out
+
+    recortar_grupos_a_bytes(grupos, lambda _g: construir(), max_bytes)
+    out = construir()
+    return out if tam_json(out) <= max_bytes else None
+
+
+def recortar_a_bytes(
+    payload: Any, max_bytes: int, recortar_anidadas: bool = False
+) -> Any:
+    """`payload` tal cual si cabe en `max_bytes`; si no, recortado y dicho.
+
+    Es la red de seguridad de `HermesMCPServer` para las tools que no recortan
+    por su cuenta (spec 006). Una lista se envuelve en un objeto, porque una
+    lista no tiene dónde decir `truncated`. En un objeto se recorta su lista
+    más grande del nivel superior y se ponen al día sus recuentos; si no hay
+    ninguna y `recortar_anidadas` (solo las tools de series de la lista
+    blanca), un `{id: [puntos]}` del nivel superior. Una vista previa con
+    `confirmation_token` nunca pierde el token: se resumen sus campos grandes.
+    Si no hay nada que recortar (un texto enorme, un objeto de objetos), se
+    devuelve un error en vez de cortar a ciegas: un JSON partido o un texto
+    cortado sin aviso engañan al agente.
+    """
+    if tam_json(payload) <= max_bytes:
+        return payload
+
+    if isinstance(payload, dict) and "confirmation_token" in payload:
+        return _recortar_vista_previa(payload, max_bytes)
+
+    def aviso(clave: str | None, devueltos: int, total: int) -> dict[str, Any]:
+        return {
+            "list": clave, "returned": devueltos, "total": total,
+            "max_bytes": max_bytes, "hint": _LIMIT_HINT,
+        }
+
+    out: Any = None
+    if isinstance(payload, list):
+        def construir(items: list[Any], _recortada: bool) -> dict[str, Any]:
+            return {
+                "truncated": True, "count": len(items), "total": len(payload),
+                "items": items, "_response_limit": aviso("items", len(items), len(payload)),
+            }
+        out = ajustar_lista_a_bytes(payload, construir, max_bytes)
+    elif isinstance(payload, dict):
+        listas = [k for k, v in payload.items() if isinstance(v, list) and v]
+        # Fuera de la lista blanca, nada anidado: un objeto que se guarda de
+        # vuelta (script, vista de Lovelace, opciones de un add-on) recortado
+        # por dentro perdería datos al guardarlo. Mejor el error (N-1).
+        dicts = [
+            k for k, v in payload.items() if _es_dict_de_listas(v)
+        ] if recortar_anidadas else []
+        if listas:
+            clave = max(listas, key=lambda k: tam_json(payload[k]))
+            lista = payload[clave]
+
+            def construir(items: list[Any], _recortada: bool) -> dict[str, Any]:
+                # `truncated` se fuerza a true aunque la tool ya lo trajera a
+                # false: ahora sí se ha recortado.
+                nuevo = {
+                    **payload, clave: items, "truncated": True,
+                    "_response_limit": aviso(clave, len(items), len(lista)),
+                }
+                _corregir_recuentos(nuevo, payload, len(lista), len(items))
+                return nuevo
+            out = ajustar_lista_a_bytes(lista, construir, max_bytes)
+        elif dicts:
+            clave = max(dicts, key=lambda k: tam_json(payload[k]))
+            out = _recortar_dict_de_listas(payload, clave, max_bytes)
+    if out is not None and tam_json(out) <= max_bytes:
+        return out
+    return {
+        "error": "response_too_large",
+        "detail": (
+            f"The response ({tam_json(payload)} bytes) exceeds response_max_bytes "
+            f"({max_bytes}) and has no list that can be cut."
+        ),
+        "hint": _TOO_LARGE_HINT,
+    }
+
+
 def requires_ready(ha_client: HAClient, timeout: float = 5.0) -> Callable:
     """Decorator: espera a que HAClient esté listo antes de ejecutar.
 

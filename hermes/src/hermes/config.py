@@ -42,7 +42,7 @@ HA_CORE_MIN_SUPPORTED = "2024.10.0"
 # decidir: o se comprueba contra la HA actual y se sube, o se deja a
 # sabiendas y solo se actualiza la pareja.
 HA_CORE_LAST_TESTED = "2026.11.1"
-HA_CORE_LAST_TESTED_IN_HERMES = "1.1.0"
+HA_CORE_LAST_TESTED_IN_HERMES = "1.1.1"
 
 MCP_PORT = 8765
 HEALTH_PORT = 8766
@@ -67,6 +67,16 @@ RESPONSE_MAX_BYTES_CAP = 524_288
 # opciones al pulsar «Guardar», así que 1 048 576 está en las opciones de casi
 # todo el mundo sin que nadie lo eligiera: se trata como «no personalizado».
 RESPONSE_MAX_BYTES_LEGACY_DEFAULT = 1_048_576
+# Tope del mensaje WebSocket con HA. Con 4 MiB, un único resultado grande
+# (el catálogo del Marketplace, un registro de entidades de miles, un
+# historial amplio) cerraba la conexión entera y fallaban TODAS las llamadas en
+# curso. El Supervisor reenvía desde Core hasta 64 MiB y su ingress admite
+# 16 MiB, así que el único tope efectivo era el de Hermes (revisión de 1.1.1,
+# M-3). 16 MiB es el máximo que ya admite el esquema; el coste es un pico de
+# memoria transitorio solo cuando llega un mensaje así. Los 4 MiB guardados se
+# tratan como «no personalizado», por el mismo motivo que `response_max_bytes`.
+WS_MAX_MSG_SIZE_DEFAULT = 16_777_216
+WS_MAX_MSG_SIZE_LEGACY_DEFAULT = 4_194_304
 WAIT_FOR_EVENT_MAX_SECONDS_CAP = 220
 
 
@@ -241,7 +251,7 @@ class HermesConfig:
     response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT  # 128 KiB
 
     # ── WebSocket HA ──────────────────────────────────────────
-    ha_ws_max_msg_size_bytes: int = 4_194_304  # 4 MB
+    ha_ws_max_msg_size_bytes: int = WS_MAX_MSG_SIZE_DEFAULT  # 16 MiB
 
     # ── wait_for_event ────────────────────────────────────────
     wait_for_event_max_seconds: int = 90
@@ -402,6 +412,15 @@ def load_config() -> HermesConfig:
             RESPONSE_MAX_BYTES_CAP, "above_cap", ajustes,
         )
 
+    ha_ws_max_msg_size_bytes = _env_int(
+        "HERMES_WS_MAX_MSG_SIZE", WS_MAX_MSG_SIZE_DEFAULT
+    )
+    if ha_ws_max_msg_size_bytes == WS_MAX_MSG_SIZE_LEGACY_DEFAULT:
+        ha_ws_max_msg_size_bytes = _ajustar(
+            "ha_ws_max_msg_size_bytes", ha_ws_max_msg_size_bytes,
+            WS_MAX_MSG_SIZE_DEFAULT, "legacy_default", ajustes,
+        )
+
     wait_for_event_max_seconds = _env_int("HERMES_WAIT_EVENT_MAX_SECONDS", 90)
     if wait_for_event_max_seconds > WAIT_FOR_EVENT_MAX_SECONDS_CAP:
         wait_for_event_max_seconds = _ajustar(
@@ -434,7 +453,7 @@ def load_config() -> HermesConfig:
         ),
         config_write_max_per_minute=_env_int("HERMES_CONFIG_WRITE_MAX_PER_MINUTE", 10),
         response_max_bytes=response_max_bytes,
-        ha_ws_max_msg_size_bytes=_env_int("HERMES_WS_MAX_MSG_SIZE", 4_194_304),
+        ha_ws_max_msg_size_bytes=ha_ws_max_msg_size_bytes,
         wait_for_event_max_seconds=wait_for_event_max_seconds,
         wait_for_event_max_concurrent=_env_int("HERMES_WAIT_EVENT_MAX_CONCURRENT", 5),
         health_startup_grace_seconds=_env_int("HERMES_HEALTH_STARTUP_GRACE", 120),

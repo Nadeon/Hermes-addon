@@ -177,6 +177,62 @@ class TestFailPendingOnDisconnect(unittest.IsolatedAsyncioTestCase):
         self.assertIs(cola.get_nowait(), _WS_CLOSED_SENTINEL)
 
 
+class TestMensajeDemasiadoGrande(unittest.IsolatedAsyncioTestCase):
+    """Revisión de 1.1.1, M-3: un mensaje de HA mayor que `max_msg_size`
+    cerraba la WS con el texto genérico «WebSocket error en la conexión de
+    HA.», sin decir que la causa era `ha_ws_max_msg_size_bytes`."""
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+        self.client, self.ws = _prepare_ws_client(self.session)
+        self.client._ws_max_msg_size = 16_777_216
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    async def _leer(self, mensaje: Any, close_code: int | None = None):
+        from structlog.testing import capture_logs
+
+        async def receive(timeout: float | None = None) -> Any:
+            return mensaje
+
+        self.ws.receive = receive  # type: ignore[attr-defined]
+        self.ws.close_code = close_code  # type: ignore[attr-defined]
+        pendiente = asyncio.get_running_loop().create_future()
+        self.client._pending_ws_responses[1] = pendiente
+        with capture_logs() as logs, self.assertRaises(HAConnectionError) as ctx:
+            await self.client._read_ws_messages()
+        return logs, pendiente, str(ctx.exception)
+
+    async def test_error_1009_se_registra_con_su_causa(self) -> None:
+        from aiohttp import WSMessage, WSMsgType, WebSocketError
+
+        msg = WSMessage(WSMsgType.ERROR, WebSocketError(1009, "Message size 20000000 exceeds limit 16777216"), None)
+        logs, pendiente, texto = await self._leer(msg, close_code=1009)
+        eventos = [e for e in logs if e["event"] == "ha_ws_message_too_big"]
+        self.assertEqual(len(eventos), 1, logs)
+        self.assertEqual(eventos[0]["max_msg_size"], 16_777_216)
+        self.assertIn("ha_ws_max_msg_size_bytes", eventos[0]["hint"])
+        self.assertIn("ha_ws_max_msg_size_bytes", texto)
+        self.assertIn("ha_ws_max_msg_size_bytes", str(pendiente.exception()))
+
+    async def test_cierre_con_codigo_1009_tambien(self) -> None:
+        from aiohttp import WSMessage, WSMsgType
+
+        msg = WSMessage(WSMsgType.CLOSED, None, None)
+        logs, _, _ = await self._leer(msg, close_code=1009)
+        self.assertTrue([e for e in logs if e["event"] == "ha_ws_message_too_big"])
+
+    async def test_otro_error_sigue_con_el_texto_generico(self) -> None:
+        """Control: un error que no es de tamaño no se atribuye a la opción."""
+        from aiohttp import WSMessage, WSMsgType
+
+        msg = WSMessage(WSMsgType.ERROR, ConnectionResetError("reset"), None)
+        logs, _, texto = await self._leer(msg, close_code=1006)
+        self.assertFalse([e for e in logs if e["event"] == "ha_ws_message_too_big"])
+        self.assertEqual(texto, "WebSocket error en la conexión de HA.")
+
+
 class TestGetState404(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.session = ClientSession()

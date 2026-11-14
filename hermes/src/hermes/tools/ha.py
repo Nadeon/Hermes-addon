@@ -404,6 +404,11 @@ def register(
             domain (str, opcional): Dominio HA para filtrar. Ej: 'sensor', 'light', 'climate'.
             compact (bool, opcional): Si es True, elimina campos redundantes y nulos.
 
+        Returns:
+            Lista de estados. Si no cabe en response_max_bytes, un objeto
+            {truncated: true, count, total, items, _response_limit} con los
+            primeros estados que caben.
+
         Nota:
             Si no se pasa domain, la lista completa puede ser muy grande.
             Usa `domain='light'` para limitar el resultado.

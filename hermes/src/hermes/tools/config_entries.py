@@ -38,7 +38,7 @@ from hermes.security import (
     create_confirmation_token,
     validate_confirmation_token,
 )
-from hermes.tools._common import requires_ready
+from hermes.tools._common import ajustar_lista_a_bytes, requires_ready
 from hermes.tools._validation import InvalidIdentifier, validate_identifier
 from hermes.tools.registry_device import device_config_entries
 
@@ -142,35 +142,25 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
 
         items: list[dict] = raw if isinstance(raw, list) else []
 
+        def construir(kept: list[dict], cut: bool) -> dict[str, Any]:
+            if not cut:
+                return {"count": len(items), "entries": kept}
+            return {
+                "count": len(items),
+                "returned": len(kept),
+                "entries": kept,
+                "truncated": True,
+                "hint": "Use domain or type_filter to narrow results.",
+            }
+
+        # Se ajusta la respuesta ENTERA: el `overhead` de antes se medía con
+        # `hint` vacío y sin `returned`, así que la respuesta pasaba del tope
+        # por unos bytes y el guardián central quitaba más entradas sin
+        # corregir `returned` (revisión de 1.1.1, M-1).
         out = json.dumps(
-            {"count": len(items), "entries": items}, ensure_ascii=False
+            ajustar_lista_a_bytes(items, construir, response_max_bytes),
+            ensure_ascii=False,
         )
-        if len(out.encode()) > response_max_bytes:
-            # Truncate gracefully
-            kept: list[dict] = []
-            size = 0
-            overhead = len(
-                json.dumps(
-                    {"count": len(items), "entries": [], "truncated": True, "hint": ""},
-                    ensure_ascii=False,
-                ).encode()
-            )
-            for item in items:
-                chunk = json.dumps(item, ensure_ascii=False).encode()
-                if size + len(chunk) + overhead > response_max_bytes:
-                    break
-                kept.append(item)
-                size += len(chunk) + 1  # +1 for comma
-            out = json.dumps(
-                {
-                    "count": len(items),
-                    "returned": len(kept),
-                    "entries": kept,
-                    "truncated": True,
-                    "hint": "Use domain or type_filter to narrow results.",
-                },
-                ensure_ascii=False,
-            )
 
         logger.info("ha_list_config_entries_ok", count=len(items))
         return out

@@ -470,13 +470,22 @@ def _setup_logging_from_config(config: HermesConfig) -> None:
         evento = _ADJUSTMENT_EVENTS.get(str(ajuste.get("reason")), "config_value_adjusted")
         extra: dict[str, object] = {}
         if ajuste.get("reason") == "legacy_default":
-            # El 1 MiB se trata como «no tocado» y baja al defecto (128 KiB),
-            # no al máximo: quien lo puso a propósito para tener lo máximo
-            # necesita saber qué valor escribir ahora.
-            extra["hint"] = (
-                "If you set this value on purpose to get the largest "
-                "responses, set it to 524288 (the new maximum)."
-            )
+            if ajuste.get("option") == "ha_ws_max_msg_size_bytes":
+                # Los 4 MiB suben a 16 MiB: quien los eligió para ahorrar
+                # memoria tiene que saber cómo volver a un tope menor, porque
+                # ese valor exacto ya no se distingue del defecto viejo.
+                extra["hint"] = (
+                    "If you set 4194304 on purpose to limit memory, set a "
+                    "different value such as 4194303."
+                )
+            else:
+                # El 1 MiB se trata como «no tocado» y baja al defecto
+                # (128 KiB), no al máximo: quien lo puso a propósito para
+                # tener lo máximo necesita saber qué valor escribir ahora.
+                extra["hint"] = (
+                    "If you set this value on purpose to get the largest "
+                    "responses, set it to 524288 (the new maximum)."
+                )
         logger.warning(
             evento,
             option=ajuste.get("option"),

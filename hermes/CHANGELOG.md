@@ -1,5 +1,107 @@
 # Changelog
 
+## [1.1.1] — 2026-11-14
+
+Arreglos de lo que encontraron las pruebas en vivo de la 1.1.0 con Home
+Assistant 2026.11.1 y una revisión independiente de esta misma versión. No
+cambia el nombre ni los argumentos de ninguna tool; cambia el valor por defecto
+de `ha_ws_max_msg_size_bytes` (ver «Changed»).
+
+### Fixed
+
+- **`ha_marketplace_list_updates` (y su alias `ha_hacs_list_updates`) fallaba
+  siempre** con el Marketplace, con `ha_error` «WebSocket error en la conexión
+  de HA.». Pedía el catálogo entero del Marketplace en un solo mensaje, y el
+  catálogo, con miles de repositorios, pasa del tamaño máximo de mensaje
+  WebSocket: la conexión con Home Assistant se cerraba y se rehacía, y fallaba
+  también cualquier otra llamada en curso. Lo mismo pasaba con
+  `ha_marketplace_get_repository` y con `ha_marketplace_list_repositories` sin
+  `category`. Ahora el catálogo se pide categoría a categoría.
+- **`response_max_bytes` vale para todas las tools.** En la 1.1.0 solo lo
+  respetaban las que recortaban por su cuenta: `ha_get_states(domain="sensor")`
+  devolvía unos 245 KB con el tope en 128 KiB, sin recorte ni aviso, y lo mismo
+  podía pasar con las listas de automatizaciones, scripts, escenas, helpers,
+  áreas, servicios, add-ons o logs. Ahora lo aplica el servidor a la salida de
+  cualquier tool: se recorta la lista más larga y se indica con
+  `truncated: true` y `_response_limit` (cuántos se devuelven, cuántos había y
+  una pista para filtrar). Una respuesta que es solo una lista, como la de
+  `ha_get_states`, llega entonces como `{truncated, count, total, items}`.
+  Solo se recorta una lista del primer nivel de la respuesta. Si no hay
+  ninguna (un texto o un objeto enorme, como una plantilla renderizada, la
+  configuración de un script o una automatización, o una vista de Lovelace),
+  la respuesta es el error `response_too_large`, con una pista que pide menos
+  en vez de prometer filtros: un objeto que se guarda de vuelta nunca sale
+  recortado por dentro. Lo que cabe sale igual que antes.
+- **El historial, las estadísticas y otras tools que ya recortaban no se
+  llevan bien con el límite central** (encontrado antes de publicar):
+  `ha_get_history` y `ha_statistics_during_period` ajustaban sus datos al tope
+  sin contar el envoltorio (`truncated`, `truncated_at`, `covered_range`…) y
+  acababan unos bytes por encima, así que devolvían `response_too_large`
+  justo con los rangos amplios. Ahora miden la respuesta entera y devuelven
+  datos con `truncated: true`. Lo mismo en `ha_get_logbook`, donde además el
+  límite central quitaba eventos sin corregir `count` ni `truncated_at` y
+  paginar desde ahí se saltaba eventos; en `ha_list_entities_registry`,
+  `ha_list_devices` y `ha_list_config_entries`, cuyo `count`/`returned` no
+  cuadraba con la lista; y en `fs_read_file`, que con un YAML de líneas cortas
+  no contaba los `\n` escapados. Como red de seguridad, el límite central
+  recorta las listas anidadas de un `{id: [puntos]}` solo en
+  `ha_get_history` y `ha_statistics_during_period`; en cualquier otra tool
+  falla cerrado con `response_too_large`. Además pone al día `count`,
+  `returned` y `returned_lines` de la lista que recorta (y quita un
+  `truncated_at` que ya no vale).
+- **`ha_get_history`, `ha_statistics_during_period` y `ha_get_logbook` no
+  avisaban de su tope por cantidad**: una entidad con 3000 estados devolvía
+  500 con `truncated: false`, y el agente creía tener todo el rango. Ahora
+  `truncated: true` y `truncated_at` lo dicen. Y el recorte por tamaño de
+  history y statistics ya no es cuadrático: con 20 entidades × 500 estados
+  pasaba de un minuto de CPU, con el servidor sin atender otras llamadas.
+- **Una vista previa de confirmación grande perdía su `confirmation_token`**
+  (encontrado antes de publicar): borrar con `fs_delete_file` un fichero de
+  texto de más de 128 KiB, o editar una automatización o un script largos, era
+  imposible por Hermes. El límite nunca quita el token: sustituye los campos
+  más grandes de la vista previa por un resumen (`_omitted`, con su tamaño y
+  sus líneas o claves) y lo dice con `preview_truncated: true`. El token sigue
+  atado a los argumentos de la llamada.
+- **`sv_get_addon_logs` de un add-on que escribe mucho** daba
+  `response_too_large`. Ahora devuelve las últimas líneas que caben, con
+  `truncated: true`, `lines_returned` y una pista para pedir menos líneas.
+- **Un mensaje de Home Assistant demasiado grande se registraba como «WebSocket
+  error en la conexión de HA.»**, sin decir la causa. Ahora deja el evento
+  `ha_ws_message_too_big` con el tope y una pista, y las llamadas que fallan lo
+  dicen.
+- **Marketplace con HACS**: el catálogo por categorías ya no prueba
+  `marketplace/*` de nuevo en cada categoría, y si falla una, el error dice
+  cuál (`category`).
+- **El log guardaba argumentos de texto libre.** El `pattern` de
+  `fs_search_in_config` y la plantilla de `ha_render_template` iban en claro, y
+  un patrón puede llevar IPs o MACs escritas como regex que la redacción de red
+  no reconoce. Ahora el log solo guarda su longitud (`pattern_len`,
+  `template_len`).
+
+### Added
+
+- **Evento `oauth_cimd_document`** en cada resolución de un documento CIMD,
+  con el resultado (`ok`, `cache` o `error` y su motivo) y solo el host del
+  `client_id`, nunca una IP. Antes el log no decía si un inicio de sesión había
+  usado CIMD. claude.ai ya lo usa: comprobado en una instalación real con su
+  documento en el host `claude.ai`. Si solo usas Claude, DOCS y SECURITY
+  recomiendan `oauth_cimd_allowed_hosts: ["claude.ai"]`; el valor por defecto
+  sigue vacío.
+
+### Changed
+
+- **`ha_ws_max_msg_size_bytes` pasa de 4 MiB a 16 MiB por defecto**, el
+  máximo que ya admitía el esquema. Con 4 MiB, un único resultado grande (el
+  catálogo del Marketplace, un registro de miles de entidades, un historial
+  amplio) cerraba la WebSocket entera y fallaban todas las llamadas en curso.
+  Un `4194304` guardado se trata como el defecto anterior, se sustituye y se
+  anota como `config_legacy_default_replaced`; si lo habías elegido a
+  propósito, escribe otro valor (por ejemplo `4194303`). El coste es un pico de
+  memoria transitorio solo cuando llega un mensaje así.
+- **Respuestas que antes llegaban enteras por encima de `response_max_bytes`**
+  ahora llegan recortadas y avisadas: listas de automatizaciones, scripts o
+  servicios, logs de add-ons y vistas previas grandes (ver «Fixed»).
+
 ## [1.1.0] — 2026-11-14
 
 Tools nuevas para organizar la casa y diagnosticar problemas, el Marketplace

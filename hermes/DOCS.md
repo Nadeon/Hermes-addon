@@ -88,7 +88,8 @@ Claude:
 
 | Opción | Defecto | Máximo efectivo | Qué es |
 |---|---|---|---|
-| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de una tool. Por encima, la tool recorta y lo indica |
+| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de cualquier tool. Por encima, se recorta la lista más larga y se indica con `truncated: true` (una lista sola, como la de `ha_get_states`, llega como `{truncated, count, total, items}`); el historial y las estadísticas se recortan por el final y los logs de un add-on devuelven sus últimas líneas. Una vista previa de confirmación nunca pierde su `confirmation_token`: sus campos grandes se resumen (`_omitted`) y se marca `preview_truncated: true`. Si no hay lista de primer nivel que recortar, la respuesta es el error `response_too_large`: una configuración que se guarda de vuelta (un script, una automatización, una vista de Lovelace) nunca sale recortada por dentro |
+| `ha_ws_max_msg_size_bytes` | `16777216` (16 MiB) | `16777216` | Tamaño máximo de un mensaje de la WebSocket con Home Assistant. Un mensaje mayor cierra la conexión entera (fallan todas las llamadas en curso y Hermes reconecta) y lo anota en el log como `ha_ws_message_too_big`. Bájalo solo si la memoria del equipo es muy justa |
 | `wait_for_event_max_seconds` | `90` | `220` | Espera máxima que admite `ha_wait_for_event` |
 
 **Si tenías valores guardados.** La interfaz guarda el valor por defecto
@@ -98,7 +99,10 @@ por encima de `524288`, o un `wait_for_event_max_seconds` por encima de `220`,
 se recorta al máximo. En los dos casos el add-on arranca igual y lo anota en el
 log (`config_legacy_default_replaced` o `config_value_clamped`, con el valor
 guardado y el aplicado). Si necesitas respuestas más grandes, sube
-`response_max_bytes` hasta `524288`.
+`response_max_bytes` hasta `524288`. Lo mismo pasa con
+`ha_ws_max_msg_size_bytes`: el `4194304` guardado (el defecto anterior, 4 MiB)
+pasa a `16777216`; si lo habías puesto a propósito para ahorrar memoria,
+escribe otro valor, por ejemplo `4194303`.
 
 **Claude Code y las tools lentas.** Claude Code corta una llamada si no recibe
 ningún byte en 60 s. Hermes responde en streaming y manda un *ping* cada 15 s,
@@ -136,6 +140,13 @@ de conectar, el evento `oauth_cimd_rejected` con motivo `host_not_allowed` del
 log dice qué host añadir. Quitar un host de la lista también invalida los tokens
 que ya tenían sus clientes, sin borrarlos: si lo vuelves a poner, siguen
 valiendo.
+
+Es la recomendación si solo usas Claude: claude.ai y Claude Code
+publican su documento en el host `claude.ai`, y el inicio de sesión de claude.ai
+con CIMD está comprobado en una instalación real. El valor por defecto sigue
+vacío para no romper otros clientes. Cada descarga o uso de la caché deja en el
+log el evento `oauth_cimd_document` con el resultado (`ok`, `cache` o `error`
+con su motivo) y solo el host del `client_id`, nunca una IP.
 
 ## Problemas
 

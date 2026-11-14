@@ -486,6 +486,33 @@ class TestCache(_FetchBase):
         self.assertEqual(client.client_name, "Claude Code")
         self.assertEqual(len(llamadas), 3)
 
+    async def test_cada_resolucion_deja_un_evento_con_solo_el_host(self) -> None:
+        """Spec 006: el log no decía si un login había usado CIMD. Un evento
+        `oauth_cimd_document` por resolución (ok, cache, error) con el host
+        público del `client_id` y nada más: ni la IP de origen ni la del
+        servidor del documento."""
+        from structlog.testing import capture_logs
+
+        url = "https://claude.ai/oauth/mcp-oauth-client-metadata"
+        with aioresponses() as m, capture_logs() as logs:
+            m.get(url, body=_raw(_doc(url)))
+            await self.resolver.resolve(url, source="192.0.2.10")
+            await self.resolver.resolve(url, source="192.0.2.10")
+            self.now += 86_400 * 2
+            m.get(url, status=404)
+            with self.assertRaises(CimdInvalidError):
+                await self.resolver.resolve(url, source="192.0.2.10")
+        eventos = [e for e in logs if e["event"] == "oauth_cimd_document"]
+        self.assertEqual([e["result"] for e in eventos], ["ok", "cache", "error"])
+        self.assertTrue(all(e["host"] == "claude.ai" for e in eventos))
+        self.assertEqual(eventos[2]["reason"], "http_404")
+        for evento in eventos:
+            self.assertLessEqual(set(evento), {"event", "log_level", "host", "result", "reason"})
+            texto = repr(evento)
+            self.assertNotIn("192.0.2.10", texto)
+            self.assertNotIn(PUBLIC_V4, texto)
+            self.assertNotIn("mcp-oauth-client-metadata", texto)
+
     async def test_lru_evicts_the_oldest(self) -> None:
         urls = [f"https://c{i}.example.com/doc" for i in range(cimd.CACHE_MAX_ENTRIES + 1)]
         with aioresponses() as m:
