@@ -269,7 +269,7 @@ y `sv_request_text` pasan `status=resp.status` al `HAConnectionError`, y
 ## Fase 8: Cierre transversal
 
 - [X] T090 Recorrer quickstart.md completo y la tabla de trazabilidad de abajo; cada FR-001…FR-047 tiene su tarea y su test con control negativo anotado (SC-006) — T003–T089 marcadas; cada FR tiene test o es documentación (FR-043, FR-045)
-- [ ] T091 (pendiente: se redacta al abrir la PR, que decide el mantenedor) Redactar la descripción del PR para el mantenedor: arreglos, recuentos de control negativo por lote, supuestos de la spec (S-01…S-14) y lo que queda fuera (C7, C9, §2.5, Marketplace, CI). Sin push ni fusión: lo decide el mantenedor (principio XI)
+- [X] T091 (descripción actualizada por el supervisor en la PR #18) Redactar la descripción del PR para el mantenedor: arreglos, recuentos de control negativo por lote, supuestos de la spec (S-01…S-14) y lo que queda fuera (C7, C9, §2.5, Marketplace, CI). Sin push ni fusión: lo decide el mantenedor (principio XI)
 
 ---
 

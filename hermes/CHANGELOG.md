@@ -167,7 +167,9 @@ a `131072`. Un valor por encima de `524288`, o un `wait_for_event_max_seconds`
 por encima de `220`, se recorta al máximo. El add-on arranca igual y lo anota
 en el log (`config_legacy_default_replaced` o `config_value_clamped`, con el
 valor guardado y el aplicado). Si las respuestas te llegan truncadas, sube
-`response_max_bytes` hasta `524288`.
+`response_max_bytes` hasta `524288`. Si pusiste tú `1048576` para tener lo
+máximo, pon `524288`: ese valor pasa al defecto, no al máximo. El aviso
+`config_legacy_default_replaced` lo recuerda en su campo `hint`.
 
 Claude Code corta una llamada si no recibe ningún byte en 60 s. Hermes manda
 un *ping* cada 15 s, así que una espera larga no se corta; si el proxy de
@@ -322,6 +324,10 @@ documentos no los expulsan los de clientes anónimos.
 - `ha_marketplace_list_releases`: con GitHub conectado, HA devuelve el límite de
   peticiones como un error genérico (`unknown`). La respuesta añade una
   pista: reintentar más tarde.
+- `ha_ignore_repair`: si el issue desaparece entre la vista previa y la
+  confirmación (HA lo resuelve solo), la respuesta es `not_found` con `domain`
+  e `issue_id`, como dice su descripción, y no el texto crudo de HA, que
+  responde `unknown_issue`.
 
 ## [1.0.12] — 2026-11-14
 

@@ -257,7 +257,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
             await complete_confirmation_token(
                 confirmation_token, success=False, error=str(exc)
             )
-            if exc.code == "not_found":
+            # HA responde `unknown_issue` cuando el issue ya no existe (p. ej.
+            # se resolvió solo entre la preview y la confirmación); se acepta
+            # también `not_found` por si una versión futura lo unifica.
+            if exc.code in ("unknown_issue", "not_found"):
                 return json.dumps(
                     {"error": "not_found", "domain": domain, "issue_id": issue_id}
                 )

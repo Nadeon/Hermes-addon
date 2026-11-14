@@ -66,6 +66,8 @@ class _FakeHA:
         self.issues = issues
         self.sent: list[dict[str, Any]] = []
         self.fail_list = False
+        # Código WS con el que falla `repairs/ignore_issue` (None = no falla).
+        self.ignore_error_code: str | None = None
 
     async def ws_send(self, payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
         self.sent.append(payload)
@@ -74,6 +76,9 @@ class _FakeHA:
                 raise HAConnectionError("offline")
             return {"issues": self.issues}
         if payload["type"] == "repairs/ignore_issue":
+            if self.ignore_error_code is not None:
+                raise HAConnectionError("Issue not found",
+                                        code=self.ignore_error_code)
             return None
         raise AssertionError(f"comando inesperado: {payload}")
 
@@ -259,6 +264,27 @@ class TestIgnoreRepair(_Base):
         )
         self.assertIn("error", res)
         self.assertNotIn("confirmation_token", res)
+
+    async def _desaparece_antes_de_confirmar(self, codigo: str) -> dict[str, Any]:
+        mcp, fake = self._montar(self._issues())
+        tool = mcp.tools["ha_ignore_repair"]
+        token = json.loads(await tool("demo_integ", "activo"))["confirmation_token"]
+        # HA resuelve el issue solo entre la preview y la confirmación.
+        fake.ignore_error_code = codigo
+        return json.loads(await tool("demo_integ", "activo",
+                                     confirmation_token=token))
+
+    async def test_desaparecido_al_confirmar_es_not_found(self) -> None:
+        # HA responde `unknown_issue` (repairs/websocket_api.py), no `not_found`.
+        res = await self._desaparece_antes_de_confirmar("unknown_issue")
+        self.assertEqual(
+            res, {"error": "not_found", "domain": "demo_integ", "issue_id": "activo"}
+        )
+
+    async def test_otro_codigo_al_confirmar_no_es_not_found(self) -> None:
+        # Control negativo: un fallo distinto no se disfraza de not_found.
+        res = await self._desaparece_antes_de_confirmar("home_assistant_error")
+        self.assertNotEqual(res.get("error"), "not_found")
 
 
 if __name__ == "__main__":

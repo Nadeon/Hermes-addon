@@ -89,6 +89,22 @@ def test_cada_ajuste_de_configuracion_se_registra() -> None:
     )
 
 
+def test_legacy_default_dice_que_valor_poner_si_era_a_proposito() -> None:
+    """Quien puso 1 MiB queriendo «lo máximo» debe saber que es 524288."""
+    config = _config(adjustments=[
+        {"option": "response_max_bytes", "configured": 1_048_576,
+         "applied": 131_072, "reason": "legacy_default"},
+        {"option": "wait_for_event_max_seconds", "configured": 300,
+         "applied": 220, "reason": "above_cap"},
+    ])
+    with mock.patch.object(main_mod, "setup_logging"), capture_logs() as logs:
+        main_mod._setup_logging_from_config(config)
+    eventos = {e["event"]: e for e in logs}
+    assert "524288" in eventos["config_legacy_default_replaced"]["hint"]
+    # Control negativo: el recorte al máximo no lleva esa pista.
+    assert "hint" not in eventos["config_value_clamped"]
+
+
 def test_main_configura_el_log_con_la_funcion_cableada() -> None:
     """`main()` no puede volver a llamar a `setup_logging` sin opciones."""
     fuente = inspect.getsource(main_mod.main)

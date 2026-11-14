@@ -189,8 +189,27 @@ publicar la 1.1.0, y anotar el resultado aquí:
 - [ ] **Publicación de la imagen con el CI nuevo** (spec 002): la primera
   etiqueta con `build-image`, las dos arquitecturas, la firma, y que las
   imágenes ya publicadas siguen disponibles.
+- [ ] **Dashboards grandes**: leer por vistas un dashboard de más de 128 KiB
+  (`too_large`, `view_index`, `top_level`) y guardarlo entero sin perder
+  claves de nivel superior.
 
 ### 1.2.x y posteriores
+
+- **Pruebas manuales en una instalación real**: las de la sección anterior
+  (CIMD con Claude Code y claude.ai, primer byte tras el proxy, actualización
+  con la clave `homeassistant`, Funnel en el 8443, publicación de la imagen
+  con el CI nuevo y lectura y guardado de dashboards grandes), si no se
+  hicieron con la 1.1.0.
+- **Redactar en el log los dominios propios de HA** (`external_url` e
+  `internal_url`): hoy solo se tapa `public_hostname`. Exige leer la
+  configuración de HA al arrancar, antes de que salgan las primeras líneas.
+- **IPs con forma `ip-a-b-c-d`** (nombres de host de algunos proveedores) en
+  el log: no se redactan. Valor bajo.
+- **Distinguir errores fatales de avisos en los jobs del Supervisor**
+  (`sv_get_job_status`): hoy cualquier entrada en `errors` da
+  `success: false`, y el Supervisor no da una señal fiable para separarlos.
+- **`oauth_cimd_allowed_hosts`**: decidir un valor por defecto restrictivo
+  cuando estén documentados los hosts CIMD de todos los clientes de Claude.
 
 - **`redact_secrets` (security.py) es cuadrático con cadenas largas sin
   espacios**: 30 KB sin espacios tardan del orden de medio segundo (0,4–0,7 s

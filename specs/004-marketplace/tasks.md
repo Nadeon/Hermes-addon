@@ -172,7 +172,7 @@ Notas de reparto:
 - [X] T046 Fusionar A, B, C y D en la rama de trabajo (sin conflictos esperados: no comparten ficheros); suite completa (SC-008)
 - [X] T047 Recorrer quickstart.md y la tabla de trazabilidad; cada FR con comportamiento tiene test y control negativo anotado (SC-007)
 - [X] T048 Grep final del diff de la spec: hostnames reales, IPs, slugs, nombres de repositorios o entidades de una instalación concreta e identificadores de modelos de IA → 0 coincidencias (SC-009, FR-031)
-- [ ] T049 (Pendiente del supervisor: la integración final de 1.1.0 ya está hecha; se marca como hecha cuando el supervisor actualice la descripción de la PR con lo de esta spec) Redactar la descripción del PR: tools nuevas, alias, recuentos de control negativo por lote, supuestos S-01…S-10 y lo que queda fuera (escritura, README del repositorio, notas de versión, `.storage/marketplace.*`, subida de versión). Sin push ni fusión: lo decide el mantenedor (principio XI)
+- [X] T049 (descripción actualizada por el supervisor en la PR #18) Redactar la descripción del PR: tools nuevas, alias, recuentos de control negativo por lote, supuestos S-01…S-10 y lo que queda fuera (escritura, README del repositorio, notas de versión, `.storage/marketplace.*`, subida de versión). Sin push ni fusión: lo decide el mantenedor (principio XI)
 
 ---
 

@@ -14,11 +14,11 @@ pydantic serializa por alias.
 
 Los clientes las usan para decidir la experiencia de permisos: autorizar sin
 preguntar lo que solo lee, y avisar antes de lo que borra o reinicia. Hermes
-expone ~210 tools sobre una casa entera, así que esa distinción importa.
+expone más de doscientas tools sobre una casa entera, así que esa distinción importa.
 
 Se aplican de forma centralizada tras registrar las tools (ver
-`apply_tool_annotations`) en vez de repetir `annotations=...` en 211
-decoradores: una sola tabla, revisable de un vistazo y verificada por tests.
+`apply_tool_annotations`) en vez de repetir `annotations=...` en cada
+decorador: una sola tabla, revisable de un vistazo y verificada por tests.
 
 Nota de la spec: son *hints*, no garantías. La seguridad real de Hermes no
 depende de esto, sino de la denylist, los confirmation tokens y el sandbox de
