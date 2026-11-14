@@ -14,7 +14,10 @@ Control negativo (T007/T016 e), anotado en el commit con los recuentos:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
+from unittest import mock
 
 from hermes import command_policy as cp
 from hermes.command_policy import Entrada, Permitido, Rechazo
@@ -269,10 +272,12 @@ class TestEntrada(unittest.TestCase):
             Entrada(category="confirm", reason="x", family="generic_commands",
                     one_shot=True)
 
-    def test_read_no_sale_a_internet(self) -> None:
-        with self.assertRaises(ValueError):
-            Entrada(category="read", reason="x", family="generic_commands",
+    def test_read_puede_salir_a_internet(self) -> None:
+        # T047: una `read` puede salir a internet (fuentes de medios
+        # remotas); la honestidad de la anotación la ata test_command_table.
+        e = Entrada(category="read", reason="x", family="generic_commands",
                     open_world=True)
+        self.assertTrue(e.open_world)
 
     def test_response(self) -> None:
         with self.assertRaises(ValueError):
@@ -314,6 +319,56 @@ class TestResumirCarga(unittest.TestCase):
         self.assertEqual(r["a"]["value"], "x" * 64)
         self.assertNotIn("value", r["b"])
         self.assertEqual(r["b"]["hidden"], "too_long")
+
+    def test_valor_largo_ensena_inicio_tamano_y_hash(self) -> None:
+        # T045: un valor largo no sensible se enseña por su inicio (32
+        # caracteres), su tamaño y un hash corto, para que quien confirma sepa
+        # qué aprueba (enmienda E-1). Control negativo comprobado: sin las
+        # dos líneas de `head`/`sha256` en `resumir_carga`, este test cae.
+        texto = "Descripción del evento: " + "ñ" * 60
+        f = _filas(cp.resumir_carga({"d": texto}))["d"]
+        self.assertEqual(f["hidden"], "too_long")
+        self.assertNotIn("value", f)
+        self.assertEqual(f["head"], texto[:32])
+        self.assertEqual(
+            f["sha256"], hashlib.sha256(texto.encode("utf-8")).hexdigest()[:12]
+        )
+        self.assertEqual(f["bytes"], len(json.dumps(texto, ensure_ascii=False).encode("utf-8")))
+        # Un número largo: el inicio y el hash son los de su JSON.
+        n = _filas(cp.resumir_carga({"n": 10 ** 70}))["n"]
+        self.assertEqual(n["head"], "1" + "0" * 31)
+        self.assertEqual(n["sha256"], hashlib.sha256(str(10 ** 70).encode()).hexdigest()[:12])
+
+    def test_valor_largo_inicio_pasa_por_redact_secrets(self) -> None:
+        # El texto entero no casa con ningún patrón, pero el inicio cortado
+        # sí puede: se redacta igual. Se simula con un `redact_secrets` que
+        # solo cambia textos de 32 caracteres o menos.
+        texto = "a" * 80
+        con_parche = mock.patch.object(
+            cp, "redact_secrets",
+            side_effect=lambda t: "***" if len(t) <= 32 else t,
+        )
+        with con_parche:
+            f = _filas(cp.resumir_carga({"d": texto}))["d"]
+        self.assertEqual(f["hidden"], "too_long")
+        self.assertEqual(f["head"], "***")
+
+    def test_valor_largo_sensible_no_ensena_inicio_ni_hash(self) -> None:
+        # Un valor sensible sigue tapado por completo aunque sea largo: ni
+        # inicio ni hash (un hash de un secreto corto se puede invertir).
+        largo = _CENTINELA * 4
+        r = _filas(cp.resumir_carga(
+            {"password": largo, "credentials": {"x": largo}}
+        ))
+        for ruta in ("password", "credentials.x"):
+            with self.subTest(ruta=ruta):
+                self.assertEqual(r[ruta]["hidden"], "sensitive")
+                self.assertNotIn("head", r[ruta])
+                self.assertNotIn("sha256", r[ruta])
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJh" * 2
+        f = _filas(cp.resumir_carga({"nota": jwt}))["nota"]
+        self.assertEqual(f["hidden"], "sensitive")
+        self.assertNotIn("head", f)
 
     def test_numero_largo(self) -> None:
         largo = 10 ** 70
@@ -405,7 +460,9 @@ class TestResumirCarga(unittest.TestCase):
             "password": _CENTINELA,
             "credentials": {"user": _CENTINELA, "lista": [_CENTINELA]},
             "pin": _CENTINELA,
-            "largo": _CENTINELA * 5,
+            # Un valor largo NO sensible enseña su inicio desde T045 (E-1);
+            # uno largo sensible sigue tapado entero.
+            "api_key": _CENTINELA * 5,
             "nota": f"token={_CENTINELA}",
         }
         texto = json.dumps(cp.resumir_carga(carga, redact_extra=("pin",)))

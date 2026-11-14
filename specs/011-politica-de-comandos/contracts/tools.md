@@ -19,7 +19,7 @@ hermes_guide(topic: str | None = None, search: str | None = None) -> str
 
 | Tool | readOnly | destructive | idempotent | openWorld | Título |
 |---|---|---|---|---|---|
-| `ha_read_ws_command` | sí | no | sí | no | `Read WS command (Home Assistant)` |
+| `ha_read_ws_command` | sí | no | sí | sí (T047: `media_source/*` con fuentes remotas) | `Read WS command (Home Assistant)` |
 | `ha_call_ws_command` | no | sí | no | sí | `Call WS command (Home Assistant)` |
 | `sv_read_api` | sí | no | sí | no | `Read API (Supervisor)` |
 | `sv_call_api` | no | sí | no | sí | `Call API (Supervisor)` |
@@ -61,7 +61,7 @@ Vista previa de `ha_call_ws_command` (sin token):
     "category": "confirm",
     "reason": "Tags: create",
     "cap": "CAP-066",
-    "note": "This preview shows exactly what will be sent to Home Assistant. It does not interpret the effect of the command.",
+    "note": "This preview lists every key that will be sent to Home Assistant: short values in full, long ones by their first 32 characters, size and a short SHA-256, sensitive ones hidden. It does not interpret the effect of the command.",
     "payload_summary": {
       "bytes": 74, "keys": 3,
       "rows": [
@@ -75,6 +75,11 @@ Vista previa de `ha_call_ws_command` (sin token):
 ```
 
 `sv_call_api`: igual con `method`, `path`, `route` y `body_summary`.
+
+Un valor escalar de más de 64 caracteres y no sensible sale como
+`{"path": "description", "type": "string", "bytes": 210, "hidden": "too_long",
+"head": "<32 primeros caracteres>", "sha256": "<12 hex>"}`; uno sensible, solo
+con tipo, tamaño y `"hidden": "sensitive"` (FR-010, enmienda E-1, T045).
 
 Ejecución confirmada: la misma forma que la lectura con `"executed": true`.
 

@@ -85,13 +85,20 @@ _TAPADO = "***"
 # crear el token, con el mismo tamaño que tendrá.
 _TOKEN_DE_MUESTRA = "00000000-0000-0000-0000-000000000000"
 
+# La nota dice exactamente lo que enseña el resumen (enmienda E-1, T045):
+# todas las claves; los valores cortos enteros, los largos por su inicio, su
+# tamaño y un hash, y los sensibles tapados.
 _NOTA_CORE = (
-    "This preview shows exactly what will be sent to Home Assistant. It does "
-    "not interpret the effect of the command."
+    "This preview lists every key that will be sent to Home Assistant: short "
+    "values in full, long ones by their first 32 characters, size and a short "
+    "SHA-256, sensitive ones hidden. It does not interpret the effect of the "
+    "command."
 )
 _NOTA_SUPERVISOR = (
-    "This preview shows exactly what will be sent to the Supervisor. It does "
-    "not interpret the effect of the request."
+    "This preview lists every key that will be sent to the Supervisor: short "
+    "values in full, long ones by their first 32 characters, size and a short "
+    "SHA-256, sensitive ones hidden. It does not interpret the effect of the "
+    "request."
 )
 _PISTA_VERSION = (
     "The installed Home Assistant does not know this command; Hermes' table is "
@@ -331,9 +338,10 @@ def register(
         rejected without reaching Home Assistant.
 
         First call (no token): returns `preview` and `confirmation_token`.
-        The preview shows exactly what will be sent (command, category,
-        reason, CAP and a summary of every payload key with its type and
-        size; values are shown only when short and not sensitive). It does NOT
+        The preview shows what will be sent (command, category, reason, CAP
+        and a summary of every payload key with its type and size; short
+        values in full, long ones by their start and a short hash, sensitive
+        ones hidden). It does NOT
         interpret what the command will do. Show it to the user. Second call:
         the same `type` and `payload` plus `confirmation_token` (valid ~60 s,
         once). If the preview does not fit in the response limit, nothing is
@@ -511,9 +519,10 @@ def register(
         and paths whose app is Hermes itself (`path_not_allowed`).
 
         First call (no token): returns `preview` and `confirmation_token`. The
-        preview shows exactly what will be sent (method, concrete path, route
-        template, category, reason, CAP and a summary of every body key; values
-        only when short and not sensitive). It does NOT interpret what the
+        preview shows what will be sent (method, concrete path, route
+        template, category, reason, CAP and a summary of every body key; short
+        values in full, long ones by their start and a short hash, sensitive
+        ones hidden). It does NOT interpret what the
         request will do. Show it to the user. Second call: the same `method`,
         `path` and `body` plus `confirmation_token` (valid ~60 s, once).
         `hermes_guide(topic="generic_commands")` explains the categories and

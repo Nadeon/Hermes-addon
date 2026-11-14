@@ -354,7 +354,11 @@ Cada requisito cita entre paréntesis los FR de la 008 y las CAP que cubre.
   de su JSON si es número, booleano o `null`), ninguna clave de su ruta es sensible para la redacción
   de Hermes (los marcadores de `redact_structure` más las claves extra de la
   entrada) y `redact_secrets` no cambia el texto. Si no, la fila dice por qué
-  no lo lleva (`sensitive`, `too_long` o `container`). El resumen lleva también
+  no lo lleva (`sensitive`, `too_long` o `container`). Una fila `too_long`
+  lleva además el inicio del valor (sus 32 primeros caracteres, pasados por
+  `redact_secrets`) y un hash corto (12 hex del SHA-256 del texto entero),
+  para que quien confirma sepa qué aprueba; una `sensitive` solo lleva tipo y
+  tamaño (enmienda E-1, corregida en T045). El resumen lleva también
   el tamaño total de la carga. Si la vista previa no cabe en
   `response_max_bytes`, no se emite token (`preview_too_large`) (008 FR-006;
   CAP-002).
@@ -407,8 +411,10 @@ Cada requisito cita entre paréntesis los FR de la 008 y las CAP que cubre.
   junto al token es solo `{"executed": true}`, nunca la respuesta de HA
   (principio II; casos límite de la 008).
 - **FR-018**: Anotaciones verdaderas en `tools/_annotations.py`, por nombre
-  exacto: las dos de lectura, `readOnlyHint` y sin mundo abierto (y ninguna
-  entrada `read` de la tabla sale a internet, lo comprueba un test); las dos de
+  exacto: las dos de lectura, `readOnlyHint`, y de mundo abierto si y solo si
+  alguna entrada `read` de su tabla sale a internet (hoy, `ha_read_ws_command`
+  por `media_source/browse_media` y `search_media` con fuentes remotas; un test
+  ata la anotación a la tabla y la lista de esas entradas, T047); las dos de
   escritura, `destructiveHint`, no idempotentes y de mundo abierto. Sus
   descripciones dicen que ejecutan solo lo que la tabla permite y cómo
   consultarla (008 FR-006, FR-007, FR-018; principio V).
