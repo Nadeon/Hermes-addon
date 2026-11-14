@@ -124,32 +124,76 @@ recuentos de los controles negativos.
 
 ## Fase 4: Preparación del tramo B
 
-- [ ] T017 Añadir `kitchen_sink:` a `tests/banco/ha_config/configuration.yaml` con un comentario (por qué: dispositivos que se pueden borrar a mano, avisos de reparación y flujo de opciones sin hardware ni internet; research R-1). Crear `tests/banco/test_banco_escrituras_integraciones.py` con una primera clase de comprobación del entorno: el lector ve en `config_entries/get` una entrada de `kitchen_sink` en estado `loaded`, en `repairs/list_issues` avisos de dominio `kitchen_sink` y en `config/device_registry/list` dispositivos suyos además de `statistics_issues`. Push y `gh run watch` **antes** de escribir el resto: si `kitchen_sink` no carga, parar y aplicar la fila «Falla una integración de apoyo» del plan, avisando al supervisor (S-02)
+- [x] T017 Añadir `kitchen_sink:` a `tests/banco/ha_config/configuration.yaml` con un comentario (por qué: dispositivos que se pueden borrar a mano, avisos de reparación y flujo de opciones sin hardware ni internet; research R-1). Crear `tests/banco/test_banco_escrituras_integraciones.py` con una primera clase de comprobación del entorno: el lector ve en `config_entries/get` una entrada de `kitchen_sink` en estado `loaded`, en `repairs/list_issues` avisos de dominio `kitchen_sink` y en `config/device_registry/list` dispositivos suyos además de `statistics_issues`. Push y `gh run watch` **antes** de escribir el resto: si `kitchen_sink` no carga, parar y aplicar la fila «Falla una integración de apoyo» del plan, avisando al supervisor (S-02)
 
 ## Fase 5: Historia 2 — registros, integraciones y reparaciones (P1)
 
 **Objetivo**: las 27 tools del tramo B ejecutadas en el banco con su efecto comprobado (tabla «Tramo B» de [data-model.md](data-model.md)).
 **Prueba independiente**: el job del banco ejecuta los tres ficheros; el lector ve cada efecto.
 
-- [ ] T018 [P] [US2] `tests/banco/test_banco_escrituras_registros.py`, 12 tools, una clase por registro (área, planta, etiqueta, categoría con scope `automation`): `ha_create_*` → en `config/<x>_registry/list` con los datos pedidos; `ha_update_*` en dos pasos (tras la vista previa, el nombre no ha cambiado; tras confirmar, sí); `ha_delete_*` en dos pasos → fuera de la lista. Nombres `banco_<x>_<hex>`; limpieza con el lector (`config/<x>_registry/delete`) al cerrar (FR-001, FR-008)
-- [ ] T019 [P] [US2] `tests/banco/test_banco_escrituras_dispositivos.py`, 6 tools: `ha_update_device` en dos pasos (`name_by_user` genérico en un dispositivo de `kitchen_sink`; se restaura al terminar); `ha_remove_device` y `ha_remove_device_from_config_entry` en dos pasos, cada uno sobre un dispositivo distinto de `kitchen_sink` (nunca `statistics_issues`), comprobando justo después de confirmar que ya no está; `ha_update_entity_registry` con `new_entity_id` en dos pasos sobre un `input_boolean` del lector (existe el nuevo y no el viejo); `ha_remove_entity_registry` en dos pasos (`config/entity_registry/get` da `not_found`); `ha_ignore_repair` en dos pasos sobre un aviso de `kitchen_sink` (`ignored: true`) y restaurado con `ignore=False` al terminar (FR-001, FR-008)
-- [ ] T020 [P] [US2] En `tests/banco/test_banco_escrituras_integraciones.py`, 9 tools según research R-2: ciclo de `uptime` en un solo test (`ha_start_config_entry_flow` → flujo en `config_entries/flow/progress`; `ha_abort_config_entry_flow` → ya no; nuevo flujo y `ha_continue_config_entry_flow` con `{}` → entrada `loaded`; `ha_reload_config_entry` → el estado del sensor de `uptime` cambia; `ha_disable_config_entry` en dos pasos → `disabled_by: user`; `ha_enable_config_entry` → `loaded`; `ha_delete_config_entry` en dos pasos → no existe; limpieza que borra la entrada pase lo que pase) y flujo de opciones de `kitchen_sink` (`ha_start_options_flow` → paso `options_1`; `ha_continue_options_flow` con valores genéricos → el lector abre su propio flujo de opciones por REST, ve esos valores como actuales y lo aborta). Ninguna prueba borra ni deshabilita la entrada de `kitchen_sink` (FR-001, FR-008)
-- [ ] T021 [US3] Cerrar el inventario: pasar las 27 del tramo B a `PROBADAS_028` en `tests/banco/cobertura_escrituras.py`, borrar `PENDIENTES_TRAMO_B` del módulo y de `tests/test_banco_cobertura_escrituras.py`; el recuento de la 028 sigue en 53 y el total en 124 (SC-002)
-- [ ] T022 [US3] Control negativo local de T021: quitar `ha_ignore_repair` de `PROBADAS_028` → cae nombrándola; borrar su llamada del test del banco dejándola en la lista → cae `test_cada_probada_aparece_en_un_test_del_banco`. Restaurar y anotar (FR-009)
-- [ ] T023 [US2] Suite local (6 fallos conocidos, banco saltado con motivo); push y `gh run watch`: los tres jobs en verde, en el log del banco los 53 casos de la 028 (y los de la 010) ejecutados y ninguno saltado; anotar la duración del job (SC-001, SC-005; si pasa de 10 minutos, anotarlo según FR-012). Si algo falla, `gh run view --log-failed` y decidir según el plan
-- [ ] T024 [US4] Hallazgos del tramo B como en T013 (con nota en «Notas del tramo B»); si no hay, anotarlo (FR-007)
-- [ ] T025 [US2] Control negativo del banco en CI (research R-12): como T014, en `prueba/028-control-b`: `ha_create_area` (en `hermes/src/hermes/tools/registry_area.py`) crea el área con el nombre cambiado; push y `gh run watch` hasta ver en rojo el test de áreas; borrar la rama (o, si el encargo no lo permite, commit de control y `git revert`). Anotar el run y el resultado
+- [x] T018 [P] [US2] `tests/banco/test_banco_escrituras_registros.py`, 12 tools, una clase por registro (área, planta, etiqueta, categoría con scope `automation`): `ha_create_*` → en `config/<x>_registry/list` con los datos pedidos; `ha_update_*` en dos pasos (tras la vista previa, el nombre no ha cambiado; tras confirmar, sí); `ha_delete_*` en dos pasos → fuera de la lista. Nombres `banco_<x>_<hex>`; limpieza con el lector (`config/<x>_registry/delete`) al cerrar (FR-001, FR-008)
+- [x] T019 [P] [US2] `tests/banco/test_banco_escrituras_dispositivos.py`, 6 tools: `ha_update_device` en dos pasos (`name_by_user` genérico en un dispositivo de `kitchen_sink`; se restaura al terminar); `ha_remove_device` y `ha_remove_device_from_config_entry` en dos pasos, cada uno sobre un dispositivo distinto de `kitchen_sink` (nunca `statistics_issues`), comprobando justo después de confirmar que ya no está; `ha_update_entity_registry` con `new_entity_id` en dos pasos sobre un `input_boolean` del lector (existe el nuevo y no el viejo); `ha_remove_entity_registry` en dos pasos (`config/entity_registry/get` da `not_found`); `ha_ignore_repair` en dos pasos sobre un aviso de `kitchen_sink` (`ignored: true`) y restaurado con `ignore=False` al terminar (FR-001, FR-008)
+- [x] T020 [P] [US2] En `tests/banco/test_banco_escrituras_integraciones.py`, 9 tools según research R-2: ciclo de `uptime` en un solo test (`ha_start_config_entry_flow` → flujo en `config_entries/flow/progress`; `ha_abort_config_entry_flow` → ya no; nuevo flujo y `ha_continue_config_entry_flow` con `{}` → entrada `loaded`; `ha_reload_config_entry` → el estado del sensor de `uptime` cambia; `ha_disable_config_entry` en dos pasos → `disabled_by: user`; `ha_enable_config_entry` → `loaded`; `ha_delete_config_entry` en dos pasos → no existe; limpieza que borra la entrada pase lo que pase) y flujo de opciones de `kitchen_sink` (`ha_start_options_flow` → paso `options_1`; `ha_continue_options_flow` con valores genéricos → el lector abre su propio flujo de opciones por REST, ve esos valores como actuales y lo aborta). Ninguna prueba borra ni deshabilita la entrada de `kitchen_sink` (FR-001, FR-008)
+- [x] T021 [US3] Cerrar el inventario: pasar las 27 del tramo B a `PROBADAS_028` en `tests/banco/cobertura_escrituras.py`, borrar `PENDIENTES_TRAMO_B` del módulo y de `tests/test_banco_cobertura_escrituras.py`; el recuento de la 028 sigue en 53 y el total en 124 (SC-002)
+- [x] T022 [US3] Control negativo local de T021: quitar `ha_ignore_repair` de `PROBADAS_028` → cae nombrándola; borrar su llamada del test del banco dejándola en la lista → cae `test_cada_probada_aparece_en_un_test_del_banco`. Restaurar y anotar (FR-009)
+- [x] T023 [US2] Suite local (6 fallos conocidos, banco saltado con motivo); push y `gh run watch`: los tres jobs en verde, en el log del banco los 53 casos de la 028 (y los de la 010) ejecutados y ninguno saltado; anotar la duración del job (SC-001, SC-005; si pasa de 10 minutos, anotarlo según FR-012). Si algo falla, `gh run view --log-failed` y decidir según el plan
+- [x] T024 [US4] Hallazgos del tramo B como en T013 (con nota en «Notas del tramo B»); si no hay, anotarlo (FR-007)
+- [x] T025 [US2] Control negativo del banco en CI (research R-12): como T014, en `prueba/028-control-b`: `ha_create_area` (en `hermes/src/hermes/tools/registry_area.py`) crea el área con el nombre cambiado; push y `gh run watch` hasta ver en rojo el test de áreas; borrar la rama (o, si el encargo no lo permite, commit de control y `git revert`). Anotar el run y el resultado
 
 ## Fase 6: Documentación y cierre
 
-- [ ] T026 [P] `docs/HOJA-DE-RUTA.md`: fila 028 → «hecha»; la frase de la cabecera sobre las 124 tools dice que las 100 `ha_*` que modifican se ejecutan en el CI contra HA Core 2026.11.1 real (47 en la 010 y 53 en la 028); lista de las 53 tools ejecutadas en el banco, lista de las 24 de fuera del banco con su motivo y los hallazgos con su estado (FR-010)
-- [ ] T027 [P] `hermes/CHANGELOG.md`: completar en «Banco de pruebas» de `## [1.2.0]` las 27 del tramo B y los hallazgos; `specs/008-cobertura-total/plan.md`: fila CAP-034 de la matriz, columna de test con `tests/banco/test_banco_escrituras_*.py` y `tests/test_banco_cobertura_escrituras.py` (FR-010)
-- [ ] T028 Verificación final: `git diff --stat <base de la 028>..HEAD -- hermes/src` vacío o solo arreglos triviales documentados (SC-003); suite local con los 6 fallos conocidos y los del banco saltados con motivo (SC-004); revisión del diff completo de la sub-feature buscando datos personales, rutas locales e identificadores de modelos (FR-011)
-- [ ] T029 Commit del tramo B (`git add` por ruta) con los recuentos de T022 y T025, la duración del job y los hallazgos; informe al supervisor con los hallazgos de los dos tramos
+- [x] T026 [P] `docs/HOJA-DE-RUTA.md`: fila 028 → «hecha»; la frase de la cabecera sobre las 124 tools dice que las 100 `ha_*` que modifican se ejecutan en el CI contra HA Core 2026.11.1 real (47 en la 010 y 53 en la 028); lista de las 53 tools ejecutadas en el banco, lista de las 24 de fuera del banco con su motivo y los hallazgos con su estado (FR-010)
+- [x] T027 [P] `hermes/CHANGELOG.md`: completar en «Banco de pruebas» de `## [1.2.0]` las 27 del tramo B y los hallazgos; `specs/008-cobertura-total/plan.md`: fila CAP-034 de la matriz, columna de test con `tests/banco/test_banco_escrituras_*.py` y `tests/test_banco_cobertura_escrituras.py` (FR-010)
+- [x] T028 Verificación final: `git diff --stat <base de la 028>..HEAD -- hermes/src` vacío o solo arreglos triviales documentados (SC-003); suite local con los 6 fallos conocidos y los del banco saltados con motivo (SC-004); revisión del diff completo de la sub-feature buscando datos personales, rutas locales e identificadores de modelos (FR-011)
+- [x] T029 Commit del tramo B (`git add` por ruta) con los recuentos de T022 y T025, la duración del job y los hallazgos; informe al supervisor con los hallazgos de los dos tramos
 
 ### Notas del tramo B (al implementar)
 
-- (vacío)
+- **`kitchen_sink` (T017)**: carga sin internet. Run 43638545572, los tres
+  jobs en verde; el banco pasa de 31 a 32 tests (la comprobación del
+  entorno: entrada `loaded`, avisos propios y al menos dos dispositivos que
+  se pueden borrar).
+- **CI (T023)**: primer run del tramo completo (43638923560) en rojo solo en
+  `TestConfigEntryUptime`, por el propio test: `config_entries/flow/progress`
+  solo lista los flujos que **no** abrió un usuario (descubrimientos), y los
+  de las tools son de origen `user`. Se comprueba por REST
+  (`GET /api/config/config_entries/flow/<id>`: 200 abierto, 404 cerrado).
+  Run 43639108146: los tres jobs en verde; el banco ejecuta 42 tests y 1
+  `xfail` (el de la 010), ninguno saltado; job `banco de Core` en 1 min 20 s
+  (el paso de pytest, 15 s). Suite local: 6 fallos (los de Windows), 1989
+  verdes y 59 saltados.
+- **Hallazgos (T024)**: ninguno. Las 27 tools hacen contra HA Core 2026.11.1
+  lo que dicen.
+- **Control negativo local (T022)**: sin `ha_ignore_repair` en
+  `PROBADAS_028` caen `test_todas_las_escrituras_clasificadas` (la nombra) y
+  `test_recuento_028`; sin su nombre literal en el test del banco cae
+  `test_cada_probada_aparece_en_un_test_del_banco`.
+- **Control negativo de CI (T025)**: rama desechable `prueba/028-control-b`
+  con `ha_create_area` creando el área con `_control` al final del nombre;
+  run 43639286070 en rojo en `banco de Core` (`TestArea.test_ciclo_completo`)
+  y también en `pytest (3.12)` y `pytest (3.13)`
+  (`test_tools_registry_area.py::TestCreateArea::test_create_basic`); rama
+  borrada en remoto y en local.
+- **Desviaciones de la tabla de data-model**:
+  - `ha_continue_options_flow`: el lector no puede «ver los valores nuevos
+    como actuales». Core no publica las opciones de una entrada
+    (`as_json_fragment` no las incluye) y el formulario de `kitchen_sink` lee
+    sus valores por defecto fuera de la sección `section_1` en la que los
+    guarda. Se comprueba que el flujo de Hermes ya no existe (404), que
+    `modified_at` de la entrada avanza (HA solo lo toca si las opciones
+    cambian; el entero es aleatorio) y que el lector abre y aborta su propio
+    flujo de opciones.
+  - Flujo de `uptime` en curso: por REST, no por `flow/progress` (arriba).
+  - `ha_ignore_repair` se prueba en los dos sentidos por Hermes (ocultar y
+    volver a mostrar, ambos en dos pasos); el lector lo restaura igualmente
+    al cerrar.
+  - `ha_remove_device` y `ha_remove_device_from_config_entry` van en el
+    mismo test para garantizar dos dispositivos distintos; se eligen sin
+    hijos (`via_device_id`) para no arrastrar a otros.
+- **Fuera de alcance, para el supervisor**: `ha_get_config_entry_options`
+  (lectura, no es de la 028) lee `options` de `config_entries/get_single`,
+  pero Core 2026.11.1 no las incluye en esa respuesta (`as_json_fragment`):
+  por el código, devolvería siempre `{}`. No se ha ejecutado en el banco.
 
 ---
 

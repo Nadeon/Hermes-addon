@@ -34,6 +34,17 @@
   `ha_cancel_wait` y las siete de dashboards y recursos Lovelace. Ninguna ha
   fallado contra HA real. Un test de la suite normal obliga a que las 124
   tools que modifican estén probadas en el banco o digan por qué no.
+- **Y las 27 que quedaban: las 100 `ha_*` que modifican, en el banco.** Con
+  la integración de demostración `kitchen_sink` cargada en la HA del banco
+  (dispositivos, avisos de reparación y flujo de opciones sin hardware ni
+  internet): áreas, plantas, etiquetas y categorías (crear, editar en dos
+  pasos y borrar), editar y borrar dispositivos, renombrar una entidad y
+  quitarla del registro, ignorar y volver a mostrar un aviso de reparación,
+  el flujo de opciones, y el ciclo entero de una config entry de `uptime`
+  creada por las propias tools (abrir, abortar y completar el flujo,
+  recargar, deshabilitar, habilitar y borrar). Ninguna ha fallado contra HA
+  real. Solo quedan fuera del banco las 5 `fs_*` y las 19 `sv_*`, cada una con
+  su motivo.
 - Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
   y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
   onboarding, reglas de salto, comprobaciones del workflow, inventario de
