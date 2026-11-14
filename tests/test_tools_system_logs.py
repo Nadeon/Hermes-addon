@@ -331,6 +331,23 @@ class TestIdentificadores(_Base):
         r = await self.tools["sv_list_host_log_identifiers"]()
         self.assertIn("error", r)
 
+    async def test_forma_inesperada_es_error(self) -> None:
+        """T031: sin `identifiers`, o con otra forma, error claro y no una
+        lista vacía dada por buena (FR-016). Control negativo: volver a
+        `brutos or []` → caen las cuatro subpruebas (`count: 0` sin `error`)."""
+        for valor in ({}, {"identifiers": "kernel"}, {"identifiers": {"a": 1}}, ["kernel"]):
+            with self.subTest(valor=valor):
+                self.sv.respuesta("GET", "/host/logs/identifiers", valor)
+                r = await self.tools["sv_list_host_log_identifiers"]()
+                self.assertEqual(r, {"error": (
+                    "Unexpected Supervisor response for GET /host/logs/identifiers.")})
+
+    async def test_lista_vacia_con_la_clave_es_buena(self) -> None:
+        # Contraste: la clave presente y vacía SÍ es una respuesta válida.
+        self.sv.respuesta("GET", "/host/logs/identifiers", {"identifiers": []})
+        r = await self.tools["sv_list_host_log_identifiers"]()
+        self.assertEqual(r, {"count": 0, "truncated": False, "items": []})
+
 
 class TestArranques(_Base):
     async def test_del_actual_al_mas_antiguo(self) -> None:
@@ -346,6 +363,36 @@ class TestArranques(_Base):
     async def test_error(self) -> None:
         r = await self.tools["sv_list_boots"]()
         self.assertIn("error", r)
+
+    async def test_forma_inesperada_es_error(self) -> None:
+        """T031: sin `boots`, o con `boots` que no es un objeto, error claro
+        en vez de una lista vacía o de un `AttributeError` (FR-016). Control
+        negativo: volver a `(boots or {}).items()` → caen las subpruebas (lista
+        vacía como buena, y `AttributeError` con la lista)."""
+        for valor in ({}, {"boots": ["x"]}, {"boots": "0"}, [BOOT_ACTUAL]):
+            with self.subTest(valor=valor):
+                self.sv.respuesta("GET", "/host/logs/boots", valor)
+                r = await self.tools["sv_list_boots"]()
+                self.assertEqual(r, {"error": (
+                    "Unexpected Supervisor response for GET /host/logs/boots.")})
+
+    async def test_items_pasan_por_redact_structure(self) -> None:
+        """T031: los `items` pasan por `redact_structure` como el resto de
+        respuestas JSON del Supervisor (FR-016 para FR-006). Hoy sus claves
+        no son sensibles, así que se comprueba la llamada con un espía que
+        marca lo que recibe. Control negativo: quitar la llamada → cae."""
+        from unittest.mock import patch
+
+        from hermes.tools import system_logs
+
+        def espia(valor: Any, _key: str = "") -> Any:
+            return [{**i, "redactado": True} for i in valor]
+
+        self.sv.respuesta("GET", "/host/logs/boots", BOOTS)
+        with patch.object(system_logs, "redact_structure", espia):
+            r = await self.tools["sv_list_boots"]()
+        self.assertEqual(len(r["items"]), 3)
+        self.assertTrue(all(i.get("redactado") for i in r["items"]))
 
 
 class TestRecorte(_Base):

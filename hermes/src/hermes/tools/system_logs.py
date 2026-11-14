@@ -72,6 +72,13 @@ def _identifier_de_hermes(identifier: str | None) -> bool:
     return False
 
 
+def _forma_inesperada(tool: str, plantilla: str) -> dict[str, Any]:
+    # Nunca se da por buena una respuesta vacía o de otra forma (FR-016),
+    # como en `host_system.py`.
+    logger.info(_EVENTO, tool=tool, route=plantilla, outcome="error")
+    return {"error": f"Unexpected Supervisor response for GET {plantilla}."}
+
+
 def _error(exc: HAConnectionError) -> dict[str, Any]:
     # El mensaje del Supervisor puede repetir parte de la petición o del log:
     # se redacta igual que el log (research R-8).
@@ -312,7 +319,11 @@ def register(
                         status=getattr(exc, "status", None), outcome="error")
             return _error(exc)
         brutos = data.get("identifiers") if isinstance(data, dict) else None
-        items = sorted(i for i in (brutos or []) if isinstance(i, str))
+        if not isinstance(brutos, list):
+            # Sin la clave, o con otra forma, no es «no hay identificadores»:
+            # una lista vacía dada por buena engañaría al agente (FR-016).
+            return _forma_inesperada(tool, plantilla)
+        items = sorted(i for i in brutos if isinstance(i, str))
         if search:
             aguja = search.lower()
             items = [i for i in items if aguja in i.lower()]
@@ -349,8 +360,13 @@ def register(
                         status=getattr(exc, "status", None), outcome="error")
             return _error(exc)
         boots = data.get("boots") if isinstance(data, dict) else None
+        if not isinstance(boots, dict):
+            # El Supervisor da `{"boots": {"0": "<id>", ...}}`. Sin la clave o
+            # con otra forma, error claro en vez de una lista vacía como si
+            # estuviera bien, o de un `AttributeError` (FR-016).
+            return _forma_inesperada(tool, plantilla)
         items: list[dict[str, Any]] = []
-        for offset, boot_id in (boots or {}).items():
+        for offset, boot_id in boots.items():
             # El Supervisor da las claves como texto («0», «-1»); una que no
             # sea un entero no es un desplazamiento que se pueda pedir.
             try:
@@ -359,6 +375,9 @@ def register(
                 continue
             items.append({"offset": n, "boot_id": boot_id})
         items.sort(key=lambda i: i["offset"], reverse=True)
+        # Misma defensa en profundidad que el resto de respuestas JSON del
+        # Supervisor (FR-016 para FR-006).
+        items = redact_structure(items)
         logger.info(_EVENTO, tool=tool, route=plantilla, count=len(items), outcome="ok")
 
         def construir(kept: list[dict[str, Any]], cut: bool) -> dict[str, Any]:
