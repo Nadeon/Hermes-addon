@@ -10,7 +10,7 @@ Formas de entrada y salida de las tools. Las firmas y anotaciones están en
 | Familia (`desde="1.2.0"`, desactivable) | Módulo | Tools |
 |---|---|---|
 | `integration_flows` | `integration_setup` | `ha_list_discovered_integrations`, `ha_ignore_discovery`, `ha_list_config_flow_domains`, `ha_update_config_entry` |
-| `integration_flows` | `config_subentries` | `ha_list_config_subentries`, `ha_start_subentry_flow`, `ha_continue_subentry_flow`, `ha_abort_subentry_flow`, `ha_update_subentry`, `ha_delete_subentry`, `ha_start_reconfigure_flow` |
+| `integration_flows` | `config_subentries` | `ha_list_config_subentries`, `ha_start_subentry_flow`, `ha_continue_subentry_flow`, `ha_abort_subentry_flow`, `ha_update_subentry`, `ha_delete_subentry`, `ha_start_reconfigure_flow`, `ha_continue_reconfigure_flow` |
 | `repair_flows` | `repair_flows` | `ha_get_repair`, `ha_start_repair_fix`, `ha_continue_repair_fix`, `ha_abort_repair_fix` |
 | (sin familia: no registra) | `_translations` | ayudante de CAP-036 |
 | `diagnostics` (1.1.2, sin cambios de familia) | `repairs` | `ha_list_repairs`, `ha_ignore_repair` (ganan campos) |
@@ -162,7 +162,59 @@ Vista previa:
 Entrada: `entry_id`. Lectura previa de la entrada (`not_found`,
 `reconfigure_not_supported` si `supports_reconfigure` es falso). Cuerpo:
 `{"handler": <dominio>, "entry_id": <entry_id>}`. Salida como
-`ha_start_config_entry_flow`, más `continue_with: "ha_continue_config_entry_flow"`.
+`ha_start_config_entry_flow` (con los secretos del formulario tapados, ver
+abajo), más `entry: {entry_id, domain, title}` y, si el flujo queda abierto,
+`continue_with: "ha_continue_reconfigure_flow (two steps on every step:
+preview, then confirmation_token)"`. Con `form` o `menu`, el `flow_id` entra
+en el registro.
+
+### Registro de reconfigures (decisión del supervisor, tramo B)
+
+En memoria del proceso de Hermes (`tools/_reconfigure.py`), por `flow_id`:
+`entry_id`, `domain`, `title` y el instante del último uso. Caduca a la hora
+del último uso; los caducados se abortan en HA (`DELETE …/flow/{flow_id}`) al
+abrir o continuar otro reconfigure, y salen del registro cuando el abort sale
+o HA responde 404. Mientras están, `ha_continue_config_entry_flow` los
+rechaza:
+
+```json
+{"error": "use_dedicated_tool", "tool": "ha_continue_reconfigure_flow",
+ "flow_id": "<flow_id>",
+ "detail": "This is a reconfigure flow opened by Hermes: every step needs a preview and a confirmation token."}
+```
+
+### `ha_continue_reconfigure_flow`
+
+Entrada: `flow_id`, `user_input` (objeto), `confirmation_token`. `flow_id` que
+no está en el registro → `{"error": "not_a_reconfigure_flow", "flow_id",
+"hint"}` sin llamar a HA. Vista previa (lee `GET …/flow/{flow_id}`):
+
+```json
+{"confirmation_token": "…", "expires_in_seconds": 60, "preview": {
+  "entry": {"entry_id": "<entry_id>", "domain": "banco_flujos", "title": "Banco"},
+  "flow_id": "<flow_id>", "step_id": "reconfigure",
+  "user_input": {"host": "192.0.2.10", "password": "***REDACTED***"},
+  "secret_fields": ["password"],
+  "unknown_fields": [],
+  "effect": "Submits this step of the reconfigure flow of this config entry. When the flow finishes, the integration usually saves the new data (which may include credentials or connection details) and Home Assistant reloads it: its entities are unavailable for a moment, and wrong data can leave it failing to load. Home Assistant does not say in advance whether this step is the last one."}}
+```
+
+- Secretos tapados: por clave (`redact_structure`), por campo de contraseña
+  del formulario (`selector.text.type == "password"`) y por patrón
+  (`redact_secrets`). `secret_fields` nombra los tapados por el formulario o
+  por la clave. `unknown_fields`: claves que el paso actual no pide (HA las
+  rechazará).
+- El token se ata a `flow_id`, `step_id` y `user_input` (sin omitibles: no
+  se guarda en disco).
+- Confirmación: vuelve a leer el paso; si el `step_id` cambió, el token no
+  vale y no se envía nada. Un solo `POST`. Salida: el resultado de HA con
+  `data_schema` y `description_placeholders` tapados (en un campo secreto,
+  `default` y `description.suggested_value`); `abort` con
+  `reconfigure_successful` o `create_entry` → `status: "ok"` y el flujo sale
+  del registro; otro `abort` → sale del registro, sin `status`; `form`/`menu`
+  → `continue_with` (otra vista previa). HTTP 400 con `errors` → error
+  redactado y token completado con fallo.
+- 404 en la lectura o en el `POST` → `not_found` y sale del registro.
 
 ## Repairs
 
@@ -254,6 +306,8 @@ Entrada: `flow_id`. Salida `{"result": "ok"}` o `not_found`.
 | `cannot_ignore` (`reason`) | descubrimiento sin `unique_id` |
 | `subentry_type_not_supported` (`supported`) | tipo no admitido por la entrada |
 | `reconfigure_not_supported` | entrada o tipo de subentry sin reconfigure |
+| `not_a_reconfigure_flow` | `ha_continue_reconfigure_flow` con un `flow_id` que Hermes no abrió como reconfigure |
+| `use_dedicated_tool` (`tool`) | `ha_continue_config_entry_flow` con un reconfigure registrado |
 | `not_fixable` | aviso no reparable |
 | `flow_mismatch` (`flow_domain`) | el flujo es de otro dominio |
 | `non_automatable` (`type`, `flow_id`, `hint`) | paso externo o de progreso; flujo abortado |

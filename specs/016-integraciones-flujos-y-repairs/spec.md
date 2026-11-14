@@ -79,9 +79,18 @@ en [research.md](research.md)):
   existe y es reparable, y la vista previa dice que la relación aviso–flujo la
   afirma quien llama (research R-5).
 - P: ¿Reconfigurar una entrada o editar una subentry por su flujo pide token?
-  → R: **no**, igual que los flujos de configuración y de opciones de la 1.1.2
-  y como dice la 008 (que solo pide token al borrar una subentry). Se anota
-  como duda para el final (D-2).
+  → R: la entrada **sí**, las subentries **no** (decisión del supervisor en el
+  tramo B, que sustituye a la respuesta inicial y cierra D-2). Reconfigurar
+  una entrada puede cambiar sus credenciales o sus datos de conexión y HA la
+  recarga al terminar, así que **cada paso que se envía** pide token (principio
+  IV), con una vista previa de los campos y los secretos tapados. Como el `GET`
+  de un flujo no trae su `source` y `config_entries/flow/progress` excluye los
+  `reconfigure`, Hermes no puede reconocer un flujo de reconfigure por lo que
+  le dice HA: los continúa una tool dedicada (`ha_continue_reconfigure_flow`),
+  Hermes registra en memoria los `flow_id` que abre `ha_start_reconfigure_flow`
+  y `ha_continue_config_entry_flow` los rechaza (FR-010a…FR-010c). Los flujos
+  de subentry siguen sin token, como los de configuración y de opciones de la
+  1.1.2; borrar una subentry sí lo pide.
 - P: ¿En qué idioma salen los textos traducidos de Repairs? → R: en el idioma
   configurado en HA (`get_config` → `language`), con el inglés como respaldo de
   HA para las claves que falten. **Sin argumento nuevo** en `ha_list_repairs`
@@ -157,8 +166,12 @@ nuevo y el efecto (recarga), y no envía nada; con el token, envía un solo
    ni llamada.
 5. **Dado** una integración que admite reconfigure, **cuando** pide
    `ha_start_reconfigure_flow(entry_id)`, **entonces** recibe el primer paso
-   del flujo y lo sigue con `ha_continue_config_entry_flow`; si no lo admite,
-   `reconfigure_not_supported` sin abrir nada.
+   del flujo y lo sigue con `ha_continue_reconfigure_flow`, que en cada paso
+   devuelve primero una vista previa (campos con los secretos tapados) y un
+   token; si no lo admite, `reconfigure_not_supported` sin abrir nada.
+5b. **Dado** un flujo de reconfigure abierto por Hermes, **cuando** se intenta
+   continuar con `ha_continue_config_entry_flow`, **entonces** se rechaza sin
+   enviar nada y remite a `ha_continue_reconfigure_flow`.
 6. **Dado** `ha_list_config_flow_domains(type="helper")`, **entonces** recibe
    los dominios de helpers que se crean por flujo (por ejemplo, `template`,
    `group`, `utility_meter`).
@@ -263,10 +276,10 @@ funciona ni abran un camino alrededor de la tabla.
 **Escenarios de aceptación**:
 
 1. **Dado** la configuración por defecto, **entonces** las tools de antes
-   siguen con los mismos nombres, anotaciones y argumentos, y aparecen las 15
+   siguen con los mismos nombres, anotaciones y argumentos, y aparecen las 16
    nuevas en `integration_flows` y `repair_flows`.
 2. **Dado** `tool_families_disabled: [integration_flows, repair_flows]`,
-   **entonces** las 15 no se registran y sus comandos siguen `dedicated` en la
+   **entonces** las 16 no se registran y sus comandos siguen `dedicated` en la
    tabla (la genérica los rechaza con `family_disabled`).
 3. **Dado** la genérica de escritura con `config_entries/subentries/delete`,
    **entonces** recibe `use_dedicated_tool` con `ha_delete_subentry`.
@@ -379,9 +392,48 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   reconfigure de una entrada (`POST /api/config/config_entries/flow` con
   `handler` y `entry_id`). Comprueba antes que la entrada existe y que
   `supports_reconfigure` es verdadero (`reconfigure_not_supported` sin abrir
-  nada si no). Se continúa y se aborta con `ha_continue_config_entry_flow` y
-  `ha_abort_config_entry_flow`; `external`/`progress` se abortan como en
-  FR-006 (FR-054, CAP-045).
+  nada si no). `external`/`progress` se abortan como en FR-006. Si el flujo
+  queda abierto (`form` o `menu`), Hermes registra su `flow_id` (FR-010b). Se
+  continúa con `ha_continue_reconfigure_flow` (FR-010a) y se aborta con
+  `ha_abort_config_entry_flow` (FR-054, CAP-045).
+- **FR-010a** (decisión del supervisor, tramo B):
+  `ha_continue_reconfigure_flow(flow_id, user_input, confirmation_token=None)`
+  envía un paso de un flujo de reconfigure abierto por
+  `ha_start_reconfigure_flow`, **en dos pasos en cada paso**. Solo acepta
+  `flow_id` del registro (`not_a_reconfigure_flow` sin llamar a HA si no). La
+  vista previa lee el paso actual (`GET …/flow/{flow_id}`; 404 →
+  `not_found`; otro fallo → `preview_unavailable` sin token) y enseña la
+  entrada (dominio y título), el `step_id`, los campos que se envían con los
+  secretos tapados (por clave, por los campos de contraseña del formulario y
+  por patrón) y el efecto (puede cambiar credenciales o datos de conexión; HA
+  recarga la integración al terminar y no dice antes qué paso es el último).
+  El token se ata a `flow_id`, al `step_id` leído y a `user_input` entero (no
+  se guarda en el fichero del token). Al confirmar, Hermes vuelve a leer el
+  paso: si cambió, el token no vale y no se envía nada. Un solo `POST`; la
+  respuesta sale con los valores sugeridos y por defecto de los campos
+  secretos tapados; `abort`/`create_entry` sacan el flujo del registro, y un
+  `form`/`menu` siguiente pide otra vista previa (FR-054, CAP-045, principio
+  IV).
+- **FR-010b**: el registro de reconfigures es de Hermes, en memoria y con
+  caducidad (una hora desde el último uso). Uno caducado no vuelve a ser
+  continuable por la vía general: Hermes aborta su flujo en HA (best-effort;
+  lo conserva en el registro, y por tanto rechazado, hasta que el abort sale
+  o HA dice que ya no existe). `ha_continue_config_entry_flow` rechaza un
+  `flow_id` del registro con `use_dedicated_tool` hacia
+  `ha_continue_reconfigure_flow`, sin enviar nada; para cualquier otro flujo
+  se comporta como en la 1.1.2. `ha_abort_config_entry_flow` sigue abortando
+  cualquier flujo y saca del registro el que aborta.
+- **FR-010c**: ninguna otra vía de Hermes abre un reconfigure de una entrada
+  saltándose el registro, y cada una tiene su test: `ha_start_config_entry_flow`
+  manda solo `handler` (sin `entry_id` ni otros campos, que HA leería con
+  `ALLOW_EXTRA`); en HA 2026.11.1 no hay comando WebSocket que abra flujos de
+  configuración (`ha_call_ws_command`/`ha_read_ws_command` no tienen nada que
+  clasificar y lo desconocido se rechaza); `sv_call_api`/`sv_read_api`
+  rechazan `/core/api*` y `/homeassistant/api*` (regla `core_proxy`), por
+  donde se llegaría al REST de flujos de Core. Riesgo residual documentado:
+  tras reiniciar Hermes el registro está vacío, y un reconfigure abierto antes
+  (o desde la interfaz de HA) se podría continuar con la tool general si se
+  conoce su `flow_id` (HA no lista los reconfigure en ningún comando).
 
 #### Flujos de reparación (FR-055 de la 008, CAP-048)
 
@@ -458,10 +510,12 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   exige «pendiente de tool dedicada» para la clase A de vía D admite
   `dedicated` hacia una tool que existe (FR-012 de la 008, CAP-001).
 - **FR-019**: Anotaciones verdaderas en `tools/_annotations.py`:
-  `ha_update_config_entry` y `ha_continue_repair_fix` destructivas por nombre
-  exacto (piden token); `ha_delete_subentry` destructiva por su prefijo;
+  `ha_update_config_entry`, `ha_continue_reconfigure_flow` y
+  `ha_continue_repair_fix` destructivas por nombre exacto (piden token);
+  `ha_delete_subentry` destructiva por su prefijo;
   `ha_start_subentry_flow`, `ha_continue_subentry_flow`,
-  `ha_start_reconfigure_flow`, `ha_start_repair_fix` y `ha_continue_repair_fix`
+  `ha_start_reconfigure_flow`, `ha_continue_reconfigure_flow`,
+  `ha_start_repair_fix` y `ha_continue_repair_fix`
   no idempotentes por nombre exacto (cada llamada abre o avanza un flujo);
   ninguna de mundo abierto; las de prefijo `ha_list_`/`ha_get_`, de solo
   lectura; títulos legibles. Las tools de la 1.1.2 no cambian de hints (FR-018
@@ -488,7 +542,8 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
 - **FR-023**: Las tools que modifican (`ha_ignore_discovery`,
   `ha_update_config_entry`, `ha_start_subentry_flow`,
   `ha_continue_subentry_flow`, `ha_abort_subentry_flow`, `ha_update_subentry`,
-  `ha_delete_subentry`, `ha_start_reconfigure_flow`, `ha_start_repair_fix`,
+  `ha_delete_subentry`, `ha_start_reconfigure_flow`,
+  `ha_continue_reconfigure_flow`, `ha_start_repair_fix`,
   `ha_continue_repair_fix`, `ha_abort_repair_fix`) se ejecutan en el banco de
   Core contra HA 2026.11.1 real con el efecto comprobado por el lector, y están
   en `tests/banco/cobertura_016.py` sumada al invariante de escrituras; las de
@@ -497,7 +552,9 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
 - **FR-024**: Nada de lo actual cambia: las tools existentes conservan
   nombres, argumentos, anotaciones y forma de respuesta (`ha_list_repairs` y
   `ha_ignore_repair` solo ganan campos); los flujos de configuración y de
-  opciones siguen como en la 1.1.2; la tabla solo cambia en las siete entradas
+  opciones siguen como en la 1.1.2 (salvo que `ha_continue_config_entry_flow`
+  rechaza los reconfigure que abrió Hermes, FR-010b: un `flow_id` que antes
+  no podía existir); la tabla solo cambia en las siete entradas
   de FR-018 y el comentario de `frontend/get_translations` (FR-020 de la 008).
 - **FR-025**: Documentación en el mismo cambio: sección propia en
   `## [1.2.0]` de `hermes/CHANGELOG.md`; estado de la 016 en la tabla del
@@ -553,7 +610,7 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   011 integrada.** Si la 010 no lo está, las tareas del banco quedan pendientes
   con una nota en el commit y en la hoja de ruta, y el tramo sigue.
 - **S-02**: Si la 028 está integrada, su invariante de escrituras suma la lista
-  de la 016; si no, la 016 trae su propio test del invariante para sus once
+  de la 016; si no, la 016 trae su propio test del invariante para sus doce
   tools y la unión se hace al integrar.
 - **S-03**: Si la 012 ya cambió el generador para consultar
   `_DEDICADAS_INICIALES` en la clase A y el test de la vía D, la 016 solo añade
@@ -568,17 +625,18 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
 
 ## Criterios de éxito *(obligatorio)*
 
-- **SC-001**: Con la configuración por defecto se registran las 15 tools
+- **SC-001**: Con la configuración por defecto se registran las 16 tools
   nuevas y las de antes siguen idénticas (nombres, anotaciones, esquemas).
 - **SC-002**: Las siete entradas de FR-018 son `dedicated` hacia una tool
   registrada de su familia, y regenerar la tabla no cambia ni un byte.
 - **SC-003**: El 100 % de las llamadas sin token a `ha_delete_subentry`,
-  `ha_continue_repair_fix` y a `ha_update_config_entry` cuando desactiva el
+  `ha_continue_reconfigure_flow`, `ha_continue_repair_fix` y a
+  `ha_update_config_entry` cuando desactiva el
   sondeo o las entidades nuevas no envían nada que modifique HA; un token no
   sirve con otros argumentos.
 - **SC-004**: Ningún centinela de secreto aparece en respuestas, vistas
   previas, errores, log de Hermes ni ficheros de token de estas tools.
-- **SC-005**: Las once tools que modifican pasan en el banco con el efecto
+- **SC-005**: Las doce tools que modifican pasan en el banco con el efecto
   comprobado por el lector, y las de lectura y las traducciones devuelven
   datos reales.
 - **SC-006**: Cada FR tiene su test, y cada comportamiento con riesgo, su
