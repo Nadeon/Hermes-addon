@@ -484,3 +484,277 @@ class TestDestructiveToolsAskBeforeActing:
     def test_the_documented_exception_is_still_only_one(self):
         """Si mañana hay dos, que haya que justificar la segunda a mano."""
         assert len(self.SIN_TOKEN_A_PROPOSITO) == 1
+
+
+# ── title (spec 003, FR-040) e hints intactos (FR-043) ───────────────────────
+
+# Instantánea de los cuatro *hints* de cada tool, tomada con `classify` ANTES
+# de añadir `title`. Añadir el título no puede cambiar lo que una tool dice de
+# sí misma (principio V): si un día cambia un hint, tiene que ser a propósito y
+# actualizando esta tabla en el mismo cambio.
+# Código: R = readOnlyHint, D = destructiveHint, I = idempotentHint,
+# O = openWorldHint; «-» = False.
+_HINTS_SNAPSHOT: dict[str, str] = {
+    "fs_delete_file": "-DI-",
+    "fs_list_dir": "R-I-",
+    "fs_list_file_backups": "R-I-",
+    "fs_move_file": "-DI-",
+    "fs_read_file": "R-I-",
+    "fs_read_file_lines": "R-I-",
+    "fs_restore_file_backup": "-DI-",
+    "fs_search_in_config": "R-I-",
+    "fs_set_secret": "-DI-",
+    "fs_stat": "R-I-",
+    "fs_write_file": "-DI-",
+    "ha_abort_config_entry_flow": "--I-",
+    "ha_activate_scene": "--I-",
+    "ha_call_service": "-DI-",
+    "ha_call_service_response": "-DI-",
+    "ha_cancel_timer": "--I-",
+    "ha_cancel_wait": "--I-",
+    "ha_change_timer": "----",
+    "ha_continue_config_entry_flow": "--I-",
+    "ha_continue_options_flow": "--I-",
+    "ha_create_area": "----",
+    "ha_create_lovelace_dashboard": "----",
+    "ha_create_lovelace_resource": "-D-O",
+    "ha_create_or_update_automation": "-DI-",
+    "ha_create_or_update_counter": "-DI-",
+    "ha_create_or_update_input_boolean": "-DI-",
+    "ha_create_or_update_input_button": "-DI-",
+    "ha_create_or_update_input_datetime": "-DI-",
+    "ha_create_or_update_input_number": "-DI-",
+    "ha_create_or_update_input_select": "-DI-",
+    "ha_create_or_update_input_text": "-DI-",
+    "ha_create_or_update_scene": "-DI-",
+    "ha_create_or_update_schedule": "-DI-",
+    "ha_create_or_update_script": "-DI-",
+    "ha_create_or_update_timer": "-DI-",
+    "ha_create_or_update_zone": "-DI-",
+    "ha_create_person": "----",
+    "ha_create_scene_from_current": "----",
+    "ha_cycle_input_select": "----",
+    "ha_decrement_counter": "----",
+    "ha_decrement_input_number": "----",
+    "ha_delete_area": "-DI-",
+    "ha_delete_automation": "-DI-",
+    "ha_delete_config_entry": "-DI-",
+    "ha_delete_counter": "-DI-",
+    "ha_delete_input_boolean": "-DI-",
+    "ha_delete_input_button": "-DI-",
+    "ha_delete_input_datetime": "-DI-",
+    "ha_delete_input_number": "-DI-",
+    "ha_delete_input_select": "-DI-",
+    "ha_delete_input_text": "-DI-",
+    "ha_delete_lovelace_dashboard": "-DI-",
+    "ha_delete_lovelace_resource": "-DI-",
+    "ha_delete_person": "-DI-",
+    "ha_delete_scene": "-DI-",
+    "ha_delete_schedule": "-DI-",
+    "ha_delete_script": "-DI-",
+    "ha_delete_timer": "-DI-",
+    "ha_delete_zone": "-DI-",
+    "ha_disable_automation": "--I-",
+    "ha_disable_config_entry": "-DI-",
+    "ha_enable_automation": "--I-",
+    "ha_enable_config_entry": "--I-",
+    "ha_finish_timer": "--I-",
+    "ha_fire_event": "----",
+    "ha_get_area": "R-I-",
+    "ha_get_automation": "R-I-",
+    "ha_get_config_entry": "R-I-",
+    "ha_get_config_entry_options": "R-I-",
+    "ha_get_counter": "R-I-",
+    "ha_get_device": "R-I-",
+    "ha_get_entity_registry": "R-I-",
+    "ha_get_history": "R-I-",
+    "ha_get_input_boolean": "R-I-",
+    "ha_get_input_button": "R-I-",
+    "ha_get_input_datetime": "R-I-",
+    "ha_get_input_number": "R-I-",
+    "ha_get_input_select": "R-I-",
+    "ha_get_input_text": "R-I-",
+    "ha_get_logbook": "R-I-",
+    "ha_get_lovelace_dashboard": "R-I-",
+    "ha_get_person": "R-I-",
+    "ha_get_scene": "R-I-",
+    "ha_get_schedule": "R-I-",
+    "ha_get_script": "R-I-",
+    "ha_get_state": "R-I-",
+    "ha_get_states": "R-I-",
+    "ha_get_timer": "R-I-",
+    "ha_get_zone": "R-I-",
+    "ha_hacs_get_repository": "R-IO",
+    "ha_hacs_info": "R-IO",
+    "ha_hacs_list_repositories": "R-IO",
+    "ha_hacs_list_updates": "R-IO",
+    "ha_increment_counter": "----",
+    "ha_increment_input_number": "----",
+    "ha_list_active_waits": "R-I-",
+    "ha_list_areas": "R-I-",
+    "ha_list_automations": "R-I-",
+    "ha_list_config_entries": "R-I-",
+    "ha_list_configured_domains": "R-I-",
+    "ha_list_counters": "R-I-",
+    "ha_list_devices": "R-I-",
+    "ha_list_entities_registry": "R-I-",
+    "ha_list_input_booleans": "R-I-",
+    "ha_list_input_buttons": "R-I-",
+    "ha_list_input_datetimes": "R-I-",
+    "ha_list_input_numbers": "R-I-",
+    "ha_list_input_selects": "R-I-",
+    "ha_list_input_texts": "R-I-",
+    "ha_list_lovelace_dashboards": "R-I-",
+    "ha_list_lovelace_resources": "R-I-",
+    "ha_list_persons": "R-I-",
+    "ha_list_scenes": "R-I-",
+    "ha_list_schedules": "R-I-",
+    "ha_list_scripts": "R-I-",
+    "ha_list_services": "R-I-",
+    "ha_list_statistic_ids": "R-I-",
+    "ha_list_timers": "R-I-",
+    "ha_list_zones": "R-I-",
+    "ha_pause_timer": "--I-",
+    "ha_press_input_button": "----",
+    "ha_reload_automations": "-DI-",
+    "ha_reload_config_entry": "--I-",
+    "ha_reload_counters": "-DI-",
+    "ha_reload_scenes": "-DI-",
+    "ha_reload_schedules": "-DI-",
+    "ha_reload_scripts": "-DI-",
+    "ha_reload_timers": "-DI-",
+    "ha_reload_zones": "-DI-",
+    "ha_remove_device": "-DI-",
+    "ha_remove_device_from_config_entry": "-DI-",
+    "ha_remove_entity_registry": "-DI-",
+    "ha_render_template": "R-I-",
+    "ha_reset_counter": "--I-",
+    "ha_run_script": "-D--",
+    "ha_save_lovelace_dashboard": "-DI-",
+    "ha_set_counter_value": "--I-",
+    "ha_set_input_boolean": "--I-",
+    "ha_set_input_datetime": "--I-",
+    "ha_set_input_number": "--I-",
+    "ha_set_input_select": "--I-",
+    "ha_set_input_select_options": "--I-",
+    "ha_set_input_text": "--I-",
+    "ha_start_config_entry_flow": "--I-",
+    "ha_start_options_flow": "--I-",
+    "ha_start_timer": "--I-",
+    "ha_statistics_during_period": "R-I-",
+    "ha_toggle_input_boolean": "----",
+    "ha_trigger_automation": "-D--",
+    "ha_update_area": "-DI-",
+    "ha_update_device": "-DI-",
+    "ha_update_entity_registry": "-DI-",
+    "ha_update_lovelace_dashboard_metadata": "-DI-",
+    "ha_update_lovelace_resource": "-DIO",
+    "ha_update_person": "-DI-",
+    "ha_wait_for_event": "R-I-",
+    "hermes_guide": "R-I-",
+    "ping": "R-I-",
+    "sv_check_core_config": "--I-",
+    "sv_create_backup_full": "----",
+    "sv_create_backup_partial": "----",
+    "sv_create_safety_backup": "----",
+    "sv_delete_backup": "-DI-",
+    "sv_get_addon": "R-I-",
+    "sv_get_addon_logs": "R-I-",
+    "sv_get_addon_options": "R-I-",
+    "sv_get_addon_stats": "R-I-",
+    "sv_get_backup": "R-I-",
+    "sv_get_core_info": "R-I-",
+    "sv_get_host_info": "R-I-",
+    "sv_get_job_status": "--I-",
+    "sv_get_supervisor_info": "R-I-",
+    "sv_install_addon": "-DIO",
+    "sv_list_addons": "R-I-",
+    "sv_list_backups": "R-I-",
+    "sv_list_pending_jobs": "R-I-",
+    "sv_reboot_host": "-DI-",
+    "sv_restart_addon": "-DI-",
+    "sv_restart_core": "-DI-",
+    "sv_restore_backup_full": "-DI-",
+    "sv_restore_backup_partial": "-DI-",
+    "sv_set_addon_options": "-DI-",
+    "sv_start_addon": "-DI-",
+    "sv_stop_addon": "-DI-",
+    "sv_uninstall_addon": "-DI-",
+    "sv_update_addon": "-DIO",
+    "test_progress": "R-I-",
+}
+
+
+def _hint_code(ann) -> str:
+    flags = (ann.read_only_hint, ann.destructive_hint,
+             ann.idempotent_hint, ann.open_world_hint)
+    return "".join(c if f else "-" for c, f in zip("RDIO", flags))
+
+
+def _real_registry() -> dict:
+    """Todas las tools registradas en un `MCPServer` real, ya anotadas."""
+    from mcp.server.mcpserver import MCPServer
+
+    previous = os.environ.get("HERMES_DEV")
+    os.environ["HERMES_DEV"] = "1"
+    try:
+        mcp = MCPServer("test-titles")
+        register_all_tools(
+            mcp,
+            MagicMock(),
+            fire_event_allowlist=[],
+            response_max_bytes=131_072,
+            call_service_auto_classify=False,
+        )
+    finally:
+        if previous is None:
+            os.environ.pop("HERMES_DEV", None)
+        else:
+            os.environ["HERMES_DEV"] = previous
+    return {t.name: t for t in mcp._tool_manager.list_tools()}
+
+
+class TestToolTitles:
+    """Cada tool lleva un `title` legible, el mismo en la tool y en sus
+    anotaciones, y ninguno se repite: el cliente lo enseña al usuario en vez
+    del nombre técnico, y dos iguales no se podrían distinguir."""
+
+    def test_every_tool_has_a_unique_title_equal_to_annotations_title(self):
+        tools = _real_registry()
+        assert len(tools) > 150, "no se han registrado las tools"
+        sin_titulo = sorted(n for n, t in tools.items() if not t.title)
+        assert sin_titulo == [], f"tools sin title: {sin_titulo}"
+        distintos = sorted(
+            n for n, t in tools.items()
+            if t.annotations is None or t.annotations.title != t.title)
+        assert distintos == [], f"title y annotations.title difieren: {distintos}"
+        titulos = [t.title for t in tools.values()]
+        repetidos = sorted({x for x in titulos if titulos.count(x) > 1})
+        assert repetidos == [], f"títulos repetidos: {repetidos}"
+
+    def test_contract_examples(self):
+        from hermes.tools._annotations import title_for
+
+        # Ejemplos de contracts/mcp-y-log.md.
+        assert title_for("ha_get_state") == "Get state (Home Assistant)"
+        assert title_for("ha_hacs_list_repositories") == "HACS list repositories (Home Assistant)"
+        assert title_for("ha_save_lovelace_dashboard") == "Save Lovelace dashboard (Home Assistant)"
+        assert title_for("fs_read_file") == "Read file (files)"
+        assert title_for("sv_restart_core") == "Restart core (Supervisor)"
+        assert title_for("ping") == "Ping"
+        assert title_for("hermes_guide") == "Hermes guide"
+
+    def test_titles_reach_the_registered_tools(self):
+        tools = _real_registry()
+        assert tools["ha_list_statistic_ids"].title == "List statistic IDs (Home Assistant)"
+        assert tools["sv_get_addon_logs"].title == "Get add-on logs (Supervisor)"
+
+    def test_hints_did_not_change(self):
+        tools = _real_registry()
+        assert set(tools) == set(_HINTS_SNAPSHOT), (
+            "la lista de tools no coincide con la instantánea")
+        cambiados = sorted(
+            f"{n}: {_HINTS_SNAPSHOT[n]} -> {_hint_code(t.annotations)}"
+            for n, t in tools.items()
+            if _hint_code(t.annotations) != _HINTS_SNAPSHOT[n])
+        assert cambiados == [], f"hints cambiados: {cambiados}"

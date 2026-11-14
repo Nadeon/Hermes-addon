@@ -162,6 +162,46 @@ _NOT_READ_ONLY_EXACT: frozenset[str] = frozenset({
 })
 
 
+# ── Título legible ────────────────────────────────────────────────────────────
+# El cliente enseña `title` al usuario en lugar del nombre técnico. Se genera
+# del nombre, igual que los hints, para que haya un solo sitio que revisar y
+# ninguna tool se quede sin título al añadirla (FR-040). El prefijo pasa a ser
+# un sufijo de área: sin él, `sv_get_backup` y una futura `ha_get_backup`
+# tendrían el mismo título y el usuario no sabría cuál está autorizando.
+_TITLE_AREAS: tuple[tuple[str, str], ...] = (
+    ("ha_", " (Home Assistant)"),
+    ("fs_", " (files)"),
+    ("sv_", " (Supervisor)"),
+)
+
+# Palabras que no se escriben como salen del nombre: siglas y nombres propios.
+_TITLE_WORDS: dict[str, str] = {
+    "hacs": "HACS",
+    "lovelace": "Lovelace",
+    "hermes": "Hermes",
+    "id": "ID",
+    "ids": "IDs",
+    "ws": "WS",
+    # «addon» es como se escribe en el código; Home Assistant lo llama add-on.
+    "addon": "add-on",
+    "addons": "add-ons",
+}
+
+
+def title_for(name: str) -> str:
+    """Título en inglés para una tool: `ha_get_state` → `Get state (Home Assistant)`."""
+    rest, suffix = name, ""
+    for prefix, area in _TITLE_AREAS:
+        if name.startswith(prefix):
+            rest, suffix = name[len(prefix):], area
+            break
+    words = [_TITLE_WORDS.get(w, w) for w in rest.split("_") if w]
+    if words:
+        # Solo la primera letra: así una sigla de la tabla (`HACS`) no cambia.
+        words[0] = words[0][:1].upper() + words[0][1:]
+    return " ".join(words) + suffix
+
+
 def _starts_with(name: str, prefixes: tuple[str, ...]) -> bool:
     return any(name.startswith(p) for p in prefixes)
 
@@ -183,6 +223,7 @@ def classify(name: str) -> ToolAnnotations:
         idempotent = not _starts_with(name, _NON_IDEMPOTENT_PREFIXES)
 
     return ToolAnnotations(
+        title=title_for(name),
         read_only_hint=read_only,
         destructive_hint=destructive,
         idempotent_hint=idempotent,
@@ -224,6 +265,10 @@ def apply_tool_annotations(mcp: Any) -> dict[str, int]:
     for name, tool in tools.items():
         ann = classify(name)
         tool.annotations = ann
+        # El mismo valor en la tool y en sus anotaciones: la spec da
+        # precedencia a `annotations.title`, pero hay clientes que solo leen
+        # el `title` de la tool.
+        tool.title = ann.title
         stats["annotated"] += 1
         if ann.read_only_hint:
             stats["read_only"] += 1

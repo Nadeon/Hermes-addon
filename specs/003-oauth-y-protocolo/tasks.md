@@ -129,32 +129,32 @@ Notas de reparto:
 
 ### `version` e `isError` (US7)
 
-- [ ] T033 [P] [US7] Tests en `tests/test_mcp_protocol.py`: `build_mcp_server("…")` tiene `name == "hermes"` y `version == hermes.__version__`; con una tool de prueba registrada en ese servidor, `call_tool` de una que devuelve `{"error": "not_found", "entity_id": "light.x"}` da `is_error=True` y el mismo texto JSON que sin la subclase; `{"preview": …, "confirmation_token": "t"}` y `{"ok": true}` no llevan `is_error`; una excepción sigue dando `is_error=True` (control del SDK); una respuesta con `error: null` o `error` anidado no se marca (FR-039, FR-041)
-- [ ] T034 [US7] Crear `hermes/src/hermes/mcp_server.py` con `HermesMCPServer.call_tool` y `build_mcp_server`, con comentario del porqué (spec MCP: errores de ejecución en el resultado; un solo sitio para ~367 respuestas) (research R-B1)
-- [ ] T035 [US7] Auditoría R-B3: buscar en `hermes/src/hermes/tools/` los `return` con `"error"` en el nivel superior junto a datos de éxito; si hay alguno, añadirlo a `_NOT_AN_ERROR` en `mcp_server.py` con su motivo y un test en `tests/test_mcp_protocol.py`; si no, dejarlo escrito en el informe del lote
-- [ ] T036 [US7] Control negativo: (1) devolver el resultado del padre sin tocar, (2) marcar también las vistas previas, (3) quitar `version=`; comprobar que caen los tests de T033; restaurar y anotar
+- [X] T033 [P] [US7] Tests en `tests/test_mcp_protocol.py`: `build_mcp_server("…")` tiene `name == "hermes"` y `version == hermes.__version__`; con una tool de prueba registrada en ese servidor, `call_tool` de una que devuelve `{"error": "not_found", "entity_id": "light.x"}` da `is_error=True` y el mismo texto JSON que sin la subclase; `{"preview": …, "confirmation_token": "t"}` y `{"ok": true}` no llevan `is_error`; una excepción sigue dando `is_error=True` (control del SDK); una respuesta con `error: null` o `error` anidado no se marca (FR-039, FR-041)
+- [X] T034 [US7] Crear `hermes/src/hermes/mcp_server.py` con `HermesMCPServer.call_tool` y `build_mcp_server`, con comentario del porqué (spec MCP: errores de ejecución en el resultado; un solo sitio para ~367 respuestas) (research R-B1)
+- [X] T035 [US7] Auditoría R-B3: buscar en `hermes/src/hermes/tools/` los `return` con `"error"` en el nivel superior junto a datos de éxito; si hay alguno, añadirlo a `_NOT_AN_ERROR` en `mcp_server.py` con su motivo y un test en `tests/test_mcp_protocol.py`; si no, dejarlo escrito en el informe del lote
+- [X] T036 [US7] Control negativo: (1) devolver el resultado del padre sin tocar, (2) marcar también las vistas previas, (3) quitar `version=`; comprobar que caen los tests de T033; restaurar y anotar
 
 ### `title` (US7)
 
-- [ ] T037 [P] [US7] Tests en `tests/test_tools_registration.py`: tras registrar todas las tools, cada una tiene `title` no vacío, igual a `annotations.title`, y todos son distintos; ejemplos de contracts/mcp-y-log.md; los cuatro *hints* de cada tool son iguales a los de una instantánea tomada antes del cambio (FR-040, FR-043)
-- [ ] T038 [US7] Implementar `title_for` y su tabla de excepciones en `hermes/src/hermes/tools/_annotations.py`; `classify` añade `title` y `apply_tool_annotations` pone `tool.title` (research R-B2)
-- [ ] T039 [US7] Control negativo: (1) no poner `tool.title`, (2) quitar el sufijo de área (provoca duplicados si los hay; si no, quitar la tabla de excepciones y comprobar el ejemplo de HACS); comprobar que caen los tests de T037; restaurar y anotar
+- [X] T037 [P] [US7] Tests en `tests/test_tools_registration.py`: tras registrar todas las tools, cada una tiene `title` no vacío, igual a `annotations.title`, y todos son distintos; ejemplos de contracts/mcp-y-log.md; los cuatro *hints* de cada tool son iguales a los de una instantánea tomada antes del cambio (FR-040, FR-043)
+- [X] T038 [US7] Implementar `title_for` y su tabla de excepciones en `hermes/src/hermes/tools/_annotations.py`; `classify` añade `title` y `apply_tool_annotations` pone `tool.title` (research R-B2)
+- [X] T039 [US7] Control negativo: (1) no poner `tool.title`, (2) quitar el sufijo de área (provoca duplicados si los hay; si no, quitar la tabla de excepciones y comprobar el ejemplo de HACS); comprobar que caen los tests de T037; restaurar y anotar
 
 ### Versiones de protocolo y `WWW-Authenticate` (US7)
 
-- [ ] T040 [P] [US7] Tests en `tests/test_middleware_connection.py`: el 401 de `/mcp` lleva `WWW-Authenticate` con `realm`, `resource_metadata` y `scope="mcp"`; `data.supported` del -32022 es igual a `(*HANDSHAKE_PROTOCOL_VERSIONS, *MODERN_PROTOCOL_VERSIONS)`; el fuente de `hermes/src/hermes/middleware.py` no contiene `SUPPORTED_PROTOCOL_VERSIONS` (FR-029, FR-042)
-- [ ] T041 [US7] Implementar en `hermes/src/hermes/middleware.py` la importación nueva y `scope="mcp"` en el *challenge* (plan, lote B)
-- [ ] T042 [US7] Control negativo: restaurar el alias y quitar `scope`; comprobar que caen los tests de T040; restaurar y anotar
+- [X] T040 [P] [US7] Tests en `tests/test_middleware_connection.py`: el 401 de `/mcp` lleva `WWW-Authenticate` con `realm`, `resource_metadata` y `scope="mcp"`; `data.supported` del -32022 es igual a `(*HANDSHAKE_PROTOCOL_VERSIONS, *MODERN_PROTOCOL_VERSIONS)`; el fuente de `hermes/src/hermes/middleware.py` no contiene `SUPPORTED_PROTOCOL_VERSIONS` (FR-029, FR-042)
+- [X] T041 [US7] Implementar en `hermes/src/hermes/middleware.py` la importación nueva y `scope="mcp"` en el *challenge* (plan, lote B)
+- [X] T042 [US7] Control negativo: restaurar el alias y quitar `scope`; comprobar que caen los tests de T040; restaurar y anotar
 
 ### Primer byte (US5)
 
-- [ ] T043 [P] [US5] Test en `tests/test_first_byte.py`: app Starlette con la pila de middlewares de `__main__` en su orden (`SecurityHeadersMiddleware`, `RateLimitPreAuth`, `OAuthBearerAuth` con un validador falso, `BodySizeLimitMiddleware`, `RateLimitPostAuth`, `RequestIdMiddleware`, `LoggingMiddleware`, `McpProtocolVersionMiddleware`) y `build_mcp_server` montado con `stateless_http=True`; una tool de prueba que duerme 1 s; `sse_starlette.EventSourceResponse.DEFAULT_PING_INTERVAL` y `mcp.server._streamable_http_modern._SSE_PING_INTERVAL` parcheados a 0,2 s; para `MCP-Protocol-Version: 2025-11-25` (con `initialize` previo si el camino lo exige) y `2026-07-28`, un `send` que anota tiempos registra `http.response.start` con `text/event-stream` y un cuerpo que empieza por `:` antes de 0,5 s, y el resultado al final (FR-036)
-- [ ] T044 [US5] Si T043 falla por algún middleware de Hermes, corregir ese middleware en `hermes/src/hermes/middleware.py` para que no almacene respuestas correctas; si pasa sin cambios (lo esperado según research R-B5), dejarlo escrito en el informe del lote
-- [ ] T045 [US5] Control negativo de T043: montar la app del test con `json_response=True` o insertar un middleware que almacene el cuerpo, y comprobar que el test falla; anotar
+- [X] T043 [P] [US5] Test en `tests/test_first_byte.py`: app Starlette con la pila de middlewares de `__main__` en su orden (`SecurityHeadersMiddleware`, `RateLimitPreAuth`, `OAuthBearerAuth` con un validador falso, `BodySizeLimitMiddleware`, `RateLimitPostAuth`, `RequestIdMiddleware`, `LoggingMiddleware`, `McpProtocolVersionMiddleware`) y `build_mcp_server` montado con `stateless_http=True`; una tool de prueba que duerme 1 s; `sse_starlette.EventSourceResponse.DEFAULT_PING_INTERVAL` y `mcp.server._streamable_http_modern._SSE_PING_INTERVAL` parcheados a 0,2 s; para `MCP-Protocol-Version: 2025-11-25` (con `initialize` previo si el camino lo exige) y `2026-07-28`, un `send` que anota tiempos registra `http.response.start` con `text/event-stream` y un cuerpo que empieza por `:` antes de 0,5 s, y el resultado al final (FR-036)
+- [X] T044 [US5] Si T043 falla por algún middleware de Hermes, corregir ese middleware en `hermes/src/hermes/middleware.py` para que no almacene respuestas correctas; si pasa sin cambios (lo esperado según research R-B5), dejarlo escrito en el informe del lote
+- [X] T045 [US5] Control negativo de T043: montar la app del test con `json_response=True` o insertar un middleware que almacene el cuerpo, y comprobar que el test falla; anotar
 
 ### Cierre del lote B
 
-- [ ] T046 Ejecutar los tests del lote y la suite completa; grep de privacidad del diff; commit del lote con los recuentos de control negativo
+- [X] T046 Ejecutar los tests del lote y la suite completa; grep de privacidad del diff; commit del lote con los recuentos de control negativo
 
 **Punto de control**: US7 completa y la parte de código de US5.
 
