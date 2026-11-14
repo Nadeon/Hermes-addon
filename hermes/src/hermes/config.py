@@ -267,6 +267,10 @@ class HermesConfig:
     call_service_auto_classify_dangerous: bool = True
     fire_event_allowlist: list[str] = field(default_factory=list)
 
+    # ── Familias de tools (spec 011) ──────────────────────────
+    # Familias que no se registran (ver tool_families.py). Vacía = todas.
+    tool_families_disabled: list[str] = field(default_factory=list)
+
     # ── OAuth ─────────────────────────────────────────────────
     # Interruptor de los clientes CIMD (`client_id` con URL https://). Existe
     # para poder volver solo a DCR si CIMD rompe a un cliente real (FR-023).
@@ -371,6 +375,12 @@ class HermesConfig:
                 "path (ej. claude.ai). Una IP no vale: un cliente CIMD nunca "
                 "se identifica con una IP."
             ) from exc
+        # Fail-closed (principio III): un nombre de familia mal escrito no se
+        # ignora, porque dejaría activas tools que el usuario quería apagar.
+        # El mensaje nombra el valor inválido y los válidos.
+        from hermes.tool_families import validar_desactivadas
+
+        validar_desactivadas(self.tool_families_disabled)
         if not self.supervisor_token:
             raise ValueError(
                 "SUPERVISOR_TOKEN no está disponible en el entorno. "
@@ -468,6 +478,7 @@ def load_config() -> HermesConfig:
             "HERMES_CALL_SERVICE_AUTO_CLASSIFY", True
         ),
         fire_event_allowlist=_env_list("HERMES_FIRE_EVENT_ALLOWLIST"),
+        tool_families_disabled=_env_list("HERMES_TOOL_FAMILIES_DISABLED"),
         oauth_cimd_enabled=_env_bool("HERMES_OAUTH_CIMD_ENABLED", True),
         oauth_cimd_allowed_hosts=_env_host_list("HERMES_OAUTH_CIMD_ALLOWED_HOSTS"),
         log_redact_network=_env_bool("HERMES_LOG_REDACT_NETWORK", True),

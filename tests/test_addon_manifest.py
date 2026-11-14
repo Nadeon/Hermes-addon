@@ -226,6 +226,13 @@ class TestManifiesto(unittest.TestCase):
         self.assertEqual(self.schema.get("safety_backup_keep"), "int(0,50)?")
         self.assertEqual(self.options.get("safety_backup_keep"), 3)
 
+    def test_tool_families_disabled_declarada_y_vacia(self) -> None:
+        """Spec 011, FR-020: lista opcional de texto y vacía por defecto. Los
+        nombres los valida Hermes al arrancar (una sola lista, en Python), no
+        el esquema del Supervisor."""
+        self.assertEqual(self.schema.get("tool_families_disabled"), ["str?"])
+        self.assertEqual(self.options.get("tool_families_disabled"), [])
+
     def test_arranca_despues_del_core_de_home_assistant(self) -> None:
         """`startup: services` arrancaba Hermes ANTES que el core de HA.
 

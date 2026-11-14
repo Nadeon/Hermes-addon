@@ -180,5 +180,42 @@ class TestValidarDesactivadas(unittest.TestCase):
             validar_desactivadas(["Lovelace"])
 
 
+class TestAliasDeFamilias(unittest.TestCase):
+    """Nombres antiguos de familias renombradas (decisión del supervisor del
+    programa, desviación anotada en tasks.md): quien tenga guardado el nombre
+    viejo en `tool_families_disabled` no puede quedarse sin arrancar al
+    actualizar, ni —peor— con la familia activa sin enterarse. Hoy `ALIAS`
+    está vacío; el mecanismo se prueba con alias inyectados.
+
+    Control negativo (T042): ignorar `alias` en `validar_desactivadas` → cae
+    `test_el_alias_se_traduce_al_nombre_actual` («no existe»).
+    """
+
+    def test_el_alias_se_traduce_al_nombre_actual(self) -> None:
+        alias = {"paneles": "lovelace"}
+        self.assertEqual(
+            validar_desactivadas(["paneles", "lovelace"], alias=alias),
+            frozenset({"lovelace"}),
+        )
+
+    def test_un_alias_de_base_tampoco_la_desactiva(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            validar_desactivadas(["nucleo"], alias={"nucleo": "base"})
+        self.assertIn("no se puede desactivar", str(ctx.exception))
+
+    def test_sin_el_alias_el_nombre_viejo_no_existe(self) -> None:
+        with self.assertRaises(ValueError):
+            validar_desactivadas(["paneles"])
+
+    def test_los_alias_reales_son_coherentes(self) -> None:
+        """Cada alias apunta a una familia que existe, no tapa un nombre
+        actual (sería ambiguo) y tiene la forma de un nombre de familia."""
+        for viejo, actual in tool_families.ALIAS.items():
+            with self.subTest(alias=viejo):
+                self.assertNotIn(viejo, FAMILIAS)
+                self.assertIn(actual, FAMILIAS)
+                self.assertRegex(viejo, r"^[a-z][a-z0-9_]*$")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -87,6 +87,9 @@ export HERMES_CALL_SERVICE_RESTRICTED_ENTITIES="$(jq -c '.call_service_restricte
 export HERMES_CALL_SERVICE_AUTO_CLASSIFY="$(cfg_default call_service_auto_classify_dangerous true)"
 export HERMES_FIRE_EVENT_ALLOWLIST="$(jq -c '.fire_event_allowlist // []' "$OPTIONS")"
 export HERMES_OAUTH_CIMD_ALLOWED_HOSTS="$(jq -c '.oauth_cimd_allowed_hosts // []' "$OPTIONS")"
+# Familias de tools que no se registran (spec 011). Los nombres los valida
+# Hermes al arrancar: uno desconocido impide arrancar y el log dice cuál.
+export HERMES_TOOL_FAMILIES_DISABLED="$(jq -c '.tool_families_disabled // []' "$OPTIONS")"
 
 # ── Token del Supervisor (inyectado por HAOS) ─────────────────
 # SUPERVISOR_TOKEN ya está en el entorno del contenedor del add-on.

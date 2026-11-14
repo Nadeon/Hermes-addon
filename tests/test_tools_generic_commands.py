@@ -681,6 +681,88 @@ class TestSupervisorTablaReal(_Base):
 
 # ── Registro ──────────────────────────────────────────────────────────────────
 
+# ── Con familias desactivadas (T033; FR-003, FR-004, US5 escenario 2) ────────
+
+class TestFamiliasDesactivadasInyectadas(_Base):
+    """La genérica no es una vía para usar lo que el usuario apagó."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.mcp = DummyMCP()
+        core = {
+            "demo/dedicada": _e("dedicated", tool="ha_get_demo", family="lovelace"),
+            "demo/leer": _e("read", family="data"),
+            "demo/cambiar": _e("confirm", family="data"),
+        }
+        sv = {("GET", "/demo/leer"): _e("read", family="data")}
+        mod.register(self.mcp, self.ha, response_max_bytes=self.max_bytes,
+                     familias_desactivadas=frozenset({"lovelace", "data"}),
+                     tabla_core=core, tabla_supervisor=sv)
+        self.t = self.mcp.tools
+
+    async def test_dedicada_de_familia_desactivada(self) -> None:
+        r = await self.t["ha_read_ws_command"]("demo/dedicada")
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_get_demo", "lovelace", True))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_read_y_confirm_de_familia_desactivada(self) -> None:
+        r = await self.t["ha_read_ws_command"]("demo/leer")
+        self.assertEqual((r["error"], r["family"]), ("family_disabled", "data"))
+        r = await self.t["ha_call_ws_command"]("demo/cambiar", {"a": 1})
+        self.assertEqual((r["error"], r["family"]), ("family_disabled", "data"))
+        self.assertNotIn("confirmation_token", r)
+        r = await self.t["sv_read_api"]("/demo/leer")
+        self.assertEqual((r["error"], r["family"]), ("family_disabled", "data"))
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.sv_request.assert_not_awaited()
+
+
+def _registrar_todo(desactivadas: list[str]) -> tuple[DummyMCP, MagicMock]:
+    """`register_all_tools` de verdad con un cliente simulado."""
+    from hermes.tools import register_all_tools
+
+    mcp = DummyMCP()
+    ha = _cliente()
+    register_all_tools(
+        mcp, ha, fire_event_allowlist=[], response_max_bytes=131_072,
+        safety_backup_window_minutes=30, safety_backup_enabled=False,
+        file_backup_max_per_path=20, file_backup_max_total_mb=200,
+        config_write_min_interval_seconds=5, config_write_max_per_minute=10,
+        call_service_denylist_extra=[], call_service_restricted_entities=[],
+        call_service_auto_classify=False, wait_for_event_max_seconds=90,
+        wait_for_event_max_concurrent=5, safety_backup_keep=3,
+        tool_families_disabled=desactivadas,
+    )
+    return mcp, ha
+
+
+class TestFamiliasDesdeElRegistro(unittest.IsolatedAsyncioTestCase):
+    """Cableado: `register_all_tools` pasa las familias desactivadas a las
+    genéricas.
+
+    Control negativo (T042 c): no pasárselas → cae
+    `test_dedicada_de_familia_desactivada_por_la_opcion`
+    (`family_disabled` sale False).
+    """
+
+    async def test_dedicada_de_familia_desactivada_por_la_opcion(self) -> None:
+        mcp, ha = _registrar_todo(["lovelace"])
+        self.assertNotIn("ha_save_lovelace_dashboard", mcp.tools)
+        r = await mcp.tools["ha_call_ws_command"]("lovelace/config/save", {"config": {}})
+        self.assertEqual(r["error"], "use_dedicated_tool")
+        self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
+                         ("ha_save_lovelace_dashboard", "lovelace", True))
+        ha.ws_send.assert_not_awaited()
+
+    def test_sin_generic_commands_no_se_registran(self) -> None:
+        mcp, _ = _registrar_todo(["generic_commands"])
+        for nombre in ("ha_read_ws_command", "ha_call_ws_command",
+                       "sv_read_api", "sv_call_api"):
+            self.assertNotIn(nombre, mcp.tools)
+        self.assertIn("hermes_guide", mcp.tools)
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()
