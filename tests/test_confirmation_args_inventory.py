@@ -30,9 +30,10 @@ Control negativo (T007), permanente en `TestControlNegativo`: sobre una copia
 temporal de `tools/`, una tool nueva con token sin entrada y un argumento
 nuevo en `ha_run_script` hacen que la comprobación falle nombrando los dos.
 
-Recuento: 81 tools. La auditoría de la spec (research R-1) contaba 79 sobre
+Recuento: 82 tools. La auditoría de la spec (research R-1) contaba 79 sobre
 la punta de entonces; la 011 integró después `ha_call_ws_command` y
-`sv_call_api`, que atan todo lo que envían.
+`sv_call_api`, que atan todo lo que envían, y el tramo 2 de la 033 dio token
+a `ha_create_scene_from_current` (FR-006).
 """
 
 from __future__ import annotations
@@ -96,6 +97,13 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_delete_automation": {"automation_id": A},
     "ha_delete_script": {"script_id": A},
     "ha_delete_scene": {"scene_id": A},
+    # Spec 033 (FR-006): el token solo hace falta para reemplazar una escena
+    # temporal. `scene_id` va normalizado (sin `scene.`), como se envía.
+    "ha_create_scene_from_current": {
+        "scene_id": A,
+        "entity_ids": A,
+        "name": "exento: con valor se rechaza (name_not_supported) antes de emitir o validar el token",
+    },
     # ── helpers y personas (colecciones) ────────────────────────────────
     **{f"ha_create_or_update_{h}": {"entity_id": A, "config": A} for h in _HELPERS},
     **{f"ha_delete_{h}": {"entity_id": A} for h in _HELPERS},
@@ -201,8 +209,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(problemas(TOOLS, INVENTARIO), [])
 
     def test_recuento(self) -> None:
-        # 79 de la auditoría de la 033 + 2 genéricas de la 011.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 81)
+        # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
+        # desde el estado actual (tramo 2 de la 033).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 82)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():

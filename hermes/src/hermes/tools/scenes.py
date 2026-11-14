@@ -15,6 +15,7 @@ from hermes.security import (
     resolve_confirmation_token,
     validate_confirmation_token,
 )
+from hermes.tools._validation import validate_path_segment
 from hermes.tools._common import (
     guarded_reload,
     entity_exists,
@@ -108,10 +109,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """Devuelve la configuración persistida y el estado de una scene.
 
         Acepta entity_id (`scene.fiesta`) o id interno crudo. La config se
-        lee vía REST desde `/api/config/scene/config/{id}`. Si la scene no
-        tiene config editable (definida en `configuration.yaml` con `scene:`
-        en lugar de en el storage), el campo `config` será `None` y solo
-        habrá `state`.
+        lee vía REST desde `/api/config/scene/config/{id}`, que sirve las
+        scenes editables de `scenes.yaml` (las de la UI y las de Hermes). Si
+        la scene no está ahí (definida en `configuration.yaml` con `scene:`,
+        temporal de `scene.create` o de una integración), el campo `config`
+        será `None` y solo habrá `state`.
         """
         try:
             config_id = await _resolve_scene_config_id(ha_client, scene_id)
@@ -166,9 +168,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         **Limitación**: las scenes definidas en `configuration.yaml` con el
         bloque `scene:` son read-only vía REST. Este endpoint solo ve las
-        almacenadas en `.storage/core.scene_*`, creadas desde la UI o con
-        `scene.create`. Un intento de actualizar una scene YAML devolverá
-        error por parte de HA.
+        guardadas en `scenes.yaml`, creadas desde la UI o con esta tool; no
+        ve las temporales de `scene.create` (`ha_create_scene_from_current`),
+        que no están en ningún fichero. Un intento de actualizar una scene
+        YAML devolverá error por parte de HA.
         """
         if config is None and not confirmation_token:
             return {
@@ -316,9 +319,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
         confirmar. Tras el delete, HA recarga automáticamente las scenes
         editables.
 
-        **Limitación**: solo se pueden borrar scenes editables
-        (`.storage/core.scene_*`). Las definidas en `configuration.yaml`
-        con el bloque `scene:` son read-only vía REST.
+        **Limitación**: solo se pueden borrar scenes editables, las de
+        `scenes.yaml`. Las definidas en `configuration.yaml` con el bloque
+        `scene:` son read-only vía REST, y las temporales de `scene.create`
+        no están en ningún fichero (desaparecen al recargar o reiniciar).
         """
         args = {"scene_id": scene_id}
 
@@ -438,28 +442,175 @@ def register(mcp: object, ha_client: HAClient) -> None:
         scene_id: str,
         entity_ids: list[str],
         name: str | None = None,
+        confirmation_token: str | None = None,
     ) -> object:
-        """Crea una scene nueva capturando el estado actual de las entidades.
+        """Crea una scene TEMPORAL capturando el estado actual de las entidades.
 
-        Usa el servicio `scene.create` de HA con `snapshot_entities`, lo que
-        hace que HA tome el snapshot del momento de cada entidad. No
-        requiere `confirmation_token` porque es una creación no destructiva
-        (no sobreescribe automáticamente una scene existente: si el
-        `scene_id` colisiona, HA devolverá error).
+        Usa el servicio `scene.create` de HA con `snapshot_entities`. La scene
+        es temporal: no se guarda en `scenes.yaml`, no tiene `id` ni entrada
+        en el registro de entidades, y se pierde al reiniciar Home Assistant
+        o al recargar las scenes (también al guardar o borrar cualquier scene
+        con `ha_create_or_update_scene` / `ha_delete_scene`, que recargan).
+        Para una scene persistente y con nombre, usa
+        `ha_create_or_update_scene`.
+
+        - Si `scene.<scene_id>` no existe, la crea sin token.
+        - Si existe y es otra temporal, HA la REEMPLAZA: sin
+          `confirmation_token` devuelve un preview (entidades actuales y
+          nuevas) y un token; con el token, la reemplaza.
+        - Si existe y no es temporal (de `scenes.yaml`, de YAML con `id` o de
+          una integración), responde `scene_exists`: HA no la tocaría.
+        - Si alguna entidad no existe, responde `entity_not_found`.
+        - Después comprueba que la scene tiene esas entidades; si no,
+          responde `scene_not_created`.
 
         Args:
-            scene_id: id de la scene a crear. Acepta `scene.fiesta` o
-                simplemente `fiesta`; se normaliza.
+            scene_id: id de la scene. Acepta `scene.fiesta` o simplemente
+                `fiesta`; se normaliza.
             entity_ids: lista de entity_ids cuyo estado actual se captura.
-            name: friendly_name opcional. No todas las versiones de HA
-                soportan este campo en el servicio `scene.create`; si se
-                pasa, se incluye en el payload y HA decide.
+            name: DEPRECATED (removed in 1.3.0). `scene.create` no admite
+                nombre; si se pasa, responde `name_not_supported` sin hacer
+                nada.
+            confirmation_token: solo para reemplazar una scene temporal.
         """
-        object_id = scene_id.removeprefix("scene.")
-        payload: dict[str, Any] = {
-            "scene_id": object_id,
-            "snapshot_entities": entity_ids,
-        }
+        # Spec 033 (FR-006, research R-4). `CREATE_SCENE_SCHEMA` de Core no
+        # tiene `name` y rechaza las claves de más: con `name` HA respondía
+        # 400 siempre. Y la escena no entra en el registro, así que tampoco
+        # se puede renombrar después. Ignorarlo en silencio daría por buena
+        # una petición que no se cumple: se rechaza antes de tocar HA.
         if name is not None:
-            payload["name"] = name
-        return await ha_client.call_service("scene", "create", payload)
+            return {
+                "error": "name_not_supported",
+                "message": (
+                    "scene.create does not accept a name: Home Assistant names the "
+                    "temporary scene after its scene_id and keeps no registry entry "
+                    "to rename it later."
+                ),
+                "hint": "use ha_create_or_update_scene for a named, persistent scene",
+                "_deprecated": (
+                    "the name argument of ha_create_scene_from_current is deprecated "
+                    "and will be removed in 1.3.0"
+                ),
+            }
+
+        object_id = scene_id.removeprefix("scene.")
+        eid = f"scene.{object_id}"
+
+        # Core salta en silencio las entidades que no existen (y, si no
+        # queda ninguna, no crea nada y no da error): se dice antes.
+        missing = [e for e in entity_ids if not await entity_exists(ha_client, e)]
+        if missing:
+            return {"error": "entity_not_found", "entity_ids": missing}
+
+        args = {"scene_id": object_id, "entity_ids": entity_ids}
+        current = await ha_client.get_state(eid)
+        replaced = False
+        if current is not None:
+            attrs = current.get("attributes") or {}
+            # Core solo reemplaza una escena creada con `scene.create`; con
+            # cualquier otra (con `id` de configuración, o de una
+            # integración, que está en el registro) avisa en el log y vuelve
+            # sin error ni cambios. Las de `scene.create` no tienen ni lo uno
+            # ni lo otro.
+            if attrs.get("id") or await _in_entity_registry(eid):
+                return {
+                    "error": "scene_exists",
+                    "scene_id": eid,
+                    "message": (
+                        f"{eid} exists and was not created with scene.create: Home "
+                        "Assistant would keep it and ignore the request. Choose another "
+                        "scene_id, or use ha_create_or_update_scene to edit it."
+                    ),
+                }
+            if not confirmation_token:
+                return await create_confirmation_token(
+                    "ha_create_scene_from_current",
+                    args,
+                    preview={
+                        "action": "scene.create",
+                        "scene_id": eid,
+                        "current_entities": attrs.get("entity_id"),
+                        "new_entities": entity_ids,
+                        "effect": (
+                            "Replaces the temporary scene. Temporary scenes are lost "
+                            "when Home Assistant restarts or scenes are reloaded."
+                        ),
+                    },
+                )
+            replaced = True
+
+        # Con token se valida siempre, también si la escena ya no existe: quien
+        # lo manda está confirmando una vista previa concreta (fail-closed).
+        if confirmation_token:
+            valid, error = await validate_confirmation_token(
+                confirmation_token, "ha_create_scene_from_current", args
+            )
+            if not valid:
+                logger.warning(
+                    "ha_create_scene_from_current_token_invalid", scene_id=eid, reason=error
+                )
+                return {"error": error}
+
+        try:
+            result = await ha_client.call_service(
+                "scene", "create", {"scene_id": object_id, "snapshot_entities": entity_ids}
+            )
+            # Core puede volver sin error y sin crear nada (escena de YAML sin
+            # `id` con ese nombre, ninguna entidad que capturar). Se lee el
+            # estado por REST, sin la caché, que puede ir por detrás del bus.
+            after = await _fresh_state(eid)
+        except Exception as exc:
+            if confirmation_token:
+                await complete_confirmation_token(
+                    confirmation_token, success=False, error=str(exc)
+                )
+            raise
+        seen = (after.get("attributes") or {}).get("entity_id") if after else None
+        if not isinstance(seen, list) or sorted(set(seen)) != sorted(set(entity_ids)):
+            if confirmation_token:
+                await complete_confirmation_token(
+                    confirmation_token, success=False, error="scene_not_created"
+                )
+            logger.warning("ha_create_scene_from_current_not_created", scene_id=eid)
+            return {
+                "error": "scene_not_created",
+                "scene_id": eid,
+                "seen_entity_ids": seen if isinstance(seen, list) else None,
+            }
+        if confirmation_token:
+            await complete_confirmation_token(confirmation_token, success=True, result=result)
+        return {
+            "result": "ok",
+            "scene_id": eid,
+            "entity_ids": entity_ids,
+            "replaced": replaced,
+            "temporary": True,
+            "ha_response": result,
+        }
+
+    async def _in_entity_registry(entity_id: str) -> bool:
+        """Si la entidad está en el registro de entidades de HA."""
+        try:
+            await ha_client.ws_send(
+                {"type": "config/entity_registry/get", "entity_id": entity_id}
+            )
+        except HAConnectionError as exc:
+            # Se decide por el código, no por el texto (como registry_entity).
+            if exc.code == "not_found":
+                return False
+            raise
+        return True
+
+    async def _fresh_state(entity_id: str) -> dict[str, Any] | None:
+        """Estado leído por REST, sin la caché; None si Core no la conoce."""
+        # El id viene del cliente y acaba en la ruta: misma comprobación que
+        # `HAClient.get_state`, que aquí no se usa por la caché.
+        validate_path_segment(entity_id, field="scene_id")
+        try:
+            return await ha_client._request_json(  # noqa: SLF001
+                "GET", f"/states/{entity_id}"
+            )
+        except HAConnectionError as exc:
+            if getattr(exc, "status", None) == 404:
+                return None
+            raise

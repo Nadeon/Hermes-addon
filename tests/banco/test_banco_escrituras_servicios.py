@@ -14,6 +14,11 @@
   R-7 de la 028). La comprobación es la propia espera: termina mucho antes de
   su tope con `reason: cancelled`, deja de estar entre las activas y ya no
   se puede volver a cancelar (`not_found`).
+- `ha_wait_for_event` sin `ctx` (spec 033, T031): el `ctx` era el `Context`
+  del SDK mal anotado y salía como argumento obligatorio; ahora la espera se
+  llama solo con sus argumentos, el lector dispara el evento y la tool
+  devuelve `matched: true` con ese evento. Es de lectura (no se exige por
+  ejecución), pero el arreglo se comprueba contra HA real.
 
 Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 """
@@ -110,10 +115,9 @@ class TestCancelarEspera(BancoEscrituras):
         tipo = f"banco_espera_{sufijo()}"
         async with self.sesion() as s:
             bucle = asyncio.get_running_loop()
-            # `ctx` sale como argumento obligatorio en el esquema de
-            # ha_wait_for_event (anotado `Any`, no `Context`): se pasa vacío.
+            # Sin `ctx`: desde la spec 033 es el `Context` que inyecta el SDK.
             espera = asyncio.ensure_future(
-                llamar(s.cliente, "ha_wait_for_event", ctx={}, event_type=tipo, timeout_seconds=60)
+                llamar(s.cliente, "ha_wait_for_event", event_type=tipo, timeout_seconds=60)
             )
             try:
                 activas = await s.lector.esperar(
@@ -146,3 +150,33 @@ class TestCancelarEspera(BancoEscrituras):
                 if not espera.done():
                     espera.cancel()
                     await asyncio.gather(espera, return_exceptions=True)
+
+
+class TestEsperarEvento(BancoEscrituras):
+    async def test_espera_sin_ctx(self) -> None:
+        tipo = f"banco_espera_{sufijo()}"
+        datos = {"origen": "banco", "marca": "esperada"}
+        async with self.sesion() as s:
+            espera = asyncio.ensure_future(
+                llamar(s.cliente, "ha_wait_for_event", event_type=tipo,
+                       filters={"data.marca": "esperada"}, timeout_seconds=60)
+            )
+            try:
+                # Se dispara cuando la espera ya está suscrita: antes se
+                # perdería (la tool solo ve eventos posteriores).
+                await s.lector.esperar(
+                    lambda: llamar(s.cliente, "ha_list_active_waits"),
+                    lambda r: any(w["event_type"] == tipo for w in r["waits"]),
+                    descripcion=f"espera de {tipo} activa",
+                )
+                await s.lector.comando(
+                    {"type": "fire_event", "event_type": tipo, "event_data": datos}
+                )
+                resultado = await asyncio.wait_for(espera, timeout=30)
+            finally:
+                if not espera.done():
+                    espera.cancel()
+                    await asyncio.gather(espera, return_exceptions=True)
+            self.assertIs(resultado.get("matched"), True, resultado)
+            self.assertEqual(resultado["event"]["event_type"], tipo)
+            self.assertEqual(resultado["event"]["data"], datos)

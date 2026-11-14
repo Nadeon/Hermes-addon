@@ -346,13 +346,23 @@ class TestGetConfigEntryOptions(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.session.close()
 
-    async def test_returns_options(self) -> None:
+    async def test_no_soportada_con_lo_que_si_sabe(self) -> None:
+        """Spec 033 (FR-008, T015): HA no publica las opciones de una entry.
+
+        `config_entries/get_single` devuelve `as_json_fragment`, que no lleva
+        `options` (research R-6): la tool devolvía siempre `options: {}`,
+        un dato falso. Ahora responde `not_supported` con lo que sí sabe y
+        la vía alternativa, sin clave `options`, y avisa de su retirada.
+
+        Control negativo (T017), comprobado y restaurado: devolviendo otra
+        vez el resultado con `options`, este test cae.
+        """
+        # Una entry tal y como la da HA: sin `options`.
         entry = {
             "entry_id": "e1",
-            "domain": "hue",
-            "title": "Hue",
+            "domain": "demo",
+            "title": "Demo",
             "supports_options": True,
-            "options": {"scan_interval": 30, "allow_unreachable": False},
         }
         client = make_ready_client(self.session, {})
         async def fake_ws(payload, timeout_seconds=30):
@@ -360,11 +370,33 @@ class TestGetConfigEntryOptions(unittest.IsolatedAsyncioTestCase):
         client.ws_send = fake_ws  # type: ignore[method-assign]
         mcp = DummyMCP()
         flows_mod.register(mcp, client)
-        raw = await mcp.tools["ha_get_config_entry_options"]("e1")
+        tool = mcp.tools["ha_get_config_entry_options"]
+        self.assertTrue(tool.__doc__.lstrip().startswith("DEPRECATED (removed in 1.3.0)"))
+        raw = await tool("e1")
+        self.assertIsInstance(raw, str)
         result = json.loads(raw)
-        self.assertEqual(result["entry_id"], "e1")
-        self.assertTrue(result["supports_options"])
-        self.assertEqual(result["options"]["scan_interval"], 30)
+        self.assertEqual(result["error"], "not_supported")
+        self.assertEqual(
+            (result["entry_id"], result["domain"], result["title"], result["supports_options"]),
+            ("e1", "demo", "Demo", True),
+        )
+        self.assertNotIn("options", result)
+        self.assertIn("ha_start_options_flow", result["hint"])
+        self.assertIn("ha_abort_config_entry_flow", result["hint"])
+        self.assertTrue(result["message"])
+        self.assertIn("1.3.0", result["_deprecated"])
+
+    async def test_error_de_conexion_como_antes(self) -> None:
+        from hermes.ha import HAConnectionError
+
+        client = make_ready_client(self.session, {})
+        async def boom(payload, timeout_seconds=30):
+            raise HAConnectionError("offline")
+        client.ws_send = boom  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        flows_mod.register(mcp, client)
+        result = json.loads(await mcp.tools["ha_get_config_entry_options"]("e1"))
+        self.assertEqual(result, {"error": "offline"})
 
     async def test_not_found(self) -> None:
         client = make_ready_client(self.session, {})

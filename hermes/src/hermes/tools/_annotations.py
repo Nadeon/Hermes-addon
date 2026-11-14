@@ -145,6 +145,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # peor. Siempre piden confirmation_token.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 033 (FR-006): `scene.create` reemplaza en silencio una escena
+    # temporal con el mismo id; la tool lo pide confirmar con token. Antes se
+    # anunciaba no destructiva (`----`, por el prefijo `ha_create_`) y su
+    # descripción decía que una colisión daba error, que no es lo que hace HA.
+    "ha_create_scene_from_current",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ suite normal (sin HA ni Docker):
 
     tools que MODIFICAN del registro de producción
       = cobertura.PROBADAS_EN_BANCO ∪ cobertura.NO_EJECUTABLES
-        ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 0 + 1)
+        ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 1 + 0)
       ∪ cobertura.PROBADAS_GENERICAS ∪ cobertura.NO_EJECUTABLES_GENERICAS (011, 1 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
       ∪ FUERA_DEL_BANCO                                              (24)
@@ -32,14 +32,15 @@ toca desde aquí: se importa y se suma.
 `tests/banco/obligatorio.py` exige que cada tool de `TOOLS_EXIGIDAS_DEL_JOB`
 (las probadas de la 010, de las genéricas de la 011 y de la 028) se haya llamado con éxito dentro de un
 test que ha pasado. Nombrarla en un fichero no basta. Una tool que falla contra
-HA real no es probada: va a `FALLAN_EN_BANCO` (hoy, solo `ha_reload_counters`,
-de la 010).
+HA real no es probada: va a `FALLAN_EN_BANCO` (vacía desde la spec 033, que
+arregló `ha_reload_counters`, el hallazgo de la 010).
 
 Hallazgos de la 028 (`HALLAZGOS_028`): defectos de una tool que funciona por su
 camino normal (por eso sigue en `PROBADAS_028` y se exige por ejecución), pero
 que falla o es insegura con un argumento concreto. Cada uno tiene su test con
 `xfail` estricto que espera ese fallo concreto, en `XFAIL_PERMITIDOS_028`; el
-job no admite ningún otro `xfail`.
+job no admite ningún otro `xfail`. Desde el tramo 2 de la spec 033 no queda
+ninguno: los dos de la 028 están arreglados y sus tests ya no son `xfail`.
 """
 
 from __future__ import annotations
@@ -49,10 +50,11 @@ from tests.banco import cobertura
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
 # efecto lo comprueba el lector independiente (salvo `ha_cancel_wait`, cuyo
-# efecto vive en Hermes: research R-7 de la 028). Una tiene además un
-# hallazgo con un argumento concreto (`HALLAZGOS_028`); el otro hallazgo de la
-# 028, el token de `ha_run_script` y `ha_trigger_automation` sin `variables`,
-# lo arregló el tramo 1 de la spec 033 y su test ya no es `xfail`.
+# efecto vive en Hermes: research R-7 de la 028). Los dos hallazgos de la 028
+# están arreglados por la spec 033: el token de `ha_run_script` y
+# `ha_trigger_automation` sin `variables` (tramo 1) y
+# `ha_create_scene_from_current` con `name` (tramo 2); sus tests ya no son
+# `xfail`.
 PROBADAS_028: frozenset[str] = frozenset(
     {
         # automation (6)
@@ -122,26 +124,17 @@ PROBADAS_028: frozenset[str] = frozenset(
 
 # Tool → hallazgo de la 028 (FR-007). La tool funciona por su camino normal
 # (está en `PROBADAS_028` y su test lo ejecuta con éxito), pero el banco ha
-# visto contra HA Core 2026.11.1 un defecto con un argumento concreto. No se
-# arregla aquí: el arreglo es de la spec 033.
-HALLAZGOS_028: dict[str, str] = {
-    "ha_create_scene_from_current": (
-        "HALLAZGO pendiente de arreglo (spec 033): con `name` falla siempre, porque "
-        "`scene.create` de Core 2026.11.1 no admite ese campo y responde 400; la "
-        "descripción dice que «HA decide». También dice que una colisión de "
-        "`scene_id` da error, y Core reemplaza en silencio una escena de "
-        "`scene.create` (con una de configuración solo avisa en el log)"
-    ),
-}
+# visto contra HA Core 2026.11.1 un defecto con un argumento concreto. Vacío
+# desde el tramo 2 de la spec 033, que arregló `ha_create_scene_from_current`
+# (con `name` Core respondía 400; ahora la tool responde `name_not_supported`
+# sin llamar a HA, y pide token para reemplazar una escena temporal).
+HALLAZGOS_028: dict[str, str] = {}
 
 # Los `xfail` de la 028 que el job admite: id del test (como lo escribe pytest
 # desde la raíz del repositorio) → tool de `HALLAZGOS_028` que documenta. Cada
 # uno es estricto y espera una excepción concreta: si la tool se arregla, el
 # test pasa y el job se pone en rojo para quitar la marca.
-XFAIL_PERMITIDOS_028: dict[str, str] = {
-    "tests/banco/test_banco_escrituras_automatizacion.py::TestEscena::"
-    "test_hallazgo_escena_desde_el_estado_con_nombre": "ha_create_scene_from_current",
-}
+XFAIL_PERMITIDOS_028: dict[str, str] = {}
 
 # Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
 # por ejecución y todos los `xfail` de hallazgos listados. Una sub-feature

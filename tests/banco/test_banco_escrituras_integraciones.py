@@ -10,6 +10,10 @@
   sobre una entrada de `uptime` que crean y borran las propias tools.
 - `TestFlujoOpcionesKitchenSink` (T020): `ha_start_options_flow` y
   `ha_continue_options_flow` sobre la entrada de `kitchen_sink`.
+- `TestOpcionesNoPublicadas` (spec 033, T031): `ha_get_config_entry_options`
+  sobre la entrada de `kitchen_sink` responde `not_supported` con su dominio
+  y sin `options` (Core no las publica; antes devolvía `{}`). Es de lectura:
+  no se exige por ejecución.
 
 Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 """
@@ -22,6 +26,7 @@ from typing import Any
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras
+from tests.banco.entorno import llamar
 from tests.banco.lector import ErrorCore
 
 pytestmark = pytest.mark.banco
@@ -266,3 +271,19 @@ class TestFlujoOpcionesKitchenSink(BancoEscrituras):
             self.assertEqual((estado, propio["step_id"]), (200, "options_1"))
             estado, _ = await s.lector.rest("DELETE", f"{ruta}/{propio['flow_id']}")
             self.assertEqual(estado, 200)
+
+
+class TestOpcionesNoPublicadas(BancoEscrituras):
+    async def test_opciones_de_kitchen_sink(self) -> None:
+        async with self.sesion() as s:
+            entrada = await exigir_kitchen_sink(s)
+            # Lo que da Core por su API: la entrada sin `options`.
+            self.assertNotIn("options", entrada)
+            r = await llamar(s.cliente, "ha_get_config_entry_options", entry_id=entrada["entry_id"])
+            self.assertEqual(r.get("error"), "not_supported", r)
+            self.assertEqual(
+                (r["entry_id"], r["domain"], r["supports_options"]),
+                (entrada["entry_id"], "kitchen_sink", entrada["supports_options"]),
+            )
+            self.assertNotIn("options", r)
+            self.assertIn("ha_start_options_flow", r["hint"])
