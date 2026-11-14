@@ -450,9 +450,10 @@ agrupa; los transversales que aplican son FR-014, FR-018, FR-020 y FR-023.
 
 - Cualquier tool nueva, la tabla de clasificación y las familias.
 - Retirar las tools o argumentos deprecados (1.3.0).
-- `ha_set_counter_value` con un valor que no es múltiplo del `step`: hoy da el
-  mismo 500 de HA, pero el valor lo elige quien llama y no hay un significado
-  que conservar; se anota como duda para el final.
+- ~~`ha_set_counter_value` con un valor que no es múltiplo del `step`~~:
+  ampliación del alcance. El supervisor lo metió como extra del tramo 2
+  (notas de `tasks.md`): responde `invalid_value` con la misma comprobación
+  que `amount` (research R-7), en vez del 500 genérico de HA.
 - Unificar la forma de los errores de las tools existentes (CAP-023).
 - Revalidar el estado entre la vista previa y la confirmación en general.
 - Los demás hallazgos de las revisiones de la 010 y de la 028 sobre los

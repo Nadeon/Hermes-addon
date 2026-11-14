@@ -219,6 +219,11 @@ cambia el significado si `amount` no es múltiplo); recortar a los límites como
 El banco lo confirma en el tramo 2 antes de arreglar: test con `step` 3 desde
 5 → hoy 500 (rojo) → tras el arreglo `invalid_amount` y estado intacto.
 
+Ampliación del alcance (extra del supervisor en el tramo 2, T040): la spec
+dejaba fuera `ha_set_counter_value`, que tiene el mismo 500 con un valor fuera
+de límites o que no es múltiplo del `step`. Se hizo con el mismo ayudante
+(`_value_problem`) y responde `invalid_value`, con test unitario y de banco.
+
 ## R-8 — Banco, inventario de tokens e instantáneas (FR-003, FR-010, FR-011)
 
 - **Banco (010)**: `tests/banco/cobertura.py` (`PROBADAS_EN_BANCO`,
