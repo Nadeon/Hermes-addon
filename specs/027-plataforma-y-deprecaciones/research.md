@@ -59,8 +59,12 @@ añadir `child_errors` con los errores de los sub-jobs **y contarlos en
 eso miente. Es un arreglo, coherente con la 009 (cualquier error da
 `false`), no un cambio de contrato. El sondeo del safety backup
 (`fs_write.py`, `_evaluar_job`) también los cuenta como fallo (principio III:
-no se escribe sin un backup válido). `job_errors` no cambia y la retención
-(`safety_retention.py`) tampoco: el backup existe y tiene que poder podarse.
+no se escribe sin un backup válido). `job_errors` no cambia. La retención
+(`safety_retention.py`) no lo olvida, porque el backup existe y tiene que
+poder podarse, pero tampoco lo cuenta como copia buena: queda `incomplete`,
+se poda el primero y no entra en las `keep` (corregido en la convergencia,
+T030, por decisión del supervisor; antes esta decisión decía que la retención
+no cambiaba).
 La nueva función vive en `supervisor_jobs.py` junto a la existente.
 
 **Alternativas descartadas**:

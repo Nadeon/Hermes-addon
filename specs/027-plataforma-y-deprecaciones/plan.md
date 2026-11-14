@@ -95,8 +95,9 @@ Tras el diseño: sin cambios. Desviación justificada abajo.
    descripción (FR-001, FR-002, contrato; D-1).
    **`fs_write.py`, `_evaluar_job`** (sondeo del safety backup): cuenta los
    errores de los sub-jobs como fallo, con su mensaje `"<sub-job>: <mensaje>"`,
-   y un recorrido recortado también (FR-017, D-1). `safety_retention.py` no
-   cambia.
+   y un recorrido recortado también (FR-017, D-1). `safety_retention.py`
+   (convergencia, T030): el backup con sub-jobs fallidos queda `incomplete`,
+   se poda y no cuenta en las `keep`.
 3. **`tools/registry_device.py`, `ha_remove_device_from_config_entry`**: en el
    `except HAConnectionError` del segundo paso, si `exc.code ==
    "unknown_command"`, devolver `command_removed_in_ha` (data-model) tras

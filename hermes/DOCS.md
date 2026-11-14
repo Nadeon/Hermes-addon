@@ -70,8 +70,9 @@ rechaza con `safety_backup_in_progress`.
 
 Con `safety_backup_enabled`, la opción `safety_backup_keep` (3 por defecto, 0
 la desactiva) conserva solo los safety backups automáticos más recientes y
-borra el resto tras cada uno correcto. Solo toca los que Hermes anotó al
-crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
+borra el resto tras cada uno correcto. Uno que terminó con errores en sus
+sub-jobs (una app que no se pudo guardar) no cuenta entre los que se conservan
+y se borra el primero. Solo toca los que Hermes anotó al crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
 detalle de qué borra y qué no está en el README.
 
 El Marketplace (HACS hasta HA 2026.10) es de **solo lectura** para Hermes:

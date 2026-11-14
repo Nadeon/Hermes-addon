@@ -72,8 +72,9 @@ en [research.md](research.md)):
   1.1.2 daba `true` a un backup al que le faltaba una app. Y el sondeo de los
   safety backups (`fs_write.py`, código de la 009) cuenta esos errores como
   fallo, para fallar cerrado (principio III): no se escribe nada sin un
-  backup válido. La anotación de la retención (`safety_retention.py`) no
-  cambia: el backup existe y debe poder podarse.
+  backup válido. La retención (`safety_retention.py`) lo trata como un
+  backup FALLIDO que existe: se poda, pero no cuenta como una de las `keep`
+  copias buenas (corregido en la convergencia, T030; ver FR-017).
 - P: ¿Qué es «preparar» el socket Unix y la `/v2`? → R: **detectar y avisar,
   nunca usar**. Al arrancar, Hermes mira si el Supervisor le ha inyectado
   `SUPERVISOR_SOCKET` (hoy solo se inyecta en Core) y si la opción de
@@ -298,8 +299,15 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   cuenta los errores de los sub-jobs (y un recorrido recortado por el tope)
   como fallo: la escritura se rechaza con `safety_backup_job_failed` y los
   mensajes de los sub-jobs, y no se toma ese backup como válido (D-1,
-  principio III). La anotación de la retención (`safety_retention.py`) no
-  cambia: ese backup existe y tiene que poder podarse (FR-092, CAP-025).
+  principio III). La retención (`safety_retention.py`) aplica el mismo
+  criterio (D-1: error en un sub-job = fallo): ese backup, que existe y
+  ocupa varios GB, queda anotado como `incomplete`, se poda el primero y NO
+  cuenta como una de las `keep` copias buenas (FR-092, CAP-025).
+  *Corregido en la convergencia (T030)*: la versión anterior decía que la
+  retención no cambiaba, y así un backup incompleto se confirmaba como bueno
+  y contaba en las `keep`, de modo que podía quedar una copia completa menos
+  de las prometidas. «Tiene que poder podarse» sigue valiendo; lo que cambia
+  es que ya no cuenta como copia buena.
 
 #### CIMD (FR-093 de la 008, CAP-026)
 
@@ -431,8 +439,9 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
 - Añadir `outputSchema` a tools, quitarlo de `ping` y `hermes_guide` o
   adoptar la vía nativa de MCP para confirmar (D-10 de la 008; dudas D-3 y D-5).
 - Que la anotación de la retención de safety backups (`safety_retention.py`)
-  descarte los backups con errores en sub-jobs: existen y deben podarse
-  (D-1 solo afecta a `success` y al sondeo de `fs_write.py`).
+  OLVIDE los backups con errores en sub-jobs: existen y deben podarse. Sí
+  entra (convergencia, T030) que no cuenten como copias buenas en las `keep`
+  (FR-017).
 - Renombrar tools o argumentos `*_addon*` a `*_app*`, o cambiar «add-on» en el
   resto de textos de Hermes.
 - Un inventario de la `/v2` en `scripts/inventario/` (duda D-4).
