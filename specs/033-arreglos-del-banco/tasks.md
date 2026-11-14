@@ -286,3 +286,9 @@ Notas de la convergencia:
 - T040: además de `research.md` (R-7), se tacha la línea de «Fuera de
   alcance» de `spec.md` remitiendo a la ampliación, por indicación del
   supervisor.
+- T038, control negativo en el CI: en la rama desechable
+  `prueba/033-escena-sin-id`, sin la comparación de `last_updated`, el banco
+  cae en `test_escena_desde_el_estado_sobre_una_de_yaml_sin_id` (HA real
+  responde a la tool `replaced: true` sin reemplazar) y la suite en
+  `test_reemplazo_ignorado_con_las_mismas_entidades` (run 43648069096). Con
+  el arreglo, CI en verde (run 43648066612).
