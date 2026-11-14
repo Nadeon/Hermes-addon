@@ -180,6 +180,23 @@ class TestValidarDesactivadas(unittest.TestCase):
             validar_desactivadas(["Lovelace"])
 
 
+class TestFamiliasEnLaDocumentacion(unittest.TestCase):
+    """DOCS.md tiene una fila por familia y los README las nombran todas (la
+    opción no sirve si el usuario no sabe qué nombres valen). Una familia
+    nueva sin documentar hace caer este test."""
+
+    def test_cada_familia_documentada(self) -> None:
+        raiz = pathlib.Path(__file__).resolve().parents[1]
+        docs = (raiz / "hermes" / "DOCS.md").read_text(encoding="utf-8")
+        readmes = {n: (raiz / n).read_text(encoding="utf-8")
+                   for n in ("README.md", "README.es.md")}
+        for nombre in FAMILIAS:
+            with self.subTest(familia=nombre):
+                self.assertRegex(docs, rf"(?m)^\| `{nombre}` \| \d+ \|")
+                for fichero, texto in readmes.items():
+                    self.assertIn(f"`{nombre}`", texto, fichero)
+
+
 class TestAliasDeFamilias(unittest.TestCase):
     """Nombres antiguos de familias renombradas (decisión del supervisor del
     programa, desviación anotada en tasks.md): quien tenga guardado el nombre

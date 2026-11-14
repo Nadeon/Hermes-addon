@@ -124,6 +124,34 @@ report about one of them will be closed with a pointer to this section:
     most 60 s after it expires; it is never written to the log.
   - Service denylist + recursive `service_data` sanitisation + automatic
     classification of dangerous scripts and automations.
+  - **Generic tools behind a fail-closed command table.**
+    `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and
+    `sv_read_api`/`sv_call_api` (Supervisor API routes) cover what no
+    dedicated tool does, and run only what Hermes' command table
+    (`command_table.py`) allows. Every one of the 623 Core commands and 254
+    Supervisor routes of HA 2026.11 is classified by hand as `dedicated`,
+    `read`, `confirm` or `deny`; anything not in the table is refused. A
+    refusal never reaches Home Assistant or the Supervisor. The generic tools
+    never: run a command that has a dedicated tool (it may carry a semantic
+    preview or protections of its own), even when that tool's family is
+    switched off; run a `confirm` entry without a preview and a token bound to
+    the tool, the command or method and route, and the whole payload; go
+    through the Supervisor's Core proxy (`/core/api`, `/homeassistant/api`,
+    which would bypass the service denylist); act on Hermes itself
+    (`{app}` resolving to Hermes); accept malformed paths (`..`, encoded
+    dots, `//`, query strings, absolute URLs); or run anything belonging to a
+    family switched off with `tool_families_disabled`. The preview shows every
+    payload key with its type and size, and a value only when it is short and
+    no key on its path or its content looks secret. Only `{"executed": true}`
+    is stored next to the token, never the answer. Answers go through the
+    secret redaction and the response cap; the log records one
+    `generic_command` event per call with the payload keys, never values.
+    Tests keep the table in step with the inventories of the HA source and
+    forbid `read` for any command with a write verb or any route other than
+    `GET`.
+  - **Tool families** (`tool_families_disabled`): whole groups of tools can
+    be left unregistered. An unknown family name, or `base`, stops the add-on
+    from starting rather than silently leaving tools on.
   - `/config` filesystem: anti-traversal (resolve + boundary check), secret
     blacklist, *default-deny* allowlist for `.storage/`, *managed paths* that are
     never writable, automatic backup before every write.
