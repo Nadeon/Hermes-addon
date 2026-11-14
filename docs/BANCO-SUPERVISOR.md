@@ -340,6 +340,13 @@ Las `sv_*` que añadan las sub-features siguientes de la 1.2.0 siguen la misma
 pauta, en la tanda que les toque por su efecto. Cada sub-feature que añada una
 tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
 
+- `sv_call_api` (la genérica del Supervisor de la 011), en la tanda 3: con una
+  ruta que la tabla de clasificación marque `confirm`, por ejemplo
+  `POST /dns/restart`, la vista previa enseña el método, la ruta, la
+  plantilla y la categoría, y la ejecución reinicia el plugin DNS
+  (`ha dns info`); una ruta `deny`, una de Hermes (`local_hermes`) o el
+  proxy de Core se rechazan sin llegar al Supervisor.
+
 ## Probar hassio_role: manager
 
 El add-on publicado pide `hassio_role: admin`. Según el código del Supervisor
