@@ -204,7 +204,6 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     # Acciones de HA.
     "calendar/event/create": "ha_call_service",
     "hassio/update/core": "ha_call_service",
-    "logger/integration_log_level": "ha_call_service",
     "media_player/browse_media": "ha_call_service_response",
     "media_player/search_media": "ha_call_service_response",
     "recorder/statistic_during_period": "ha_call_service_response",
@@ -293,6 +292,13 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "person/delete": "ha_delete_person",
     "person/list": "ha_list_persons",
     "person/update": "ha_update_person",
+    # Diagnóstico de Core (spec 012). `logger/integration_log_level` es de
+    # clase «cubierto» (por `logger.set_level`); las otras, de clase A con
+    # vía D: `_clasificar` también consulta este mapa para ellas.
+    "logger/integration_log_level": "ha_set_log_level",
+    "logger/log_info": "ha_get_log_levels",
+    "logger/log_level": "ha_set_log_level",
+    "system_log/list": "ha_list_system_log",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
@@ -425,7 +431,11 @@ def _clasificar(
             return deny("sin revisar")
         if isinstance(destino, _Deny):
             return deny(destino.motivo)
-        de_accion = fila.get("cobertura") == "accion-generica"
+        # «(acción de HA)» solo si la cubre de verdad la acción genérica: una
+        # fila cubierta por una acción que ya tiene tool dedicada (spec 012,
+        # `logger/integration_log_level`) no se ejecuta como acción.
+        de_accion = (fila.get("cobertura") == "accion-generica"
+                     and destino.startswith("ha_call_service"))
         return {
             "category": "dedicated",
             "reason": f"cubierto por {destino}" + (" (acción de HA)" if de_accion else ""),
@@ -443,6 +453,18 @@ def _clasificar(
     if clase.startswith("A") and cap in MATRIZ:
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")
+        # Una fila A cuya tool dedicada ya existe (spec 012, research R-7):
+        # `dedicated` en vez de «pendiente», para que una generación desde
+        # cero dé lo mismo que la tabla revisada.
+        destino = _DEDICADAS_INICIALES.get(clave)
+        if isinstance(destino, str):
+            return {
+                "category": "dedicated",
+                "reason": f"cubierto por {destino}",
+                "family": tools[destino],
+                "tool": destino,
+                "cap": cap,
+            }
         if via in ("D", "D+T", "D+X"):
             return deny(f"pendiente de tool dedicada (spec {_spec_pendiente(cap, escribe)})")
         etiqueta = nota or fila.get("area", "") or texto

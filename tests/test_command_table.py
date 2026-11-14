@@ -345,6 +345,18 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
         self.assertEqual(malas, [])
 
     def test_clase_a_de_via_dedicada_pendiente_de_su_spec(self) -> None:
+        """Clase A de vía D, D+T o D+X: `deny` «pendiente de tool dedicada
+        (spec NNN)» de una de sus sub-features, o `dedicated` hacia una tool
+        de una familia de la 1.2.0 cuando su sub-feature ya la ha hecho
+        (spec 012, research R-7). Que la tool exista y su familia coincida lo
+        comprueba `test_tool_existe_y_familia_coincide`. Una `read` o una
+        `confirm` siguen fallando.
+
+        Control negativo (T018 g), comprobado: pasar `system_log/list` a
+        `read` → cae este test nombrándola. Dejarla en `deny` «pendiente
+        (spec 012)» no lo hace caer (era el estado anterior y sigue siendo
+        válido aquí): eso lo vigila el test de la genérica
+        (`TestDedicadasDeLaSpec012` de test_tools_generic_commands.py)."""
         matriz = _matriz_008()
         malas = []
         for inventario, tabla in ((_CORE, ct.CORE_WS), (_SV, ct.SUPERVISOR)):
@@ -355,6 +367,12 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                 if via not in {"D", "D+T", "D+X"}:
                     continue
                 e = tabla[k]
+                if e.category == "dedicated":
+                    familia = FAMILIAS.get(e.family)
+                    if familia is None or familia.desde != "1.2.0" or not e.tool:
+                        malas.append(f"{k} ({f['cap']}, {via}): dedicated a {e.tool!r} "
+                                     f"de la familia {e.family!r}, que no es de la 1.2.0")
+                    continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)
                 if e.category != "deny" or not m or m.group(1) not in subs:
                     malas.append(f"{k} ({f['cap']}, {via}, {subs}): {e.category} {e.reason!r}")

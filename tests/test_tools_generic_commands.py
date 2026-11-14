@@ -787,6 +787,39 @@ class TestFamiliasDesdeElRegistro(unittest.IsolatedAsyncioTestCase):
         self.assertIn("hermes_guide", mcp.tools)
 
 
+class TestDedicadasDeLaSpec012(unittest.IsolatedAsyncioTestCase):
+    """Spec 012 (FR-014, T013): los comandos de logs de Core pasan a sus
+    tools dedicadas; la genérica los rechaza con `use_dedicated_tool` y, con
+    `core_diagnostics` desactivada, con `family_disabled: true` (sin
+    ejecutarlos por la genérica).
+
+    Control negativo (T018 g): dejar `system_log/list` en `deny` →
+    cae `test_system_log_list_a_su_dedicada` (`command_denied`).
+    """
+
+    async def test_system_log_list_a_su_dedicada(self) -> None:
+        mcp, ha = _registrar_todo([])
+        r = await mcp.tools["ha_read_ws_command"]("system_log/list")
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_list_system_log", "core_diagnostics", False))
+        r = await mcp.tools["ha_call_ws_command"](
+            "logger/integration_log_level",
+            {"integration": "mqtt", "level": "DEBUG", "persistence": "none"})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_set_log_level"))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["core_diagnostics"])
+        self.assertNotIn("ha_list_system_log", mcp.tools)
+        for tipo, tool in (("system_log/list", "ha_list_system_log"),
+                           ("logger/log_info", "ha_get_log_levels")):
+            with self.subTest(tipo=tipo):
+                r = await mcp.tools["ha_read_ws_command"](tipo)
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()

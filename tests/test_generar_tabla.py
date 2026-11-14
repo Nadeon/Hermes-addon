@@ -170,6 +170,52 @@ class TestPrimeraGeneracion(_Base):
         self.assertEqual(self.resultado.quitadas, [])
 
 
+class TestClaseAConToolDedicada(_Base):
+    """Spec 012 (FR-014, research R-7; T013): una fila A de vía D cuya clave
+    ya tiene tool dedicada en `_DEDICADAS_INICIALES` sale `dedicated`, con la
+    familia de su tool, en la primera generación; y una fila «cubierto» por
+    una acción que ya tiene dedicada no se anuncia como «(acción de HA)».
+
+    Control negativo (T018 g): quitar la consulta del mapa para la clase A en
+    `_clasificar` → cae `test_fila_a_de_via_d_en_el_mapa` («pendiente de tool
+    dedicada (spec 012)»).
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        filas = [
+            ("system_log/list", "system_log", "homeassistant/components/system_log/__init__.py",
+             "no", "A", "Log del sistema y niveles de log", "CAP-041"),
+            ("logger/integration_log_level", "logger",
+             "homeassistant/components/logger/websocket_api.py",
+             "accion-generica", "cubierto", "logger.set_level", ""),
+        ]
+        with self.core.open("a", encoding="utf-8", newline="") as f:
+            for fila in filas:
+                f.write(chr(9).join(fila) + chr(10))
+        self._generar()
+        self.t = self._tabla()
+
+    def test_fila_a_de_via_d_en_el_mapa(self) -> None:
+        e = self.t.CORE_WS["system_log/list"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_list_system_log", "core_diagnostics",
+             "ha_list_system_log", "CAP-041"))
+        # La de vía D que no está en el mapa sigue pendiente.
+        self.assertEqual(self.t.CORE_WS["demo/via_d"].reason,
+                         "pendiente de tool dedicada (spec 012)")
+
+    def test_cubierto_por_accion_con_dedicada(self) -> None:
+        e = self.t.CORE_WS["logger/integration_log_level"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_set_log_level", "core_diagnostics",
+             "ha_set_log_level", None))
+        # La que sí cubre la acción genérica lo sigue diciendo.
+        self.assertIn("(acción de HA)", self.t.CORE_WS["calendar/event/create"].reason)
+
+
 class TestRegeneracion(_Base):
     def test_determinista(self) -> None:
         self._generar()
