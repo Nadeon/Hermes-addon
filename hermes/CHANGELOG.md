@@ -13,7 +13,43 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Integraciones
 
-_Pendiente: la añade la sub-feature que lo implemente._
+#### Integraciones: flujos y Repairs (spec 016)
+
+_En curso: tramo A. Los tramos B (subentries y reconfigure) y C (flujos de
+reparación y textos de los avisos) completan esta sección._
+
+- **Familia nueva `integration_flows`** (desactivable con
+  `tool_families_disabled`), con cuatro tools:
+  - `ha_list_discovered_integrations` — lo que Home Assistant ha descubierto y
+    espera configuración (también los flujos de reautenticación), con
+    `ignorable` y los datos del descubrimiento redactados. Un descubierto se
+    configura con `ha_continue_config_entry_flow`, como cualquier flujo.
+  - `ha_ignore_discovery` — lo ignora como el botón «Ignorar» de la interfaz;
+    se deshace borrando la entrada `ignore` con `ha_delete_config_entry`. Sin
+    confirmación.
+  - `ha_list_config_flow_domains` — el catálogo de dominios que se configuran
+    por flujo (filtrable por `device`, `helper`, `hub` o `service`), incluidas
+    las integraciones personalizadas instaladas.
+  - `ha_update_config_entry` — título y opciones de sistema de una entrada.
+    Desactivar el sondeo o las entidades nuevas pide confirmación, con una
+    vista previa que dice si Home Assistant recarga la integración y qué deja
+    de actualizarse; renombrar y volver a activarlas, no. Solo envía lo que
+    cambia.
+- **`ha_list_configured_domains`**: su descripción ya no dice que no existe
+  la lista de dominios configurables; remite a `ha_list_config_flow_domains`.
+  Nombre, argumentos y anotaciones, sin cambios.
+- **Tabla de comandos**: `config_entries/flow/progress`,
+  `config_entries/ignore_flow` y `config_entries/update` pasan de `deny`
+  («pendiente») a `dedicated`; las genéricas remiten a su tool. El generador
+  de la tabla lo hace también en la primera generación.
+- **Guía**: tema nuevo `integration_flows` (alias `discovery` y
+  `discovered`) y, en `helpers`, cómo crear, listar, editar y borrar los
+  helpers que se crean por config entry (template, group…), con un ejemplo.
+- **Banco de Core**: integración de prueba propia `banco_flujos` (solo en
+  `tests/`, sin red) con un descubrimiento, avisos reparables, flujo
+  `reconfigure` y subentries; `ha_ignore_discovery` y
+  `ha_update_config_entry` se ejecutan contra Home Assistant real y el lector
+  independiente comprueba su efecto.
 
 ### Automatización
 

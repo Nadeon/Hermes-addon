@@ -50,10 +50,17 @@ _TIPOS_DE_FLUJO = ("device", "helper", "hub", "service")
 
 _TITULO_MAX = 255
 
+# Principio V (T015): «HA lo redescubre» no es siempre verdad. Al borrar la
+# entrada `ignore`, HA avisa a las integraciones que guardan claves de
+# descubrimiento (zeroconf, dhcp…), que lo ofrecen otra vez enseguida; las
+# demás, solo cuando lo vuelven a encontrar. En el banco, `banco_flujos` no
+# lo redescubre.
 _UNDO_HINT = (
     "HA created an ignored config entry (source 'ignore') for this device. "
-    "To stop ignoring it, delete that entry with ha_delete_config_entry; HA "
-    "will rediscover it."
+    "To stop ignoring it, delete that entry with ha_delete_config_entry; the "
+    "device is offered again when the integration discovers it again "
+    "(at once for integrations that track discovery keys, such as zeroconf "
+    "or dhcp)."
 )
 
 
@@ -193,8 +200,10 @@ def register(
 
         HA aborts the discovery flow and stores an ignored config entry
         (source "ignore") with the device's unique ID, so it is not offered
-        again. Reversible: delete that entry with ha_delete_config_entry and HA
-        rediscovers the device. Only flows with "ignorable": true in
+        again. Reversible: delete that entry with ha_delete_config_entry; the
+        device is offered again when its integration discovers it again (at
+        once for those that track discovery keys, such as zeroconf or dhcp).
+        Only flows with "ignorable": true in
         ha_list_discovered_integrations can be ignored. No confirmation token:
         it does not touch anything that is running.
 
