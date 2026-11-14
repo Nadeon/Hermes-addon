@@ -32,7 +32,6 @@ from typing import Any
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufijo
-from tests.banco.entorno import llamar
 
 pytestmark = pytest.mark.banco
 
@@ -145,8 +144,13 @@ class TestDiagnosticos(BancoEscrituras):
             dispositivos = await s.lector.comando({"type": "config/device_registry/list"})
             dispositivo = next(d for d in dispositivos if d.get("config_entry_id") in ids)
 
-            r = await llamar(s.cliente, "ha_get_device_diagnostics",
-                             device_id=dispositivo["id"])
+            # No sirve `llamar`: Hermes marca con `isError` toda respuesta
+            # `{"error": …}` y aquí el rechazo es lo esperado (mismo patrón que
+            # `_rechazo` de test_banco_genericas.py).
+            resultado = await s.cliente.call_tool("ha_get_device_diagnostics",
+                                                  {"device_id": dispositivo["id"]})
+            self.assertTrue(getattr(resultado, "is_error", False))
+            r = json.loads(resultado.content[0].text)
             self.assertEqual((r["error"], r["domain"], r["kind"]),
                              ("diagnostics_not_supported", "kitchen_sink", "device"))
 
