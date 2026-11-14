@@ -34,6 +34,7 @@ from typing import Any
 
 import structlog
 
+from hermes import safety_retention as _retencion
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
@@ -355,6 +356,12 @@ def register(
 
         No requiere confirmation_token — crear backups es defensivo.
 
+        Retención: el backup se anota como safety backup de Hermes y entra en
+        la retención `safety_backup_keep` (opción del add-on, 3 por defecto).
+        Esta tool nunca borra nada: la poda se aplica tras cada safety backup
+        automático correcto (el que se hace antes de escribir en /config) y
+        solo toca safety backups que Hermes anotó y confirmó.
+
         Returns:
             Si reutiliza uno reciente: {"reused": true, "job_id"|"slug": ...}.
             Si crea uno nuevo: {"job_id": "...", "status": "running",
@@ -407,6 +414,16 @@ def register(
                 "backup_name": backup_name,
             }
             _save_safety_state(new_state)
+            # Se anota para la retención, pero aquí NO se poda: esta tool
+            # «crea» y no lleva token; si borrara backups sería destructiva
+            # sin confirmación. Sus backups se podan en la siguiente poda,
+            # tras un safety backup automático correcto.
+            try:
+                await _retencion.record_launch(
+                    backup_name, job_id if isinstance(job_id, str) else None,
+                    origin="tool", slug=slug if isinstance(slug, str) else None)
+            except Exception as exc:  # noqa: BLE001 — anotar no puede tumbar el backup
+                logger.warning("safety_backup_ledger_error", error=str(exc))
 
             if job_id:
                 await _track_job(job_id, {"op": "create_safety_backup", "name": backup_name})
