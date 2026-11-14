@@ -97,6 +97,12 @@ _CATALOGO: tuple[Familia, ...] = (
             "Discovered integrations, config entry preferences, config "
             "subentries and reconfigure flows.",
             "1.2.0", True, ("integration_setup", "config_subentries")),
+    # Tramo C: los flujos de reparación. `ha_list_repairs` y
+    # `ha_ignore_repair` siguen en `diagnostics` (sus textos traducidos son un
+    # cambio de la 1.1.2, no tools nuevas).
+    Familia("repair_flows",
+            "Repairs issue details and fix flows.",
+            "1.2.0", True, ("repair_flows",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

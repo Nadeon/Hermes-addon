@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 232 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 236 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -173,6 +173,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `marketplace` | 11 | Marketplace y alias `ha_hacs_*` (solo lectura) |
 | `generic_commands` | 4 | Las tools genéricas (nueva en 1.2.0, ver abajo) |
 | `integration_flows` | 12 | Integraciones descubiertas, dominios configurables por flujo, título y opciones de sistema de una integración, subentries y reconfigure de una integración (nueva en 1.2.0) |
+| `repair_flows` | 4 | Un aviso de Repairs con sus datos internos y su flujo de reparación (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -185,7 +186,8 @@ tool_families_disabled:
 Un nombre que no esté en la tabla, o `base`, impide arrancar: el log dice qué
 valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
 familias desactivadas y cuántas tools quedan. Con las familias nuevas
-de la 1.2.0 desactivadas (`generic_commands` e `integration_flows`), la lista
+de la 1.2.0 desactivadas (`generic_commands`, `integration_flows` y
+`repair_flows`), la lista
 de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas

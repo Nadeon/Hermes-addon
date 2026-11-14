@@ -160,7 +160,9 @@ def register(
         bluetooth, integration discovery…), plus re-authentication and import
         flows, as shown in Settings → Devices & services → Discovered. Flows a
         user opened are not listed. To set one up, continue its flow with
-        ha_continue_config_entry_flow(flow_id, {...}); to hide it, use
+        ha_continue_config_entry_flow(flow_id, {...}) (re-authentication
+        flows, source "reauth", need a preview and a confirmation token on
+        every step there, because they change credentials); to hide it, use
         ha_ignore_discovery. `ignorable` says whether HA can ignore it (it
         needs a unique ID). title_placeholders are redacted; the rest of the
         flow context is never returned.

@@ -147,6 +147,17 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["integration_flows"]),
                          frozenset({"integration_flows"}))
 
+    def test_repair_flows_es_de_la_1_2_0(self) -> None:
+        """Spec 016, tramo C (T039, FR-017): familia nueva con el módulo
+        `repair_flows`; `repairs` sigue en `diagnostics`."""
+        familia = FAMILIAS["repair_flows"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("repair_flows",))
+        self.assertEqual(familia_de_modulo("repair_flows"), "repair_flows")
+        self.assertEqual(familia_de_modulo("repairs"), "diagnostics")
+        self.assertEqual(validar_desactivadas(["repair_flows"]), frozenset({"repair_flows"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

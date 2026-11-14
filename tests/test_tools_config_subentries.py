@@ -145,6 +145,9 @@ class _FakeHA:
             return self.entities
         if tipo == "config/device_registry/list":
             return self.devices
+        if tipo == "config_entries/flow/progress":
+            # Tramo C: la tool general mira aquí si el flujo es un `reauth`.
+            return []
         raise AssertionError(f"comando inesperado: {payload}")
 
     async def request_json(self, method: str, path: str, json_body: Any = None,

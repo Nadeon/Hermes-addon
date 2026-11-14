@@ -39,7 +39,21 @@ from typing import Any
 import structlog
 
 from hermes.ha import HAClient, HAConnectionError
+from hermes.security import (
+    complete_confirmation_token,
+    create_confirmation_token,
+    es_clave_sensible,
+    redact_secrets,
+    validate_confirmation_token,
+)
 from hermes.tools import _reconfigure
+from hermes.tools._flujos import (
+    _ERROR_MARCADOR,
+    _campos_secretos,
+    _lleva_marcador,
+    _tapar_resultado,
+    _tapar_user_input,
+)
 from hermes.tools._validation import (
     InvalidIdentifier,
     identifier_error,
@@ -53,6 +67,42 @@ logger = structlog.get_logger(__name__)
 _NON_AUTOMATABLE_TYPES = frozenset(
     {"external", "external_done", "progress", "progress_done"}
 )
+
+# Spec 016, tramo C (decisión del supervisor): un flujo `reauth` cambia las
+# credenciales de una entrada; cada paso que se envía pide token.
+_EFECTO_REAUTH = (
+    "Submits this step of the re-authentication flow of this config entry. "
+    "When the flow finishes, the integration saves the new credentials of the "
+    "entry and Home Assistant reloads it: wrong credentials can leave it "
+    "failing to load. Home Assistant does not say in advance whether this "
+    "step is the last one.")
+
+_CONTINUE_REAUTH = (
+    "ha_continue_config_entry_flow: this is a re-authentication flow, the next "
+    "step needs a new preview and its own confirmation_token")
+
+
+def _invalid(field: str, detail: str) -> str:
+    return json.dumps({"error": "invalid_argument", "field": field, "detail": detail})
+
+
+async def _flujo_en_curso(ha_client: HAClient, flow_id: str) -> dict[str, Any] | None:
+    """El flujo tal como lo lista `config_entries/flow/progress`, o `None`.
+
+    HA lista ahí los flujos que no abrió un usuario, `reauth` incluidos (los
+    `reconfigure` y los `user` no salen). `None` si no está o si no se puede
+    leer: entonces la tool sigue como en la 1.1.2 (riesgo aceptado por el
+    supervisor; ver SECURITY.md).
+    """
+    try:
+        raw: Any = await ha_client.ws_send({"type": "config_entries/flow/progress"})
+    except HAConnectionError as exc:
+        logger.warning("ha_continue_config_entry_flow_progress_read_failed",
+                       flow_id=flow_id, error=redact_secrets(str(exc)))
+        return None
+    if not isinstance(raw, list):
+        return None
+    return next((f for f in raw if isinstance(f, dict) and f.get("flow_id") == flow_id), None)
 
 
 def _flow_path(flow_id: str, *, options: bool = False) -> str:
@@ -228,6 +278,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
     async def ha_continue_config_entry_flow(
         flow_id: str,
         user_input: dict[str, Any],
+        confirmation_token: str | None = None,
     ) -> object:
         """Envía datos a un paso de un config flow en curso.
 
@@ -240,10 +291,23 @@ def register(mcp: object, ha_client: HAClient) -> None:
         siguen con ha_continue_reconfigure_flow (vista previa y token en
         cada paso).
 
+        Los flujos de reautenticación (source "reauth", los que abre HA
+        cuando unas credenciales dejan de valer; salen en
+        ha_list_discovered_integrations) piden confirmación en CADA paso,
+        porque cambian las credenciales de la entrada y HA la recarga: sin
+        confirmation_token devuelve una vista previa (entrada, paso, campos
+        con los secretos tapados, efecto) y un token; repite la misma llamada
+        con el token para enviar. El token se ata al flujo, a su paso actual
+        y al user_input entero. Hermes lo sabe por config_entries/flow/progress;
+        si el flujo no sale ahí (los demás flujos, como en la 1.1.2) o no se
+        puede leer, se envía sin token y confirmation_token se ignora.
+
         Args:
             flow_id:    ID del flow (obtenido de ha_start_config_entry_flow).
             user_input: Dict con los valores para los campos del formulario.
                         Las claves deben coincidir con los nombres del schema.
+            confirmation_token: Solo para flujos de reautenticación: el token
+                        de la vista previa.
 
         Returns:
             type="form":         Siguiente paso, con nuevo step_id y schema.
@@ -255,6 +319,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                                  raíz: está dentro de `result`.
             type="abort":        {"type": "abort", "reason": "..."}
             type="menu":         {"type": "menu", "menu_options": [...]}
+            Reautenticación sin token: vista previa y confirmation_token.
             Error:               {"error": "..."}
         """
         # Spec 016 (decisión del supervisor): un reconfigure puede cambiar
@@ -274,13 +339,27 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     "needs a preview and a confirmation token."),
             })
         try:
-            raw: Any = await ha_client._request_json(  # noqa: SLF001
-                "POST",
-                _flow_path(flow_id),
-                json_body=user_input,
-            )
+            ruta = _flow_path(flow_id)
         except InvalidIdentifier as exc:
             return json.dumps(identifier_error(exc))
+
+        # Spec 016, tramo C (decisión del supervisor): un `reauth` cambia
+        # credenciales, así que cada paso pide token (principio IV). A
+        # diferencia de los reconfigure, HA sí los lista en flow/progress: se
+        # mira ahí su `source` antes de enviar nada. Si no sale o no se puede
+        # leer, como en la 1.1.2 (riesgo aceptado; SECURITY.md).
+        en_curso = await _flujo_en_curso(ha_client, flow_id)
+        contexto = en_curso.get("context") if en_curso else None
+        if isinstance(contexto, dict) and contexto.get("source") == "reauth":
+            return await _continuar_reauth(
+                flow_id, ruta, user_input, confirmation_token, en_curso, contexto)
+
+        try:
+            raw: Any = await ha_client._request_json(  # noqa: SLF001
+                "POST",
+                ruta,
+                json_body=user_input,
+            )
         except HAConnectionError as exc:
             logger.error(
                 "ha_continue_config_entry_flow_rest_error",
@@ -310,6 +389,101 @@ def register(mcp: object, ha_client: HAClient) -> None:
             flow_type=flow_type,
         )
         return json.dumps(raw, ensure_ascii=False)
+
+    async def _continuar_reauth(
+        flow_id: str,
+        ruta: str,
+        user_input: Any,
+        confirmation_token: str | None,
+        en_curso: dict[str, Any],
+        contexto: dict[str, Any],
+    ) -> str:
+        """Un paso de un flujo `reauth`, en dos pasos (como el reconfigure)."""
+        if not isinstance(user_input, dict):
+            return _invalid("user_input", "must be an object")
+        if _lleva_marcador(user_input):
+            return _invalid("user_input", _ERROR_MARCADOR)
+        # El paso actual se lee SIEMPRE, también al confirmar: el token se ata
+        # a él, y si el flujo avanzó entre la vista previa y la confirmación,
+        # el token deja de valer y no se envía nada.
+        try:
+            paso: Any = await ha_client._request_json("GET", ruta)  # noqa: SLF001
+        except HAConnectionError as exc:
+            if exc.status == 404:
+                return json.dumps({"error": "not_found", "flow_id": flow_id})
+            logger.warning("ha_continue_config_entry_flow_preview_read_failed",
+                           flow_id=flow_id, error=redact_secrets(str(exc)))
+            return json.dumps({"error": "preview_unavailable",
+                               "detail": redact_secrets(str(exc))})
+        if not isinstance(paso, dict):
+            return json.dumps({"error": "preview_unavailable", "detail": "unexpected_response"})
+        step_id = paso.get("step_id")
+        args = {"flow_id": flow_id, "step_id": step_id, "user_input": user_input}
+
+        if not confirmation_token:
+            esquema = paso.get("data_schema")
+            secretos = _campos_secretos(esquema)
+            pedidos = ({c.get("name") for c in esquema if isinstance(c, dict)}
+                       if isinstance(esquema, list) else set())
+            preview = {
+                "flow_id": flow_id,
+                "source": "reauth",
+                "domain": en_curso.get("handler"),
+                "entry_id": contexto.get("entry_id"),
+                "step_id": step_id,
+                "user_input": _tapar_user_input(user_input, secretos),
+                "secret_fields": sorted(k for k in user_input
+                                        if k in secretos or es_clave_sensible(str(k))),
+                "unknown_fields": sorted(k for k in user_input if k not in pedidos),
+                "effect": _EFECTO_REAUTH,
+            }
+            # `user_input` entra en el hash, no en el fichero del token.
+            token_data = await create_confirmation_token(
+                "ha_continue_config_entry_flow", args, preview=preview)
+            logger.info("ha_continue_config_entry_flow_reauth_preview", flow_id=flow_id,
+                        step_id=step_id, fields=sorted(user_input))
+            return json.dumps(token_data, ensure_ascii=False)
+
+        valido, error = await validate_confirmation_token(
+            confirmation_token, "ha_continue_config_entry_flow", args)
+        if not valido:
+            logger.warning("ha_continue_config_entry_flow_token_invalid", flow_id=flow_id,
+                           step_id=step_id, reason=error)
+            return json.dumps({"error": error})
+        try:
+            raw: Any = await ha_client._request_json(  # noqa: SLF001
+                "POST", ruta, json_body=user_input)
+        except HAConnectionError as exc:
+            await complete_confirmation_token(confirmation_token, success=False,
+                                              error=redact_secrets(str(exc)))
+            logger.error("ha_continue_config_entry_flow_rest_error", flow_id=flow_id,
+                         status=exc.status, error=redact_secrets(str(exc)))
+            if exc.status == 404:
+                return json.dumps({"error": "not_found", "flow_id": flow_id})
+            return json.dumps({"error": redact_secrets(str(exc))})
+        if not isinstance(raw, dict):
+            await complete_confirmation_token(confirmation_token, success=False,
+                                              error="unexpected_response")
+            return json.dumps({"error": "unexpected_response"})
+        tipo = raw.get("type", "")
+        await complete_confirmation_token(confirmation_token, success=True,
+                                          result={"type": tipo, "step_id": step_id})
+        if tipo in _NON_AUTOMATABLE_TYPES:
+            await _abort_flow(ha_client, flow_id, "config_entries")
+            return json.dumps({"error": "non_automatable", "type": tipo, "flow_id": flow_id,
+                               "hint": ("This flow requires external interaction. "
+                                        "Re-authenticate from the HA UI.")})
+        # Un formulario de reauth puede traer la contraseña actual como valor
+        # sugerido: sale tapada, como en el reconfigure.
+        resultado = _tapar_resultado(raw)
+        if tipo in ("form", "menu"):
+            resultado["continue_with"] = _CONTINUE_REAUTH
+        elif tipo == "create_entry" or (tipo == "abort"
+                                        and raw.get("reason") == "reauth_successful"):
+            resultado["status"] = "ok"
+        logger.info("ha_continue_config_entry_flow_ok", flow_id=flow_id, flow_type=tipo,
+                    source="reauth")
+        return json.dumps(resultado, ensure_ascii=False)
 
     # ── ha_abort_config_entry_flow ────────────────────────────────────────
 

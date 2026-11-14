@@ -319,6 +319,12 @@ def register_all_tools(
         from hermes.tools.config_subentries import register as register_config_subentries
         register_config_subentries(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Flujos de reparación de Repairs (spec 016, tramo C): el aviso con sus
+    # datos internos y el arreglo con token en cada paso.
+    if _activa("repair_flows"):
+        from hermes.tools.repair_flows import register as register_repair_flows
+        register_repair_flows(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

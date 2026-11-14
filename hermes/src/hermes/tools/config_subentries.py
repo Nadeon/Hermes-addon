@@ -31,7 +31,6 @@ import structlog
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
-    REDACTED_MARKER,
     complete_confirmation_token,
     create_confirmation_token,
     es_clave_sensible,
@@ -39,10 +38,20 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools import _reconfigure
-from hermes.tools._common import ajustar_lista_a_bytes, redactar_datos, requires_ready
+from hermes.tools._common import ajustar_lista_a_bytes, requires_ready
 from hermes.tools._validation import InvalidIdentifier, validate_identifier
 from hermes.tools.config_entry_flows import _NON_AUTOMATABLE_TYPES
 from hermes.tools.integration_setup import _error_ha, _error_titulo, _invalid
+# Tapado de secretos de los formularios: vive en `_flujos` desde el tramo C,
+# que lo comparte con los flujos de reparación y con los `reauth` de la tool
+# general (que no puede importar este módulo sin un ciclo).
+from hermes.tools._flujos import (  # noqa: F401
+    _ERROR_MARCADOR,
+    _campos_secretos,
+    _lleva_marcador,
+    _tapar_resultado,
+    _tapar_user_input,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -118,85 +127,6 @@ async def _leer_subentries(ha_client: HAClient, entry_id: str) -> list[dict[str,
     if not isinstance(raw, list):
         raise HAConnectionError("unexpected_response")
     return [s for s in raw if isinstance(s, dict)]
-
-
-def _campos_secretos(data_schema: Any) -> set[str]:
-    """Nombres de los campos del formulario que son secretos.
-
-    Por el selector de contraseña (`text` con `type: password`), que es como
-    los marca la integración aunque el nombre sea inocente, o por el nombre
-    con el mismo criterio que la redacción por clave.
-    """
-    secretos: set[str] = set()
-    if not isinstance(data_schema, list):
-        return secretos
-    for campo in data_schema:
-        if not isinstance(campo, dict) or not isinstance(campo.get("name"), str):
-            continue
-        nombre = campo["name"]
-        selector = campo.get("selector")
-        texto = selector.get("text") if isinstance(selector, dict) else None
-        if (isinstance(texto, dict) and texto.get("type") == "password") or es_clave_sensible(nombre):
-            secretos.add(nombre)
-    return secretos
-
-
-def _tapar_resultado(raw: dict[str, Any]) -> dict[str, Any]:
-    """El resultado de un flujo con los secretos tapados.
-
-    Un formulario de reconfigure suele traer los valores actuales como
-    `default` o `description.suggested_value`, contraseña incluida: en un
-    campo secreto se tapan. Después, todo el resultado pasa por la redacción
-    por clave y por patrón (marcadores de la descripción, errores, títulos).
-    """
-    resultado = dict(raw)
-    esquema = resultado.get("data_schema")
-    secretos = _campos_secretos(esquema)
-    if secretos and isinstance(esquema, list):
-        nuevo = []
-        for campo in esquema:
-            if isinstance(campo, dict) and campo.get("name") in secretos:
-                campo = dict(campo)
-                if campo.get("default") not in (None, ""):
-                    campo["default"] = REDACTED_MARKER
-                desc = campo.get("description")
-                if isinstance(desc, dict) and desc.get("suggested_value") not in (None, ""):
-                    campo["description"] = {**desc, "suggested_value": REDACTED_MARKER}
-            nuevo.append(campo)
-        resultado["data_schema"] = nuevo
-    return redactar_datos(resultado)
-
-
-def _lleva_marcador(valor: Any) -> bool:
-    """True si `valor` contiene el marcador de redacción en algún sitio.
-
-    Los formularios salen con los secretos sugeridos tapados: reenviar el
-    marcador lo guardaría en HA como contraseña. Se rechaza antes de llamar.
-    """
-    if isinstance(valor, str):
-        return REDACTED_MARKER in valor
-    if isinstance(valor, dict):
-        return any(_lleva_marcador(v) for v in valor.values())
-    if isinstance(valor, list):
-        return any(_lleva_marcador(v) for v in valor)
-    return False
-
-
-_ERROR_MARCADOR = (
-    "contains the redaction marker; it would be saved as is. Send the real "
-    "value or leave the field as the form allows.")
-
-
-def _tapar_user_input(user_input: dict[str, Any], secretos: set[str]) -> dict[str, Any]:
-    tapado: dict[str, Any] = {}
-    for clave, valor in user_input.items():
-        if (clave in secretos or es_clave_sensible(str(clave))) and valor not in (None, ""):
-            # Un campo de contraseña se tapa sea cual sea su tipo: un PIN
-            # numérico también es un secreto.
-            tapado[clave] = REDACTED_MARKER
-        else:
-            tapado[clave] = redactar_datos(valor)
-    return tapado
 
 
 async def _abortar(ha_client: HAClient, ruta: str) -> None:

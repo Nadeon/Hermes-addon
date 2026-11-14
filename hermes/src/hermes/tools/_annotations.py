@@ -154,6 +154,16 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # porque cualquier envío puede terminar el reconfigure, cambiar
     # credenciales o datos de conexión y recargar la integración.
     "ha_continue_reconfigure_flow",
+    # Spec 016, tramo C: cada envío de un paso pide token, porque puede
+    # aplicar el arreglo de una integración, con efectos propios de cada una,
+    # y HA no dice antes qué paso es el último.
+    "ha_continue_repair_fix",
+    # Spec 016, tramo C (decisión del supervisor): la tool de la 1.1.2 pide
+    # token en cada paso de un flujo `reauth`, que cambia las credenciales de
+    # una entrada. Invariante «pide token ⇔ destructiva»: su hint cambia a
+    # propósito (ver `_HINTS_CAMBIADOS_A_PROPOSITO` en
+    # tests/test_tools_registration.py). Sigue idempotente, como en la 1.1.2.
+    "ha_continue_config_entry_flow",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -209,6 +219,10 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     "ha_continue_subentry_flow",
     "ha_start_reconfigure_flow",
     "ha_continue_reconfigure_flow",
+    # Tramo C: abrir un flujo de reparación (algunos terminan al abrirse) y
+    # avanzarlo un paso.
+    "ha_start_repair_fix",
+    "ha_continue_repair_fix",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el
