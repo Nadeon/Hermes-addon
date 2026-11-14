@@ -1,3 +1,19 @@
+<!--
+Informe de impacto de sincronización (enmienda 1.1.0 → 1.2.0, spec 011)
+- Versión: 1.1.0 → 1.2.0 (MINOR por E-3, que amplía la puerta 4; E-1, E-2 y
+  E-4 son PATCH y quedan absorbidas).
+- Principios modificados: IV (E-1, vista previa de las tools genéricas), V
+  (E-2, honestidad atada a la tabla de clasificación), XI (E-4, fecha de
+  publicación pendiente en el CHANGELOG mientras se desarrolla en una rama).
+- Secciones modificadas: «Flujo de trabajo y puertas de calidad», puerta 4
+  (E-3, el banco de pruebas de Core entra en los checks).
+- Secciones añadidas o eliminadas: ninguna.
+- Sincronización: docs/PRINCIPIOS.md recibe E-1 y E-2 en el mismo cambio (I–VI
+  se enmiendan allí); E-3 y E-4 solo aquí. Plantillas de .specify/templates sin
+  cambios: no citan el texto enmendado.
+- Pendiente: ninguno.
+-->
+
 # Constitución de Hermes
 
 Hermes es un add-on de Home Assistant que expone **una casa entera** —estados,
@@ -58,6 +74,11 @@ la instalación.
   una acción no puede ejecutar otra.
 - El `preview` no puede mentir: describe exactamente lo que hará la ejecución
   confirmada, sin omitir efectos ni anunciar efectos que no ocurren.
+- En una tool genérica, la vista previa describe exactamente el comando o la
+  ruta, el método y la carga que se enviarán (con los secretos tapados) y dice
+  que no interpreta su efecto. No anuncia efectos que no ocurren ni omite nada
+  de lo que se envía. Lo que necesite una vista previa semántica tiene tool
+  dedicada.
 
 Razón: el `preview` es la única revisión humana real antes de una acción grave.
 
@@ -69,6 +90,9 @@ Razón: el `preview` es la única revisión humana real antes de una acción gra
   `update` no crea.
 - Si cambia lo que hace una tool, su `docstring` y sus anotaciones cambian en el
   mismo commit.
+- Una tool que ejecuta comandos según una tabla de clasificación es tan honesta
+  como esa tabla: la clasificación forma parte de su descripción y se verifica
+  automáticamente (ningún verbo de escritura en una categoría de lectura).
 
 Razón: el cliente elige la herramienta por su nombre y su descripción; uno que
 oculta lo que hace es un fallo de seguridad, no de estilo.
@@ -138,6 +162,9 @@ Razón: lo que cambió se ve en el diff; por qué tenía que cambiar, no.
   versión.
 - Cada versión tiene entrada en `hermes/CHANGELOG.md` con el formato
   `## [x.y.z] — AAAA-MM-DD`.
+- Mientras una versión se desarrolla en una rama, su entrada del CHANGELOG puede
+  llevar `<fecha de publicación>`; la fecha real se pone al publicar y nunca
+  llega a `main` sin ella.
 - `README.md` y `README.es.md` se mantienen sincronizados; `hermes/DOCS.md` se
   actualiza si cambia la instalación o la configuración.
 - Se fusiona a `main` con squash y se etiqueta con el workflow `etiquetar.yml`.
@@ -172,8 +199,8 @@ instalación y la actualización de quien use la tienda.
 3. Antes de cada commit: la suite completa pasa, el test nuevo tiene control
    negativo documentado (principio VII) y el diff se ha revisado buscando datos
    personales (principio VIII).
-4. CI debe quedar en verde (`Tests`, `SAST (Semgrep)` y, en el repositorio
-   público, `CodeQL`). Un falso positivo de Semgrep se suprime con
+4. CI debe quedar en verde (`Tests`, `SAST (Semgrep)`, el banco de pruebas de
+   Core y, en el repositorio público, `CodeQL`). Un falso positivo de Semgrep se suprime con
    `# nosemgrep` en la línea exacta y una justificación, nunca debilitando la
    regla.
 5. Si el cambio altera el comportamiento, la documentación (README.md,
@@ -196,4 +223,4 @@ instalación y la actualización de quien use la tienda.
 - La guía operativa para contribuir está en `CONTRIBUTING.es.md` y
   `CONTRIBUTING.md`; la política de seguridad, en `SECURITY.md`.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-14 | **Last Amended**: 2026-11-14
+**Version**: 1.2.0 | **Ratified**: 2026-11-14 | **Last Amended**: 2026-11-14

@@ -54,6 +54,11 @@ tiene que coincidir. El token está atado a la tool **y a sus argumentos** —lo
 de la vista previa, guardados en el servidor—, caduca y es de un solo uso. Un
 token obtenido para una acción no puede ejecutar otra.
 
+En una tool genérica, la vista previa describe exactamente el comando o la ruta,
+el método y la carga que se enviarán (con los secretos tapados) y dice que no
+interpreta su efecto. No anuncia efectos que no ocurren ni omite nada de lo que
+se envía. Lo que necesite una vista previa semántica tiene tool dedicada.
+
 ### V. El nombre y la descripción no mienten
 
 El cliente elige la herramienta por su nombre antes de leer nada más. Un nombre
@@ -61,6 +66,10 @@ que oculta lo que hace es un fallo de seguridad, no de estilo: una herramienta
 llamada `update` que además crea autoriza una acción que quien la aprobó no
 esperaba. Lo mismo vale para las anotaciones MCP: si una tool se declara
 `readOnlyHint`, no puede modificar nada.
+
+Una tool que ejecuta comandos según una tabla de clasificación es tan honesta
+como esa tabla: la clasificación forma parte de su descripción y se verifica
+automáticamente (ningún verbo de escritura en una categoría de lectura).
 
 ### VI. Lo que no se puede probar, no está arreglado
 
