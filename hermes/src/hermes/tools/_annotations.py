@@ -149,6 +149,10 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # nueva no arranca, el Supervisor intenta volver atrás. Pide token y su
     # nombre no lo delata.
     "sv_update_core",
+    # Spec 015, tramo 2: actualizar el OS reescribe la ranura de arranque
+    # inactiva y se aplica al reiniciar el host; actualizar el Supervisor lo
+    # reinicia. Las dos piden token.
+    "sv_update_os", "sv_update_supervisor",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -182,6 +186,8 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # la tool (mismo criterio que sv_install_addon). `sv_check_for_updates` no
     # es de solo lectura (su prefijo no lo es) ni destructiva: no pide token.
     "sv_update_core", "sv_check_for_updates",
+    # Tramo 2: descargan el bundle del OS o la imagen del Supervisor.
+    "sv_update_os", "sv_update_supervisor",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

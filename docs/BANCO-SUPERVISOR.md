@@ -360,6 +360,21 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   `preview_outdated`; confirmada, `sv_get_job_status` sigue el job, Core
   vuelve en la versión pedida (`ha core info`) y el backup aparece en
   `ha backups list`.
+- `sv_update_os` (spec 015), en la tanda 3, con una instantánea antes y un
+  OS anterior instalado (`ha os update --version <anterior>` y reinicio): la
+  vista previa da las versiones, dice que no reinicia nada al instalar y que
+  se aplica al reiniciar el host, y no hace backup; confirmada, devuelve el
+  job `os_manager_update` (o `status: started`), `ha os info` muestra la
+  versión en `version_pending` y aparece el aviso `reboot_required`; una
+  segunda vista previa a la misma versión da `reboot_pending` sin token;
+  tras `sv_reboot_host`, `ha os info` da la versión nueva.
+- `sv_update_supervisor` (spec 015), en la tanda 3, con una instantánea antes
+  y el canal `beta` o un Supervisor anterior: la vista previa da versiones y
+  canal y dice que se reinicia solo; confirmada, devuelve el job
+  `supervisor_update` (o `status: started`), las `sv_*` fallan alrededor de un
+  minuto, Core y las apps siguen arriba y `ha supervisor info` da la versión
+  nueva; en el log de Hermes, `system_update_finished` con
+  `connection_lost` u `ok`.
 
 ## Probar hassio_role: manager
 

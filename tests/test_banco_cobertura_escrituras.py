@@ -83,9 +83,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             f"clasificar: {sin_clasificar}; declaradas que no modifican o no existen: "
             f"{no_modifican}",
         )
-        # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las 2
-        # del tramo 1 de la 015 (`sv_check_for_updates`, `sv_update_core`).
-        self.assertEqual(len(reales), 128)
+        # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011, las 2
+        # del tramo 1 de la 015 (`sv_check_for_updates`, `sv_update_core`) y
+        # las 2 del tramo 2 (`sv_update_os`, `sv_update_supervisor`).
+        self.assertEqual(len(reales), 130)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()

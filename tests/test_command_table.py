@@ -570,6 +570,21 @@ class TestActualizacionesDeLa015(unittest.TestCase):
         self.assertIn("/refresh_updates", ct.SUPERVISOR[("POST", "/reload_updates")].reason)
         self.assertIn("vista previa", ct.CORE_WS["hassio/update/core"].reason)
 
+    def test_tramo_2_os_y_supervisor_dedicadas(self) -> None:
+        # Tramo 2 (T022): las rutas de actualizar el OS y el Supervisor, a sus
+        # tools. Control negativo (T028): con `/os/update` de vuelta a
+        # `deny`, cae nombrándola.
+        malas = []
+        for k, tool in ((("POST", "/os/update"), "sv_update_os"),
+                        (("POST", "/supervisor/update"), "sv_update_supervisor")):
+            e = ct.SUPERVISOR[k]
+            real = (e.category, e.tool, e.family, e.cap)
+            if real != ("dedicated", tool, "system_updates", "CAP-080"):
+                malas.append(f"{k}: {real}")
+            elif e.reason != f"cubierto por {tool}":
+                malas.append(f"{k}: motivo {e.reason!r}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
     def test_alias_legados_siguen_deny(self) -> None:
         for k in (("POST", "/homeassistant/update"), ("GET", "/supervisor/available_updates")):
             with self.subTest(k=k):

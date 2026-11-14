@@ -1,9 +1,10 @@
 """Las genéricas rechazan las rutas de actualización hacia sus tools (spec 015,
-tramo 1, FR-016; T012).
+tramos 1 y 2, FR-016; T012 y T027).
 
 Con la TABLA REAL de `command_table.py`: `GET /available_updates`,
-`POST /core/update`, `POST /refresh_updates`, `POST /reload_updates` y
-`hassio/update/core` responden `use_dedicated_tool` con la tool de la 015 y
+`POST /core/update`, `POST /refresh_updates`, `POST /reload_updates`,
+`hassio/update/core` y, desde el tramo 2, `POST /os/update` y
+`POST /supervisor/update` responden `use_dedicated_tool` con la tool de la 015 y
 sin llamar a nada, también con la familia `system_updates` apagada (entonces
 con `family_disabled: true`): una genérica nunca es la puerta trasera de una
 actualización sin la vista previa de la tool dedicada.
@@ -29,6 +30,9 @@ _CASOS: tuple[tuple[str, tuple[Any, ...], str], ...] = (
     ("sv_call_api", ("POST", "/refresh_updates"), "sv_check_for_updates"),
     ("sv_call_api", ("POST", "/reload_updates"), "sv_check_for_updates"),
     ("ha_call_ws_command", ("hassio/update/core", {"backup": False}), "sv_update_core"),
+    # Tramo 2 (T027).
+    ("sv_call_api", ("POST", "/os/update"), "sv_update_os"),
+    ("sv_call_api", ("POST", "/supervisor/update"), "sv_update_supervisor"),
 )
 
 

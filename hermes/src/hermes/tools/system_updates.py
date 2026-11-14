@@ -2,12 +2,16 @@
 
 Familia `system_updates` (1.2.0).
 
-Tools (tramo 1):
+Tools:
   sv_list_available_updates — qué tiene actualización (Core, OS, Supervisor,
                               apps y plugins) y con qué tool se actualiza
   sv_check_for_updates      — pide al Supervisor que busque (sale a internet)
                               y devuelve la lista
   sv_update_core            — actualiza Core, en dos pasos, con vista previa
+  sv_update_os              — instala el OS en la ranura inactiva (tramo 2);
+                              se aplica al reiniciar el host
+  sv_update_supervisor      — actualiza el Supervisor, que se reinicia solo
+                              (tramo 2)
 
 POR QUÉ
 -------
@@ -44,6 +48,14 @@ error ni un `version` inválido.
 
 Hermes no se actualiza a sí mismo (D-1): en la lista, su app sale con
 `update_with: null` y una nota; `sv_update_addon` ya lo rechaza (009).
+
+OS y Supervisor (tramo 2, research R-7): sus rutas no admiten `background` y
+responden cuando termina la descarga e instalación (minutos; el OS, el bundle
+entero). Ningún cliente MCP espera tanto, así que la petición se lanza en una
+tarea de fondo de Hermes y la tool busca el job en `/jobs/info` unos segundos
+para devolverlo. El Supervisor protege la operación con `shield`: si la
+conexión se corta (el Supervisor se reinicia al terminar la suya), la
+actualización sigue. El resultado final de la petición va al log de Hermes.
 """
 
 from __future__ import annotations
@@ -51,6 +63,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from typing import Any
 
 import aiohttp
@@ -106,6 +119,21 @@ _ESPERA_UPDATE_S = 60
 # Lecturas de Core para la `release_url`: información, no un bloqueo; si Core
 # tarda, la vista previa sigue sin ella.
 _ESPERA_CORE_S = 10
+# OS y Supervisor (research R-7): la petición dura lo que la descarga y la
+# instalación, y va en una tarea de fondo con esta espera máxima.
+_ESPERA_FONDO_S = 1800
+# Cuánto se busca el job en `/jobs/info` antes de responder `started`, y cada
+# cuánto. El reloj y la espera se sustituyen en los tests (sin dormir de verdad).
+_BUSQUEDA_JOB_S = 10
+_INTERVALO_JOB_S = 1
+_reloj = time.monotonic
+_dormir = asyncio.sleep
+
+# Referencias a las tareas de fondo en curso. `asyncio` solo guarda una
+# referencia débil a cada tarea: sin esta, el recolector podría llevársela a
+# mitad de la actualización y su resultado no llegaría nunca al log. Cada una
+# sale del conjunto al terminar.
+_TAREAS_DE_FONDO: set[asyncio.Task[dict[str, Any]]] = set()
 
 _MAX_DETALLE = 500
 
@@ -139,6 +167,16 @@ _TOOL_DE = {
 }
 
 _EXC_DE_LECTURA = (HAConnectionError, TimeoutError, OSError, aiohttp.ClientError)
+# Un corte de la conexión con el Supervisor mientras actualiza no es un fallo
+# (FR-009): el del Supervisor termina reiniciándose, y los dos siguen aunque se
+# corte la petición (`shield`). `HAConnectionError` es un `RuntimeError`: un
+# error del Supervisor nunca cae aquí.
+_EXC_DE_CORTE = (aiohttp.ClientConnectionError, ConnectionError)
+
+_REINICIO_HOST = (
+    "Rebooting the host restarts EVERYTHING: Home Assistant Core, every app and "
+    "Hermes itself; the system is unreachable for several minutes."
+)
 
 
 # ── Funciones puras ───────────────────────────────────────────────────────────
@@ -348,6 +386,39 @@ async def _url_de_notas(ha_client: HAClient, componente: str) -> tuple[str | Non
     (None, motivo). Es información para la vista previa, no un bloqueo: si
     Core no responde, se sigue sin ella y se dice.
     """
+    url, _entity_id, motivo = await _entidad_de_notas(ha_client, componente)
+    return url, motivo
+
+
+async def _notas_con_texto(
+    ha_client: HAClient, componente: str,
+) -> tuple[str | None, str | None, str | None]:
+    """(release_url, texto, motivo): como `_url_de_notas` más el texto de
+    `update/release_notes` de esa entidad. Solo la del OS lo tiene, y es el
+    aviso de que hace falta reiniciar (R-4). Si no se puede leer, `None`: es
+    información, no un bloqueo."""
+    url, entity_id, motivo = await _entidad_de_notas(ha_client, componente)
+    texto = None
+    if entity_id is not None:
+        try:
+            notas = await ha_client.ws_send(
+                {"type": "update/release_notes", "entity_id": entity_id},
+                timeout_seconds=_ESPERA_CORE_S,
+            )
+        except Exception as exc:  # noqa: BLE001 — informativo, como la URL
+            logger.info("system_update_release_notes_unavailable",
+                        component=componente, error_type=type(exc).__name__)
+        else:
+            if isinstance(notas, str) and notas:
+                texto = redact_secrets(notas)[:_MAX_DETALLE]
+    return url, texto, motivo
+
+
+async def _entidad_de_notas(
+    ha_client: HAClient, componente: str,
+) -> tuple[str | None, str | None, str | None]:
+    """(release_url, entity_id, motivo) de la entidad `update` del componente;
+    ver `_url_de_notas`."""
     unique_id = f"home_assistant_{componente}_version_latest"
     try:
         estados = await asyncio.wait_for(ha_client.get_states(), _ESPERA_CORE_S)
@@ -356,7 +427,7 @@ async def _url_de_notas(ha_client: HAClient, componente: str) -> tuple[str | Non
             if isinstance(e, dict) and str(e.get("entity_id", "")).startswith("update.")
         }
         if not updates:
-            return None, "Home Assistant has no update entities"
+            return None, None, "Home Assistant has no update entities"
         entradas = await ha_client.ws_send(
             {"type": "config/entity_registry/get_entries",
              "entity_ids": sorted(updates)},
@@ -368,14 +439,143 @@ async def _url_de_notas(ha_client: HAClient, componente: str) -> tuple[str | Non
         # solo el tipo.
         logger.info("system_update_release_url_unavailable",
                     component=componente, error_type=type(exc).__name__)
-        return None, "Home Assistant Core did not respond"
+        return None, None, "Home Assistant Core did not respond"
     if isinstance(entradas, dict):
         for entity_id, entrada in entradas.items():
             if (isinstance(entrada, dict) and entrada.get("platform") == "hassio"
                     and entrada.get("unique_id") == unique_id):
                 url = (updates.get(entity_id, {}).get("attributes") or {}).get("release_url")
-                return (url if isinstance(url, str) else None), None
-    return None, f"no update entity of the Supervisor integration for {componente}"
+                return (url if isinstance(url, str) else None), entity_id, None
+    return None, None, f"no update entity of the Supervisor integration for {componente}"
+
+
+# ── OS y Supervisor: la petición en segundo plano (research R-7, FR-009) ─────
+
+
+def _lanzar_en_segundo_plano(
+    ha_client: HAClient,
+    *,
+    tool: str,
+    componente: str,
+    ruta: str,
+    cuerpo: dict[str, Any] | None,
+    origen: str,
+    destino: str,
+) -> asyncio.Task[dict[str, Any]]:
+    """Lanza `POST <ruta>` en una tarea de fondo y la devuelve.
+
+    No se espera en primer plano: la petición dura lo que la descarga y la
+    instalación (minutos) y un cliente MCP corta mucho antes. La referencia se
+    guarda en `_TAREAS_DE_FONDO` hasta que termina (ver su comentario).
+
+    La tarea nunca termina con una excepción (salvo si se cancela al pararse
+    Hermes): nadie la espera, y una excepción sin recoger acabaría en el log
+    de asyncio como «Task exception was never retrieved», sin redactar.
+    Devuelve `{"outcome": ok | connection_lost | timeout | failed}` y deja el
+    final en el log: `system_update_finished` o, si el Supervisor la rechaza,
+    `system_update_failed` con el error redactado y recortado.
+    """
+    campos = {"tool": tool, "component": componente,
+              "from_version": origen, "to_version": destino}
+
+    async def peticion() -> dict[str, Any]:
+        try:
+            await ha_client.sv_request("POST", ruta, json_body=cuerpo,
+                                       timeout_seconds=_ESPERA_FONDO_S)
+        except TimeoutError:
+            # El Supervisor sigue (`shield`); Hermes solo deja de esperar.
+            logger.warning("system_update_finished", **campos, outcome="timeout")
+            return {"outcome": "timeout"}
+        except _EXC_DE_CORTE as exc:
+            # Lo esperado al actualizar el Supervisor: se reinicia y corta.
+            logger.info("system_update_finished", **campos, outcome="connection_lost",
+                        error_type=type(exc).__name__)
+            return {"outcome": "connection_lost"}
+        except Exception as exc:  # noqa: BLE001 — ver docstring
+            detalle = _detalle(exc)
+            logger.warning("system_update_failed", **campos,
+                           status=getattr(exc, "status", None),
+                           error_type=type(exc).__name__, detail=detalle)
+            return {"outcome": "failed", "detail": detalle}
+        logger.info("system_update_finished", **campos, outcome="ok")
+        return {"outcome": "ok"}
+
+    tarea = asyncio.create_task(peticion(), name=f"hermes_{tool}")
+    _TAREAS_DE_FONDO.add(tarea)
+    tarea.add_done_callback(_TAREAS_DE_FONDO.discard)
+    return tarea
+
+
+def _job_en_curso(datos: dict[str, Any] | None, nombre: str) -> str | None:
+    """`uuid` del primer job no terminado con ese nombre en `/jobs/info`
+    (también entre los hijos)."""
+    pendientes = list((datos or {}).get("jobs") or [])
+    while pendientes:
+        job = pendientes.pop(0)
+        if not isinstance(job, dict):
+            continue
+        if (job.get("name") == nombre and not job.get("done")
+                and isinstance(job.get("uuid"), str) and job["uuid"]):
+            return job["uuid"]
+        pendientes.extend(job.get("child_jobs") or [])
+    return None
+
+
+async def _buscar_job(
+    ha_client: HAClient, nombre: str, tarea: asyncio.Task[dict[str, Any]],
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Busca el job en `/jobs/info` durante `_BUSQUEDA_JOB_S` como mucho.
+
+    Devuelve (job_id, None) si aparece; (None, resultado) si la petición de
+    fondo terminó antes (por ejemplo, el Supervisor la rechazó al momento); y
+    (None, None) si no aparece a tiempo: la actualización puede estar en
+    marcha igual, y la respuesta dice con qué tool comprobarla.
+    """
+    # Ceder el turno una vez: la tarea de fondo envía su petición antes de
+    # mirar los jobs.
+    await asyncio.sleep(0)
+    inicio = _reloj()
+    while True:
+        if tarea.done():
+            return None, tarea.result()
+        datos, _motivo = await _leer(ha_client, "/jobs/info")
+        job_id = _job_en_curso(datos, nombre)
+        if job_id:
+            return job_id, None
+        if _reloj() - inicio >= _BUSQUEDA_JOB_S:
+            return None, None
+        await _dormir(_INTERVALO_JOB_S)
+
+
+def _resolver_destino(
+    nombre: str, info: dict[str, Any], version: str | None,
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    """(origen, destino, None) o un error sin token: versions_unavailable,
+    already_installed o no_update_available (data-model)."""
+    origen = info.get("version")
+    destino = version or info.get("version_latest")
+    if not isinstance(origen, str) or not isinstance(destino, str):
+        return None, None, _error(
+            "versions_unavailable",
+            f"the Supervisor did not report the installed or the latest {nombre} version")
+    if destino == origen:
+        if version:
+            return None, None, _error("already_installed",
+                                      f"{nombre} {origen} is already installed")
+        return None, None, _error("no_update_available",
+                                  f"{nombre} {origen} is the latest version")
+    return origen, destino, None
+
+
+def _avisos_de_version(origen: str, destino: str, nombre: str) -> tuple[bool | None, list[str]]:
+    """(downgrade, avisos) comparando las dos versiones."""
+    orden = _comparar(destino, origen)
+    if orden is None:
+        return None, ["could not compare the versions: check by hand that this is "
+                      "not a downgrade"]
+    if orden < 0:
+        return True, [f"this is a downgrade of {nombre} from {origen} to {destino}"]
+    return False, []
 
 
 # ── Registro ──────────────────────────────────────────────────────────────────
@@ -540,18 +740,9 @@ def register(
             return None, None, None, _error(
                 "versions_unavailable",
                 f"the installed Core version could not be read ({motivo})")
-        origen = info.get("version")
-        destino = version or info.get("version_latest")
-        if not isinstance(origen, str) or not isinstance(destino, str):
-            return None, None, None, _error(
-                "versions_unavailable",
-                "the Supervisor did not report the installed or the latest Core version")
-        if destino == origen:
-            if version:
-                return None, None, None, _error(
-                    "already_installed", f"Core {origen} is already installed")
-            return None, None, None, _error(
-                "no_update_available", f"Core {origen} is the latest version")
+        origen, destino, err = _resolver_destino("Core", info, version)
+        if err is not None:
+            return None, None, None, err
         return info, origen, destino, None
 
     async def _comprobar_configuracion() -> dict[str, Any]:
@@ -746,3 +937,284 @@ def register(
         logger.info("system_update_started", tool=tool_name, component="core",
                     from_version=origen, to_version=destino, job_id=job_id)
         return result
+
+    async def _ejecutar_en_segundo_plano(
+        token: str,
+        atados: dict[str, Any],
+        *,
+        tool_name: str,
+        componente: str,
+        ruta: str,
+        cuerpo: dict[str, Any] | None,
+        nombre_job: str,
+        verify_with: str,
+        origen: str,
+        destino: str,
+        extra: dict[str, Any],
+        nota_job: str | None = None,
+    ) -> dict[str, Any]:
+        """Confirmación de OS y Supervisor: token, petición en segundo plano y
+        búsqueda del job (FR-008, FR-009)."""
+        # Las versiones se han vuelto a leer ANTES de validar (R-3), como en
+        # Core: si cambiaron, el token no coincide y no se envía nada.
+        valido, error = await validate_confirmation_token(token, tool_name, atados)
+        if not valido:
+            logger.info("system_update_rejected", tool=tool_name, reason="token")
+            return _respuesta_token_invalido(error)
+        tarea = _lanzar_en_segundo_plano(
+            ha_client, tool=tool_name, componente=componente, ruta=ruta,
+            cuerpo=cuerpo, origen=origen, destino=destino)
+        job_id, fin = await _buscar_job(ha_client, nombre_job, tarea)
+        versiones = {"from_version": origen, "to_version": destino}
+        if fin is not None and fin["outcome"] == "failed":
+            # El Supervisor la rechazó antes de que apareciera el job (una
+            # condición que no se pudo leer en la vista previa, otra
+            # actualización en curso…): se dice ya, redactado.
+            await complete_confirmation_token(token, success=False, error=fin["detail"])
+            return _error("supervisor_error", fin["detail"])
+        if job_id:
+            await _track_job(job_id, {"op": f"update_{componente}",
+                                      "from": origen, "to": destino})
+            result: dict[str, Any] = {
+                "job_id": job_id, "status": "running", "poll_with": "sv_get_job_status",
+                **versiones, **extra,
+            }
+            if nota_job:
+                result["note"] = nota_job
+        elif fin is not None and fin["outcome"] == "ok":
+            result = {"result": "ok", **versiones, **extra}
+        else:
+            # Sin job a tiempo, o la conexión se cortó: la actualización puede
+            # seguir en el Supervisor. No es un error (FR-009).
+            result = {"status": "started", "verify_with": verify_with, **versiones, **extra}
+        await complete_confirmation_token(token, success=True, result=result)
+        logger.info("system_update_started", tool=tool_name, component=componente,
+                    from_version=origen, to_version=destino, job_id=job_id,
+                    job_found=job_id is not None)
+        return result
+
+    @mcp.tool()
+    async def sv_update_os(
+        version: str | None = None,
+        confirmation_token: str | None = None,
+    ) -> object:
+        """Update Home Assistant OS through the Supervisor. Two steps. Only
+        on Home Assistant OS.
+
+        IMPORTANT: the new OS is written to the inactive boot slot and is only
+        applied when the HOST REBOOTS (sv_reboot_host). Rebooting the host
+        restarts everything: Core, every app and Hermes itself, and the
+        system is unreachable for several minutes. This tool does not reboot
+        and makes NO backup (create one first with sv_create_backup_full or
+        sv_create_backup_partial).
+
+        Without confirmation_token: a preview, no change: from which version
+        to which (`version`, or the latest one), whether it is a downgrade,
+        the reboot notice and release URL (no release notes locally), what
+        restarts and when, the system health and what blocks the update
+        (unhealthy system, Supervisor update pending, that version already
+        installed and waiting for a reboot). If anything blocks, `error:
+        update_blocked` with the preview and NO confirmation_token. Without
+        Home Assistant OS: `error: not_haos`.
+
+        With confirmation_token: same arguments. The token is bound to the
+        arguments AND to the from/to versions of the preview; if they changed
+        the answer has `preview_outdated: true` and nothing is sent. The
+        download and install take minutes, so Hermes starts them in the
+        background and returns the `job_id` (follow it with
+        sv_get_job_status) or, if the job does not show up in a few seconds,
+        `status: started` with `verify_with: sv_get_os_info`.
+
+        Update the Supervisor first, then Core, then the OS and reboot.
+
+        Args:
+            version: Target OS version (e.g. "16.3"). Default: the latest.
+            confirmation_token: Token from the preview.
+        """
+        tool_name = "sv_update_os"
+        if version is not None and not _validar_version(version):
+            logger.warning("system_update_rejected", tool=tool_name,
+                           reason="invalid_argument")
+            return _error("invalid_argument", _REGLA_VERSION)
+        args: dict[str, Any] = {"version": version}
+
+        info, motivo = await _leer(ha_client, "/os/info")
+        if info is None:
+            err = (_error("not_haos", "this system does not run Home Assistant OS "
+                          "(/os/info answers 404): there is no OS to update")
+                   if motivo == "not_found" else
+                   _error("versions_unavailable",
+                          f"the installed OS version could not be read ({motivo})"))
+            logger.info("system_update_rejected", tool=tool_name, reason=err["error"])
+            return err
+        origen, destino, err = _resolver_destino("OS", info, version)
+        if err is not None:
+            logger.info("system_update_rejected", tool=tool_name, reason=err["error"])
+            return err
+        assert origen is not None and destino is not None
+        atados = _args_atados(args, origen, destino)
+
+        if confirmation_token:
+            despues = "reboot the host with sv_reboot_host to apply it. " + _REINICIO_HOST
+            return await _ejecutar_en_segundo_plano(
+                confirmation_token, atados, tool_name=tool_name, componente="os",
+                ruta="/os/update", cuerpo={"version": destino},
+                nombre_job="os_manager_update", verify_with="sv_get_os_info",
+                origen=origen, destino=destino, extra={"after": despues})
+
+        (salud_d, _), (sup_d, _), (url, texto, motivo_url) = await asyncio.gather(
+            _leer(ha_client, "/resolution/info"),
+            _leer(ha_client, "/supervisor/info"),
+            _notas_con_texto(ha_client, "os"),
+        )
+        bloqueos, avisos = _bloqueos(
+            "os", salud=salud_d, supervisor=sup_d, plugins={}, host=None,
+            os_info=info, to_version=destino)
+        downgrade, avisos_version = _avisos_de_version(origen, destino, "the OS")
+        pendiente = info.get("version_pending")
+        if pendiente and pendiente != destino:
+            avisos.append(f"OS {pendiente} is already installed and waits for a reboot; "
+                          f"installing {destino} replaces it in the inactive slot")
+        avisos = [
+            "applying this update needs a host reboot (sv_reboot_host). " + _REINICIO_HOST,
+            _AVISO_INTERNET, *avisos, *avisos_version,
+        ]
+        razon = "Home Assistant does not provide release notes for the OS locally"
+        if motivo_url:
+            razon += f"; the release URL is not available: {motivo_url}"
+        preview: dict[str, Any] = {
+            "action": "update_os",
+            "component": "os",
+            "from_version": origen,
+            "to_version": destino,
+            "downgrade": downgrade,
+            "release_notes": {"available": False, "text": texto, "reason": razon,
+                              "release_url": url},
+            "backup": {
+                "will_create": False, "possible": False, "kind": None, "name": None,
+                "location": None, "exclude_database": None,
+                # D-2: esta tool no encadena un backup (otra operación larga
+                # dentro de la ejecución); se dice y se da la pista.
+                "hint": "this tool makes no backup: create one first with "
+                        "sv_create_backup_full or sv_create_backup_partial",
+            },
+            "restarts": {
+                "components": [],
+                "description": (
+                    "Nothing restarts while it installs: the Supervisor downloads "
+                    "the OS and writes it to the inactive boot slot, and opens a "
+                    "'reboot_required' issue when it finishes. The new OS is NOT "
+                    "running until the host reboots. " + _REINICIO_HOST),
+                "after": "reboot the host with sv_reboot_host to apply it; this "
+                         "tool does not reboot",
+            },
+            "system_health": _salud(salud_d),
+            "blocked": bloqueos,
+            "warnings": avisos,
+        }
+        preview = redact_structure(preview)
+        if bloqueos:
+            logger.info("system_update_blocked", tool=tool_name, component="os",
+                        codes=[b["code"] for b in bloqueos])
+            return _error("update_blocked",
+                          "the Supervisor would refuse this update; see preview.blocked",
+                          preview=preview)
+        return await create_confirmation_token(tool_name, atados, preview=preview)
+
+    @mcp.tool()
+    async def sv_update_supervisor(confirmation_token: str | None = None) -> object:
+        """Update the Home Assistant Supervisor to its latest version. Two
+        steps.
+
+        The Supervisor restarts itself on the new version. Home Assistant
+        Core and apps are not restarted and keep running, but sv_* tools fail
+        for about a minute until it is back. No specific version (the
+        Supervisor only allows that in development) and no backup is possible.
+
+        Without confirmation_token: a preview, no change: installed and latest
+        version, channel, release URL, what restarts and the system health.
+        Nothing blocks it (the Supervisor puts no conditions on its own
+        update); if there is no update, `error: no_update_available`.
+
+        With confirmation_token: the token is bound to the from/to versions
+        of the preview; if they changed the answer has `preview_outdated:
+        true` and nothing is sent. Hermes starts the update in the background
+        and returns the `job_id` (sv_get_job_status) or `status: started`.
+        The job disappears when the Supervisor restarts: then verify the
+        version with sv_get_supervisor_info.
+
+        Update the Supervisor first, then Core, then the OS.
+
+        Args:
+            confirmation_token: Token from the preview.
+        """
+        tool_name = "sv_update_supervisor"
+        info, motivo = await _leer(ha_client, "/supervisor/info")
+        if info is None:
+            logger.info("system_update_rejected", tool=tool_name,
+                        reason="versions_unavailable")
+            return _error("versions_unavailable",
+                          f"the installed Supervisor version could not be read ({motivo})")
+        if info.get("update_available") is False:
+            origen_v = info.get("version")
+            logger.info("system_update_rejected", tool=tool_name,
+                        reason="no_update_available")
+            return _error("no_update_available",
+                          f"Supervisor {origen_v} is the latest version")
+        origen, destino, err = _resolver_destino("Supervisor", info, None)
+        if err is not None:
+            logger.info("system_update_rejected", tool=tool_name, reason=err["error"])
+            return err
+        assert origen is not None and destino is not None
+        atados = _args_atados({}, origen, destino)
+
+        if confirmation_token:
+            return await _ejecutar_en_segundo_plano(
+                confirmation_token, atados, tool_name=tool_name, componente="supervisor",
+                ruta="/supervisor/update", cuerpo=None,
+                nombre_job="supervisor_update", verify_with="sv_get_supervisor_info",
+                origen=origen, destino=destino, extra={},
+                nota_job=("the job disappears when the Supervisor restarts; verify "
+                          "with sv_get_supervisor_info"))
+
+        (salud_d, _), (url, motivo_url) = await asyncio.gather(
+            _leer(ha_client, "/resolution/info"),
+            _url_de_notas(ha_client, "supervisor"),
+        )
+        downgrade, avisos_version = _avisos_de_version(origen, destino, "the Supervisor")
+        razon = "Home Assistant does not provide release notes for the Supervisor locally"
+        if motivo_url:
+            razon += f"; the release URL is not available: {motivo_url}"
+        preview: dict[str, Any] = {
+            "action": "update_supervisor",
+            "component": "supervisor",
+            "from_version": origen,
+            "to_version": destino,
+            "channel": info.get("channel"),
+            "downgrade": downgrade,
+            "release_notes": {"available": False, "text": None, "reason": razon,
+                              "release_url": url},
+            "backup": {
+                "will_create": False, "possible": False, "kind": None, "name": None,
+                "location": None, "exclude_database": None,
+                "hint": "the Supervisor cannot back itself up before updating",
+            },
+            "restarts": {
+                "components": ["supervisor"],
+                "description": (
+                    "The Supervisor restarts itself on the new version. Core and "
+                    "apps are not restarted and keep running; sv_* tools fail for "
+                    "about a minute until the Supervisor is back."),
+                "after": None,
+            },
+            "system_health": _salud(salud_d),
+            # El job del Supervisor no tiene condiciones (R-6): nada bloquea.
+            "blocked": [],
+            "warnings": [
+                "the update job disappears when the Supervisor restarts; verify "
+                "the version afterwards with sv_get_supervisor_info",
+                *avisos_version,
+            ],
+        }
+        return await create_confirmation_token(
+            tool_name, atados, preview=redact_structure(preview))

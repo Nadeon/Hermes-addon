@@ -21,16 +21,21 @@ espera), este apunta el CUERPO de cada petición, que es lo que el token ata
 - una excepción (se lanza: un 404, un error del Supervisor o
   `TimeoutError` para simular lentitud o un corte);
 - una función sin argumentos (se llama en cada petición: sirve para que la
-  versión cambie entre la vista previa y la confirmación).
+  versión cambie entre la vista previa y la confirmación);
+- una función `async` sin argumentos (se espera: sirve para que la petición
+  de fondo de OS y Supervisor quede «en curso» hasta que el test la suelte, o
+  para que lance un corte de conexión).
 
 Core simulado (para la `release_url` de la entidad `update` de la plataforma
-`hassio`): `get_states` y `ws_send` con `config/entity_registry/get_entries`.
-Con `core_caido = True`, las dos fallan como si Core no respondiera.
+`hassio`): `get_states` y `ws_send` con `config/entity_registry/get_entries` y
+`update/release_notes` (texto de `notas` por `entity_id`). Con
+`core_caido = True`, fallan como si Core no respondiera.
 """
 
 from __future__ import annotations
 
 import copy
+import inspect
 from typing import Any
 
 from hermes.ha import HAConnectionError
@@ -44,13 +49,25 @@ __all__ = [
     "CENTINELA_JWT", "CENTINELA_PASSWORD", "CORE_ACTUAL", "CORE_ULTIMA",
     "SLUG_APP", "SLUG_HERMES", "SupervisorActualizaciones", "URL_NOTAS_CORE",
     "ENTIDAD_CORE", "error_404", "sistema_sano",
+    "OS_ACTUAL", "OS_ULTIMA", "SUPERVISOR_ACTUAL", "SUPERVISOR_ULTIMA",
+    "URL_NOTAS_OS", "URL_NOTAS_SUPERVISOR", "AVISO_REINICIO_OS",
+    "con_os_y_supervisor_desactualizados", "sin_supervisor_pendiente", "job",
 ]
 
 CORE_ACTUAL = "2026.11.1"
 CORE_ULTIMA = "2026.12.0"
 SUPERVISOR_ACTUAL = "2026.11.0"
+SUPERVISOR_ULTIMA = "2026.11.1"
 OS_ACTUAL = "16.2"
 OS_ULTIMA = "16.3"
+URL_NOTAS_OS = "https://example.invalid/notas-del-os"
+URL_NOTAS_SUPERVISOR = "https://example.invalid/notas-del-supervisor"
+ENTIDAD_OS = "update.sistema_operativo_renombrado"
+ENTIDAD_SUPERVISOR = "update.supervisor_renombrado"
+AVISO_REINICIO_OS = (
+    "<ha-alert alert-type='info'>A reboot is required after install for the "
+    "update to take effect.</ha-alert>\n"
+)
 SLUG_APP = "a0b1c2d3_ejemplo"
 # El Supervisor pone al slug de Hermes el prefijo del repositorio; `_es_hermes`
 # lo reconoce por el sufijo `_hermes`.
@@ -76,6 +93,7 @@ class SupervisorActualizaciones(SupervisorSimulado):
         super().__init__()
         self.estados: list[dict[str, Any]] = []
         self.registro: dict[str, dict[str, Any]] = {}
+        self.notas: dict[str, str] = {}
         self.core_caido = False
         self.ws_llamadas: list[dict[str, Any]] = []
 
@@ -96,7 +114,9 @@ class SupervisorActualizaciones(SupervisorSimulado):
             "cuerpo": copy.deepcopy(json_body), "texto": False,
         })
         valor = self.json.get((method.upper(), sv_path))
-        if callable(valor) and not isinstance(valor, Exception):
+        if inspect.iscoroutinefunction(valor):
+            valor = await valor()
+        elif callable(valor) and not isinstance(valor, Exception):
             valor = valor()
         if valor is None:
             raise error_404(method.upper(), sv_path)
@@ -118,6 +138,8 @@ class SupervisorActualizaciones(SupervisorSimulado):
             raise HAConnectionError("Home Assistant no responde")
         if payload.get("type") == "config/entity_registry/get_entries":
             return {e: copy.deepcopy(self.registro.get(e)) for e in payload["entity_ids"]}
+        if payload.get("type") == "update/release_notes":
+            return self.notas.get(payload["entity_id"])
         raise HAConnectionError(f"comando no simulado: {payload.get('type')}")
 
     # ── Atajos para los tests ───────────────────────────────────────────────
@@ -201,6 +223,49 @@ def sistema_sano(sv: SupervisorActualizaciones) -> SupervisorActualizaciones:
                                      "unique_id": "home_assistant_core_version_latest"},
     }
     return sv
+
+
+def con_os_y_supervisor_desactualizados(sv: SupervisorActualizaciones) -> None:
+    """OS 16.2 → 16.3 y Supervisor con actualización, y sus entidades `update`
+    en Core (tramo 2). El Supervisor desactualizado bloquea el OS (R-6): los
+    tests del OS lo quitan con `sin_supervisor_pendiente`."""
+    os_info = copy.deepcopy(sv.json[("GET", "/os/info")])
+    os_info.update(version_latest=OS_ULTIMA, update_available=True)
+    sv.respuesta("GET", "/os/info", os_info)
+    sup = copy.deepcopy(sv.json[("GET", "/supervisor/info")])
+    sup.update(version_latest=SUPERVISOR_ULTIMA, update_available=True)
+    sv.respuesta("GET", "/supervisor/info", sup)
+    sv.respuesta("POST", "/os/update", {})
+    sv.respuesta("POST", "/supervisor/update", {})
+    sv.estados += [
+        {"entity_id": ENTIDAD_OS, "state": "on", "attributes": {
+            "installed_version": OS_ACTUAL, "latest_version": OS_ULTIMA,
+            "release_url": URL_NOTAS_OS, "title": "Home Assistant Operating System"}},
+        {"entity_id": ENTIDAD_SUPERVISOR, "state": "on", "attributes": {
+            "installed_version": SUPERVISOR_ACTUAL, "latest_version": SUPERVISOR_ULTIMA,
+            "release_url": URL_NOTAS_SUPERVISOR, "title": "Home Assistant Supervisor"}},
+    ]
+    sv.registro[ENTIDAD_OS] = {"entity_id": ENTIDAD_OS, "platform": "hassio",
+                               "unique_id": "home_assistant_os_version_latest"}
+    sv.registro[ENTIDAD_SUPERVISOR] = {
+        "entity_id": ENTIDAD_SUPERVISOR, "platform": "hassio",
+        "unique_id": "home_assistant_supervisor_version_latest"}
+    # El texto que da Core para el OS (`OS_UPDATE_REBOOT_NOTICE`).
+    sv.notas[ENTIDAD_OS] = AVISO_REINICIO_OS
+
+
+def sin_supervisor_pendiente(sv: SupervisorActualizaciones) -> None:
+    sup = copy.deepcopy(sv.json[("GET", "/supervisor/info")])
+    sup.update(version_latest=SUPERVISOR_ACTUAL, update_available=False)
+    sv.respuesta("GET", "/supervisor/info", sup)
+
+
+def job(nombre: str, uuid: str, *, done: bool = False,
+        hijos: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Un job con la forma de `SupervisorJob.as_dict()` en `/jobs/info`."""
+    return {"name": nombre, "reference": None, "uuid": uuid, "progress": 0,
+            "stage": None, "done": done, "errors": [], "created": "2026-11-14T10:00:00+00:00",
+            "extra": None, "child_jobs": hijos or []}
 
 
 def con_plugin_desactualizado(sv: SupervisorActualizaciones, nombre: str = "dns") -> None:

@@ -939,7 +939,7 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/os/datadisk/move"): E("deny", "Formatea el disco destino y mueve los datos; requiere hardware y reinicio (clase D)", "generic_commands"),
     ("POST", "/os/datadisk/wipe"): E("deny", "Borra todos los datos (clase D)", "generic_commands"),
     ("POST", "/os/ssh/authorized_keys"): E("deny", "Acceso root por SSH; solo Core (clase D)", "generic_commands"),
-    ("POST", "/os/update"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
+    ("POST", "/os/update"): E("dedicated", "cubierto por sv_update_os", "system_updates", tool="sv_update_os", cap="CAP-080"),
     ("POST", "/refresh_updates"): E("dedicated", "cubierto por sv_check_for_updates", "system_updates", tool="sv_check_for_updates"),
     ("POST", "/reload_updates"): E("dedicated", "cubierto por sv_check_for_updates (que usa /refresh_updates: recarga también la tienda)", "system_updates", tool="sv_check_for_updates", cap="CAP-080"),
     ("POST", "/resolution/check/{check}/options"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
@@ -961,7 +961,7 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/supervisor/reload"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
     ("POST", "/supervisor/repair"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
     ("POST", "/supervisor/restart"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
-    ("POST", "/supervisor/update"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
+    ("POST", "/supervisor/update"): E("dedicated", "cubierto por sv_update_supervisor", "system_updates", tool="sv_update_supervisor", cap="CAP-080"),
     ("POST", "/time/options"): E("confirm", "cambia los servidores NTP del host", "generic_commands", cap="CAP-094"),
     ("PUT", "/mounts/{mount}"): E("deny", "pendiente de tool dedicada (spec 019)", "generic_commands", cap="CAP-083"),
 }

@@ -759,6 +759,10 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_list_available_updates": ("R-I-", "List available updates (Supervisor)"),
     "sv_check_for_updates": ("--IO", "Check for updates (Supervisor)"),
     "sv_update_core": ("-DIO", "Update core (Supervisor)"),
+    # Tramo 2: OS y Supervisor, mismas garantías que Core. `OS` en mayúsculas
+    # por `_TITLE_WORDS` (lo trajo la 013).
+    "sv_update_os": ("-DIO", "Update OS (Supervisor)"),
+    "sv_update_supervisor": ("-DIO", "Update supervisor (Supervisor)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -775,6 +779,9 @@ _HOST_013 = (
 
 # Las del tramo 1 de la spec 015 (actualizaciones, CAP-080).
 _UPDATES_015 = ("sv_list_available_updates", "sv_check_for_updates", "sv_update_core")
+
+# Las del tramo 2 de la spec 015 (OS y Supervisor, CAP-080).
+_UPDATES_015_T2 = ("sv_update_os", "sv_update_supervisor")
 
 
 def _hint_code(ann) -> str:
@@ -1217,11 +1224,25 @@ class TestActualizaciones015:
         from hermes.command_table import CORE_WS, SUPERVISOR
 
         tools = _real_registry(["system_updates"])
-        assert [n for n in _UPDATES_015 if n in tools] == []
+        assert [n for n in _UPDATES_015 + _UPDATES_015_T2 if n in tools] == []
         dedicadas = [e.tool for e in (*CORE_WS.values(), *SUPERVISOR.values())
                      if e.category == "dedicated" and e.family == "system_updates"]
-        assert sorted(set(dedicadas)) == sorted(_UPDATES_015[1:] + _UPDATES_015[:1])
-        assert len(dedicadas) == 5
+        assert sorted(set(dedicadas)) == sorted(_UPDATES_015 + _UPDATES_015_T2)
+        # 5 del tramo 1 y 2 del tramo 2.
+        assert len(dedicadas) == 7
+
+    def test_tramo_2_registradas_con_sus_anotaciones(self):
+        """Tramo 2 (T024): las dos destructivas, idempotentes y de mundo
+        abierto; `sv_update_supervisor` sin argumento `version` (FR-007)."""
+        tools = _real_registry()
+        for nombre in _UPDATES_015_T2:
+            ann = tools[nombre].annotations
+            assert _hint_code(ann) == "-DIO", nombre
+        assert set(tools["sv_update_os"].parameters["properties"]) == {
+            "version", "confirmation_token"}
+        assert set(tools["sv_update_supervisor"].parameters["properties"]) == {
+            "confirmation_token"}
+        assert tools["sv_update_os"].title == "Update OS (Supervisor)"
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

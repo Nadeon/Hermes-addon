@@ -199,7 +199,12 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
         "/cli/info",
         "/observer/info",
         "/multicast/info",
+        # Tramo 2: la búsqueda del job de OS y Supervisor.
+        "/jobs/info",
     ),
+    # Tramo 2: la petición en segundo plano de `_lanzar_en_segundo_plano`,
+    # con una de estas dos rutas fijas.
+    ("hermes.tools.system_updates", "peticion"): ("/os/update", "/supervisor/update"),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.

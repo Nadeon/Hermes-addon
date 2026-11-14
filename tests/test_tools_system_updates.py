@@ -1,5 +1,5 @@
-"""Actualizaciones del sistema (spec 015, tramo 1: FR-001…FR-005, FR-008,
-FR-010, FR-018).
+"""Actualizaciones del sistema (spec 015, tramos 1 y 2: FR-001…FR-010,
+FR-018).
 
 Todo contra el Supervisor simulado de `tests/fixtures/supervisor_actualizaciones.py`
 (formas del Supervisor 2026.11.0, datos ficticios). Nunca hay una
@@ -11,6 +11,8 @@ lo que devuelve.
 - `TestListar`, `TestBuscar`: `sv_list_available_updates` y
   `sv_check_for_updates`.
 - `TestVistaPreviaCore`, `TestUpdateCore`, `TestTokenAtado`: `sv_update_core`.
+- Tramo 2: `TestUpdateOs`, `TestUpdateSupervisor` (vistas previas) y
+  `TestSegundoPlano` (petición de fondo, búsqueda del job, cortes, token).
 
 Controles negativos del tramo 1 (T015), con sus recuentos en el commit:
 (a) emitir token con `blocked` no vacío; (b) no atar `_to_version`;
@@ -30,6 +32,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
+import aiohttp
 from structlog.testing import capture_logs
 
 from hermes import fs_write, security
@@ -37,17 +40,27 @@ from hermes.ha import HAConnectionError
 from hermes.tools import addons as addons_mod
 from hermes.tools import system_updates as mod
 from tests.fixtures.supervisor_actualizaciones import (
+    AVISO_REINICIO_OS,
     CENTINELA_JWT,
     CENTINELA_PASSWORD,
     CORE_ACTUAL,
     CORE_ULTIMA,
+    OS_ACTUAL,
+    OS_ULTIMA,
     SLUG_APP,
     SLUG_HERMES,
+    SUPERVISOR_ACTUAL,
+    SUPERVISOR_ULTIMA,
     URL_NOTAS_CORE,
+    URL_NOTAS_OS,
+    URL_NOTAS_SUPERVISOR,
     SupervisorActualizaciones,
     con_actualizaciones_de_todo,
+    con_os_y_supervisor_desactualizados,
     con_plugin_desactualizado,
     error_404,
+    job,
+    sin_supervisor_pendiente,
     sistema_sano,
 )
 
@@ -666,6 +679,411 @@ class TestTokenAtado(_Base):
         self.sv.llamadas.clear()
         await self.t["sv_update_core"](confirmation_token=r["confirmation_token"])
         self.assertEqual(self.sv.rutas(), [("GET", "/core/info"), ("POST", "/core/update")])
+
+
+# ── Tramo 2: OS y Supervisor (FR-003, FR-004, FR-006…FR-009, FR-018) ─────────
+
+_JOB_OS = "1b2c3d4e5f60718293a4b5c6d7e8f901"
+_JOB_SUP = "2c3d4e5f60718293a4b5c6d7e8f90123"
+
+
+class _BaseOsSup(_Base):
+    """OS 16.2 → 16.3 y Supervisor con actualización; el Supervisor ya al día
+    para el OS salvo que el test diga otra cosa. Reloj y espera falsos: la
+    búsqueda del job avanza el reloj sin dormir de verdad."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        con_os_y_supervisor_desactualizados(self.sv)
+        self.ahora = 0.0
+
+        async def dormir(segundos: float) -> None:
+            self.ahora += segundos
+            await asyncio.sleep(0)
+
+        self._parches += [
+            mock.patch.object(mod, "_reloj", lambda: self.ahora),
+            mock.patch.object(mod, "_dormir", dormir),
+        ]
+        for p in self._parches[-2:]:
+            p.start()
+        self.soltar = asyncio.Event()
+
+    async def asyncTearDown(self) -> None:
+        self.soltar.set()
+        await self.fondo()
+        await super().asyncTearDown()
+
+    async def fondo(self) -> list[dict[str, Any]]:
+        """Espera a que terminen las tareas de fondo y da sus resultados."""
+        return list(await asyncio.gather(*list(mod._TAREAS_DE_FONDO)))
+
+    def peticion_lenta(self, ruta: str, *, al_final: BaseException | None = None) -> None:
+        """La petición de actualización queda en curso hasta `self.soltar`."""
+        async def lenta() -> dict[str, Any]:
+            await self.soltar.wait()
+            if al_final is not None:
+                raise al_final
+            return {}
+        self.sv.respuesta("POST", ruta, lenta)
+
+    def jobs(self, *lista: dict[str, Any]) -> None:
+        self.sv.respuesta("GET", "/jobs/info", {"ignore_conditions": [], "jobs": list(lista)})
+
+    def posts_de(self, ruta: str) -> list[dict[str, Any]]:
+        return [c for c in self.sv.llamadas if c["metodo"] == "POST" and c["ruta"] == ruta]
+
+    def estado_token(self, token: str) -> str:
+        return json.loads((security.CONFIRMATIONS_DIR / f"{token}.json")
+                          .read_text(encoding="utf-8"))["state"]
+
+
+class TestUpdateOs(_BaseOsSup):
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        sin_supervisor_pendiente(self.sv)
+
+    async def test_bloques_de_la_vista_previa(self) -> None:
+        r = await self.t["sv_update_os"]()
+        self.assertIn("confirmation_token", r)
+        p = r["preview"]
+        self.assertEqual((p["action"], p["component"]), ("update_os", "os"))
+        self.assertEqual((p["from_version"], p["to_version"]), (OS_ACTUAL, OS_ULTIMA))
+        self.assertIs(p["downgrade"], False)
+        # El aviso de reinicio de la entidad del OS es lo único que Core da.
+        self.assertEqual(p["release_notes"]["text"], AVISO_REINICIO_OS)
+        self.assertIs(p["release_notes"]["available"], False)
+        self.assertEqual(p["release_notes"]["release_url"], URL_NOTAS_OS)
+        # Instalar no reinicia nada; aplicarlo reinicia el host, y la vista
+        # previa lo dice sin rodeos.
+        self.assertEqual(p["restarts"]["components"], [])
+        self.assertIn("sv_reboot_host", p["restarts"]["after"])
+        for frase in ("inactive boot slot", "NOT running until the host reboots",
+                      "restarts EVERYTHING", "Hermes", "reboot_required"):
+            self.assertIn(frase, p["restarts"]["description"])
+        self.assertTrue(p["warnings"][0].startswith("applying this update needs a host reboot"))
+        self.assertIn("the Supervisor also checks internet access when it runs", p["warnings"])
+        # D-2: sin backup, con la pista.
+        self.assertEqual((p["backup"]["will_create"], p["backup"]["possible"]), (False, False))
+        self.assertIn("sv_create_backup_full", p["backup"]["hint"])
+        self.assertEqual(p["system_health"]["unavailable"], False)
+        self.assertEqual(p["blocked"], [])
+        self.assertNotIn("config_check", p)
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_sin_haos(self) -> None:
+        self.sv.respuesta("GET", "/os/info", error_404("GET", "/os/info"))
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "not_haos")
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.sv.rutas(), [("GET", "/os/info")])
+
+    async def test_os_info_ilegible(self) -> None:
+        self.sv.respuesta("GET", "/os/info", HAConnectionError("caído", status=502))
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "versions_unavailable")
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_reinicio_pendiente(self) -> None:
+        info = dict(self.sv.json[("GET", "/os/info")])
+        info["version_pending"] = OS_ULTIMA
+        self.sv.respuesta("GET", "/os/info", info)
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "update_blocked")
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual([b["code"] for b in r["preview"]["blocked"]], ["reboot_pending"])
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_otra_version_pendiente_avisa(self) -> None:
+        info = dict(self.sv.json[("GET", "/os/info")])
+        info.update(version_pending="16.25", version_latest="16.4")
+        self.sv.respuesta("GET", "/os/info", info)
+        r = await self.t["sv_update_os"]()
+        self.assertIn("confirmation_token", r)
+        self.assertTrue(any("16.25" in a and "replaces" in a for a in r["preview"]["warnings"]))
+
+    async def test_supervisor_pendiente_bloquea(self) -> None:
+        con_os_y_supervisor_desactualizados(self.sv)
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "update_blocked")
+        self.assertIn("supervisor_update_pending", [b["code"] for b in r["preview"]["blocked"]])
+        self.assertNotIn("confirmation_token", r)
+
+    async def test_no_saludable_bloquea(self) -> None:
+        self.sv.respuesta("GET", "/resolution/info", {
+            "unsupported": [], "unhealthy": ["docker"], "suggestions": [], "issues": [],
+            "checks": []})
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "update_blocked")
+        self.assertEqual([b["code"] for b in r["preview"]["blocked"]], ["unhealthy"])
+
+    async def test_core_caido_sin_notas_pero_con_token(self) -> None:
+        self.sv.core_caido = True
+        r = await self.t["sv_update_os"]()
+        self.assertIn("confirmation_token", r)
+        notas = r["preview"]["release_notes"]
+        self.assertEqual((notas["text"], notas["release_url"]), (None, None))
+        self.assertIn("did not respond", notas["reason"])
+
+    async def test_ya_instalada_y_sin_actualizacion(self) -> None:
+        r = await self.t["sv_update_os"](version=OS_ACTUAL)
+        self.assertEqual(r["error"], "already_installed")
+        info = dict(self.sv.json[("GET", "/os/info")])
+        info["version_latest"] = OS_ACTUAL
+        self.sv.respuesta("GET", "/os/info", info)
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "no_update_available")
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_argumento_invalido(self) -> None:
+        r = await self.t["sv_update_os"](version="16.3/../x")
+        self.assertEqual(r["error"], "invalid_argument")
+        self.assertEqual(self.sv.llamadas, [])
+
+    async def test_bajar_de_version(self) -> None:
+        r = await self.t["sv_update_os"](version="15.2")
+        self.assertIs(r["preview"]["downgrade"], True)
+        self.assertTrue(any("downgrade" in a for a in r["preview"]["warnings"]))
+
+
+class TestUpdateSupervisor(_BaseOsSup):
+    def test_sin_argumento_version(self) -> None:
+        import inspect
+        params = set(inspect.signature(self.t["sv_update_supervisor"]).parameters)
+        self.assertEqual(params, {"confirmation_token"})
+
+    async def test_bloques_de_la_vista_previa(self) -> None:
+        r = await self.t["sv_update_supervisor"]()
+        self.assertIn("confirmation_token", r)
+        p = r["preview"]
+        self.assertEqual((p["action"], p["component"]), ("update_supervisor", "supervisor"))
+        self.assertEqual((p["from_version"], p["to_version"]),
+                         (SUPERVISOR_ACTUAL, SUPERVISOR_ULTIMA))
+        self.assertEqual(p["channel"], "stable")
+        self.assertEqual(p["restarts"]["components"], ["supervisor"])
+        self.assertIn("Core and apps are not restarted", p["restarts"]["description"])
+        self.assertIn("sv_* tools fail", p["restarts"]["description"])
+        self.assertEqual((p["backup"]["will_create"], p["backup"]["possible"]), (False, False))
+        self.assertEqual(p["release_notes"]["release_url"], URL_NOTAS_SUPERVISOR)
+        self.assertIsNone(p["release_notes"]["text"])
+        self.assertEqual(p["blocked"], [])
+        self.assertTrue(any("sv_get_supervisor_info" in a for a in p["warnings"]))
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_sin_actualizacion(self) -> None:
+        sin_supervisor_pendiente(self.sv)
+        r = await self.t["sv_update_supervisor"]()
+        self.assertEqual(r["error"], "no_update_available")
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_no_saludable_no_bloquea(self) -> None:
+        # `supervisor_update` no tiene condiciones (R-6): se enseña, no bloquea.
+        self.sv.respuesta("GET", "/resolution/info", {
+            "unsupported": [], "unhealthy": ["docker"], "suggestions": [], "issues": [],
+            "checks": []})
+        r = await self.t["sv_update_supervisor"]()
+        self.assertIn("confirmation_token", r)
+        self.assertEqual(r["preview"]["system_health"]["unhealthy"], ["docker"])
+
+    async def test_info_ilegible(self) -> None:
+        self.sv.respuesta("GET", "/supervisor/info", HAConnectionError("caído", status=502))
+        r = await self.t["sv_update_supervisor"]()
+        self.assertEqual(r["error"], "versions_unavailable")
+        self.assertEqual(self.sv.posts(), [])
+
+
+class TestSegundoPlano(_BaseOsSup):
+    """La confirmación lanza la petición en una tarea de fondo y devuelve el
+    job (FR-009). Controles negativos (T028): (a) esperar la petición en
+    primer plano → `test_responde_sin_esperar_la_peticion`; (b) no guardar la
+    referencia → `test_referencia_guardada_y_soltada`; (e) tratar el corte
+    como error → los dos de corte; (f) sin redacción del error de fondo →
+    `test_error_de_fondo_redactado`."""
+
+    async def confirmar_os(self, **kw: Any) -> tuple[str, dict[str, Any]]:
+        sin_supervisor_pendiente(self.sv)
+        r = await self.t["sv_update_os"](**kw)
+        token = r["confirmation_token"]
+        self.sv.llamadas.clear()
+        return token, await self.t["sv_update_os"](confirmation_token=token, **kw)
+
+    async def confirmar_supervisor(self) -> tuple[str, dict[str, Any]]:
+        r = await self.t["sv_update_supervisor"]()
+        token = r["confirmation_token"]
+        self.sv.llamadas.clear()
+        return token, await self.t["sv_update_supervisor"](confirmation_token=token)
+
+    async def test_os_con_job(self) -> None:
+        self.peticion_lenta("/os/update")
+        self.jobs(job("otro_job", "ffff"), job("os_manager_update", _JOB_OS))
+        with capture_logs() as logs:
+            token, r = await self.confirmar_os()
+            self.assertEqual(r["job_id"], _JOB_OS)
+            self.assertEqual((r["status"], r["poll_with"]), ("running", "sv_get_job_status"))
+            self.assertEqual((r["from_version"], r["to_version"]), (OS_ACTUAL, OS_ULTIMA))
+            self.assertIn("sv_reboot_host", r["after"])
+            self.assertIn("restarts EVERYTHING", r["after"])
+            posts = self.posts_de("/os/update")
+            self.assertEqual(len(posts), 1)
+            self.assertEqual((posts[0]["cuerpo"], posts[0]["timeout"]),
+                             ({"version": OS_ULTIMA}, 1800))
+            jobs = json.loads(addons_mod._PENDING_JOBS_PATH.read_text(encoding="utf-8"))
+            self.assertEqual((jobs[_JOB_OS]["op"], jobs[_JOB_OS]["from"], jobs[_JOB_OS]["to"]),
+                             ("update_os", OS_ACTUAL, OS_ULTIMA))
+            self.assertEqual(self.estado_token(token), "completed")
+            self.soltar.set()
+            self.assertEqual(await self.fondo(), [{"outcome": "ok"}])
+        inicio = [e for e in logs if e["event"] == "system_update_started"]
+        self.assertEqual((inicio[0]["job_id"], inicio[0]["job_found"]), (_JOB_OS, True))
+        fin = [e for e in logs if e["event"] == "system_update_finished"]
+        self.assertEqual([e["outcome"] for e in fin], ["ok"])
+
+    async def test_responde_sin_esperar_la_peticion(self) -> None:
+        self.peticion_lenta("/os/update")
+        self.jobs(job("os_manager_update", _JOB_OS))
+        _token, r = await self.confirmar_os()
+        self.assertEqual(r["status"], "running")
+        # La respuesta llegó con la petición todavía en curso.
+        self.assertEqual(len(mod._TAREAS_DE_FONDO), 1)
+        self.assertFalse(next(iter(mod._TAREAS_DE_FONDO)).done())
+
+    async def test_referencia_guardada_y_soltada(self) -> None:
+        self.peticion_lenta("/os/update")
+        self.jobs(job("os_manager_update", _JOB_OS))
+        await self.confirmar_os()
+        tareas = set(mod._TAREAS_DE_FONDO)
+        self.assertEqual(len(tareas), 1)
+        self.soltar.set()
+        await asyncio.gather(*tareas)
+        await asyncio.sleep(0)  # el callback de fin corre en la siguiente vuelta
+        self.assertEqual(mod._TAREAS_DE_FONDO, set())
+
+    async def test_job_que_no_aparece(self) -> None:
+        self.peticion_lenta("/os/update")
+        # Uno terminado con el mismo nombre (otra actualización) no vale.
+        self.jobs(job("os_manager_update", "eeee", done=True))
+        token, r = await self.confirmar_os()
+        self.assertEqual(r["status"], "started")
+        self.assertEqual(r["verify_with"], "sv_get_os_info")
+        self.assertNotIn("job_id", r)
+        self.assertGreaterEqual(self.ahora, 10)
+        self.assertLessEqual(self.ahora, 11)
+        lecturas = [c for c in self.sv.llamadas if c["ruta"] == "/jobs/info"]
+        self.assertGreater(len(lecturas), 5)
+        self.assertFalse(addons_mod._PENDING_JOBS_PATH.exists())
+        self.assertEqual(self.estado_token(token), "completed")
+
+    async def test_job_entre_los_hijos(self) -> None:
+        self.peticion_lenta("/os/update")
+        self.jobs(job("padre", "aaaa", hijos=[job("os_manager_update", _JOB_OS)]))
+        _token, r = await self.confirmar_os()
+        self.assertEqual(r["job_id"], _JOB_OS)
+
+    async def test_supervisor_con_job(self) -> None:
+        self.peticion_lenta("/supervisor/update")
+        self.jobs(job("supervisor_update", _JOB_SUP))
+        _token, r = await self.confirmar_supervisor()
+        self.assertEqual(r["job_id"], _JOB_SUP)
+        self.assertIn("sv_get_supervisor_info", r["note"])
+        self.assertIn("disappears", r["note"])
+        posts = self.posts_de("/supervisor/update")
+        self.assertEqual(len(posts), 1)
+        self.assertIsNone(posts[0]["cuerpo"])
+        self.assertEqual(posts[0]["timeout"], 1800)
+        jobs = json.loads(addons_mod._PENDING_JOBS_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(jobs[_JOB_SUP]["op"], "update_supervisor")
+
+    async def test_corte_al_momento_no_es_error(self) -> None:
+        # El Supervisor se reinicia y corta antes de que se vea el job.
+        self.sv.respuesta("POST", "/supervisor/update", aiohttp.ServerDisconnectedError())
+        with capture_logs() as logs:
+            token, r = await self.confirmar_supervisor()
+        self.assertNotIn("error", r)
+        self.assertEqual((r["status"], r["verify_with"]), ("started", "sv_get_supervisor_info"))
+        self.assertEqual(self.estado_token(token), "completed")
+        self.assertEqual([e["outcome"] for e in logs if e["event"] == "system_update_finished"],
+                         ["connection_lost"])
+        self.assertEqual([e for e in logs if e["event"] == "system_update_failed"], [])
+
+    async def test_corte_despues_de_responder(self) -> None:
+        self.peticion_lenta("/supervisor/update", al_final=aiohttp.ServerDisconnectedError())
+        self.jobs(job("supervisor_update", _JOB_SUP))
+        with capture_logs() as logs:
+            _token, r = await self.confirmar_supervisor()
+            antes = dict(r)
+            self.soltar.set()
+            resultados = await self.fondo()
+        # Sin excepción sin recoger: la tarea termina con su resultado.
+        self.assertEqual(resultados, [{"outcome": "connection_lost"}])
+        self.assertEqual(r, antes)
+        self.assertEqual([e["outcome"] for e in logs if e["event"] == "system_update_finished"],
+                         ["connection_lost"])
+        self.assertEqual([e for e in logs if e["event"] == "system_update_failed"], [])
+
+    async def test_error_de_fondo_redactado(self) -> None:
+        self.peticion_lenta("/os/update", al_final=HAConnectionError(
+            f"Supervisor error: password: {CENTINELA_PASSWORD} Bearer {CENTINELA_JWT}"))
+        self.jobs(job("os_manager_update", _JOB_OS))
+        with capture_logs() as logs:
+            _token, r = await self.confirmar_os()
+            self.soltar.set()
+            resultados = await self.fondo()
+        self.assertEqual(r["status"], "running")
+        self.assertEqual(resultados[0]["outcome"], "failed")
+        fallos = [e for e in logs if e["event"] == "system_update_failed"]
+        self.assertEqual(len(fallos), 1)
+        self.assertEqual(fallos[0]["tool"], "sv_update_os")
+        texto = repr(logs) + json.dumps(resultados)
+        self.assertNotIn(CENTINELA_PASSWORD, texto)
+        self.assertNotIn(CENTINELA_JWT, texto)
+
+    async def test_rechazo_al_momento(self) -> None:
+        self.sv.respuesta("POST", "/os/update", HAConnectionError(
+            "Supervisor REST POST http://supervisor/os/update failed 400: "
+            f'{{"result": "error", "message": "rechazada password: {CENTINELA_PASSWORD}"}}',
+            status=400))
+        with capture_logs() as logs:
+            token, r = await self.confirmar_os()
+        self.assertEqual(r["error"], "supervisor_error")
+        self.assertIn("rechazada", r["detail"])
+        self.assertNotIn(CENTINELA_PASSWORD, json.dumps(r) + repr(logs))
+        self.assertEqual(self.estado_token(token), "failed")
+        self.assertEqual([c["ruta"] for c in self.sv.llamadas if c["ruta"] == "/jobs/info"], [])
+
+    async def test_version_del_os_cambiada(self) -> None:
+        sin_supervisor_pendiente(self.sv)
+        r = await self.t["sv_update_os"]()
+        token = r["confirmation_token"]
+        info = dict(self.sv.json[("GET", "/os/info")])
+        info["version_latest"] = "16.4"
+        self.sv.respuesta("GET", "/os/info", info)
+        r = await self.t["sv_update_os"](confirmation_token=token)
+        self.assertIs(r["preview_outdated"], True)
+        self.assertEqual(self.sv.posts(), [])
+        self.assertEqual(mod._TAREAS_DE_FONDO, set())
+        self.assertEqual(self.estado_token(token), "pending")
+        # Con otra `version` que la de la vista previa, igual.
+        r = await self.t["sv_update_os"](version=OS_ULTIMA, confirmation_token=token)
+        self.assertIs(r["preview_outdated"], True)
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_version_del_supervisor_cambiada(self) -> None:
+        r = await self.t["sv_update_supervisor"]()
+        token = r["confirmation_token"]
+        info = dict(self.sv.json[("GET", "/supervisor/info")])
+        info["version_latest"] = "2026.11.2"
+        self.sv.respuesta("GET", "/supervisor/info", info)
+        r = await self.t["sv_update_supervisor"](confirmation_token=token)
+        self.assertIs(r["preview_outdated"], True)
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_os_con_version_explicita(self) -> None:
+        self.peticion_lenta("/os/update")
+        self.jobs(job("os_manager_update", _JOB_OS))
+        _token, r = await self.confirmar_os(version="15.2")
+        self.assertEqual(r["to_version"], "15.2")
+        self.assertEqual(self.posts_de("/os/update")[0]["cuerpo"], {"version": "15.2"})
 
 
 if __name__ == "__main__":
