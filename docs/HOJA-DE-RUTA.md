@@ -16,7 +16,8 @@ y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
 leyó en esos tags; las tools de lectura se probaron en una instalación de prueba
 con HA 2026.11.1. De las 124 tools que modifican, las de dashboards se han
 ejecutado contra una HA real (1.1.2) y las 47 de helpers se ejecutan en cada
-push en el CI contra HA Core 2026.11.1 real (banco de pruebas, spec 010; ver
+push en el CI contra HA Core 2026.11.1 real (46 funcionan; `ha_reload_counters`
+falla, ver más abajo) (banco de pruebas, spec 010; ver
 «Banco de Core: helpers» más abajo); el resto se verificó leyendo el código de
 Hermes y el de Home Assistant. La 028 lleva al banco las demás escrituras de
 Core.
@@ -408,7 +409,8 @@ efecto lo comprueba un lector que habla directamente con Core. El inventario
 está en `tests/banco/cobertura.py` y un test de la suite normal impide que una
 tool nueva de estos dominios entre sin probarse en el banco.
 
-Ejecutadas en el banco (47):
+Ejecutadas en el banco con su efecto comprobado (46; el job exige que cada
+una se haya llamado con éxito en un test que ha pasado):
 
 - `input_boolean`: `ha_create_or_update_input_boolean`, `ha_set_input_boolean`,
   `ha_toggle_input_boolean`, `ha_delete_input_boolean`.
@@ -426,7 +428,7 @@ Ejecutadas en el banco (47):
   `ha_delete_input_text`.
 - `counter`: `ha_create_or_update_counter`, `ha_increment_counter`,
   `ha_decrement_counter`, `ha_set_counter_value`, `ha_reset_counter`,
-  `ha_reload_counters` (falla, ver abajo), `ha_delete_counter`.
+  `ha_delete_counter`.
 - `timer`: `ha_create_or_update_timer`, `ha_start_timer`, `ha_pause_timer`,
   `ha_change_timer`, `ha_cancel_timer`, `ha_finish_timer`, `ha_reload_timers`,
   `ha_delete_timer`.
@@ -437,13 +439,15 @@ Ejecutadas en el banco (47):
 
 No ejecutables en el banco: ninguna.
 
-Hallazgo del banco, pendiente de decidir dónde se arregla:
+Se ejecuta en el banco pero falla (`FALLAN_EN_BANCO`; no cuenta como probada).
+Hallazgo pendiente de arreglo en la spec 033:
 
 - **`ha_reload_counters` no funciona.** HA Core 2026.11.1 no tiene el servicio
   `counter.reload` (la integración `counter` solo registra `increment`,
   `decrement`, `reset` y `set_value`): Core responde 400 y la tool termina en
   «Error executing tool». En el banco está como fallo esperado estricto
-  (`xfail`), que se pondrá en rojo cuando deje de fallar.
+  (`xfail`) que solo admite ese error y que se pondrá en rojo cuando deje de
+  fallar.
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las
