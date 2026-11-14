@@ -355,10 +355,70 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                 if via not in {"D", "D+T", "D+X"}:
                     continue
                 e = tabla[k]
+                # Una vez que su sub-feature añade la tool, la entrada pasa a
+                # `dedicated` (spec 013, research R-5); el resto de requisitos
+                # de una dedicada los vigila `TestDedicadas`.
+                if e.category == "dedicated":
+                    continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)
                 if e.category != "deny" or not m or m.group(1) not in subs:
                     malas.append(f"{k} ({f['cap']}, {via}, {subs}): {e.category} {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
+
+
+# Spec 013 (data-model, «A dedicated»): las rutas de logs de CAP-081 y su tool.
+_LOGS_013: dict[tuple[str, str], tuple[str, str]] = {
+    **{("GET", f"/core/logs{s}"): ("sv_get_core_logs", "system_diagnostics")
+       for s in ("", "/latest", "/boots/{bootid}")},
+    **{("GET", f"/supervisor/logs{s}"): ("sv_get_supervisor_logs", "system_diagnostics")
+       for s in ("", "/latest", "/boots/{bootid}")},
+    **{("GET", f"/{p}/logs{s}"): ("sv_get_plugin_logs", "system_diagnostics")
+       for p in ("dns", "audio", "multicast") for s in ("", "/latest", "/boots/{bootid}")},
+    **{("GET", r): ("sv_get_host_logs", "system_diagnostics") for r in (
+        "/host/logs", "/host/logs/boots/{bootid}", "/host/logs/identifiers/{identifier}",
+        "/host/logs/boots/{bootid}/identifiers/{identifier}")},
+    ("GET", "/host/logs/identifiers"): ("sv_list_host_log_identifiers", "system_diagnostics"),
+    ("GET", "/host/logs/boots"): ("sv_list_boots", "system_diagnostics"),
+    ("GET", "/addons/{app}/logs/latest"): ("sv_get_addon_logs", "supervisor"),
+    ("GET", "/addons/{app}/logs/boots/{bootid}"): ("sv_get_addon_logs", "supervisor"),
+}
+
+
+class TestLogsDeLa013(unittest.TestCase):
+    """FR-017 de la 013: las 23 rutas de logs pasan a `dedicated` en el mismo
+    cambio que sus tools, con su CAP-081; `follow` (streaming) y el alias
+    legado `/homeassistant/logs*` siguen `deny`.
+
+    Control negativo (T013 f): dejar `/core/logs/latest` como `deny` → cae
+    `test_rutas_de_logs_dedicadas` nombrándola.
+    """
+
+    def test_rutas_de_logs_dedicadas(self) -> None:
+        self.assertEqual(len(_LOGS_013), 23)
+        malas = []
+        for k, (tool, familia) in _LOGS_013.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, familia, "CAP-081", f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_follow_y_alias_legado_siguen_deny(self) -> None:
+        abiertas = sorted(
+            str(k) for k, e in ct.SUPERVISOR.items()
+            if "/logs" in k[1]
+            and (k[1].endswith("/follow") or k[1].startswith("/homeassistant/"))
+            and e.category != "deny")
+        self.assertEqual(abiertas, [])
+        self.assertGreaterEqual(
+            sum(1 for k in ct.SUPERVISOR if "/logs" in k[1] and k[1].endswith("/follow")), 15)
+
+    def test_ninguna_ruta_de_logs_pendiente_de_la_013(self) -> None:
+        pendientes = sorted(
+            str(k) for k, e in ct.SUPERVISOR.items()
+            if "/logs" in k[1] and e.reason == "pendiente de tool dedicada (spec 013)")
+        self.assertEqual(pendientes, [])
 
 
 if __name__ == "__main__":
