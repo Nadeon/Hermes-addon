@@ -21,6 +21,7 @@ Tres observaciones del repaso del arranque, con un test cada una:
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import socket
 import unittest
@@ -214,6 +215,162 @@ class TestResolucionDelBridgeSinTryExceptMuerto(unittest.TestCase):
 
         with mock.patch.object(network.psutil, "net_if_addrs", return_value={}):
             self.assertEqual(network.resolve_hassio_bridge_gateway(), "172.30.32.1")
+
+
+# ── 009, FR-011: apagado sin traza (problema 23) ──────────────────────────────
+
+
+class _Captura(logging.Handler):
+    """Guarda los registros del `logging` estándar tal cual llegan."""
+
+    def __init__(self) -> None:
+        super().__init__(level=0)
+        self.registros: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.registros.append(record)
+
+    def texto(self) -> str:
+        formato = logging.Formatter("%(levelname)s %(name)s %(message)s")
+        return "\n".join(formato.format(r) for r in self.registros)
+
+
+class TestApagadoSinTraza(unittest.IsolatedAsyncioTestCase):
+    """Al reiniciar el add-on con una petición en vuelo (por ejemplo un
+    `ha_wait_for_event`), uvicorn 0.54 agota `timeout_graceful_shutdown`,
+    cancela la petición y su `run_asgi`, que captura `BaseException`, registra
+    `Exception in ASGI application` con la traza de un `CancelledError`. El log
+    de un apagado normal parecía un fallo (problema 23).
+
+    Reproducido ANTES del arreglo con este mismo montaje (uvicorn real, sin el
+    filtro): salen `Cancel 1 running task(s), timeout graceful shutdown
+    exceeded` y `Exception in ASGI application` con `CancelledError: Task
+    cancelled, timeout graceful shutdown exceeded`.
+
+    Control negativo (T037): sin el filtro cae (a); filtrando cualquier
+    excepción cae (b); sin `CancelledError` en el `except` de `main()` cae (c).
+    """
+
+    def setUp(self) -> None:
+        import hermes.__main__ as main_mod
+
+        self.main_mod = main_mod
+        self.logger = logging.getLogger("uvicorn.error")
+        self.filtros_previos = list(self.logger.filters)
+        self.nivel_previo = self.logger.level
+        self.captura = _Captura()
+        self.logger.addHandler(self.captura)
+        # Instalado como en el arranque.
+        main_mod._instalar_filtro_de_cancelacion()
+
+    def tearDown(self) -> None:
+        self.logger.removeHandler(self.captura)
+        self.logger.filters[:] = self.filtros_previos
+        self.logger.setLevel(self.nivel_previo)
+
+    async def test_peticion_en_vuelo_al_apagar_sin_traza(self) -> None:
+        import uvicorn
+
+        empezo = asyncio.Event()
+
+        async def app(scope, receive, send):  # app ASGI mínima
+            if scope["type"] != "http":
+                return
+            empezo.set()
+            await asyncio.sleep(5)
+
+        puerto = _puerto_libre()
+        server = uvicorn.Server(uvicorn.Config(
+            app, host="127.0.0.1", port=puerto, log_level="error", log_config=None,
+            lifespan="off", timeout_graceful_shutdown=0.2,
+        ))
+        tarea = asyncio.create_task(server.serve())
+        for _ in range(500):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        self.assertTrue(server.started)
+        _, escritor = await asyncio.open_connection("127.0.0.1", puerto)
+        try:
+            escritor.write(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            await escritor.drain()
+            await asyncio.wait_for(empezo.wait(), 5)
+            server.should_exit = True
+            await asyncio.wait_for(tarea, 5)
+        finally:
+            escritor.close()
+
+        texto = self.captura.texto()
+        self.assertNotIn("Traceback", texto)
+        self.assertNotIn("CancelledError", texto)
+        self.assertNotIn("Exception in ASGI application", texto)
+        self.assertIn("request_cancelled_on_shutdown", texto)
+
+    def test_otra_excepcion_conserva_su_traza(self) -> None:
+        try:
+            raise RuntimeError("fallo-de-verdad")
+        except RuntimeError as exc:
+            self.logger.error("Exception in ASGI application\n", exc_info=exc)
+        texto = self.captura.texto()
+        self.assertIn("Traceback", texto)
+        self.assertIn("RuntimeError: fallo-de-verdad", texto)
+        self.assertEqual(self.captura.registros[-1].levelno, logging.ERROR)
+
+    def test_la_cancelacion_sale_como_una_linea_informativa(self) -> None:
+        self.logger.error(
+            "Exception in ASGI application\n", exc_info=asyncio.CancelledError("x")
+        )
+        registro = self.captura.registros[-1]
+        self.assertEqual(registro.getMessage(), "request_cancelled_on_shutdown")
+        self.assertEqual(registro.levelno, logging.INFO)
+        self.assertIsNone(registro.exc_info)
+
+    def test_el_filtro_se_instala_una_vez_y_desde_el_arranque(self) -> None:
+        self.main_mod._instalar_filtro_de_cancelacion()
+        self.assertEqual(
+            sum(isinstance(f, self.main_mod._CancelacionSinTraza) for f in self.logger.filters),
+            1,
+        )
+        self.logger.filters[:] = self.filtros_previos
+        config = mock.MagicMock(log_redact_network=True, adjustments=[])
+        with mock.patch.object(self.main_mod, "setup_logging"):
+            self.main_mod._setup_logging_from_config(config)
+        self.assertTrue(
+            any(isinstance(f, self.main_mod._CancelacionSinTraza) for f in self.logger.filters)
+        )
+
+    def test_main_con_cancelacion_registra_interrupted(self) -> None:
+        def run(coro):
+            coro.close()  # sin «coroutine was never awaited»
+            raise asyncio.CancelledError()
+
+        config = mock.MagicMock()
+        with mock.patch.object(self.main_mod, "load_config", return_value=config), \
+                mock.patch.object(self.main_mod, "_setup_logging_from_config"), \
+                mock.patch.object(self.main_mod, "check_crash_loop"), \
+                mock.patch.object(self.main_mod.asyncio, "run", side_effect=run), \
+                structlog.testing.capture_logs() as eventos:
+            self.main_mod.main()  # no propaga
+        self.assertIn("interrupted", [e["event"] for e in eventos])
+
+    async def test_la_espera_del_servidor_cancela_y_recoge_la_task(self) -> None:
+        """En Python 3.12+ `wait_for` ya cancela y espera la task al vencer el
+        plazo; el `cancel()` y la espera explícitos lo dejan dicho y no
+        dependen de la versión. Por eso este test no tiene control negativo:
+        con el código de la 1.1.2 también pasa en 3.13."""
+        colgada = asyncio.create_task(asyncio.sleep(60))
+        await self.main_mod._esperar_servidor_mcp(colgada, 0.05)
+        self.assertTrue(colgada.done())
+        self.assertTrue(colgada.cancelled())
+
+    async def test_la_espera_no_se_traga_una_cancelacion_de_fuera(self) -> None:
+        colgada = asyncio.create_task(asyncio.sleep(60))
+        espera = asyncio.create_task(self.main_mod._esperar_servidor_mcp(colgada, 30))
+        await asyncio.sleep(0.01)
+        espera.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await espera
+        colgada.cancel()
 
 
 if __name__ == "__main__":
