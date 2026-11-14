@@ -785,6 +785,16 @@ class TestDedicadasDeLa016(_Base):
         self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_list_config_subentries"))
         self.ha.ws_send.assert_not_awaited()
 
+    async def test_datos_internos_de_un_aviso_hacia_ha_get_repair(self) -> None:
+        # Tramo C (T040): los datos internos solo salen redactados y
+        # recortados por la dedicada. Control negativo: dejarlo en `deny` →
+        # este test en rojo (T044 g).
+        r = await self.t["ha_read_ws_command"](
+            "repairs/get_issue_data", {"domain": "banco_flujos", "issue_id": "aviso"})
+        self.assertEqual((r["error"], r["tool"], r["family"]),
+                         ("use_dedicated_tool", "ha_get_repair", "repair_flows"))
+        self.ha.ws_send.assert_not_awaited()
+
     async def test_con_la_familia_desactivada(self) -> None:
         mcp = DummyMCP()
         mod.register(mcp, self.ha, response_max_bytes=self.max_bytes,

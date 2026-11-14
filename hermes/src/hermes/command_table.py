@@ -248,6 +248,9 @@ CORE_WS: dict[str, E] = {
     # ha_list_lovelace_dashboards no expone estos datos.
     "frontend/get_system_data": E("read", "datos de sistema del frontend por clave (p. ej. `core`: panel por defecto); solo lee", "generic_commands"),
     "frontend/get_themes": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    # Hermes lo usa por dentro para los textos de los avisos de Repairs
+    # (spec 016, CAP-036: `tools/_translations.py`); para las genéricas sigue
+    # `deny` (clase B).
     "frontend/get_translations": E("deny", "datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles) (clase B)", "generic_commands"),
     "frontend/get_user_data": E("deny", "datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles) (clase B)", "generic_commands"),
     "frontend/get_version": E("deny", "datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles) (clase B)", "generic_commands"),
@@ -504,7 +507,7 @@ CORE_WS: dict[str, E] = {
     "recorder/update_statistics_metadata": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
     "recorder/validate_statistics": E("deny", "pendiente de tool dedicada (spec 029)", "generic_commands", cap="CAP-049"),
     "render_template": E("dedicated", "cubierto por ha_render_template", "data", tool="ha_render_template"),
-    "repairs/get_issue_data": E("deny", "pendiente de tool dedicada (spec 016)", "generic_commands", cap="CAP-048"),
+    "repairs/get_issue_data": E("dedicated", "cubierto por ha_get_repair", "repair_flows", tool="ha_get_repair", cap="CAP-048"),
     "repairs/ignore_issue": E("dedicated", "cubierto por ha_ignore_repair", "diagnostics", tool="ha_ignore_repair"),
     "repairs/list_issues": E("dedicated", "cubierto por ha_list_repairs", "diagnostics", tool="ha_list_repairs"),
     "schedule/create": E("dedicated", "cubierto por ha_create_or_update_schedule", "helpers", tool="ha_create_or_update_schedule"),
