@@ -138,8 +138,8 @@ por SHA, con cada arquitectura en un runner nativo y firma cosign; el
 Dockerfile trae su imagen base por defecto y `build.yaml` desaparece.
 `config.yaml` declara `timeout: 20` para que el apagado ordenado termine antes
 del SIGKILL de Docker. Las primeras publicaciones con etiqueta (`v1.1.0` y
-`v1.1.1`) salieron bien; queda comprobar que las imágenes publicadas con el
-builder anterior siguen disponibles (ver las pruebas pendientes).
+`v1.1.1`) salieron bien, y las imágenes publicadas con el builder anterior
+siguen disponibles en GHCR.
 
 ### Hecho en 1.1.0 — OAuth moderno, límites y protocolo (spec 003)
 
@@ -242,6 +242,14 @@ dashboard principal y los tokens DCR emitidos antes de actualizar.
   sustituta más `_deprecated`. Los `not_found` de `ha_get_trace` y
   `ha_get_backup` y el `invalid_argument` de `ha_list_categories` son los del
   contrato. Las 13 tools de escritura de la 1.1.x no se ejecutaron.
+- [x] **Imágenes antiguas en GHCR**: las 13 versiones publicadas, de la 1.0.0
+  a la 1.1.1, se descargan sin credenciales en `hermes-amd64` y
+  `hermes-aarch64`: manifiesto, config con su sha256 y todas las capas. La
+  1.0.0 y la 1.0.11 se descargaron enteras en las dos arquitecturas, con el
+  sha256 de cada capa verificado. Hasta la 1.0.9 son manifiestos Docker v2;
+  desde la 1.0.10, índices OCI con la imagen y una atestación de buildx.
+  `latest` apunta a la 1.1.1. La 1.0.7 y la 1.0.12 no se etiquetaron y no
+  tienen imagen.
 
 ### Pruebas manuales pendientes en una instalación real
 
@@ -265,8 +273,6 @@ La suite no puede cubrir esto; anota aquí el resultado:
   `public_hostname: homeassistant.tailXXXX.ts.net:8443`, con
   `share_homeassistant: funnel` en el 443, y pasar una instalación existente
   del 443 al 8443 siguiendo los README.
-- [ ] **Imágenes antiguas**: comprobar que las versiones publicadas con el
-  builder anterior siguen descargándose desde GHCR.
 - [ ] **Dashboards grandes**: leer por vistas un dashboard de más de 128 KiB
   (`too_large`, `view_index`, `top_level`) y guardarlo entero sin perder
   claves de nivel superior.
