@@ -67,3 +67,16 @@ scene: !include scenes.yaml
 # almacenamiento) y arrastra `repairs`; lo necesitan las 7 tools de Lovelace.
 # Sirve ficheros de la propia imagen: no sale a internet.
 frontend:
+
+# ── Spec 028 (tramo B): dispositivos, reparaciones y flujo de opciones ──────
+#
+# kitchen_sink: es la integración de demostración de Core. Al cargarse por
+# YAML importa su propia config entry y crea dispositivos que se pueden borrar
+# a mano (todos salvo `statistics_issues`), avisos de reparación propios y un
+# flujo de opciones (`options_1`). Es lo que necesitan `ha_update_device`,
+# `ha_remove_device`, `ha_remove_device_from_config_entry`,
+# `ha_ignore_repair`, `ha_start_options_flow` y `ha_continue_options_flow`:
+# sin ella, el banco no tiene ningún dispositivo ni aviso. Todo es local, sin
+# hardware ni internet. `uptime`, la de los flujos de configuración, no se
+# carga aquí: la crean y la borran las propias tools durante el test.
+kitchen_sink:
