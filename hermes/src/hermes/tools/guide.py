@@ -133,7 +133,7 @@ para el detalle de un área. Temas disponibles:
 - `config_entries` — integraciones y sus flujos de configuración
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
-- `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores)
+- `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
@@ -479,7 +479,7 @@ secretos. Si algo te pide confirmación, es por diseño: confirma sólo lo que e
 usuario quiere.
 """,
     "system_diagnostics": """\
-# Diagnóstico del sistema: logs (Supervisor)
+# Diagnóstico del sistema: logs, disco, host y OS (Supervisor)
 
 Todo es de solo lectura. Los secretos salen redactados. Si un log no cabe,
 llegan sus ÚLTIMAS líneas con `truncated: true`: pide menos `lines` (1–1000,
@@ -506,6 +506,43 @@ Supervisor, plugins y add-ons). `boot` y `latest` no se combinan. Un valor
 inválido devuelve `invalid_argument` sin llamar al Supervisor.
 
 El streaming (`follow`) no está: MCP es petición-respuesta.
+
+## Disco, host y OS
+
+- `sv_list_host_services(state=)` — servicios systemd del host; `state`
+  filtra por estado exacto (`failed` para ver qué ha fallado).
+- `sv_get_disk_usage(disk="default", max_depth=1)` — qué ocupa el disco del
+  sistema (`default`) o un montaje de red (su nombre). `max_depth` de 0 a 3.
+  En cada nivel quedan los 20 hijos que más ocupan; si había más, el nodo
+  lleva `children_omitted` y `omitted_bytes` y la suma sigue cuadrando. Para
+  «qué llena el disco», empieza con `max_depth=1` y baja solo si hace falta.
+  Un montaje lento puede tardar hasta un minuto.
+- `sv_get_os_info` — versión de OS, la última, si hay actualización, placa,
+  slot de arranque, disco de datos y slots.
+- `sv_get_swap` — tamaño y swappiness de la swap (OS 15 o posterior).
+- `sv_list_datadisk_candidates` — discos que podrían ser el disco de datos;
+  solo los lista, no mueve nada.
+
+Las tres de OS requieren Home Assistant OS: sin él, el Supervisor da 404 y la
+respuesta lleva una pista que lo dice; no reintentes.
+
+## Rutas de diagnóstico por `sv_read_api`
+
+Sin tool dedicada, se leen con `sv_read_api(path)` (tema `generic_commands`):
+
+- `/jobs/info` — todos los jobs del Supervisor (progreso, errores, hijos).
+- `/resolution/issue/{issue}/suggestions` — lo que arreglaría un issue de
+  `sv_get_resolution`.
+- `/host/disks` — discos locales con particiones montables.
+- `/hardware/info`, `/hardware/audio` — dispositivos del host y audio.
+- `/security/info` — ajustes de seguridad del Supervisor.
+- `/docker/info` — versión y ajustes de Docker (secretos redactados).
+- `/time/info` — zona horaria, NTP y hora del host.
+- `/network/info`, `/network/interface/{interface}/info`,
+  `/network/interface/{interface}/accesspoints` — red del host.
+
+`POST /security/integrity` está denegada: el Supervisor 2026.11 eliminó la
+comprobación de integridad y la ruta responde 410.
 """,
     "generic_commands": """\
 # Comandos genéricos y tabla de comandos
@@ -661,6 +698,12 @@ _ALIASES: dict[str, str] = {
     "supervisor_logs": "system_diagnostics",
     "host_logs": "system_diagnostics",
     "boots": "system_diagnostics",
+    # Tramo 2 (disco, host y OS). `host` sigue siendo `supervisor`, como en
+    # la 1.1.2.
+    "disk": "system_diagnostics",
+    "storage": "system_diagnostics",
+    "os": "system_diagnostics",
+    "jobs": "system_diagnostics",
     "backup": "backups",
     "dashboards": "lovelace",
     "dashboard": "lovelace",

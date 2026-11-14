@@ -435,6 +435,31 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         self.assertIn("latest", texto)
         self.assertIn("system_diagnostics", texto)
 
+    async def test_disco_host_y_os(self) -> None:
+        """Tramo 2 (T025): las once tools, la poda, Home Assistant OS y las
+        rutas de diagnóstico que se leen con `sv_read_api`."""
+        texto = _GUIDE["system_diagnostics"]
+        for palabra in ("sv_list_host_services", "sv_get_disk_usage",
+                        "sv_get_os_info", "sv_get_swap",
+                        "sv_list_datadisk_candidates", "max_depth", "20",
+                        "children_omitted", "omitted_bytes", "Home Assistant OS",
+                        "sv_read_api", "/jobs/info",
+                        "/resolution/issue/{issue}/suggestions", "/host/disks",
+                        "/hardware/info", "/security/info", "/docker/info",
+                        "/time/info", "/network/info", "/security/integrity"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("disk", "storage", "os", "jobs", "DISK"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `host` sigue llevando al tema `supervisor`, como en la 1.1.2.
+        self.assertEqual(await self.guide("host"), _GUIDE["supervisor"])
+
+    async def test_jobs_en_la_tabla(self) -> None:
+        texto = await self.guide("generic_commands", search="jobs")
+        linea = next(l for l in texto.splitlines() if "/jobs/info" in l)
+        self.assertIn("read", linea)
+
     def test_los_demas_temas_no_cambian(self) -> None:
         import hashlib
 
