@@ -8,6 +8,12 @@ vista. Después, una vista previa por vista, un guardado de otro cliente (el
 lector) entre medias y la confirmación: `dashboard_changed`, y en Core queda
 lo del otro cliente. El lector borra el dashboard al cerrar la sesión.
 
+Tramo 2: `ha_call_service_response` con `conversation.process` (de la
+denylist). Sin token, el rechazo de la 1.1.2 (`service_in_denylist`) con token
+y vista previa, y el lector no ve la llamada en el bus; confirmado, la
+respuesta de `conversation.process` (`response` con `response_type`) y una
+sola llamada en el bus. El banco no tiene entidades: la frase no acciona nada.
+
 Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 """
 
@@ -19,6 +25,7 @@ from typing import Any
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufijo
+from tests.banco.base_helpers import _devolver
 
 pytestmark = pytest.mark.banco
 
@@ -128,3 +135,34 @@ class TestGuardadoPorVista(BancoEscrituras):
             self.assertEqual(res["error"], "dashboard_changed", res)
             self.assertEqual(res["view_index"], 1)
             self.assertEqual(await _config(s, url_path), del_otro)
+
+
+class TestRespuestaConfirmada(BancoEscrituras):
+    async def test_conversation_process_en_dos_pasos(self) -> None:
+        tool = "ha_call_service_response"
+        # Frase inventada: sin entidades en el banco, no acciona nada.
+        args = {"domain": "conversation", "service": "process",
+                "service_data": {"text": f"banco de pruebas {sufijo()}", "language": "en"}}
+        async with self.sesion() as s:
+            await s.preparar_barrera()
+            async with s.lector.servicios_llamados() as vistos:
+                vista = await _rechazo(s, tool, **args)
+                self.assertEqual(vista["error"], "service_in_denylist", vista)
+                self.assertIn("confirmation_token", vista["hint"])
+                p = vista["preview"]
+                self.assertEqual((p["action"], p["domain"], p["service"]),
+                                 ("call_service_response", "conversation", "process"))
+                # La vista previa no ha llamado (barrera del lector, T031 de la 028).
+                await s.barrera(vistos)
+                self.assertNotIn(("conversation", "process"), vistos)
+
+                respuesta = await s.confirmar(tool, vista, **args)
+                # REST de Core: {"changed_states": [...], "service_response":
+                # {"response": {"response_type": …, …}, "conversation_id": …}}.
+                self.assertIn("response_type", respuesta["service_response"]["response"])
+                await s.lector.esperar(
+                    lambda: _devolver(vistos),
+                    lambda v: ("conversation", "process") in v,
+                    descripcion="conversation.process en el bus",
+                )
+            self.assertEqual(vistos.count(("conversation", "process")), 1)

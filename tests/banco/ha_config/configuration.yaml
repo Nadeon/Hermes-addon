@@ -86,3 +86,12 @@ frontend:
 # hardware ni internet. `uptime`, la de los flujos de configuración, no se
 # carga aquí: la crean y la borran las propias tools durante el test.
 kitchen_sink:
+
+# ── Spec 018 (tramo 2): ha_call_service_response con confirmación ───────────
+#
+# conversation: registra `conversation.process` (de la denylist, responde con
+# `SupportsResponse.OPTIONAL`) con el agente por defecto de Core. El banco no
+# tiene entidades que lo acepten, así que una frase no acciona nada: solo se
+# comprueba la confirmación en dos pasos y la forma de la respuesta. Las
+# frases de los intents vienen en la propia imagen; nada sale a internet.
+conversation:
