@@ -358,6 +358,19 @@ class TestStorageAllowlist:
         blocked, _ = check_blacklisted(p)
         assert blocked is False
 
+    def test_marketplace_repositories_blocked(self, config_root: Path) -> None:
+        # `.storage/marketplace.*` sustituye a `hacs.*` en HA >= 2026.11 y guarda,
+        # entre otras cosas, los repositorios personalizados. No se ha verificado
+        # que no contenga nada sensible: sigue cerrado (FR-024, fail-closed).
+        p = config_root / ".storage" / "marketplace.repositories"
+        blocked, _ = check_blacklisted(p)
+        assert blocked is True
+
+    def test_marketplace_common_blocked(self, config_root: Path) -> None:
+        p = config_root / ".storage" / "marketplace.common"
+        blocked, _ = check_blacklisted(p)
+        assert blocked is True
+
     def test_frontend_user_data_allowed(self, config_root: Path) -> None:
         p = config_root / ".storage" / "frontend.user_data_abc123"
         blocked, _ = check_blacklisted(p)

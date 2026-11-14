@@ -692,6 +692,13 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0]["url"], "/hacsfiles/card.js")
         self.assertEqual(calls[0]["res_type"], "module")
 
+    def test_create_resource_doc_uses_marketplace_path(self) -> None:
+        # Desde HA 2026.11 el Marketplace sirve los recursos en
+        # `/local/community/`; el ejemplo con `/hacsfiles/` llevaba al agente a
+        # la ruta antigua (FR-023).
+        doc = self.mcp.tools["ha_create_lovelace_resource"].__doc__ or ""
+        self.assertIn("/local/community/", doc)
+
     async def test_create_resource_invalid_token(self) -> None:
         result = await self.mcp.tools["ha_create_lovelace_resource"](
             "/card.js", "module", confirmation_token="bad"

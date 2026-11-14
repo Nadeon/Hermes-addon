@@ -156,7 +156,12 @@ STORAGE_ALLOWLIST_PATTERNS: list[str] = [
     "core.lovelace*",     # futuras variantes
     "esphome.*",          # config entries de ESPHome (no tokens)
     "frontend.user_data_*",  # preferencias de usuario por ID
-    "hacs.*",             # HACS data (repositorios, custom components)
+    # `hacs.*` solo existe en HA <= 2026.10: desde 2026.11 el Marketplace adopta
+    # esos ficheros, los borra y guarda los suyos en `marketplace.*`. Ese no se
+    # añade a propósito: guarda, entre otras cosas, los repositorios
+    # personalizados y no se ha verificado que no contenga nada sensible. La
+    # lista es default-deny, así que queda bloqueado sin más código.
+    "hacs.*",
 ]
 
 # ── O_NOFOLLOW (solo POSIX) ───────────────────────────────────────────────────

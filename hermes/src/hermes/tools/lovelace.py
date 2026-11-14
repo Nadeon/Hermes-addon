@@ -817,7 +817,8 @@ def register(
         malicioso puede inyectar JS que robe el token de HA del navegador.
 
         Args:
-            url: URL del fichero JS/CSS (p.ej. "/hacsfiles/card/card.js").
+            url: URL del fichero JS/CSS (p.ej. "/local/community/card/card.js",
+                la ruta del Marketplace; "/hacsfiles/..." sigue funcionando).
             res_type: Tipo de resource: "module" (ES module JS) o "css".
             confirmation_token: Token de confirmación requerido.
         """
