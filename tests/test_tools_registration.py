@@ -745,6 +745,19 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_ignore_discovery": ("--I-", "Ignore discovery (Home Assistant)"),
     "ha_list_config_flow_domains": ("R-I-", "List config flow domains (Home Assistant)"),
     "ha_update_config_entry": ("-DI-", "Update config entry (Home Assistant)"),
+    # Spec 016, tramo B (contracts/tools.md). Abrir o avanzar un flujo no es
+    # idempotente; `ha_delete_subentry` es destructiva por prefijo y
+    # `ha_continue_reconfigure_flow` por nombre exacto (pide token en cada
+    # paso: decisión del supervisor). Renombrar y abortar, ni lo uno ni lo
+    # otro.
+    "ha_list_config_subentries": ("R-I-", "List config subentries (Home Assistant)"),
+    "ha_start_subentry_flow": ("----", "Start subentry flow (Home Assistant)"),
+    "ha_continue_subentry_flow": ("----", "Continue subentry flow (Home Assistant)"),
+    "ha_abort_subentry_flow": ("--I-", "Abort subentry flow (Home Assistant)"),
+    "ha_update_subentry": ("--I-", "Update subentry (Home Assistant)"),
+    "ha_delete_subentry": ("-DI-", "Delete subentry (Home Assistant)"),
+    "ha_start_reconfigure_flow": ("----", "Start reconfigure flow (Home Assistant)"),
+    "ha_continue_reconfigure_flow": ("-D--", "Continue reconfigure flow (Home Assistant)"),
 }
 
 # Tools de cada familia nueva de la 1.2.0 (sus contratos). Con la familia
@@ -753,6 +766,10 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
     "integration_flows": {
         "ha_list_discovered_integrations", "ha_ignore_discovery",
         "ha_list_config_flow_domains", "ha_update_config_entry",
+        "ha_list_config_subentries", "ha_start_subentry_flow",
+        "ha_continue_subentry_flow", "ha_abort_subentry_flow",
+        "ha_update_subentry", "ha_delete_subentry",
+        "ha_start_reconfigure_flow", "ha_continue_reconfigure_flow",
     },
 }
 

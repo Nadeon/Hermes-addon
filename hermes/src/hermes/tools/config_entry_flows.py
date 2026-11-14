@@ -39,6 +39,7 @@ from typing import Any
 import structlog
 
 from hermes.ha import HAClient, HAConnectionError
+from hermes.tools import _reconfigure
 from hermes.tools._validation import (
     InvalidIdentifier,
     identifier_error,
@@ -234,6 +235,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
         sea type="form". Rellena los campos del schema devuelto y llama
         a esta tool con los valores correspondientes.
 
+        Los flujos de reconfigure que abre ha_start_reconfigure_flow NO se
+        continúan aquí: se rechazan con {"error": "use_dedicated_tool"} y se
+        siguen con ha_continue_reconfigure_flow (vista previa y token en
+        cada paso).
+
         Args:
             flow_id:    ID del flow (obtenido de ha_start_config_entry_flow).
             user_input: Dict con los valores para los campos del formulario.
@@ -251,6 +257,22 @@ def register(mcp: object, ha_client: HAClient) -> None:
             type="menu":         {"type": "menu", "menu_options": [...]}
             Error:               {"error": "..."}
         """
+        # Spec 016 (decisión del supervisor): un reconfigure puede cambiar
+        # credenciales y recarga la integración, así que cada paso pide token
+        # y va por su tool dedicada. HA no dice el `source` de un flujo: lo
+        # sabe el registro de los que abrió Hermes. Caducado o no, se rechaza
+        # (ver `_reconfigure.buscar`). Cualquier otro flujo, como en la 1.1.2.
+        if isinstance(flow_id, str) and _reconfigure.buscar(flow_id) is not None:
+            logger.warning("ha_continue_config_entry_flow_reconfigure_refused",
+                           flow_id=flow_id)
+            return json.dumps({
+                "error": "use_dedicated_tool",
+                "tool": "ha_continue_reconfigure_flow",
+                "flow_id": flow_id,
+                "detail": (
+                    "This is a reconfigure flow opened by Hermes: every step "
+                    "needs a preview and a confirmation token."),
+            })
         try:
             raw: Any = await ha_client._request_json(  # noqa: SLF001
                 "POST",
@@ -321,6 +343,8 @@ def register(mcp: object, ha_client: HAClient) -> None:
             )
             return json.dumps({"error": str(exc)})
 
+        # Un reconfigure abortado ya no existe en HA: sale del registro.
+        _reconfigure.olvidar(flow_id)
         logger.info("ha_abort_config_entry_flow_ok", flow_id=flow_id)
         return json.dumps({"result": "ok"})
 

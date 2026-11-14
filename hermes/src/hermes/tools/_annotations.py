@@ -150,6 +150,10 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # que lo que se añada entre deshabilitado. Invariante «pide token ⇔
     # destructiva». Idempotente: repetirla deja la entrada igual.
     "ha_update_config_entry",
+    # Spec 016, tramo B (decisión del supervisor): cada paso pide token,
+    # porque cualquier envío puede terminar el reconfigure, cambiar
+    # credenciales o datos de conexión y recargar la integración.
+    "ha_continue_reconfigure_flow",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -198,6 +202,13 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # creaciones y acciones que se acumulan; repetir no deja el mismo estado.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 016: cada llamada abre un flujo nuevo o avanza el flujo un paso;
+    # repetirla no deja el mismo estado. Las de la 1.1.2
+    # (`ha_start_config_entry_flow`, `ha_continue_*_flow`) no se tocan (D-4).
+    "ha_start_subentry_flow",
+    "ha_continue_subentry_flow",
+    "ha_start_reconfigure_flow",
+    "ha_continue_reconfigure_flow",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

@@ -316,6 +316,8 @@ def register_all_tools(
     if _activa("integration_flows"):
         from hermes.tools.integration_setup import register as register_integration_setup
         register_integration_setup(mcp, ha_client, response_max_bytes=response_max_bytes)
+        from hermes.tools.config_subentries import register as register_config_subentries
+        register_config_subentries(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
