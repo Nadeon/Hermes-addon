@@ -21,7 +21,9 @@ argumento existente cambia ni pasa a ser obligatorio.
     `include_tracebacks=true`.
   - `ha_get_error_log(lines)`: las últimas líneas (1 a 1000) del fichero de
     log de Core, leído en flujo sin cargarlo entero, con los secretos
-    redactados. En HA OS y Supervised ese fichero solo existe con la opción de
+    redactados. Una línea de más de 4 KB se corta, y si el corte cae dentro de
+    un secreto (valor JSON, contraseña de URL o JWT) ese trozo se quita: nunca
+    sale un secreto a medias. En HA OS y Supervised ese fichero solo existe con la opción de
     Core `duplicate_log_file`; sin él, `error_log_unavailable`, que remite a
     leer el log de Core por el Supervisor (`sv_get_core_logs`).
   - `ha_get_log_levels`: el nivel efectivo de cada integración.
