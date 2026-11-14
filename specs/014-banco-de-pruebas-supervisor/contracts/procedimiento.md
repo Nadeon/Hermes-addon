@@ -15,22 +15,30 @@ Exactamente estos `##`, en este orden:
    - Que nada de esto lo ejecuta el CI ni lo automatiza el proyecto, y que la
      VM en un runner con KVM es una duda abierta (D-06).
 2. `## Versiones`
-   - HAOS de la imagen oficial; Supervisor 2026.11.0; Core 2026.11.1.
-   - `ha supervisor options --auto-update=false`, `ha supervisor update
-     --version 2026.11.0`, `ha core update --version 2026.11.1`, y cómo
-     comprobarlo (`ha supervisor info`, `ha core info`). Si no se puede fijar
-     la versión, se anota la real en la nota de la matriz.
+   - HAOS de la imagen oficial; Core 2026.11.1 fijado con `ha core update
+     --version 2026.11.1`; el Supervisor no se puede fijar (fuera del modo de
+     desarrollo, `POST /supervisor/update` ignora `version`): se usa el que
+     haya, con la actualización automática activada, y su versión real se
+     anota en la nota de cada fila de la matriz. Cómo comprobarlo (`ha
+     supervisor info`, `ha core info`).
+   - Por qué no se desactiva la actualización automática (con un Supervisor
+     pendiente de actualizar, `supervisor_updated` bloquea add-ons, la tienda
+     y `ha core update`) y, solo en la VM, cómo ignorar esa condición con
+     `POST /jobs/options` y cómo deshacerlo.
 3. `## Crear la VM`
    - Recursos mínimos (2 vCPU, 4 GB de RAM, 32 GB de disco), UEFI, red
-     aislada o NAT; Hyper-V (`vhdx`, generación 2, sin arranque seguro) y
+     aislada o NAT; Hyper-V (`vhdx`, generación 2, sin arranque seguro y
+     diciendo por qué: el cargador de HAOS no está firmado con las claves de
+     la plantilla; solo afecta a esa VM) y
      QEMU/libvirt (`qcow2`); remisión a la guía oficial para VMware y
      VirtualBox.
    - Onboarding con un usuario de prueba; nada de la instalación real (ni
      backups, ni configuración, ni tokens).
 4. `## Instantáneas`
    - Antes de cada tanda y antes de cada prueba destructiva; cómo restaurar
-     (Hyper-V: `Checkpoint-VM`/`Restore-VMCheckpoint`; libvirt: `virsh
-     snapshot-create-as`/`snapshot-revert`).
+     (Hyper-V: `Checkpoint-VM`/`Restore-VMCheckpoint`; libvirt: con la VM
+     apagada, copiar el `qcow2` y el `nvram` y devolverlos para restaurar,
+     porque libvirt no admite instantáneas internas con firmware UEFI).
 5. `## Instalar Hermes como add-on local`
    - Copiar `hermes/` a la carpeta de apps locales (`/addons` o `/local_apps`
      en el add-on de terminal y SSH), quitar la línea `image:` de
@@ -41,9 +49,13 @@ Exactamente estos `##`, en este orden:
      y guardada fuera del repositorio; `public_hostname` del TLS de la VM;
      `network_mode` según el TLS elegido.
 6. `## Conectar un cliente MCP`
-   - TLS delante como en producción (Funnel con el add-on de Tailscale en la
-     VM y un nombre de máquina propio, o un proxy con certificado de
-     confianza), porque el emisor OAuth es `https://<public_hostname>`.
+   - TLS delante como en producción, porque el emisor OAuth es
+     `https://<public_hostname>`. Por defecto, sin exponer la VM a internet:
+     `tailscale serve` con el add-on de Tailscale en la VM, un nombre de
+     máquina propio y un tailnet de pruebas aparte del de la instalación real
+     (o un proxy local con certificado de confianza). Funnel solo para
+     clientes en la nube, con el aviso de que publica un Hermes con rol
+     `admin` y cómo cerrarlo (`tailscale funnel --https=8443 off`).
    - Cliente: Claude Code u otro cliente MCP; comprobar `ping` y
      `sv_get_supervisor_info` antes de empezar.
 7. `## Tandas de pruebas`
@@ -87,5 +99,5 @@ Exactamente estos `##`, en este orden:
       con la versión de Hermes, la fecha y, si falla, la causa; marcar la
       casilla manual. Nada de datos de la VM (IPs, nombres) en la nota.
 11. `## Limpiar`
-    - Borrar la VM o volver a la instantánea inicial; revocar el nodo del
-      tailnet si se usó Funnel; no conservar backups de la VM.
+    - Borrar la VM o volver a la instantánea inicial; cerrar Funnel si se
+      usó y quitar el nodo del tailnet de pruebas; no conservar backups de la VM.

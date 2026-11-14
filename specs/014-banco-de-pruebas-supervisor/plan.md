@@ -6,7 +6,7 @@
 
 Tres entregas, sin tocar el código de producto: (1) el **procedimiento**
 documentado del banco del Supervisor, `docs/BANCO-SUPERVISOR.md`: VM con HAOS,
-Supervisor 2026.11.0 y Core 2026.11.1 fijados, instantáneas, Hermes como
+Core 2026.11.1 fijado y la versión del Supervisor anotada, instantáneas, Hermes como
 add-on local, cliente MCP con TLS, tandas de pruebas y prueba de
 `hassio_role: manager`; nadie lo ejecuta en este programa. (2) La **matriz
 tool → entorno → resultado** en `docs/HOJA-DE-RUTA.md`, con una fila por cada

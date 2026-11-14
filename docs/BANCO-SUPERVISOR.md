@@ -29,27 +29,67 @@ hace lo que Hermes espera.
 
 ## Versiones
 
-El banco se fija en las versiones contra las que se verificó la 1.2.0:
+La 1.2.0 se verificó contra el Supervisor 2026.11.0 y Home Assistant Core
+2026.11.1. En la VM no se pueden fijar las dos: Core sí, el Supervisor no.
+Lo que sigue sale del código del Supervisor 2026.11.0.
 
-- Home Assistant OS: la imagen oficial más reciente que traiga un Supervisor
-  capaz de actualizarse a 2026.11.0.
-- Supervisor **2026.11.0**.
-- Home Assistant Core **2026.11.1**.
+- **Supervisor: no se puede fijar.** `POST /supervisor/update` (`ha supervisor
+  update`) solo respeta `version` en el modo de desarrollo del Supervisor
+  (variable de entorno `SUPERVISOR_DEV=1`, que una VM con HAOS no tiene); fuera
+  de él actualiza siempre a la última publicada (`supervisor/api/supervisor.py`,
+  `update`). `ha supervisor update --version 2026.11.0` no baja ni fija nada.
+  Se prueba con el Supervisor que traiga la VM al día y se anota su versión
+  real en la nota de cada fila de la matriz.
+- **Core: sí se puede fijar.** `POST /core/update` (`ha core update --version`)
+  acepta una versión concreta, anterior o posterior.
+- **No desactives la actualización automática del Supervisor.** Con
+  `auto_update: false`, en cuanto sale un Supervisor más nuevo, el Supervisor
+  se queda «pendiente de actualizar» y la condición `supervisor_updated`
+  bloquea con «supervisor needs to be updated first»: instalar y actualizar
+  add-ons (`app_manager_install`, `app_manager_update`), recargar la tienda
+  (`ha store reload`) y actualizar Core (`ha core update`). Es decir: no se
+  podría instalar `local_hermes`, ni hacer la tanda 2, ni bajar Core para la
+  prueba de la HA antigua. Además el sistema pasa a «no soportado»
+  (`supervisor_version`).
 
 Nada más terminar el onboarding, desde el add-on de terminal y SSH:
 
 ```sh
-ha supervisor options --auto-update=false
-ha supervisor update --version 2026.11.0
+ha supervisor update      # si hay una versión nueva; si no, dice que no hay
 ha core update --version 2026.11.1
-ha supervisor info    # version: 2026.11.0, auto_update: false
-ha core info          # version: 2026.11.1
+ha supervisor info        # anota «version»; auto_update: true
+ha core info              # version: 2026.11.1
 ```
 
-`auto_update` lo acepta `POST /supervisor/options`, y con él desactivado el
-job de actualización automática del Supervisor no corre. Si el Supervisor se
-actualizó antes de desactivarlo y no se puede volver a 2026.11.0, sigue con la
-versión que haya y anótala en la nota de cada fila de la matriz.
+Si a mitad de una tanda sale un Supervisor nuevo, lo normal es dejar que se
+actualice, anotar la versión nueva en las filas que se prueben después y
+repetir `ping` y `sv_get_supervisor_info` antes de seguir.
+
+Solo si hace falta terminar una tanda con un Supervisor desactualizado (por
+ejemplo, para comparar con un resultado anterior), y **solo en la VM**, se
+puede pedir al Supervisor que ignore esa condición. Esto desactiva una
+protección: el Supervisor lo registra como crítico («will make the system
+unstable») y marca el sistema como no soportado (`job_conditions`). Desde el
+add-on de terminal y SSH, que tiene acceso a la API del Supervisor:
+
+```sh
+curl -sS -X POST -H "Authorization: Bearer $SUPERVISOR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ignore_conditions": ["supervisor_updated"]}' \
+  http://supervisor/jobs/options
+```
+
+Para deshacerlo, al terminar la tanda, con la misma cabecera:
+`-d '{"ignore_conditions": []}' http://supervisor/jobs/options`, o
+`POST http://supervisor/jobs/reset` (vuelve a las opciones por defecto). Se
+comprueba con `GET http://supervisor/jobs/info`: `ignore_conditions` vacío.
+Nunca en la instalación real.
+
+La prueba de la HA antigua tiene una trampa más: con un Core de más de dos
+años antes que el último publicado, el Supervisor lo marca como no soportado
+y la condición `home_assistant_core_supported` bloquea `ha store reload`. Esa
+prueba se hace con `local_hermes` ya en la tienda y la tienda ya recargada:
+instalar no exige esa condición.
 
 ## Crear la VM
 
@@ -68,6 +108,12 @@ Set-VMFirmware -VMName <nombre-de-la-vm> -EnableSecureBoot Off
 Resize-VHD -Path .\haos_ova-<versión>.vhdx -SizeBytes 32GB
 Start-VM -Name <nombre-de-la-vm>
 ```
+
+`-EnableSecureBoot Off` hace falta porque el cargador de arranque de la imagen
+de HAOS no está firmado con las claves en las que confía el firmware de una VM
+de generación 2 (la plantilla por defecto solo admite el arranque de Windows):
+con el arranque seguro activado, la VM no arranca. Solo afecta al firmware de
+esa VM; el arranque seguro del equipo anfitrión y de las demás VMs no cambia.
 
 QEMU/KVM con libvirt (imagen `qcow2` de HAOS, descomprimida):
 
@@ -88,8 +134,9 @@ tokens, ni la cuenta de Home Assistant Cloud.
 
 ## Instantáneas
 
-Toma una instantánea con la VM recién preparada (versiones fijadas, Hermes
-instalado), otra antes de cada tanda y otra antes de cada prueba de la tanda 3.
+Toma una instantánea con la VM recién preparada (Core fijado, versión del
+Supervisor anotada, Hermes instalado), otra antes de cada tanda y otra antes
+de cada prueba de la tanda 3.
 Si una prueba deja la VM inservible, se restaura y la fila de la matriz se
 anota como «falla» con la causa; nunca se repite en la instalación real.
 
@@ -100,13 +147,28 @@ Checkpoint-VM -Name <nombre-de-la-vm> -SnapshotName antes-tanda-1
 Restore-VMCheckpoint -VMName <nombre-de-la-vm> -Name antes-tanda-1 -Confirm:$false
 ```
 
-libvirt (con UEFI, la instantánea interna necesita la VM apagada; con la VM en
-marcha, usa `--disk-only`):
+libvirt: no uses `virsh snapshot-create-as` sin opciones. Crea una
+instantánea interna, y libvirt no las admite en VMs con firmware UEFI
+(`pflash`), que es como se crea esta VM (`--boot uefi`), ni encendidas ni
+apagadas. Lo más sencillo y fiable es apagar la VM y copiar su disco y sus
+variables UEFI (el fichero `nvram` que da `virsh dumpxml`, normalmente
+`/var/lib/libvirt/qemu/nvram/<nombre-de-la-vm>_VARS.fd`):
 
 ```sh
-virsh snapshot-create-as <nombre-de-la-vm> antes-tanda-1
-virsh snapshot-revert <nombre-de-la-vm> antes-tanda-1
-virsh snapshot-list <nombre-de-la-vm>
+virsh shutdown <nombre-de-la-vm>          # espera a que `virsh domstate` diga «shut off»
+cp --sparse=always haos_ova-<versión>.qcow2 antes-tanda-1.qcow2
+cp /var/lib/libvirt/qemu/nvram/<nombre-de-la-vm>_VARS.fd antes-tanda-1_VARS.fd
+virsh start <nombre-de-la-vm>
+```
+
+Para volver a ella, con la VM apagada, se copian los dos ficheros en sentido
+contrario y se arranca:
+
+```sh
+virsh destroy <nombre-de-la-vm>           # si no responde a `virsh shutdown`
+cp --sparse=always antes-tanda-1.qcow2 haos_ova-<versión>.qcow2
+cp antes-tanda-1_VARS.fd /var/lib/libvirt/qemu/nvram/<nombre-de-la-vm>_VARS.fd
+virsh start <nombre-de-la-vm>
 ```
 
 ## Instalar Hermes como add-on local
@@ -135,8 +197,8 @@ Opciones de prueba:
 
 - `public_hostname`: el nombre con el que la VM sale por TLS (siguiente
   sección), por ejemplo `haos-prueba.tailXXXX.ts.net:8443`.
-- `network_mode`: `tailscale` con Funnel; `reverse_proxy` con un proxy
-  propio.
+- `network_mode`: `tailscale` con Tailscale (Serve o Funnel);
+  `reverse_proxy` con un proxy propio.
 - El resto, por defecto. `safety_backup_enabled: true` si vas a probar los
   safety backups automáticos.
 
@@ -145,18 +207,61 @@ Arranca el add-on y comprueba en su log que aparece `hermes_started`.
 ## Conectar un cliente MCP
 
 El emisor OAuth de Hermes es `https://<public_hostname>`: el cliente necesita
-TLS delante, como en producción. Dos formas:
+TLS delante, como en producción. Hermes en la VM pide `hassio_role: admin`:
+quien llegue a él con la contraseña de prueba puede reiniciar el host,
+restaurar backups y escribir en `/config`. Por eso, **por defecto la VM no se
+publica en internet** y **no entra en el tailnet de tu instalación real**.
 
-- **Tailscale Funnel**: instala en la VM el add-on de Tailscale con un nombre
-  de máquina propio (no el de tu instalación real) y sigue la guía de Funnel
-  del README. Al terminar, revoca el nodo (sección «Limpiar»).
-- **Proxy inverso** con un certificado de confianza para el cliente, con
-  `network_mode: reverse_proxy` y `mcp_bind` como dice `hermes/DOCS.md`.
+**Por defecto: Tailscale Serve, en un tailnet de pruebas.**
+
+1. Usa un tailnet aparte para la VM: una cuenta de Tailscale de pruebas (o
+   un tailnet que no tenga tu instalación real). Si de verdad tiene que ir en
+   tu tailnet, dale una etiqueta propia y una política que solo le deje
+   hablar con la máquina desde la que pruebas, y nunca con la instalación
+   real.
+2. Instala en la VM el add-on de Tailscale con un nombre de máquina propio
+   (no el de tu instalación real), autorízalo en ese tailnet y deja
+   desactivadas sus opciones de Funnel (`share_homeassistant`).
+3. Publica Hermes **solo dentro del tailnet** con Serve:
+
+   ```sh
+   docker exec -it addon_a0d7b954_tailscale tailscale serve --bg --https=8443 8765
+   docker exec -it addon_a0d7b954_tailscale tailscale serve status
+   ```
+
+   (`docker exec` desde el host de la VM; el nombre del contenedor es el del
+   add-on de Tailscale de la tienda oficial.) El cliente MCP tiene que correr
+   en una máquina de ese mismo tailnet, por ejemplo Claude Code en la tuya.
+4. Opciones de Hermes: `network_mode: tailscale` y
+   `public_hostname: haos-prueba.tailXXXX.ts.net:8443`.
+
+Sin Tailscale, la alternativa es un **proxy inverso en la red local** con un
+certificado de confianza para el cliente, con `network_mode: reverse_proxy` y
+`mcp_bind` como dice `hermes/DOCS.md`, sin abrir puertos en el router.
+
+**Funnel, solo si el cliente corre en la nube** (y no llega a tu tailnet).
+
+> **Aviso.** `tailscale funnel` publica en internet un Hermes con rol
+> `admin`, protegido solo por la contraseña de prueba. Úsalo únicamente
+> mientras dure la prueba, con una contraseña generada para la ocasión, con
+> la VM en el tailnet de pruebas y sin nada de la instalación real dentro.
+
+```sh
+docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg --https=8443 8765
+```
+
+Al terminar (o si interrumpes la prueba), ciérralo y comprueba que ya no
+hay nada publicado:
+
+```sh
+docker exec -it addon_a0d7b954_tailscale tailscale funnel --https=8443 off
+docker exec -it addon_a0d7b954_tailscale tailscale funnel status
+```
 
 Conecta Claude Code (u otro cliente MCP) a
 `https://haos-prueba.tailXXXX.ts.net:8443/mcp` y autoriza con la contraseña de
 prueba. Antes de empezar, comprueba que `ping` responde y que
-`sv_get_supervisor_info` devuelve la versión 2026.11.0.
+`sv_get_supervisor_info` devuelve la versión del Supervisor que anotaste.
 
 ## Tandas de pruebas
 
@@ -269,7 +374,9 @@ la instalación real:
   del add-on se ve desde el host de la VM, no desde las tools.
 - **Clave `homeassistant` en una HA antigua**: con Core anterior a 2024.10
   (`ha core update --version <versión-antigua>`), el Supervisor rechaza
-  instalar o actualizar Hermes con un error claro.
+  instalar o actualizar Hermes con un error claro. Recarga la tienda antes de
+  bajar Core: con un Core de más de dos años, `ha store reload` queda
+  bloqueado (sección «Versiones»).
 - **`sv_get_resolution` con avisos reales**: las referencias salen redactadas.
 - **Trazas de un script**: `ha_list_traces` y `ha_get_trace` con
   `domain: "script"`.
@@ -290,5 +397,8 @@ un `falla` sin nota.
 ## Limpiar
 
 - Borra la VM, o vuelve a la instantánea inicial si la vas a reutilizar.
-- Si usaste Funnel, revoca el nodo de la VM en la consola de Tailscale.
+- Si usaste Funnel, ciérralo (`tailscale funnel --https=8443 off`) antes de
+  nada y comprueba con `tailscale funnel status` que no queda nada publicado.
+- Quita el nodo de la VM del tailnet de pruebas en la consola de Tailscale
+  (o borra el tailnet de pruebas si solo servía para esto).
 - No conserves los backups de la VM ni la contraseña de prueba.

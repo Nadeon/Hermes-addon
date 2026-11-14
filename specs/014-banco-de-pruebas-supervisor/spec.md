@@ -90,8 +90,8 @@ comprueba. Seguirlo en la VM es la prueba manual.
 **Escenarios de aceptación**:
 
 1. **Dado** el procedimiento, **entonces** dice cómo crear la VM (imagen
-   oficial de HAOS, recursos, red aislada), cómo fijar y comprobar las
-   versiones del Supervisor y de Core, y cómo tomar y restaurar una
+   oficial de HAOS, recursos, red aislada), cómo fijar y comprobar la
+   versión de Core y anotar la del Supervisor, y cómo tomar y restaurar una
    instantánea, con ejemplos para al menos dos hipervisores.
 2. **Dado** el procedimiento, **entonces** dice cómo instalar Hermes como
    add-on local construido desde el Dockerfile (sin la línea `image:`), con
@@ -205,8 +205,9 @@ con el patrón de `manager` del Supervisor 2026.11.0.
 - **FR-001** *(008: FR-016; CAP-006)*: Existe `docs/BANCO-SUPERVISOR.md` con
   el procedimiento del banco del Supervisor: (a) crear una VM con la imagen
   oficial de HAOS, recursos mínimos y red aislada, con ejemplos para Hyper-V y
-  para QEMU/libvirt; (b) fijar y comprobar Supervisor 2026.11.0 y Core
-  2026.11.1 y desactivar la actualización automática del Supervisor; (c) tomar
+  para QEMU/libvirt; (b) fijar y comprobar Core 2026.11.1, anotar la
+  versión real del Supervisor (no se puede fijar fuera del modo de
+  desarrollo) y por qué no se desactiva su actualización automática; (c) tomar
   una instantánea antes de cada tanda y restaurarla; (d) instalar Hermes como
   add-on local construido desde el Dockerfile, sin la línea `image:` (slug
   `local_hermes`), con opciones de prueba y una contraseña generada para la
@@ -316,9 +317,14 @@ Detalle en [data-model.md](data-model.md).
   convención de nombres de la 010 y la 028 (`PROBADAS*`, `NO_EJECUTABLES*`,
   `FALLAN*`, `FUERA_DEL_BANCO`); la 028 la fija en su contrato.
 - **S-04**: HAOS se distribuye en imágenes para Hyper-V (`vhdx`), QEMU/KVM
-  (`qcow2`), VMware (`vmdk`) y VirtualBox (`vdi`/`ova`), y el Supervisor
-  permite desactivar su actualización automática y actualizar a una versión
-  concreta (`supervisor/api/supervisor.py` de 2026.11.0).
+  (`qcow2`), VMware (`vmdk`) y VirtualBox (`vdi`/`ova`). Core se puede actualizar a una
+  versión concreta (`POST /core/update`), pero el Supervisor no: fuera del
+  modo de desarrollo (`SUPERVISOR_DEV=1`), `POST /supervisor/update` ignora
+  `version` y va a la última (`supervisor/api/supervisor.py` de 2026.11.0).
+  Desactivar su actualización automática no lo fija: en cuanto hay uno más
+  nuevo, la condición `supervisor_updated` bloquea instalar y actualizar
+  add-ons, recargar la tienda y actualizar Core
+  (`supervisor/jobs/decorator.py`). Corregido en la convergencia (T017).
 - **S-05**: Un add-on local se construye desde `hermes/Dockerfile` cuando el
   manifiesto no tiene `image:` (comentario de `hermes/config.yaml`).
 

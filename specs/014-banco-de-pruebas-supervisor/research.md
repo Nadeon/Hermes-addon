@@ -71,12 +71,20 @@ Línea base de la suite en Windows sobre `cc478d4`: 2080 pasados, 38 saltados,
   ningún sitio es código sin probar (principio VI) que alguien puede lanzar
   sin leer. Los comandos en el texto se leen y se ejecutan uno a uno.
 - **Hechos del código del Supervisor 2026.11.0 que usa el procedimiento**:
-  - `POST /supervisor/options` acepta `auto_update` y el job
-    `supervisor_auto_update` tiene la condición `AUTO_UPDATE`, que lo bloquea
-    si está desactivada (`supervisor/api/supervisor.py`,
-    `supervisor/supervisor.py`, `supervisor/jobs/decorator.py`): se puede
-    fijar la versión del Supervisor. `POST /supervisor/update` y
-    `/core/update` aceptan `version`.
+  - El Supervisor no se puede fijar (corregido en la convergencia, T017).
+    `POST /supervisor/update` solo respeta `version` en el modo de desarrollo
+    (`SUPERVISOR_DEV=1`); fuera de él actualiza a la última
+    (`supervisor/api/supervisor.py`, `update`). Desactivar `auto_update`
+    tampoco sirve: con un Supervisor más nuevo publicado, `need_update` hace
+    que la condición `SUPERVISOR_UPDATED` (`supervisor/jobs/decorator.py`)
+    bloquee `app_manager_install` y `app_manager_update`
+    (`APP_UPDATE_CONDITIONS`, `supervisor/apps/const.py`),
+    `store_manager_reload` (`supervisor/store/__init__.py`) y
+    `home_assistant_core_update` (`supervisor/homeassistant/core.py`). Se
+    puede ignorar con `POST /jobs/options` `ignore_conditions`, que marca el
+    sistema como no soportado (`job_conditions`) y se deshace con
+    `ignore_conditions: []` o `POST /jobs/reset`. `POST /core/update` sí
+    acepta `version`.
   - Las apps locales viven en `apps/local` del directorio de datos del
     Supervisor (`supervisor/config.py`, `APPS_LOCAL`), que el add-on de
     terminal y SSH ve como `/addons` (mapeo heredado) o `/local_apps`
@@ -86,15 +94,20 @@ Línea base de la suite en Windows sobre `cc478d4`: 2080 pasados, 38 saltados,
     `Dockerfile` (comentario de `hermes/config.yaml`).
 - **Hechos de Hermes que usa el procedimiento**: el emisor OAuth es
   `https://<public_hostname>` (`__main__.py`), así que el cliente necesita TLS
-  delante como en producción (Funnel con el add-on de Tailscale en la VM, con
-  un nombre de máquina propio, o un proxy con certificado de confianza);
+  delante como en producción (por defecto `tailscale serve` con el add-on de
+  Tailscale en la VM, un nombre de máquina propio y un tailnet de pruebas;
+  Funnel solo con aviso, porque publica un Hermes `admin` en internet; o un
+  proxy local con certificado de confianza; corregido en la convergencia,
+  T018);
   `network_mode` y `mcp_bind` como en `hermes/DOCS.md`; el `/data` del add-on
   es accesible desde la VM (lo pide la prueba de la limpieza de
   confirmaciones de CAP-035).
 - **Hipervisores**: Hyper-V (el mantenedor trabaja en Windows; imagen `vhdx`,
   generación 2, arranque seguro desactivado, `Checkpoint-VM` /
-  `Restore-VMCheckpoint`) y QEMU/libvirt (`qcow2`, UEFI, `virsh
-  snapshot-create-as` / `snapshot-revert`). Otros (VMware, VirtualBox), con
+  `Restore-VMCheckpoint`) y QEMU/libvirt (`qcow2`, UEFI; la instantánea es una
+  copia del `qcow2` y del `nvram` con la VM apagada, porque libvirt no admite
+  instantáneas internas con firmware `pflash`; corregido en la convergencia,
+  T022). Otros (VMware, VirtualBox), con
   una línea de referencia a la documentación oficial de HAOS.
 - **Alternativas**: devcontainer del Supervisor (descartado en la 008 R-5 b:
   Docker dentro de Docker, frágil y sin soporte para esto); VM en el CI con KVM

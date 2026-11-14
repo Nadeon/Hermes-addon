@@ -68,8 +68,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
 - **Banco del Supervisor: procedimiento y matriz de pruebas.** Las 24 tools
   del Supervisor y de ficheros que modifican no se pueden ejecutar en el banco
   de Core. `docs/BANCO-SUPERVISOR.md` documenta cómo probarlas en una máquina
-  virtual con Home Assistant OS (Supervisor 2026.11.0 y Core 2026.11.1
-  fijados, instantánea antes de cada prueba destructiva, Hermes como add-on
+  virtual con Home Assistant OS (Core 2026.11.1 fijado y la versión real
+  del Supervisor anotada, porque no se puede fijar; instantánea antes de cada prueba destructiva, Hermes como add-on
   local) y la prueba de `hassio_role: manager`; nadie la ha ejecutado todavía
   y queda como prueba manual. La hoja de ruta tiene una matriz con una fila
   por cada tool que modifica (dónde se prueba contra el software real y con
