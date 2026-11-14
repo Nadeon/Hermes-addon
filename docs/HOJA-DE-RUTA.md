@@ -116,16 +116,17 @@ desactivada, que es su valor por defecto. En la 1.0.12,
 | Qué | Cuándo | Efecto en Hermes |
 |---|---|---|
 | Acción `home-assistant/builder@master` y `build.yaml` | Deprecados (aviso del 2026-04-02); retirada anunciada sin fecha | Ninguno: el flujo de publicación ya usa las actions nuevas y `build.yaml` se ha quitado (spec 002) |
-| Campos `config_entries` y `config_entries_subentries` del dispositivo | HA **2027.8** (`primary_config_entry`: **2027.10**) | Ninguno desde la 1.0.12: los recuentos de dispositivos por integración usan `config_entry_id` y solo recurren a `config_entries` como respaldo |
-| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry`, deprecada en la 1.0.12, se retira en la versión de Hermes que fije la spec 008 (como tarde, la última publicada antes de HA 2027.9); `ha_remove_device` usa `config/device_registry/remove` desde HA 2026.9 |
+| Campos `config_entries` y `config_entries_subentries` del dispositivo | HA **2027.8** (`primary_config_entry`: **2027.10**) | Ninguno desde la 1.0.12: los recuentos de dispositivos por integración usan `config_entry_id` y solo recurren a `config_entries` como respaldo. Desde la 1.2.0 un test fija la forma futura, sin esos campos, y que ningún fichero de Hermes lee `primary_config_entry` ni `config_entries_subentries` (`TestDispositivosSinCamposDeprecados` en `tests/test_deprecaciones.py`) |
+| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry`, deprecada en la 1.0.12, sigue en la 1.2.0 y se retira como tarde en la última versión de Hermes publicada antes de HA 2027.9 (D-08 de la spec 008). Desde la 1.2.0, si HA ya no tiene el comando, la tool devuelve `command_removed_in_ha` con `replacement: ha_remove_device`, sin probar otro comando (`TestComandoRetiradoEnHA` en `tests/test_tools_registry_device.py`). `ha_remove_device` usa `config/device_registry/remove` desde HA 2026.9 |
 | Comando `lovelace/resources` (alias de `lovelace/resources/list`) | Anunciado para 2025.1; sigue presente, puede desaparecer sin aviso | Ninguno desde la 1.0.12: `ha_list_lovelace_resources` usa `lovelace/resources/list` |
 | Campo `has_mean` de estadísticas | Plazo vencido; sigue presente | Solo documentación |
-| Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha. En 2026.11.0 el socket existe solo para Core (`SUPERVISOR_SOCKET` no se inyecta en las apps) y el aviso `deprecated_tcp_api_request` solo salta con el token de Core | Hermes usa solo TCP |
-| API `/v2` del Supervisor (`addons` → `apps`) | Sin fecha; hoy detrás de una opción de desarrollo y sin retirar la V1 | Ninguno hoy |
-| Alias `ha_hacs_*` | Hermes **1.3.0** | Se retiran; desde la 1.1.0 devuelven `_deprecated` |
+| Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha. En 2026.11.0 el socket existe solo para Core (`SUPERVISOR_SOCKET` no se inyecta en las apps) y el aviso `deprecated_tcp_api_request` solo salta con el token de Core | Hermes usa solo TCP. Desde la 1.2.0 detecta `SUPERVISOR_SOCKET` al arrancar y lo anota en el log (`supervisor_platform` y el aviso `supervisor_unix_socket_offered`); sigue por TCP (`tests/test_supervisor_platform.py`). Qué hará falta para usarlo: «Socket Unix y API `/v2` del Supervisor», en «1.3.0 y posteriores» |
+| API `/v2` del Supervisor (`addons` → `apps`) | Sin fecha; hoy detrás de una opción de desarrollo y sin retirar la V1 | Ninguno hoy. Desde la 1.2.0 Hermes lee la opción `supervisor_v2_api` al arrancar y la anota (el aviso `supervisor_api_v2_enabled` si está activa); sigue con la V1, que no se retira al activarla (`tests/test_supervisor_platform.py`). Rutas y cambios de formato: «Socket Unix y API `/v2` del Supervisor», en «1.3.0 y posteriores» |
+| Alias `ha_hacs_*` | Hermes **1.3.0** | Se retiran; desde la 1.1.0 devuelven `_deprecated`. En la 1.2.0 siguen registrados con sus argumentos y anotaciones (`TestDeprecadasSiguen` en `tests/test_deprecaciones.py`) |
 | Acciones `hassio.*_update` | Ya no existen en Core 2026.11 | Ninguno: las de la denylist están muertas; actualizar va por `update.install` |
 | DCR (RFC 7591) en MCP | Deprecado en la revisión 2026-07-28; la spec garantiza al menos 12 meses | OAuth de Hermes |
-| Constante de versiones de protocolo admitidas del SDK `mcp` (sustituida por las de handshake y modernas) | Deprecada en 2.x | Puede romper con un futuro SDK 3.x |
+| Constante de versiones de protocolo admitidas del SDK `mcp` (sustituida por las de handshake y modernas) | Deprecada en 2.x | Ninguno: el middleware usa las dos tuplas nuevas desde la spec 003. Desde la 1.2.0 la suite falla si Hermes usa algo que el SDK marque como deprecado (`MCPDeprecationWarning` o `DeprecationWarning`) o nombra esa constante, y comprueba que `requirements.txt` mantiene `mcp<3` (`tests/test_sdk_deprecaciones.py`) |
+| Alias de carpeta `homeassistant` en los backups parciales de las acciones `hassio.backup_partial` y `hassio.restore_partial` | HA **2026.12** | Ninguno: Hermes usa la API del Supervisor, y esas acciones van por la denylist con token |
 
 Pendiente de confirmar en la documentación oficial de Claude: los límites de
 ~150 000 caracteres por resultado y 240 s por llamada en claude.ai. La 1.1.0
@@ -267,6 +268,20 @@ principio IV se enmienda en el mismo cambio.
 - [x] **CIMD con claude.ai**: OK. claude.ai inicia sesión con CIMD con su
   documento en el host `claude.ai`; si solo usas Claude,
   `oauth_cimd_allowed_hosts: ["claude.ai"]` basta.
+
+**Hosts CIMD conocidos** (para `oauth_cimd_allowed_hosts`; spec 027):
+
+| Cliente | Host del documento | Comprobado |
+|---|---|---|
+| claude.ai | `claude.ai` | Sí, en una instalación real (1.1.0) |
+| Claude Code | `claude.ai` | Documentado; la prueba en vivo sigue pendiente |
+
+No se añade ningún host sin comprobarlo. Para averiguar el de otro cliente,
+conéctalo con la lista vacía y busca en el log el evento `oauth_cimd_document`,
+que lleva solo el host del `client_id`; con la lista ya puesta, el evento
+`oauth_cimd_rejected` con motivo `host_not_allowed` dice qué host falta. El
+valor por defecto sigue vacío en la 1.2.0 (`TestCimdPorDefecto` en
+`tests/test_deprecaciones.py`); restringirlo es D-09 de la spec 008.
 
 ### Pruebas manuales hechas en una instalación real (1.1.1)
 
@@ -415,7 +430,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
-| 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
+| 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | pendiente |
 | 030 | Tienda de apps | 082, 093 | pendiente |
@@ -736,8 +751,11 @@ programa:
   (procedimiento en `docs/BANCO-SUPERVISOR.md`). Es un cambio de permisos: el
   Supervisor lo enseña al actualizar; el cambio de rol se decide al final, tras
   la prueba manual (D-02).
-- **Distinguir errores fatales de avisos en `sv_get_job_status`** (027): hasta
-  que el Supervisor dé una señal fiable, se documenta.
+- **Distinguir errores fatales de avisos en `sv_get_job_status`** (027,
+  hecho): el Supervisor 2026.11.0 no da gravedad, así que cualquier entrada en
+  `errors` da `success: false`, y la descripción y la guía lo dicen. Los
+  errores de los sub-jobs, que no suben al job, salen en `child_errors` y
+  también dan `success: false`; el sondeo del safety backup los cuenta igual.
 - **Cifrado de los safety backups** (031).
 - **Aplicar sugerencias del Supervisor** con confirmación y vista previa
   completa (022).
@@ -752,10 +770,29 @@ programa:
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas
   agregadas ya existen (`ha_statistics_during_period`).
 - **`outputSchema` y alternativas nativas de MCP a la confirmación** (027,
-  solo investigación).
-- **Terminología «apps» y traducciones de las opciones** (027).
-- **`oauth_cimd_allowed_hosts`** (027): se documentan los hosts CIMD conocidos;
-  el valor por defecto no cambia en la 1.2.0.
+  investigado; research R-6 de la spec 027, con el SDK `mcp` 2.3.0):
+  - `outputSchema`: hoy solo lo declaran `ping` y `hermes_guide` (el SDK lo
+    infiere de `-> str`), y un test lo fija. Daría al cliente una forma de
+    validar las respuestas, pero cada tool devolvería el JSON dos veces,
+    `tools/list` crecería y las respuestas de Hermes no tienen una forma única
+    (errores, vistas previas con token, listas recortadas): el esquema sería
+    una unión sin validación real. **Recomendación**: no declararlo en la
+    1.2.0; reconsiderarlo para las tools con el sobre común
+    `{count, items, truncated}`.
+  - Vía nativa para pedir datos a mitad de una llamada (`InputRequiredResult`
+    y la elicitación de MCP 2026-07-28): el cliente enseñaría la vista previa y
+    pediría el «sí» con su propia interfaz. No sustituye a los dos pasos:
+    depende de que el cliente lo implemente, y el token de Hermes ya está
+    atado a la tool y a los argumentos. **Recomendación**: segunda vía
+    opcional en una versión posterior, detrás de la capacidad del cliente y
+    con el mismo token por debajo (D-10 de la spec 008).
+- **Terminología «apps» y traducciones de las opciones** (027, hecho):
+  `translations/en.yaml` y `es.yaml` con las 31 opciones, y «app (add-on)» en
+  las descripciones de las tools de apps, en la guía y en las instrucciones;
+  los nombres de las tools no cambian.
+- **`oauth_cimd_allowed_hosts`** (027, hecho): hosts CIMD conocidos y cómo
+  averiguar otro, junto a la prueba de CIMD con claude.ai; el valor por
+  defecto no cambia en la 1.2.0.
 
 Queda fuera del programa la clase B (suscripciones, streaming e internos del
 frontend, que no aplican a un servidor MCP) y la clase D (peligroso o no
@@ -764,10 +801,11 @@ spec 008.
 
 ### 1.3.0 y posteriores
 
-- Retirar los alias `ha_hacs_*` (anunciado para la 1.3.0) y, como tarde antes
-  de HA 2027.9, `ha_remove_device_from_config_entry`.
+- Retirar los alias `ha_hacs_*` (anunciado para la 1.3.0) y, como tarde en la
+  última versión de Hermes publicada antes de HA 2027.9,
+  `ha_remove_device_from_config_entry` (D-08 de la spec 008).
 - Socket Unix del Supervisor y API `/v2`, cuando se publiquen para las apps
-  (bloqueados; la spec 027 deja escrito lo que hará falta).
+  (bloqueados; lo que hará falta, en el apartado siguiente).
 - Lo que el programa deja al mantenedor (spec 008, «Dudas para el final»):
   candidatas de clase D con salvaguardas fuertes, bajar a
   `hassio_role: manager`, familias de riesgo alto desactivadas por defecto,
@@ -775,6 +813,60 @@ spec 008.
   CI con KVM, unificar la forma de las listas de las tools existentes, el valor
   por defecto de `oauth_cimd_allowed_hosts` y la vía nativa de MCP para
   confirmar.
+
+#### Socket Unix y API `/v2` del Supervisor: qué hará falta
+
+Desde la 1.2.0 Hermes detecta los dos al arrancar y lo anota en el log, sin
+usarlos (`supervisor_platform`, con `transport`, `unix_socket_offered` y
+`api_v2_enabled`; los avisos `supervisor_unix_socket_offered` y
+`supervisor_api_v2_enabled`). Leído en el código del Supervisor 2026.11.0
+(research R-2 y R-3 de la spec 027).
+
+**Socket Unix.** Hoy solo lo tiene Core (`docker/homeassistant.py`); a las
+apps no se les inyecta `SUPERVISOR_SOCKET` (`docker/app.py`). En el socket no
+se lee ningún token: el socket identifica a quien llama. Cuando se publique
+para las apps:
+
+1. Conectar con `aiohttp.UnixConnector(path=SUPERVISOR_SOCKET)` y la URL base
+   `http://supervisor`, sin cabecera `Authorization` en esas peticiones. El
+   WebSocket de Core que usa Hermes (`/core/api/websocket`, por el proxy del
+   Supervisor) seguiría pidiendo el token en el mensaje `auth`.
+2. Volver a TCP si el socket no existe o no responde a `/supervisor/ping`, con
+   el mismo arranque de hoy.
+3. Revisar qué rutas permite el rol de una app por el socket
+   (`check_principal_access`, los mismos patrones que por TCP) y la redacción
+   de red del log (por el socket no hay IP).
+4. Tests con un servidor aiohttp en un socket Unix (solo Linux: omitidos en
+   Windows) o con un conector simulado.
+
+**API `/v2`.** La V1 se monta siempre en la raíz; la V2, en `/v2`, solo con la
+opción de desarrollo `supervisor_v2_api`, y activarla no quita la V1. En la V2
+las claves de error no se traducen a sus nombres antiguos y los roles tienen
+sus propios patrones (`_V2_PATTERNS`), con las mismas reglas. Rutas que usa
+Hermes:
+
+| Hermes (V1) | V2 | Cambio de formato en la V2 |
+|---|---|---|
+| `GET /supervisor/info` | `GET /v2/supervisor/info` | sin `addons` ni `wait_boot` |
+| `GET /info`, `GET /host/info`, `GET /core/info` | igual con `/v2` | `host/info` cambia de forma |
+| `GET /addons` | `GET /v2/apps` | lista de apps |
+| `GET /store/addons` | `GET /v2/store/apps` | lista de apps del catálogo |
+| `GET /addons/{slug}/info` | `GET /v2/apps/{app}/info` | solo apps instaladas; para el catálogo, `GET /v2/store/apps/{app}` |
+| `GET /addons/{slug}/stats` | `GET /v2/apps/{app}/stats` | cambia de forma |
+| `GET /addons/{slug}/logs` | `GET /v2/apps/{app}/logs` | mismo texto |
+| `POST /addons/{slug}/start`, `stop`, `restart`, `options`, `uninstall` | `POST /v2/apps/{app}/…` | — |
+| `POST /store/addons/{slug}/install`, `update` | `POST /v2/store/apps/{app}/…` | — |
+| `GET /backups`, `GET /backups/{slug}/info` | igual con `/v2` | la clave `apps` en vez de `addons` |
+| `POST /backups/new/full`, `partial`; `POST /backups/{slug}/restore/full`, `partial` | igual con `/v2` | `partial`: cuerpo con `apps` en vez de `addons` |
+| `DELETE /backups/{slug}` | igual con `/v2` | — |
+| `GET /jobs/{id}` | igual con `/v2` | — |
+| `GET /resolution/info`, `DELETE /resolution/{clase}/{uuid}` | igual con `/v2` | cambia de forma |
+| `POST /core/check`, `restart`; `POST /host/reboot` | igual con `/v2` | — |
+
+El test de deriva del inventario (`scripts/inventario/`) extrae **solo la V1**:
+avisará si una versión del Supervisor quita o cambia rutas de la V1, pero no ve
+las rutas nuevas de la V2. Un inventario de la V2 queda como duda D-4 de la
+spec 027 mientras la V2 sea una opción de desarrollo.
 
 ## Hermes frente a la integración oficial `mcp_server`
 

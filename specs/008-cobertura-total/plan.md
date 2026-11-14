@@ -208,15 +208,15 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-022 | alta | 014 | FR-017 | X+M | `tests/test_addon_manifest.py` (`TestComentarioDelRol`), `tests/test_rutas_supervisor_rol.py`; prueba manual de `manager` (pendiente) |
 | CAP-023 | media | 018 | FR-018, FR-065 | X | sobre común en tools nuevas |
 | CAP-024 | baja | 009 | FR-035 | X | `TestApagadoSinTraza` (`tests/test_boot_shutdown_diagnostics.py`) |
-| CAP-025 | baja | 027 | FR-092 | M | descripción y guía |
-| CAP-026 | baja | 027 | FR-093 | M | hoja de ruta |
+| CAP-025 | baja | 027 | FR-092 | X | `sv_get_job_status` (`child_errors`, `success` con los sub-jobs, `child_jobs` redactado) y sondeo del safety backup: `TestChildJobErrors`, `TestSondeoSubJobs` (`tests/test_supervisor_jobs.py`), `TestJobStatusSubJobs` (`tests/test_tools_supervisor.py`); guía: `TestGuiaJobs` (`tests/test_tools_guide.py`); hoja de ruta, «Distinguir errores fatales de avisos» |
+| CAP-026 | baja | 027 | FR-093 | M | hoja de ruta, «Hosts CIMD conocidos»; valor por defecto: `TestCimdPorDefecto` (`tests/test_deprecaciones.py`) |
 | CAP-027 | media | 031 | FR-068 | X | safety backup cifrado y restaurable |
-| CAP-028 | baja | 027 | FR-094 | M | hoja de ruta |
-| CAP-029 | baja | 027 | FR-095 | X | textos de opciones y descripciones |
-| CAP-030 | media | 027 | FR-020, FR-096 | M | sigue registrada y deprecada |
-| CAP-031 | media | 027 | FR-020, FR-096 | M | alias siguen con `_deprecated` |
-| CAP-032 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta |
-| CAP-033 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta; deriva |
+| CAP-028 | baja | 027 | FR-094 | M | hoja de ruta, «`outputSchema` y alternativas nativas de MCP»; `TestSinDeprecacionesDelSdk`, `TestTopeDelSdk` (`tests/test_sdk_deprecaciones.py`); `tests/test_tareas_aplazadas.py` |
+| CAP-029 | baja | 027 | FR-095 | X | `translations/en.yaml` y `es.yaml`: `tests/test_translations.py`; descripciones de las tools de apps: `TestTerminologiaApps` (`tests/test_tools_supervisor.py`); guía: `TestGuiaApps` (`tests/test_tools_guide.py`) |
+| CAP-030 | media | 027 | FR-020, FR-096 | X | `ha_remove_device_from_config_entry` sigue registrada y deprecada: `TestDeprecadasSiguen`, `TestDispositivosSinCamposDeprecados` (`tests/test_deprecaciones.py`); `command_removed_in_ha`: `TestComandoRetiradoEnHA` (`tests/test_tools_registry_device.py`); hoja de ruta, «Deprecaciones con fecha» |
+| CAP-031 | media | 027 | FR-020, FR-096 | M | alias `ha_hacs_*` siguen con `_deprecated` hasta la 1.3.0: `TestDeprecadasSiguen` (`tests/test_deprecaciones.py`), `tests/test_tools_hacs.py`; hoja de ruta, «Deprecaciones con fecha» |
+| CAP-032 | baja (bloqueada) | 027 | FR-097 | M | detección al arrancar: `TestSocketOfrecido`, `TestComprobarPlataforma` (`tests/test_supervisor_platform.py`), `test_boot_comprueba_la_plataforma_tras_conectar_y_antes_del_mcp` (`tests/test_main_wiring.py`); hoja de ruta, «Socket Unix y API `/v2` del Supervisor: qué hará falta» |
+| CAP-033 | baja (bloqueada) | 027 | FR-097 | M | detección al arrancar: `TestApiV2Activada`, `TestComprobarPlataforma` (`tests/test_supervisor_platform.py`); deriva de la V1: `TestDeriva` (`tests/test_command_table.py`); hoja de ruta, «Socket Unix y API `/v2` del Supervisor: qué hará falta» |
 | CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core: `tests/banco/test_banco_humo.py`, `tests/banco/test_banco_helpers_*.py`, `tests/test_banco_cobertura.py` (010); `tests/banco/test_banco_escrituras_*.py`, `tests/test_banco_cobertura_escrituras.py` (028); matriz del Supervisor: `tests/test_matriz_pruebas.py` (014) |
 | CAP-035 | media | 014 | FR-016 | M | casillas de pruebas manuales con su entorno: `tests/test_matriz_pruebas.py` (`test_casillas_manuales`) |
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |

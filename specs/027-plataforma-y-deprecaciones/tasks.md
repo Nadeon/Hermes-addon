@@ -31,7 +31,9 @@ tramo termina con exactamente esos 6 fallos en local; la referencia es el CI
 de Linux. Tras integrar `feat/cobertura-total` (009, 010, 011, 028 y 014) al
 empezar el tramo A: 2357 passed, 65 skipped, 6 failed; al cerrarlo: 2409
 passed, 65 skipped, 6 failed (los mismos). Registro por defecto: 221 tools,
-igual antes y después del tramo.
+igual antes y después del tramo. Tramo B: al empezar, 2409 passed, 65
+skipped, 6 failed; al cerrarlo, 2429 passed, 65 skipped, 6 failed (los mismos
+6); tabla regenerada sin cambios.
 
 ## Formato: `[ID] [P?] [Historia] Descripción`
 
@@ -97,26 +99,54 @@ B no depende del código de A salvo para citar sus tests en la documentación
 
 ### Traducciones (US4)
 
-- [ ] T017 [P] [US4] Tests en `tests/test_translations.py` (nuevo): existen `hermes/translations/en.yaml` y `es.yaml`; cada uno es un objeto con solo `configuration` (y, si acaso, `network`); sus claves son exactamente las de `schema` de `hermes/config.yaml`; cada entrada tiene `name` y `description` de texto no vacío y nada más que `name`, `description` y `fields` (forma de `SCHEMA_TRANSLATION_CONFIGURATION` de `supervisor/apps/validate.py` 2026.11.0, copiada en un comentario); ningún texto contiene «add-on» ni «addon» sin distinguir mayúsculas; ninguno contiene una IP, un hostname que no sea un marcador (`homeassistant.tailXXXX.ts.net`, `claude.ai`) ni una ruta `C:\` (FR-006, FR-016, SC-004)
-- [ ] T018 [US4] Crear `hermes/translations/en.yaml` (inglés) y `es.yaml` (español) con las 31 opciones, textos derivados de la tabla de opciones de `hermes/DOCS.md` y «app» donde hablen del objeto. T017 en verde. **Control negativo**: borrar una opción de `es.yaml` → T017 en rojo; anotarlo (FR-006)
+- [x] T017 [P] [US4] Tests en `tests/test_translations.py` (nuevo): existen `hermes/translations/en.yaml` y `es.yaml`; cada uno es un objeto con solo `configuration` (y, si acaso, `network`); sus claves son exactamente las de `schema` de `hermes/config.yaml`; cada entrada tiene `name` y `description` de texto no vacío y nada más que `name`, `description` y `fields` (forma de `SCHEMA_TRANSLATION_CONFIGURATION` de `supervisor/apps/validate.py` 2026.11.0, copiada en un comentario); ningún texto contiene «add-on» ni «addon» sin distinguir mayúsculas; ninguno contiene una IP, un hostname que no sea un marcador (`homeassistant.tailXXXX.ts.net`, `claude.ai`) ni una ruta `C:\` (FR-006, FR-016, SC-004)
+- [x] T018 [US4] Crear `hermes/translations/en.yaml` (inglés) y `es.yaml` (español) con las 31 opciones, textos derivados de la tabla de opciones de `hermes/DOCS.md` y «app» donde hablen del objeto. T017 en verde. **Control negativo**: borrar una opción de `es.yaml` → T017 en rojo; anotarlo (FR-006)
 
 ### Descripciones y guía (US1, US4)
 
-- [ ] T019 [P] [US4] Tests en `tests/test_tools_supervisor.py`, clase `TestTerminologiaApps`: la descripción de cada una de las doce tools de `tools/addons.py` contiene «app»; los nombres y argumentos siguen siendo los del fixture `tests/fixtures/esquemas_1_1_2.json` (el test de esquemas existente lo cubre; aquí solo se comprueba que las doce están en él) (FR-007)
-- [ ] T020 [US4] `hermes/src/hermes/tools/addons.py`: descripciones con «app (add-on)» en la primera mención y «app» donde hablen del objeto; sin tocar nombres, argumentos ni lógica. T019 en verde (FR-007)
-- [ ] T021 [P] [US1] [US4] Tests en `tests/test_tools_guide.py`: `TestGuiaJobs`: el tema `backups`, el tema `supervisor` y las instrucciones del servidor dicen que cualquier entrada en `errors` da `success: false` y nombran `child_errors`; `TestGuiaApps`: el título del tema `supervisor` y el apartado 4 de las instrucciones dicen «apps (add-ons)», y el tema sigue nombrando las doce tools de apps (FR-001, FR-007)
-- [ ] T022 [US1] [US4] `hermes/src/hermes/tools/guide.py`: instrucciones del servidor (apartado 4) y temas `supervisor` y `backups` según contracts/tools.md. T021 en verde; los tests de guía existentes siguen pasando (tamaño de las instrucciones incluido, si lo hay) (FR-001, FR-007)
+- [x] T019 [P] [US4] Tests en `tests/test_tools_supervisor.py`, clase `TestTerminologiaApps`: la descripción de cada una de las doce tools de `tools/addons.py` contiene «app»; los nombres y argumentos siguen siendo los del fixture `tests/fixtures/esquemas_1_1_2.json` (el test de esquemas existente lo cubre; aquí solo se comprueba que las doce están en él) (FR-007)
+- [x] T020 [US4] `hermes/src/hermes/tools/addons.py`: descripciones con «app (add-on)» en la primera mención y «app» donde hablen del objeto; sin tocar nombres, argumentos ni lógica. T019 en verde (FR-007)
+- [x] T021 [P] [US1] [US4] Tests en `tests/test_tools_guide.py`: `TestGuiaJobs`: el tema `backups`, el tema `supervisor` y las instrucciones del servidor dicen que cualquier entrada en `errors` da `success: false` y nombran `child_errors`; `TestGuiaApps`: el título del tema `supervisor` y el apartado 4 de las instrucciones dicen «apps (add-ons)», y el tema sigue nombrando las doce tools de apps (FR-001, FR-007)
+- [x] T022 [US1] [US4] `hermes/src/hermes/tools/guide.py`: instrucciones del servidor (apartado 4) y temas `supervisor` y `backups` según contracts/tools.md. T021 en verde; los tests de guía existentes siguen pasando (tamaño de las instrucciones incluido, si lo hay) (FR-001, FR-007)
 
 ### Documentación (US4, US5)
 
-- [ ] T023 [US4] `hermes/DOCS.md`, `README.md` y `README.es.md`: en las descripciones de opciones, «app» donde dicen «add-on» hablando del objeto (no en el nombre del repositorio ni en los enlaces) y una línea sobre las traducciones de la página de configuración; los dos README sincronizados (FR-007, FR-015)
-- [ ] T024 [US5] `docs/HOJA-DE-RUTA.md`: tabla «Deprecaciones con fecha» según research R-8, con los tests de A; hosts CIMD conocidos y cómo averiguar otro (research R-7) junto a la entrada de `oauth_cimd_allowed_hosts`; resumen de `outputSchema` y de la vía nativa de MCP con la recomendación (research R-6); en «1.3.0 y posteriores», apartado del socket Unix y la `/v2` con los pasos de research R-2 y la tabla de rutas de research R-3, y la nota de que la deriva solo vigila la V1; fecha de retirada de los alias (1.3.0) y de la tool deprecada (como tarde antes de HA 2027.9, D-08); estado de la 027 en la tabla del programa («hecha», con lo que hace) y los puntos de la 027 en la lista de lo que ahora es del programa (FR-003, FR-004, FR-005, FR-008, FR-012, FR-013, FR-015)
-- [ ] T025 [US5] `hermes/CHANGELOG.md`: sección `### Plataforma y deprecaciones` dentro de `## [1.2.0]` (el tramo A ya la creó con lo suyo: `child_errors` y `success`, safety backup, nada se retira, `command_removed_in_ha`, socket y `/v2`, guarda del SDK; B añade traducciones y «app» y revisa el resto): `child_errors` y la descripción de `sv_get_job_status`, `success: false` con errores en sub-jobs y el sondeo del safety backup que los cuenta (D-1, arreglo); `command_removed_in_ha`; detección del socket y de la `/v2` al arrancar (evento y avisos); traducciones de las opciones y término «app»; nada se retira en la 1.2.0 (alias hasta la 1.3.0; la tool deprecada sigue); guarda de deprecaciones del SDK (FR-015)
-- [ ] T026 [US5] `specs/008-cobertura-total/plan.md`, matriz de trazabilidad: filas CAP-025, CAP-026 y CAP-028…CAP-033 con vía, tests (clases y ficheros de A y B) y entradas de la hoja de ruta, como las de la 011 (FR-015, SC-008)
+- [x] T023 [US4] `hermes/DOCS.md`, `README.md` y `README.es.md`: en las descripciones de opciones, «app» donde dicen «add-on» hablando del objeto (no en el nombre del repositorio ni en los enlaces) y una línea sobre las traducciones de la página de configuración; los dos README sincronizados (FR-007, FR-015)
+- [x] T024 [US5] `docs/HOJA-DE-RUTA.md`: tabla «Deprecaciones con fecha» según research R-8, con los tests de A; hosts CIMD conocidos y cómo averiguar otro (research R-7) junto a la entrada de `oauth_cimd_allowed_hosts`; resumen de `outputSchema` y de la vía nativa de MCP con la recomendación (research R-6); en «1.3.0 y posteriores», apartado del socket Unix y la `/v2` con los pasos de research R-2 y la tabla de rutas de research R-3, y la nota de que la deriva solo vigila la V1; fecha de retirada de los alias (1.3.0) y de la tool deprecada (como tarde antes de HA 2027.9, D-08); estado de la 027 en la tabla del programa («hecha», con lo que hace) y los puntos de la 027 en la lista de lo que ahora es del programa (FR-003, FR-004, FR-005, FR-008, FR-012, FR-013, FR-015)
+- [x] T025 [US5] `hermes/CHANGELOG.md`: sección `### Plataforma y deprecaciones` dentro de `## [1.2.0]` (el tramo A ya la creó con lo suyo: `child_errors` y `success`, safety backup, nada se retira, `command_removed_in_ha`, socket y `/v2`, guarda del SDK; B añade traducciones y «app» y revisa el resto): `child_errors` y la descripción de `sv_get_job_status`, `success: false` con errores en sub-jobs y el sondeo del safety backup que los cuenta (D-1, arreglo); `command_removed_in_ha`; detección del socket y de la `/v2` al arrancar (evento y avisos); traducciones de las opciones y término «app»; nada se retira en la 1.2.0 (alias hasta la 1.3.0; la tool deprecada sigue); guarda de deprecaciones del SDK (FR-015)
+- [x] T026 [US5] `specs/008-cobertura-total/plan.md`, matriz de trazabilidad: filas CAP-025, CAP-026 y CAP-028…CAP-033 con vía, tests (clases y ficheros de A y B) y entradas de la hoja de ruta, como las de la 011 (FR-015, SC-008)
+
+### Extras del supervisor en el tramo B
+
+- [x] TB-1 (seguridad) `sv_get_job_status` devolvía `child_jobs` en bruto: un
+  secreto en el error de un sub-job salía por ahí aunque `child_errors` lo
+  tapara. `supervisor_jobs.redact_child_jobs` (`redact_structure` más
+  `redact_secrets` en cada texto). Test:
+  `TestJobStatusSubJobs.test_centinela_anidado_no_sale_en_ninguna_parte`.
+  Control negativo: `child_jobs` sin redactar → en rojo
+- [x] TB-2 `tools/ha.py` lanzaba la auto-clasificación con
+  `asyncio.ensure_future`, que sin bucle en marcha da `DeprecationWarning`
+  (error en 3.14). `_lanzar_o_aplazar`: el bucle en marcha si lo hay; si no,
+  la tarea se aplaza y la lanza el lifespan (`lanzar_tareas_aplazadas`). Test:
+  `tests/test_tareas_aplazadas.py`. Control negativo: `ensure_future` de
+  vuelta → en rojo
+
+### Desviaciones del tramo B
+
+- T019: el test de nombres y argumentos no se duplica; se comprueba que las
+  doce tools están en `esquemas_1_1_2.json`, que ya fija sus argumentos.
+- T022: además del apartado 4, la introducción de las instrucciones y el
+  índice de la guía dicen «apps (add-ons)», para no mezclar los dos términos
+  en el mismo texto. El tema `supervisor` nombra ahora las doce tools por su
+  nombre completo (antes `sv_start/stop/restart_addon`).
+- T023: en las tablas de opciones solo había dos «add-on» hablando del objeto
+  (`tool_families_disabled` en `README.md` y `response_max_bytes` en
+  `DOCS.md`). El resto de «add-on» de los documentos no es de la 027
+  (principio IX).
 
 ### Cierre del tramo B
 
-- [ ] T027 Cierre: tabla regenerada sin cambios (`git diff --exit-code hermes/src/hermes/command_table.py`); suite con exactamente los 6 fallos conocidos; revisión del diff buscando datos personales (traducciones, README, hoja de ruta); commit(s) del tramo con el control negativo de T018 en el mensaje; anotar en `checklists/requirements.md` las dudas que sigan abiertas (FR-014, FR-016, SC-006, SC-007)
+- [x] T027 Cierre: tabla regenerada sin cambios (`git diff --exit-code hermes/src/hermes/command_table.py`); suite con exactamente los 6 fallos conocidos; revisión del diff buscando datos personales (traducciones, README, hoja de ruta); commit(s) del tramo con el control negativo de T018 en el mensaje; anotar en `checklists/requirements.md` las dudas que sigan abiertas (FR-014, FR-016, SC-006, SC-007)
 
 ---
 

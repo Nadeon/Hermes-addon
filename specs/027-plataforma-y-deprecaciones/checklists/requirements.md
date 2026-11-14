@@ -70,6 +70,15 @@
   principio X pide inglés para lo que ve el cliente. La 027 sigue el idioma de
   cada texto que edita; traducirlas todas sería un cambio propio.
 
+## Dudas abiertas al cerrar el tramo B (2026-11-14)
+
+Siguen abiertas D-2 (versión exacta de la retirada de
+`ha_remove_device_from_config_entry`), D-3 (`outputSchema` inferido de `ping`
+y `hermes_guide`), D-4 (inventario de la `/v2`), D-5 (vía nativa de MCP para
+confirmar) y D-6 (idioma de las descripciones y la guía). Ninguna bloquea la
+1.2.0; las cinco están en la hoja de ruta o en la spec 008 como decisiones del
+mantenedor. D-1 está cerrada.
+
 ## Hallazgos fuera de alcance (para el informe)
 
 - `tools/config_entries.py`, `_count_config_entry_dependents`: compara

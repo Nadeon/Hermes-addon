@@ -183,9 +183,14 @@ _Pendiente: la añade la sub-feature que lo implemente._
   niveles; `child_errors_truncated: true` si hay más) y, con cualquiera de
   ellos, `success: false`, igual que con cualquier error del propio job. Es un
   arreglo, no un cambio de contrato: el campo `success` decía que todo había
-  ido bien cuando no. La descripción explica además que el Supervisor no
-  distingue avisos de errores fatales y que, con errores, `reference` puede
-  apuntar a un backup incompleto.
+  ido bien cuando no. La descripción y la guía explican además que `done` es
+  `true` también cuando el job falla, que el Supervisor no distingue avisos
+  de errores fatales (cualquier entrada en `errors` da `success: false`) y
+  que, con errores, `reference` puede apuntar a un backup incompleto.
+- **`child_jobs` sale redactado.** `sv_get_job_status` devuelve el árbol de
+  sub-jobs entero, y antes iba en bruto: un secreto en el error de un sub-job
+  salía por ahí aunque `child_errors` lo tapara. Ahora pasa por la misma
+  redacción.
 - **El safety backup con sub-jobs fallidos ya no deja escribir.** El sondeo
   del safety backup de las escrituras `fs_*` cuenta esos errores como fallo
   (`safety_backup_job_failed` con el mensaje del sub-job): no se escribe sin
@@ -202,11 +207,26 @@ _Pendiente: la añade la sub-feature que lo implemente._
   arrancar, Hermes anota en el log (`supervisor_platform`) si el Supervisor le
   ofrece `SUPERVISOR_SOCKET` o tiene activada la opción `supervisor_v2_api`, y
   avisa de que sigue por TCP y por la V1, que el Supervisor mantiene. Si no
-  puede leerlo, lo dice (`api_v2_enabled: null`) y el arranque sigue.
+  puede leerlo, lo dice (`api_v2_enabled: null`) y el arranque sigue. Lo que
+  hará falta para usarlos está en la hoja de ruta.
+- **Opciones traducidas y «apps».** La página de configuración enseña el
+  nombre y una descripción corta de cada opción, en inglés o en español
+  (`translations/en.yaml` y `es.yaml`). Como el Supervisor 2026.11, las
+  descripciones de las tools de apps, la guía y las instrucciones dicen «app
+  (add-on)»; los nombres de las tools (`sv_*_addon*`) y sus argumentos no
+  cambian.
 - **Guarda de deprecaciones del SDK MCP.** La suite falla si Hermes usa algo
   que el SDK marque como deprecado (`MCPDeprecationWarning`, que no hereda de
   `DeprecationWarning`, y los `DeprecationWarning` de `mcp` o de Hermes), y
-  fija qué tools declaran `outputSchema` (`ping` y `hermes_guide`).
+  fija qué tools declaran `outputSchema` (`ping` y `hermes_guide`). La
+  auto-clasificación de scripts peligrosos ya no usa `asyncio.ensure_future`,
+  que sin un bucle en marcha avisa en Python 3.13 y fallará en 3.14: lanza la
+  tarea en el bucle en marcha o la aplaza al arranque del servidor.
+- **Documentado en la hoja de ruta**: los hosts CIMD conocidos y cómo
+  averiguar otro (`oauth_cimd_allowed_hosts` sigue vacío por defecto), por qué
+  no se declara `outputSchema` y por qué la vía nativa de MCP para pedir
+  confirmación no sustituye a los dos pasos, y la tabla de deprecaciones al
+  día.
 
 ### Correcciones
 
