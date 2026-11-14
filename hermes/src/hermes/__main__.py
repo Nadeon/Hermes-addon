@@ -57,6 +57,7 @@ from hermes.network import (
 from hermes.ha import HAClient
 from hermes.oauth import OAuthServer
 from hermes.security import cleanup_expired_confirmations
+from hermes.supervisor_platform import comprobar_plataforma
 from mcp.server.transport_security import TransportSecuritySettings
 
 logger = structlog.get_logger(__name__)
@@ -262,6 +263,13 @@ async def _boot(config: HermesConfig) -> None:
     ws_ready = await _connect_ha_ws(
         ha_client, config.health_startup_grace_seconds
     )
+
+    # Socket Unix y API `/v2` del Supervisor: solo se detectan y se anotan
+    # en el log. Hermes 1.2.0 sigue por TCP y por la V1, que el Supervisor
+    # mantiene; activar algo sin probarlo contra un Supervisor real podría
+    # romper una instalación que hoy funciona (spec 027, FR-011). La función
+    # nunca lanza y tarda como mucho 10 s.
+    await comprobar_plataforma(ha_client, os.environ)
 
     # ── Paso 9: Arrancar servidor MCP principal ──────────────
     health_server.set_boot_step(9)
