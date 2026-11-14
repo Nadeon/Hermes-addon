@@ -53,7 +53,8 @@ Open a [new issue](../../issues/new). What makes a report actionable:
 > around `secrets.yaml`, tokens, or hostnames you would rather not publish.
 
 If the report is about a tool doing the wrong thing, include the tool name and
-the arguments Claude used. Both appear in the log.
+the arguments Claude used. The log does not record them: open the tool call in
+the Claude conversation, which shows both.
 
 ## Development setup
 
@@ -81,8 +82,8 @@ To try changes against a real Home Assistant, copy the contents of `hermes/` to
 `/addons/hermes` on the host and **delete the `image:` line** from the
 `config.yaml` you leave there — otherwise the Supervisor downloads the published
 image instead of building your changes. Then `ha apps rebuild local_hermes`
-(after touching the `Dockerfile` or dependencies), `ha apps restart local_hermes`
-(Python only), and `ha apps logs local_hermes -f`.
+after any change, Python included (the code is copied into the image, so a
+plain restart keeps running the old one), and `ha apps logs local_hermes -f`.
 
 ## The three conventions that matter
 
