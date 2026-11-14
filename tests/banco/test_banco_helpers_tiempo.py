@@ -34,7 +34,7 @@ from tests.banco.base_helpers import (
     BancoHelpers,
     nombre_de_prueba,
 )
-from tests.banco.entorno import llamar
+from tests.banco.entorno import rechazo
 
 pytestmark = pytest.mark.banco
 
@@ -98,7 +98,7 @@ class TestCounter(BancoHelpers):
             await s.esperar_estado(eid, lambda e: e["state"] == "1", "creado por el lector")
             async with s.lector.servicios_llamados() as vistos:
                 for args in ({}, {"confirmation_token": "00000000-0000-4000-8000-000000000000"}):
-                    respuesta = await llamar(s.cliente, tool, **args)
+                    respuesta = await rechazo(s.cliente, tool, **args)
                     self.assertEqual(respuesta["error"], "not_supported", respuesta)
                     self.assertIn("1.3.0", respuesta["_deprecated"])
                     self.assertNotIn("confirmation_token", respuesta)
@@ -129,13 +129,13 @@ class TestCounter(BancoHelpers):
             s.creados.append(("counter", creado["id"]))
             await s.esperar_estado(eid, lambda e: e["state"] == "5", "initial 5, step 3")
 
-            r = await llamar(s.cliente, "ha_increment_counter", entity_id=eid, amount=3)
+            r = await rechazo(s.cliente, "ha_increment_counter", entity_id=eid, amount=3)
             self.assertEqual(
                 (r.get("error"), r.get("reason"), r.get("target")),
                 ("invalid_amount", "not_multiple_of_step", 8), r,
             )
             self.assertEqual((await s.lector.estado(eid))["state"], "5")
-            r = await llamar(s.cliente, "ha_set_counter_value", entity_id=eid, value=7)
+            r = await rechazo(s.cliente, "ha_set_counter_value", entity_id=eid, value=7)
             self.assertEqual(
                 (r.get("error"), r.get("reason")), ("invalid_value", "not_multiple_of_step"), r
             )
@@ -154,9 +154,9 @@ class TestCounter(BancoHelpers):
             )
             s.creados.append(("counter", creado["id"]))
             await s.esperar_estado(eid, lambda e: e["state"] == "9", "initial 9, máximo 10")
-            r = await llamar(s.cliente, "ha_increment_counter", entity_id=eid, amount=5)
+            r = await rechazo(s.cliente, "ha_increment_counter", entity_id=eid, amount=5)
             self.assertEqual((r.get("error"), r.get("reason")), ("invalid_amount", "out_of_range"), r)
-            r = await llamar(s.cliente, "ha_set_counter_value", entity_id=eid, value=11)
+            r = await rechazo(s.cliente, "ha_set_counter_value", entity_id=eid, value=11)
             self.assertEqual((r.get("error"), r.get("reason")), ("invalid_value", "out_of_range"), r)
             self.assertEqual((await s.lector.estado(eid))["state"], "9")
 

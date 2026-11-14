@@ -52,7 +52,7 @@ import json
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufijo
-from tests.banco.entorno import llamar
+from tests.banco.entorno import rechazo
 
 pytestmark = pytest.mark.banco
 
@@ -470,7 +470,7 @@ class TestEscena(BancoEscrituras):
                 eid, lambda e: e is not None and e["attributes"].get("id") == scid, "de scenes.yaml"
             )
             # Core no la tocaría (solo avisa en el log): la tool lo dice antes.
-            r = await llamar(s.cliente, "ha_create_scene_from_current", scene_id=scid, entity_ids=[ib2])
+            r = await rechazo(s.cliente, "ha_create_scene_from_current", scene_id=scid, entity_ids=[ib2])
             self.assertEqual((r.get("error"), r.get("scene_id")), ("scene_exists", eid), r)
             self.assertNotIn("confirmation_token", r)
             despues = await s.lector.estado(eid)
@@ -488,7 +488,7 @@ class TestEscena(BancoEscrituras):
             ib = await s.input_boolean(f"banco_input_boolean_{hexa}")
             await s.preparar_barrera()
             async with s.lector.servicios_llamados() as vistos:
-                r = await llamar(
+                r = await rechazo(
                     s.cliente, "ha_create_scene_from_current",
                     scene_id=scid, entity_ids=[ib], name=f"Escena del banco {hexa}",
                 )

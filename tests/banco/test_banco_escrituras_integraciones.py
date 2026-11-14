@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras
-from tests.banco.entorno import llamar
+from tests.banco.entorno import rechazo
 from tests.banco.lector import ErrorCore
 
 pytestmark = pytest.mark.banco
@@ -279,7 +279,7 @@ class TestOpcionesNoPublicadas(BancoEscrituras):
             entrada = await exigir_kitchen_sink(s)
             # Lo que da Core por su API: la entrada sin `options`.
             self.assertNotIn("options", entrada)
-            r = await llamar(s.cliente, "ha_get_config_entry_options", entry_id=entrada["entry_id"])
+            r = await rechazo(s.cliente, "ha_get_config_entry_options", entry_id=entrada["entry_id"])
             self.assertEqual(r.get("error"), "not_supported", r)
             self.assertEqual(
                 (r["entry_id"], r["domain"], r["supports_options"]),

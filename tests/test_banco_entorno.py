@@ -411,6 +411,18 @@ class TestLlamar(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entorno.tomar_tools_del_test(), {"ha_bien"})
         self.assertEqual(entorno.tomar_tools_del_test(), set())
 
+    async def test_rechazo_devuelve_el_error_y_no_cuenta_como_probada(self) -> None:
+        # Spec 033: el error esperado llega marcado con `isError`.
+        entorno.tomar_tools_del_test()
+        r = await entorno.rechazo(
+            self._cliente(['{"error": "not_supported"}'], is_error=True), "ha_x"
+        )
+        self.assertEqual(r, {"error": "not_supported"})
+        self.assertEqual(entorno.tomar_tools_del_test(), set())
+        # Una respuesta normal, cuando se esperaba un error, es un fallo.
+        with self.assertRaises(AssertionError):
+            await entorno.rechazo(self._cliente(['{"result": "ok"}']), "ha_x")
+
 
 class TestServicioInexistente(unittest.TestCase):
     """T038: el `xfail` de `ha_reload_counters` solo admite el 400 de Core a

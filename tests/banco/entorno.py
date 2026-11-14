@@ -358,6 +358,20 @@ async def llamar(cliente: Any, tool: str, **args: Any) -> Any:
     return decodificado
 
 
+async def rechazo(cliente: Any, tool: str, **args: Any) -> dict[str, Any]:
+    """Llama a una tool que DEBE responder `{"error": …}` y devuelve ese dict.
+
+    No sirve `llamar`: Hermes marca con `isError` toda respuesta
+    `{"error": …}` (`mcp_server.py`) y `llamar` la convierte en fallo del
+    test. Aquí el error es lo esperado; que llegue marcado también se
+    comprueba. Como en `llamar`, la tool no cuenta como probada (spec 033).
+    """
+    resultado = await cliente.call_tool(tool, args)
+    if not getattr(resultado, "is_error", False):
+        raise AssertionError(f"{tool}: se esperaba una respuesta de error: {resultado!r}")
+    return json.loads(resultado.content[0].text)
+
+
 async def confirmar(cliente: Any, tool: str, respuesta: dict[str, Any], **args: Any) -> Any:
     """Segundo paso: la misma llamada con el `confirmation_token` de la vista previa."""
     token = respuesta.get("confirmation_token")
