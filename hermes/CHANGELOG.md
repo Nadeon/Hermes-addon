@@ -1,5 +1,69 @@
 # Changelog
 
+## [1.2.0] — <fecha de publicación>
+
+Programa de cobertura total de Home Assistant 2026.11 (Core 2026.11.1,
+Supervisor 2026.11.0): todo lo que el programa añade sale en esta única
+versión. Es compatible con la 1.1.2: ninguna tool cambia de nombre y ningún
+argumento existente cambia ni pasa a ser obligatorio.
+
+### Diagnóstico
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Integraciones
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Automatización
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Supervisor
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Sistema
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Política y genéricas
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Banco de pruebas
+
+_Pendiente: la añade la sub-feature que lo implemente._
+
+### Correcciones
+
+- **La redacción de secretos era cuadrática** (FR-001). Tres de las expresiones
+  de `redact_secrets` recorrían el texto desde cada posición de una misma
+  racha: 30 KB de ciertas formas (`eyJ` repetido, `a://b:c` repetido sin `@`,
+  `"` seguido de `password` repetido) tardaban medio segundo, en el bucle de
+  eventos, al leer un log con `sv_get_addon_logs`. Ahora son lineales (1 MiB,
+  decenas de milisegundos) y redactan exactamente lo mismo que en la 1.1.2,
+  comprobado con un test diferencial.
+- **El log ya no lleva los hosts de las URLs de Home Assistant** (FR-002). Al
+  conectar (y en cada reconexión), Hermes lee `external_url` e `internal_url`
+  de `/api/config` y la redacción de red sustituye sus hosts por
+  `<ha_external_host>` y `<ha_internal_host>`. No se tapan los literales IP
+  (ya se seudonimizan), ni `localhost`, `homeassistant` y
+  `homeassistant.local`. Si no se pueden leer, la conexión sigue y el log lo
+  avisa con `ha_url_redaction_unavailable`, sin la URL.
+- **La clasificación automática no escribe `entity_id` al log** (FR-003).
+  `auto_classify_restricted` lleva `count` y `new_count`, y
+  `auto_classify_on_save` lleva `restricted` y `count`: los id de
+  automatizaciones y scripts salen de sus alias, que nombran la casa.
+- **Los nombres `ip-a-b-c-d` se redactan** (FR-004). `ip-10-0-0-5.ec2.internal`
+  sale como `<ip:private:…>.ec2.internal`, con el mismo seudónimo que
+  `10.0.0.5`.
+- **Las vistas previas con documento ya no releen todos los tokens** (FR-009).
+  El barrido de tokens caducados se hace como mucho una vez por segundo y,
+  entre medias, el total de lo guardado sale de memoria. El tope de 16 MiB no
+  cambia: el total solo puede sobrestimarse hasta el siguiente barrido, así
+  que, como mucho, un documento no se guarda y hay que reenviarlo entero.
+
 ## [1.1.2] — 2026-11-14
 
 Arreglo de lo que encontraron las pruebas en vivo de la 1.1.1 con Home

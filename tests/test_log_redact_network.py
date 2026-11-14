@@ -26,7 +26,9 @@ import structlog
 from hermes import logging_setup
 from hermes.logging_setup import (
     configure_network_redaction,
+    network_redaction_enabled,
     redact_network,
+    set_ha_url_hosts,
     setup_logging,
 )
 
@@ -332,6 +334,166 @@ class TestSvGetAddonLogs(unittest.IsolatedAsyncioTestCase):
         self.assertIn(HOST, out["logs"])
         self.assertIn("198.51.100.9", out["logs"])
         self.assertNotIn("hunter2", out["logs"])
+
+
+# ── 009: `ip-a-b-c-d` y hosts de las URLs de HA ──────────────────────────────
+
+
+def _por_el_filtro_estandar(mensaje: str) -> str:
+    """Pasa `mensaje` por el filtro del `logging` estándar y devuelve la línea."""
+    salida = io.StringIO()
+    manejador = logging.StreamHandler(salida)
+    manejador.addFilter(logging_setup._NetworkRedactionFilter())
+    log = logging.getLogger("test_redact_009")
+    log.propagate = False
+    log.setLevel(logging.INFO)
+    log.addHandler(manejador)
+    try:
+        log.info("%s", mensaje)
+    finally:
+        log.removeHandler(manejador)
+    return salida.getvalue().strip()
+
+
+class TestIpConGuiones(_Base):
+    """FR-004 (009): los nombres `ip-a-b-c-d` llevan una IPv4 y se seudonimizan.
+
+    Control negativo (T015): sin el paso `_IP_DASHED_RE` de `redact_network`
+    caen los cinco tests que esperan el seudónimo.
+    """
+
+    def test_nombre_de_ec2(self) -> None:
+        out = redact_network("ip-10-0-0-5.ec2.internal y 10.0.0.5")
+        self.assertNotIn("ip-10-0-0-5", out)
+        self.assertNotIn("10.0.0.5", out)
+        self.assertRegex(out, r"^<ip:private:[0-9a-f]{8}>\.ec2\.internal y ")
+        seudos = _SEUDONIMO.findall(out)
+        self.assertEqual(len(seudos), 2)
+        # Mismo seudónimo escrita de las dos formas.
+        a, b = [m.group(0) for m in _SEUDONIMO.finditer(out)]
+        self.assertEqual(a, b)
+
+    def test_mayusculas(self) -> None:
+        out = redact_network("host IP-192-0-2-7 listo")
+        self.assertNotIn("192-0-2-7", out)
+        self.assertRegex(out, r"^host <ip:other:[0-9a-f]{8}> listo$")
+
+    def test_ceros_a_la_izquierda(self) -> None:
+        self.assertEqual(
+            _seudonimo(redact_network("ip-010-000-000-005")),
+            _seudonimo(redact_network("10.0.0.5")),
+        )
+
+    def test_no_son_ips(self) -> None:
+        for texto in (
+            "ip-127-0-0-1",
+            "ip-999-1-1-1",
+            "xip-10-0-0-5",
+            "ip-10-0-0-55555",
+            "ip-10-0-0-5-6",
+            "ip-10-0-0",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(redact_network(texto), texto)
+
+    def test_idempotente(self) -> None:
+        una = redact_network("a ip-10-0-0-5.ec2.internal b")
+        self.assertEqual(redact_network(una), una)
+
+    def test_desactivada_no_toca_nada(self) -> None:
+        configure_network_redaction(False, HOST)
+        self.assertEqual(redact_network("ip-10-0-0-5"), "ip-10-0-0-5")
+
+    def test_por_el_filtro_estandar(self) -> None:
+        linea = _por_el_filtro_estandar("conectado a ip-10-0-0-5.ec2.internal")
+        self.assertNotIn("ip-10-0-0-5", linea)
+        self.assertRegex(linea, r"<ip:private:[0-9a-f]{8}>\.ec2\.internal")
+
+
+class TestHostsDeLasUrlsDeHA(_Base):
+    """FR-002 (009): los hosts de `external_url` e `internal_url` no salen.
+
+    Control negativo (T015): sin el bucle de `ha_hosts` en `redact_network`
+    caen los tests que esperan `<ha_external_host>` o `<ha_internal_host>`.
+    """
+
+    EXTERNO = "casa.example.org"
+    INTERNO = "ha.lan.example"
+
+    def setUp(self) -> None:
+        super().setUp()
+        set_ha_url_hosts(self.EXTERNO, self.INTERNO)
+
+    def test_urls(self) -> None:
+        out = redact_network(
+            f"GET https://{self.EXTERNO}/api y http://{self.INTERNO}:8123/x"
+        )
+        self.assertEqual(
+            out,
+            "GET https://<ha_external_host>/api y http://<ha_internal_host>:8123/x",
+        )
+
+    def test_mayusculas(self) -> None:
+        self.assertEqual(
+            redact_network(self.EXTERNO.upper()), "<ha_external_host>"
+        )
+
+    def test_fronteras(self) -> None:
+        for texto in (
+            "subcasa.example.org.evil",
+            "casa.example.organic",
+            f"{self.EXTERNO}.evil",
+            f"x{self.INTERNO}",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(redact_network(texto), texto)
+
+    def test_no_se_anaden_ips_ni_nombres_por_defecto(self) -> None:
+        set_ha_url_hosts("homeassistant", "homeassistant.local")
+        self.assertEqual(
+            redact_network("homeassistant.restart homeassistant.local"),
+            "homeassistant.restart homeassistant.local",
+        )
+        set_ha_url_hosts("localhost", "192.0.2.10")
+        self.assertEqual(redact_network("localhost"), "localhost")
+        # El literal IP lo trata la redacción de IPs, con su clase.
+        self.assertRegex(redact_network("192.0.2.10"), r"^<ip:other:[0-9a-f]{8}>$")
+        self.assertEqual(logging_setup._net_state[2], ())
+
+    def test_el_publico_gana(self) -> None:
+        set_ha_url_hosts(HOST, None)
+        self.assertEqual(logging_setup._net_state[2], ())
+        self.assertEqual(redact_network(f"https://{HOST}/"), "https://<public_hostname>/")
+
+    def test_mismo_host_en_las_dos(self) -> None:
+        set_ha_url_hosts(self.EXTERNO, self.EXTERNO.upper())
+        self.assertEqual(len(logging_setup._net_state[2]), 1)
+        self.assertEqual(redact_network(self.EXTERNO), "<ha_external_host>")
+
+    def test_la_sal_no_cambia(self) -> None:
+        set_ha_url_hosts(None, None)
+        antes = _seudonimo(redact_network("10.0.0.5"))
+        set_ha_url_hosts(self.EXTERNO, self.INTERNO)
+        self.assertEqual(_seudonimo(redact_network("10.0.0.5")), antes)
+
+    def test_none_vacia_la_lista(self) -> None:
+        set_ha_url_hosts(None, None)
+        self.assertEqual(redact_network(self.EXTERNO), self.EXTERNO)
+
+    def test_desactivada_no_tapa_nada(self) -> None:
+        configure_network_redaction(False, HOST)
+        set_ha_url_hosts(self.EXTERNO, self.INTERNO)
+        self.assertEqual(redact_network(self.EXTERNO), self.EXTERNO)
+
+    def test_network_redaction_enabled(self) -> None:
+        self.assertTrue(network_redaction_enabled())
+        configure_network_redaction(False, HOST)
+        self.assertFalse(network_redaction_enabled())
+
+    def test_por_el_filtro_estandar(self) -> None:
+        linea = _por_el_filtro_estandar(f"POST https://{self.EXTERNO}/auth/token")
+        self.assertNotIn(self.EXTERNO, linea)
+        self.assertIn("https://<ha_external_host>/auth/token", linea)
 
 
 if __name__ == "__main__":

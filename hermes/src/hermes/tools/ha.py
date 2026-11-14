@@ -329,7 +329,10 @@ def classify_saved_config(entity_id: str, config: dict) -> bool:
         return False
     if _scan_for_dangerous_services(config, CALL_SERVICE_DENYLIST):
         _policy.add_auto_restricted_entity(entity_id)
-        logger.info("auto_classify_on_save", entity_id=entity_id, restricted=True)
+        # Sin `entity_id` (FR-003 de la 009): el log se pega en issues
+        # públicos y el id de una automatización sale de su alias, que nombra
+        # la casa («abrir garaje de …»). Basta con saber que se restringió una.
+        logger.info("auto_classify_on_save", restricted=True, count=1)
         return True
     return False
 
@@ -341,10 +344,13 @@ async def auto_classify_dangerous(denylist: frozenset[str]) -> list[str]:
     new_entities = [e for e in restricted if e not in _auto_restricted]
     _auto_restricted.update(restricted)
     if new_entities:
+        # Solo recuentos, sin los `entity_id` (FR-003 de la 009): el log se
+        # pega en issues públicos y los ids de automatizaciones y scripts
+        # salen de sus alias, que nombran la casa.
         logger.info(
             "auto_classify_restricted",
             count=len(restricted),
-            new=new_entities,
+            new_count=len(new_entities),
         )
     return restricted
 

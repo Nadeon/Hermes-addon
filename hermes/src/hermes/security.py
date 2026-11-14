@@ -47,6 +47,45 @@ CONFIRMATION_TTL_SECONDS = 60
 # documentos del tamaño máximo y cientos de dashboards reales.
 CONFIRMATION_STORED_MAX_BYTES = 16 * 1024 * 1024
 
+# ── Barrido acotado (FR-009 de la 009) ───────────────────────
+# En la 1.1.2 cada vista previa con documento releía y parseaba todos los
+# tokens del directorio para barrer los caducados y sumar lo guardado: con el
+# tope casi lleno, decenas de milisegundos en el bucle de eventos por vista
+# previa. Ahora se barre como mucho una vez por segundo y, entre barridos, el
+# total sale de memoria: el del último barrido más lo guardado después.
+#
+# Al completar o caducar un token el total NO se descuenta hasta el siguiente
+# barrido: se sobrestima, nunca se subestima. Sobrestimar solo puede hacer que
+# un documento no se guarde y haya que reenviarlo entero (el comportamiento
+# degradado de la 1.1.1, ya previsto); subestimar dejaría pasar del tope
+# (fail-closed, principio III). Restar en cada sitio exigiría acertar en tres
+# caminos y reconciliar con el disco al arrancar; un error en una resta rompe
+# el tope.
+_BARRIDO_MIN_INTERVALO_S = 1.0
+# Bytes de documentos de tokens vigentes según el último barrido, más los
+# guardados después. Invariante: >= lo realmente guardado en tokens vigentes.
+_en_uso_bytes = 0
+# `_monotonic()` del último barrido completo; `None` = ninguno.
+_ultimo_barrido: float | None = None
+# Directorio del último barrido: el total es de ese directorio. Si cambia
+# (los tests lo cambian; en producción es fijo), se barre de nuevo.
+_barrido_dir: Path | None = None
+
+
+def _monotonic() -> float:
+    """Reloj del barrido; función propia para poder simularlo en los tests sin
+    tocar el `time.monotonic` que usa el bucle de eventos."""
+    return time.monotonic()
+
+
+def _toca_barrer() -> bool:
+    """True si el total en memoria no vale y hay que releer el directorio."""
+    if _ultimo_barrido is None or _barrido_dir != CONFIRMATIONS_DIR:
+        return True
+    transcurrido = _monotonic() - _ultimo_barrido
+    # Negativo: el reloj no avanzó como se espera; mejor barrer que fiarse.
+    return transcurrido < 0 or transcurrido >= _BARRIDO_MIN_INTERVALO_S
+
 
 # ── Canonicalización robusta para action_hash ─────────────────
 
@@ -246,14 +285,19 @@ async def create_confirmation_token(
     guardados = {k: args[k] for k in omitibles if args.get(k) is not None}
     no_guardados: list[str] = []
     if guardados:
-        # Los documentos pendientes pueden llevar datos sensibles: cada vista
-        # previa nueva barre los caducados, y el mismo barrido da lo que
-        # ocupan los vigentes para el tope.
-        _, en_uso = _barrer_caducados()
+        # Los documentos pendientes pueden llevar datos sensibles: las vistas
+        # previas barren los caducados, y el mismo barrido da lo que ocupan
+        # los vigentes para el tope. Como mucho un barrido por segundo (ver
+        # `_BARRIDO_MIN_INTERVALO_S`); entre medias, el total de memoria.
+        # Sin ningún `await` entre leer el total y sumarle lo guardado.
+        global _en_uso_bytes
+        if _toca_barrer():
+            _barrer_caducados()
         tam = _bytes_guardados(guardados)
-        if en_uso + tam <= CONFIRMATION_STORED_MAX_BYTES:
+        if _en_uso_bytes + tam <= CONFIRMATION_STORED_MAX_BYTES:
             token_data["stored_args"] = guardados
             token_data["stored_bytes"] = tam
+            _en_uso_bytes += tam
         else:
             # Fail-closed: el token se emite igual, pero sin documento; la
             # confirmación tendrá que reenviarlo todo, como en 1.1.1. Al log,
@@ -447,9 +491,14 @@ def _barrer_caducados() -> tuple[int, int]:
     para mirar su `expires_at`, y es lo que se compara con
     CONFIRMATION_STORED_MAX_BYTES.
     Tolerante a fallos: si un fichero no se puede procesar, sigue con el resto.
+
+    Fija el total en memoria y la hora del barrido (FR-009 de la 009).
     """
+    global _en_uso_bytes, _ultimo_barrido, _barrido_dir
     if not CONFIRMATIONS_DIR.exists():
         CONFIRMATIONS_DIR.mkdir(parents=True, exist_ok=True)
+        _en_uso_bytes, _ultimo_barrido = 0, _monotonic()
+        _barrido_dir = CONFIRMATIONS_DIR
         return 0, 0
 
     cleaned = 0
@@ -477,6 +526,8 @@ def _barrer_caducados() -> tuple[int, int]:
     if cleaned > 0:
         logger.info("confirmations_cleanup", cleaned=cleaned)
 
+    _en_uso_bytes, _ultimo_barrido = en_uso, _monotonic()
+    _barrido_dir = CONFIRMATIONS_DIR
     return cleaned, en_uso
 
 
@@ -501,17 +552,87 @@ _SECRET_KEY_RE = re.compile(
     r"(\S+)",        # value
 )
 
-# URLs con basic auth: scheme://user:password@host
-_BASIC_AUTH_URL_RE = re.compile(
-    r"([a-zA-Z][a-zA-Z0-9+\-.]*://[^:/@\s]+)"  # scheme://user
-    r"(:)([^@\s]+)"                              # :password
-    r"(@)",                                      # @host separator
+# ── Por qué estas tres expresiones no son las de la 1.1.2 (FR-001, 009) ──
+#
+# En la 1.1.2 eran `eyJ[...]{2,}\.…`, `[a-zA-Z][a-zA-Z0-9+\-.]*://…` y
+# `"[...]*(?:password|…)[...]*"…`: un prefijo que puede empezar en cada
+# posición de una misma racha de caracteres, que la recorre hasta el final y
+# falla al no encontrar el delimitador (`.`, `://` o `@`, `"`). n posiciones ×
+# n caracteres: 30 KB de `eyJ` repetido, de `a://b:c` repetido o de `"` +
+# `password` repetido tardaban 0,4–0,6 s, y `sv_get_addon_logs` redacta en el
+# bucle de eventos (un log así bloqueaba Hermes para todos los clientes).
+#
+# Ahora cada carácter se examina un número acotado de veces y lo redactado es
+# EXACTAMENTE lo mismo (test diferencial contra la 1.1.2 en
+# tests/test_redact_secrets.py). Lo que no vale:
+# - trocear la entrada parte un secreto en la frontera del trozo;
+# - acotar los cuantificadores (`{2,64}`) deja sin redactar JWT largos y sigue
+#   siendo cuadrático dentro de la cota;
+# - una frontera con lookbehind (`(?<![A-Za-z0-9_-])eyJ`) es lineal pero deja
+#   de redactar un JWT pegado a una letra (`xeyJ…`), que la 1.1.2 sí redacta:
+#   redactar menos no se acepta (principio II).
+#
+# La idea común: dentro de una racha, todas las posiciones de inicio llegan al
+# mismo final de racha, así que si falla la primera fallan todas. Se intenta
+# solo la primera (se empieza en el inicio de la racha y se avanza de forma
+# atómica hasta ella) y los cuantificadores son posesivos, que no retroceden.
+
+# JWT tokens: header.payload.signature (base64url). El grupo 1 es lo que hay
+# entre el inicio de la racha y el primer `eyJ`, que se conserva; desde ese
+# `eyJ` el resultado es el de `eyJ[...]{2,}\.[...]{2,}\.[...]{2,}`: los
+# segmentos son rachas completas porque `.` no está en la clase.
+_JWT_RE = re.compile(
+    r"(?<![A-Za-z0-9_\-])(?>([A-Za-z0-9_\-]*?)eyJ)"
+    r"[A-Za-z0-9_\-]{2,}+\.[A-Za-z0-9_\-]{2,}+\.[A-Za-z0-9_\-]{2,}+"
 )
 
-# JWT tokens: header.payload.signature (base64url)
-_JWT_RE = re.compile(
-    r"eyJ[A-Za-z0-9_\-]{2,}\.[A-Za-z0-9_\-]{2,}\.[A-Za-z0-9_\-]{2,}"
+# URLs con basic auth: scheme://user:password@host. El prefijo `scheme://user:`
+# se busca desde el inicio de cada racha del esquema, en su primera letra: las
+# siguientes letras de la misma racha llegan al mismo `://` y fallarían igual.
+_BASIC_AUTH_PREFIJO_RE = re.compile(
+    r"(?<![a-zA-Z0-9+\-.])[0-9+\-.]*+"
+    r"([a-zA-Z][a-zA-Z0-9+\-.]*+://[^:/@\s]++:)"
 )
+# La contraseña: todo hasta el primer `@` o espacio; tiene que acabar en `@`.
+_BASIC_AUTH_CLAVE_RE = re.compile(r"[^@\s]*+")
+
+
+def _redactar_basic_auth(text: str) -> str:
+    """Equivale a `re.sub` de la expresión de la 1.1.2 con `\\1\\2***\\4`.
+
+    En `a://b:c` repetido sin `@`, cada repetición es un candidato cuya
+    contraseña llega hasta el final del texto: la 1.1.2 la recorría entera en
+    cada uno. Aquí se recuerda la última contraseña recorrida: si el candidato
+    siguiente empieza dentro de ella, acaba en el mismo sitio (entre medias no
+    hay `@` ni espacio), así que cada carácter se recorre una vez.
+    """
+    if "://" not in text:
+        return text
+    trozos: list[str] = []
+    copiado = 0
+    pos = 0
+    visto_desde, visto_hasta = -1, -1
+    n = len(text)
+    while True:
+        m = _BASIC_AUTH_PREFIJO_RE.search(text, pos)
+        if m is None:
+            break
+        x = m.end()
+        if visto_desde <= x < visto_hasta:
+            fin = visto_hasta
+        else:
+            fin = _BASIC_AUTH_CLAVE_RE.match(text, x).end()  # type: ignore[union-attr]
+            visto_desde, visto_hasta = x, fin
+        if x < fin < n and text[fin] == "@":
+            trozos.append(text[copiado:x])
+            trozos.append("***@")
+            copiado = pos = fin + 1
+        else:
+            pos = m.start(1) + 1
+    if not trozos:
+        return text
+    trozos.append(text[copiado:])
+    return "".join(trozos)
 
 
 # Formato JSON: "clave": "valor". Necesita patrón propio porque `_SECRET_KEY_RE`
@@ -519,9 +640,18 @@ _JWT_RE = re.compile(
 # interpone: sin este patrón, ninguna línea de log en JSON se redactaría —ni las
 # del propio Hermes, cuyo JSONRenderer produce exactamente esa forma, ni las de
 # los add-ons que también loguean en JSON.
+#
+# Forma lineal (FR-001, 009): la clave es la racha entera hasta la comilla
+# (`"` no está en la clase), así que primero un lookahead posesivo comprueba
+# que la racha se cierra con `"`, y la palabra clave se busca una sola vez, de
+# forma atómica: si lo que sigue falla, buscarla más adelante en la misma
+# clave daría el mismo fallo. En la 1.1.2, `"` + `password` repetido sin
+# cierre retrocedía probando cada aparición hasta el final.
 _JSON_SECRET_RE = re.compile(
-    r'("(?:[A-Za-z0-9_.-]*(?:password|passwd|passphrase|secret|token|api[_-]?key|'
-    r'auth[_-]?key|credential|private[_-]?key)[A-Za-z0-9_.-]*)"\s*:\s*")([^"]*)(")',
+    r'("(?=[A-Za-z0-9_.-]*+")'
+    r'(?>[A-Za-z0-9_.-]*?(?:password|passwd|passphrase|secret|token|api[_-]?key|'
+    r'auth[_-]?key|credential|private[_-]?key))'
+    r'[A-Za-z0-9_.-]*+"\s*+:\s*+")([^"]*+)(")',
     re.IGNORECASE,
 )
 
@@ -552,13 +682,13 @@ def redact_secrets(text: str) -> str:
         return text
 
     # 1. JWTs primero (pueden aparecer dentro de otros patrones)
-    text = _JWT_RE.sub("***JWT_REDACTED***", text)
+    text = _JWT_RE.sub(r"\1***JWT_REDACTED***", text)
 
     # 1b. Formato JSON (ver el patrón arriba).
     text = _JSON_SECRET_RE.sub(r"\1***REDACTED***\3", text)
 
     # 2. Basic auth en URLs
-    text = _BASIC_AUTH_URL_RE.sub(r"\1\2***\4", text)
+    text = _redactar_basic_auth(text)
 
     # 3. key: value — preserva el nombre de la clave y el separador
     text = _SECRET_KEY_RE.sub(r"\1\2***REDACTED***", text)

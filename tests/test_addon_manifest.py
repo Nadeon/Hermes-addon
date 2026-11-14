@@ -265,3 +265,86 @@ class TestManifiesto(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CHANGELOG = Path(__file__).resolve().parent.parent / "hermes" / "CHANGELOG.md"
+
+# Secciones de la entrada de la 1.2.0, en este orden (FR-012 de la 009, que
+# toma los bloques de la spec paraguas 008). Cada sub-feature del programa
+# escribe en la suya; si una falta o cambia de sitio, alguna se queda sin hueco.
+SECCIONES_1_2_0 = (
+    "### Diagnóstico",
+    "### Integraciones",
+    "### Automatización",
+    "### Supervisor",
+    "### Sistema",
+    "### Política y genéricas",
+    "### Banco de pruebas",
+    "### Correcciones",
+)
+
+
+class TestEntradaDelChangelog(unittest.TestCase):
+    """FR-012 (009): la versión que se publica tiene su entrada en el CHANGELOG.
+
+    `etiquetar.yml` saca las notas de la release de la sección `## [<versión>]`:
+    subir la versión sin abrir su entrada publica una release sin notas.
+
+    Control negativo (T004): sin la entrada 1.2.0, cae
+    `test_la_primera_entrada_es_la_version_actual`; quitando una sección, cae
+    `test_la_entrada_tiene_las_secciones_del_programa`; con `__version__` en
+    1.1.2 y el manifiesto en 1.2.0 cae el test de coherencia de `TestManifiesto`.
+    """
+
+    # La fecha no se fija: la cabecera admite `AAAA-MM-DD` o
+    # `<fecha de publicación>` mientras la versión se desarrolla en la rama del
+    # programa (FR-022 de la 008, desviación justificada en el plan de la 009).
+    CABECERA = re.compile(
+        r"^## \[(?P<version>[^\]]+)\] — "
+        r"(?:\d{4}-\d{2}-\d{2}|<fecha de publicación>)\s*$",
+        re.MULTILINE,
+    )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.texto = CHANGELOG.read_text(encoding="utf-8")
+
+    def _entrada(self) -> str:
+        """Texto de la entrada de `__version__`, hasta la siguiente `## [`."""
+        inicio = self.texto.index(f"## [{__version__}]")
+        fin = self.texto.find("\n## [", inicio + 1)
+        return self.texto[inicio:] if fin < 0 else self.texto[inicio:fin]
+
+    def test_la_primera_entrada_es_la_version_actual(self) -> None:
+        primera = re.search(r"^## \[.*$", self.texto, re.MULTILINE)
+        self.assertIsNotNone(primera, "el CHANGELOG no tiene ninguna entrada")
+        assert primera is not None
+        m = self.CABECERA.match(primera.group(0))
+        self.assertIsNotNone(
+            m, f"cabecera con un formato inesperado: {primera.group(0)!r}"
+        )
+        assert m is not None
+        self.assertEqual(
+            m.group("version"),
+            __version__,
+            "la primera entrada del CHANGELOG no es la de la versión actual",
+        )
+
+    def test_hay_una_sola_entrada_de_la_version(self) -> None:
+        self.assertEqual(
+            self.texto.count(f"## [{__version__}]"),
+            1,
+            "la versión actual tiene más de una entrada (o ninguna)",
+        )
+
+    def test_la_entrada_tiene_las_secciones_del_programa(self) -> None:
+        # Las secciones son las del programa de cobertura total (1.2.0). La
+        # versión siguiente que abra otra entrada tendrá que revisar esta lista.
+        entrada = self._entrada()
+        cabeceras = re.findall(r"^### .*$", entrada, re.MULTILINE)
+        presentes = [c.strip() for c in cabeceras if c.strip() in SECCIONES_1_2_0]
+        self.assertEqual(
+            presentes,
+            list(SECCIONES_1_2_0),
+            "faltan secciones o no están en el orden del programa",
+        )
