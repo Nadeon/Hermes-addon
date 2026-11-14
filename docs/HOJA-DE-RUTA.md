@@ -397,6 +397,16 @@ un cliente contra la instalación real.
   pendiente tras instalar una integración. En la instalación real: la salud
   con `cloud` (hace falta la nube de Home Assistant) y
   `ha_validate_statistics` con estadísticas que tienen problemas reales.
+- [ ] (VM, después instalación real) **Diagnóstico de Core (spec 012), en
+  vivo**: lo que el banco de Core no tiene, porque sus 12 tools ya se
+  ejecutan ahí contra HA Core real (y las tres que modifican tienen su fila
+  «ok» en la matriz de pruebas). En la VM (HA OS): `ha_get_error_log`
+  responde `error_log_unavailable` con `duplicate_log_file` desactivado y da
+  líneas con la opción activada, y `ha_set_log_level` con `persistence`
+  `once` y `permanent` sobrevive a un reinicio como dice la vista previa. En
+  la instalación real: el camino feliz de `ha_get_device_diagnostics` con un
+  dispositivo de una integración con diagnóstico de dispositivo (Z-Wave, ZHA,
+  Matter, MQTT…); en el banco solo se prueba `diagnostics_not_supported`.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -416,7 +426,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | hecha: tabla, cuatro genéricas, familias y `tool_families_disabled`, tema `generic_commands` con `search`, extractor y generador; convergencia tras la revisión independiente cerrada (T044–T049); prueba de las genéricas en el banco de Core (T027) activada al integrarla con la 010 |
-| 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
+| 012 | Diagnóstico de Core | 040, 041, 042, 047 | hecha: familia `core_diagnostics` con 12 tools (logs, validación, diagnósticos de integraciones y notificaciones persistentes), 9 entradas de la tabla a `dedicated` y tema de la guía. En el banco, las 12 contra HA Core real (diagnóstico de entrada con `local_calendar`). Pendiente manual: el camino feliz de `ha_get_device_diagnostics`, que ninguna integración sin hardware ni nube ofrece (cubierto por unitarios) |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (VM de la 014, después instalación real) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
@@ -608,6 +618,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_cancel_timer` | banco de Core | ok | |
 | `ha_cancel_wait` | banco de Core | ok | |
 | `ha_change_timer` | banco de Core | ok | |
+| `ha_clear_system_log` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
 | `ha_create_area` | banco de Core | ok | |
@@ -657,6 +668,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
 | `ha_disable_config_entry` | banco de Core | ok | |
+| `ha_dismiss_persistent_notification` | banco de Core | ok | |
 | `ha_enable_automation` | banco de Core | ok | |
 | `ha_enable_config_entry` | banco de Core | ok | |
 | `ha_finish_timer` | banco de Core | ok | |
@@ -687,6 +699,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_set_input_select` | banco de Core | ok | |
 | `ha_set_input_select_options` | banco de Core | ok | |
 | `ha_set_input_text` | banco de Core | ok | |
+| `ha_set_log_level` | banco de Core | ok | |
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
 | `ha_start_timer` | banco de Core | ok | |

@@ -26,6 +26,9 @@ Control negativo comprobado (T027), uno a uno:
 (c) `ha_run_script` fuera de `SECURITY.md` → cae `test_security_md_nombra_todas`;
 (d) `ha_run_script` fuera de `SITIOS` → cae
     `test_las_tools_de_los_helpers_son_las_declaradas`.
+Al integrar la 012 (dos sitios nuevos): sin la entrada de
+`ha_clear_system_log` en `SITIOS` cae `test_los_sitios_son_los_declarados`, y
+sin su nombre en `SECURITY.md`, `test_security_md_nombra_todas`.
 Antes del arreglo de `SECURITY.md`, `test_security_md_nombra_todas` fallaba
 con las 9 tools que la frase antigua no nombraba.
 """
@@ -52,6 +55,13 @@ SITIOS: dict[tuple[str, str], frozenset[str]] = {
     }),
     ("tools/_common.py", "guarded_entity_invoke"): frozenset({
         "ha_run_script", "ha_trigger_automation",
+    }),
+    # Spec 012: `system_log.clear` y `persistent_notification.dismiss` están en
+    # la denylist («Ofuscación de rastros»); sus tools dedicadas la levantan
+    # tras validar su propio token.
+    ("tools/core_logs.py", "ha_clear_system_log"): frozenset({"ha_clear_system_log"}),
+    ("tools/persistent_notifications.py", "ha_dismiss_persistent_notification"): frozenset({
+        "ha_dismiss_persistent_notification",
     }),
 }
 

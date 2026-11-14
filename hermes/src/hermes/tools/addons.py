@@ -49,7 +49,7 @@ from hermes.security import (
     redact_secrets,
     validate_confirmation_token,
 )
-from hermes.tools._common import tam_json
+from hermes.tools._common import ultimas_lineas_que_caben
 from hermes.tools._logs import (
     ArgumentoInvalido,
     comprobar_latest,
@@ -218,50 +218,6 @@ def _tiene_obligatorias(schema_ui: Any) -> bool:
         if nodo.get("required") is True or _tiene_obligatorias(nodo.get("schema")):
             return True
     return False
-
-
-def _ultimas_lineas_que_caben(
-    respuesta: dict[str, Any], logs: str, max_bytes: int
-) -> dict[str, Any]:
-    """`respuesta` con `logs` entero si cabe; si no, sus últimas líneas.
-
-    Un log es un texto, no una lista, así que el guardián central solo podía
-    cambiarlo entero por `response_too_large`: un add-on que escribe mucho
-    dejaba de tener log por Hermes (revisión de 1.1.1, M-2). En un log lo que
-    importa es el final, así que se quitan líneas del PRINCIPIO y se dice.
-    """
-    completa = {**respuesta, "logs": logs}
-    if tam_json(completa) <= max_bytes:
-        return completa
-    lineas = logs.splitlines(keepends=True)
-
-    def armar(n: int) -> dict[str, Any]:
-        return {
-            **respuesta,
-            "logs": "".join(lineas[len(lineas) - n:]) if n else "",
-            "truncated": True,
-            "lines_returned": n,
-            "hint": (
-                "Only the last lines that fit in response_max_bytes are shown. "
-                "Ask for fewer lines instead of repeating the same call."
-            ),
-        }
-
-    # Estimación con el tamaño escapado de cada línea desde el final y
-    # verificación con el tamaño real.
-    presupuesto = max_bytes - tam_json(armar(0)) - 8
-    n = usado = 0
-    for linea in reversed(lineas):
-        coste = tam_json(linea) - 2
-        if usado + coste > presupuesto:
-            break
-        usado += coste
-        n += 1
-    out = armar(n)
-    while n > 0 and tam_json(out) > max_bytes:
-        n -= 1
-        out = armar(n)
-    return out
 
 
 def register(
@@ -1055,7 +1011,7 @@ def register(
                 respuesta["boot"] = boot_n
             if latest:
                 respuesta["latest"] = True
-        return _ultimas_lineas_que_caben(respuesta, redacted, response_max_bytes)
+        return ultimas_lineas_que_caben(respuesta, redacted, response_max_bytes)
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:

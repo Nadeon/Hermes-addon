@@ -172,6 +172,23 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("recorder_status"), "recorder")
         # Las dos de estadísticas de la 1.1.2 siguen en `data` (FR-010 de la 008).
         self.assertEqual(familia_de_modulo("statistics"), "data")
+    def test_core_diagnostics_de_la_1_2_0(self) -> None:
+        """Spec 012 (FR-013, T002): la familia del diagnóstico de Core, nueva,
+        desactivable y con exactamente sus cuatro módulos (tramo A:
+        `core_logs`; tramo B, T026: los otros tres). Control negativo (T018
+        h): sacar `core_logs` de la familia → cae este test (y
+        `test_cada_modulo_con_tools_en_una_familia`).
+        """
+        familia = FAMILIAS["core_diagnostics"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("core_logs", "core_validation",
+                                           "integration_diagnostics",
+                                           "persistent_notifications"))
+        for modulo in familia.modulos:
+            self.assertEqual(familia_de_modulo(modulo), "core_diagnostics")
+        self.assertEqual(validar_desactivadas(["core_diagnostics"]),
+                         frozenset({"core_diagnostics"}))
 
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")

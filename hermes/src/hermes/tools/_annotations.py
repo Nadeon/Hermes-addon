@@ -76,6 +76,10 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # ningún prefijo de lectura la cubre, y `ha_validate_` no debe pasar a
     # serlo (una futura `validate` podría escribir).
     "ha_validate_statistics",
+    # Diagnóstico de Core (spec 012): validan y evalúan con los validadores de
+    # HA y no guardan nada. Su nombre no tiene prefijo de lectura.
+    "ha_validate_config",
+    "ha_test_condition",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -151,6 +155,15 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # peor. Siempre piden confirmation_token.
     "ha_call_ws_command",
     "sv_call_api",
+    # Diagnóstico de Core (spec 012): piden token y ocultan rastro. Bajar un
+    # nivel de log o vaciar el log del sistema esconde lo que pasó; es la
+    # misma razón por la que `logger.set_level` y `system_log.clear` están en
+    # la denylist de `ha_call_service` («Ofuscación de rastros»).
+    "ha_set_log_level",
+    "ha_clear_system_log",
+    # Y descartar una notificación persistente borra un aviso de HA que no se
+    # recupera (`persistent_notification.dismiss` también está en la denylist).
+    "ha_dismiss_persistent_notification",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

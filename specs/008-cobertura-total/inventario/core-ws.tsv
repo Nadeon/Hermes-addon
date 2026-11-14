@@ -343,7 +343,7 @@ logbook/get_action_calls	logbook	homeassistant/components/logbook/websocket_api.
 logbook/get_events	logbook	homeassistant/components/logbook/websocket_api.py	si	cubierto	ha_get_logbook	
 logger/integration_log_level	logger	homeassistant/components/logger/websocket_api.py	accion-generica	cubierto	logger.set_level (denylist: pide token); dedicada aportaría validar el logger y leer el nivel previo	
 logger/log_info	logger	homeassistant/components/logger/websocket_api.py	no	A	Log del sistema y niveles de log	CAP-041
-logger/log_level	logger	homeassistant/components/logger/websocket_api.py	no	A	Log del sistema y niveles de log	CAP-041
+logger/log_level	logger	homeassistant/components/logger/websocket_api.py	no	A	Niveles de log: fija el nivel de un módulo (escribe; no es una lectura)	CAP-041
 lorawan/devices/list	lorawan	homeassistant/components/lorawan/websocket_api.py	no	C	gestión específica de lorawan	CAP-106
 lorawan/devices/subscribe	lorawan	homeassistant/components/lorawan/websocket_api.py	no	C	gestión específica de lorawan	CAP-106
 lovelace/config	lovelace	homeassistant/components/lovelace/websocket.py	si	cubierto	ha_get/save_lovelace_dashboard	

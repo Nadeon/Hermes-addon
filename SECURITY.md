@@ -143,7 +143,9 @@ report about one of them will be closed with a pointer to this section:
     `ha_reload_scripts`, `ha_reload_timers` and `ha_reload_zones` (always
     confirmed, since a reload applies whatever YAML is in `/config`), and
     `ha_run_script` and `ha_trigger_automation` (only for a restricted
-    script or automation). A test walks the code and fails if any other
+    script or automation), and `ha_clear_system_log` and
+    `ha_dismiss_persistent_notification` (always confirmed: clearing the
+    system log or dismissing a notification hides traces). A test walks the code and fails if any other
     place lifts it.
   - **Generic tools behind a fail-closed command table.**
     `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and

@@ -833,3 +833,74 @@ def redact_structure(value: Any, _key: str = "") -> Any:
     if isinstance(value, str) and value and _looks_sensitive(_key):
         return _STRUCT_REDACTED
     return value
+
+
+# ── Recorte sin secreto a medias (spec 012, T035) ─────────────────────────
+#
+# `HAClient.rest_get_text_tail` corta las líneas de log de más de
+# `max_line_bytes` para no acumular en memoria una línea de un giga, y la
+# redacción viene DESPUÉS (no se puede redactar la línea entera sin tenerla
+# entera). Si el corte cae dentro de un secreto, lo que queda es un secreto
+# abierto que `redact_secrets` no reconoce porque le falta el final: la
+# comilla de cierre en JSON (`"password": "hunter2 …[line truncated]`) o la
+# `@` de una URL con contraseña (`mqtt://user:hunter2…`). Esta función quita
+# del FINAL del texto ese trozo de valor abierto; las formas `clave: valor` y
+# `clave valor` no lo necesitan, porque su valor se redacta aunque esté
+# cortado.
+
+# Caracteres de un JWT (base64url y puntos).
+_CARACTERES_JWT = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-."
+)
+
+
+def _inicio_racha_final(texto: str, dentro: Any) -> int:
+    """Posición donde empieza la racha final de caracteres que cumplen `dentro`.
+
+    Recorrido hacia atrás: lineal. Una expresión anclada al final con
+    `search` probaría cada posición de cada racha hasta su final
+    (cuadrático en una racha larga).
+    """
+    i = len(texto)
+    while i > 0 and dentro(texto[i - 1]):
+        i -= 1
+    return i
+
+
+def quitar_secreto_abierto(texto: str) -> str:
+    """Quita del final de un texto recortado un secreto que quedó abierto.
+
+    Para usar justo después de cortar una línea por su longitud y antes de
+    `redact_secrets`. Solo mira el final: todo lo anterior al corte está
+    completo y lo redacta `redact_secrets` como siempre. Lineal en la
+    longitud del texto (se llama con textos acotados, de unos KB).
+    """
+    if not texto:
+        return texto
+
+    # 1. Valor JSON sin comilla de cierre: con la comilla añadida, la última
+    # coincidencia de `_JSON_SECRET_RE` acabaría justo al final del texto.
+    # Se corta al principio del valor; la clave se conserva.
+    ultima = None
+    for m in _JSON_SECRET_RE.finditer(texto + '"'):
+        ultima = m
+    if ultima is not None and ultima.end() == len(texto) + 1:
+        texto = texto[:ultima.start(2)]
+
+    # 2. Contraseña de una URL sin la `@` final. `scheme://user:clave` no
+    # lleva espacios ni `@`, así que, si la contraseña llega al final, todo
+    # está en la última racha sin espacio ni `@`: basta buscar ahí (lineal).
+    # Se corta tras `scheme://user:` de la primera coincidencia de la racha.
+    if "://" in texto:
+        inicio = _inicio_racha_final(texto, lambda c: c != "@" and not c.isspace())
+        m = _BASIC_AUTH_PREFIJO_RE.search(texto, inicio)
+        if m is not None:
+            texto = texto[:m.end()]
+
+    # 3. JWT cortado: sin la firma no sirve, pero la cabecera y parte de la
+    # carga (o un trozo de firma) no se dejan a la vista.
+    jwt = texto.find("eyJ", _inicio_racha_final(texto, _CARACTERES_JWT.__contains__))
+    if jwt >= 0:
+        texto = texto[:jwt]
+
+    return texto

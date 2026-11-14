@@ -224,8 +224,8 @@ CORE_WS: dict[str, E] = {
     "device_automation/trigger/capabilities": E("deny", "pendiente de tool dedicada (spec 017)", "generic_commands", cap="CAP-051"),
     "device_automation/trigger/list": E("deny", "pendiente de tool dedicada (spec 017)", "generic_commands", cap="CAP-051"),
     "dhcp/subscribe_discovery": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
-    "diagnostics/get": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-042"),
-    "diagnostics/list": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-042"),
+    "diagnostics/get": E("dedicated", "cubierto por ha_list_diagnostics_handlers", "core_diagnostics", tool="ha_list_diagnostics_handlers", cap="CAP-042"),
+    "diagnostics/list": E("dedicated", "cubierto por ha_list_diagnostics_handlers", "core_diagnostics", tool="ha_list_diagnostics_handlers", cap="CAP-042"),
     "dismiss_system_state": E("deny", "descarta un banner de la UI (clase B)", "generic_commands"),
     "dynalite/get-config": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "dynalite/save-config": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
@@ -396,11 +396,16 @@ CORE_WS: dict[str, E] = {
     # Por eso HA lo hace admin-only, y aquí `code` se tapa con redact_extra (T044).
     "logbook/get_action_calls": E("read", "auditoría de llamadas a acciones en un intervalo; el `code` de alarmas y cerraduras sale tapado; solo lee", "generic_commands", cap="CAP-058", redact_extra=("code",), example={"start_time": "2026-01-01T00:00:00+00:00", "end_time": "2026-01-01T06:00:00+00:00"}),
     "logbook/get_events": E("dedicated", "cubierto por ha_get_logbook", "data", tool="ha_get_logbook"),
-    # logger.set_level no persiste ni cubre todos los loggers de la integración;
-    # ha_set_log_level es la de CAP-041 (spec 012).
-    "logger/integration_log_level": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands"),
-    "logger/log_info": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-041"),
-    "logger/log_level": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-041"),
+    # Spec 012: los cuatro comandos de logs de Core los cubren tools dedicadas.
+    # ha_set_log_level valida el logger, lee el nivel previo para la vista
+    # previa, persiste (none/once/permanent) y pide token: bajar un nivel
+    # oculta rastros, igual que logger.set_level, que está en la denylist.
+    # Sin CAP, como en el inventario (fila «cubierto»).
+    "logger/integration_log_level": E("dedicated", "cubierto por ha_set_log_level", "core_diagnostics", tool="ha_set_log_level"),
+    "logger/log_info": E("dedicated", "cubierto por ha_get_log_levels", "core_diagnostics", tool="ha_get_log_levels", cap="CAP-041"),
+    # Escribe (fija el nivel de un módulo), aunque el inventario de la 008 la
+    # agrupara con las lecturas de CAP-041.
+    "logger/log_level": E("dedicated", "cubierto por ha_set_log_level", "core_diagnostics", tool="ha_set_log_level", cap="CAP-041"),
     "lorawan/devices/list": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "lorawan/devices/subscribe": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "lovelace/config": E("dedicated", "cubierto por ha_get_lovelace_dashboard", "lovelace", tool="ha_get_lovelace_dashboard"),
@@ -479,7 +484,7 @@ CORE_WS: dict[str, E] = {
     "otbr/info": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),
     "otbr/set_channel": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),
     "otbr/set_network": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),
-    "persistent_notification/get": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-047"),
+    "persistent_notification/get": E("dedicated", "cubierto por ha_list_persistent_notifications", "core_diagnostics", tool="ha_list_persistent_notifications", cap="CAP-047"),
     "persistent_notification/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "person/create": E("dedicated", "cubierto por ha_create_person", "helpers", tool="ha_create_person"),
     "person/delete": E("dedicated", "cubierto por ha_delete_person", "helpers", tool="ha_delete_person"),
@@ -544,7 +549,7 @@ CORE_WS: dict[str, E] = {
     "supervisor/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "supported_features": E("deny", "negociación del protocolo WS (clase B)", "generic_commands"),
     "system_health/info": E("dedicated", "cubierto por ha_get_system_health", "system_status", tool="ha_get_system_health", cap="CAP-043"),
-    "system_log/list": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-041"),
+    "system_log/list": E("dedicated", "cubierto por ha_list_system_log", "core_diagnostics", tool="ha_list_system_log", cap="CAP-041"),
     "system_log/subscribe_raw": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     # Ejemplos de tag/* (los muestra hermes_guide): campos de CREATE_FIELDS y
     # UPDATE_FIELDS de tag/__init__.py y `tag_id` como clave del elemento en
@@ -556,7 +561,7 @@ CORE_WS: dict[str, E] = {
     "tag/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "tag/update": E("confirm", "modifica un tag (nombre, descripción, dispositivo)", "generic_commands", cap="CAP-066", example={"tag_id": "tag-ficticio-3", "name": "Llavero rojo"}),
     "template/start_preview": E("deny", "vista previa en vivo del formulario de un helper en la UI (clase B)", "generic_commands"),
-    "test_condition": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-040"),
+    "test_condition": E("dedicated", "cubierto por ha_test_condition", "core_diagnostics", tool="ha_test_condition", cap="CAP-040"),
     "thread/add_dataset_tlv": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),
     "thread/delete_dataset": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),
     "thread/discover_routers": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-103"),
@@ -595,7 +600,7 @@ CORE_WS: dict[str, E] = {
     "usb/list_serial_ports": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
     "usb/scan": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
     "vacuum/get_segments": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
-    "validate_config": E("deny", "pendiente de tool dedicada (spec 012)", "generic_commands", cap="CAP-040"),
+    "validate_config": E("dedicated", "cubierto por ha_validate_config", "core_diagnostics", tool="ha_validate_config", cap="CAP-040"),
     "wake_word/info": E("read", "palabras de activación que admite una entidad wake_word; solo lee", "generic_commands", cap="CAP-062"),
     "weather/convertible_units": E("deny", "ayudas de formulario de la UI (unidades convertibles) (clase B)", "generic_commands"),
     "weather/subscribe_forecast": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),

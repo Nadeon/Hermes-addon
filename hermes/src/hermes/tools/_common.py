@@ -111,6 +111,53 @@ def recortar_grupos_a_bytes(
     return grupos
 
 
+def ultimas_lineas_que_caben(
+    respuesta: dict[str, Any], logs: str, max_bytes: int, *, clave: str = "logs"
+) -> dict[str, Any]:
+    """`respuesta` con `logs` entero si cabe; si no, sus últimas líneas.
+
+    Un log es un texto, no una lista, así que el guardián central solo podía
+    cambiarlo entero por `response_too_large`: un add-on que escribe mucho
+    dejaba de tener log por Hermes (revisión de 1.1.1, M-2). En un log lo que
+    importa es el final, así que se quitan líneas del PRINCIPIO y se dice.
+
+    Vive aquí desde la spec 012: la comparten `sv_get_addon_logs` (clave
+    `logs`) y `ha_get_error_log` (clave `log`).
+    """
+    completa = {**respuesta, clave: logs}
+    if tam_json(completa) <= max_bytes:
+        return completa
+    lineas = logs.splitlines(keepends=True)
+
+    def armar(n: int) -> dict[str, Any]:
+        return {
+            **respuesta,
+            clave: "".join(lineas[len(lineas) - n:]) if n else "",
+            "truncated": True,
+            "lines_returned": n,
+            "hint": (
+                "Only the last lines that fit in response_max_bytes are shown. "
+                "Ask for fewer lines instead of repeating the same call."
+            ),
+        }
+
+    # Estimación con el tamaño escapado de cada línea desde el final y
+    # verificación con el tamaño real.
+    presupuesto = max_bytes - tam_json(armar(0)) - 8
+    n = usado = 0
+    for linea in reversed(lineas):
+        coste = tam_json(linea) - 2
+        if usado + coste > presupuesto:
+            break
+        usado += coste
+        n += 1
+    out = armar(n)
+    while n > 0 and tam_json(out) > max_bytes:
+        n -= 1
+        out = armar(n)
+    return out
+
+
 _LIMIT_HINT = (
     "The response was cut to fit response_max_bytes. Filter more (by domain, "
     "entity, dates or a search argument) instead of repeating the same call."
