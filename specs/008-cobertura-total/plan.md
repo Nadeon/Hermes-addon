@@ -189,7 +189,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-002 | alta | 011 | FR-006, FR-008, FR-009 | X | genéricas de Core en unitarios y banco |
 | CAP-003 | media-alta | 011 | FR-007, FR-008 | X | genéricas del Supervisor con simulador; rutas maliciosas |
 | CAP-004 | alta | 011 | FR-010 | X | registro con familias; opción inválida no arranca |
-| CAP-005 | alta | 010 | FR-013 | X | job del banco en el CI |
+| CAP-005 | alta | 010 | FR-013 | X | job del banco en el CI: `tests/test_banco_workflow.py`, `tests/banco/test_banco_humo.py` |
 | CAP-006 | alta | 014 | FR-016 | M | procedimiento y matriz en la hoja de ruta |
 | CAP-007 | media-alta | 011 | FR-005 | X | test de deriva |
 | CAP-008 | media | 011 | FR-011 | X | test de la guía y de la consulta de la tabla |
@@ -217,7 +217,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-031 | media | 027 | FR-020, FR-096 | M | alias siguen con `_deprecated` |
 | CAP-032 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta |
 | CAP-033 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta; deriva |
-| CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core; matriz del Supervisor |
+| CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core: `tests/banco/test_banco_humo.py`, `tests/banco/test_banco_helpers_*.py`, `tests/test_banco_cobertura.py` (010); matriz del Supervisor |
 | CAP-035 | media | 014 | FR-016 | M | matriz de pruebas manuales |
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
