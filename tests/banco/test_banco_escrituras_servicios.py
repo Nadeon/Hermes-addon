@@ -133,9 +133,12 @@ class TestCancelarEspera(BancoEscrituras):
                 self.assertFalse([w for w in activas["waits"] if w["wait_id"] == wait_id])
                 # El lector dispara el evento: la espera ya terminó y no lo recoge.
                 await s.lector.comando({"type": "fire_event", "event_type": tipo})
+                # Y ya no hay nada que cancelar: Hermes responde `not_found`
+                # (como resultado de error de MCP, de ahí la llamada directa).
+                otra = await s.cliente.call_tool("ha_cancel_wait", {"wait_id": wait_id})
+                self.assertTrue(getattr(otra, "is_error", False))
                 self.assertEqual(
-                    await llamar(s.cliente, "ha_cancel_wait", wait_id=wait_id),
-                    {"error": "not_found", "wait_id": wait_id},
+                    json.loads(otra.content[0].text), {"error": "not_found", "wait_id": wait_id}
                 )
                 self.assertEqual(resultado["reason"], "cancelled")
             finally:
