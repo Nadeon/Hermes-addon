@@ -13,10 +13,24 @@
   los tests de humo: arranque, lectura de estados y servicios, una llamada a
   servicio con su efecto comprobado directamente en Core, los filtros del
   Supervisor y que ninguna credencial del banco sale en el log.
+- **Las 47 tools que modifican helpers, ejecutadas de verdad.** En el mismo
+  job, las escrituras de `input_boolean`, `input_button`, `input_datetime`,
+  `input_number`, `input_select`, `input_text`, `counter`, `timer`, `schedule`,
+  `zone` y `person` se ejecutan contra esa HA: crear y editar en dos pasos (la
+  vista previa no toca nada y, al editar, lo que no se cambia se conserva),
+  cada acción sobre el valor, las recargas y los borrados. El efecto lo
+  comprueba un lector que habla directamente con Core, no Hermes. Un test de
+  la suite normal obliga a que cualquier tool nueva de esos dominios se pruebe
+  en el banco o diga por qué no se puede.
+- **Hallazgo: `ha_reload_counters` falla contra HA real.** HA Core 2026.11.1
+  no tiene el servicio `counter.reload`; Core responde 400. Queda anotado en
+  la hoja de ruta y como fallo esperado en el banco; esta sección no cambia la
+  tool.
 - Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
   y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
-  onboarding, reglas de salto, comprobaciones del workflow) se prueban en la
-  suite normal. Sin cambios en el código del add-on.
+  onboarding, reglas de salto, comprobaciones del workflow, inventario de
+  cobertura) se prueban en la suite normal. Sin cambios en el código del
+  add-on.
 
 ## [1.1.2] — 2026-11-14
 

@@ -109,22 +109,58 @@ revertir de una vez) con los recuentos de los controles negativos.
 **Objetivo**: las 47 tools de `data-model.md` ejecutadas en el banco con su efecto comprobado.
 **Prueba independiente**: el job del banco ejecuta los 47 casos; el invariante de cobertura pasa en la suite normal.
 
-- [ ] T023 [US2] Tests en `tests/test_banco_cobertura.py` (suite normal; deben fallar al principio): para cada módulo de `MODULOS_HELPERS`, llamar a su `register(mcp, ha_client)` con un `DummyMCP` que recoge los nombres y un `MagicMock` como cliente, y quedarse con las que no son `ha_list_*` ni `ha_get_*`; comprobar que todas están también en el registro de producción (`__main__._build_mcp(HermesConfig(), MagicMock())`); comprobar que es exactamente `PROBADAS_EN_BANCO ∪ NO_EJECUTABLES`, que las dos partes son disjuntas, que cada `NO_EJECUTABLES` tiene un motivo no vacío y que hay 47; el mensaje de fallo nombra las tools que sobran o faltan. Comprobar además que cada nombre de `PROBADAS_EN_BANCO` aparece en algún `tests/banco/test_banco_helpers_*.py` (FR-009)
-- [ ] T024 [US2] Crear `tests/banco/cobertura.py` con `DOMINIOS_HELPERS`, `MODULOS_HELPERS`, `PROBADAS_EN_BANCO` (las 47 de `data-model.md`) y `NO_EJECUTABLES = {}`, con un comentario que explica el invariante y que la 028 tendrá su propia lista
-- [ ] T025 [P] [US2] `tests/banco/test_banco_helpers_input.py` (`pytestmark = pytest.mark.banco`), 23 tools de `input_boolean`, `input_button`, `input_datetime`, `input_number`, `input_select` e `input_text` según la tabla de `data-model.md`: por dominio, crear en dos pasos (tras la vista previa el lector no ve nada; tras confirmar ve la configuración pedida), editar en dos pasos (el lector ve el elemento **reemplazado**), cada acción sobre el valor con su estado esperado (por `lector.esperar`), y borrar en dos pasos; nombres `banco_<dominio>_<hex>`; limpieza con `lector.borrar` en `asyncTearDown`
-- [ ] T026 [P] [US2] `tests/banco/test_banco_helpers_tiempo.py`, 18 tools de `counter`, `timer` y `schedule`: igual que T025; además `ha_reload_counters`, `ha_reload_timers` y `ha_reload_schedules` en dos pasos con `lector.servicios_llamados()` viendo `<dominio>.reload` y el helper todavía en la lista; `ha_finish_timer` con el evento `timer.finished` visto en el bus; `ha_change_timer` sobre un temporizador activo con `remaining` cambiado en el sentido pedido
-- [ ] T027 [P] [US2] `tests/banco/test_banco_helpers_lugares.py`, 6 tools de `zone` y `person`: zona con coordenadas de ejemplo; `ha_reload_zones` como en T026; persona con nombre inventado (`ha_create_person` sin token, `ha_update_person` y `ha_delete_person` en dos pasos); la persona del usuario de onboarding sigue en `person/list` al terminar
-- [ ] T028 [US2] Control negativo local del inventario (T023/T024): quitar una tool de `PROBADAS_EN_BANCO` → cae y la nombra; añadir a `NO_EJECUTABLES` una tool que no existe → cae; vaciar el motivo de una entrada de prueba → cae. Restaurar y anotar
-- [ ] T029 [US2] Push y `gh run watch`: los tres jobs en verde; en el log del banco, humo más los tests de las 47 tools ejecutados y ninguno saltado; anotar la duración del job (SC-001, SC-002, SC-006). Si falla, `gh run view --log-failed`, corregir y repetir
-- [ ] T030 [US2] Control negativo del banco en CI (research R-9): en la rama desechable `prueba/010-control-b`, `ha_increment_counter` llama a `counter.decrement` en `hermes/src/hermes/tools/counter.py`, y la vista previa de `ha_create_or_update_input_boolean` crea el helper sin esperar al token (llamando al create antes de devolver la vista previa); push, `gh run watch` hasta ver en rojo los dos tests correspondientes del job `banco de Core`; borrar la rama remota y la local. Este cambio de producto nunca entra en la rama de la sub-feature. Anotar el resultado
+- [x] T023 [US2] Tests en `tests/test_banco_cobertura.py` (suite normal; deben fallar al principio): para cada módulo de `MODULOS_HELPERS`, llamar a su `register(mcp, ha_client)` con un `DummyMCP` que recoge los nombres y un `MagicMock` como cliente, y quedarse con las que no son `ha_list_*` ni `ha_get_*`; comprobar que todas están también en el registro de producción (`__main__._build_mcp(HermesConfig(), MagicMock())`); comprobar que es exactamente `PROBADAS_EN_BANCO ∪ NO_EJECUTABLES`, que las dos partes son disjuntas, que cada `NO_EJECUTABLES` tiene un motivo no vacío y que hay 47; el mensaje de fallo nombra las tools que sobran o faltan. Comprobar además que cada nombre de `PROBADAS_EN_BANCO` aparece en algún `tests/banco/test_banco_helpers_*.py` (FR-009)
+- [x] T024 [US2] Crear `tests/banco/cobertura.py` con `DOMINIOS_HELPERS`, `MODULOS_HELPERS`, `PROBADAS_EN_BANCO` (las 47 de `data-model.md`) y `NO_EJECUTABLES = {}`, con un comentario que explica el invariante y que la 028 tendrá su propia lista
+- [x] T025 [P] [US2] `tests/banco/test_banco_helpers_input.py` (`pytestmark = pytest.mark.banco`), 23 tools de `input_boolean`, `input_button`, `input_datetime`, `input_number`, `input_select` e `input_text` según la tabla de `data-model.md`: por dominio, crear en dos pasos (tras la vista previa el lector no ve nada; tras confirmar ve la configuración pedida), editar en dos pasos (el lector ve el elemento **reemplazado**), cada acción sobre el valor con su estado esperado (por `lector.esperar`), y borrar en dos pasos; nombres `banco_<dominio>_<hex>`; limpieza con `lector.borrar` en `asyncTearDown`
+- [x] T026 [P] [US2] `tests/banco/test_banco_helpers_tiempo.py`, 18 tools de `counter`, `timer` y `schedule`: igual que T025; además `ha_reload_counters`, `ha_reload_timers` y `ha_reload_schedules` en dos pasos con `lector.servicios_llamados()` viendo `<dominio>.reload` y el helper todavía en la lista; `ha_finish_timer` con el evento `timer.finished` visto en el bus; `ha_change_timer` sobre un temporizador activo con `remaining` cambiado en el sentido pedido
+- [x] T027 [P] [US2] `tests/banco/test_banco_helpers_lugares.py`, 6 tools de `zone` y `person`: zona con coordenadas de ejemplo; `ha_reload_zones` como en T026; persona con nombre inventado (`ha_create_person` sin token, `ha_update_person` y `ha_delete_person` en dos pasos); la persona del usuario de onboarding sigue en `person/list` al terminar
+- [x] T028 [US2] Control negativo local del inventario (T023/T024): quitar una tool de `PROBADAS_EN_BANCO` → cae y la nombra; añadir a `NO_EJECUTABLES` una tool que no existe → cae; vaciar el motivo de una entrada de prueba → cae. Restaurar y anotar
+- [x] T029 [US2] Push y `gh run watch`: los tres jobs en verde; en el log del banco, humo más los tests de las 47 tools ejecutados y ninguno saltado; anotar la duración del job (SC-001, SC-002, SC-006). Si falla, `gh run view --log-failed`, corregir y repetir
+- [x] T030 [US2] Control negativo del banco en CI (research R-9): en la rama desechable `prueba/010-control-b`, `ha_increment_counter` llama a `counter.decrement` en `hermes/src/hermes/tools/counter.py`, y la vista previa de `ha_create_or_update_input_boolean` crea el helper sin esperar al token (llamando al create antes de devolver la vista previa); push, `gh run watch` hasta ver en rojo los dos tests correspondientes del job `banco de Core`; borrar la rama remota y la local. Este cambio de producto nunca entra en la rama de la sub-feature. Anotar el resultado
 
 ## Fase 5: Documentación y cierre
 
-- [ ] T031 [P] `docs/HOJA-DE-RUTA.md`: fila 010 → «hecha»; la frase de la cabecera sobre las 124 tools dice que, además de las de dashboards, las 47 de helpers se ejecutan en el CI contra HA Core 2026.11.1 real; lista de las 47 tools ejecutadas en el banco y lista (vacía) de no ejecutables con motivo (FR-008, FR-009, FR-013)
-- [ ] T032 [P] `hermes/CHANGELOG.md`: completar la sección «Banco de pruebas» de `## [1.2.0]` (job `banco de Core`, HA Core 2026.11.1 por digest, Supervisor simulado, 47 tools de helpers ejecutadas, cómo se salta en local); `specs/008-cobertura-total/plan.md`: en la matriz de trazabilidad, filas CAP-005 y CAP-034, la columna de test con `tests/banco/test_banco_humo.py` y `tests/banco/test_banco_helpers_*.py` (FR-013)
-- [ ] T033 Tarea del mantenedor, no la ejecutan los agentes: añadir el check `banco de Core` a los checks obligatorios del ruleset del repositorio; la constitución lo nombrará con la enmienda E-3 en la 011. El agente del tramo B la deja escrita en el mensaje del commit como pendiente (FR-010)
-- [ ] T034 Verificación final: `git diff --stat <base>..HEAD -- hermes/` solo muestra `hermes/CHANGELOG.md` (SC-003); suite local con los 6 fallos conocidos y los del banco saltados con motivo (SC-004); revisión del diff completo de la sub-feature buscando datos personales, rutas locales e identificadores de modelos (FR-012, principio VIII)
-- [ ] T035 Commit del tramo B (`git add` por ruta) con los recuentos de T028 y T030, la duración del job y la tarea pendiente T033
+- [x] T031 [P] `docs/HOJA-DE-RUTA.md`: fila 010 → «hecha»; la frase de la cabecera sobre las 124 tools dice que, además de las de dashboards, las 47 de helpers se ejecutan en el CI contra HA Core 2026.11.1 real; lista de las 47 tools ejecutadas en el banco y lista (vacía) de no ejecutables con motivo (FR-008, FR-009, FR-013)
+- [x] T032 [P] `hermes/CHANGELOG.md`: completar la sección «Banco de pruebas» de `## [1.2.0]` (job `banco de Core`, HA Core 2026.11.1 por digest, Supervisor simulado, 47 tools de helpers ejecutadas, cómo se salta en local); `specs/008-cobertura-total/plan.md`: en la matriz de trazabilidad, filas CAP-005 y CAP-034, la columna de test con `tests/banco/test_banco_humo.py` y `tests/banco/test_banco_helpers_*.py` (FR-013)
+- [ ] T033 (PENDIENTE DEL MANTENEDOR) Tarea del mantenedor, no la ejecutan los agentes: añadir el check `banco de Core` a los checks obligatorios del ruleset del repositorio; la constitución lo nombrará con la enmienda E-3 en la 011. El agente del tramo B la deja escrita en el mensaje del commit como pendiente (FR-010)
+- [x] T034 Verificación final: `git diff --stat <base>..HEAD -- hermes/` solo muestra `hermes/CHANGELOG.md` (SC-003); suite local con los 6 fallos conocidos y los del banco saltados con motivo (SC-004); revisión del diff completo de la sub-feature buscando datos personales, rutas locales e identificadores de modelos (FR-012, principio VIII)
+- [x] T035 Commit del tramo B (`git add` por ruta) con los recuentos de T028 y T030, la duración del job y la tarea pendiente T033
+
+### Notas del tramo B (al implementar)
+
+- **Resultado**: run 43635462583 en verde (`pytest (3.12)`, `pytest (3.13)` y
+  `banco de Core`); en el banco, 20 tests pasados y 1 `xfail` (los 9 del humo
+  más 11 de helpers), ninguno saltado. Job de unos 65 s (los tests, ~6 s).
+  Suite local: los 6 fallos conocidos de Windows, 1979 pasados, 37 saltados
+  (los 21 del banco con su motivo).
+- **HALLAZGO**: `ha_reload_counters` falla contra HA real. HA Core 2026.11.1 no
+  registra `counter.reload` (solo `increment`, `decrement`, `reset` y
+  `set_value`); Core responde 400 y la tool acaba en «Error executing tool».
+  Sigue en `PROBADAS_EN_BANCO` (se ejecuta) y está aislada en
+  `TestCounter.test_recarga` como `xfail` estricto. No se toca el producto en
+  este tramo; anotado en la hoja de ruta para decidir dónde se arregla.
+  Quedan probadas en verde 46 de las 47.
+- **Datos del banco que HA impone**: `counter.set_value` exige un múltiplo del
+  `step` (si no, 500); el `timer` guarda la duración como `H:MM:SS`. Los tests
+  usan esos formatos.
+- **Arnés**: `llamar` falla si la tool devuelve `is_error` y reconstruye las
+  listas (una llamada a servicio devuelve los estados cambiados, un bloque de
+  contenido por elemento, a menudo ninguno); la sesión de helpers saca el error
+  del `ExceptionGroup` del cliente MCP. El lector gana `eventos(tipo)` para ver
+  `timer.finished`. Cada test abre lector y Hermes en un único `async with`
+  (anyio exige abrir y cerrar el grupo de tareas en la misma tarea).
+- **T028**: (1) quitar `ha_reset_counter` de `PROBADAS_EN_BANCO` → cae
+  `test_inventario_exacto` y la nombra; (2) `NO_EJECUTABLES` con
+  `ha_no_existe` → cae el mismo test («declaradas que no existen»); (3) motivo
+  vacío → cae `test_motivos_no_vacios`. Restaurado: 6 pasados.
+- **T030 en la propia rama**, como T021: el encargo no permite empujar otras
+  ramas. Commit de control 0ad04b9 revertido en el siguiente; run 43635629062:
+  `banco de Core` en rojo con exactamente `TestInputBoolean` y `TestCounter`;
+  los `pytest`, con `test_tools_counter.py::test_increment`. La vista previa
+  que crea sin token no la detecta ningún test de la suite normal; solo el
+  banco.
+- **T033** queda para el mantenedor: añadir `banco de Core` a los checks
+  obligatorios del ruleset.
 
 ---
 
