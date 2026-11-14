@@ -1,0 +1,49 @@
+# Configuración de Home Assistant del banco de pruebas de Core (spec 010).
+#
+# El job `banco-core` copia esta carpeta a un temporal del runner y la monta en
+# /config de un contenedor de HA Core recién creado. Es mínima a propósito:
+#
+# - No hay `default_config:`. Arrastra integraciones que buscan hardware o red
+#   (bluetooth, dhcp, ssdp, zeroconf, usb, cloud, go2rtc…): más arranque, más
+#   avisos y fallos que no tienen nada que ver con Hermes.
+# - Se cargan la API REST, la WebSocket, el panel de configuración y el
+#   onboarding (el banco lo completa sin intervención humana) y los 11 dominios
+#   de helpers, cuyos comandos `<dominio>/list|create|update|delete` solo
+#   existen si la integración está cargada.
+# - Ubicación: la de ejemplo de la configuración por defecto de HA, no la de
+#   nadie. Nombre genérico. Con la ubicación escrita aquí, HA no la intenta
+#   detectar por internet (el contenedor tampoco tiene salida).
+#
+# Las sub-features que necesiten más dominios (automation:, script:, scene:,
+# lovelace:, template:…) los añaden aquí en su propio cambio.
+
+homeassistant:
+  name: Banco de pruebas
+  latitude: 32.87336
+  longitude: -117.22743
+  elevation: 430
+  unit_system: metric
+  time_zone: Etc/UTC
+  country: US
+  currency: USD
+
+http:
+api:
+websocket_api:
+config:
+onboarding:
+
+logger:
+  default: warning
+
+input_boolean:
+input_button:
+input_datetime:
+input_number:
+input_select:
+input_text:
+counter:
+timer:
+schedule:
+zone:
+person:
