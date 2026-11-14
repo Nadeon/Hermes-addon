@@ -131,6 +131,10 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "ha_update_label",            # la etiqueta la usan automatizaciones y tarjetas
     "ha_update_category",         # reorganiza automatizaciones, scripts o helpers
     "ha_ignore_repair",           # oculta un aviso de HA que puede ser importante
+    # Ocultan un aviso del Supervisor (instalación no saludable, sugerencia
+    # pendiente): quien lo descarta deja de verlo aunque el problema siga.
+    "sv_dismiss_resolution_issue",
+    "sv_dismiss_resolution_suggestion",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

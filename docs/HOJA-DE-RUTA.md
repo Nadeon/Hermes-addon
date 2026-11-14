@@ -4,8 +4,10 @@
 
 # Hoja de ruta de Hermes
 
-**Revisión:** 2026-11-14, sobre Hermes **1.0.12** (la revisión de
-compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró).
+**Revisión:** 2026-11-14, sobre Hermes **1.1.0** (la revisión de
+compatibilidad se hizo sobre la 1.0.11; la 1.0.12 corrige lo que se encontró y
+la 1.1.0 añade lo planificado para ella). La 1.0.12 no se publicó por
+separado: llega a los usuarios dentro de la 1.1.0.
 
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
@@ -30,7 +32,7 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
   OAuth faltan **CIMD** (Client ID Metadata Documents, el registro preferido
   desde la revisión 2026-07-28) y el parámetro **`iss`** (RFC 9207). El registro
   dinámico (DCR) que usa Hermes sigue funcionando, pero está deprecado. Los dos
-  están ya integrados para la 1.1.0 (spec 003).
+  están en la 1.1.0 (spec 003).
 
 ## Problemas conocidos de 1.0.11
 
@@ -64,7 +66,7 @@ detalle está en el CHANGELOG.
 | 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes | Corregido |
 | 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente |
 | 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes | Corregido |
-| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Pendiente |
+| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Pendiente; la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
 
 Recomendación: actualizar a la 1.0.12. Quien siga en la 1.0.11 no debe
 reenviar `aliases` leídos del registro, ni usar
@@ -89,9 +91,9 @@ desactivada, que es su valor por defecto. En la 1.0.12,
 | Constante de versiones de protocolo admitidas del SDK `mcp` (sustituida por las de handshake y modernas) | Deprecada en 2.x | Puede romper con un futuro SDK 3.x |
 
 Pendiente de confirmar en la documentación oficial de Claude: los límites de
-~150 000 caracteres por resultado y 240 s por llamada en claude.ai, frente al
-`response_max_bytes` de 1 MiB y los 300 s máximos de `ha_wait_for_event` de
-Hermes.
+~150 000 caracteres por resultado y 240 s por llamada en claude.ai. La 1.1.0
+ya se ajusta a ellos: `response_max_bytes` de 128 KiB por defecto y 512 KiB como
+máximo, y 220 s como máximo de `ha_wait_for_event`.
 
 Para quien publique Hermes con el add-on de Tailscale: desde la versión 0.14.0
 gestiona `share_homeassistant` como servicio propio y, una sola vez, borra la
@@ -137,9 +139,8 @@ Dockerfile trae su imagen base por defecto y `build.yaml` desaparece.
 del SIGKILL de Docker. Pendiente: probar la primera publicación con una
 etiqueta y comprobar que las imágenes ya publicadas siguen disponibles.
 
-### Hecho para 1.1.0 — OAuth moderno, límites y protocolo (spec 003)
+### Hecho en 1.1.0 — OAuth moderno, límites y protocolo (spec 003)
 
-Integrado en la rama de la 1.1.0, todavía sin publicar:
 
 - **CIMD** (manteniendo DCR), con la descarga acotada contra SSRF y la opción
   `oauth_cimd_enabled`; parámetro **`iss`** en todas las redirecciones;
@@ -151,26 +152,54 @@ Integrado en la rama de la 1.1.0, todavía sin publicar:
   errores marcados con `isError`.
 - **Redacción de red en el log** (`log_redact_network`, activa por defecto).
 
-Pendiente: las pruebas manuales de `specs/003-oauth-y-protocolo/quickstart.md`
-en una instalación de prueba, sobre todo la del **primer byte** (Claude Code
-con una espera de 90 s detrás del proxy). Si Claude Code corta a los 60 s, hay
-que completar DOCS.md con lo que haga falta en ese proxy.
+### Hecho en 1.1.0 — Marketplace, organización y diagnóstico (specs 004 y 005)
 
-### 1.1.0 — Marketplace y diagnóstico (esfuerzo L)
-
-- Tools del Marketplace de **solo lectura**, con alias de las `ha_hacs_*`:
-  hecho (spec 004), sin publicar.
-- CIMD, `iss`, límites y protocolo: hechos (ver el apartado anterior).
+- Tools del Marketplace de **solo lectura**, con alias de las `ha_hacs_*`
+  (deprecados hasta la 1.3.0).
 - Plantas, etiquetas y categorías; Repairs de HA; trazas de automatizaciones y
-  scripts; `search/related`: hechos (spec 005), sin publicar.
-- Resolución del Supervisor; estado de los backups de HA y retención de los
-  backups de seguridad.
+  scripts; `search/related`.
+- Centro de resolución del Supervisor (leer y descartar; las sugerencias nunca
+  se aplican).
+- Backups de la integración `backup` de HA, de solo lectura y sin la contraseña
+  de cifrado.
+- Retención de los safety backups (`safety_backup_keep`, 3 por defecto).
 
-Riesgos: CIMD añade descargas salientes que hay que acotar; límites más bajos
-pueden truncar respuestas que hoy pasan; más tools ocupan más contexto.
+Son 216 tools. Riesgos que quedan: límites más bajos pueden truncar respuestas
+que antes pasaban, y más tools ocupan más contexto en el cliente.
+
+### Pruebas manuales pendientes en una instalación real
+
+La suite no puede cubrir esto; hay que hacerlo antes o justo después de
+publicar la 1.1.0, y anotar el resultado aquí:
+
+- [ ] **CIMD con Claude Code y con claude.ai**: autorizar con los dos clientes,
+  comprobar la pantalla de autorización (host, nombre y destino del código) y
+  que los clientes DCR de antes siguen funcionando
+  (`specs/003-oauth-y-protocolo/quickstart.md`).
+- [ ] **Primer byte tras el proxy**: Claude Code con una espera de 90 s detrás
+  del proxy. Si corta a los 60 s, completar DOCS.md con lo que haga falta en
+  ese proxy.
+- [ ] **Actualización con la clave `homeassistant`** del manifiesto: que el
+  Supervisor actualice sin problemas en una HA soportada y rechace la
+  actualización en una HA anterior a 2024.10.
+- [ ] **Funnel en el 8443**: publicar Hermes en el 8443 con
+  `public_hostname: homeassistant.tailXXXX.ts.net:8443`, con
+  `share_homeassistant: funnel` en el 443, y pasar una instalación existente
+  del 443 al 8443 siguiendo los README.
+- [ ] **Publicación de la imagen con el CI nuevo** (spec 002): la primera
+  etiqueta con `build-image`, las dos arquitecturas, la firma, y que las
+  imágenes ya publicadas siguen disponibles.
 
 ### 1.2.x y posteriores
 
+- **`redact_secrets` (security.py) es cuadrático con cadenas largas sin
+  espacios**: 30 KB sin espacios tardan del orden de medio segundo (0,4–0,7 s
+  según la máquina). Afecta a textos grandes que se redactan enteros, como
+  logs con líneas muy largas o blobs codificados. Hay que acotar las
+  expresiones regulares o trocear la entrada, con un test de tiempo.
+- Cifrado de los safety backups (hoy se crean sin contraseña).
+- Aplicar sugerencias del Supervisor, solo con confirmación y vista previa
+  completa (hoy solo se leen y se descartan).
 - Escritura en el Marketplace, solo si se decide, desactivada por defecto y con
   confirmación, backup previo y vista previa completa.
 - Flujos de reparación de Repairs (hoy solo se listan e ignoran) y textos de

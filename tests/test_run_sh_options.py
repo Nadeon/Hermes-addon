@@ -121,6 +121,13 @@ class TestHelpersDeOpciones(unittest.TestCase):
                                 "cfg_default safety_backup_window_minutes 30")
         self.assertEqual(salida, "0")
 
+    def test_safety_backup_keep_a_cero_no_cae_al_default(self) -> None:
+        """`0` desactiva la retención: si cayera al 3, Hermes borraría backups
+        a quien pidió expresamente que no lo hiciera."""
+        salida = self._ejecutar({"safety_backup_keep": 0},
+                                "cfg_default safety_backup_keep 3")
+        self.assertEqual(salida, "0")
+
 
 class TestValoresPorDefectoDeRunSh(unittest.TestCase):
     """FR-032, FR-023, FR-044: lo que exporta run.sh sin opción guardada.
@@ -151,6 +158,10 @@ class TestValoresPorDefectoDeRunSh(unittest.TestCase):
     def test_exporta_log_redact_network_activada(self) -> None:
         self.assertEqual(self._export("HERMES_LOG_REDACT_NETWORK"),
                          "log_redact_network true")
+
+    def test_exporta_safety_backup_keep_con_3(self) -> None:
+        self.assertEqual(self._export("HERMES_SAFETY_BACKUP_KEEP"),
+                         "safety_backup_keep 3")
 
 
 if __name__ == "__main__":

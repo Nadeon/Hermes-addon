@@ -121,6 +121,7 @@ def test_servidor_mcp_con_version_y_limites_de_la_configuracion(
         response_max_bytes=200_000,
         wait_for_event_max_seconds=150,
         wait_for_event_max_concurrent=3,
+        safety_backup_keep=5,
     )
     with mock.patch("hermes.tools.register_all_tools") as registrar:
         mcp = main_mod._build_mcp(config, object())
@@ -130,6 +131,7 @@ def test_servidor_mcp_con_version_y_limites_de_la_configuracion(
     assert kwargs["response_max_bytes"] == 200_000
     assert kwargs["wait_for_event_max_seconds"] == 150
     assert kwargs["wait_for_event_max_concurrent"] == 3
+    assert kwargs["safety_backup_keep"] == 5
 
 
 def test_boot_usa_las_funciones_cableadas() -> None:

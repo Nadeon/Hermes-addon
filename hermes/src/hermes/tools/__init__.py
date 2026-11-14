@@ -24,6 +24,7 @@ def register_all_tools(
     call_service_auto_classify: bool | None = None,
     wait_for_event_max_seconds: int | None = None,
     wait_for_event_max_concurrent: int | None = None,
+    safety_backup_keep: int | None = None,
 ) -> None:
     """Registra todas las tools disponibles en el servidor MCP.
 
@@ -46,6 +47,7 @@ def register_all_tools(
         or call_service_auto_classify is None
         or wait_for_event_max_seconds is None
         or wait_for_event_max_concurrent is None
+        or safety_backup_keep is None
     )
     if needs_cfg:
         from hermes.config import load_config
@@ -76,6 +78,8 @@ def register_all_tools(
             wait_for_event_max_seconds = cfg.wait_for_event_max_seconds
         if wait_for_event_max_concurrent is None:
             wait_for_event_max_concurrent = cfg.wait_for_event_max_concurrent
+        if safety_backup_keep is None:
+            safety_backup_keep = cfg.safety_backup_keep
 
     # ping y test_progress
     from hermes.tools.ping import register as register_ping
@@ -210,6 +214,7 @@ def register_all_tools(
         file_backup_max_total_mb=file_backup_max_total_mb,
         config_write_min_interval_seconds=config_write_min_interval_seconds,
         config_write_max_per_minute=config_write_max_per_minute,
+        safety_backup_keep=safety_backup_keep,
     )
 
     # Supervisor — add-ons, supervisor/host/core, backups
@@ -225,6 +230,15 @@ def register_all_tools(
         ha_client,
         safety_backup_window_minutes=safety_backup_window_minutes,
     )
+
+    # Centro de resolución del Supervisor (lee y descarta; nunca aplica
+    # sugerencias) y backups de la integración `backup` de HA, que ven todas
+    # las ubicaciones y no solo las locales del Supervisor.
+    from hermes.tools.resolution import register as register_resolution
+    register_resolution(mcp, ha_client)
+
+    from hermes.tools.ha_backups import register as register_ha_backups
+    register_ha_backups(mcp, ha_client)
 
     # Lovelace dashboards y resources.
     # Cada módulo hay que registrarlo aquí explícitamente. Olvidar una de

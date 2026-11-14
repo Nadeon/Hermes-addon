@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 210 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 216 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -66,6 +66,12 @@ tarda más de 5 minutos, la escritura se rechaza con `safety_backup_timeout` y
 el `job_id`, que puedes seguir con `sv_get_job_status`. La escritura siguiente
 comprueba ese mismo backup en vez de lanzar otro: si aún no ha terminado, se
 rechaza con `safety_backup_in_progress`.
+
+Con `safety_backup_enabled`, la opción `safety_backup_keep` (3 por defecto, 0
+la desactiva) conserva solo los safety backups automáticos más recientes y
+borra el resto tras cada uno correcto. Solo toca los que Hermes anotó al
+crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
+detalle de qué borra y qué no está en el README.
 
 El Marketplace (HACS hasta HA 2026.10) es de **solo lectura** para Hermes:
 Claude puede consultar repositorios, actualizaciones y versiones, pero no

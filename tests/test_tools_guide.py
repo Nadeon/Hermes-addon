@@ -141,6 +141,19 @@ class TestGuiaDiagnosticoYOrganizacion(unittest.IsolatedAsyncioTestCase):
                        "ha_list_categories", "ha_delete_category"):
             self.assertIn(nombre, guia)
 
+    async def test_diagnostics_covers_the_supervisor_resolution(self) -> None:
+        tema = await self.guide("diagnostics")
+        self.assertEqual(await self.guide("resolution"), tema)
+        for nombre in ("sv_get_resolution", "sv_dismiss_resolution_issue",
+                       "sv_dismiss_resolution_suggestion"):
+            self.assertIn(nombre, tema)
+
+    def test_backups_names_ha_backups_and_retention(self) -> None:
+        guia = _GUIDE["backups"]
+        for nombre in ("ha_list_backups", "ha_get_backup",
+                       "ha_get_backup_config", "safety_backup_keep"):
+            self.assertIn(nombre, guia)
+
 
 class TestInstructions(unittest.TestCase):
     def test_instructions_mention_key_concepts(self) -> None:

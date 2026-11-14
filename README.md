@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **210 tools**: turn on lights, write automations,
+external systems). It ships **216 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 210 tools
+## What it can do — 216 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -38,10 +38,10 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
 | **Lovelace** | 10 | Dashboards and resources |
 | **Add-ons** | 12 | List, install, start, stop, update, read logs and statistics |
-| **Backups** | 10 | Full and partial, create and restore |
+| **Backups** | 13 | Full and partial, create and restore. Also, read-only, the backups of Home Assistant's `backup` integration (HA 2025.1 or later) in every location (local, network, cloud), and its configuration without the encryption password |
 | **Supervisor and system** | 6 | Host and core info, validate configuration, restart |
 | **History and statistics** | 4 | History, logbook and long-term statistics |
-| **Diagnostics** | 5 | Repairs issues (list and ignore), automation and script traces, and what is related to an item |
+| **Diagnostics** | 8 | Repairs issues (list and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; suggestions are never applied) |
 | **Marketplace (formerly HACS)** | 11 | Read-only: status, repositories, available updates, published versions, critical and removed repositories. Detects on every call whether Home Assistant has the built-in Marketplace (2026.11 or later) or HACS 2.x. Updates are installed through the `update` entity, with confirmation. The 4 `ha_hacs_*` tools remain as deprecated aliases until 1.3.0 |
 | **Event waiting** | 3 | Wait for something to happen, with filters |
 | **Utilities** | 2 | `ping` and `hermes_guide` |
@@ -455,6 +455,7 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `max_concurrent_requests` | `64` | Simultaneous requests the server accepts. Bounds the maximum in-flight memory (`max_concurrent_requests × max_request_body_bytes`). Claude fires bursts of ~24 calls, so 64 leaves headroom |
 | `wait_for_event_max_seconds` | `90` | Maximum timeout allowed for `ha_wait_for_event` (10–220; a saved value above 220 is clamped) |
 | `wait_for_event_max_concurrent` | `5` | Maximum simultaneous `ha_wait_for_event` calls (1–20) |
+| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected or partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
 | `safety_backup_window_minutes` | `30` | If Hermes made its own safety backup more recently than this, another one is skipped. Backups made by hand or by other tools do not count. While the backup runs, the write waits up to 5 minutes, and it is cancelled if the backup fails |
 | `file_backup_max_per_path` | `20` | Copies kept of each file before overwriting it |
 | `file_backup_max_total_mb` | `200` | Total cap for the per-file backup directory |
@@ -527,6 +528,14 @@ The rules all of this is written under: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.md)
 - **`network_mode: reverse_proxy` is less battle-tested than `tailscale`.** It has
   its tests, but sees far less real-world use. If something breaks, an issue with
   the startup log is much appreciated.
+- **Supervisor suggestions are never applied.** `sv_get_resolution` shows them
+  and they can be dismissed, but some delete backups or reboot the host: apply
+  them yourself from the Home Assistant UI.
+- **Safety backups are not encrypted.** They are full HAOS backups without a
+  password. For an encrypted one, use `sv_create_backup_full` with `password`.
+- **Safety backups made before 1.1.0 are not pruned.** Hermes did not record
+  them, so retention cannot tell them apart from yours: delete them with
+  `sv_delete_backup` if you no longer need them.
 
 ## Architecture
 

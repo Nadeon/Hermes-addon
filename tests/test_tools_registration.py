@@ -572,6 +572,8 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_fire_event": "----",
     "ha_get_area": "R-I-",
     "ha_get_automation": "R-I-",
+    "ha_get_backup": "R-I-",
+    "ha_get_backup_config": "R-I-",
     "ha_get_config_entry": "R-I-",
     "ha_get_config_entry_options": "R-I-",
     "ha_get_counter": "R-I-",
@@ -605,6 +607,7 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_list_active_waits": "R-I-",
     "ha_list_areas": "R-I-",
     "ha_list_automations": "R-I-",
+    "ha_list_backups": "R-I-",
     "ha_list_categories": "R-I-",
     "ha_list_config_entries": "R-I-",
     "ha_list_configured_domains": "R-I-",
@@ -686,6 +689,8 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "sv_create_backup_partial": "----",
     "sv_create_safety_backup": "----",
     "sv_delete_backup": "-DI-",
+    "sv_dismiss_resolution_issue": "-DI-",
+    "sv_dismiss_resolution_suggestion": "-DI-",
     "sv_get_addon": "R-I-",
     "sv_get_addon_logs": "R-I-",
     "sv_get_addon_options": "R-I-",
@@ -694,6 +699,7 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "sv_get_core_info": "R-I-",
     "sv_get_host_info": "R-I-",
     "sv_get_job_status": "--I-",
+    "sv_get_resolution": "R-I-",
     "sv_get_supervisor_info": "R-I-",
     "sv_install_addon": "-DIO",
     "sv_list_addons": "R-I-",
@@ -892,3 +898,100 @@ class TestOrganizationAndDiagnosticsRegistration:
         from hermes.tools._annotations import classify
 
         assert [n for n in _ORGANIZACION_Y_DIAGNOSTICO if classify(n).open_world_hint] == []
+
+
+# ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────
+
+_RESOLUCION_Y_BACKUPS_HA = (
+    "sv_get_resolution", "sv_dismiss_resolution_issue",
+    "sv_dismiss_resolution_suggestion",
+    "ha_list_backups", "ha_get_backup", "ha_get_backup_config",
+)
+
+
+class TestResolutionAndHABackupsRegistration:
+    def test_registered(self):
+        mcp = _register_all()
+        faltan = sorted(n for n in _RESOLUCION_Y_BACKUPS_HA if n not in mcp.tools)
+        assert faltan == [], f"no registradas: {faltan}"
+
+    def test_read_only(self):
+        from hermes.tools._annotations import classify
+
+        for name in ("sv_get_resolution", "ha_list_backups", "ha_get_backup",
+                     "ha_get_backup_config"):
+            ann = classify(name)
+            assert ann.read_only_hint, name
+            assert not ann.destructive_hint, name
+
+    def test_dismiss_tools_are_destructive(self):
+        """Descartar un issue del Supervisor oculta un aviso que puede ser
+        importante: piden token y tienen que anunciarse destructivas."""
+        from hermes.tools._annotations import classify
+
+        for name in ("sv_dismiss_resolution_issue",
+                     "sv_dismiss_resolution_suggestion"):
+            ann = classify(name)
+            assert not ann.read_only_hint, name
+            assert ann.destructive_hint, name
+
+    def test_none_is_open_world(self):
+        from hermes.tools._annotations import classify
+
+        assert [n for n in _RESOLUCION_Y_BACKUPS_HA if classify(n).open_world_hint] == []
+
+    def test_safety_backup_keep_reaches_register_write(self):
+        """Sin este cableado la opción no manda: `register_write` usaría su
+        valor por defecto aunque el usuario hubiera puesto otro."""
+        from unittest.mock import patch
+
+        with patch("hermes.tools.filesystem_write.register_write") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=131_072, call_service_auto_classify=False,
+                safety_backup_keep=7,
+            )
+        assert reg.call_args.kwargs.get("safety_backup_keep") == 7
+
+    def test_safety_backup_keep_from_config_when_not_given(self):
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"HERMES_SAFETY_BACKUP_KEEP": "9"}), \
+                patch("hermes.tools.filesystem_write.register_write") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=131_072, call_service_auto_classify=False,
+            )
+        assert reg.call_args.kwargs.get("safety_backup_keep") == 9
+
+
+# ── Recuento de tools en la documentación ────────────────────────────────────
+
+class TestToolCountInDocs:
+    """El número de tools que anuncian las instrucciones, la guía, los README y
+    DOCS.md es el del registro real, sin las de desarrollo. Se ha quedado
+    atrás en varias versiones porque nadie lo recontaba al añadir módulos."""
+
+    def test_documented_count_matches_registry(self):
+        import re
+
+        from hermes.tools.guide import INSTRUCTIONS
+
+        previous = os.environ.pop("HERMES_DEV", None)
+        try:
+            mcp = _do_register()
+        finally:
+            if previous is not None:
+                os.environ["HERMES_DEV"] = previous
+        total = len(mcp.tools)
+        raiz = pathlib.Path(__file__).resolve().parents[1]
+        textos = {
+            "INSTRUCTIONS": INSTRUCTIONS,
+            "README.md": (raiz / "README.md").read_text(encoding="utf-8"),
+            "README.es.md": (raiz / "README.es.md").read_text(encoding="utf-8"),
+            "DOCS.md": (raiz / "hermes" / "DOCS.md").read_text(encoding="utf-8"),
+        }
+        patron = re.compile(r"(\d{3}) (?:tools|herramientas)\b")
+        for nombre, texto in textos.items():
+            numeros = {int(n) for n in patron.findall(texto)}
+            assert numeros == {total}, f"{nombre}: {sorted(numeros)} != {total}"

@@ -513,6 +513,7 @@ def _build_mcp(config: HermesConfig, ha_client: object) -> HermesMCPServer:
         call_service_auto_classify=config.call_service_auto_classify_dangerous,
         wait_for_event_max_seconds=config.wait_for_event_max_seconds,
         wait_for_event_max_concurrent=config.wait_for_event_max_concurrent,
+        safety_backup_keep=config.safety_backup_keep,
     )
     return mcp
 

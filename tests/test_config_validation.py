@@ -216,5 +216,36 @@ class TestOpcionesNuevas(unittest.TestCase):
         self.assertIs(cfg.log_redact_network, False)
 
 
+class TestSafetyBackupKeep(unittest.TestCase):
+    """Spec 005, FR-031: retención de los safety backups (0–50, 3 por defecto)."""
+
+    def _cfg(self, keep: int) -> HermesConfig:
+        return HermesConfig(
+            auth_password=FUERTE,
+            public_hostname="hermes.tail-abc123.ts.net",
+            supervisor_token="supervisor-token",
+            safety_backup_keep=keep,
+        )
+
+    def test_por_defecto_es_3(self) -> None:
+        self.assertEqual(_cargar().safety_backup_keep, 3)
+        self.assertEqual(HermesConfig().safety_backup_keep, 3)
+
+    def test_se_lee_de_su_variable(self) -> None:
+        self.assertEqual(_cargar(HERMES_SAFETY_BACKUP_KEEP="0").safety_backup_keep, 0)
+        self.assertEqual(_cargar(HERMES_SAFETY_BACKUP_KEEP="12").safety_backup_keep, 12)
+
+    def test_validate_acepta_los_extremos(self) -> None:
+        for keep in (0, 50):
+            with self.subTest(keep=keep):
+                self._cfg(keep).validate()
+
+    def test_validate_rechaza_fuera_de_rango(self) -> None:
+        for keep in (-1, 51):
+            with self.subTest(keep=keep):
+                with self.assertRaises(ValueError):
+                    self._cfg(keep).validate()
+
+
 if __name__ == "__main__":
     unittest.main()

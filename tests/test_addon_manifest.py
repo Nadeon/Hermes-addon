@@ -219,6 +219,13 @@ class TestManifiesto(unittest.TestCase):
                 self.assertEqual(self.schema.get(clave), "bool?")
                 self.assertIs(self.options.get(clave), True)
 
+    def test_safety_backup_keep_declarada_con_su_rango(self) -> None:
+        """Spec 005, FR-031: 0–50 y 3 por defecto. Sin ella en el esquema, el
+        Supervisor rechaza el `options` que la incluye y el add-on no arranca;
+        sin el `?`, quien actualice sin tocarla no podría guardar."""
+        self.assertEqual(self.schema.get("safety_backup_keep"), "int(0,50)?")
+        self.assertEqual(self.options.get("safety_backup_keep"), 3)
+
     def test_arranca_despues_del_core_de_home_assistant(self) -> None:
         """`startup: services` arrancaba Hermes ANTES que el core de HA.
 

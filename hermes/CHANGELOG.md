@@ -1,6 +1,236 @@
 # Changelog
 
+## [1.1.0] — 2026-11-14
+
+Tools nuevas para organizar la casa y diagnosticar problemas, el Marketplace
+que sustituye a HACS en Home Assistant 2026.11, backups de HA, retención de los
+safety backups y un OAuth al día con lo que piden los clientes de Claude. Son
+216 tools.
+
+Trae también los arreglos de la 1.0.12, que no se publicó por separado: si
+vienes de la 1.0.11, lee también la sección siguiente.
+
+**Antes de actualizar:**
+
+- `response_max_bytes` pasa a 128 KiB por defecto y `wait_for_event_max_seconds`
+  admite como mucho 220 s. Si tenías valores guardados, mira *Changed — Límites
+  alineados con los de Claude*.
+- Si después de actualizar Claude no ve las tools nuevas, quita el conector y
+  vuelve a añadirlo: algunos clientes guardan la lista de la primera conexión.
+
+### Added — Plantas, etiquetas y categorías
+
+Hermes ya gestionaba entidades, dispositivos y áreas; faltaban las otras tres
+formas que tiene HA de organizar la casa. Doce tools nuevas:
+
+- Plantas: `ha_list_floors`, `ha_create_floor`, `ha_update_floor`,
+  `ha_delete_floor`.
+- Etiquetas: `ha_list_labels`, `ha_create_label`, `ha_update_label`,
+  `ha_delete_label`.
+- Categorías, por ámbito (automation, script, scene o helpers):
+  `ha_list_categories`, `ha_create_category`, `ha_update_category`,
+  `ha_delete_category`.
+
+Crear no pide confirmación (no se pierde nada). Editar y borrar sí. La vista
+previa de un borrado separa lo que HA limpia solo (áreas, dispositivos o
+entidades que pierden la planta, la etiqueta o la categoría) de lo que no
+edita: automatizaciones, scripts y escenas que la usan como objetivo y que
+dejarán de encontrar nada sin avisar. Si alguna lectura falla, no hay token.
+
+### Added — Diagnóstico: Repairs, trazas y relaciones
+
+Para responder «¿por qué no funciona?» sin abrir la interfaz:
+
+- `ha_list_repairs` y `ha_ignore_repair`: los avisos del panel Reparaciones,
+  ordenados por gravedad y con los datos internos redactados. Ignorar pide
+  confirmación, porque oculta un aviso que puede anunciar una rotura futura;
+  no arregla nada y se deshace con `ignore=false`.
+- `ha_list_traces` y `ha_get_trace`: las últimas ejecuciones de una
+  automatización o un script, con el `entity_id` de siempre. El detalle sale
+  resumido por defecto, con las variables redactadas, y nunca pasa de 64 KiB
+  ni de `response_max_bytes`.
+- `ha_search_related`: qué usa algo y qué lo usa, para saber qué se romperá
+  antes de renombrar o borrar.
+
+### Added — Centro de resolución del Supervisor
+
+`sv_get_resolution` devuelve, de solo lectura, por qué la instalación sale
+como no soportada o no saludable, y los issues, sugerencias y checks del
+Supervisor, con las referencias redactadas. `sv_dismiss_resolution_issue` y
+`sv_dismiss_resolution_suggestion` los descartan con `confirmation_token`; la
+vista previa dice qué se descarta y que puede volver si la causa sigue.
+
+Hermes **nunca aplica** una sugerencia del Supervisor: algunas borran backups
+o reinician el host. Si conviene aplicarla, hazlo desde la interfaz de Home
+Assistant. Un test vigila que ninguna tool lo haga.
+
+`hermes_guide("diagnostics")` (o `"repairs"`, `"traces"`, `"resolution"`)
+explica todo el diagnóstico, y `hermes_guide("registries")` incluye plantas,
+etiquetas y categorías.
+
+### Added — Backups de Home Assistant
+
+`ha_list_backups`, `ha_get_backup` y `ha_get_backup_config` (HA 2025.1 o
+posterior) leen la integración `backup` de HA, que ve todas las ubicaciones
+(local, red, nube) y no solo las del Supervisor. Las respuestas se construyen
+con una lista cerrada de campos: nunca salen la contraseña de cifrado de los
+backups automáticos (solo `password_set`), el identificador de la instalación
+ni campos nuevos que HA añada en el futuro. Los errores de cada ubicación se
+devuelven recortados y sin secretos, IPs ni hosts.
+
+### Added — Retención de los safety backups (`safety_backup_keep`)
+
+Con `safety_backup_enabled`, cada safety backup pesa varios GB y antes nadie
+los borraba. La opción nueva `safety_backup_keep` (0–50, **3** por defecto)
+hace que, tras cada safety backup automático correcto, Hermes conserve los más
+recientes y borre el resto, como mucho 5 por vez. `0` la desactiva.
+
+Solo borra backups que él mismo anotó al crearlos y cuyo identificador
+confirmó. Nunca uno ajeno, aunque se llame `hermes-safety-…`, ni uno protegido
+con contraseña, parcial, copiado a otra ubicación o con fecha ilegible, ni el
+que acaba de crear. Ante cualquier duda no borra nada, y un fallo de la poda
+nunca bloquea la escritura en `/config`.
+
+Los safety backups creados antes de 1.1.0 no están anotados y no se podan
+solos: bórralos con `sv_delete_backup` si ya no los necesitas.
+
+### Added — Marketplace (antes HACS), de solo lectura
+
+Desde Home Assistant 2026.11, HACS viene integrado en el core como el
+Marketplace, con otra API, y las tools `ha_hacs_*` de la 1.0.12 solo podían
+decir que no lo soportaban. Siete tools nuevas lo leen:
+
+- `ha_marketplace_info`: estado del Marketplace; `warning_accepted` es del
+  usuario de HA con el que se conecta Hermes.
+- `ha_marketplace_list_repositories`: repositorios, por defecto solo los
+  instalados, con `category`, `search` y `limit` (el catálogo completo tiene
+  miles).
+- `ha_marketplace_get_repository`: detalle de uno, con su entidad `update`.
+- `ha_marketplace_list_updates`: instalados con actualización pendiente y cómo
+  instalarla (`update.install`, con `confirmation_token`).
+- `ha_marketplace_list_releases`: versiones publicadas. Es la única que
+  consulta GitHub (a través de HA), y se anuncia de mundo abierto.
+- `ha_marketplace_list_critical` y `ha_marketplace_list_removed`:
+  repositorios marcados como críticos o retirados del catálogo.
+
+Detectan en cada llamada si hay Marketplace o HACS 2.x (HA ≤ 2026.10) y lo
+dicen en `api`, porque HA se actualiza sin reiniciar Hermes. Solo leen: Hermes
+no instala, no acepta el aviso de riesgos ni marca nada como visto. Los nombres
+y descripciones de los repositorios los escriben terceros: las respuestas lo
+avisan y los recortan. `hermes_guide("marketplace")` (o `"hacs"`) lo explica.
+
+### Added — Clientes con documento de metadatos (CIMD)
+
+Claude Code, y cualquier cliente que publique un *Client ID Metadata Document*,
+se identifica ahora con la URL de ese documento en lugar de registrarse por
+DCR. Hermes lo descarga, comprueba su forma y sus `redirect_uris`, y la
+pantalla de autorización muestra el host de esa URL, el nombre que declara el
+cliente y a dónde irá el código. Léela: es la defensa contra un enlace de
+autorización que no es tuyo. Los documentos válidos se guardan en memoria
+según su `Cache-Control` (entre 5 min y 24 h); si una recarga dice que el
+documento ya no es válido, se revocan los refresh tokens de ese cliente.
+
+DCR sigue funcionando igual: los clientes y tokens que ya existían siguen
+valiendo. La opción nueva `oauth_cimd_enabled` (por defecto `true`) desactiva
+CIMD si un cliente falla con él.
+
+### Added — OAuth: `iss` en las redirecciones, scope y audiencia de los tokens
+
+- Toda redirección de vuelta al cliente, de éxito o de error, lleva `iss` con
+  el mismo valor que `issuer` en los metadatos (RFC 9207), que anuncian
+  `authorization_response_iss_parameter_supported`. El cliente puede
+  comprobar así que la respuesta viene de Hermes y no de otro servidor.
+- Los metadatos del recurso protegido anuncian `scopes_supported: ["mcp"]` y
+  el `WWW-Authenticate` de los 401 lleva `scope="mcp"`.
+- Los tokens emitidos desde esta versión quedan ligados al recurso `/mcp` de
+  Hermes. Los de versiones anteriores se aceptan hasta que caduquen y su
+  renovación ya sale ligada: no hace falta volver a autorizar.
+
+### Added — Datos del servidor MCP
+
+El servidor anuncia su versión en `serverInfo`, cada tool lleva un `title`
+legible y las respuestas con `error` salen marcadas con `isError: true`, con el
+mismo contenido que antes. Los nombres, parámetros y anotaciones de las tools
+existentes no cambian.
+
+### Changed — Límites alineados con los de Claude
+
+`response_max_bytes` pasa de 1 MiB a **128 KiB** por defecto, con un máximo
+efectivo de **512 KiB**. `wait_for_event_max_seconds` admite como mucho
+**220 s** (el defecto sigue en 90).
+
+Qué hacer si tenías valores guardados: nada, salvo que necesites respuestas
+más grandes. La interfaz guarda el valor por defecto aunque nadie lo toque, así
+que un `response_max_bytes` de `1048576` se trata como no personalizado y pasa
+a `131072`. Un valor por encima de `524288`, o un `wait_for_event_max_seconds`
+por encima de `220`, se recorta al máximo. El add-on arranca igual y lo anota
+en el log (`config_legacy_default_replaced` o `config_value_clamped`, con el
+valor guardado y el aplicado). Si las respuestas te llegan truncadas, sube
+`response_max_bytes` hasta `524288`.
+
+Claude Code corta una llamada si no recibe ningún byte en 60 s. Hermes manda
+un *ping* cada 15 s, así que una espera larga no se corta; si el proxy de
+delante almacena la respuesta, DOCS.md explica cómo ampliar el plazo en Claude
+Code.
+
+### Changed — Las `ha_hacs_*` devuelven la forma del Marketplace
+
+Son alias de las `ha_marketplace_*`: misma respuesta, con `api` y sin
+`_disclaimer`, más `_deprecated`. Desaparece el error
+`hacs_moved_to_marketplace`. `ha_hacs_list_repositories` acepta
+`installed_only` (por defecto `true`: antes devolvía el catálogo entero),
+`search` y `limit`. Ya no se anuncian de mundo abierto: leen lo que HA tiene en
+memoria, y `ha_hacs_get_repository` ya no pide `repository/info`, que salía a
+GitHub y quitaba la marca de «nuevo».
+
+### Changed — `sv_create_safety_backup` entra en la retención
+
+Los backups que crea quedan anotados como safety backups de Hermes, así que
+`safety_backup_keep` los cuenta y los poda en el siguiente safety backup
+automático correcto. La tool sigue sin borrar nada por sí misma.
+
+### Changed — Detalles menores
+
+- El ejemplo de `url` de `ha_create_lovelace_resource` pasa a
+  `/local/community/…`, que es donde instala el Marketplace; `/hacsfiles/`
+  sigue funcionando.
+- El protocolo MCP toma las versiones admitidas de las listas nuevas del SDK
+  en lugar del alias deprecado. El conjunto admitido no cambia.
+
+### Deprecated — `ha_hacs_info`, `ha_hacs_list_repositories`, `ha_hacs_get_repository` y `ha_hacs_list_updates`
+
+Se retiran en 1.3.0. Usa la `ha_marketplace_*` del mismo nombre; la
+descripción de cada alias y su respuesta (`_deprecated`) lo dicen.
+
+### Security — El log ya no expone tu hostname ni tus IPs
+
+Hasta la 1.0.12, el hostname de Tailscale, que identifica la tailnet, y las IPs
+de los clientes salían en claro en un log que se suele compartir al pedir
+ayuda. La opción nueva `log_redact_network` (por defecto `true`) sustituye el
+`public_hostname`, cualquier nombre `*.ts.net` y las IPs que no sean de
+loopback por marcadores. Las IPs pasan a un seudónimo con su clase (`tailnet`,
+`private`, `public`…) que cambia en cada arranque, de modo que las líneas de
+una misma ejecución se pueden correlacionar sin revelar la dirección. Cubre
+también los mensajes del SDK de MCP, uvicorn y aiohttp, y las líneas que
+devuelve `sv_get_addon_logs` sobre el propio Hermes, incluidas las escritas
+antes de actualizar. Con la opción desactivada, el arranque lo avisa con
+`log_network_redaction_disabled`; los secretos se redactan siempre.
+
+### Security — Descargas de CIMD acotadas contra SSRF
+
+Con CIMD, quien llama al endpoint público `/oauth/authorize` elige una URL que
+Hermes descarga. Para que eso no convierta a Hermes en un proxy hacia tu red:
+la forma de la URL se comprueba antes de descargar nada; Hermes resuelve el
+host y rechaza la petición si **alguna** dirección es de uso especial
+(loopback, privadas, link-local, CGNAT y por tanto la tailnet, ULA,
+multicast…), y conecta a las direcciones ya validadas sin volver a resolver.
+Sin redirecciones ni proxies del entorno, 5 s en total, 5 120 bytes como
+mucho, 4 descargas a la vez y 30 por minuto. Cada rechazo queda en el log como
+`oauth_cimd_rejected` con el motivo y el host, nunca con el documento.
+
 ## [1.0.12] — 2026-11-14
+
+No se publicó por separado: estos cambios llegan a los usuarios con la 1.1.0.
 
 Solo arreglos, tras revisar Hermes contra Home Assistant 2026.11. Varios
 venían de cambios de HA (2026.2, 2026.4, 2026.9, 2026.11) que Hermes no había

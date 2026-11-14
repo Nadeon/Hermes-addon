@@ -4,7 +4,7 @@
 slug: hermes
 name: "Hermes – MCP Home Assistant"
 description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
-version: "1.0.12"
+version: "1.1.0"
 url: "https://github.com/Nadeon/Hermes-addon"
 
 # Versión mínima de Home Assistant (igual que HA_CORE_MIN_SUPPORTED en
@@ -123,6 +123,8 @@ schema:
   mcp_preauth_max_requests_per_minute_per_ip: "int(5,200)?"
   safety_backup_enabled: "bool?"
   safety_backup_window_minutes: "int(5,1440)?"
+  # Safety backups automáticos que conserva la retención; 0 la desactiva.
+  safety_backup_keep: "int(0,50)?"
   file_backup_max_per_path: "int(1,100)?"
   file_backup_max_total_mb: "int(10,2000)?"
   config_write_min_interval_seconds: "int(1,60)?"
@@ -171,6 +173,7 @@ options:
   mcp_preauth_max_requests_per_minute_per_ip: 20
   safety_backup_enabled: false
   safety_backup_window_minutes: 30
+  safety_backup_keep: 3
   file_backup_max_per_path: 20
   file_backup_max_total_mb: 200
   config_write_min_interval_seconds: 5

@@ -20,7 +20,7 @@ from __future__ import annotations
 # ── Resumen entregado al conectar (initialize) ────────────────────────────────
 
 INSTRUCTIONS = """\
-Controlas Home Assistant a través de Hermes: ~210 tools con prefijo `ha_`
+Controlas Home Assistant a través de Hermes: ~216 tools con prefijo `ha_`
 (Home Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: add-ons, host,
 backups). Los nombres son predecibles —`ha_list_*`, `ha_get_*`, `ha_update_*`,
 `sv_restart_*`, `fs_read_*`…— así que normalmente sabrás cuál usar leyendo la
@@ -87,7 +87,7 @@ para el detalle de un área. Temas disponibles:
 - `events`         — disparar y esperar eventos
 - `data`           — history, logbook, templates, estadísticas
 - `registries`     — entidades, dispositivos, áreas, plantas, etiquetas, categorías
-- `diagnostics`    — Repairs, trazas de automatizaciones y relaciones
+- `diagnostics`    — Repairs, trazas, relaciones y resolución del Supervisor
 - `config_entries` — integraciones y sus flujos de configuración
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
@@ -243,7 +243,7 @@ El registro es la "fuente de la verdad" de nombres, áreas y visibilidad. Para
 reorganizar la casa (asignar entidades/dispositivos a áreas) trabaja aquí.
 """,
     "diagnostics": """\
-# Diagnóstico: Repairs, trazas y relaciones
+# Diagnóstico: Repairs, trazas, relaciones y resolución del Supervisor
 
 - Repairs: `ha_list_repairs(domain=…, severity=…)` lista los avisos del panel
   Reparaciones (ordenados por gravedad; los ignorados solo con
@@ -256,6 +256,12 @@ reorganizar la casa (asignar entidades/dispositivos a áreas) trabaja aquí.
 - Relaciones: `ha_search_related(item_type, item_id)` dice qué usa algo y qué
   lo usa (automatizaciones, escenas, dispositivos…). Úsala antes de renombrar o
   borrar para saber qué se romperá.
+- Resolución del Supervisor: `sv_get_resolution` lista por qué la instalación
+  sale como no soportada o no saludable, más sus issues, sugerencias y checks.
+  `sv_dismiss_resolution_issue(uuid)` y `sv_dismiss_resolution_suggestion(uuid)`
+  (token) los descartan; si la causa sigue, vuelven. Hermes NUNCA aplica una
+  sugerencia del Supervisor (algunas borran backups o reinician el host): si
+  conviene aplicarla, que lo haga el usuario desde la interfaz.
 
 Receta «¿por qué no se ejecutó mi automatización?»: `ha_list_traces` con su
 `entity_id`; mira `state`, `error` y `last_step` de la última ejecución; si
@@ -331,11 +337,21 @@ con `sv_get_job_status(job_id)` hasta `done`.
 - Borrar/restaurar (token): `sv_delete_backup`, `sv_restore_backup_full`
   (¡sobrescribe TODO!), `sv_restore_backup_partial`.
 - Jobs: `sv_get_job_status(job_id)`, `sv_list_pending_jobs`.
+- Backups de Home Assistant (HA 2025.1+, solo lectura): `ha_list_backups`,
+  `ha_get_backup(backup_id)` y `ha_get_backup_config`. Ven todas las
+  ubicaciones de la integración `backup` (local, red, nube), no solo las del
+  Supervisor; la contraseña de cifrado nunca sale (solo `password_set`).
 
 Nota: el backup FULL automático antes de escribir en /config está DESACTIVADO
 por defecto (`safety_backup_enabled`), porque genera varios GB. Las escrituras
 siguen teniendo backup por-fichero. Si quieres un backup completo antes de algo
 gordo, créalo tú con `sv_create_safety_backup` (ver `workflows`).
+
+Retención (`safety_backup_keep`, 3 por defecto, 0 la apaga): tras cada safety
+backup automático correcto, Hermes conserva los N más recientes y borra el
+resto. Solo toca los que él mismo anotó al crearlos; nunca uno del usuario
+aunque se llame `hermes-safety-…`, ni protegidos, parciales o copiados a otra
+ubicación. Los anteriores a 1.1.0 no se podan: bórralos con `sv_delete_backup`.
 """,
     "lovelace": """\
 # Lovelace (dashboards y recursos)
@@ -472,6 +488,7 @@ _ALIASES: dict[str, str] = {
     "traces": "diagnostics",
     "trace": "diagnostics",
     "related": "diagnostics",
+    "resolution": "diagnostics",
     "integrations": "config_entries",
     "config_entry": "config_entries",
     "flows": "config_entries",

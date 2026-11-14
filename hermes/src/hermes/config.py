@@ -42,7 +42,7 @@ HA_CORE_MIN_SUPPORTED = "2024.10.0"
 # decidir: o se comprueba contra la HA actual y se sube, o se deja a
 # sabiendas y solo se actualiza la pareja.
 HA_CORE_LAST_TESTED = "2026.11.1"
-HA_CORE_LAST_TESTED_IN_HERMES = "1.0.12"
+HA_CORE_LAST_TESTED_IN_HERMES = "1.1.0"
 
 MCP_PORT = 8765
 HEALTH_PORT = 8766
@@ -208,6 +208,10 @@ class HermesConfig:
     safety_backup_window_minutes: int = 30
     file_backup_max_per_path: int = 20
     file_backup_max_total_mb: int = 200
+    # Cuántos safety backups automáticos conserva la retención (0 la apaga).
+    # Solo actúa con safety_backup_enabled: cada uno pesa varios GB y, sin
+    # poda, llenaban el disco de quien activaba la opción.
+    safety_backup_keep: int = 3
 
     # ── Escritura en /config ──────────────────────────────────
     config_write_min_interval_seconds: int = 5
@@ -311,6 +315,14 @@ class HermesConfig:
                     f"(ej. 172.30.32.2) o un rango en notación CIDR "
                     f"(ej. 172.30.32.0/23, la red puente de HAOS)."
                 )
+        # El esquema del add-on ya la limita a 0–50, pero la variable se
+        # puede poner a mano: un negativo dejaría la retención sin sentido y
+        # uno enorme equivale a no podar nunca sin decirlo.
+        if not 0 <= self.safety_backup_keep <= 50:
+            raise ValueError(
+                f"safety_backup_keep fuera de rango: {self.safety_backup_keep}. "
+                "Debe estar entre 0 (sin retención) y 50."
+            )
         if not self.supervisor_token:
             raise ValueError(
                 "SUPERVISOR_TOKEN no está disponible en el entorno. "
@@ -378,6 +390,7 @@ def load_config() -> HermesConfig:
         safety_backup_window_minutes=_env_int("HERMES_SAFETY_BACKUP_WINDOW", 30),
         file_backup_max_per_path=_env_int("HERMES_FILE_BACKUP_MAX_PER_PATH", 20),
         file_backup_max_total_mb=_env_int("HERMES_FILE_BACKUP_MAX_TOTAL_MB", 200),
+        safety_backup_keep=_env_int("HERMES_SAFETY_BACKUP_KEEP", 3),
         config_write_min_interval_seconds=_env_int(
             "HERMES_CONFIG_WRITE_MIN_INTERVAL", 5
         ),
