@@ -183,6 +183,25 @@ rechaza:
  "detail": "This is a reconfigure flow opened by Hermes: every step needs a preview and a confirmation token."}
 ```
 
+### Reautenticación por `ha_continue_config_entry_flow` (tramo C, decisión del supervisor)
+
+Antes de enviar, `config_entries/flow/progress`; si el flujo sale con
+`context.source == "reauth"`:
+
+```json
+{"confirmation_token": "…", "expires_in_seconds": 60, "preview": {
+  "flow_id": "<flow_id>", "source": "reauth", "domain": "banco_flujos",
+  "entry_id": "<entry_id>", "step_id": "reauth_confirm",
+  "user_input": {"clave": "***REDACTED***"}, "secret_fields": ["clave"],
+  "unknown_fields": [],
+  "effect": "Submits this step of the re-authentication flow of this config entry. …"}}
+```
+
+Token atado a `flow_id`, `step_id` y `user_input` (sin omitibles). Con el
+token, un `POST`; respuesta tapada; `abort` `reauth_successful` →
+`status: "ok"`; `form` siguiente → `continue_with`. Si el flujo no sale en la
+lista o la lectura falla, como en la 1.1.2.
+
 ### `ha_continue_reconfigure_flow`
 
 Entrada: `flow_id`, `user_input` (objeto), `confirmation_token`. `flow_id` que

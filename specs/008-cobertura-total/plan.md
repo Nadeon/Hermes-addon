@@ -219,18 +219,18 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-033 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta; deriva |
 | CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core: `tests/banco/test_banco_humo.py`, `tests/banco/test_banco_helpers_*.py`, `tests/test_banco_cobertura.py` (010); `tests/banco/test_banco_escrituras_*.py`, `tests/test_banco_cobertura_escrituras.py` (028); matriz del Supervisor: `tests/test_matriz_pruebas.py` (014) |
 | CAP-035 | media | 014 | FR-016 | M | casillas de pruebas manuales con su entorno: `tests/test_matriz_pruebas.py` (`test_casillas_manuales`) |
-| CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
-| CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
+| CAP-036 | media | 016 | FR-056 | X | `ha_list_repairs` y `ha_ignore_repair` con textos (`tools/_translations.py`): `tests/test_translations.py`, `TestTextosDeLosAvisos` (`tests/test_tools_repairs.py`); banco: `TestTextosDeRepairs` (`tests/banco/test_banco_repairs.py`); `frontend/get_translations` sigue `deny` con comentario |
+| CAP-037 | baja | 016 | FR-057 | M | sección «Helpers por config entry» del tema `helpers`: `TestTemaIntegrationFlows.test_helpers_por_config_entry` (`tests/test_tools_guide.py`) |
 | CAP-038 | baja | 017 | FR-061 | D | espera de trigger (banco) |
 | CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | validación (banco) |
 | CAP-041 | alta | 012 | FR-037 | D | logs y niveles (banco) |
 | CAP-042 | alta | 012 | FR-038 | D | diagnósticos (banco) |
 | CAP-043 | alta | 029 | FR-040 | D | salud y estado (banco) |
-| CAP-044 | alta | 016 | FR-053 | D | descubiertas y preferencias (banco) |
-| CAP-045 | alta | 016 | FR-054 | D | subentries y reconfigure (banco) |
+| CAP-044 | alta | 016 | FR-053 | D | `ha_list_discovered_integrations`, `ha_ignore_discovery`, `ha_list_config_flow_domains`, `ha_update_config_entry`; tabla `config_entries/flow/progress`, `…/ignore_flow`, `…/update` → `dedicated`: `tests/test_tools_integration_setup.py`; reautenticación con token en `ha_continue_config_entry_flow`: `tests/test_tools_config_entry_flows_reauth.py`; banco: `TestDescubiertos`, `TestDominiosConfigurables`, `TestPreferencias`, `TestReauth` (`tests/banco/test_banco_integraciones.py`) |
+| CAP-045 | alta | 016 | FR-054 | D | `ha_list_config_subentries`, `ha_start_subentry_flow`, `ha_continue_subentry_flow`, `ha_abort_subentry_flow`, `ha_update_subentry`, `ha_delete_subentry`, `ha_start_reconfigure_flow`, `ha_continue_reconfigure_flow`; tabla `config_entries/subentries/*` → `dedicated`: `tests/test_tools_config_subentries.py`; banco: `TestSubentries`, `TestReconfigure` (`tests/banco/test_banco_integraciones.py`) |
 | CAP-046 | alta | 017 | FR-058 | D | blueprints (banco) |
 | CAP-047 | alta | 012 | FR-039 | D | notificaciones (banco) |
-| CAP-048 | media-alta | 016 | FR-055 | D | flujos de reparación (unitario; banco si hay issue reproducible) |
+| CAP-048 | media-alta | 016 | FR-055 | D | `ha_get_repair`, `ha_start_repair_fix`, `ha_continue_repair_fix`, `ha_abort_repair_fix`; tabla `repairs/get_issue_data` → `dedicated`: `tests/test_tools_repair_flows.py`; banco: `TestArreglarUnAviso`, `TestAbortarUnArreglo` (`tests/banco/test_banco_repairs.py`) |
 | CAP-049 | media-alta | 029 | FR-041 | D | estadísticas de lectura (banco) |
 | CAP-050 | media-alta | 020 | FR-069 | D | mantenimiento de estadísticas (banco) |
 | CAP-051 | media-alta | 017 | FR-059 | D | automatizaciones de dispositivo (banco) |

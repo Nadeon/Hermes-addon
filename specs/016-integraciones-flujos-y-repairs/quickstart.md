@@ -50,10 +50,12 @@ carga con `banco_flujos:` en `configuration.yaml`. Qué comprueba:
   `title` y `description` traducidos; `ha_get_repair` con sus datos;
   `ha_start_repair_fix` → `ha_continue_repair_fix` (vista previa, el lector ve
   que el aviso sigue; confirmación, el lector ya no lo ve); otro flujo abierto
-  y abortado (el aviso sigue).
+  y abortado (el aviso sigue); reautenticación de una entrada (servicio
+  `banco_flujos.pedir_reauth`) por `ha_continue_config_entry_flow`, con la
+  vista previa sin cambios y el token aplicándola (decisión del supervisor).
 
 `tests/test_banco_cobertura_escrituras.py` (suite normal) falla si alguna de
-las once tools que modifican no está en `tests/banco/cobertura_016.py`.
+las doce tools nuevas que modifican no está en `tests/banco/cobertura_016.py`.
 
 ## Comprobaciones manuales (después de publicar; a la matriz de la 014)
 
@@ -64,3 +66,5 @@ las once tools que modifican no está en `tests/banco/cobertura_016.py`.
 - Un flujo de reparación real de varias integraciones, incluido uno del
   Supervisor (que puede terminar al abrirse) y uno con varios pasos.
 - Textos traducidos en un idioma distinto del inglés.
+- Una reautenticación real (por ejemplo, tras cambiar la contraseña de un
+  servicio) por `ha_continue_config_entry_flow`, con token.

@@ -404,7 +404,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
-| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | en curso (tramos A y B): familia `integration_flows` con descubiertos, dominios configurables, título y preferencias de una entrada, subentries y reconfigure (con token en cada paso; la tool general de flujos lo rechaza), probados en el banco de Core con la integración de prueba `banco_flujos`; guía de helpers por config entry. Falta Repairs (tramo C) |
+| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | hecha: familias `integration_flows` (descubiertos, dominios configurables, título y preferencias de una entrada, subentries y reconfigure con token en cada paso; la tool general de flujos rechaza los reconfigure y pide token en los `reauth`) y `repair_flows` (aviso con sus datos internos y flujo de reparación con token en cada paso); textos traducidos en `ha_list_repairs`; guía de helpers por config entry. Todo lo que modifica, probado en el banco de Core con la integración de prueba `banco_flujos`. Pendiente manual tras publicar: un descubrimiento real, subentries de una integración real, flujos de reparación reales (uno del Supervisor y uno de varios pasos), una reautenticación real y textos en un idioma distinto del inglés |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | pendiente |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
@@ -585,6 +585,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `fs_set_secret` | VM | pendiente | |
 | `fs_write_file` | VM | pendiente | |
 | `ha_abort_config_entry_flow` | banco de Core | ok | |
+| `ha_abort_repair_fix` | banco de Core | ok | spec 016 |
 | `ha_abort_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_activate_scene` | banco de Core | ok | |
 | `ha_call_service` | banco de Core | ok | |
@@ -596,6 +597,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
 | `ha_continue_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_continue_repair_fix` | banco de Core | ok | spec 016 |
 | `ha_continue_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_create_area` | banco de Core | ok | |
 | `ha_create_category` | banco de Core | ok | |
@@ -679,6 +681,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
 | `ha_start_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_start_repair_fix` | banco de Core | ok | spec 016 |
 | `ha_start_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_start_timer` | banco de Core | ok | |
 | `ha_toggle_input_boolean` | banco de Core | ok | |
@@ -752,10 +755,7 @@ programa:
   completa (022).
 - **Escritura en el Marketplace** (026), con confirmación, backup previo y
   vista previa completa.
-- **Flujos de reparación de Repairs y textos traducidos** (016).
-- **Subentries y reconfigure** (016, tramo B). Los **helpers por config
-  entry** ya los explica la guía (`hermes_guide("helpers")`, 016 tramo A).
-  **Triggers y condiciones por propósito; resolución de targets** (017).
+- **Triggers y condiciones por propósito; resolución de targets** (017).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas

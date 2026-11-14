@@ -15,9 +15,6 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 #### Integraciones: flujos y Repairs (spec 016)
 
-_En curso: tramos A y B. El tramo C (flujos de reparación y textos de los
-avisos) completa esta sección._
-
 - **Familia nueva `integration_flows`** (desactivable con
   `tool_families_disabled`), con cuatro tools:
   - `ha_list_discovered_integrations` — lo que Home Assistant ha descubierto y
@@ -83,6 +80,43 @@ avisos) completa esta sección._
 - **Banco de Core**: las siete tools nuevas que modifican se ejecutan contra
   Home Assistant real; el reconfigure, con un campo de contraseña de nombre
   inocente, y con el rechazo de `ha_continue_config_entry_flow`.
+- **Reautenticación con confirmación** (tramo C): los flujos `reauth` (los
+  que abre Home Assistant cuando las credenciales de una integración dejan de
+  valer) se siguen con `ha_continue_config_entry_flow`, pero ahora cada paso
+  pide confirmación, con una vista previa de los campos y los secretos
+  tapados, porque cambian credenciales. Hermes lo sabe porque Home Assistant
+  los lista entre los flujos en curso; si un flujo no sale ahí, se envía como
+  antes. Por eso esa tool gana el argumento opcional `confirmation_token` y
+  se anuncia destructiva: son los dos únicos cambios de una tool de la 1.1.2
+  en esta sección. `SECURITY.md` documenta los límites conocidos (reconfigure
+  tras reiniciar Hermes y `reauth` que no sale en la lista).
+- **Familia nueva `repair_flows`** (tramo C, desactivable), con cuatro tools:
+  - `ha_get_repair` — un aviso de Repairs con su texto entero y sus datos
+    internos, redactados (si no caben, sus claves y su tamaño).
+  - `ha_start_repair_fix` — abre el flujo de reparación de un aviso
+    reparable. Algunas integraciones lo terminan al abrirlo:
+    `finished_on_start` lo dice.
+  - `ha_continue_repair_fix` — envía cada paso con confirmación: Home
+    Assistant no dice antes qué paso aplica el arreglo. La vista previa tiene
+    el aviso, el texto del paso y los campos con los secretos tapados; al
+    terminar, la respuesta dice si el aviso sigue.
+  - `ha_abort_repair_fix` — cierra el flujo sin aplicar nada.
+- **Textos de los avisos**: `ha_list_repairs` trae `title` y `description` de
+  cada aviso como los enseña la interfaz, en el idioma de Home Assistant y con
+  los marcadores sustituidos (redactados); la vista previa de
+  `ha_ignore_repair`, el título. Sin argumentos nuevos. Si los textos no se
+  pueden leer, la lista sale igual con `translations_unavailable: true`.
+- **Tabla de comandos**: `repairs/get_issue_data` pasa a `dedicated` hacia
+  `ha_get_repair`. En total, la 016 pasa siete entradas a `dedicated`;
+  `frontend/get_translations` sigue `deny` para las genéricas (Hermes lo usa
+  por dentro).
+- **Guía**: tema nuevo `repair_flows` (alias `repair_fix` y `fix`) con la
+  receta «arreglar un aviso de Repairs»; `diagnostics` remite a él;
+  `integration_flows` explica la reautenticación.
+- **Banco de Core**: las tres de reparación que modifican, los textos de
+  `ha_list_repairs`, `ha_get_repair` y la reautenticación con confirmación se
+  ejecutan contra Home Assistant real. En total, la 016 añade 16 tools en dos
+  familias.
 
 ### Automatización
 

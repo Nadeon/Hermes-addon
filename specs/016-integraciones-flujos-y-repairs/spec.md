@@ -434,6 +434,23 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   tras reiniciar Hermes el registro está vacío, y un reconfigure abierto antes
   (o desde la interfaz de HA) se podría continuar con la tool general si se
   conoce su `flow_id` (HA no lista los reconfigure en ningún comando).
+  Aceptado por el supervisor (tramo C) y documentado en la guía y en
+  `SECURITY.md` como límite conocido.
+- **FR-010d** (decisión del supervisor, tramo C): los flujos `reauth` también
+  piden token en cada paso (principio IV), porque cambian las credenciales de
+  una entrada y HA la recarga. HA sí los lista en
+  `config_entries/flow/progress` (al contrario que los `reconfigure`), así que
+  `ha_continue_config_entry_flow`, antes de enviar un paso, mira ahí el
+  `source` del flujo: si es `reauth`, lee el paso (`GET`), devuelve una vista
+  previa (entrada, dominio, `step_id`, campos con los secretos tapados como en
+  FR-010a, campos desconocidos, efecto) y un token atado a `flow_id`, al
+  `step_id` y a `user_input` entero; con el token, un solo `POST` y la
+  respuesta con los secretos tapados. Si el flujo no aparece o no se puede
+  saber su `source`, sigue como en la 1.1.2 (riesgo aceptado). La tool gana el
+  argumento OPCIONAL `confirmation_token` (cambio aditivo del esquema de la
+  1.1.2) y pasa a anunciarse destructiva (invariante «pide token ⇔
+  destructiva»): son los dos únicos cambios de una tool de la 1.1.2 en esta
+  sub-feature, justificados en `tests/test_tools_registration.py`.
 
 #### Flujos de reparación (FR-055 de la 008, CAP-048)
 
@@ -554,7 +571,7 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   `ha_ignore_repair` solo ganan campos); los flujos de configuración y de
   opciones siguen como en la 1.1.2 (salvo que `ha_continue_config_entry_flow`
   rechaza los reconfigure que abrió Hermes, FR-010b: un `flow_id` que antes
-  no podía existir); la tabla solo cambia en las siete entradas
+  no podía existir, y pide token en los `reauth`, FR-010d); la tabla solo cambia en las siete entradas
   de FR-018 y el comentario de `frontend/get_translations` (FR-020 de la 008).
 - **FR-025**: Documentación en el mismo cambio: sección propia en
   `## [1.2.0]` de `hermes/CHANGELOG.md`; estado de la 016 en la tabla del

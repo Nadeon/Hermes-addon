@@ -33,6 +33,7 @@ Tools existentes que cambian (sin tocar su esquema de entrada):
 | `ha_list_configured_domains` | solo la docstring (principio V: ya existe la lista de dominios configurables) |
 | `ha_continue_config_entry_flow` | rechaza (`use_dedicated_tool` hacia `ha_continue_reconfigure_flow`, sin enviar nada) los `flow_id` de reconfigure que abrió Hermes; con los demás, igual que en la 1.1.2 |
 | `ha_abort_config_entry_flow` | al abortar un reconfigure registrado, lo saca del registro; la respuesta no cambia |
+| `ha_continue_config_entry_flow` (tramo C, decisión del supervisor) | gana `confirmation_token: str \| None = None`; si el flujo sale en `config_entries/flow/progress` con `source: "reauth"`, cada paso va en dos pasos (vista previa con los secretos tapados y token atado a `flow_id`, `step_id` y `user_input`); si no sale o no se puede leer, como en la 1.1.2. Pasa a destructiva (`-DI-`) |
 
 Todas las nuevas con `@ready` (`requires_ready`) y `response_max_bytes` donde
 listan o devuelven datos de HA. Docstrings en inglés que dicen lo que hacen y
@@ -53,6 +54,7 @@ envío de un paso de reparación pide token porque puede aplicar el arreglo).
 | `ha_start_subentry_flow`, `ha_start_reconfigure_flow`, `ha_start_repair_fix` | no | no | no | no | `_NON_IDEMPOTENT_EXACT`, con comentario |
 | `ha_continue_subentry_flow` | no | no | no | no | `_NON_IDEMPOTENT_EXACT` |
 | `ha_continue_repair_fix` | no | sí | no | no | `_DESTRUCTIVE_EXACT` y `_NON_IDEMPOTENT_EXACT` |
+| `ha_continue_config_entry_flow` (1.1.2) | no | sí | sí | no | `_DESTRUCTIVE_EXACT` (tramo C: pide token en los `reauth`); cambio a propósito declarado en `_HINTS_CAMBIADOS_A_PROPOSITO` |
 | `ha_abort_subentry_flow`, `ha_abort_repair_fix` | no | no | sí | no | por defecto (como `ha_abort_config_entry_flow`) |
 | `ha_update_subentry` | no | no | sí | no | por defecto |
 | `ha_delete_subentry` | no | sí | sí | no | prefijo `ha_delete_` |
@@ -86,6 +88,8 @@ ni hace la llamada que modifica.
   (`ha_start_reconfigure_flow` → `ha_continue_reconfigure_flow` con vista
   previa y token en cada paso; la tool general lo rechaza); flujos OAuth
   abortados e informados.
+- `integration_flows` (tramo C): la reautenticación con token en cada paso y
+  el límite conocido del registro de reconfigures tras reiniciar Hermes.
 - Tema `repair_flows` (alias `repair_fix`, `fix`): `ha_get_repair` →
   `ha_start_repair_fix` → `ha_continue_repair_fix` (vista previa y token en
   cada paso) → `ha_abort_repair_fix`; qué hace HA al terminar; el caso de los
