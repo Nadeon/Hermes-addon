@@ -2,9 +2,9 @@
 
 Contiene tres piezas independientes:
 
-- Canonicalización determinista de un par (tool, args) en un `action_hash`,
-  para que un confirmation token solo valga para la acción exacta que se
-  previsualizó.
+- Canonicalización determinista de un par (tool, args) en un `action_hash`
+  (HMAC-SHA256 con una clave del proceso), para que un confirmation token
+  solo valga para la acción exacta que se previsualizó.
 - Ciclo de vida de los confirmation tokens en /data (crear, validar, completar,
   limpiar los expirados).
 - Redacción de secretos, tanto en texto libre (`redact_secrets`, pensado para
@@ -19,10 +19,12 @@ que es un módulo neutral para que lo importen tanto `hermes.ha` como
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 import os
 import re
+import secrets
 import time
 import unicodedata
 import uuid
@@ -87,6 +89,30 @@ def _toca_barrer() -> bool:
     return transcurrido < 0 or transcurrido >= _BARRIDO_MIN_INTERVALO_S
 
 
+# ── Clave del action_hash (spec 019, decisión del programa) ───
+# El action_hash es lo único que se escribe en disco de los argumentos de una
+# acción, y algunos argumentos son secretos: la contraseña de un montaje CIFS,
+# el valor de `fs_set_secret`, la de un backup al restaurarlo. Con un SHA-256
+# sin clave, quien leyera el directorio de tokens (está en /data, que entra
+# en los backups del add-on) podía probar contraseñas débiles sin conexión
+# hasta dar con el hash. Con HMAC-SHA256 y una clave aleatoria que solo vive
+# en la memoria de este proceso, el hash no sirve para eso sin la clave.
+#
+# La clave nunca se escribe en disco ni en el log. Cambia en cada arranque, y
+# no pasa nada: los tokens caducan a los 60 s y uno de antes del arranque ya
+# se trataba como perdido («lost across restart», ver `_ARRANQUE`). Nada más
+# depende del valor del hash entre arranques: la idempotencia y
+# `cached_result` van por el fichero del token, y los documentos guardados
+# (`stored_args`) también se comprueban con el hash del proceso que los
+# guardó.
+_CLAVE_HASH: bytes = secrets.token_bytes(32)
+
+# Momento del arranque de este proceso. Un token creado antes no puede casar
+# (la clave del hash es otra): se responde que se perdió con el reinicio, que
+# es lo que pasó, y no que «no casa con la acción».
+_ARRANQUE: float = time.time()
+
+
 # ── Canonicalización robusta para action_hash ─────────────────
 
 def canonicalize_for_hash(value: Any) -> str:
@@ -101,7 +127,16 @@ def canonicalize_for_hash(value: Any) -> str:
     - Serialización: json.dumps(sort_keys=True, separators=(",", ":"),
                                 ensure_ascii=False, allow_nan=False)
     - SHA-256 hex del resultado UTF-8
+
+    Sin clave: sirve para comparar dos valores en el mismo momento (una vista
+    de un dashboard antes y después). Lo que se escribe en disco junto a un
+    token usa `compute_action_hash`, con clave.
     """
+    return hashlib.sha256(_serializar_canonico(value)).hexdigest()
+
+
+def _serializar_canonico(value: Any) -> bytes:
+    """Bytes canónicos de `value` (las reglas de `canonicalize_for_hash`)."""
     normalized = _normalize_value(value)
     serialized = json.dumps(
         normalized,
@@ -110,7 +145,7 @@ def canonicalize_for_hash(value: Any) -> str:
         ensure_ascii=False,
         allow_nan=False,
     )
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return serialized.encode("utf-8")
 
 
 def _escape_key(key: str) -> str:
@@ -178,9 +213,12 @@ def _normalize_value(value: Any) -> Any:
 
 
 def compute_action_hash(tool_name: str, args: dict[str, Any]) -> str:
-    """Calcula el action_hash SHA-256 para un par (tool_name, args)."""
+    """Calcula el action_hash (HMAC-SHA256 con la clave del proceso) para un
+    par (tool_name, args), sobre la misma forma canónica de siempre."""
     payload = {"tool": tool_name, "args": args}
-    return canonicalize_for_hash(payload)
+    return hmac.new(
+        _CLAVE_HASH, _serializar_canonico(payload), hashlib.sha256
+    ).hexdigest()
 
 
 # ── Gestión de confirmation tokens ────────────────────────────
@@ -464,7 +502,15 @@ async def resolve_confirmation_token(
     # que se previsualizó.
     expected_hash = token_data.get("action_hash", "")
     actual_hash = compute_action_hash(tool_name, resueltos)
-    if expected_hash != actual_hash:
+    if not hmac.compare_digest(str(expected_hash), actual_hash):
+        # Un token de un arranque anterior se hizo con otra clave y no puede
+        # casar con nada: decirlo así y no como si fuera otra acción.
+        creado = token_data.get("created_at")
+        if isinstance(creado, (int, float)) and creado < _ARRANQUE:
+            return False, (
+                "confirmation_token expired or lost across restart. "
+                "Request a new preview."
+            ), {}
         return False, "confirmation_token does not match this action.", {}
 
     # Estado del objetivo (spec 018): después del action_hash, para que un

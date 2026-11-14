@@ -1,6 +1,7 @@
 import asyncio
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -918,3 +919,108 @@ class TestTokenAtadoAlEstado(unittest.IsolatedAsyncioTestCase):
         ruta = security.CONFIRMATIONS_DIR / f"{r['confirmation_token']}.json"
         self.assertNotIn(centinela, ruta.read_text(encoding="utf-8"))
         self.assertIn("state_hash", self._datos(r["confirmation_token"]))
+
+
+class TestHashConClave(unittest.IsolatedAsyncioTestCase):
+    """Spec 019 (decisión del programa): el action_hash es un HMAC-SHA256 con
+    una clave aleatoria que solo vive en la memoria del proceso.
+
+    Lo que protege: el fichero del token guarda el action_hash, y entre los
+    argumentos de algunas acciones hay contraseñas (montajes CIFS,
+    `fs_set_secret`, restaurar un backup cifrado). Con un SHA-256 sin clave,
+    quien leyera /data podía probar contraseñas débiles sin conexión.
+
+    Control negativo comprobado: con el `canonicalize_for_hash(payload)` de
+    antes en `compute_action_hash` caen `test_otra_clave_otro_hash`,
+    `test_no_es_el_sha256_de_la_entrada`,
+    `test_contrasena_debil_no_se_adivina_sin_la_clave` y
+    `test_token_de_antes_del_arranque_se_da_por_perdido` (4 de 6; la suite
+    de `test_security.py`: 4 failed, 52 passed).
+    """
+
+    TOOL = "fs_set_secret"
+
+    async def asyncSetUp(self) -> None:
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.original_clave = security._CLAVE_HASH
+        self.original_arranque = security._ARRANQUE
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        security._CLAVE_HASH = self.original_clave
+        security._ARRANQUE = self.original_arranque
+        self.temp_dir.cleanup()
+
+    def test_mismo_argumento_misma_clave_mismo_hash(self) -> None:
+        args = {"key": "nas_clave", "value": "1234"}
+        self.assertEqual(security.compute_action_hash(self.TOOL, args),
+                         security.compute_action_hash(self.TOOL, dict(args)))
+        self.assertRegex(security.compute_action_hash(self.TOOL, args),
+                         r"^[0-9a-f]{64}$")
+
+    def test_otra_clave_otro_hash(self) -> None:
+        args = {"key": "nas_clave", "value": "1234"}
+        antes = security.compute_action_hash(self.TOOL, args)
+        security._CLAVE_HASH = bytes(32)
+        self.assertNotEqual(security.compute_action_hash(self.TOOL, args), antes)
+
+    def test_no_es_el_sha256_de_la_entrada(self) -> None:
+        args = {"key": "nas_clave", "value": "1234"}
+        sin_clave = security.canonicalize_for_hash({"tool": self.TOOL, "args": args})
+        self.assertNotEqual(security.compute_action_hash(self.TOOL, args), sin_clave)
+
+    def test_contrasena_debil_no_se_adivina_sin_la_clave(self) -> None:
+        """El ataque que se quiere impedir: con el hash del disco, probar las
+        contraseñas de un diccionario pequeño con el SHA-256 de la acción."""
+        import hashlib
+
+        real = security.compute_action_hash(self.TOOL, {"key": "k", "value": "1234"})
+        for candidata in ("0000", "1234", "password", "admin", "qwerty"):
+            serializado = json.dumps(
+                {"args": {"key": "k", "value": candidata}, "tool": self.TOOL},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            self.assertNotEqual(
+                hashlib.sha256(serializado.encode("utf-8")).hexdigest(), real)
+
+    async def test_la_clave_no_esta_en_disco_ni_en_el_log(self) -> None:
+        from structlog.testing import capture_logs
+
+        clave = security._CLAVE_HASH
+        with capture_logs() as eventos:
+            r = await security.create_confirmation_token(
+                self.TOOL, {"key": "k", "value": "1234"}, preview={"key": "k"})
+            ok, error = await security.validate_confirmation_token(
+                r["confirmation_token"], self.TOOL, {"key": "k", "value": "1234"})
+            self.assertTrue(ok, error)
+            await security.complete_confirmation_token(
+                r["confirmation_token"], success=True, result={"ok": True})
+            await security.cleanup_expired_confirmations()
+        texto_log = repr(eventos)
+        for ruta in Path(self.temp_dir.name).rglob("*"):
+            contenido = ruta.read_bytes()
+            self.assertNotIn(clave, contenido)
+            self.assertNotIn(clave.hex().encode(), contenido)
+        self.assertNotIn(clave.hex(), texto_log)
+        self.assertNotIn(repr(clave), texto_log)
+
+    async def test_token_de_antes_del_arranque_se_da_por_perdido(self) -> None:
+        """Tras reiniciar (otra clave), un token que siga en disco no casa:
+        se responde que se perdió con el reinicio, no que es otra acción."""
+        args = {"key": "k", "value": "1234"}
+        r = await security.create_confirmation_token(self.TOOL, args)
+        security._CLAVE_HASH = b"\x01" * 32
+        security._ARRANQUE = time.time() + 1
+        ok, error = await security.validate_confirmation_token(
+            r["confirmation_token"], self.TOOL, args)
+        self.assertFalse(ok)
+        self.assertIn("lost across restart", error)
+        # Y un token de este arranque con otros argumentos sigue diciendo que
+        # no casa.
+        security._ARRANQUE = self.original_arranque
+        r2 = await security.create_confirmation_token(self.TOOL, args)
+        ok, error = await security.validate_confirmation_token(
+            r2["confirmation_token"], self.TOOL, {"key": "k", "value": "otra"})
+        self.assertFalse(ok)
+        self.assertIn("does not match", error)
