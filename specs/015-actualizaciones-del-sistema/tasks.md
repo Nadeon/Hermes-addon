@@ -144,19 +144,80 @@ separado. Cada uno necesita el anterior integrado.
 
 ## Tramo 2 — OS y Supervisor (CAP-080)
 
-- [ ] T017 Línea base del tramo (suite) y comprobación de que el tramo 1 está integrado; anotarla en el commit
-- [ ] T018 [P] [US3] Tests `TestUpdateOs` y `TestUpdateSupervisor` (vista previa) en `tests/test_tools_system_updates.py`: OS → bloques de data-model, `restarts.components == []`, `after` con `sv_reboot_host`, `backup.will_create: false` con la pista, `release_notes.text` con el aviso de reinicio de la entidad del OS si Core responde; `/os/info` 404 → `not_haos` sin token y sin `POST`; `version_pending == to_version` → `reboot_pending`; Supervisor pendiente o sistema no saludable → `update_blocked`. Supervisor → sin argumento `version` en el esquema; `update_available: false` → `no_update_available`; `restarts.components == ["supervisor"]`, descripción con «Core and apps are not restarted»; `backup.possible: false`. Ninguna llamada `POST` en las vistas previas (FR-003, FR-004, FR-006, FR-007)
-- [ ] T019 [US3] Tests `TestSegundoPlano` y token de OS/Supervisor: confirmar OS → un `POST /os/update` con `{"version": <to_version>}` y `timeout_seconds=1800` lanzado en una tarea de fondo; con un job `os_manager_update` no terminado en `/jobs/info` → `job_id`, `poll_with` y `_track_job`; sin él tras la espera (reloj inyectado, sin dormir de verdad) → `status: started` y `verify_with: sv_get_os_info`; Supervisor → `POST /supervisor/update` sin cuerpo, job `supervisor_update`, nota de que el job desaparece al reiniciarse; corte de conexión en la tarea de fondo → evento `system_update_finished`/`failed` sin excepción sin recoger y la respuesta ya devuelta no cambia; error de la tarea de fondo con un centinela → log redactado; la referencia de la tarea se guarda y se suelta al terminar; versión cambiada → `preview_outdated` sin `POST` (FR-008, FR-009, FR-018)
-- [ ] T020 [US3] `sv_update_os` y `sv_update_supervisor` en `tools/system_updates.py` (vista previa, bloqueos, token atado). T018 en verde (FR-003, FR-004, FR-006, FR-007, FR-008)
-- [ ] T021 [US3] `_lanzar_en_segundo_plano` y la búsqueda del job (plan.md, research R-7), con comentario del porqué de la referencia guardada y de no esperar en primer plano. T019 en verde (FR-009)
-- [ ] T022 Tests en `tests/test_command_table.py`: `POST /os/update` y `POST /supervisor/update` `dedicated` con su tool, familia y CAP-080 (FR-016)
-- [ ] T023 `command_table.py`: las 2 entradas a mano; regenerar y comprobar que no cambia; anotarlo en el commit. T022 en verde (FR-016)
-- [ ] T024 [US5] Registro de las dos (ya dentro de la familia) y `_annotations.py`: las dos en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD`; si la 013 no trajo `"os": "OS"` en `_TITLE_WORDS`, añadirlo con un test de que ningún título de la 1.1.2 cambia. Tests en `tests/test_tools_registration.py`: anotaciones y títulos (`Update OS (Supervisor)`) (FR-017)
-- [ ] T025 [US3] Guía: tema `updates` con OS y Supervisor, el orden recomendado (Supervisor → Core → OS y reiniciar el host) y qué hacer tras el reinicio del Supervisor; test en `tests/test_tools_guide.py` (FR-020)
-- [ ] T026 Documentación del tramo 2: CHANGELOG (las dos tools, las 2 entradas, OS sin backup y sin reinicio automático) (FR-022)
-- [ ] T027 [P] Tests de las genéricas: `sv_call_api("POST", "/os/update")` y `("POST", "/supervisor/update")` → `use_dedicated_tool` sin llamada (FR-016)
-- [ ] T028 Control negativo del tramo 2, anotando recuentos: (a) esperar la petición en primer plano → cae el de respuesta inmediata; (b) no guardar la referencia de la tarea → cae; (c) emitir token sin HAOS → cae; (d) no detectar `reboot_pending` → cae; (e) tratar el corte de conexión como error → cae; (f) quitar la redacción del error de fondo → cae el centinela. Restaurar y comprobar verde
-- [ ] T029 Cierre del tramo 2: suite completa (los 6 conocidos), revisión del diff, commit con los recuentos de T028
+- [X] T017 Línea base del tramo (suite) y comprobación de que el tramo 1 está integrado; anotarla en el commit
+- [X] T018 [P] [US3] Tests `TestUpdateOs` y `TestUpdateSupervisor` (vista previa) en `tests/test_tools_system_updates.py`: OS → bloques de data-model, `restarts.components == []`, `after` con `sv_reboot_host`, `backup.will_create: false` con la pista, `release_notes.text` con el aviso de reinicio de la entidad del OS si Core responde; `/os/info` 404 → `not_haos` sin token y sin `POST`; `version_pending == to_version` → `reboot_pending`; Supervisor pendiente o sistema no saludable → `update_blocked`. Supervisor → sin argumento `version` en el esquema; `update_available: false` → `no_update_available`; `restarts.components == ["supervisor"]`, descripción con «Core and apps are not restarted»; `backup.possible: false`. Ninguna llamada `POST` en las vistas previas (FR-003, FR-004, FR-006, FR-007)
+- [X] T019 [US3] Tests `TestSegundoPlano` y token de OS/Supervisor: confirmar OS → un `POST /os/update` con `{"version": <to_version>}` y `timeout_seconds=1800` lanzado en una tarea de fondo; con un job `os_manager_update` no terminado en `/jobs/info` → `job_id`, `poll_with` y `_track_job`; sin él tras la espera (reloj inyectado, sin dormir de verdad) → `status: started` y `verify_with: sv_get_os_info`; Supervisor → `POST /supervisor/update` sin cuerpo, job `supervisor_update`, nota de que el job desaparece al reiniciarse; corte de conexión en la tarea de fondo → evento `system_update_finished`/`failed` sin excepción sin recoger y la respuesta ya devuelta no cambia; error de la tarea de fondo con un centinela → log redactado; la referencia de la tarea se guarda y se suelta al terminar; versión cambiada → `preview_outdated` sin `POST` (FR-008, FR-009, FR-018)
+- [X] T020 [US3] `sv_update_os` y `sv_update_supervisor` en `tools/system_updates.py` (vista previa, bloqueos, token atado). T018 en verde (FR-003, FR-004, FR-006, FR-007, FR-008)
+- [X] T021 [US3] `_lanzar_en_segundo_plano` y la búsqueda del job (plan.md, research R-7), con comentario del porqué de la referencia guardada y de no esperar en primer plano. T019 en verde (FR-009)
+- [X] T022 Tests en `tests/test_command_table.py`: `POST /os/update` y `POST /supervisor/update` `dedicated` con su tool, familia y CAP-080 (FR-016)
+- [X] T023 `command_table.py`: las 2 entradas a mano; regenerar y comprobar que no cambia; anotarlo en el commit. T022 en verde (FR-016)
+- [X] T024 [US5] Registro de las dos (ya dentro de la familia) y `_annotations.py`: las dos en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD`; si la 013 no trajo `"os": "OS"` en `_TITLE_WORDS`, añadirlo con un test de que ningún título de la 1.1.2 cambia. Tests en `tests/test_tools_registration.py`: anotaciones y títulos (`Update OS (Supervisor)`) (FR-017)
+- [X] T025 [US3] Guía: tema `updates` con OS y Supervisor, el orden recomendado (Supervisor → Core → OS y reiniciar el host) y qué hacer tras el reinicio del Supervisor; test en `tests/test_tools_guide.py` (FR-020)
+- [X] T026 Documentación del tramo 2: CHANGELOG (las dos tools, las 2 entradas, OS sin backup y sin reinicio automático) (FR-022)
+- [X] T027 [P] Tests de las genéricas: `sv_call_api("POST", "/os/update")` y `("POST", "/supervisor/update")` → `use_dedicated_tool` sin llamada (FR-016)
+- [X] T028 Control negativo del tramo 2, anotando recuentos: (a) esperar la petición en primer plano → cae el de respuesta inmediata; (b) no guardar la referencia de la tarea → cae; (c) emitir token sin HAOS → cae; (d) no detectar `reboot_pending` → cae; (e) tratar el corte de conexión como error → cae; (f) quitar la redacción del error de fondo → cae el centinela. Restaurar y comprobar verde
+- [X] T029 Cierre del tramo 2: suite completa (los 6 conocidos), revisión del diff, commit con los recuentos de T028
+
+### Notas del tramo 2 (desviaciones y decisiones)
+
+- **Línea base** (T017): 2517 passed, 65 skipped, 6 failed (los 6 de
+  Windows), con el tramo 1 en la rama (`d10682d`).
+- **`"os": "OS"`** ya estaba en `_TITLE_WORDS` (lo trajo la 013): sin cambio;
+  el título `Update OS (Supervisor)` se comprueba en el registro.
+- **Vista previa del OS**: `restarts.components == []` (instalar no reinicia
+  nada, data-model), pero la descripción, `after`, el primer aviso de
+  `warnings`, la descripción de la tool y la guía dicen sin rodeos que el OS
+  solo se aplica al reiniciar el host y que eso reinicia todo, Hermes
+  incluido. Si ya hay otra versión pendiente de reinicio, se avisa de que la
+  nueva la sustituye en la ranura inactiva. `backup.possible: false` y la
+  pista de `sv_create_backup_full`/`partial` (D-2 no se implementa). Sin
+  `config_check` ni `plugins_to_update_first` (solo Core).
+- **Vista previa del Supervisor**: añade `channel` (la spec lo pide, el
+  data-model no lo listaba). `update_available: false` → `no_update_available`.
+  Nada la bloquea (el job no tiene condiciones, R-6); un sistema no saludable
+  se enseña en `system_health` sin bloquear.
+- **Notas**: `_url_de_notas` se parte en `_entidad_de_notas` (devuelve además
+  el `entity_id`) y `_notas_con_texto`, que pide `update/release_notes` a esa
+  entidad para el OS (el aviso de reinicio). `_resolver_destino` reúne la
+  resolución de versiones de Core, OS y Supervisor (los mensajes de Core no
+  cambian).
+- **Segundo plano** (R-7): `_lanzar_en_segundo_plano` nunca termina con
+  excepción (devuelve `{"outcome": ok | connection_lost | timeout | failed}`)
+  para que nada salga sin redactar como «Task exception was never
+  retrieved». Un corte de conexión o la espera de 1800 s vencida van al log
+  como `system_update_finished` (no es un fallo: el Supervisor sigue con
+  `shield`); un error del Supervisor, como `system_update_failed` con el
+  detalle redactado y recortado. Decisión añadida: si la petición de fondo
+  termina ANTES de encontrar el job, la tool lo dice ya: rechazo →
+  `supervisor_error` redactado y token completado con fallo; éxito →
+  `result: ok`; corte → `status: started`. La búsqueda cede el turno una vez
+  antes de mirar `/jobs/info` y busca también entre los `child_jobs`; un job
+  ya terminado con el mismo nombre no cuenta.
+- **Confirmación**: como en Core, no repite la lectura de bloqueos; si el
+  Supervisor la rechaza (p. ej. `reboot_pending` entre medias), se ve como
+  `supervisor_error` dentro de la búsqueda.
+- **Rol del Supervisor (014)**: `/jobs/info` añadida a las lecturas de
+  `_leer` y la petición de fondo (`peticion`, con las rutas fijas
+  `/os/update` y `/supervisor/update`) declarada en `LLAMADAS_DECLARADAS`;
+  todas caben en `manager`.
+- **Inventario del banco**: `sv_update_os` y `sv_update_supervisor` en
+  `NO_EJECUTABLES_015` (130 tools que modifican); en la matriz de la 014 como
+  «VM / pendiente», con su línea en «Tandas de pruebas» de
+  `docs/BANCO-SUPERVISOR.md`.
+- **Recuento de tools**: 236 en README, README.es y DOCS (la fila «System
+  updates» pasa a 5).
+- **Inventario de argumentos atados de la 033**
+  (`tests/test_confirmation_args_inventory.py`): sigue sin estar en la rama.
+  Al integrarlo, filas nuevas: `sv_update_os` con `{"version": atado}` y
+  `sv_update_supervisor` sin argumentos atados (`{}`); en las dos, las
+  versiones de origen y destino se atan además dentro de la tool (R-3).
+- **Control negativo (T028)**, con los tests de la 015, la tabla, las
+  genéricas, el registro y la guía: (a) esperar la petición en primer plano
+  → 9 rojos; (b) sin guardar la referencia → 5; (c) token sin HAOS → 1;
+  (d) sin `reboot_pending` → 2; (e) corte tratado como error → 2; (f) sin
+  redactar el error de fondo → 2; (g) `/os/update` de vuelta a `deny` → 2
+  tests y 2 subtests (tabla, registro con la familia apagada y la genérica).
+  Todo restaurado y en verde.
 
 ---
 

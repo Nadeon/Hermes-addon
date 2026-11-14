@@ -509,6 +509,18 @@ class TestTemaUpdates(unittest.IsolatedAsyncioTestCase):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
 
+    def test_os_y_supervisor(self) -> None:
+        # Tramo 2 (T025): las dos tools, el orden con el reinicio del host,
+        # que el OS no se aplica hasta reiniciar y qué hacer tras el reinicio
+        # del Supervisor.
+        texto = _GUIDE["updates"]
+        for palabra in ("sv_update_os", "sv_update_supervisor", "sv_reboot_host",
+                        "Supervisor → Core → OS y reiniciar el host", "not_haos",
+                        "reboot_pending", "reinicia TODO", "sv_get_supervisor_info",
+                        "status: started", "verify_with", "sv_create_backup_full"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
     def test_las_tools_que_cita_existen(self) -> None:
         # La guía no puede anunciar tools que el servidor no tiene (principio
         # V): toda `sv_*`/`ha_*` citada está registrada.

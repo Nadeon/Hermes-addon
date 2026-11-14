@@ -120,21 +120,43 @@ _Pendiente: la añade la sub-feature que lo implemente._
   comprobación pasan por la redacción de secretos; el log de Hermes anota
   tool, componente y versiones (`system_update_started`), nunca el texto de
   un error.
+- **Actualizar el OS y el Supervisor.** `sv_update_os` (versión opcional) y
+  `sv_update_supervisor` (sin argumentos), en dos pasos y con el token atado a
+  las versiones igual que en Core. La vista previa del OS dice claramente que
+  instalar no reinicia nada y que el OS nuevo solo se aplica al **reiniciar el
+  host** con `sv_reboot_host`, que reinicia todo, Hermes incluido; Hermes no
+  reinicia el host por su cuenta. Tampoco hace backup: la vista previa lo dice
+  y sugiere `sv_create_backup_full` antes. Sin Home Assistant OS responde
+  `not_haos`; con esa versión ya instalada y esperando el reinicio,
+  `update_blocked` (`reboot_pending`), igual que con el sistema no saludable o
+  el Supervisor pendiente. La del Supervisor dice que se reinicia solo, que
+  Core y las apps siguen funcionando y que las `sv_*` fallan alrededor de un
+  minuto; no admite versión ni backup. Como el Supervisor responde a estas dos
+  actualizaciones cuando terminan (minutos), Hermes lanza la petición en
+  segundo plano y busca el job unos segundos: devuelve el `job_id` o
+  `status: started` con la tool con que comprobar la versión. Que la conexión
+  se corte cuando el Supervisor se reinicia no es un error; el resultado final
+  queda en el log de Hermes (`system_update_finished` o
+  `system_update_failed`, con el error redactado).
 - **Notas de la versión**: Home Assistant no tiene en local las notas de Core
   y Hermes no las descarga de internet, así que la vista previa lo dice y da
   la `release_url` de la entidad `update` de Core (buscada por el registro de
   entidades, no por su nombre). Es una desviación de la spec 008, que pedía
-  las notas recortadas.
+  las notas recortadas. Tampoco las del Supervisor ni las del OS: de este, la
+  vista previa da el aviso de reinicio que da su entidad.
 - **Tabla de comandos**: `GET /available_updates`, `POST /refresh_updates`,
-  `POST /reload_updates`, `POST /core/update` y `hassio/update/core` pasan a
+  `POST /reload_updates`, `POST /core/update`, `hassio/update/core`,
+  `POST /os/update` y `POST /supervisor/update` pasan a
   `dedicated` hacia estas tools: las genéricas remiten a ellas y nunca son una
   forma de actualizar sin la vista previa. `/reload_updates` va a
   `sv_check_for_updates` aunque la tool use `/refresh_updates`, que además
   recarga la tienda.
 - **Guía**: tema nuevo `hermes_guide("updates")` (alias `update`, `upgrade`)
-  con el orden recomendado, los bloqueos y el token atado a las versiones; el
-  tema `supervisor` remite a él.
-- `sv_check_for_updates` y `sv_update_core` se prueban con un Supervisor
+  con el orden recomendado (Supervisor → Core → OS y reiniciar el host), los
+  bloqueos, el token atado a las versiones y qué hacer tras el reinicio del
+  Supervisor; el tema `supervisor` remite a él.
+- `sv_check_for_updates`, `sv_update_core`, `sv_update_os` y
+  `sv_update_supervisor` se prueban con un Supervisor
   simulado con la forma de las respuestas del 2026.11.0; su prueba contra un
   Supervisor real queda pendiente en la VM de la 014 (matriz de pruebas de la
   hoja de ruta).

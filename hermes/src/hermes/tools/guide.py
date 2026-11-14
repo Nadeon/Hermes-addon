@@ -138,7 +138,7 @@ para el detalle de un área. Temas disponibles:
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
-- `updates`        — qué hay que actualizar, buscar actualizaciones y actualizar Core
+- `updates`        — qué hay que actualizar, buscar actualizaciones y actualizar Core, OS y Supervisor
 - `backups`        — crear, restaurar y gestionar backups
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
@@ -380,7 +380,8 @@ reversible con `fs_restore_file_backup`.
   `sv_reboot_host` (token).
 - Logs de Core, del Supervisor, de los plugins y del host:
   `hermes_guide("system_diagnostics")`.
-- Actualizar Core (y ver qué tiene actualización): `hermes_guide("updates")`.
+- Actualizar Core, el OS o el Supervisor (y ver qué tiene actualización):
+  `hermes_guide("updates")`.
   Las apps siguen con `sv_update_addon`.
 
 Cuidado con el propio Hermes (`local_hermes`): pararlo/desinstalarlo te deja sin
@@ -495,9 +496,12 @@ usuario quiere.
 - `sv_check_for_updates` — pide al Supervisor que busque ya (sale a internet
   y refresca la tienda) y devuelve la misma lista. No pide token.
 - `sv_update_core(version=None, backup=True)` — actualiza Core, en dos pasos.
+- `sv_update_os(version=None)` — actualiza Home Assistant OS, en dos pasos.
+- `sv_update_supervisor()` — actualiza el Supervisor, en dos pasos.
 
-Orden recomendado: Supervisor → Core → OS (y reiniciar el host). El
-Supervisor rechaza actualizar Core con él mismo pendiente.
+Orden recomendado: Supervisor → Core → OS y reiniciar el host
+(`sv_reboot_host`). El Supervisor rechaza actualizar Core o el OS con él mismo
+pendiente.
 
 Vista previa de `sv_update_core`: versión de origen y de destino (la última si
 no pasas `version`; si es menor, `downgrade: true`), `release_url` (HA no
@@ -521,6 +525,32 @@ si entre la vista previa y la confirmación cambian (otra búsqueda de
 actualizaciones), la confirmación devuelve `preview_outdated: true` sin enviar
 nada; pide otra vista previa. Al confirmar devuelve `job_id`: síguelo con
 `sv_get_job_status(job_id)`.
+
+## OS
+
+`sv_update_os` solo funciona con Home Assistant OS (si no, `not_haos`).
+Instala el OS nuevo en la ranura de arranque inactiva y NO reinicia nada: se
+aplica al reiniciar el host con `sv_reboot_host`, que reinicia TODO (Core,
+las apps y Hermes; el sistema no responde durante unos minutos). Avisa al
+usuario antes. No hace backup: si lo quieres, `sv_create_backup_full` antes.
+Bloquean: `unhealthy`, `supervisor_update_pending` y `reboot_pending` (esa
+versión ya está instalada y espera el reinicio: reinicia, no la repitas).
+
+## Supervisor
+
+`sv_update_supervisor` no admite versión ni backup y nada la bloquea. El
+Supervisor se reinicia solo; Core y las apps siguen funcionando, pero las
+`sv_*` fallan alrededor de un minuto. Tras el reinicio el job desaparece y
+`sv_get_job_status` da error: espera un minuto y comprueba la versión con
+`sv_get_supervisor_info`.
+
+## Seguimiento de OS y Supervisor
+
+La descarga tarda minutos, así que Hermes la lanza en segundo plano y busca el
+job unos segundos: devuelve `job_id` (síguelo con `sv_get_job_status`) o
+`status: started` con `verify_with` (la tool con que comprobar la versión). Un
+`status: started` no es un error. El token está atado a las versiones igual
+que en Core.
 
 Hermes no se actualiza a sí mismo: en la lista sale con `update_with: null`;
 se actualiza desde la interfaz de Home Assistant. Las demás apps, con
