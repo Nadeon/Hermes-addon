@@ -182,6 +182,21 @@ class TestInstructions(unittest.TestCase):
             self.assertIn(nombre, INSTRUCTIONS)
         self.assertIn("tabla", INSTRUCTIONS)
 
+    def test_instrucciones_sin_la_familia_generic_commands(self) -> None:
+        """T049: sin la familia, ni el párrafo de las genéricas ni su tema
+        en la lista; el resto, idéntico. Control negativo comprobado: con
+        `activas` siempre verdadero en `instrucciones` → cae."""
+        from hermes.tools.guide import instrucciones
+
+        sin = instrucciones(frozenset({"generic_commands"}))
+        for nombre in ("ha_read_ws_command", "ha_call_ws_command",
+                       "sv_read_api", "sv_call_api", "generic_commands"):
+            self.assertNotIn(nombre, sin)
+        self.assertIn("security) y", sin)
+        self.assertEqual(instrucciones(), INSTRUCTIONS)
+        self.assertEqual(instrucciones(frozenset({"lovelace"})), INSTRUCTIONS)
+        self.assertNotIn("@", INSTRUCTIONS)
+
     def test_instructions_accepted_and_exposed_by_fastmcp(self) -> None:
         # Verifica end-to-end que el SDK entrega instructions en el initialize.
         from mcp.server.mcpserver import MCPServer

@@ -21,20 +21,18 @@ Dos mecanismos para que el cliente (Claude) sepa qué herramientas usar y cuánd
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 # ── Resumen entregado al conectar (initialize) ────────────────────────────────
 
-INSTRUCTIONS = """\
+_INSTRUCCIONES_BASE = """\
 Controlas Home Assistant a través de Hermes: tools con prefijo `ha_` (Home
 Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: add-ons, host,
 backups). Los nombres son predecibles —`ha_list_*`, `ha_get_*`, `ha_update_*`,
 `sv_restart_*`, `fs_read_*`…— así que normalmente sabrás cuál usar leyendo la
 lista. Lo que sigue es lo que NO se deduce del nombre.
-Para lo que ninguna tool cubre están las genéricas `ha_read_ws_command`,
-`ha_call_ws_command`, `sv_read_api` y `sv_call_api`: solo ejecutan lo que
-permite la tabla de comandos de Hermes, y las de escritura siempre en dos pasos.
+@GENERICAS@
 
 1) CONFIRMACIÓN EN DOS PASOS
 Las acciones destructivas devuelven, en la primera llamada, un `preview` y un
@@ -81,10 +79,35 @@ Consulta el progreso con `sv_get_job_status(job_id)` en vez de reintentar.
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
 events, data, registries, diagnostics, config_entries, filesystem, supervisor,
-backups, lovelace, marketplace, security, generic_commands) y
+backups, lovelace, marketplace, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
 """
+
+# Párrafo de las genéricas: solo se anuncia con su familia activa. Con
+# `generic_commands` en `tool_families_disabled` esas tools no existen, y las
+# instrucciones no pueden anunciar lo que el servidor no ofrece (principio V;
+# T049 de la 011).
+_PARRAFO_GENERICAS = """\
+Para lo que ninguna tool cubre están las genéricas `ha_read_ws_command`,
+`ha_call_ws_command`, `sv_read_api` y `sv_call_api`: solo ejecutan lo que
+permite la tabla de comandos de Hermes, y las de escritura siempre en dos pasos.
+"""
+
+
+def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
+    """Las instrucciones del `initialize` para las familias activas.
+
+    `familias_desactivadas` son nombres ya validados (`validar_desactivadas`).
+    """
+    activas = "generic_commands" not in set(familias_desactivadas)
+    texto = _INSTRUCCIONES_BASE.replace(
+        "@GENERICAS@\n", _PARRAFO_GENERICAS if activas else "")
+    return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
+
+
+# Con todas las familias activas: la referencia de los tests.
+INSTRUCTIONS = instrucciones()
 
 
 # ── Guía detallada por tema ───────────────────────────────────────────────────
