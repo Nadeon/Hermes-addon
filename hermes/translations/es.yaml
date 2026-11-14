@@ -80,7 +80,7 @@ configuration:
     description: "Entidades concretas que exigirán confirmación aunque el servicio no esté en la lista."
   call_service_auto_classify_dangerous:
     name: "Clasificar scripts peligrosos automáticamente"
-    description: "Al arrancar y al guardar, Hermes lee tus scripts y automatizaciones y marca como restringidos los que llaman a servicios peligrosos. Desactívalo solo para gestionar la lista a mano."
+    description: "Al arrancar y tras recargar scripts o automatizaciones desde Hermes, Hermes lee tus scripts y automatizaciones y marca como restringidos los que llaman a servicios peligrosos (la lista de serie más call_service_denylist_extra). Desactivarla solo apaga esas dos revisiones: los scripts y automatizaciones que se guardan desde Hermes se revisan siempre y se restringen si son peligrosos, aunque la opción esté desactivada."
   fire_event_allowlist:
     name: "Eventos que se pueden disparar"
     description: "Tipos de evento que ha_fire_event puede disparar. Vacía, la tool está desactivada: hay que nombrar cada evento permitido."

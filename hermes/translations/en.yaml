@@ -79,7 +79,7 @@ configuration:
     description: "Specific entities that will need confirmation even when the service is not on the list."
   call_service_auto_classify_dangerous:
     name: "Classify dangerous scripts automatically"
-    description: "On startup and on save, Hermes reads your scripts and automations and marks as restricted the ones calling dangerous services. Turn it off only to manage the list by hand."
+    description: "On startup and after a scripts or automations reload made through Hermes, Hermes reads your scripts and automations and marks as restricted the ones calling dangerous services (the built-in list plus call_service_denylist_extra). Turning it off stops only those two scans: scripts and automations saved through Hermes are always checked and restricted if dangerous, even with this option off."
   fire_event_allowlist:
     name: "Events that can be fired"
     description: "Event types ha_fire_event may fire. Empty means the tool is disabled: every allowed event has to be named."

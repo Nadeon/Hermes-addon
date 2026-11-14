@@ -495,7 +495,7 @@ These change **what Claude can do without asking you**. Worth reading:
 | `call_service_denylist_extra` | `[]` | Additional services that will require explicit confirmation, on top of the ~70 Hermes already ships. Format `domain.service`, wildcards allowed (`shell_command.*`) |
 | `call_service_restricted_entities` | `[]` | Specific entities that will require confirmation even when the service is not denylisted. Useful for `script.open_garage` and friends |
 | `fire_event_allowlist` | `[]` | Event types `ha_fire_event` is allowed to fire. Empty means the tool is disabled: every permitted event must be named explicitly |
-| `call_service_auto_classify_dangerous` | `true` | On startup and on save, Hermes reads your scripts and automations and automatically marks as restricted the ones invoking dangerous services. Disable it only if you want to manage the list by hand |
+| `call_service_auto_classify_dangerous` | `true` | On startup and after a scripts or automations reload made through Hermes, Hermes reads your scripts and automations and automatically marks as restricted the ones invoking dangerous services (the built-in list plus `call_service_denylist_extra`). Disabling it stops only those two scans: scripts and automations saved through Hermes (`ha_create_or_update_script`, `ha_create_or_update_automation`) are always checked and restricted if dangerous, even with this option off |
 
 See `config.yaml` for the full schema with valid ranges.
 

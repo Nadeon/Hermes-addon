@@ -496,7 +496,7 @@ Estas cuatro cambian **qué puede hacer Claude sin preguntarte**. Merece la pena
 | `call_service_denylist_extra` | `[]` | Servicios adicionales que exigirán confirmación explícita, además de los ~70 que ya trae Hermes. Formato `dominio.servicio`, admite comodín (`shell_command.*`) |
 | `call_service_restricted_entities` | `[]` | Entidades concretas que exigirán confirmación aunque el servicio no esté vetado. Útil para `script.abrir_garaje` y compañía |
 | `fire_event_allowlist` | `[]` | Tipos de evento que `ha_fire_event` puede disparar. Vacío significa que la herramienta está deshabilitada: hay que nombrar explícitamente cada evento permitido |
-| `call_service_auto_classify_dangerous` | `true` | Al arrancar y al guardar, Hermes lee tus scripts y automatizaciones y marca automáticamente como restringidas las que invocan servicios peligrosos. Desactívalo solo si quieres gestionar la lista a mano |
+| `call_service_auto_classify_dangerous` | `true` | Al arrancar y tras recargar scripts o automatizaciones desde Hermes, Hermes lee tus scripts y automatizaciones y marca automáticamente como restringidas las que invocan servicios peligrosos (la lista de serie más `call_service_denylist_extra`). Desactivarla solo apaga esas dos revisiones: los scripts y automatizaciones que se guardan desde Hermes (`ha_create_or_update_script`, `ha_create_or_update_automation`) se revisan siempre y se restringen si son peligrosos, aunque la opción esté desactivada |
 
 Ver `config.yaml` para el schema completo con sus rangos válidos.
 

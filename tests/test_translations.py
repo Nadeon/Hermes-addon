@@ -117,3 +117,44 @@ class TestTraducciones(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestClasificacionAlGuardar(unittest.TestCase):
+    """T029: el texto de `call_service_auto_classify_dangerous` dice lo que hace.
+
+    Con la opción en `false` solo se apagan la clasificación del arranque y la
+    de tras un `reload` por `ha_call_service`; lo que se guarda con
+    `ha_create_or_update_script` o `ha_create_or_update_automation` se
+    clasifica siempre (`classify_saved_config` no mira la opción). El texto
+    anterior («Turn it off only to manage the list by hand») daba a entender
+    que con `false` no se clasificaba nada (principio V).
+
+    Control negativo comprobado: volver al texto anterior en `en.yaml` →
+    `test_dice_que_al_guardar_se_restringe_siempre` en rojo.
+    """
+
+    FRASES = {
+        "en": ("saved through Hermes are always checked", "even with this option off"),
+        "es": ("se guardan desde Hermes se revisan siempre",
+               "aunque la opción esté desactivada"),
+    }
+
+    def test_dice_que_al_guardar_se_restringe_siempre(self) -> None:
+        for idioma, frases in self.FRASES.items():
+            texto = _traduccion(idioma)["configuration"][
+                "call_service_auto_classify_dangerous"]["description"]
+            for frase in frases:
+                with self.subTest(idioma=idioma, frase=frase):
+                    self.assertIn(frase, texto)
+            with self.subTest(idioma=idioma):
+                self.assertNotIn("by hand", texto)
+                self.assertNotIn("a mano", texto)
+
+    def test_el_codigo_clasifica_al_guardar_sin_mirar_la_opcion(self) -> None:
+        """Lo que afirma el texto: la llamada al guardar no depende de la opción."""
+        raiz = Path(__file__).resolve().parents[1] / "hermes" / "src" / "hermes" / "tools"
+        for fichero in ("automations.py", "scripts.py"):
+            fuente = (raiz / fichero).read_text(encoding="utf-8")
+            with self.subTest(fichero=fichero):
+                self.assertIn("classify_saved_config(", fuente)
+                self.assertNotIn("auto_classify", fuente.replace("classify_saved_config", ""))
