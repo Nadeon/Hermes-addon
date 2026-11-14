@@ -76,11 +76,11 @@ cerrada y commiteable).
 
 ## Fase 6: Documentación y cierre
 
-- [ ] T012 [P] `hermes/CHANGELOG.md`, sección «Banco de pruebas» de `## [1.2.0]`: viñeta de la 014 (procedimiento del banco del Supervisor, matriz con una fila por tool que modifica y su test, casillas manuales con entorno, comentario de `hassio_role` corregido sin cambiar el rol y test de las rutas contra `manager`). Sin promesas de pruebas no hechas (FR-009)
-- [ ] T013 [P] `docs/HOJA-DE-RUTA.md`: fila 014 → «hecha» en la tabla del programa; «Verificado contra»: las 24 `sv_*`/`fs_*` se prueban con simuladores y su prueba real está en la matriz (VM, pendiente); párrafo «Probar `hassio_role: manager` (014)» de «lo que antes estaba como pendiente»: el comentario ya está corregido y queda la prueba en vivo (D-02) (FR-009)
-- [ ] T014 [P] `specs/008-cobertura-total/plan.md`, matriz de trazabilidad: filas CAP-006 (`docs/BANCO-SUPERVISOR.md`, `test_procedimiento_con_sus_secciones`), CAP-022 (`TestComentarioDelRol`, `tests/test_rutas_supervisor_rol.py`; prueba manual pendiente), CAP-034 (añadir `tests/test_matriz_pruebas.py` a la parte del Supervisor) y CAP-035 (`test_casillas_manuales`) (FR-009)
-- [ ] T015 Revisión de privacidad del diff (sin hostnames, IPs, slugs reales, contraseñas, rutas `C:\…` ni identificadores de modelos; las notas de la matriz sin datos de una instalación) y de SC-007: `git diff --stat feat/cobertura-total -- hermes/` solo con `config.yaml` (el comentario) y `CHANGELOG.md` (FR-011)
-- [ ] T016 Suite completa (exactamente los 6 fallos conocidos de Windows) y commit del tramo con los recuentos de T005 y T008 y la lista de inventarios encontrados en T001 (SC-008)
+- [x] T012 [P] `hermes/CHANGELOG.md`, sección «Banco de pruebas» de `## [1.2.0]`: viñeta de la 014 (procedimiento del banco del Supervisor, matriz con una fila por tool que modifica y su test, casillas manuales con entorno, comentario de `hassio_role` corregido sin cambiar el rol y test de las rutas contra `manager`). Sin promesas de pruebas no hechas (FR-009)
+- [x] T013 [P] `docs/HOJA-DE-RUTA.md`: fila 014 → «hecha» en la tabla del programa; «Verificado contra»: las 24 `sv_*`/`fs_*` se prueban con simuladores y su prueba real está en la matriz (VM, pendiente); párrafo «Probar `hassio_role: manager` (014)» de «lo que antes estaba como pendiente»: el comentario ya está corregido y queda la prueba en vivo (D-02) (FR-009)
+- [x] T014 [P] `specs/008-cobertura-total/plan.md`, matriz de trazabilidad: filas CAP-006 (`docs/BANCO-SUPERVISOR.md`, `test_procedimiento_con_sus_secciones`), CAP-022 (`TestComentarioDelRol`, `tests/test_rutas_supervisor_rol.py`; prueba manual pendiente), CAP-034 (añadir `tests/test_matriz_pruebas.py` a la parte del Supervisor) y CAP-035 (`test_casillas_manuales`) (FR-009)
+- [x] T015 Revisión de privacidad del diff (sin hostnames, IPs, slugs reales, contraseñas, rutas `C:\…` ni identificadores de modelos; las notas de la matriz sin datos de una instalación) y de SC-007: `git diff --stat feat/cobertura-total -- hermes/` solo con `config.yaml` (el comentario) y `CHANGELOG.md` (FR-011)
+- [x] T016 Suite completa (exactamente los 6 fallos conocidos de Windows) y commit del tramo con los recuentos de T005 y T008 y la lista de inventarios encontrados en T001 (SC-008)
 
 ---
 

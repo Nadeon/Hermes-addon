@@ -20,7 +20,10 @@ push en el CI contra HA Core 2026.11.1 real (46 funcionan; `ha_reload_counters`
 falla, ver más abajo) (banco de pruebas, spec 010; ver
 «Banco de Core: helpers» más abajo); el resto se verificó leyendo el código de
 Hermes y el de Home Assistant. La 028 lleva al banco las demás escrituras de
-Core.
+Core. Las 24 del Supervisor y de ficheros se prueban con simuladores del
+Supervisor en la suite; su prueba contra un Supervisor real está en la matriz
+de pruebas (VM, pendiente; ver «Matriz de pruebas» más abajo y
+`docs/BANCO-SUPERVISOR.md`).
 
 ## Estado de compatibilidad
 
@@ -395,7 +398,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | pendiente |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
-| 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | pendiente |
+| 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
@@ -637,10 +640,12 @@ programa:
   cubre todas las rutas que usa Hermes y todos los huecos propuestos (salvo
   `/reload_updates`; `/refresh_updates` sí entra). `admin` solo añade
   `/addons/{app}/security`, `/auth/reset`, `/auth/list`, `/os/datadisk/wipe` e
-  `/ingress/panels`, que Hermes no usa. El comentario de `config.yaml` que
-  habla de un 403 es de una versión anterior. Es un cambio de permisos: el
+  `/ingress/panels`, que Hermes no usa. El comentario de `config.yaml` ya
+  está corregido (014) y `tests/test_rutas_supervisor_rol.py` comprueba las
+  rutas contra los patrones de 2026.11.0; queda la prueba en vivo
+  (procedimiento en `docs/BANCO-SUPERVISOR.md`). Es un cambio de permisos: el
   Supervisor lo enseña al actualizar; el cambio de rol se decide al final, tras
-  la prueba manual.
+  la prueba manual (D-02).
 - **Distinguir errores fatales de avisos en `sv_get_job_status`** (027): hasta
   que el Supervisor dé una señal fiable, se documenta.
 - **Cifrado de los safety backups** (031).
