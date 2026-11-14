@@ -373,5 +373,69 @@ class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.guide(tema, search=None), texto)
 
 
+
+def _plano(texto: str) -> str:
+    # Los textos van partidos en líneas de 80: se comparan con un solo espacio.
+    return " ".join(texto.split())
+
+
+def _apartado_4(texto: str) -> str:
+    return _plano(texto[texto.index("4) OPERACIONES LARGAS"):texto.index("5) SI DUDAS")])
+
+
+class TestGuiaJobs(unittest.TestCase):
+    """Spec 027, FR-001: la guía dice qué significa `success` en un job.
+
+    `done` es true también cuando el job falla, el Supervisor no distingue
+    avisos de errores fatales, y los errores de los sub-jobs no suben al job
+    (van en `child_errors` y también dan `success: false`, D-1).
+
+    Control negativo comprobado: con el tema `backups` de antes (solo la lista
+    de tools en la línea de jobs) → `test_backups` en rojo.
+    """
+
+    _FRASE = "cualquier entrada en `errors` da `success: false`"
+
+    def test_backups(self) -> None:
+        self.assertIn(self._FRASE, _plano(_GUIDE["backups"]))
+        self.assertIn("`child_errors`", _GUIDE["backups"])
+        self.assertIn("sv_get_backup", _GUIDE["backups"])
+
+    def test_supervisor(self) -> None:
+        self.assertIn(self._FRASE, _plano(_GUIDE["supervisor"]))
+        self.assertIn("`child_errors`", _GUIDE["supervisor"])
+
+    def test_instrucciones(self) -> None:
+        apartado = _apartado_4(INSTRUCTIONS)
+        self.assertIn(self._FRASE, apartado)
+        self.assertIn("`child_errors`", apartado)
+
+
+class TestGuiaApps(unittest.TestCase):
+    """Spec 027, FR-007: «apps (add-ons)», el término del Supervisor
+    2026.11.0, sin cambiar el nombre de ninguna tool.
+
+    Control negativo comprobado: con el título de antes («Sistema: add-ons,
+    host y core») → `test_titulo_del_tema_supervisor` en rojo.
+    """
+
+    def test_titulo_del_tema_supervisor(self) -> None:
+        self.assertTrue(
+            _GUIDE["supervisor"].startswith("# Sistema: apps (add-ons), host y core"))
+
+    def test_instrucciones_apartado_4(self) -> None:
+        self.assertIn("apps (add-ons)", _apartado_4(INSTRUCTIONS))
+
+    def test_el_tema_nombra_las_doce_tools_de_apps(self) -> None:
+        for nombre in (
+            "sv_list_addons", "sv_get_addon", "sv_get_addon_options",
+            "sv_set_addon_options", "sv_start_addon", "sv_stop_addon",
+            "sv_restart_addon", "sv_install_addon", "sv_uninstall_addon",
+            "sv_update_addon", "sv_get_addon_logs", "sv_get_addon_stats",
+        ):
+            with self.subTest(tool=nombre):
+                self.assertIn(f"`{nombre}", _GUIDE["supervisor"])
+
+
 if __name__ == "__main__":
     unittest.main()

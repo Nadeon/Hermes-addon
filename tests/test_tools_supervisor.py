@@ -1524,3 +1524,50 @@ class TestNoSeActualizaASiMismo(unittest.IsolatedAsyncioTestCase):
         r = await self.tools["sv_update_addon"]("core_mosquitto")
         self.assertIn("confirmation_token", r)
         self.assertEqual(self.client.lecturas("/addons/core_mosquitto/info"), 1)
+
+
+class TestTerminologiaApps(unittest.TestCase):
+    """Spec 027, FR-007: el Supervisor 2026.11.0 llama «apps» a los add-ons
+    (paquete `apps/`, rutas `/v2/apps`, acciones `hassio.app_*`). Las doce
+    tools de apps lo dicen en su descripción; sus nombres (`sv_*_addon*`) y
+    argumentos no cambian, y eso lo fija el test de esquemas de la 1.1.2
+    (`tests/fixtures/esquemas_1_1_2.json`); aquí solo se comprueba que las
+    doce están en él.
+
+    Control negativo comprobado: con la descripción de `sv_get_addon_stats`
+    de antes («de un add-on») → `test_descripciones_dicen_app` en rojo.
+    """
+
+    _TOOLS = (
+        "sv_list_addons", "sv_get_addon", "sv_get_addon_options",
+        "sv_set_addon_options", "sv_start_addon", "sv_stop_addon",
+        "sv_restart_addon", "sv_install_addon", "sv_uninstall_addon",
+        "sv_update_addon", "sv_get_addon_logs", "sv_get_addon_stats",
+    )
+
+    def setUp(self) -> None:
+        mcp = DummyMCP()
+        addons_mod.register(mcp, MockHAClient())
+        self.tools = mcp.tools
+
+    def test_son_las_doce_del_modulo(self) -> None:
+        self.assertEqual(set(self.tools), set(self._TOOLS))
+
+    def test_descripciones_dicen_app(self) -> None:
+        import re
+
+        for nombre in self._TOOLS:
+            with self.subTest(tool=nombre):
+                texto = self.tools[nombre].__doc__ or ""
+                self.assertRegex(texto, r"\bapps?\b")
+                # «app (add-on)» la primera vez, para quien busque el término viejo.
+                self.assertRegex(texto, r"\bapps? \(add-ons?\)")
+                # Tras la primera mención, «add-on» ya no se usa para el objeto.
+                self.assertEqual(len(re.findall(r"add-on", texto)), 1, texto[:80])
+
+    def test_nombres_y_argumentos_los_de_la_1_1_2(self) -> None:
+        fixture = json.loads(
+            (Path(__file__).parent / "fixtures" / "esquemas_1_1_2.json")
+            .read_text(encoding="utf-8"))
+        for nombre in self._TOOLS:
+            self.assertIn(nombre, fixture)
