@@ -33,6 +33,28 @@ CORE_API_DENY = re.compile(r"^hassio(?:/|_)")
 # frontend de HA, porque Core los ejecuta llamando al Supervisor con su token
 # de máximo privilegio.
 DENIED_WS_TYPE_PREFIXES = ("supervisor/", "hassio/")
+# `FILTERS` de `supervisor/api/middleware/security.py` del Supervisor
+# 2026.11.0, copiado tal cual. El real lo aplica (`block_bad_requests`, su
+# primer middleware, antes incluso de mirar el token) a la ruta y a la query
+# decodificadas con `recursive_unquote`, y responde 400. Sin él, el simulado
+# dejaría pasar peticiones (`concat(`, `union … select (`, `<script>`, `../`)
+# que en producción no llegan a Core: un test de history, logbook o queries
+# podría pasar en el banco y fallar en una instalación real.
+FILTERS = re.compile(
+    r"(?:"
+    # Common exploits
+    r"proc/self/environ"
+    r"|^(?>.*?(?:<|%3C))(?>.*?script).*?(?:>|%3E)"
+    # File Injections
+    r"|(\.\.//?)+"  # ../../anywhere
+    r"|[a-zA-Z0-9_]=/([a-z0-9_.]//?)+"  # .html?v=/.//test
+    # SQL Injections
+    r"|^(?>.*?union)(?>.*?select).*?\("
+    r"|^(?>.*?union)(?>.*?all).*?select"
+    r"|^(?>.*?concat).*?\("
+    r")",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
 # El real reenvía a Core solo estas cabeceras del cliente (y nunca su token).
 CABECERAS_REENVIADAS = ("Content-Type", "Accept")
 # El real espera la fase de auth del add-on como mucho 10 s, igual que Core.
@@ -94,6 +116,18 @@ def crear_app(core_url: str, token_addon: str, token_core: str, version_core: st
                 text=json.dumps({"result": "error", "message": "Unauthorized"}),
                 content_type="application/json",
             )
+
+    @web.middleware
+    async def bloquear_peticiones_peligrosas(
+        request: web.Request, handler: Any
+    ) -> web.StreamResponse:
+        # `block_bad_requests` del real: `request.path` ya viene decodificado
+        # una vez y `_desescapar` termina el trabajo, igual que allí.
+        if FILTERS.search(_desescapar(request.path)) or FILTERS.search(
+            _desescapar(request.query_string)
+        ):
+            raise web.HTTPBadRequest()
+        return await handler(request)
 
     @web.middleware
     async def no_encontrado(request: web.Request, handler: Any) -> web.StreamResponse:
@@ -225,7 +259,8 @@ def crear_app(core_url: str, token_addon: str, token_core: str, version_core: st
     async def cerrar_sesion(app: web.Application) -> None:
         await app[_CLAVE_SESION].close()
 
-    app = web.Application(middlewares=[no_encontrado])
+    # Mismo orden que el real: el filtro va primero.
+    app = web.Application(middlewares=[bloquear_peticiones_peligrosas, no_encontrado])
     app.on_startup.append(abrir_sesion)
     app.on_cleanup.append(cerrar_sesion)
     app.router.add_get("/supervisor/ping", ping)

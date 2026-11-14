@@ -19,6 +19,7 @@ import secrets
 import unittest
 
 import aiohttp
+from yarl import URL
 
 from tests.banco.core_doble import CoreDoble
 from tests.banco.supervisor_simulado import arrancar
@@ -124,6 +125,51 @@ class TestProxyRest(_ConSimulado):
         await self.core.__aexit__(None, None, None)
         estado, _ = await self._get("/core/api/eco/algo", headers=self._auth())
         self.assertEqual(estado, 502)
+
+
+class TestFiltrosComoElReal(_ConSimulado):
+    """T039: `block_bad_requests` del real (FILTERS sobre la ruta y la query
+    decodificadas). El simulado no puede ser más permisivo que él.
+
+    Control negativo (T039), comprobado en local y restaurado: sin el
+    middleware `bloquear_peticiones_peligrosas` caen los dos tests de 400 (las
+    peticiones llegan a Core con 200).
+    """
+
+    PELIGROSAS = (
+        "/core/api/eco/algo?q=concat(1)",
+        "/core/api/eco/algo?q=union%20select%20(1)",
+        "/core/api/eco/algo?q=union%20all%20select%201",
+        "/core/api/eco/%3Cscript%3Ealert(1)%3C/script%3E",
+        "/core/api/eco/algo?q=%253Cscript%253E",
+        "/core/api/eco/algo?v=/.//b",
+        "/core/api/eco/algo?f=..%2F..%2Fsecretos",
+        "/core/api/eco/proc/self/environ",
+    )
+
+    async def _estado(self, ruta: str, **kw: object) -> int:
+        url = URL(self.url + ruta, encoded=True)
+        async with self.session.get(url, **kw) as resp:  # type: ignore[arg-type]
+            return resp.status
+
+    async def test_peticiones_peligrosas_400_sin_llegar_a_core(self) -> None:
+        for ruta in self.PELIGROSAS:
+            self.assertEqual(await self._estado(ruta, headers=self._auth()), 400, ruta)
+        self.assertEqual(self.core.registro.rest, [])
+
+    async def test_el_filtro_va_antes_que_el_token(self) -> None:
+        # Como en el real: es el primer middleware, así que sin token también 400.
+        self.assertEqual(await self._estado(self.PELIGROSAS[0]), 400)
+
+    async def test_consultas_normales_pasan(self) -> None:
+        for ruta in (
+            "/core/api/eco/history/period/2026-11-14T00:00:00%2B00:00"
+            "?filter_entity_id=light.salon,sensor.temperatura&minimal_response",
+            "/core/api/eco/logbook?entity=light.salon&end_time=2026-11-14T01:00:00",
+            "/core/api/eco/template?nombre=union_de_datos",
+        ):
+            self.assertEqual(await self._estado(ruta, headers=self._auth()), 200, ruta)
+        self.assertEqual(len(self.core.registro.rest), 3)
 
 
 class TestProxyWebSocket(_ConSimulado):
