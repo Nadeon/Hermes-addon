@@ -179,3 +179,15 @@ MVP = tramo 1 (CAP-019, la única de prioridad alta: evita perder tarjetas al
 reescribir un dashboard grande). El tramo 2 desbloquea la 023 (CAP-020) y fija
 la forma de las listas para las sub-features de tools nuevas (CAP-023). Todo
 sale en la 1.2.0 con el resto del programa.
+
+---
+
+## Fase 3: Convergencia
+
+Añadida por la revisión independiente y `speckit-converge` sobre la punta de la
+rama (e40c89c). Los FR-001…FR-019 están cumplidos en el código; lo que queda son
+tres hallazgos bajos. Severidad entre corchetes.
+
+- [ ] T027 [BAJO] `SECURITY.md` (párrafo de la denylist, «only those two tools lift it, after validating their token») no es cierto: además de `ha_call_service` y `ha_call_service_response`, levantan la guarda del cliente con `allow_dangerous=True`, siempre tras validar su token, las tools de recarga (`hermes/src/hermes/tools/_common.py`, helper de `ha_reload_*`) y `guarded_entity_invoke` (`ha_run_script`, `ha_trigger_automation`). Corregir la frase para que diga que solo la levantan las tools con confirmación en dos pasos, después de validar su token (o nombrarlas todas) per FR-011, FR-019, Constitution V (contradicts)
+- [ ] T028 [BAJO] `hermes/src/hermes/tools/lovelace.py` (`_guardar_vista`, «`True` no es un índice») y `tests/test_tools_lovelace.py::TestGuardarPorVista::test_view_invalida`: por el servidor MCP real, el SDK valida `view_index: int | None` en modo laxo y `true`, `"1"` y `1.0` llegan como el entero `1` (comprobado con `HermesMCPServer.call_tool`), así que el rechazo de `True` y de `"1"` solo existe llamando a la función directamente y el test prueba un camino que ningún cliente recorre. Arreglo mínimo: o se declara `view_index` estricto (`Annotated[int, Strict()]`, mismo esquema JSON `integer`; comprobar que la instantánea de esquemas no cambia) y se añade un test por `call_tool` que vea `true` y `"1"` rechazados, o se quita la promesa del comentario y el test pasa a documentar la coerción por `call_tool`; control negativo per FR-005, Constitution V y VII (partial)
+- [ ] T029 [BAJO] `tests/test_sobre_de_lista.py::incumplen` es fail-open: una tool nueva cuya función no encuentra el AST (registrada con nombre dinámico, por una factoría o fuera de `hermes/src/hermes/tools/`) no se señala aunque devuelva una lista suelta. Hoy no hay ninguna (comprobado: las 4 nuevas se encuentran), pero el test pasaría con el código roto. Arreglo mínimo: que `test_las_listas_nuevas_usan_el_sobre` exija además que toda tool nueva `ha_list_*`/`sv_list_*` del registro real se haya encontrado por AST (o esté en `EXCEPCIONES_SOBRE`), con un caso sintético de control negativo per FR-014, Constitution VII (partial)
