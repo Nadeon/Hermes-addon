@@ -25,12 +25,12 @@ Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufijo
-from tests.banco.entorno import llamar
 from tests.banco.lector import ErrorCore
 
 pytestmark = pytest.mark.banco
@@ -295,6 +295,17 @@ async def _datos_de_la_entrada(s: SesionEscrituras, entry_id: str) -> dict[str, 
     return {c["name"]: c.get("default") for c in paso["data_schema"]}
 
 
+async def _rechazo(s: SesionEscrituras, tool: str, **args: Any) -> dict[str, Any]:
+    """Llama a una tool que DEBE rechazar y devuelve su `{"error": …}`.
+
+    Como en `test_banco_genericas.py`: Hermes marca con `isError` toda
+    respuesta `{"error": …}`, y `llamar` lo convertiría en fallo del test.
+    """
+    resultado = await s.cliente.call_tool(tool, args)
+    assert getattr(resultado, "is_error", False), f"{tool}: se esperaba un rechazo"
+    return json.loads(resultado.content[0].text)
+
+
 async def _paso_del_flujo(s: SesionEscrituras, flow_id: str) -> tuple[int, Any]:
     return await s.lector.rest("GET", f"{_RUTA_FLUJOS}/{flow_id}")
 
@@ -408,8 +419,8 @@ class TestReconfigure(BancoEscrituras):
             nuevo = {"valor": f"banco-{sufijo()}", "clave": f"clave-{sufijo()}"}
 
             # La tool general lo rechaza y el flujo sigue donde estaba.
-            rechazo = await llamar(
-                s.cliente, "ha_continue_config_entry_flow", flow_id=flow_id, user_input=nuevo
+            rechazo = await _rechazo(
+                s, "ha_continue_config_entry_flow", flow_id=flow_id, user_input=nuevo
             )
             self.assertEqual(
                 (rechazo.get("error"), rechazo.get("tool")),
