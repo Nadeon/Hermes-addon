@@ -245,3 +245,21 @@ rama (8e833d7). Severidad entre corchetes.
 - [x] T035 [BAJO] `TestEntornoKitchenSink` (T017) corre DESPUÉS de los tests de dispositivos y reparaciones (orden alfabético de ficheros), así que no cumple «antes de probar ninguna tool»: si `kitchen_sink` no carga, `TestDispositivo` cae con `IndexError` y `TestReparacion` con un `StopIteration` convertido, sin el motivo. Arreglo mínimo: que los tests que dependen de `kitchen_sink` empiecen esperando la entrada `loaded` con el mismo mensaje (una ayuda común), o mover la comprobación a un fichero que se recoja antes per T017, FR-008 (partial)
 - [x] T036 [BAJO] Documentación alineada con lo comprobado: tras T030, el CHANGELOG y la HOJA-DE-RUTA dicen «las 100 `ha_*`» y «ninguna ha fallado»; con el contrato de la 010 son 99 probadas y 1 que falla (`ha_reload_counters`), más el hallazgo de T032. FR-007, US4 y el docstring de `tests/banco/cobertura_escrituras.py` siguen el contrato viejo (la tool en `xfail` sigue en las probadas). US2/AC5 y la tabla de `data-model.md` siguen pidiendo que el lector vea los valores nuevos del flujo de opciones (desviación aceptada en las notas del tramo B, sin reflejar en esos documentos) per FR-010, FR-007 (partial)
 - [x] T037 [BAJO] En `TestCancelarEspera`, el evento del lector tras cancelar no comprueba nada: `resultado` ya se había leído y la última aserción repite la anterior. Comprobar algo observable tras el evento (por ejemplo, que `ha_list_active_waits` sigue sin la espera) o quitar esa parte y su frase del docstring per FR-001 (research R-7) (partial)
+
+### Notas de la convergencia (T030–T037)
+
+- **Integración**: `git merge --no-ff` de la rama del programa (009 y 010
+  completas). Conflictos en `tests/test_banco_entorno.py` (se conservan los
+  dos imports), la hoja de ruta y el CHANGELOG (se suman los dos textos).
+- **Control negativo de CI**: rama desechable `prueba/028-control-c`, run
+  43641370136, banco en rojo con tres sabotajes a la vez: (T030)
+  `ha_fire_event` llamada sin `llamar` → el plugin del job la nombra entre las
+  probadas sin ejecutar; (T031) `guarded_reload` llamando en la vista previa y
+  no en la confirmación → «la vista previa ha llamado a automation/script/
+  scene.reload sin token»; (T033) ninguna entidad restringida → «se esperaba
+  una vista previa con token» en `ha_run_script` y `ha_trigger_automation`.
+  Rama borrada en remoto y en local.
+- **Hallazgos para el supervisor (spec 033)**: `ha_create_scene_from_current`
+  con `name` (T032) y, de seguridad y prioridad máxima, el token de
+  `ha_run_script` y `ha_trigger_automation` sin `variables` (T033). Los dos en
+  `xfail` estricto, en `XFAIL_PERMITIDOS_028`.
