@@ -35,7 +35,7 @@ from typing import Any
 import structlog
 
 from hermes import safety_retention as _retencion
-from hermes.supervisor_jobs import child_job_errors, job_errors
+from hermes.supervisor_jobs import child_job_errors, job_errors, redact_child_jobs
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
@@ -733,7 +733,9 @@ def register(
                 "progress": data.get("progress"),
                 "stage": data.get("stage"),
                 "reference": data.get("reference"),
-                "child_jobs": data.get("child_jobs"),
+                # Entero, pero redactado: los mensajes de los sub-jobs pueden
+                # citar secretos, igual que los de `child_errors`.
+                "child_jobs": redact_child_jobs(data.get("child_jobs")),
             }
             if hijos_recortados:
                 result["child_errors_truncated"] = True

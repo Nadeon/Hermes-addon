@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hermes.security import redact_secrets
+from hermes.security import redact_secrets, redact_structure
 
 # Tope de cada mensaje de error de un job. El Supervisor puede devolver trazas
 # largas; al cliente le basta el motivo.
@@ -118,3 +118,27 @@ def child_errors_as_text(errores: list[dict[str, Any]], recortado: bool) -> list
     if recortado:
         lineas.append("more sub-jobs not checked (limit reached)")
     return lineas
+
+
+def redact_child_jobs(child_jobs: Any) -> Any:
+    """`child_jobs` de la respuesta del Supervisor, con los secretos tapados.
+
+    `sv_get_job_status` devuelve `child_jobs` entero además de `child_errors`.
+    Sin esto, un secreto en el error de un sub-job salía en claro por ahí
+    aunque `child_errors` lo tapara (hallazgo de la revisión de la 027). Se
+    aplican las dos redacciones: `redact_structure`, para los valores bajo
+    claves sensibles (`password`, `token`…, p. ej. en `extra_fields`), y
+    `redact_secrets` en cada texto, la misma que `child_errors`, porque el
+    secreto suele ir DENTRO de `message`, una clave que no es sensible.
+    """
+    return _redactar_textos(redact_structure(child_jobs))
+
+
+def _redactar_textos(valor: Any) -> Any:
+    if isinstance(valor, dict):
+        return {k: _redactar_textos(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [_redactar_textos(v) for v in valor]
+    if isinstance(valor, str):
+        return redact_secrets(valor)
+    return valor

@@ -987,6 +987,28 @@ class TestJobStatusSubJobs(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("centinela-027", json.dumps(result["errors"]))
         self.assertNotIn("centinela-027", json.dumps(result["child_errors"]))
 
+    async def test_centinela_anidado_no_sale_en_ninguna_parte(self) -> None:
+        """Un secreto en el error de un sub-job anidado no sale ni por
+        `child_errors` ni por `child_jobs`, que se devuelve entero.
+
+        Control negativo comprobado: con `"child_jobs": data.get("child_jobs")`
+        (sin redactar) en `sv_get_job_status` → en rojo.
+        """
+        nieto = self._sub("backup_app_save", ["fallo: token=centinela-027-a"])
+        nieto["errors"][0]["extra_fields"] = {"password": "centinela-027-b"}
+        result = await self._estado({
+            "name": "backup_full", "done": True, "errors": [],
+            "child_jobs": [self._sub("backup_store_apps", [], hijos=[
+                self._sub("backup_app", [], hijos=[nieto])])],
+        })
+        texto = json.dumps(result)
+        self.assertNotIn("centinela-027", texto)
+        # Lo que no es secreto sigue ahí: la estructura y los nombres.
+        self.assertEqual(
+            result["child_jobs"][0]["child_jobs"][0]["child_jobs"][0]["name"],
+            "backup_app_save")
+        self.assertIs(result["success"], False)
+
     def test_descripcion(self) -> None:
         texto = self.tools["sv_get_job_status"].__doc__ or ""
         for frase in (
