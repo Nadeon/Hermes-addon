@@ -196,6 +196,15 @@ Notas de reparto:
 
 ---
 
+## Fase 7: Revisión de seguridad de 1.1.0
+
+- [X] T063 Tests de regresión en `tests/test_security_review_1_1_0.py` con su control negativo (ejecutados contra `e5fcb04`: fallan todos los de comportamiento) y un espía de conexiones cuyo propio control comprueba que aiohttp sí conecta a una IP literal sin pasar por el resolvedor (FR-053…FR-060)
+- [X] T064 `cimd.py`: host DNS obligatorio en `parse_client_id_url` y en `_fetch` (FR-053); `CimdInvalidError.definitive` (FR-056); cupo por IP, clientes conocidos (`pin`, `trusted`) y expulsión que respeta a los conocidos (FR-055); sin descompresión, pool de DNS, rangos y `redirect_uri` (FR-059); `User-Agent` sin versión (FR-054)
+- [X] T065 `oauth.py`: `oauth_cimd_allowed_hosts` antes de descargar, IP de origen al resolvedor, `pin` tras la contraseña correcta, refresh `trusted`, 503 sin revocar en fallos no definitivos, `validate_token` y canje de código cortados con CIMD apagado o host fuera de la lista, log sin el host de una URL inválida (FR-054…FR-058)
+- [X] T066 Opción `oauth_cimd_allowed_hosts` en `config.py` (lectura que no convierte un valor ilegible en lista vacía y validación al arrancar), `config.yaml` (esquema y opción), `run.sh` y `__main__.py` (FR-054)
+- [X] T067 `addons.py` (`self`) y `logging_setup.py` (prefijos `::`, escapes, `_`, ceros a la izquierda) (FR-060)
+- [X] T068 DOCS.md, SECURITY.md, los dos README y el CHANGELOG (`## [1.1.0]`, apartados Security) (FR-054)
+
 ## Dependencias y orden de ejecución
 
 - **Fase 1** → **Fase 2 (fase 0)** → **Lotes A, B y C en paralelo** → **Integración**.

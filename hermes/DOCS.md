@@ -112,7 +112,30 @@ milisegundos) o con `timeout` en la entrada del servidor.
 | Opción | Defecto | Qué es |
 |---|---|---|
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
+| `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (por ejemplo `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**. Ver el aviso de abajo |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los nombres `*.ts.net` y las IPs (salvo las de loopback) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
+
+**Aviso sobre `oauth_cimd_allowed_hosts`.** Con CIMD, quien abre la página de
+autorización de Hermes elige la URL del documento del cliente, y no necesita la
+contraseña para hacerlo. Hermes descarga esa URL **desde la IP de tu casa**, así
+que el dueño del dominio elegido ve tu IP pública, la que un túnel como Funnel
+oculta. Tu hostname público no es secreto: aparece en los registros públicos de
+certificados. Con la lista vacía (el valor por defecto, para no romper ningún
+cliente), cualquiera puede provocarlo. Para restringirlo, pon solo los hosts que
+uses:
+
+```yaml
+oauth_cimd_allowed_hosts:
+  - claude.ai
+```
+
+Así Hermes rechaza cualquier otro host sin descargar nada. Escribe solo el
+nombre, sin `https://`, puerto ni ruta; una IP no vale, y un valor mal escrito
+impide arrancar para que la lista no quede vacía por error. Si un cliente deja
+de conectar, el evento `oauth_cimd_rejected` con motivo `host_not_allowed` del
+log dice qué host añadir. Quitar un host de la lista también invalida los tokens
+que ya tenían sus clientes, sin borrarlos: si lo vuelves a poner, siguen
+valiendo.
 
 ## Problemas
 

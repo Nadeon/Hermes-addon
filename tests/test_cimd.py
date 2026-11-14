@@ -176,7 +176,10 @@ class TestSafeResolver(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(url=url):
                     with self.assertRaises(CimdInvalidError) as ctx:
                         await resolver.resolve(url)
-                    self.assertEqual(ctx.exception.reason, "forbidden_address")
+                    # Desde la revisión 1.1.0 (ALTO-1) ningún literal IP pasa
+                    # la forma de la URL: se rechaza antes de llegar al filtro
+                    # de direcciones.
+                    self.assertEqual(ctx.exception.reason, "ip_host")
             self.assertEqual(len(m.requests), 0)
         self.assertEqual(gai.calls, [])
 

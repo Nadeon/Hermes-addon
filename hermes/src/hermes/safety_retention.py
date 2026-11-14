@@ -33,6 +33,7 @@ from typing import Any
 import structlog
 
 from hermes.identifiers import InvalidIdentifier, validate_identifier, validate_slug
+from hermes.supervisor_jobs import job_errors as _job_errors
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +77,64 @@ def _lock() -> asyncio.Lock:
     if _LOCK is None or _LOCK[0] is not bucle:
         _LOCK = (bucle, asyncio.Lock())
     return _LOCK[1]
+
+
+# ── Lock del safety backup ────────────────────────────────────
+# Una sola comprobación del safety backup a la vez: dos escrituras en
+# paralelo veían «nada pendiente» y lanzaban dos backups completos; el
+# Supervisor rechazaba el segundo y esa escritura fallaba en vez de esperar.
+# El bucle y su lock van juntos en una sola global: con dos globales
+# separadas (lock y bucle) CodeQL daba la del bucle por no usada, y además
+# nada impedía actualizar una sin la otra.
+#
+# Vive aquí y no en `fs_write` porque también lo toma la tool
+# `sv_create_safety_backup` (`tools/backups.py`), y ese módulo no puede
+# importar `fs_write` sin crear un import circular (`fs_write` importa
+# `tools/backups`). Los dos importan ya este módulo.
+_SAFETY_LOCK: tuple[Any, asyncio.Lock] | None = None
+
+# Lo que espera como mucho una escritura (o la tool) a que termine el safety
+# backup de otra. El lock se mantiene durante el sondeo del job (hasta 300 s)
+# y la poda; sin tope, una escritura que Claude ya dio por fallida (corta a
+# los 60 o 240 s) se ejecutaba minutos después, quizá tras un reintento o un
+# cambio de plan (revisión 1.1.0, BAJO-12).
+SAFETY_LOCK_WAIT_SECONDS = 10.0
+
+
+def safety_backup_lock() -> asyncio.Lock:
+    """Lock del safety backup ligado al bucle de eventos en curso.
+
+    Un `asyncio.Lock` creado en un bucle no se puede usar en otro; en
+    producción hay un solo bucle, pero se recrea si cambia para no romper.
+    """
+    global _SAFETY_LOCK
+    loop = asyncio.get_running_loop()
+    if _SAFETY_LOCK is None or _SAFETY_LOCK[0] is not loop:
+        _SAFETY_LOCK = (loop, asyncio.Lock())
+    return _SAFETY_LOCK[1]
+
+
+async def acquire_safety_backup_lock() -> bool:
+    """Toma el lock esperando como mucho `SAFETY_LOCK_WAIT_SECONDS`.
+
+    True si se tomó (quien llama debe liberarlo); False si otro safety
+    backup lo sigue teniendo.
+    """
+    lock = safety_backup_lock()
+    try:
+        async with asyncio.timeout(SAFETY_LOCK_WAIT_SECONDS):
+            await lock.acquire()
+    except TimeoutError:
+        return False
+    return True
+
+
+SAFETY_LOCK_BUSY: dict[str, Any] = {
+    "error": "safety_backup_in_progress: another operation is waiting for a "
+             "safety backup to finish; retry in a minute",
+    "hint": "Nothing was written. Check pending backups with "
+            "sv_list_pending_jobs or sv_get_job_status before retrying.",
+}
 
 
 def _ruta() -> Path:
@@ -185,15 +244,38 @@ async def record_launch(name: str, job_id: str | None, origin: str,
         "confirmed_by": "sync_response" if slug_ok else None,
     }
     async with _lock():
-        entradas, _legible = _cargar()
+        entradas, legible = _cargar()
+        if not legible and not _apartar_ilegible():
+            # No se pudo conservar la anotación ilegible: mejor perder esta
+            # entrada (su backup no se podará) que pisar todas las anteriores.
+            return
         entradas.append(entrada)
         _guardar(entradas)
 
 
+def _apartar_ilegible() -> bool:
+    """Renombra la anotación ilegible a `.corrupt-<ts>` antes de rehacerla.
+
+    Reescribirla sin más borraba en silencio las entradas confirmadas: sus
+    backups ya no se podaban nunca y el disco volvía a llenarse, como antes
+    de 1.1.0. Apartada, se puede recuperar a mano y el fallo queda en el log
+    como error, no como aviso (revisión 1.1.0, BAJO-10).
+    """
+    ruta = _ruta()
+    destino = ruta.with_name(f"{ruta.name}.corrupt-{int(time.time())}")
+    try:
+        ruta.replace(destino)
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        logger.error("safety_backup_ledger_corrupt", saved_as=None, error=str(exc))
+        return False
+    logger.error("safety_backup_ledger_corrupt", saved_as=destino.name)
+    return True
+
+
 def _clasificar_job(job_data: Any) -> tuple[str, str | None]:
     """("ok", slug), ("fallo", None) o ("indeterminado", None)."""
-    from hermes.tools.backups import _job_errors
-
     if not isinstance(job_data, dict) or job_data.get("done") is not True:
         return "indeterminado", None
     if not isinstance(job_data.get("errors"), list) or _job_errors(job_data):

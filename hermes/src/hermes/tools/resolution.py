@@ -31,8 +31,12 @@ logger = structlog.get_logger(__name__)
 
 _EFECTO_ISSUE = (
     "Removes this issue from the Supervisor. It may come back on the next "
-    "check if the condition persists."
+    "check if the condition persists. Suggestions linked to this issue may "
+    "be removed with it."
 )
+# La última frase: el Supervisor puede descartar junto al issue las
+# sugerencias ligadas a él, y la preview no lo decía (revisión 1.1.0, matiz
+# de BAJO-13). Se dice «may» porque depende de la versión del Supervisor.
 _EFECTO_SUGERENCIA = (
     "Removes this suggestion from the Supervisor without applying it. It may "
     "come back on the next check if the condition persists. Hermes never "

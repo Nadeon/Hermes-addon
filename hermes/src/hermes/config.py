@@ -105,6 +105,26 @@ def _env_list(key: str) -> list[str]:
         return []
 
 
+def _env_host_list(key: str) -> list[str]:
+    """Lista JSON de hosts; si no se puede leer, devuelve el texto tal cual.
+
+    A diferencia de `_env_list`, un valor ilegible NO se convierte en lista
+    vacía: en `oauth_cimd_allowed_hosts` vacía significa «cualquier host», y
+    un error de formato abriría en vez de cerrar. El texto crudo no pasa la
+    validación y Hermes no arranca.
+    """
+    raw = os.environ.get(key, "")
+    if not raw or raw == "null":
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return [raw]
+    if not isinstance(parsed, list):
+        return [raw]
+    return [str(item) for item in parsed if item]
+
+
 def _es_ip_o_red(valor: str) -> bool:
     """True si `valor` es una IP suelta o una red en CIDR.
 
@@ -241,6 +261,12 @@ class HermesConfig:
     # Interruptor de los clientes CIMD (`client_id` con URL https://). Existe
     # para poder volver solo a DCR si CIMD rompe a un cliente real (FR-023).
     oauth_cimd_enabled: bool = True
+    # Hosts cuyos documentos CIMD se aceptan. Vacía = cualquier host público.
+    # Cada descarga sale de la IP de casa hacia el host del `client_id`, que
+    # elige quien abre /oauth/authorize sin contraseña: con la lista, Hermes
+    # solo contacta con los hosts que el dueño ha decidido (revisión 1.1.0,
+    # MEDIO-1).
+    oauth_cimd_allowed_hosts: list[str] = field(default_factory=list)
 
     # ── Log ───────────────────────────────────────────────────
     # Seudonimiza IPs y hostnames en el log, que la gente pega en foros al
@@ -323,6 +349,18 @@ class HermesConfig:
                 f"safety_backup_keep fuera de rango: {self.safety_backup_keep}. "
                 "Debe estar entre 0 (sin retención) y 50."
             )
+        # Un host mal escrito no se descarta en silencio: si la lista
+        # quedara vacía, Hermes aceptaría cualquier host (fail-closed).
+        from hermes.cimd import normalize_allowed_hosts
+
+        try:
+            normalize_allowed_hosts(self.oauth_cimd_allowed_hosts)
+        except ValueError as exc:
+            raise ValueError(
+                f"{exc}. Escribe solo nombres DNS, sin esquema, puerto ni "
+                "path (ej. claude.ai). Una IP no vale: un cliente CIMD nunca "
+                "se identifica con una IP."
+            ) from exc
         if not self.supervisor_token:
             raise ValueError(
                 "SUPERVISOR_TOKEN no está disponible en el entorno. "
@@ -412,6 +450,7 @@ def load_config() -> HermesConfig:
         ),
         fire_event_allowlist=_env_list("HERMES_FIRE_EVENT_ALLOWLIST"),
         oauth_cimd_enabled=_env_bool("HERMES_OAUTH_CIMD_ENABLED", True),
+        oauth_cimd_allowed_hosts=_env_host_list("HERMES_OAUTH_CIMD_ALLOWED_HOSTS"),
         log_redact_network=_env_bool("HERMES_LOG_REDACT_NETWORK", True),
         supervisor_token=_env_str("SUPERVISOR_TOKEN"),
         adjustments=ajustes,

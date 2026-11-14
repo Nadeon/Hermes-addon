@@ -35,11 +35,11 @@ from typing import Any
 import structlog
 
 from hermes import safety_retention as _retencion
+from hermes.supervisor_jobs import job_errors
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
-    redact_secrets,
     validate_confirmation_token,
 )
 from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
@@ -112,33 +112,9 @@ def _save_safety_state(state: dict[str, Any]) -> None:
     tmp.replace(_SAFETY_BACKUP_STATE_PATH)
 
 
-# Tope de cada mensaje de error de un job. El Supervisor puede devolver trazas
-# largas; al cliente le basta el motivo.
-_JOB_ERROR_MAX_CHARS = 500
-
-
-def _job_errors(data: Any) -> list[str]:
-    """Mensajes de error de un job del Supervisor (`GET /jobs/{uuid}`), saneados.
-
-    El job termina con `done: true` TAMBIÉN cuando falla, y los motivos van en
-    `errors` (lista de `{type, message, stage}`). Solo se toma `message`: el
-    resto no aporta al cliente. Se recorta y se pasa por `redact_secrets`
-    porque el texto del Supervisor puede citar opciones o rutas con secretos.
-    Un error sin `message` de texto cuenta igual como error: perderlo haría
-    pasar un job fallido por correcto.
-    """
-    if not isinstance(data, dict):
-        return []
-    errores = data.get("errors")
-    if not isinstance(errores, list):
-        return []
-    mensajes: list[str] = []
-    for error in errores:
-        mensaje = error.get("message") if isinstance(error, dict) else None
-        if not isinstance(mensaje, str) or not mensaje:
-            mensaje = "unknown error"
-        mensajes.append(redact_secrets(mensaje[:_JOB_ERROR_MAX_CHARS]))
-    return mensajes
+# `_job_errors` vive en `hermes.supervisor_jobs` para romper el import
+# circular con `safety_retention`; el alias mantiene el nombre de siempre.
+_job_errors = job_errors
 
 
 def _size_mb(backup: dict[str, Any]) -> float | None:
@@ -367,6 +343,19 @@ def register(
             Si crea uno nuevo: {"job_id": "...", "status": "running",
             "poll_with": "sv_get_job_status"}.
         """
+        # El mismo lock que el safety backup automático de `fs_write`: sin él,
+        # la tool reescribía el estado entero mientras el camino automático
+        # sondeaba un job, y se perdía la referencia `pending_*` (revisión
+        # 1.1.0, BAJO-11). Espera acotada, como las escrituras (BAJO-12).
+        if not await _retencion.acquire_safety_backup_lock():
+            return dict(_retencion.SAFETY_LOCK_BUSY)
+        try:
+            return await _crear_safety_backup()
+        finally:
+            _retencion.safety_backup_lock().release()
+
+    async def _crear_safety_backup() -> object:
+        """Cuerpo de `sv_create_safety_backup`, ya con el lock tomado."""
         now = time.time()
         state = _load_safety_state()
         last_ts = _leer_marca(state)

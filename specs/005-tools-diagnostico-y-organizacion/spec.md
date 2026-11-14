@@ -331,6 +331,12 @@ todas las tools nuevas están registradas y bien anotadas.
 - **FR-043** [Principios VI, VII]: Cada tool nueva y la retención DEBEN tener tests escritos antes de su implementación, y cada uno un control negativo documentado (deshacer la guarda y ver caer el test).
 - **FR-044** [Principio VIII]: Ningún fichero modificado DEBE contener datos personales ni de ninguna instalación concreta, ni identificadores de modelos de IA.
 
+### Revisión de seguridad de 1.1.0 (añadidos y cambios)
+
+- **FR-045** [BAJO-13; amplía FR-017]: Con `detail="full"`, `ha_get_trace` DEBE tapar además el `webhook_id` (clave sensible para toda redacción por clave) y cualquier valor que coincida entero con uno de `secrets.yaml` de 4 caracteres o más, porque la `config` de la traza llega con los `!secret` resueltos. La preview de `sv_dismiss_resolution_issue` DEBE avisar de que el Supervisor puede descartar con el issue sus sugerencias.
+- **FR-046** [BAJO-10; amplía FR-032 y FR-035]: Si la anotación de la retención no se puede leer, el siguiente lanzamiento DEBE apartarla como `safety_backups.json.corrupt-<epoch>` y registrar `safety_backup_ledger_corrupt` como error antes de rehacerla; si ni siquiera se puede apartar, no se reescribe.
+- **FR-047** [BAJO-11, BAJO-12]: `sv_create_safety_backup` DEBE tomar el mismo lock que el safety backup automático, y tanto la tool como una escritura en `/config` DEBEN esperar ese lock como mucho 10 s; al vencer, devuelven `safety_backup_in_progress` sin escribir nada. El lock vive en `safety_retention` y `_job_errors` en `supervisor_jobs`, para que `tools/backups.py` y `safety_retention.py` no se importen en círculo (alertas de CodeQL).
+
 ### Entidades clave
 
 - **Planta (floor)**: `floor_id`, nombre, nivel, icono, alias. Las áreas la referencian con `floor_id`.

@@ -86,6 +86,7 @@ export HERMES_CALL_SERVICE_DENYLIST_EXTRA="$(jq -c '.call_service_denylist_extra
 export HERMES_CALL_SERVICE_RESTRICTED_ENTITIES="$(jq -c '.call_service_restricted_entities // []' "$OPTIONS")"
 export HERMES_CALL_SERVICE_AUTO_CLASSIFY="$(cfg_default call_service_auto_classify_dangerous true)"
 export HERMES_FIRE_EVENT_ALLOWLIST="$(jq -c '.fire_event_allowlist // []' "$OPTIONS")"
+export HERMES_OAUTH_CIMD_ALLOWED_HOSTS="$(jq -c '.oauth_cimd_allowed_hosts // []' "$OPTIONS")"
 
 # ── Token del Supervisor (inyectado por HAOS) ─────────────────
 # SUPERVISOR_TOKEN ya está en el entorno del contenedor del add-on.

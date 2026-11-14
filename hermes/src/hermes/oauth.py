@@ -42,7 +42,9 @@ from hermes.cimd import (
     CimdResolver,
     CimdTemporaryError,
     client_id_host,
+    host_allowed,
     is_loopback_redirect,
+    normalize_allowed_hosts,
     parse_client_id_url,
     redirect_uri_matches,
 )
@@ -467,6 +469,7 @@ class OAuthServer:
         public_hostname: str,
         cimd_enabled: bool = True,
         cimd_resolver: CimdResolver | None = None,
+        cimd_allowed_hosts: list[str] | tuple[str, ...] = (),
     ) -> None:
         self._auth_password = auth_password
         self._public_hostname = public_hostname
@@ -478,6 +481,10 @@ class OAuthServer:
         # funciona igual con o sin CIMD.
         self._cimd_enabled = cimd_enabled
         self._cimd = cimd_resolver or CimdResolver()
+        # `oauth_cimd_allowed_hosts`: vacía = cualquier host público. Una
+        # entrada inválida lanza ValueError: no se puede ignorar, porque una
+        # lista que se queda vacía por error abriría en vez de cerrar.
+        self._cimd_allowed_hosts = normalize_allowed_hosts(cimd_allowed_hosts)
         _ensure_dirs()
         # Un fallo aquí (disco lleno, un Python sin scrypt) no puede impedir
         # arrancar: se pierde solo el cierre de sesiones por cambio de
@@ -673,6 +680,8 @@ class OAuthServer:
         "disabled": "Client ID Metadata Documents are disabled on this server",
         "bad_url": "client_id is not an acceptable metadata document URL",
         "forbidden_address": "client metadata document host is not allowed",
+        "host_not_allowed": "client metadata document host is not in this "
+                            "server's allowed list (oauth_cimd_allowed_hosts)",
         "temporary": "could not retrieve the client metadata document; try again later",
         "invalid": "client metadata document is invalid",
         "redirect_uri": "redirect_uri is not registered for this client",
@@ -682,12 +691,16 @@ class OAuthServer:
         """Página 400 de un rechazo CIMD, con su evento en el log (FR-024).
 
         Al log va el motivo y el host, nunca el contenido del documento: es
-        texto de un tercero.
+        texto de un tercero. Si la URL no es válida, el host tampoco va: lo
+        elige quien llama, y una IP elegida por él quedaría en el log junto a
+        su seudónimo, que luego le serviría para desenmascarar las IPs de
+        otras líneas de un log que el dueño publique (revisión 1.1.0, BAJO-3).
         """
+        host = client_id_host(client_id) if parse_client_id_url(client_id) is None else ""
         logger.warning(
             "oauth_cimd_rejected",
             reason=reason,
-            client_host=client_id_host(client_id) or "?",
+            client_host=host or "?",
         )
         return self._request_error_html(self._CIMD_MESSAGES[kind])
 
@@ -703,8 +716,22 @@ class OAuthServer:
         own_host = (urlsplit(self._base_url).hostname or "").lower()
         return bool(own_host) and client_id_host(client_id) == own_host
 
+    def _cimd_blocked(self, client_id: str) -> str | None:
+        """Motivo por el que la configuración no admite a este cliente CIMD.
+
+        Lo comprueban el authorize, los dos grants del token endpoint y
+        `validate_token`: apagar CIMD o quitar un host de la lista tiene que
+        cortar también lo ya emitido, no solo los logins nuevos (revisión
+        1.1.0, BAJO-9). No se borra nada, por si el dueño lo vuelve a abrir.
+        """
+        if not self._cimd_enabled:
+            return "disabled"
+        if not host_allowed(client_id, self._cimd_allowed_hosts):
+            return "host_not_allowed"
+        return None
+
     async def _check_cimd_client(
-        self, client_id: str, redirect_uri: str
+        self, client_id: str, redirect_uri: str, source: str | None = None
     ) -> CimdClient | HTMLResponse:
         """Valida un cliente CIMD y su `redirect_uri`, o devuelve la página de error.
 
@@ -720,8 +747,12 @@ class OAuthServer:
             return self._cimd_reject(client_id, reason, "bad_url")
         if self._is_own_url(client_id):
             return self._cimd_reject(client_id, "own_url", "bad_url")
+        # La lista se aplica ANTES de descargar y de gastar cupo: un host que
+        # no está en ella nunca recibe una petición desde la IP de casa.
+        if self._cimd_blocked(client_id) == "host_not_allowed":
+            return self._cimd_reject(client_id, "host_not_allowed", "host_not_allowed")
         try:
-            client = await self._cimd.resolve(client_id)
+            client = await self._cimd.resolve(client_id, source=source)
         except CimdTemporaryError as exc:
             return self._cimd_reject(client_id, exc.reason, "temporary")
         except CimdInvalidError as exc:
@@ -852,7 +883,10 @@ class OAuthServer:
 
         cimd_client: CimdClient | None = None
         if _is_cimd_client_id(client_id):
-            checked = await self._check_cimd_client(client_id, redirect_uri)
+            checked = await self._check_cimd_client(
+                client_id, redirect_uri,
+                source=request.client.host if request.client else None,
+            )
             if isinstance(checked, HTMLResponse):
                 return checked
             cimd_client = checked
@@ -905,7 +939,10 @@ class OAuthServer:
         # documento viene de la caché, sin otra descarga.
         cimd_client: CimdClient | None = None
         if _is_cimd_client_id(client_id):
-            checked = await self._check_cimd_client(client_id, redirect_uri)
+            checked = await self._check_cimd_client(
+                client_id, redirect_uri,
+                source=request.client.host if request.client else None,
+            )
             if isinstance(checked, HTMLResponse):
                 return checked
             cimd_client = checked
@@ -973,6 +1010,10 @@ class OAuthServer:
         await self._reset_login_throttle(src_ip)
 
         if cimd_client is not None:
+            # El dueño ha demostrado quién es con este cliente: pasa a ser
+            # conocido y ningún anónimo puede echarlo de la caché ni dejarlo
+            # sin cupo (ver `CimdResolver.pin`).
+            self._cimd.pin(client_id)
             # Ya validado arriba: documento y redirect_uri (con la regla de
             # loopback). La comparación exacta de DCR de más abajo rechazaría
             # el puerto efímero de Claude Code.
@@ -1177,6 +1218,12 @@ class OAuthServer:
         if code_data.get("client_id") != client_id:
             _safe_unlink(code_path)
             return self._token_error("invalid_grant", "client_id_mismatch", grant, client_id)
+        if _is_cimd_client_id(client_id) and (bloqueo := self._cimd_blocked(client_id)):
+            # Código emitido antes de que el dueño apagara CIMD o quitara el
+            # host de la lista: ya no se canjea (BAJO-9).
+            _safe_unlink(code_path)
+            return self._token_error("invalid_client", f"cimd_{bloqueo}", grant,
+                                     client_id, status=401)
         if redirect_uri and code_data.get("redirect_uri") != redirect_uri:
             _safe_unlink(code_path)
             return self._token_error("invalid_grant", "redirect_uri_mismatch", grant, client_id)
@@ -1360,19 +1407,30 @@ class OAuthServer:
         documento que ya no vale revoca las sesiones del cliente (FR-018); un
         fallo temporal sin copia usable es un 503 y no toca nada (FR-015).
         """
-        if not self._cimd_enabled:
-            # El dueño apagó CIMD: no se renueva a sus clientes, pero tampoco
-            # se borra nada por si lo vuelve a encender.
-            return self._token_error("invalid_client", "cimd_disabled", grant,
+        if (bloqueo := self._cimd_blocked(client_id)) is not None:
+            # El dueño apagó CIMD o quitó el host de la lista: no se renueva a
+            # sus clientes, pero tampoco se borra nada por si lo vuelve a abrir.
+            return self._token_error("invalid_client", f"cimd_{bloqueo}", grant,
                                      client_id, status=401)
         try:
-            client = await self._cimd.resolve(client_id)
+            # `trusted`: quien llama presentó un refresh token válido, así que
+            # no es un anónimo y la recarga no depende del cupo (MEDIO-2).
+            client = await self._cimd.resolve(client_id, trusted=True)
         except CimdTemporaryError as exc:
             logger.warning("oauth_cimd_rejected", reason=exc.reason,
                            client_host=client_id_host(client_id) or "?")
             return self._token_error("temporarily_unavailable", "cimd_temporary",
                                      grant, client_id, status=503)
         except CimdInvalidError as exc:
+            if not exc.definitive:
+                # 401/403/3xx o dirección prohibida: no prueban que el cliente
+                # haya dejado de ser válido (un CDN, un DNS64 local). Se
+                # rechaza como temporal y no se revoca nada (BAJO-6).
+                logger.warning("oauth_cimd_rejected", reason=exc.reason,
+                               client_host=client_id_host(client_id) or "?",
+                               revoked=0)
+                return self._token_error("temporarily_unavailable", "cimd_temporary",
+                                         grant, client_id, status=503)
             revocados = _revoke_client_refresh_tokens(client_id)
             logger.warning("oauth_cimd_rejected", reason=exc.reason,
                            client_host=client_id_host(client_id) or "?",
@@ -1534,6 +1592,11 @@ class OAuthServer:
         # vale aquí. Sin el campo es un token de 1.0.12 o anterior: se acepta
         # hasta que caduque, para que actualizar no eche a nadie (FR-031).
         if "resource" in token_data and token_data["resource"] != self._canonical_resource:
+            return False
+        # Un access token CIMD deja de valer en cuanto el dueño apaga CIMD o
+        # quita su host de la lista; si no, seguiría hasta 1 h (BAJO-9).
+        token_client = str(token_data.get("client_id", ""))
+        if _is_cimd_client_id(token_client) and self._cimd_blocked(token_client):
             return False
 
         return True

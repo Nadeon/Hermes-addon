@@ -134,11 +134,20 @@ _TS_NET_RE = re.compile(
 
 # Candidatos amplios; quien decide es `ipaddress`. Así `2026.11.1`,
 # `999.1.1.1`, una hora `06:54:12` o una MAC no se tocan. Delante no puede ir
-# una letra ni un dígito: `v1.2.3.4-beta` es una versión, no una IP.
-_IPV4_RE = re.compile(r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?![\w]|\.\d)")
+# una letra ni un dígito: `v1.2.3.4-beta` es una versión, no una IP. Sí puede
+# ir un `_` (`x_192.0.2.5`) o un escape JSON `\n`/`\t`/`\r`: en las líneas
+# antiguas que `sv_get_addon_logs` vuelve a redactar, la IP que sigue a un
+# salto de línea escapado va pegada a la `n` (revisión 1.1.0, BAJO-2).
+_IPV4_RE = re.compile(
+    r"(?:(?<=\\[ntr])|(?<![A-Za-z0-9.]))\d{1,3}(?:\.\d{1,3}){3}(?![\w]|\.\d)"
+)
 # IPv6: hex, `:` y `.` (para `::ffff:10.0.0.5`). Se exigen en código al menos
 # dos `:`. Los corchetes de `[2001:db8::1]:443` quedan fuera del candidato.
-_IPV6_RE = re.compile(r"(?<![\w:.])[0-9A-Fa-f:][0-9A-Fa-f:.]*[0-9A-Fa-f](?![\w:])")
+# Puede acabar en `::`: el prefijo delegado por el ISP (`2001:db8:1::/48`)
+# identifica al abonado tanto como una dirección completa.
+_IPV6_RE = re.compile(
+    r"(?<![\w:.])[0-9A-Fa-f:][0-9A-Fa-f:.]*(?:[0-9A-Fa-f]|::)(?![\w:])"
+)
 
 # Rangos de la tailnet: el CGNAT que usa Tailscale y su ULA fija.
 _TAILNET_NETS = (
@@ -206,10 +215,23 @@ def _replace_ip(match: re.Match[str], salt: bytes, *, v6: bool) -> str:
     text = match.group(0)
     if v6 and text.count(":") < 2:
         return text
+    # Un candidato que acaba en `:` solo vale si es `::` tras al menos dos
+    # grupos (`2001:db8::`): así `a::` o `::` sueltos no se toman por IPs.
+    if v6 and text.endswith(":") and (
+        not text.endswith("::") or len([g for g in text.split(":") if g]) < 2
+    ):
+        return text
     try:
         ip = ipaddress.ip_address(text)
     except ValueError:
-        return text
+        # `192.168.001.010`: `ipaddress` no admite ceros a la izquierda,
+        # pero sigue siendo una IPv4 que identifica a alguien.
+        if v6:
+            return text
+        try:
+            ip = ipaddress.ip_address(".".join(str(int(o)) for o in text.split(".")))
+        except ValueError:
+            return text
     # Loopback no identifica a nadie y es lo que más ayuda a leer el log
     # (`trusted_proxy_ips: ["127.0.0.1"]`).
     if _unmap(ip).is_loopback:

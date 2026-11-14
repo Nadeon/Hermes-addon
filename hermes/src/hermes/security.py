@@ -434,6 +434,10 @@ _SENSITIVE_KEY_MARKERS: tuple[str, ...] = (
     "psk", "shared_key", "sharedkey",
     "network_key", "networkkey",
     "encryption_key", "encryptionkey",
+    # Credencial de hecho: quien conoce el `webhook_id` dispara la
+    # automatización sin autenticarse, y viaja en la `config` y en
+    # `trigger` de las trazas (revisión 1.1.0, BAJO-13).
+    "webhook_id",
 )
 
 # Público porque las tools de escritura lo necesitan para lo contrario: rechazar

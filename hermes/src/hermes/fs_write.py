@@ -678,26 +678,9 @@ _SAFETY_POLL_INTERVAL_SECONDS = 15.0
 # `fs_*` para siempre sin decir cómo salir.
 _SAFETY_PENDING_MAX_AGE_SECONDS = 2 * 3600.0
 
-# Una sola comprobación del safety backup a la vez: dos escrituras en
-# paralelo veían «nada pendiente» y lanzaban dos backups completos; el
-# Supervisor rechazaba el segundo y esa escritura fallaba en vez de esperar.
-# El bucle y su lock van juntos en una sola global: con dos globales
-# separadas (lock y bucle) CodeQL daba la del bucle por no usada, y además
-# nada impedía actualizar una sin la otra.
-_SAFETY_LOCK: tuple[Any, asyncio.Lock] | None = None
-
-
-def _safety_lock() -> asyncio.Lock:
-    """Lock del safety backup ligado al bucle de eventos en curso.
-
-    Un `asyncio.Lock` creado en un bucle no se puede usar en otro; en
-    producción hay un solo bucle, pero se recrea si cambia para no romper.
-    """
-    global _SAFETY_LOCK
-    loop = asyncio.get_running_loop()
-    if _SAFETY_LOCK is None or _SAFETY_LOCK[0] is not loop:
-        _SAFETY_LOCK = (loop, asyncio.Lock())
-    return _SAFETY_LOCK[1]
+# Lock del safety backup: vive en `safety_retention` para que la tool
+# `sv_create_safety_backup` lo comparta sin un import circular (ver allí).
+_safety_lock = _retencion.safety_backup_lock
 
 
 def _es_404(exc: Exception) -> bool:
@@ -718,7 +701,7 @@ def _evaluar_job(job_data: Any) -> tuple[str, list[str]]:
     Returns:
         ("ok", []), ("fallo", mensajes), ("en_curso", []) o ("raro", []).
     """
-    from hermes.tools.backups import _job_errors
+    from hermes.supervisor_jobs import job_errors as _job_errors
 
     if not isinstance(job_data, dict) or not isinstance(job_data.get("done"), bool):
         return "raro", []
@@ -907,10 +890,16 @@ async def maybe_trigger_safety_backup(
     if not enabled:
         return None
 
-    async with _safety_lock():
+    if not await _retencion.acquire_safety_backup_lock():
+        logger.warning("safety_backup_lock_timeout",
+                       waited_seconds=_retencion.SAFETY_LOCK_WAIT_SECONDS)
+        return dict(_retencion.SAFETY_LOCK_BUSY)
+    try:
         return await _maybe_trigger_safety_backup(
             ha_client, safety_backup_window_minutes, ctx=ctx, keep=keep
         )
+    finally:
+        _safety_lock().release()
 
 
 async def _maybe_trigger_safety_backup(

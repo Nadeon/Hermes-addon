@@ -19,9 +19,11 @@ import re
 from typing import Any
 
 import structlog
+import yaml
 
+from hermes import fs as _fs
 from hermes.ha import HAClient, HAConnectionError
-from hermes.security import redact_secrets, redact_structure
+from hermes.security import REDACTED_MARKER, redact_secrets, redact_structure
 from hermes.tools._common import requires_ready
 
 logger = structlog.get_logger(__name__)
@@ -80,6 +82,68 @@ def _redactar(valor: Any) -> Any:
         return [_redactar(v) for v in valor]
     if isinstance(valor, str):
         return redact_secrets(_acotar(valor, _MAX_CADENA))
+    return valor
+
+
+# Valores de `secrets.yaml` más cortos que esto no se buscan en la traza: un
+# secreto `on` o `80` taparía media configuración sin proteger nada.
+_MIN_SECRETO = 4
+
+
+class _SecretsLoader(yaml.SafeLoader):
+    """SafeLoader que ignora las etiquetas de HA (`!include`, `!env_var`…).
+
+    Solo se quieren los valores literales; seguir un `!include` desde aquí
+    leería ficheros que la tool no necesita.
+    """
+
+
+_SecretsLoader.add_multi_constructor("!", lambda loader, suffix, node: None)
+
+
+def _valores_secretos() -> frozenset[str]:
+    """Valores de `secrets.yaml`, para taparlos en la traza `full`.
+
+    La `config` de una traza es la configuración ya cargada, con los
+    `!secret` resueltos: un secreto bajo una clave inocente (`url`,
+    `message`) salía en claro, porque `redact_secrets` solo reconoce
+    patrones. Comparar con los valores reales es lo único que lo atrapa
+    (revisión 1.1.0, BAJO-13). Si el fichero no se puede leer, no se tapa
+    nada más: la traza sale como antes, con las otras dos capas.
+    """
+    try:
+        texto = (_fs.CONFIG_BASE / "secrets.yaml").read_text(encoding="utf-8")
+        datos = yaml.load(texto, Loader=_SecretsLoader)  # noqa: S506 — SafeLoader
+    except Exception:  # noqa: BLE001 — sin fichero o ilegible: nada que tapar
+        return frozenset()
+    if not isinstance(datos, dict):
+        return frozenset()
+    valores = set()
+    for v in datos.values():
+        if isinstance(v, bool) or not isinstance(v, (str, int, float)):
+            continue
+        if len(str(v)) >= _MIN_SECRETO:
+            valores.add(str(v))
+    return frozenset(valores)
+
+
+def _tapar_secretos(valor: Any, secretos: frozenset[str]) -> Any:
+    """Sustituye los valores que coinciden ENTEROS con un secreto.
+
+    Coincidencia exacta y no por subcadena: `!secret` sustituye el valor
+    completo, y buscar subcadenas taparía texto legítimo que casualmente
+    contiene el secreto corto de otro sitio.
+    """
+    if not secretos:
+        return valor
+    if isinstance(valor, dict):
+        return {k: _tapar_secretos(v, secretos) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [_tapar_secretos(v, secretos) for v in valor]
+    if isinstance(valor, bool):
+        return valor
+    if isinstance(valor, (str, int, float)) and str(valor) in secretos:
+        return REDACTED_MARKER
     return valor
 
 
@@ -196,7 +260,7 @@ def _completo(traza: dict[str, Any], domain: str) -> dict[str, Any]:
     # `blueprint_inputs` y `context` no salen ni en `full`: no ayudan a
     # diagnosticar y el contexto lleva ids de usuario.
     doc["truncated"] = False
-    return doc
+    return _tapar_secretos(doc, _valores_secretos())
 
 
 def _tam(valor: Any) -> int:

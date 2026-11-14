@@ -20,9 +20,12 @@ Defensas (borrador CIMD §6, RFC 6890, RFC 8252):
   * Sin redirecciones, sin proxies del entorno, 5 s en total y 5 120 bytes.
   * JSON estricto y validación de cada campo; `client_id` igual carácter a
     carácter a la URL descargada.
-  * Cupo de descargas (4 simultáneas, 30 por minuto) para no servir de
-    amplificador a quien rota IPs.
-  * Caché en memoria acotada; los errores nunca se cachean.
+  * Cupo de descargas (4 simultáneas, 30 por minuto en total y 10 por IP de
+    origen) para no servir de amplificador a quien rota IPs. Los clientes ya
+    conocidos (refresh con un token válido, o un cliente con el que el dueño
+    ya inició sesión) no gastan cupo: un anónimo no puede dejarlos fuera.
+  * Caché en memoria acotada; los errores nunca se cachean y las entradas de
+    los clientes conocidos no las expulsan las de los anónimos.
 
 Todo es fail-closed: cualquier caso no previsto acaba en error, nunca en un
 documento aceptado.
@@ -31,6 +34,8 @@ documento aceptado.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import functools
 import ipaddress
 import json
 import re
@@ -38,14 +43,12 @@ import socket
 import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterable
 from urllib.parse import urlsplit
 
 import aiohttp
 import structlog
 from aiohttp.abc import AbstractResolver, ResolveResult
-
-from hermes import __version__
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +59,13 @@ FETCH_TIMEOUT_SECONDS = 5.0        # tiempo total de la descarga
 MAX_CONCURRENT_FETCHES = 4
 MAX_FETCHES_PER_WINDOW = 30
 FETCH_WINDOW_SECONDS = 60.0
+# Cupo por IP de origen dentro del global: con solo el global, dos IPs (el
+# freno pre-auth deja 20 peticiones por minuto a cada una) bastaban para
+# agotarlo y dejar al dueño sin poder iniciar sesión (revisión 1.1.0, MEDIO-2).
+MAX_FETCHES_PER_SOURCE_PER_WINDOW = 10
+# Clientes «conocidos» (ver `CimdResolver.pin`): con los que el dueño ya
+# inició sesión o renovó tokens. Pocos: son los dispositivos del dueño.
+MAX_PINNED = 16
 
 # Caché (FR-016, FR-017). Las cifras son supuestos de la spec (S-09).
 CACHE_MAX_ENTRIES = 64
@@ -83,6 +93,44 @@ _NAT64_WKP = ipaddress.ip_network("64:ff9b::/96")
 # IPv4-compatibles (obsoletas, RFC 4291 §2.5.5.1): `::a00:5` es "global" para
 # `ipaddress` y embebe 10.0.0.5. Ningún servidor público legítimo las usa.
 _IPV4_COMPAT = ipaddress.ip_network("::/96")
+# IPv4 traducida (SIIT, RFC 6145/7915): `::ffff:0:a00:5` es 10.0.0.5 detrás
+# de un traductor, e `ipaddress` la da por global (revisión 1.1.0, BAJO-7).
+_IPV4_TRANSLATED = ipaddress.ip_network("::ffff:0:0:0/96")
+# Rangos que `ipaddress` da por globales pero que no son destinos públicos:
+# site-local obsoleto (aún enrutado en alguna LAN) y SRv6 (RFC 9602).
+_IPV6_EXTRA_FORBIDDEN = (
+    ipaddress.ip_network("fec0::/10"),
+    ipaddress.ip_network("5f00::/16"),
+)
+
+# Nombre DNS en minúsculas, sin punto final, con al menos dos etiquetas y un
+# TLD que empieza por letra. Que el TLD no pueda empezar por un dígito es lo
+# que deja fuera todas las formas de IPv4 que acepta `inet_aton` (`127.1`,
+# `2130706433`, `0177.0.0.1`, `0x7f.1`): aiohttp las da por IP, no las pasa
+# por el resolvedor seguro y conecta a ellas directamente (revisión 1.1.0,
+# ALTO-1).
+_DNS_HOST_RE = re.compile(
+    r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?"
+)
+
+# Resolución DNS en un pool propio y pequeño: `loop.getaddrinfo` usa el
+# executor por defecto, el mismo que `validate_token` usa en CADA petición
+# MCP. Un DNS autoritativo que no responde nunca (lo controla quien elige el
+# `client_id`) dejaría hilos colgados que `asyncio.timeout` no mata, y con
+# unos pocos el MCP del dueño se pararía (revisión 1.1.0, BAJO-5).
+_DNS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="hermes-cimd-dns"
+)
+
+
+async def _pooled_getaddrinfo(host: str, port: int, *, type: int = 0,
+                              family: int = 0) -> list[tuple[Any, ...]]:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _DNS_EXECUTOR,
+        functools.partial(socket.getaddrinfo, host, port, family, type),
+    )
 
 
 # ── Errores y resultado ───────────────────────────────────────
@@ -97,11 +145,32 @@ class CimdError(Exception):
 
 
 class CimdInvalidError(CimdError):
-    """Fallo definitivo: URL, dirección, respuesta o documento inaceptables.
+    """Fallo: URL, dirección, respuesta o documento inaceptables.
 
-    Borra la copia de la caché; en el token endpoint revoca los refresh tokens
-    del cliente (FR-018).
+    Si es `definitive` borra la copia de la caché y, en el token endpoint,
+    revoca los refresh tokens del cliente (FR-018). Si no lo es, se rechaza
+    igual pero sin borrar nada: ver `definitive`.
     """
+
+    @property
+    def definitive(self) -> bool:
+        """True si el fallo prueba que el CLIENTE ya no es válido.
+
+        Solo lo prueban un documento inválido o un 404/410. Un 401/403 (la
+        gestión de bots de un CDN), un 3xx (el documento se ha movido), una
+        dirección prohibida (DNS64 local, un filtro DNS que responde 0.0.0.0)
+        o una codificación no pedida pueden ser cosa de la red o del
+        servidor, y revocar por ellos echaba de golpe todas las sesiones del
+        dueño (revisión 1.1.0, BAJO-6).
+        """
+        if self.reason in ("http_404", "http_410"):
+            return True
+        if self.reason.startswith("http_") or self.reason in _SOFT_INVALID_REASONS:
+            return False
+        return True
+
+
+_SOFT_INVALID_REASONS = frozenset({"redirect", "forbidden_address", "content_encoding"})
 
 
 class CimdTemporaryError(CimdError):
@@ -163,6 +232,9 @@ def parse_client_id_url(url: str) -> str | None:
         return "bad_port"
     if port is not None and port != 443:
         return "bad_port"
+    host_reason = dns_host_problem(parts.hostname)
+    if host_reason:
+        return host_reason
     if not parts.path or parts.path == "/":
         return "no_path"
     for segment in parts.path.split("/"):
@@ -171,6 +243,54 @@ def parse_client_id_url(url: str) -> str | None:
         if decoded in (".", ".."):
             return "dot_segment"
     return None
+
+
+def dns_host_problem(host: str | None) -> str | None:
+    """Motivo por el que `host` no es un nombre DNS aceptable, o None.
+
+    Un `client_id` CIMD legítimo nunca es una IP. Rechazar aquí cualquier
+    forma numérica o con `:` evita depender de cómo decide aiohttp qué es una
+    IP (una heurística que ha cambiado entre versiones): ningún literal llega
+    a la descarga. El punto final también se rechaza (`127.0.0.1.`, o
+    `claude.ai.` como alias de `claude.ai`).
+    """
+    host = (host or "").lower()
+    if not host:
+        return "no_host"
+    last_label = host.rstrip(".").rsplit(".", 1)[-1]
+    if ":" in host or host.replace(".", "").isdigit() or last_label[:1].isdigit():
+        return "ip_host"
+    if not _DNS_HOST_RE.fullmatch(host):
+        return "bad_host"
+    return None
+
+
+def normalize_host(host: str) -> str:
+    """Host en minúsculas y sin punto final, para comparar con la lista."""
+    return (host or "").strip().lower().rstrip(".")
+
+
+def normalize_allowed_hosts(hosts: Iterable[str]) -> frozenset[str]:
+    """Normaliza `oauth_cimd_allowed_hosts`; ValueError si alguno no es DNS.
+
+    Una entrada mal escrita no se ignora: si se descartara y la lista quedara
+    vacía, «vacía» significa «cualquier host» y el error abriría en vez de
+    cerrar.
+    """
+    out: set[str] = set()
+    for raw in hosts:
+        host = normalize_host(str(raw))
+        if dns_host_problem(host):
+            raise ValueError(f"oauth_cimd_allowed_hosts: host no válido: {raw!r}")
+        out.add(host)
+    return frozenset(out)
+
+
+def host_allowed(url: str, allowed: frozenset[str]) -> bool:
+    """True si el host del `client_id` está permitido (lista vacía = todos)."""
+    if not allowed:
+        return True
+    return normalize_host(client_id_host(url)) in allowed
 
 
 def client_id_host(url: str) -> str:
@@ -197,6 +317,8 @@ def is_forbidden_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> b
     if isinstance(ip, ipaddress.IPv6Address):
         if ip in _IPV4_COMPAT:
             return True
+        if any(ip in net for net in _IPV6_EXTRA_FORBIDDEN):
+            return True
         embedded: list[ipaddress.IPv4Address] = []
         if ip.ipv4_mapped is not None:
             embedded.append(ip.ipv4_mapped)
@@ -204,7 +326,7 @@ def is_forbidden_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> b
             embedded.append(ip.sixtofour)
         if ip.teredo is not None:
             embedded.extend(ip.teredo)
-        if ip in _NAT64_WKP:
+        if ip in _NAT64_WKP or ip in _IPV4_TRANSLATED:
             embedded.append(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
         if any(is_forbidden_address(v4) for v4 in embedded):
             return True
@@ -252,7 +374,7 @@ class _SafeResolver(AbstractResolver):
             return [ResolveResult(hostname=host, host=str(literal), port=port,
                                   family=fam, proto=0, flags=socket.AI_NUMERICHOST)]
 
-        getaddrinfo = self._getaddrinfo or asyncio.get_running_loop().getaddrinfo
+        getaddrinfo = self._getaddrinfo or _pooled_getaddrinfo
         try:
             infos = await getaddrinfo(host, port, type=socket.SOCK_STREAM, family=family)
         except (OSError, UnicodeError) as exc:
@@ -410,6 +532,11 @@ def redirect_uri_matches(registered: str, requested: str) -> bool:
     antemano. Ahí se ignora SOLO el puerto; esquema `http`, host (el mismo
     literal en los dos), path y query siguen comparándose exactamente.
     """
+    # `urlsplit` quita `\t\r\n` en silencio: `http://local\nhost:1/cb`
+    # casaría con `http://localhost/cb` y la redirección real (con `%0A`) no
+    # sería la que se validó ni la que ve el dueño (revisión 1.1.0, BAJO-8).
+    if any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in requested):
+        return False
     if registered == requested:
         return True
     reg = _split_loopback(registered)
@@ -471,15 +598,37 @@ class CimdResolver:
         self._cache: OrderedDict[str, _CacheEntry] = OrderedDict()
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_FETCHES)
         self._fetch_times: deque[float] = deque()
+        self._source_times: dict[str, deque[float]] = {}
+        self._pinned: OrderedDict[str, None] = OrderedDict()
 
     def forget(self, url: str) -> None:
         """Borra la copia de `url` de la caché."""
         self._cache.pop(url, None)
+        self._pinned.pop(url, None)
 
-    async def resolve(self, url: str) -> CimdClient:
+    def pin(self, url: str) -> None:
+        """Marca `url` como cliente conocido del dueño.
+
+        Se llama cuando el dueño ya ha demostrado quién es con ese cliente
+        (contraseña correcta o refresh token válido). Un cliente conocido no
+        gasta cupo al recargar su documento y su entrada no la expulsan las de
+        clientes anónimos: así nadie sin contraseña puede dejar a Claude Code
+        sin login ni sin refresh (revisión 1.1.0, MEDIO-2).
+        """
+        self._pinned[url] = None
+        self._pinned.move_to_end(url)
+        while len(self._pinned) > MAX_PINNED:
+            self._pinned.popitem(last=False)
+
+    async def resolve(self, url: str, *, source: str | None = None,
+                      trusted: bool = False) -> CimdClient:
         """Documento válido de `url`, de la caché o descargado.
 
-        `CimdInvalidError`: fallo definitivo (borra la copia).
+        `source` es la IP de origen de una petición anónima (cupo por IP).
+        `trusted` indica que quien llama ya está autenticado (refresh token
+        válido): no gasta cupo y el cliente pasa a ser conocido.
+
+        `CimdInvalidError`: fallo (borra la copia solo si es definitivo).
         `CimdTemporaryError`: fallo temporal sin copia usable.
         """
         reason = parse_client_id_url(url)
@@ -493,7 +642,9 @@ class CimdResolver:
             return entry.client
 
         try:
-            client, lifetime = await self._fetch(url)
+            client, lifetime = await self._fetch(
+                url, source=source, charge_quota=not (trusted or url in self._pinned)
+            )
         except CimdTemporaryError as exc:
             if entry is not None and now - entry.fetched_at < STALE_MAX_AGE:
                 self._cache.move_to_end(url)
@@ -502,26 +653,63 @@ class CimdResolver:
                 return entry.client
             self._cache.pop(url, None)
             raise
-        except CimdInvalidError:
+        except CimdInvalidError as exc:
             # Los errores no se cachean, y una copia vieja de un documento que
-            # ahora es inválido tampoco puede seguir valiendo.
-            self._cache.pop(url, None)
+            # ahora es inválido tampoco puede seguir valiendo. Un fallo que no
+            # es definitivo (ver `definitive`) no prueba nada contra el
+            # documento: la copia se conserva para cuando el problema pase.
+            if exc.definitive:
+                self.forget(url)
             raise
 
         fetched_at = self._clock()
         self._cache[url] = _CacheEntry(client, fetched_at, fetched_at + lifetime)
         self._cache.move_to_end(url)
-        while len(self._cache) > CACHE_MAX_ENTRIES:
-            self._cache.popitem(last=False)
+        if trusted:
+            self.pin(url)
+        self._evict()
         return client
 
-    def _take_rate_slot(self) -> None:
-        """Reserva una descarga en la ventana de un minuto, o fallo temporal."""
+    def _evict(self) -> None:
+        """Deja la caché en su tamaño expulsando primero a los no conocidos.
+
+        Con un LRU puro, 64 documentos válidos publicados por cualquiera
+        echaban de la caché el de Claude Code y, con él, la copia de reserva
+        que el refresh usa si claude.ai falla un rato (revisión 1.1.0, MEDIO-2).
+        """
+        while len(self._cache) > CACHE_MAX_ENTRIES:
+            victim = next((u for u in self._cache if u not in self._pinned), None)
+            if victim is None:
+                self._cache.popitem(last=False)
+            else:
+                del self._cache[victim]
+
+    def _take_rate_slot(self, source: str | None = None) -> None:
+        """Reserva una descarga en la ventana de un minuto, o fallo temporal.
+
+        Se comprueban los dos cupos (global y de la IP de origen) antes de
+        anotar en ninguno: un rechazo no gasta cupo.
+        """
         now = self._monotonic()
-        while self._fetch_times and now - self._fetch_times[0] >= FETCH_WINDOW_SECONDS:
-            self._fetch_times.popleft()
+
+        def _purge(times: deque[float]) -> None:
+            while times and now - times[0] >= FETCH_WINDOW_SECONDS:
+                times.popleft()
+
+        _purge(self._fetch_times)
+        for key in list(self._source_times):
+            _purge(self._source_times[key])
+            if not self._source_times[key]:
+                del self._source_times[key]
         if len(self._fetch_times) >= MAX_FETCHES_PER_WINDOW:
             raise CimdTemporaryError("rate_limited")
+        if source is not None:
+            per_source = self._source_times.get(source)
+            if per_source is not None and len(per_source) >= MAX_FETCHES_PER_SOURCE_PER_WINDOW:
+                raise CimdTemporaryError("rate_limited")
+            # Solo se crean entradas para descargas que admite el cupo
+            # global, así que el diccionario nunca pasa de 30 IPs.
+            self._source_times.setdefault(source, deque()).append(now)
         self._fetch_times.append(now)
 
     def _new_session(self) -> aiohttp.ClientSession:
@@ -537,19 +725,30 @@ class CimdResolver:
             # Sin HTTP(S)_PROXY del entorno: con un proxy la conexión iría al
             # proxy y el filtro de direcciones no vería el destino real.
             trust_env=False,
-            headers={"User-Agent": f"Hermes/{__version__}"},
+            # Sin descompresión: el límite de 5 120 bytes debe medir lo que
+            # llega por la red, no lo que sale de un gzip. En aiohttp < 3.13.3
+            # un chunk comprimido pequeño se inflaba entero en memoria
+            # (CVE-2025-69223; revisión 1.1.0, BAJO-4).
+            auto_decompress=False,
+            # Sin versión: quien publica un `client_id` ve esta cabecera, y la
+            # versión exacta solo le sirve a un atacante (revisión 1.1.0,
+            # MEDIO-1).
+            headers={"User-Agent": "Hermes-CIMD"},
         )
 
-    async def _fetch(self, url: str) -> tuple[CimdClient, int]:
+    async def _fetch(self, url: str, *, source: str | None = None,
+                     charge_quota: bool = True) -> tuple[CimdClient, int]:
         """Descarga y valida `url`. Devuelve el cliente y la vida en caché."""
-        # aiohttp no pasa las IP literales por el resolvedor: se comprueban
-        # aquí, antes de abrir ninguna conexión.
-        host = urlsplit(url).hostname or ""
-        literal = _literal_ip(host)
-        if literal is not None and is_forbidden_address(literal):
-            raise CimdInvalidError("forbidden_address")
+        # Defensa en profundidad de `parse_client_id_url`: aiohttp no pasa
+        # por el resolvedor nada que ÉL considere una IP, y su criterio
+        # (`127.1`, `0177.0.0.1`…) no es el de `ipaddress`. Solo un nombre DNS
+        # llega a la conexión.
+        host_reason = dns_host_problem(urlsplit(url).hostname)
+        if host_reason:
+            raise CimdInvalidError(host_reason)
 
-        self._take_rate_slot()
+        if charge_quota:
+            self._take_rate_slot(source)
         async with self._semaphore:
             try:
                 async with asyncio.timeout(FETCH_TIMEOUT_SECONDS):
@@ -565,7 +764,7 @@ class CimdResolver:
         async with self._new_session() as session:
             async with session.get(
                 url,
-                headers={"Accept": "application/json"},
+                headers={"Accept": "application/json", "Accept-Encoding": "identity"},
                 # Una redirección llevaría a una URL que nadie ha validado
                 # (y que puede ser interna): cualquier 3xx es un error.
                 allow_redirects=False,
@@ -577,6 +776,11 @@ class CimdResolver:
                     raise CimdTemporaryError(f"http_{status}")
                 if status != 200:
                     raise CimdInvalidError(f"http_{status}")
+                encoding = resp.headers.get("Content-Encoding", "").strip().lower()
+                if encoding not in ("", "identity"):
+                    # Se pidió `identity`; un cuerpo comprimido ni se
+                    # descomprime (ver `_new_session`) ni se interpreta.
+                    raise CimdInvalidError("content_encoding")
                 if resp.content_length is not None and resp.content_length > MAX_DOCUMENT_BYTES:
                     raise CimdInvalidError("too_large")
                 # Se lee como mucho un byte más del límite: llegar a él es

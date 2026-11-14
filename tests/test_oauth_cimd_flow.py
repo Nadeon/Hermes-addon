@@ -46,6 +46,8 @@ class _FakeResolver:
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.kwargs: list[dict] = []
+        self.pinned: list[str] = []
         self.result: CimdClient | Exception = CimdClient(
             client_id=CLAUDE_CODE_URL,
             client_name="Claude Code",
@@ -53,11 +55,16 @@ class _FakeResolver:
             allow_refresh=True,
         )
 
-    async def resolve(self, url: str) -> CimdClient:
+    async def resolve(self, url: str, *, source: str | None = None,
+                      trusted: bool = False) -> CimdClient:
         self.calls.append(url)
+        self.kwargs.append({"source": source, "trusted": trusted})
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
+
+    def pin(self, url: str) -> None:
+        self.pinned.append(url)
 
 
 class _Req:

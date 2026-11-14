@@ -71,7 +71,10 @@ _LONG_OP_TIMEOUT = 300.0  # 5 minutos
 def _es_hermes(slug: str) -> bool:
     """True si el slug apunta al propio Hermes, esté instalado como esté."""
     s = slug.lower()
-    return s == _HERMES_SLUG or s == "hermes" or s.endswith("_hermes")
+    # `self` es el alias del Supervisor para el add-on que llama: con él,
+    # `/addons/self/logs` es el log de Hermes y se saltaba la redacción de red
+    # (revisión 1.1.0, BAJO-1).
+    return s in (_HERMES_SLUG, "hermes", "self") or s.endswith("_hermes")
 
 
 def _self_warning(slug: str, action: str) -> str | None:

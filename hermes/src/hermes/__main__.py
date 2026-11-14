@@ -482,6 +482,7 @@ def _build_oauth_server(config: HermesConfig) -> OAuthServer:
         auth_password=config.auth_password,
         public_hostname=config.public_hostname,
         cimd_enabled=config.oauth_cimd_enabled,
+        cimd_allowed_hosts=config.oauth_cimd_allowed_hosts,
     )
 
 

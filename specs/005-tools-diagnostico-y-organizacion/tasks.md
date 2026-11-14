@@ -198,6 +198,13 @@ Notas de reparto:
 
 ---
 
+## Fase 6: Revisión de seguridad de 1.1.0
+
+- [X] T072 Tests de regresión con control negativo en `tests/test_security_review_1_1_0.py` (BAJO-10…BAJO-13 y el import circular; fallan contra `e5fcb04`) (FR-045…FR-047)
+- [X] T073 `traces.py`: valores de `secrets.yaml` tapados en `full`; `security.py`: `webhook_id` como clave sensible; `resolution.py`: aviso de sugerencias en la preview (FR-045)
+- [X] T074 `safety_retention.py`: anotación ilegible apartada como `.corrupt-<epoch>` (FR-046)
+- [X] T075 Lock del safety backup en `safety_retention` con espera acotada a 10 s, usado por `fs_write` y por `sv_create_safety_backup`; `_job_errors` a `supervisor_jobs.py` (FR-047)
+
 ## Dependencias y orden de ejecución
 
 ### Entre fases

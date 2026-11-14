@@ -225,9 +225,65 @@ la forma de la URL se comprueba antes de descargar nada; Hermes resuelve el
 host y rechaza la petición si **alguna** dirección es de uso especial
 (loopback, privadas, link-local, CGNAT y por tanto la tailnet, ULA,
 multicast…), y conecta a las direcciones ya validadas sin volver a resolver.
-Sin redirecciones ni proxies del entorno, 5 s en total, 5 120 bytes como
-mucho, 4 descargas a la vez y 30 por minuto. Cada rechazo queda en el log como
-`oauth_cimd_rejected` con el motivo y el host, nunca con el documento.
+El host del `client_id` tiene que ser un nombre DNS: cualquier IP, incluidas
+las formas cortas, decimales, octales o con punto final de IPv4 (`127.1`,
+`2130706433`, `0177.0.0.1`, `127.0.0.1.`) que algunas librerías HTTP tratan
+como IP sin pasar por el resolvedor, se rechaza antes de descargar nada.
+Sin redirecciones, proxies del entorno ni cuerpos comprimidos, 5 s en total,
+5 120 bytes como mucho, 4 descargas a la vez, 30 por minuto en total y 10 por
+IP de origen. Cada rechazo queda en el log como `oauth_cimd_rejected` con el
+motivo y el host (solo si la URL es válida), nunca con el documento.
+
+### Security — Lista de hosts CIMD permitidos (`oauth_cimd_allowed_hosts`)
+
+Cada descarga de un documento CIMD sale **desde la IP de tu casa** hacia el
+host que elige quien abre `/oauth/authorize`, sin contraseña: el dueño de ese
+dominio ve tu IP pública, la que un túnel como Funnel oculta. La opción nueva
+`oauth_cimd_allowed_hosts` (vacía por defecto, que significa cualquier host
+público, como hasta ahora) limita CIMD a los hosts que pongas, por ejemplo
+`claude.ai` para Claude Code: cualquier otro se rechaza sin descargar nada.
+Quitar un host corta también los tokens que ya tenían sus clientes, sin
+borrarlos. Un valor mal escrito impide arrancar en vez de dejar la lista vacía.
+La petición ya no lleva la versión de Hermes en el `User-Agent`.
+
+### Security — Un anónimo ya no puede dejarte sin login ni sin refresh
+
+El cupo de descargas CIMD y la caché de documentos eran comunes a todos: desde
+dos IPs se podía agotar el cupo o echar de la caché el documento de Claude
+Code, y el dueño no podía iniciar sesión ni renovar el token. Ahora hay un
+cupo por IP de origen además del global; un cliente con el que ya iniciaste
+sesión, y cualquier refresh con un refresh token válido, no gasta cupo; y sus
+documentos no los expulsan los de clientes anónimos.
+
+### Security — Cambios menores de la revisión de seguridad
+
+- `sv_get_addon_logs("self")` pasa por la redacción de red: `self` es el
+  propio Hermes y se la saltaba.
+- La redacción del log cubre también los prefijos IPv6 que terminan en `::`
+  (el prefijo que asigna tu proveedor), las IPv4 tras un `\n` escapado o un
+  `_` y las IPv4 con ceros a la izquierda.
+- Un refresh solo revoca las sesiones de un cliente CIMD si su documento ha
+  desaparecido o es inválido (404/410, documento inválido, `client_id`
+  distinto). Un 401/403, una redirección o una dirección prohibida (un CDN, un
+  DNS64 local) responden «temporalmente no disponible» y no borran nada.
+- Con `oauth_cimd_enabled: false` dejan de valer también los access tokens y
+  los códigos ya emitidos a clientes CIMD.
+- Más rangos especiales prohibidos en las descargas CIMD: IPv4 traducida
+  (SIIT), site-local IPv6 y SRv6. Un `redirect_uri` con caracteres de control
+  ya no casa con el registrado. La resolución DNS de CIMD usa un pool propio
+  y no puede bloquear la validación de tokens.
+- `ha_get_trace(detail="full")` tapa el `webhook_id` y cualquier valor que
+  coincida con uno de `secrets.yaml` (los `!secret` llegan ya resueltos). El
+  `webhook_id` se tapa también en las demás respuestas que redactan por clave.
+- La anotación de la retención (`/data/safety_backups.json`), si está
+  corrupta, se aparta como `.corrupt-<fecha>` y se registra como error en vez
+  de reescribirse y perder su historia.
+- Una escritura en `/config` que espera al safety backup de otra se rinde a
+  los 10 s con `safety_backup_in_progress`, en vez de ejecutarse minutos
+  después de que el cliente la diera por fallida; `sv_create_safety_backup`
+  toma el mismo lock. La preview de descartar un issue del Supervisor avisa de
+  que puede llevarse sus sugerencias.
+- Mínimo `aiohttp>=3.13.3` (CVE-2025-69223).
 
 ### Fixed — Revisión de corrección antes de publicar
 
