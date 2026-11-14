@@ -461,8 +461,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
         - Si existe y no es temporal (de `scenes.yaml`, de YAML con `id` o de
           una integración), responde `scene_exists`: HA no la tocaría.
         - Si alguna entidad no existe, responde `entity_not_found`.
-        - Después comprueba que la scene tiene esas entidades; si no,
-          responde `scene_not_created`.
+        - Después comprueba que la scene tiene esas entidades (y, si la
+          reemplazaba, que HA la ha recreado); si no, responde
+          `scene_not_created`.
 
         Args:
             scene_id: id de la scene. Acepta `scene.fiesta` o simplemente
@@ -551,6 +552,22 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 )
                 return {"error": error}
 
+        # Al reemplazar, que las entidades coincidan no basta: una escena de
+        # YAML sin `id` (indistinguible de una temporal por su estado, S-03)
+        # con las mismas entidades seguiría igual aunque Core ignorase la
+        # petición. Core quita la escena y añade otra, así que un reemplazo
+        # real deja un `last_updated` nuevo: se guarda el de antes (por REST,
+        # sin la caché) y se exige que cambie.
+        before: dict[str, Any] | None = None
+        if replaced:
+            try:
+                before = await _fresh_state(eid)
+            except Exception as exc:
+                if confirmation_token:
+                    await complete_confirmation_token(
+                        confirmation_token, success=False, error=str(exc)
+                    )
+                raise
         try:
             result = await ha_client.call_service(
                 "scene", "create", {"scene_id": object_id, "snapshot_entities": entity_ids}
@@ -566,7 +583,16 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 )
             raise
         seen = (after.get("attributes") or {}).get("entity_id") if after else None
-        if not isinstance(seen, list) or sorted(set(seen)) != sorted(set(entity_ids)):
+        unchanged = (
+            before is not None
+            and after is not None
+            and after.get("last_updated") == before.get("last_updated")
+        )
+        if (
+            not isinstance(seen, list)
+            or sorted(set(seen)) != sorted(set(entity_ids))
+            or unchanged
+        ):
             if confirmation_token:
                 await complete_confirmation_token(
                     confirmation_token, success=False, error="scene_not_created"

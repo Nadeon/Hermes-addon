@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 from aiohttp import ClientSession
@@ -417,6 +418,7 @@ class TestEscenaDesdeElEstadoActual(unittest.IsolatedAsyncioTestCase):
                 "entity_id": "scene.temporal",
                 "state": "unknown",
                 "attributes": {"entity_id": ["light.salon"], "friendly_name": "temporal"},
+                "last_updated": "2026-01-01T00:00:00+00:00",
             },
             # De configuración (`scenes.yaml`): con `id`.
             "scene.fiesta": {
@@ -436,6 +438,9 @@ class TestEscenaDesdeElEstadoActual(unittest.IsolatedAsyncioTestCase):
         # Si el doble de `scene.create` no hace nada (como Core ante una
         # escena de configuración sin `id`, o sin entidades).
         self.ignorar_create = False
+        # Core quita la escena y añade otra: cada `scene.create` que hace
+        # algo deja un `last_updated` nuevo.
+        self.relojes = 0
 
         self.ha_client = make_ready_client(self.session, self.estados)
 
@@ -443,10 +448,12 @@ class TestEscenaDesdeElEstadoActual(unittest.IsolatedAsyncioTestCase):
             self.llamadas.append((domain, service, data))
             if (domain, service) == ("scene", "create") and not self.ignorar_create:
                 eid = "scene." + data["scene_id"]
+                self.relojes += 1
                 self.estados[eid] = {
                     "entity_id": eid,
                     "state": "unknown",
                     "attributes": {"entity_id": list(data["snapshot_entities"])},
+                    "last_updated": f"2026-01-02T00:00:{self.relojes:02d}+00:00",
                 }
             return [{"respuesta": "de HA"}]
 
@@ -555,6 +562,49 @@ class TestEscenaDesdeElEstadoActual(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r["scene_id"], "scene.temporal")
         self.assertEqual(r["seen_entity_ids"], ["light.salon"])
         self.assertEqual(len(self.llamadas), 1)
+
+    async def test_reemplazo_ignorado_con_las_mismas_entidades(self) -> None:
+        # T038 (B2 de la revisión): escena de YAML sin `id` (S-03), que la
+        # tool ve como temporal, con las mismas entidades que se piden. Core
+        # ignora `scene.create` y las entidades coinciden; solo el
+        # `last_updated` sin cambiar delata que no se reemplazó.
+        # Control negativo, comprobado y restaurado: sin la comparación de
+        # `last_updated` en `scenes.py`, la tool responde `replaced: true` y
+        # este test cae.
+        self.ignorar_create = True
+        vista = await self.tool("scene.temporal", ["light.salon"])
+        r = await self.tool("scene.temporal", ["light.salon"],
+                            confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r, {"error": "scene_not_created", "scene_id": "scene.temporal",
+                             "seen_entity_ids": ["light.salon"]})
+        self.assertEqual(len(self.llamadas), 1)
+
+    async def test_reemplazo_real_con_las_mismas_entidades(self) -> None:
+        # La otra cara de T038: si Core la recrea con las mismas entidades,
+        # el `last_updated` cambia y es un reemplazo de verdad.
+        vista = await self.tool("scene.temporal", ["light.salon"])
+        r = await self.tool("scene.temporal", ["light.salon"],
+                            confirmation_token=vista["confirmation_token"])
+        self.assertEqual((r["result"], r["replaced"]), ("ok", True))
+
+    async def test_token_ajeno_con_escena_nueva(self) -> None:
+        # T039 (B3 de la revisión): con `confirmation_token` y la escena sin
+        # existir, el token se valida igual (fail-closed). Ni uno aleatorio (con
+        # forma válida, para pasar del chequeo de formato) ni
+        # uno de otra tool hacen nada en HA.
+        # Control negativo, comprobado y restaurado: validando solo dentro del
+        # camino del reemplazo, los dos tokens pasan, se llama a
+        # `scene.create` y este test cae.
+        r = await self.tool("scene.nueva", ["light.salon"], confirmation_token=str(uuid.uuid4()))
+        self.assertIn("expired or lost", r.get("error", ""))
+        ajeno = await security.create_confirmation_token(
+            "ha_delete_scene", {"scene_id": "nueva"}, preview={"action": "delete"}
+        )
+        r = await self.tool("scene.nueva", ["light.salon"],
+                            confirmation_token=ajeno["confirmation_token"])
+        self.assertIn("does not match", r.get("error", ""))
+        self.assertEqual(self.llamadas, [])
+        self.assertNotIn("scene.nueva", self.estados)
 
     async def test_escena_nueva_que_no_aparece(self) -> None:
         self.ignorar_create = True

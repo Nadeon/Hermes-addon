@@ -30,7 +30,9 @@ estos tests es ya `xfail`:
   ahora responde `name_not_supported` sin llamar a HA, crea sin token una
   escena temporal nueva, pide token para reemplazar una temporal y responde
   `scene_exists` ante una de `scenes.yaml` (tramo 2, T030: los cuatro
-  `test_escena_desde_el_estado_*` de `TestEscena`).
+  `test_escena_desde_el_estado_*` de `TestEscena`), y `scene_not_created`
+  ante una de YAML sin `id` que HA no reemplaza aunque las entidades
+  coincidan (convergencia, T038).
 - El de seguridad (el token de `ha_run_script` y `ha_trigger_automation` no
   cubría `variables`), en el tramo 1 de la 033: sus dos
   `test_el_token_ata_las_variables` comprueban contra HA real que confirmar
@@ -476,6 +478,38 @@ class TestEscena(BancoEscrituras):
             despues = await s.lector.estado(eid)
             self.assertEqual(despues["attributes"], antes["attributes"])
             self.assertEqual(await s.config_guardada("scene", scid), (200, {"id": scid, **config}))
+
+    async def test_escena_desde_el_estado_sobre_una_de_yaml_sin_id(self) -> None:
+        # Spec 033, T038 (B2 de la revisión). La escena `banco_yaml_sin_id`
+        # de `configuration.yaml` no tiene `id`: la tool la ve como temporal
+        # y pide token. Al confirmar con las MISMAS entidades, Core ignora
+        # `scene.create` (solo avisa en el log); la tool tiene que responder
+        # `scene_not_created`, no `replaced: true`, y la escena sigue igual.
+        # Control negativo: sin la comparación de `last_updated` en
+        # `scenes.py`, este test cae en rojo (anotado en el commit).
+        scid = "banco_yaml_sin_id"
+        eid = f"scene.{scid}"
+        tool = "ha_create_scene_from_current"
+        async with self.sesion() as s:
+            antes = await s.lector.estado(eid)
+            self.assertIsNotNone(antes, "falta la escena de YAML sin id del banco")
+            self.assertNotIn("id", antes["attributes"])
+            self.assertEqual(antes["attributes"].get("entity_id"), ["zone.home"])
+
+            vista = await s.vista(tool, scene_id=scid, entity_ids=["zone.home"])
+            self.assertEqual(vista["preview"]["current_entities"], ["zone.home"])
+            r = await rechazo(
+                s.cliente, tool, scene_id=scid, entity_ids=["zone.home"],
+                confirmation_token=vista["confirmation_token"],
+            )
+            self.assertEqual(
+                (r.get("error"), r.get("scene_id"), r.get("seen_entity_ids")),
+                ("scene_not_created", eid, ["zone.home"]),
+                r,
+            )
+            despues = await s.lector.estado(eid)
+            self.assertEqual(despues["last_updated"], antes["last_updated"])
+            self.assertEqual(despues["attributes"], antes["attributes"])
 
     async def test_escena_desde_el_estado_con_nombre(self) -> None:
         # Antes era el `xfail` HALLAZGO de la 028 (T032): `scene.create` no

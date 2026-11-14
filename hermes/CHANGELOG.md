@@ -261,7 +261,9 @@ _Pendiente: la añade la sub-feature que lo implemente._
   entidades actuales y las nuevas; sobre una escena que no es temporal
   responde `scene_exists` (HA no la tocaría); una entidad que no existe da
   `entity_not_found`; y después comprueba que la escena tiene esas entidades
-  (`scene_not_created` si no). Pasa a anunciarse destructiva, y la respuesta
+  y, si la reemplazaba, que HA la ha recreado de verdad (`scene_not_created`
+  si no; una escena de YAML sin `id` con las mismas entidades ya no pasa por
+  reemplazada). Pasa a anunciarse destructiva, y la respuesta
   de éxito dice si reemplazó y conserva la de HA en `ha_response`.
 - **Las escenas editables están en `scenes.yaml`.** Las descripciones de
   `ha_get_scene`, `ha_create_or_update_scene` y `ha_delete_scene` decían
