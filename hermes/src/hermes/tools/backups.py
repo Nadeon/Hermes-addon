@@ -40,6 +40,7 @@ from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    redact_secrets,
     validate_confirmation_token,
 )
 from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
@@ -751,7 +752,11 @@ def register(
 
             return result
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            # El texto del error lleva el cuerpo de la respuesta del
+            # Supervisor: se redacta como `errors` y `child_errors`, para que
+            # ningún camino de esta tool devuelva su texto sin tapar
+            # (revisión de la 027).
+            return {"error": redact_secrets(str(exc))}
 
     @mcp.tool()
     async def sv_list_pending_jobs() -> object:

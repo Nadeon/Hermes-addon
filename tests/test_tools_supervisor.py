@@ -1009,6 +1009,19 @@ class TestJobStatusSubJobs(unittest.IsolatedAsyncioTestCase):
             "backup_app_save")
         self.assertIs(result["success"], False)
 
+    async def test_centinela_tapado_en_el_error_http(self) -> None:
+        """El error HTTP (cuerpo de la respuesta del Supervisor) sale redactado.
+
+        Control negativo comprobado: con `{"error": str(exc)}` en el
+        `except HAConnectionError` de `sv_get_job_status` → en rojo.
+        """
+        self.client.set_sv_response("GET", "/jobs/job_abc123", HAConnectionError(
+            "Supervisor 400: job failed, token=centinela-027-http", status=400))
+        result = await self.tools["sv_get_job_status"]("job_abc123")
+        self.assertIn("error", result)
+        self.assertNotIn("centinela-027-http", json.dumps(result))
+        self.assertIn("Supervisor 400", result["error"])
+
     def test_descripcion(self) -> None:
         texto = self.tools["sv_get_job_status"].__doc__ or ""
         for frase in (
