@@ -1,0 +1,264 @@
+"""Generador de la tabla de comandos (spec 011, FR-002, FR-007; T009).
+
+El generador crea `command_table.py` la primera vez aplicando las reglas de
+research R-4 y, en versiones siguientes, conserva lo revisado a mano, añade lo
+nuevo como `deny` «sin revisar» y quita lo que desaparece. Si conservara una
+entrada sin mirar el inventario, un comando que HA ya no tiene seguiría
+clasificado; si pisara una entrada revisada, regenerar desharía decisiones de
+seguridad. Se prueba con inventarios pequeños de `tests/fixtures/inventario/`
+(una fila por caso de R-4; comandos ficticios `demo/*`).
+
+Control negativo (T009/T016 f), con recuentos en el commit:
+- conservar las entradas de la tabla previa sin mirar si siguen en el
+  inventario → cae `test_fila_desaparecida_se_quita_y_se_lista`.
+- clasificar la clase C por verbo en vez de `deny` → cae `test_clase_c`.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+import re
+import shutil
+import sys
+import tempfile
+import unittest
+
+from scripts.inventario import generar_tabla as gt
+
+_RAIZ = pathlib.Path(__file__).resolve().parents[1]
+_FIXTURES = _RAIZ / "tests" / "fixtures" / "inventario"
+
+
+def _importar(ruta: pathlib.Path):
+    nombre = f"_tabla_generada_{abs(hash(ruta))}"
+    spec = importlib.util.spec_from_file_location(nombre, ruta)
+    assert spec and spec.loader
+    modulo = importlib.util.module_from_spec(spec)
+    sys.modules[nombre] = modulo
+    try:
+        spec.loader.exec_module(modulo)
+    finally:
+        sys.modules.pop(nombre, None)
+    return modulo
+
+
+class _Base(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = pathlib.Path(self._tmp.name)
+        self.core = self.dir / "core-ws.tsv"
+        self.sv = self.dir / "supervisor-rutas.tsv"
+        shutil.copy(_FIXTURES / "core-ws.tsv", self.core)
+        shutil.copy(_FIXTURES / "supervisor-rutas.tsv", self.sv)
+        self.salida = self.dir / "command_table.py"
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _generar(self, **kw):
+        kw.setdefault("ha_core", "2026.11.1")
+        kw.setdefault("supervisor", "2026.11.0")
+        return gt.generar(self.core, self.sv, self.salida, **kw)
+
+    def _tabla(self):
+        return _importar(self.salida)
+
+
+class TestPrimeraGeneracion(_Base):
+    def setUp(self) -> None:
+        super().setUp()
+        self.resultado = self._generar()
+        self.t = self._tabla()
+
+    def test_versiones(self) -> None:
+        self.assertEqual(self.t.TABLE_HA_CORE, "2026.11.1")
+        self.assertEqual(self.t.TABLE_SUPERVISOR, "2026.11.0")
+
+    def test_una_entrada_por_fila(self) -> None:
+        self.assertEqual(len(self.t.CORE_WS), 13)
+        self.assertEqual(len(self.t.SUPERVISOR), 11)
+
+    def test_cubierto_con_tool(self) -> None:
+        e = self.t.CORE_WS["lovelace/config/save"]
+        self.assertEqual((e.category, e.tool, e.family),
+                         ("dedicated", "ha_save_lovelace_dashboard", "lovelace"))
+        e = self.t.SUPERVISOR[("GET", "/addons")]
+        self.assertEqual((e.category, e.tool, e.family),
+                         ("dedicated", "sv_list_addons", "supervisor"))
+
+    def test_cubierto_por_accion_generica(self) -> None:
+        e = self.t.CORE_WS["calendar/event/create"]
+        self.assertEqual((e.category, e.tool, e.family),
+                         ("dedicated", "ha_call_service", "services"))
+
+    def test_cubierto_sin_tool_en_el_mapa(self) -> None:
+        e = self.t.CORE_WS["demo/cubierto_sin_tool"]
+        self.assertEqual(e.category, "deny")
+        self.assertIn("sin revisar", e.reason)
+
+    def test_uso_interno(self) -> None:
+        e = self.t.CORE_WS["get_config"]
+        self.assertEqual((e.category, e.reason), ("deny", "uso interno de Hermes"))
+
+    def test_clase_b_y_d_con_el_motivo_de_la_nota(self) -> None:
+        e = self.t.CORE_WS["demo/frontend"]
+        self.assertEqual(e.category, "deny")
+        self.assertIn("datos internos del frontend", e.reason)
+        e = self.t.CORE_WS["demo/python"]
+        self.assertIn("ejecuta Python arbitrario", e.reason)
+        e = self.t.SUPERVISOR[("GET", "/addons/{app}/logs/follow")]
+        self.assertEqual(e.category, "deny")
+        self.assertIn("Streaming", e.reason)
+        self.assertFalse(e.reason.startswith("No "))
+        e = self.t.SUPERVISOR[("POST", "/backups/freeze")]
+        self.assertIn("Congela Core", e.reason)
+
+    def test_clase_a_via_dedicada(self) -> None:
+        casos = {
+            "demo/via_d": "012",    # CAP-041, D
+            "demo/via_dt": "021",   # CAP-053, D+T
+            "demo/via_dx": "012",   # CAP-040, D+X (012 y 017: la validación es de 012)
+        }
+        for comando, spec in casos.items():
+            with self.subTest(comando=comando):
+                e = self.t.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason),
+                    ("deny", f"pendiente de tool dedicada (spec {spec})"))
+        e = self.t.SUPERVISOR[("POST", "/host/shutdown")]
+        self.assertEqual(e.reason, "pendiente de tool dedicada (spec 032)")
+        # CAP-087 se reparte: la lectura es de 013 y la escritura de 022.
+        self.assertEqual(self.t.SUPERVISOR[("GET", "/jobs/info")].reason,
+                         "pendiente de tool dedicada (spec 013)")
+        self.assertEqual(self.t.SUPERVISOR[("POST", "/resolution/healthcheck")].reason,
+                         "pendiente de tool dedicada (spec 022)")
+
+    def test_clase_a_via_tabla_por_verbo_y_metodo(self) -> None:
+        self.assertEqual(self.t.CORE_WS["demo/item/list"].category, "read")
+        self.assertEqual(self.t.CORE_WS["demo/item/create"].category, "confirm")
+        self.assertEqual(self.t.SUPERVISOR[("GET", "/dns/info")].category, "read")
+        self.assertEqual(self.t.SUPERVISOR[("POST", "/dns/options")].category, "confirm")
+        # Una suscripción no se ejecuta por la genérica hasta revisarla.
+        self.assertEqual(self.t.CORE_WS["demo/item/subscribe"].category, "deny")
+        for e in (self.t.CORE_WS["demo/item/list"], self.t.CORE_WS["demo/item/create"],
+                  self.t.CORE_WS["demo/item/subscribe"]):
+            self.assertIn(gt.PROVISIONAL, e.reason)
+            self.assertEqual(e.cap, "CAP-066")
+            self.assertEqual(e.family, "generic_commands")
+
+    def test_clase_c(self) -> None:
+        e = self.t.CORE_WS["demo/radio/reset"]
+        self.assertEqual((e.category, e.reason, e.cap),
+                         ("deny", "pendiente de revisión (spec 025)", "CAP-100"))
+
+    def test_proxy_de_core_siempre_deny(self) -> None:
+        # Prevalece sobre «cubierto» y sobre la clase B.
+        for clave in (("GET", "/core/api/{path}"), ("GET", "/homeassistant/api/stream")):
+            with self.subTest(clave=clave):
+                e = self.t.SUPERVISOR[clave]
+                self.assertEqual(e.category, "deny")
+                self.assertIn("proxy de Core", e.reason)
+
+    def test_fila_sin_clase(self) -> None:
+        e = self.t.SUPERVISOR[("GET", "/ruta/sin/clase")]
+        self.assertEqual(e.category, "deny")
+        self.assertIn("sin revisar", e.reason)
+
+    def test_resultado_de_la_primera_vez(self) -> None:
+        self.assertEqual(len(self.resultado.nuevas), 24)
+        self.assertEqual(self.resultado.quitadas, [])
+
+
+class TestRegeneracion(_Base):
+    def test_determinista(self) -> None:
+        self._generar()
+        primero = self.salida.read_bytes()
+        self.salida.unlink()
+        self._generar()
+        self.assertEqual(self.salida.read_bytes(), primero)
+        # Regenerar sobre sí misma tampoco cambia nada.
+        self._generar()
+        self.assertEqual(self.salida.read_bytes(), primero)
+
+    def test_conserva_lo_editado_a_mano(self) -> None:
+        self._generar()
+        texto = self.salida.read_text(encoding="utf-8")
+        linea = next(l for l in texto.splitlines() if l.startswith('    "demo/item/list"'))
+        editada = (
+            "    # Revisado a mano: solo lee (comentario que debe sobrevivir).\n"
+            '    "demo/item/list": E("read", "Demo: lista de elementos",'
+            ' "generic_commands", cap="CAP-066",\n'
+            '                        example={"filtro": "ficticio"}),'
+        )
+        self.salida.write_text(texto.replace(linea, editada), encoding="utf-8")
+        self._generar()
+        nuevo = self.salida.read_text(encoding="utf-8")
+        self.assertIn(editada, nuevo)
+        self.assertEqual(self._tabla().CORE_WS["demo/item/list"].example,
+                         {"filtro": "ficticio"})
+
+    def test_fila_nueva_entra_como_sin_revisar(self) -> None:
+        self._generar()
+        with self.core.open("a", encoding="utf-8", newline="") as f:
+            f.write("demo/nuevo\tdemo\tx.py\tno\tA\tDemo\tCAP-066\n")
+        with self.sv.open("a", encoding="utf-8", newline="") as f:
+            f.write("GET\t/demo/nueva\tDemo\tno\tA\t✔\tNo\tCAP-091\n")
+        r = self._generar(ha_core="2026.12.0", supervisor="2026.12.1")
+        self.assertEqual(r.nuevas, ["demo/nuevo", ("GET", "/demo/nueva")])
+        t = self._tabla()
+        e = t.CORE_WS["demo/nuevo"]
+        self.assertEqual((e.category, e.reason),
+                         ("deny", "sin revisar (nuevo en 2026.12.0)"))
+        e = t.SUPERVISOR[("GET", "/demo/nueva")]
+        self.assertEqual(e.reason, "sin revisar (nuevo en 2026.12.1)")
+        self.assertEqual((t.TABLE_HA_CORE, t.TABLE_SUPERVISOR), ("2026.12.0", "2026.12.1"))
+
+    def test_fila_desaparecida_se_quita_y_se_lista(self) -> None:
+        self._generar()
+        lineas = self.core.read_text(encoding="utf-8").splitlines(keepends=True)
+        self.core.write_text("".join(l for l in lineas if not l.startswith("demo/python\t")),
+                             encoding="utf-8")
+        lineas = self.sv.read_text(encoding="utf-8").splitlines(keepends=True)
+        self.sv.write_text("".join(l for l in lineas if "/backups/freeze" not in l),
+                           encoding="utf-8")
+        r = self._generar()
+        self.assertEqual(r.quitadas, ["demo/python", ("POST", "/backups/freeze")])
+        self.assertEqual(r.nuevas, [])
+        t = self._tabla()
+        self.assertNotIn("demo/python", t.CORE_WS)
+        self.assertNotIn(("POST", "/backups/freeze"), t.SUPERVISOR)
+        self.assertNotIn("demo/python", self.salida.read_text(encoding="utf-8"))
+
+    def test_salida_es_python_valido_con_cabecera(self) -> None:
+        self._generar()
+        texto = self.salida.read_text(encoding="utf-8")
+        compile(texto, str(self.salida), "exec")
+        self.assertIn("generar_tabla.py", texto.split('"""')[1])
+        self.assertIn("REVISA A MANO", texto.split('"""')[1])
+
+
+class TestMatriz(unittest.TestCase):
+    def test_copia_de_la_matriz_de_la_008(self) -> None:
+        # La matriz del generador es una copia revisada de la de la 008: si la
+        # 008 cambia una vía o una sub-feature, este test lo dice.
+        plan = (_RAIZ / "specs" / "008-cobertura-total" / "plan.md").read_text(encoding="utf-8")
+        filas = re.findall(
+            r"^\| (CAP-\d{3}) \| [^|]+ \| ([^|]+) \| [^|]+ \| ([^|]+) \|", plan, re.M)
+        de_la_008 = {cap: (via.strip(), sub.strip()) for cap, sub, via in filas}
+        self.assertGreater(len(de_la_008), 90)
+        for cap, (via, lectura, escritura) in gt.MATRIZ.items():
+            with self.subTest(cap=cap):
+                via_008, subs_008 = de_la_008[cap]
+                self.assertEqual(via, via_008)
+                subs = [s.strip() for s in subs_008.split(",")]
+                self.assertIn(lectura, subs)
+                self.assertIn(escritura, subs)
+        # Ninguna CAP de vía D, T, D+T o D+X de la 008 falta en la copia.
+        faltan = sorted(c for c, (v, _) in de_la_008.items()
+                        if v in {"D", "T", "D+T", "D+X"} and c not in gt.MATRIZ)
+        self.assertEqual(faltan, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
