@@ -4,7 +4,7 @@
 
 ## Resumen
 
-Programa de 24 sub-features (009–032) que lleva Hermes de cubrir 130 comandos
+Programa de 25 sub-features (009–033) que lleva Hermes de cubrir 130 comandos
 de Core y 37 rutas del Supervisor a cubrir todo lo que HA 2026.11 ofrece a un
 administrador, con un modelo **híbrido**: tools dedicadas para lo de prioridad
 alta y media-alta y para lo que tiene consecuencias, y cuatro tools genéricas
@@ -89,6 +89,7 @@ paralelo.
 | 016 | `integraciones-flujos-y-repairs` | 036, 037, 044, 045, 048 | FR-053…FR-057 | 011 | 2 | ~14 | L | 3 |
 | 018 | `mejoras-de-tools-existentes` | 019, 020, 023 | FR-063…FR-065 | 011 | 2 | 0 | M | 2 |
 | 027 | `plataforma-y-deprecaciones` | 025, 026, 028, 029, 030, 031, 032, 033 | FR-092…FR-097 | — | 2 | 0 | S | 1 |
+| 033 | `arreglos-del-banco` (tools de la 1.1.2 rotas o deshonestas que destapa el banco) | 039 | FR-099 | 011, 028 | 2 | 0 | M | 2 |
 | 015 | `actualizaciones-del-sistema` | 064, 080 | FR-049, FR-050 | 013 | 3 | ~7 | M | 2 |
 | 030 | `tienda-de-apps` | 082, 093 | FR-051, FR-052 | 011 | 3 | ~9 | M | 2 |
 | 017 | `automatizacion-asistida` | 038, 040 (al guardar), 046, 051, 052 | FR-058…FR-062 | 012 | 3 | ~14 | L | 3 |
@@ -103,7 +104,7 @@ paralelo.
 | 025 | `integraciones-especificas` (clase C por la tabla) | 100–106 | FR-089, FR-090 | 011 | 3 | 0 | M | 2 |
 | 026 | `marketplace-escritura` | 075 | FR-091 | 030 | 4 | ~8 | M | 2 |
 
-Totales: 24 sub-features, 49 tramos. Transversales a todas: FR-012, FR-015,
+Totales: 25 sub-features, 51 tramos. Transversales a todas: FR-012, FR-015,
 FR-018…FR-021, FR-023, FR-024. Cierre: FR-098.
 
 ### Cambios respecto a research R-6
@@ -131,7 +132,11 @@ FR-018…FR-021, FR-023, FR-024. Cierre: FR-098.
 - **026 depende de 030**, no de 014: comparte el patrón de textos de terceros y
   backup previo de la tienda.
 - **027 no retira nada** (decisión 3): solo documenta fechas y lo bloqueado.
-- Los números nuevos (028–032) son los siguientes libres; el orden lo da la
+- **033 se añade después** (no estaba en R-6): arregla las tools de la 1.1.2
+  que el banco de Core y las revisiones de la 010 y la 028 muestran rotas o
+  deshonestas (CAP-039, FR-099). Depende de 011 (instantánea de esquemas) y de
+  028 (banco de automatizaciones, scripts y escenas).
+- Los números nuevos (028–033) son los siguientes libres; el orden lo da la
   columna «Ola», no el número.
 
 ### Cómo se reparte cada CAP entre dedicada y tabla
@@ -222,6 +227,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
 | CAP-038 | baja | 017 | FR-061 | D | espera de trigger (banco) |
+| CAP-039 | alta | 033 | FR-099 | X | token atado a `variables` (unitario, inventario de argumentos atados y banco); `not_supported` y canario de `counter.reload` (banco); esquema sin `ctx`; escenas, opciones y `amount` (unitario y banco) |
 | CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | validación (banco) |
 | CAP-041 | alta | 012 | FR-037 | D | logs y niveles (banco) |
 | CAP-042 | alta | 012 | FR-038 | D | diagnósticos (banco) |
@@ -281,7 +287,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-105 | baja | 025 | FR-089, FR-090 | T | USB por la tabla (unitario) |
 | CAP-106 | baja | 025 | FR-089, FR-090 | T | resto; secretos `deny` (unitario) |
 
-95 CAP, todas con sub-feature y FR. Ninguna CAP queda excluida: lo excluido es
+96 CAP, todas con sub-feature y FR. Ninguna CAP queda excluida: lo excluido es
 la clase B y la clase D (spec, «Exclusiones»), que no tiene CAP.
 
 ## Banco de pruebas: qué se prueba dónde

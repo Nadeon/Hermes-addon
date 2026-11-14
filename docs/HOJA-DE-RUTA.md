@@ -399,6 +399,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
+| 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | pendiente |
 
 #### Banco de Core: helpers (010)
 

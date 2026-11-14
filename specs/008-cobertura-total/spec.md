@@ -8,9 +8,9 @@
 
 **Tipo**: especificación paraguas de un programa. No se implementa por sí
 misma: define qué significa «cobertura total», las reglas comunes y el
-desglose en sub-features (009–032), cada una con su propia spec, plan y tareas.
+desglose en sub-features (009–033), cada una con su propia spec, plan y tareas.
 
-**Entrada**: [research.md](research.md) (95 capacidades CAP-001…CAP-106,
+**Entrada**: [research.md](research.md) (96 capacidades CAP-001…CAP-106,
 correcciones a la hoja de ruta, exclusiones, opciones de arquitectura y
 desglose) y los inventarios [inventario/core-ws.tsv](inventario/core-ws.tsv)
 (623 comandos WebSocket de Core 2026.11.1) e
@@ -410,7 +410,8 @@ que cubre. La matriz completa CAP → sub-feature → FR → vía → test está
   nuevos son opcionales y su valor por defecto reproduce el comportamiento de la
   1.1.2. Los alias `ha_hacs_*` siguen hasta la 1.3.0 y
   `ha_remove_device_from_config_entry` sigue deprecada (todas; CAP-030,
-  CAP-031).
+  CAP-031). Las únicas excepciones son las de FR-099, escritas y justificadas
+  en los tests de las instantáneas.
 - **FR-021**: Los ficheros del repositorio que añade el programa (tests,
   fixtures, tabla, inventarios, documentación) usan solo marcadores genéricos y
   no contienen datos de ninguna instalación ni identificadores de modelos
@@ -705,6 +706,35 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   se publiquen; el test de deriva de FR-005 avisará de los cambios de rutas
   (CAP-032, CAP-033).
 
+#### 033 — arreglos de tools existentes destapados por el banco
+
+- **FR-099**: Las tools de la 1.1.2 que el banco de Core o las revisiones de
+  la 010 y la 028 muestran rotas o deshonestas se arreglan sin quitar ninguna
+  (CAP-039):
+  - el token de `ha_trigger_automation` y `ha_run_script` ata también
+    `variables` y la vista previa las enseña; un test de inventario exige que
+    toda tool con `confirmation_token` ate cada argumento que cambia el efecto
+    o lo declare exento con motivo;
+  - `ha_reload_counters` (HA no tiene `counter.reload`) y
+    `ha_get_config_entry_options` (HA no publica las opciones) responden
+    `not_supported` con el motivo y quedan deprecadas, con retirada en la
+    1.3.0;
+  - `ha_wait_for_event` recibe el contexto MCP inyectado: `ctx` sale de su
+    esquema;
+  - `ha_create_scene_from_current` deja de mandar `name` (que `scene.create`
+    no admite; el argumento queda deprecado), pide confirmación cuando
+    reemplaza una escena y pasa a `destructiveHint`;
+  - las descripciones de las escenas dicen `scenes.yaml`, no `.storage`;
+  - `amount` de los contadores se comprueba contra `step`, `minimum` y
+    `maximum` antes de llamar a HA.
+
+  Excepciones a FR-020 y SC-005, solo estas dos: `ha_wait_for_event` pierde el
+  argumento `ctx` (obligatorio y sin valor con sentido; un `ctx` enviado se
+  sigue aceptando) y `ha_create_scene_from_current` gana `confirmation_token`
+  opcional y `destructiveHint` (la anotación anterior no decía la verdad).
+  Cada arreglo tiene su test en la suite y, si toca HA, en el banco; los
+  `xfail` `HALLAZGO` de estas tools desaparecen (033).
+
 #### Cierre del programa
 
 - **FR-098**: Al cerrar el programa no queda en la tabla ninguna entrada con
@@ -724,7 +754,7 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
 - **Inventario**: lista extraída del código de HA de una versión concreta; la
   fuente de la tabla y del test de deriva.
 - **Sub-feature**: unidad de especificación e implementación del programa
-  (009–032), con su propia spec en `specs/NNN-nombre/`.
+  (009–033), con su propia spec en `specs/NNN-nombre/`.
 
 ## Exclusiones
 
@@ -834,7 +864,8 @@ No bloquean el programa; las decide el mantenedor al cerrarlo.
   `deny` o desconocido pedido por una genérica no llega a HA ni al Supervisor;
   cada guarda tiene su control negativo anotado.
 - **SC-005**: Con la configuración por defecto, los 216 nombres de tools de la
-  1.1.2 siguen en la lista con las mismas anotaciones, y con todas las familias
+  1.1.2 siguen en la lista con las mismas anotaciones (salvo la excepción de
+  FR-099), y con todas las familias
   nuevas y las genéricas desactivadas la lista tiene exactamente esos 216
   nombres.
 - **SC-006**: El 100 % de las tools `ha_*` que modifican y se pueden ejecutar
