@@ -47,9 +47,12 @@ inválida, Hermes no arranca a medias.
 ### IV. Lo destructivo se confirma en dos pasos, y el token va atado
 
 Toda acción que borre datos, interrumpa el servicio o toque secretos exige
-`confirmation_token`: primera llamada devuelve `preview`, segunda ejecuta. El
-token está atado a la tool **y a sus argumentos**, caduca y es de un solo uso.
-Un token obtenido para una acción no puede ejecutar otra.
+`confirmation_token`: primera llamada devuelve `preview`, segunda ejecuta. La
+segunda lleva el token y repite los argumentos, salvo los documentos que la tool
+declare omitibles, que el servidor guardó en la vista previa; lo que se repite
+tiene que coincidir. El token está atado a la tool **y a sus argumentos** —los
+de la vista previa, guardados en el servidor—, caduca y es de un solo uso. Un
+token obtenido para una acción no puede ejecutar otra.
 
 ### V. El nombre y la descripción no mienten
 
