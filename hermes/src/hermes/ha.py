@@ -37,11 +37,22 @@ class HAConnectionError(RuntimeError):
     Lleva opcionalmente el `status` HTTP que lo originó porque quien captura
     necesita distinguir un 404 —el recurso no existe— de una caída real de HA,
     y hacerlo parseando el texto del mensaje es frágil.
+
+    Por la misma razón lleva el `code` de los errores WS (`not_found`,
+    `unknown_command`…): es la parte estable del protocolo de HA, mientras que
+    el texto cambia entre versiones y comparar subcadenas confunde un recurso
+    inexistente con un fallo real.
     """
 
-    def __init__(self, *args: Any, status: int | None = None) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        status: int | None = None,
+        code: str | None = None,
+    ) -> None:
         super().__init__(*args)
         self.status = status
+        self.code = code
 
 
 # Sentinel para señalizar reconexión/cierre de WS a los waiter de eventos
@@ -531,9 +542,15 @@ class HAClient:
                     if data.get("success") is False:
                         error = data.get("error", {})
                         message = error.get("message") if isinstance(error, dict) else str(error)
+                        # Se conserva el código de HA para que quien capture
+                        # decida por él y no por el texto. Solo se acepta si
+                        # es texto: otra forma no es fiable y se trata como
+                        # ausente.
+                        code = error.get("code") if isinstance(error, dict) else None
                         future.set_exception(
                             HAConnectionError(
-                                f"HA WS command failed: {message or 'unknown error'}"
+                                f"HA WS command failed: {message or 'unknown error'}",
+                                code=code if isinstance(code, str) else None,
                             )
                         )
                     else:

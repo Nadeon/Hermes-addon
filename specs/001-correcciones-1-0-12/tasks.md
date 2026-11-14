@@ -55,12 +55,12 @@ Notas de reparto:
 
 **Objetivo**: que los errores WS conserven su código (FR-030, base de D1/C6/R3/P3) y que las tools puedan leer la versión de HA (base de P2, C8, R3).
 
-- [ ] T003 [P] Test de regresión en `tests/test_ha_ws_error_code.py`: un mensaje `{"type":"result","success":false,"error":{"code":"not_found","message":"Unable to find counter_id x"}}` procesado por `HAClient._handle_ws_message` debe resolver el future con un `HAConnectionError` cuyo `code == "not_found"`; sin `code` o con `error` no dict, `code is None`; el texto del mensaje no cambia (FR-030, D1)
-- [ ] T004 [P] Test en `tests/test_ha_version.py` para `ha_core_version` y `ha_at_least`: `"2026.11.1"`, `"2026.12.0.dev0"` (compara como 2026.12.0), `"landingpage"` → `None`, `HAConnectionError` → `None`, respuesta no dict → `None`; `ha_at_least(…, "2026.9.0")` devuelve `True`/`False`/`None`
-- [ ] T005 Añadir `code: str | None = None` a `HAConnectionError.__init__` en `hermes/src/hermes/ha.py:34-44` y propagar `error.get("code")` (solo si es `str`) en `_handle_ws_message`, `hermes/src/hermes/ha.py:526-536`, con comentario del porqué (D1)
-- [ ] T006 Crear `hermes/src/hermes/ha_version.py` con `ha_core_version(ha_client)` (WS `get_config`, `timeout_seconds=5`, `packaging.version.Version(...).base_version`) y `ha_at_least(ha_client, minimo)`, sin caché (research R-0.2, spec S-03)
-- [ ] T007 Control negativo de la fase 0: deshacer T005 y comprobar que cae T003; deshacer T006 (stub que devuelve `None` siempre) y comprobar que cae T004; restaurar y anotar «con la guarda quitada caen N tests»
-- [ ] T008 Ejecutar la suite completa; grep de privacidad del diff (quickstart.md); commit de la fase 0
+- [X] T003 [P] Test de regresión en `tests/test_ha_ws_error_code.py`: un mensaje `{"type":"result","success":false,"error":{"code":"not_found","message":"Unable to find counter_id x"}}` procesado por `HAClient._handle_ws_message` debe resolver el future con un `HAConnectionError` cuyo `code == "not_found"`; sin `code` o con `error` no dict, `code is None`; el texto del mensaje no cambia (FR-030, D1)
+- [X] T004 [P] Test en `tests/test_ha_version.py` para `ha_core_version` y `ha_at_least`: `"2026.11.1"`, `"2026.12.0.dev0"` (compara como 2026.12.0), `"landingpage"` → `None`, `HAConnectionError` → `None`, respuesta no dict → `None`; `ha_at_least(…, "2026.9.0")` devuelve `True`/`False`/`None`
+- [X] T005 Añadir `code: str | None = None` a `HAConnectionError.__init__` en `hermes/src/hermes/ha.py:34-44` y propagar `error.get("code")` (solo si es `str`) en `_handle_ws_message`, `hermes/src/hermes/ha.py:526-536`, con comentario del porqué (D1)
+- [X] T006 Crear `hermes/src/hermes/ha_version.py` con `ha_core_version(ha_client)` (WS `get_config`, `timeout_seconds=5`, `packaging.version.Version(...).base_version`) y `ha_at_least(ha_client, minimo)`, sin caché (research R-0.2, spec S-03)
+- [X] T007 Control negativo de la fase 0: deshacer T005 y comprobar que cae T003; deshacer T006 (stub que devuelve `None` siempre) y comprobar que cae T004; restaurar y anotar «con la guarda quitada caen N tests»
+- [X] T008 Ejecutar la suite completa; grep de privacidad del diff (quickstart.md); commit de la fase 0
 
 **Punto de control**: fase 0 fusionada; se abren los lotes A, B, C y D en paralelo.
 
