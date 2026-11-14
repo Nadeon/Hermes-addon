@@ -17,9 +17,11 @@ leyó en esos tags; las tools de lectura se probaron en una instalación de prue
 con HA 2026.11.1. De las 124 tools que modifican, las de dashboards se han
 ejecutado contra una HA real (1.1.2) y las 47 de helpers se ejecutan en cada
 push en el CI contra HA Core 2026.11.1 real (banco de pruebas, spec 010; ver
-«Banco de Core: helpers» más abajo); el resto se verificó leyendo el código de
-Hermes y el de Home Assistant. La 028 lleva al banco las demás escrituras de
-Core.
+«Banco de Core: helpers» más abajo), igual que 26 escrituras de
+automatizaciones, scripts, escenas, servicios, eventos, esperas y Lovelace
+(spec 028, tramo A; ver «Banco de Core: escrituras» más abajo); el resto se
+verificó leyendo el código de Hermes y el de Home Assistant. El tramo B de la
+028 lleva al banco las 27 escrituras de Core que quedan.
 
 ## Estado de compatibilidad
 
@@ -393,7 +395,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
-| 028 | Pruebas de las escrituras de Core en el banco | 034 | pendiente |
+| 028 | Pruebas de las escrituras de Core en el banco | 034 | en curso (tramo A: automatización, ejecución, eventos y Lovelace) |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | pendiente |
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
@@ -444,6 +446,38 @@ Hallazgo del banco, pendiente de decidir dónde se arregla:
   `decrement`, `reset` y `set_value`): Core responde 400 y la tool termina en
   «Error executing tool». En el banco está como fallo esperado estricto
   (`xfail`), que se pondrá en rojo cuando deje de fallar.
+
+#### Banco de Core: escrituras (028)
+
+En el mismo job, el resto de tools `ha_*` que modifican. El inventario está en
+`tests/banco/cobertura_escrituras.py` y un test de la suite normal
+(`tests/test_banco_cobertura_escrituras.py`) obliga a que las 124 tools que
+modifican estén probadas en el banco (010 o 028) o fuera de él con su motivo.
+
+Ejecutadas en el banco (tramo A, 26):
+
+- automatizaciones: `ha_create_or_update_automation`, `ha_disable_automation`,
+  `ha_enable_automation`, `ha_trigger_automation`, `ha_reload_automations`,
+  `ha_delete_automation`.
+- scripts: `ha_create_or_update_script`, `ha_run_script`, `ha_reload_scripts`,
+  `ha_delete_script`.
+- escenas: `ha_create_or_update_scene`, `ha_activate_scene`,
+  `ha_create_scene_from_current`, `ha_reload_scenes`, `ha_delete_scene`.
+- servicios, eventos y esperas: `ha_call_service` (directo y en dos pasos),
+  `ha_call_service_response`, `ha_fire_event`, `ha_cancel_wait`.
+- Lovelace: `ha_create_lovelace_dashboard`,
+  `ha_update_lovelace_dashboard_metadata`, `ha_save_lovelace_dashboard`,
+  `ha_delete_lovelace_dashboard`, `ha_create_lovelace_resource`,
+  `ha_update_lovelace_resource`, `ha_delete_lovelace_resource`.
+
+Pendientes del tramo B (27): áreas, plantas, etiquetas y categorías (12),
+dispositivos, entidades y reparaciones (6), config entries y sus flujos (9).
+
+Fuera del banco (24), con su motivo en el inventario: las 5 `fs_*` (no hablan
+con HA y la suite normal las ejecuta contra ficheros reales) y las 19 `sv_*`
+(el Supervisor del banco es simulado; su banco es la 014).
+
+Hallazgos del tramo A: ninguno; las 26 hacen contra HA real lo que dicen.
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las

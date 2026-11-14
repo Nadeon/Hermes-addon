@@ -26,6 +26,14 @@
   no tiene el servicio `counter.reload`; Core responde 400. Queda anotado en
   la hoja de ruta y como fallo esperado en el banco; esta sección no cambia la
   tool.
+- **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
+  automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
+  configuración guardada leída de HA; activar, desactivar, disparar,
+  ejecutar, recargar y borrar), `ha_call_service` directo y en dos pasos con un
+  servicio de la denylist, `ha_call_service_response`, `ha_fire_event`,
+  `ha_cancel_wait` y las siete de dashboards y recursos Lovelace. Ninguna ha
+  fallado contra HA real. Un test de la suite normal obliga a que las 124
+  tools que modifican estén probadas en el banco o digan por qué no.
 - Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
   y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
   onboarding, reglas de salto, comprobaciones del workflow, inventario de
