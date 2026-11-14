@@ -17,13 +17,17 @@ leyó en esos tags; las tools de lectura se probaron en una instalación de prue
 con HA 2026.11.1. De las 124 tools que modifican, las 100 `ha_*` se ejecutan
 en cada push en el CI contra HA Core 2026.11.1 real (banco de pruebas): las 47
 de helpers en la spec 010 y las 53 restantes en la 028 (ver «Banco de Core:
-helpers» y «Banco de Core: escrituras» más abajo). Funcionan 99;
+helpers» y «Banco de Core: escrituras» más abajo). Funcionan 99 (dos de
+ellas con un hallazgo abierto con un argumento concreto);
 `ha_reload_counters` falla (ver más abajo). Las 24 `fs_*` y `sv_*` no
 pasan por el banco, cada una con su motivo: las `fs_*` se ejecutan contra
 ficheros reales en la suite normal y las `sv_*` se verificaron leyendo el
-código de Hermes y el del Supervisor (su banco es la VM de la 014). A esas 124
-se suman las 2 genéricas de escritura de la 011: `ha_call_ws_command` se
-ejecuta en el mismo banco y `sv_call_api` se prueba en la VM de la 014.
+código de Hermes y el del Supervisor, con simuladores del Supervisor en la
+suite. A esas 124 se suman las 2 genéricas de escritura de la 011:
+`ha_call_ws_command` se ejecuta en el mismo banco y `sv_call_api` va con las
+del Supervisor. La prueba de las del Supervisor y de ficheros contra un
+Supervisor real está en la matriz de pruebas (VM, pendiente; ver «Matriz de
+pruebas» más abajo y `docs/BANCO-SUPERVISOR.md`).
 
 ## Estado de compatibilidad
 
@@ -329,38 +333,53 @@ Hermes la aceptó.
   salvaguarda funciona, pero reconstruir un dashboard grande entero es
   propenso a errores del cliente (ver 1.2.x, guardado por vistas).
 
-### Pruebas manuales pendientes en una instalación real
+### Pruebas manuales pendientes
 
-La suite no puede cubrir esto; anota aquí el resultado:
+La suite no puede cubrir esto; anota aquí el resultado. Cada casilla dice
+dónde se hace: en la VM del banco del Supervisor
+([BANCO-SUPERVISOR.md](BANCO-SUPERVISOR.md)), en la instalación real o desde
+un cliente contra la instalación real.
 
-- [ ] **Lo que la instalación de prueba no tenía**: la redacción de las
-  referencias de `sv_get_resolution` con issues o sugerencias reales, y las
-  trazas de un script (`ha_list_traces` y `ha_get_trace` con
-  `domain: "script"`).
-- [ ] **CIMD con Claude Code** (con claude.ai ya está hecho): autorizar,
-  comprobar la pantalla de autorización (host, nombre y destino del código) y
-  el evento `oauth_cimd_document` del log
-  (`specs/003-oauth-y-protocolo/quickstart.md`).
-- [ ] **Primer byte tras el proxy**: Claude Code con una espera de 90 s detrás
-  del proxy. Si corta a los 60 s, completar DOCS.md con lo que haga falta en
-  ese proxy.
-- [ ] **Clave `homeassistant` en una HA antigua**: que el Supervisor rechace
-  la actualización en una HA anterior a 2024.10 (en una soportada ya está
-  comprobado).
-- [ ] **Funnel en el 8443**: publicar Hermes en el 8443 con
+- [ ] (VM) **Matriz del Supervisor**: las tandas de pruebas del procedimiento
+  sobre las `sv_*` y `fs_*` que modifican, con el resultado anotado en la
+  matriz de pruebas (sección «Matriz de pruebas: tool → entorno → resultado»).
+- [ ] (VM o instalación real) **Lo que la instalación de prueba no tenía**: la
+  redacción de las referencias de `sv_get_resolution` con issues o
+  sugerencias reales, y las trazas de un script (`ha_list_traces` y
+  `ha_get_trace` con `domain: "script"`).
+- [ ] (cliente contra la VM o la instalación real) **CIMD con Claude Code**
+  (con claude.ai ya está hecho): autorizar, comprobar la pantalla de
+  autorización (host, nombre y destino del código) y el evento
+  `oauth_cimd_document` del log (`specs/003-oauth-y-protocolo/quickstart.md`).
+- [ ] (cliente contra la instalación real) **Primer byte tras el proxy**:
+  Claude Code con una espera de 90 s detrás del proxy. Si corta a los 60 s,
+  completar DOCS.md con lo que haga falta en ese proxy.
+- [ ] (VM) **Clave `homeassistant` en una HA antigua**: que el Supervisor
+  rechace la actualización en una HA anterior a 2024.10 (en una soportada ya
+  está comprobado).
+- [ ] (instalación real) **Funnel en el 8443**: publicar Hermes en el 8443 con
   `public_hostname: homeassistant.tailXXXX.ts.net:8443`, con
   `share_homeassistant: funnel` en el 443, y pasar una instalación existente
   del 443 al 8443 siguiendo los README.
-- [ ] **Confirmar sin el documento con `fs_write_file` (1.1.2)**: lo mismo
-  que con el dashboard, con un fichero de prueba grande; y comprobar que,
-  pasados unos dos minutos, el directorio de confirmaciones no conserva el
-  contenido (`specs/007-confirmar-con-token/quickstart.md`). Hace falta
+- [ ] (VM) **Confirmar sin el documento con `fs_write_file` (1.1.2)**: lo
+  mismo que con el dashboard, con un fichero de prueba grande; y comprobar
+  que, pasados unos dos minutos, el directorio de confirmaciones no conserva
+  el contenido (`specs/007-confirmar-con-token/quickstart.md`). Hace falta
   acceso al `/data` del add-on, que las tools no dan.
-- [ ] **`hassio_role: manager` en una instalación real** (o en la VM del
-  procedimiento de la spec 014): arranque, `bashio::config` y todas las
-  `sv_*`.
-- [ ] **Las 13 tools de escritura de la 1.1.x**, en vivo.
-- [ ] **`sv_update_addon` sobre Hermes**, tras el rechazo previo de la
+- [ ] (VM, después instalación real) **`hassio_role: manager`**: según el
+  procedimiento, comprobar el arranque, la lectura de las opciones de otros
+  add-ons (`sv_get_addon_options`, `sv_get_addon`) y cada tool `sv_*`, sin
+  ningún 403 nuevo. Según el código del Supervisor 2026.11.0 todas las rutas
+  que usa Hermes caben en `manager`, sin excepciones
+  (`tests/test_rutas_supervisor_rol.py`). El rol del add-on publicado se
+  decide con este resultado (D-02).
+- [ ] (instalación real, tras publicar) **Pruebas en vivo de las tools nuevas
+  de la 1.2.0**: las tools nuevas del programa en una instalación en uso,
+  solo después de publicar; las destructivas, antes en la VM.
+- [ ] (VM o instalación real) **Las 13 tools de escritura de la 1.1.x**, en
+  vivo: cubiertas por la matriz de pruebas (banco de Core para las de Core,
+  VM para las del Supervisor).
+- [ ] (VM) **`sv_update_addon` sobre Hermes**, tras el rechazo previo de la
   spec 009 (CAP-021).
 
 ### Programa de cobertura total (spec 008) — 1.2.0
@@ -383,7 +402,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | hecha: tabla, cuatro genéricas, familias y `tool_families_disabled`, tema `generic_commands` con `search`, extractor y generador; convergencia tras la revisión independiente cerrada (T044–T049); prueba de las genéricas en el banco de Core (T027) activada al integrarla con la 010 |
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
-| 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | pendiente |
+| 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
@@ -534,6 +553,160 @@ como probadas porque su camino normal funciona):
   se acepta una confirmación con variables distintas de las de la vista
   previa.
 
+#### Matriz de pruebas: tool → entorno → resultado (014)
+
+Una fila por cada tool que modifica (sin `readOnlyHint` en el registro de
+producción, con todas las familias activas): dónde se prueba contra el
+software real y con qué resultado. Entornos: **banco de Core** (el job del CI
+con HA Core 2026.11.1 real; el resultado sale de los inventarios
+`tests/banco/cobertura*.py`), **VM** (Home Assistant OS con el Supervisor
+2026.11.0, según el procedimiento de [BANCO-SUPERVISOR.md](BANCO-SUPERVISOR.md);
+todas las `sv_*` y `fs_*` que modifican) e **instalación real**. Resultados:
+**ok**, **falla** (con la causa en la nota) y **pendiente**. Una tool del
+banco con un hallazgo abierto (`HALLAZGOS_*` de los inventarios, con su
+`xfail` estricto) va a **falla** aunque su camino normal funcione. Un «ok» en la VM o
+en la instalación real lleva en la nota la versión de Hermes y la fecha. Los
+simuladores de la suite normal no son un entorno de esta tabla: corren
+siempre, para todas.
+
+`tests/test_matriz_pruebas.py` compara la tabla con el registro y con los
+inventarios del banco: una tool que modifica sin fila, una fila de más o una
+fila que contradice un inventario lo ponen en rojo. Quien añade una tool que
+modifica añade su fila en el mismo cambio (y, si es del Supervisor o de
+ficheros, su línea en «Tandas de pruebas» del procedimiento); quien la prueba
+cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
+
+<!-- matriz-pruebas:inicio -->
+| Tool | Entorno | Resultado | Nota |
+|---|---|---|---|
+| `fs_delete_file` | VM | pendiente | |
+| `fs_move_file` | VM | pendiente | |
+| `fs_restore_file_backup` | VM | pendiente | |
+| `fs_set_secret` | VM | pendiente | |
+| `fs_write_file` | VM | pendiente | |
+| `ha_abort_config_entry_flow` | banco de Core | ok | |
+| `ha_activate_scene` | banco de Core | ok | |
+| `ha_call_service` | banco de Core | ok | |
+| `ha_call_service_response` | banco de Core | ok | |
+| `ha_call_ws_command` | banco de Core | ok | |
+| `ha_cancel_timer` | banco de Core | ok | |
+| `ha_cancel_wait` | banco de Core | ok | |
+| `ha_change_timer` | banco de Core | ok | |
+| `ha_continue_config_entry_flow` | banco de Core | ok | |
+| `ha_continue_options_flow` | banco de Core | ok | |
+| `ha_create_area` | banco de Core | ok | |
+| `ha_create_category` | banco de Core | ok | |
+| `ha_create_floor` | banco de Core | ok | |
+| `ha_create_label` | banco de Core | ok | |
+| `ha_create_lovelace_dashboard` | banco de Core | ok | |
+| `ha_create_lovelace_resource` | banco de Core | ok | |
+| `ha_create_or_update_automation` | banco de Core | ok | |
+| `ha_create_or_update_counter` | banco de Core | ok | |
+| `ha_create_or_update_input_boolean` | banco de Core | ok | |
+| `ha_create_or_update_input_button` | banco de Core | ok | |
+| `ha_create_or_update_input_datetime` | banco de Core | ok | |
+| `ha_create_or_update_input_number` | banco de Core | ok | |
+| `ha_create_or_update_input_select` | banco de Core | ok | |
+| `ha_create_or_update_input_text` | banco de Core | ok | |
+| `ha_create_or_update_scene` | banco de Core | ok | |
+| `ha_create_or_update_schedule` | banco de Core | ok | |
+| `ha_create_or_update_script` | banco de Core | ok | |
+| `ha_create_or_update_timer` | banco de Core | ok | |
+| `ha_create_or_update_zone` | banco de Core | ok | |
+| `ha_create_person` | banco de Core | ok | |
+| `ha_create_scene_from_current` | banco de Core | falla | con `name` falla siempre: `scene.create` de Core 2026.11.1 no admite ese campo y responde 400; sin `name` funciona (spec 033) |
+| `ha_cycle_input_select` | banco de Core | ok | |
+| `ha_decrement_counter` | banco de Core | ok | |
+| `ha_decrement_input_number` | banco de Core | ok | |
+| `ha_delete_area` | banco de Core | ok | |
+| `ha_delete_automation` | banco de Core | ok | |
+| `ha_delete_category` | banco de Core | ok | |
+| `ha_delete_config_entry` | banco de Core | ok | |
+| `ha_delete_counter` | banco de Core | ok | |
+| `ha_delete_floor` | banco de Core | ok | |
+| `ha_delete_input_boolean` | banco de Core | ok | |
+| `ha_delete_input_button` | banco de Core | ok | |
+| `ha_delete_input_datetime` | banco de Core | ok | |
+| `ha_delete_input_number` | banco de Core | ok | |
+| `ha_delete_input_select` | banco de Core | ok | |
+| `ha_delete_input_text` | banco de Core | ok | |
+| `ha_delete_label` | banco de Core | ok | |
+| `ha_delete_lovelace_dashboard` | banco de Core | ok | |
+| `ha_delete_lovelace_resource` | banco de Core | ok | |
+| `ha_delete_person` | banco de Core | ok | |
+| `ha_delete_scene` | banco de Core | ok | |
+| `ha_delete_schedule` | banco de Core | ok | |
+| `ha_delete_script` | banco de Core | ok | |
+| `ha_delete_timer` | banco de Core | ok | |
+| `ha_delete_zone` | banco de Core | ok | |
+| `ha_disable_automation` | banco de Core | ok | |
+| `ha_disable_config_entry` | banco de Core | ok | |
+| `ha_enable_automation` | banco de Core | ok | |
+| `ha_enable_config_entry` | banco de Core | ok | |
+| `ha_finish_timer` | banco de Core | ok | |
+| `ha_fire_event` | banco de Core | ok | |
+| `ha_ignore_repair` | banco de Core | ok | |
+| `ha_increment_counter` | banco de Core | ok | |
+| `ha_increment_input_number` | banco de Core | ok | |
+| `ha_pause_timer` | banco de Core | ok | |
+| `ha_press_input_button` | banco de Core | ok | |
+| `ha_reload_automations` | banco de Core | ok | |
+| `ha_reload_config_entry` | banco de Core | ok | |
+| `ha_reload_counters` | banco de Core | falla | `counter.reload` no existe en Core 2026.11.1 (spec 033) |
+| `ha_reload_scenes` | banco de Core | ok | |
+| `ha_reload_schedules` | banco de Core | ok | |
+| `ha_reload_scripts` | banco de Core | ok | |
+| `ha_reload_timers` | banco de Core | ok | |
+| `ha_reload_zones` | banco de Core | ok | |
+| `ha_remove_device` | banco de Core | ok | |
+| `ha_remove_device_from_config_entry` | banco de Core | ok | |
+| `ha_remove_entity_registry` | banco de Core | ok | |
+| `ha_reset_counter` | banco de Core | ok | |
+| `ha_run_script` | banco de Core | falla | seguridad: con una entidad restringida, el token no cubre `variables`; el camino normal funciona (spec 033) |
+| `ha_save_lovelace_dashboard` | banco de Core | ok | |
+| `ha_set_counter_value` | banco de Core | ok | |
+| `ha_set_input_boolean` | banco de Core | ok | |
+| `ha_set_input_datetime` | banco de Core | ok | |
+| `ha_set_input_number` | banco de Core | ok | |
+| `ha_set_input_select` | banco de Core | ok | |
+| `ha_set_input_select_options` | banco de Core | ok | |
+| `ha_set_input_text` | banco de Core | ok | |
+| `ha_start_config_entry_flow` | banco de Core | ok | |
+| `ha_start_options_flow` | banco de Core | ok | |
+| `ha_start_timer` | banco de Core | ok | |
+| `ha_toggle_input_boolean` | banco de Core | ok | |
+| `ha_trigger_automation` | banco de Core | ok | comparte el hallazgo de seguridad de `ha_run_script` (spec 033) |
+| `ha_update_area` | banco de Core | ok | |
+| `ha_update_category` | banco de Core | ok | |
+| `ha_update_device` | banco de Core | ok | |
+| `ha_update_entity_registry` | banco de Core | ok | |
+| `ha_update_floor` | banco de Core | ok | |
+| `ha_update_label` | banco de Core | ok | |
+| `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
+| `ha_update_lovelace_resource` | banco de Core | ok | |
+| `ha_update_person` | banco de Core | ok | |
+| `sv_call_api` | VM | pendiente | |
+| `sv_check_core_config` | VM | pendiente | |
+| `sv_create_backup_full` | VM | pendiente | |
+| `sv_create_backup_partial` | VM | pendiente | |
+| `sv_create_safety_backup` | VM | pendiente | |
+| `sv_delete_backup` | VM | pendiente | instantánea antes |
+| `sv_dismiss_resolution_issue` | VM | pendiente | |
+| `sv_dismiss_resolution_suggestion` | VM | pendiente | |
+| `sv_get_job_status` | VM | pendiente | |
+| `sv_install_addon` | VM | pendiente | add-on de prueba |
+| `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_restart_addon` | VM | pendiente | add-on de prueba |
+| `sv_restart_core` | VM | pendiente | instantánea antes |
+| `sv_restore_backup_full` | VM | pendiente | instantánea antes |
+| `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
+| `sv_set_addon_options` | VM | pendiente | add-on de prueba |
+| `sv_start_addon` | VM | pendiente | add-on de prueba |
+| `sv_stop_addon` | VM | pendiente | add-on de prueba |
+| `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
+| `sv_update_addon` | VM | pendiente | add-on de prueba |
+<!-- matriz-pruebas:fin -->
+
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
 genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las
 dependencias de `specs/008-cobertura-total/plan.md`.
@@ -557,10 +730,12 @@ programa:
   cubre todas las rutas que usa Hermes y todos los huecos propuestos (salvo
   `/reload_updates`; `/refresh_updates` sí entra). `admin` solo añade
   `/addons/{app}/security`, `/auth/reset`, `/auth/list`, `/os/datadisk/wipe` e
-  `/ingress/panels`, que Hermes no usa. El comentario de `config.yaml` que
-  habla de un 403 es de una versión anterior. Es un cambio de permisos: el
+  `/ingress/panels`, que Hermes no usa. El comentario de `config.yaml` ya
+  está corregido (014) y `tests/test_rutas_supervisor_rol.py` comprueba las
+  rutas contra los patrones de 2026.11.0; queda la prueba en vivo
+  (procedimiento en `docs/BANCO-SUPERVISOR.md`). Es un cambio de permisos: el
   Supervisor lo enseña al actualizar; el cambio de rol se decide al final, tras
-  la prueba manual.
+  la prueba manual (D-02).
 - **Distinguir errores fatales de avisos en `sv_get_job_status`** (027): hasta
   que el Supervisor dé una señal fiable, se documenta.
 - **Cifrado de los safety backups** (031).

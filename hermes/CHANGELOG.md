@@ -154,6 +154,24 @@ _Pendiente: la añade la sub-feature que lo implemente._
   onboarding, reglas de salto, comprobaciones del workflow, inventario de
   cobertura) se prueban en la suite normal. Sin cambios en el código del
   add-on.
+- **Banco del Supervisor: procedimiento y matriz de pruebas.** Las 25 tools
+  del Supervisor y de ficheros que modifican (24 y `sv_call_api`) no se pueden ejecutar en el banco
+  de Core. `docs/BANCO-SUPERVISOR.md` documenta cómo probarlas en una máquina
+  virtual con Home Assistant OS (Core 2026.11.1 fijado y la versión real
+  del Supervisor anotada, porque no se puede fijar; instantánea antes de cada prueba destructiva, Hermes como add-on
+  local) y la prueba de `hassio_role: manager`; nadie la ha ejecutado todavía
+  y queda como prueba manual. La hoja de ruta tiene una matriz con una fila
+  por cada tool que modifica (dónde se prueba contra el software real y con
+  qué resultado), que un test compara con las tools registradas y con los
+  inventarios del banco, y las pruebas manuales pendientes dicen dónde se
+  hace cada una.
+- **El comentario de `hassio_role` dice la verdad.** Decía que con `manager`
+  el Supervisor devolvía 403 en `/addons/self/options/config` y que Hermes la
+  necesitaba para `bashio::config`; en el Supervisor 2026.11.0 esa ruta pasa
+  con cualquier rol y Hermes no usa `bashio::config`. El rol sigue en `admin`
+  hasta probar `manager` en vivo. Un test nuevo comprueba que todas las rutas
+  del Supervisor que usa Hermes caben en `manager` según el código del
+  Supervisor 2026.11.0.
 
 ### Correcciones
 

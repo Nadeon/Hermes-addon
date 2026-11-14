@@ -190,7 +190,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-003 | media-alta | 011 | FR-007, FR-008 | X | `sv_read_api`, `sv_call_api`: `TestSupervisor`, `TestSupervisorTablaReal` (`tests/test_tools_generic_commands.py`), `TestValidarRuta` (`tests/test_command_policy.py`) |
 | CAP-004 | alta | 011 | FR-010 | X | `tool_families.py` y `tool_families_disabled`: `TestCatalogo`, `TestValidarDesactivadas`, `TestAliasDeFamilias` (`tests/test_tool_families.py`), `TestToolFamiliesDisabled` (`tests/test_config_validation.py`), `TestRegistroPorFamilias` con SC-005 (`tests/test_tools_registration.py`), `TestFamiliasDesactivadasInyectadas`, `TestFamiliasDesdeElRegistro` (`tests/test_tools_generic_commands.py`) |
 | CAP-005 | alta | 010 | FR-013 | X | job del banco en el CI: `tests/test_banco_workflow.py`, `tests/banco/test_banco_humo.py` |
-| CAP-006 | alta | 014 | FR-016 | M | procedimiento y matriz en la hoja de ruta |
+| CAP-006 | alta | 014 | FR-016 | M | procedimiento `docs/BANCO-SUPERVISOR.md` y matriz en la hoja de ruta: `tests/test_matriz_pruebas.py` (`test_procedimiento_con_sus_secciones`) |
 | CAP-007 | media-alta | 011 | FR-005 | X | `scripts/inventario/extraer.py` y `generar_tabla.py`: `TestDeriva` (`tests/test_command_table.py`), `tests/test_command_inventory.py`, `tests/test_generar_tabla.py`, `tests/test_extractor_inventario.py` |
 | CAP-008 | media | 011 | FR-011 | X | `hermes_guide(topic="generic_commands", search=…)`: `TestTemaGenericCommands` (`tests/test_tools_guide.py`), `TestRegistro.test_la_guia_que_citan_existe_y_busca` (`tests/test_tools_generic_commands.py`) |
 | CAP-010 | alta | 009 | FR-025 | X | `TestRedaccionLineal` y `TestRedaccionDiferencial` (`tests/test_redact_secrets.py`) |
@@ -205,7 +205,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-019 | alta | 018 | FR-063 | X | guardado por vistas (unitario y banco) |
 | CAP-020 | media-alta | 018 | FR-064 | X | denylist con token en `ha_call_service_response` |
 | CAP-021 | media | 009 | FR-034 | X | `TestNoSeActualizaASiMismo` (`tests/test_tools_supervisor.py`) |
-| CAP-022 | alta | 014 | FR-017 | M | prueba manual de `manager` (pendiente) |
+| CAP-022 | alta | 014 | FR-017 | X+M | `tests/test_addon_manifest.py` (`TestComentarioDelRol`), `tests/test_rutas_supervisor_rol.py`; prueba manual de `manager` (pendiente) |
 | CAP-023 | media | 018 | FR-018, FR-065 | X | sobre común en tools nuevas |
 | CAP-024 | baja | 009 | FR-035 | X | `TestApagadoSinTraza` (`tests/test_boot_shutdown_diagnostics.py`) |
 | CAP-025 | baja | 027 | FR-092 | M | descripción y guía |
@@ -217,8 +217,8 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-031 | media | 027 | FR-020, FR-096 | M | alias siguen con `_deprecated` |
 | CAP-032 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta |
 | CAP-033 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta; deriva |
-| CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core: `tests/banco/test_banco_humo.py`, `tests/banco/test_banco_helpers_*.py`, `tests/test_banco_cobertura.py` (010); `tests/banco/test_banco_escrituras_*.py`, `tests/test_banco_cobertura_escrituras.py` (028); matriz del Supervisor |
-| CAP-035 | media | 014 | FR-016 | M | matriz de pruebas manuales |
+| CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core: `tests/banco/test_banco_humo.py`, `tests/banco/test_banco_helpers_*.py`, `tests/test_banco_cobertura.py` (010); `tests/banco/test_banco_escrituras_*.py`, `tests/test_banco_cobertura_escrituras.py` (028); matriz del Supervisor: `tests/test_matriz_pruebas.py` (014) |
+| CAP-035 | media | 014 | FR-016 | M | casillas de pruebas manuales con su entorno: `tests/test_matriz_pruebas.py` (`test_casillas_manuales`) |
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
 | CAP-038 | baja | 017 | FR-061 | D | espera de trigger (banco) |
