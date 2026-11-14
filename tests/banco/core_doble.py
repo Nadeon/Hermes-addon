@@ -12,8 +12,9 @@ local imita lo justo de Core 2026.11.1:
 - `/api/`, `/api/states/{entity_id}` y una ruta REST de eco que devuelve lo que
   ha recibido (método, ruta, query, `Content-Type` y token);
 - `/api/websocket` con la fase de auth, `auth/long_lived_access_token`,
-  `subscribe_events` (emite un evento de prueba) y eco de cualquier otro
-  comando.
+  `subscribe_events` (emite un evento de prueba), `eco/error` (lo rechaza,
+  spec 028) y eco de cualquier
+  otro comando.
 
 Registra lo que recibe para que los tests comprueben, por ejemplo, con qué
 token le llegó una petición. Nunca registra los cuerpos de
@@ -275,6 +276,13 @@ class CoreDoble:
                 return
             await ws.send_json(
                 {"id": id_, "type": "result", "success": True, "result": self._nuevo_token()}
+            )
+            return
+        if tipo == "eco/error":
+            # Spec 028: un comando que Core rechaza, para probar `Lector.comando`.
+            await ws.send_json(
+                {"id": id_, "type": "result", "success": False,
+                 "error": {"code": "eco_error", "message": "rechazado por el doble"}}
             )
             return
         if isinstance(tipo, str) and tipo.endswith("/delete"):

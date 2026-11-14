@@ -111,8 +111,10 @@ class ComprobacionDelJob:
         sin_ejecutar = sorted(self.tools_exigidas - self.tools_probadas)
         if sin_ejecutar:
             problemas.append(
-                "tools de PROBADAS_EN_BANCO que ningún test que haya pasado llamó "
-                f"con éxito: {sin_ejecutar}"
+                "tools que el inventario da por probadas (PROBADAS_EN_BANCO de la "
+                "010, PROBADAS_GENERICAS, PROBADAS_028…) que ningún test que haya "
+                "pasado llamó con "
+                f"éxito: {sin_ejecutar}"
             )
         return problemas
 

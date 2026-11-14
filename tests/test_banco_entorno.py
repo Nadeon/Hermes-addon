@@ -15,6 +15,7 @@ Control negativo (T013), comprobado en local y restaurado:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import socket
@@ -27,7 +28,7 @@ import structlog
 
 from tests.banco import entorno, onboarding
 from tests.banco.core_doble import CoreDoble
-from tests.banco.lector import Lector
+from tests.banco.lector import ErrorCore, Lector
 
 
 def _sin_variables() -> dict[str, str]:
@@ -313,6 +314,62 @@ class TestLector(unittest.IsolatedAsyncioTestCase):
             [c.get("input_boolean_id") for c in self.core.registro.ws_comandos],
             ["no_existe_1", "banco_input_boolean_1"],
         )
+
+
+class TestLectorGenerico(unittest.IsolatedAsyncioTestCase):
+    """`comando` y `rest` del lector (spec 028, T003): las comprobaciones de
+    automatizaciones, scripts, escenas y Lovelace leen comandos WebSocket y
+    rutas REST que no son de helpers.
+
+    Control negativo (T005, anotado en el commit del tramo A): `rest` sin la
+    cabecera `Authorization` de la sesión hace caer
+    `test_rest_llega_con_el_token_de_core`; `comando` devolviendo el mensaje
+    entero en vez de `result` hace caer `test_comando_ida_y_vuelta`.
+    """
+
+    async def asyncSetUp(self) -> None:
+        self.core = CoreDoble(token_core="token-lector")
+        await self.core.__aenter__()
+
+    async def asyncTearDown(self) -> None:
+        await self.core.__aexit__(None, None, None)
+
+    async def test_comando_ida_y_vuelta(self) -> None:
+        async with Lector(self.core.url, "token-lector") as lector:
+            resultado = await lector.comando({"type": "lovelace/dashboards/list"})
+        self.assertEqual(resultado["eco"], "lovelace/dashboards/list")
+        self.assertEqual(resultado["datos"]["type"], "lovelace/dashboards/list")
+        self.assertEqual(
+            [c["type"] for c in self.core.registro.ws_comandos], ["lovelace/dashboards/list"]
+        )
+
+    async def test_comando_con_error_lanza_error_core(self) -> None:
+        async with Lector(self.core.url, "token-lector") as lector:
+            with self.assertRaises(ErrorCore) as ctx:
+                await lector.comando({"type": "eco/error"})
+        self.assertEqual(ctx.exception.codigo, "eco_error")
+
+    async def test_rest_llega_con_el_token_de_core(self) -> None:
+        async with Lector(self.core.url, "token-lector") as lector:
+            estado_get, cuerpo_get = await lector.rest("GET", "/api/eco/x")
+            estado_post, cuerpo_post = await lector.rest("POST", "/api/eco/x", {"a": 1})
+            estado_del, cuerpo_del = await lector.rest("DELETE", "/api/eco/x")
+        self.assertEqual((estado_get, estado_post, estado_del), (200, 200, 200))
+        self.assertEqual(
+            [(c["metodo"], c["ruta"]) for c in (cuerpo_get, cuerpo_post, cuerpo_del)],
+            [("GET", "x"), ("POST", "x"), ("DELETE", "x")],
+        )
+        self.assertEqual(json.loads(cuerpo_post["cuerpo"]), {"a": 1})
+        self.assertEqual(cuerpo_post["content_type"], "application/json")
+        self.assertEqual(
+            [r["token"] for r in self.core.registro.rest], ["token-lector"] * 3
+        )
+        self.assertNotIn("token-lector", repr(lector))
+
+    async def test_rest_devuelve_el_estado_de_error(self) -> None:
+        async with Lector(self.core.url, "token-lector") as lector:
+            estado, _ = await lector.rest("GET", "/api/states/no_existe.x")
+        self.assertEqual(estado, 404)
 
 
 class TestLlamar(unittest.IsolatedAsyncioTestCase):

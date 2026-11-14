@@ -114,6 +114,41 @@ _Pendiente: la añade la sub-feature que lo implemente._
   probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
   033, y en el banco como fallo esperado que solo admite ese error. Esta
   sección no cambia la tool.
+- **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
+  automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
+  configuración guardada leída de HA; activar, desactivar, disparar,
+  ejecutar, recargar y borrar), `ha_call_service` directo y en dos pasos con un
+  servicio de la denylist, `ha_call_service_response`, `ha_fire_event`,
+  `ha_cancel_wait` y las siete de dashboards y recursos Lovelace.
+  `ha_run_script` y `ha_trigger_automation` se prueban también por su camino
+  con token (script o automatización restringidos). Un test de la suite
+  normal obliga a que las tools que modifican (las 124 de la 1.1.2 y, desde
+  la integración con la 011, sus 2 genéricas de escritura) estén clasificadas, y el job
+  comprueba que cada una de las probadas se ha llamado con éxito en un test
+  que ha pasado.
+- **Y las 27 que quedaban: las 100 `ha_*` que modifican, en el banco.** Con
+  la integración de demostración `kitchen_sink` cargada en la HA del banco
+  (dispositivos, avisos de reparación y flujo de opciones sin hardware ni
+  internet): áreas, plantas, etiquetas y categorías (crear, editar en dos
+  pasos y borrar), editar y borrar dispositivos, renombrar una entidad y
+  quitarla del registro, ignorar y volver a mostrar un aviso de reparación,
+  el flujo de opciones, y el ciclo entero de una config entry de `uptime`
+  creada por las propias tools (abrir, abortar y completar el flujo,
+  recargar, deshabilitar, habilitar y borrar). De las 100, 99 funcionan
+  contra HA real; `ha_reload_counters` falla (hallazgo de arriba). Solo quedan
+  fuera del banco las 5 `fs_*` y las 19 `sv_*`, cada una con su motivo.
+- **Hallazgo: `ha_create_scene_from_current` con `name` falla siempre.** El
+  servicio `scene.create` de HA Core 2026.11.1 no admite `name` y Core
+  responde 400; la descripción de la tool dice que «HA decide». Tampoco es
+  cierto que una colisión de `scene_id` dé error: Core reemplaza la escena.
+  Sin `name` funciona. Pendiente de arreglo en la spec 033; en el banco, fallo
+  esperado que solo admite ese error.
+- **Hallazgo de seguridad: el token de `ha_run_script` y
+  `ha_trigger_automation` no cubre `variables`.** Con un script o una
+  automatización restringidos, se acepta una confirmación con variables
+  distintas de las de la vista previa, y la vista previa no las enseña.
+  Pendiente de arreglo en la spec 033 (prioridad máxima); en el banco, fallo
+  esperado que solo admite ese caso.
 - Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
   y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
   onboarding, reglas de salto, comprobaciones del workflow, inventario de

@@ -217,7 +217,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-031 | media | 027 | FR-020, FR-096 | M | alias siguen con `_deprecated` |
 | CAP-032 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta |
 | CAP-033 | baja (bloqueada) | 027 | FR-097 | M | hoja de ruta; deriva |
-| CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core: `tests/banco/test_banco_humo.py`, `tests/banco/test_banco_helpers_*.py`, `tests/test_banco_cobertura.py` (010); matriz del Supervisor |
+| CAP-034 | alta | 010, 028, 014 | FR-014…FR-016 | X+M | banco de Core: `tests/banco/test_banco_humo.py`, `tests/banco/test_banco_helpers_*.py`, `tests/test_banco_cobertura.py` (010); `tests/banco/test_banco_escrituras_*.py`, `tests/test_banco_cobertura_escrituras.py` (028); matriz del Supervisor |
 | CAP-035 | media | 014 | FR-016 | M | matriz de pruebas manuales |
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
