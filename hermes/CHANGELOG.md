@@ -30,7 +30,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
 ### Mejoras de tools existentes
 
 - **Guardar una sola vista de un dashboard**: `ha_save_lovelace_dashboard`
-  acepta `view_index` y `view` (opcionales). Con ellos sustituye solo esa
+  acepta `view_index` (un entero JSON: `true`, `"1"` o `1.0` se rechazan,
+  no se convierten) y `view` (opcionales). Con ellos sustituye solo esa
   vista del dashboard actual y conserva exactamente las demás vistas y las
   claves de nivel superior, así que en un dashboard grande ya no hay que
   reescribirlo entero (ni arriesgarse a perder tarjetas). Va en dos pasos: la

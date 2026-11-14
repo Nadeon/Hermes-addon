@@ -1313,6 +1313,8 @@ class TestGuardarPorVista(unittest.IsolatedAsyncioTestCase):
                           campo="view")
         await self._error("invalid_argument", self.URL, view_index=1,
                           view={"views": [self.nueva]}, campo="view")
+        # Llamada directa a la función: prueba la defensa interna. Por MCP
+        # estos valores ni llegan (TestViewIndexPorElServidorMCP).
         await self._error("invalid_argument", self.URL, view_index=True,
                           view=self.nueva, campo="view_index")
         await self._error("invalid_argument", self.URL, view_index="1",
@@ -1417,3 +1419,75 @@ class TestGuardarPorVista(unittest.IsolatedAsyncioTestCase):
         res = await self._guardar(self.URL, confirmation_token=token)
         self.assertEqual(res, {"result": "ok", "url_path": self.URL})
         self.assertEqual(self.ws.calls_for("lovelace/config/save")[0]["config"], nuevo)
+
+
+class TestViewIndexPorElServidorMCP(unittest.IsolatedAsyncioTestCase):
+    """`view_index` por el camino real de un cliente: el servidor MCP de
+    Hermes y su validación de argumentos (spec 018, T028).
+
+    Llamar a la función directamente se salta la validación del SDK, y en modo
+    laxo esa validación convierte `true`, `"1"` y `1.0` en el entero 1: la
+    tool recibiría un índice válido que nadie pidió. Por eso `view_index` se
+    declara estricto y esto se prueba con `call_tool`, no con la función.
+
+    Control negativo comprobado: con `view_index: int | None` (sin `Strict`)
+    caen las tres variantes de `test_no_entero_se_rechaza_sin_vista_previa`
+    (llegan como 1 y emiten vista previa y token). Con y sin `Strict` pasa
+    `test_el_esquema_sigue_siendo_integer`: el esquema anunciado es el mismo.
+    """
+
+    URL = "panel-prueba"
+
+    async def asyncSetUp(self) -> None:
+        from hermes.mcp_server import build_mcp_server
+
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+        self.session = ClientSession()
+        self.ha_client = make_ready_client(self.session)
+        self.ws = FakeWSSender()
+        self.ws.install(self.ha_client)
+        self.ws.set("lovelace/dashboards/list", FAKE_DASHBOARDS)
+        self.ws.set("lovelace/config", _dashboard_tres_vistas())
+        self.ws.set("lovelace/config/save", None)
+        self.server = build_mcp_server("prueba")
+        mod.register(self.server, self.ha_client, response_max_bytes=1_048_576)
+        self.vista = {"title": "Nueva", "cards": []}
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    async def _llamar(self, view_index: Any) -> Any:
+        from mcp import Client
+
+        async with Client(self.server) as client:
+            return await client.call_tool("ha_save_lovelace_dashboard", {
+                "url_path": self.URL, "view_index": view_index, "view": self.vista})
+
+    async def test_no_entero_se_rechaza_sin_vista_previa(self) -> None:
+        for valor in (True, "1", 1.0):
+            with self.subTest(view_index=valor):
+                res = await self._llamar(valor)
+                self.assertIs(res.is_error, True)
+                texto = res.content[0].text
+                self.assertIn("view_index", texto)
+                self.assertNotIn("confirmation_token", texto)
+                self.assertEqual(list(security.CONFIRMATIONS_DIR.glob("*.json")), [])
+                self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    async def test_entero_da_vista_previa(self) -> None:
+        res = await self._llamar(1)
+        self.assertIs(res.is_error, False)
+        datos = json.loads(res.content[0].text)
+        self.assertEqual(datos["preview"]["view_index"], 1)
+        self.assertIn("confirmation_token", datos)
+
+    async def test_el_esquema_sigue_siendo_integer(self) -> None:
+        # Estricto no cambia lo que se anuncia: el cliente sigue viendo
+        # `integer` (o null), como cualquier otro índice.
+        tools = {t.name: t for t in await self.server.list_tools()}
+        prop = tools["ha_save_lovelace_dashboard"].input_schema["properties"]["view_index"]
+        self.assertEqual(prop["anyOf"], [{"type": "integer"}, {"type": "null"}])

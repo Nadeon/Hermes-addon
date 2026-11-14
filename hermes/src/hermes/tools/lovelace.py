@@ -27,9 +27,10 @@ Si dos clientes guardan simultáneamente, el último gana.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Annotated, Any
 
 import structlog
+from pydantic import Strict
 
 # Sin opción explícita, el mismo tope que la configuración (spec 003): el
 # antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
@@ -241,7 +242,11 @@ async def _guardar_vista(
         return _error_argumento(
             "view", "view is required to request a preview; it can only be "
             "omitted when confirming with confirmation_token.")
-    # `bool` es un `int` en Python: `True` no es un índice.
+    # Por MCP no se llega aquí con algo que no sea un entero: la tool declara
+    # `view_index` estricto y el SDK rechaza `true`, `"1"` o `1.0` antes de
+    # llamarla (lo prueba `TestViewIndexPorElServidorMCP`). Esto queda como
+    # defensa para quien llame a la función directamente: `bool` es un `int`
+    # en Python y `True` no es un índice.
     if isinstance(view_index, bool) or not isinstance(view_index, int):
         return _error_argumento("view_index", "must be an integer")
     if view is not None:
@@ -696,7 +701,11 @@ def register(
         config: dict[str, Any] | None = None,
         confirmation_token: str | None = None,
         remove_top_level_keys: list[str] | None = None,
-        view_index: int | None = None,
+        # Estricto (spec 018, T028): en modo laxo el SDK convertiría `true`,
+        # `"1"` o `1.0` en el entero 1, y la vista previa y el guardado irían
+        # a la vista 1 sin que nadie la hubiera pedido. El esquema JSON sigue
+        # siendo `integer`.
+        view_index: Annotated[int, Strict()] | None = None,
         view: dict[str, Any] | None = None,
     ) -> object:
         """Sobrescribe la configuración completa de un dashboard Lovelace, o
@@ -751,6 +760,8 @@ def register(
                 actual que se quieren eliminar a propósito.
             view_index: Índice (0-based) de la vista que se sustituye, en el
                 guardado de una sola vista. Obligatorio en sus dos llamadas.
+                Tiene que ser un entero JSON: `true`, `"1"` o `1.0` se
+                rechazan (error de validación), no se convierten.
             view: La vista nueva (un objeto, sin `views`). Obligatoria en la
                 vista previa; se puede omitir al confirmar.
 
