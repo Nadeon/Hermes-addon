@@ -99,6 +99,9 @@ CLAVES_DE_CASILLAS = (
     "Funnel en el 8443",
     "fs_write_file",
     "trazas de un script",
+    # Las once tools de solo lectura de la 013: no tienen fila en la matriz
+    # (solo lleva las que modifican), así que su prueba en vivo vive aquí.
+    "Diagnóstico del Supervisor (spec 013)",
 )
 
 

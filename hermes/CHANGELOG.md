@@ -68,10 +68,13 @@ argumento existente cambia ni pasa a ser obligatorio.
   `os`, `jobs`), con las once tools y las rutas de diagnóstico que se leen
   por `sv_read_api`; el tema `supervisor` explica `boot` y `latest` en los
   logs de add-ons.
-- La prueba en vivo contra un Supervisor real queda pendiente (spec 014 o el
-  cierre del programa), para las once tools y las rutas `read`: en los tests,
-  se prueban con un Supervisor simulado con la forma de las respuestas del
-  2026.11.0.
+- La prueba en vivo contra un Supervisor real queda pendiente, para las once
+  tools y las rutas `read`: en la VM del procedimiento de la 014
+  (`docs/BANCO-SUPERVISOR.md`) y después en una instalación real, con su
+  casilla en las pruebas manuales de la hoja de ruta. En los tests se prueban
+  con un Supervisor simulado con la forma de las respuestas del 2026.11.0.
+  Como solo leen, no tienen fila en la matriz de pruebas, que es de las tools
+  que modifican.
 
 ### Integraciones
 
