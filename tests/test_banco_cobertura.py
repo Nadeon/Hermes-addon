@@ -245,10 +245,56 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         # Desde la integración de la 028, la unión de las tres listas.
         from tests.banco.cobertura_escrituras import PROBADAS_028
 
+        # Desde la 029, también sus lecturas.
+        from tests.banco.cobertura import PROBADAS_EN_BANCO_029
+
         self.assertEqual(
-            plugin.tools_exigidas, PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028
+            plugin.tools_exigidas,
+            PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029,
         )
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCoberturaDeLa029(unittest.TestCase):
+    """Spec 029, T017 (FR-022): las tools de las familias de la 029 se
+    ejecutan en el banco. `PROBADAS_EN_BANCO_029` es EXACTAMENTE lo que
+    registran sus módulos (una tool nueva en ellos sin prueba en el banco hace
+    caer el test nombrándola) y cada nombre aparece en algún
+    `tests/banco/test_banco_*.py`. Que se ejecuta de verdad lo exige el job
+    (`TOOLS_EXIGIDAS_DEL_JOB`).
+
+    Control negativo (T018 f): quitar `ha_get_system_state` de
+    `PROBADAS_EN_BANCO_029` → cae `test_inventario_exacto` nombrándola."""
+
+    def test_inventario_exacto(self) -> None:
+        from tests.banco.cobertura import MODULOS_029, PROBADAS_EN_BANCO_029
+
+        registradas: set[str] = set()
+        for modulo in MODULOS_029:
+            mod = importlib.import_module(f"hermes.tools.{modulo}")
+            dummy = _DummyMCP()
+            mod.register(dummy, MagicMock(), response_max_bytes=131_072)
+            registradas.update(dummy.nombres)
+        self.assertEqual(
+            set(PROBADAS_EN_BANCO_029), registradas,
+            f"sin probar en el banco: {sorted(registradas - PROBADAS_EN_BANCO_029)}; "
+            f"declaradas que no registra ningún módulo de la 029: "
+            f"{sorted(PROBADAS_EN_BANCO_029 - registradas)}")
+
+    def test_modulos_de_las_familias_de_la_029(self) -> None:
+        from hermes.tool_families import FAMILIAS
+        from tests.banco.cobertura import MODULOS_029
+
+        self.assertEqual(set(MODULOS_029), set(FAMILIAS["system_status"].modulos))
+
+    def test_cada_una_en_un_fichero_del_banco(self) -> None:
+        from tests.banco.cobertura import PROBADAS_EN_BANCO_029
+
+        textos = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((RAIZ / "tests" / "banco").glob("test_banco_*.py")))
+        faltan = sorted(t for t in PROBADAS_EN_BANCO_029 if f'"{t}"' not in textos)
+        self.assertEqual(faltan, [], f"sin test en tests/banco/: {faltan}")

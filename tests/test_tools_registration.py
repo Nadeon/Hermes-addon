@@ -737,6 +737,13 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+    # Spec 029 (CAP-043, familia `system_status`): solo leen; el prefijo
+    # `ha_get_`/`ha_list_` da el `readOnlyHint` (FR-017).
+    "ha_get_system_health": ("R-I-", "Get system health (Home Assistant)"),
+    "ha_get_system_state": ("R-I-", "Get system state (Home Assistant)"),
+    "ha_list_integration_setup_times": ("R-I-", "List integration setup times (Home Assistant)"),
+    "ha_list_integration_manifests": ("R-I-", "List integration manifests (Home Assistant)"),
+    "ha_get_integration_manifest": ("R-I-", "Get integration manifest (Home Assistant)"),
 }
 
 
@@ -1040,6 +1047,31 @@ _HACS_ALIASES = (
     "ha_hacs_info", "ha_hacs_list_repositories",
     "ha_hacs_get_repository", "ha_hacs_list_updates",
 )
+
+
+class TestSystemStatusRegistration:
+    """Spec 029, T010 (FR-015, FR-017, SC-001): las cinco de CAP-043 se
+    registran, ninguna pide `confirmation_token` y con `system_status`
+    desactivada no queda ninguna y el resto no cambia."""
+
+    _CINCO = {
+        "ha_get_system_health", "ha_get_system_state",
+        "ha_list_integration_setup_times", "ha_list_integration_manifests",
+        "ha_get_integration_manifest",
+    }
+
+    def test_registradas_y_sin_token(self):
+        tools = _real_registry()
+        assert self._CINCO <= set(tools)
+        for nombre in self._CINCO:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" not in props, nombre
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status"]))
+        assert completo - sin == self._CINCO
+        assert sin <= completo
 
 
 class TestMarketplaceRegistration:

@@ -23,6 +23,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts.inventario import generar_tabla as gt
 
@@ -133,6 +134,27 @@ class TestPrimeraGeneracion(_Base):
                          "pendiente de tool dedicada (spec 013)")
         self.assertEqual(self.t.SUPERVISOR[("POST", "/resolution/healthcheck")].reason,
                          "pendiente de tool dedicada (spec 022)")
+
+    def test_clase_a_via_dedicada_con_tool_en_el_mapa(self) -> None:
+        """Spec 029, T002 (FR-016; research R-7, mismo diseño que la 012): una
+        fila A de vía D cuya clave ya está en `_DEDICADAS_INICIALES` sale
+        `dedicated` con la familia de su tool desde la primera generación. Si
+        el generador siguiera aplicando antes la regla «pendiente», una tabla
+        regenerada desde cero desharía el paso a `dedicated` de cada
+        sub-feature. Control negativo comprobado: sin la consulta al mapa en
+        la rama de la clase A → cae (sale «pendiente de tool dedicada (spec
+        012)»)."""
+        with mock.patch.dict(gt._DEDICADAS_INICIALES, {"demo/via_d": "ha_read_ws_command"}):
+            self.salida.unlink()
+            self._generar()
+        e = self._tabla().CORE_WS["demo/via_d"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_read_ws_command", "generic_commands",
+             "ha_read_ws_command", "CAP-041"))
+        # Las demás filas A de vía D, sin clave en el mapa, siguen pendientes.
+        self.assertEqual(self._tabla().CORE_WS["demo/via_dt"].reason,
+                         "pendiente de tool dedicada (spec 021)")
 
     def test_clase_a_via_tabla_por_verbo_y_metodo(self) -> None:
         self.assertEqual(self.t.CORE_WS["demo/item/list"].category, "read")

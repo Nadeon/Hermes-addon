@@ -85,6 +85,40 @@ _Pendiente: la añade la sub-feature que lo implemente._
   honestidad atada a la tabla, banco de Core en las comprobaciones y fecha de
   publicación pendiente en el CHANGELOG mientras la versión se desarrolla).
 
+### Estado del sistema y estadísticas
+
+_En curso (spec 029): falta el tramo 2 (estadísticas y recorder, auditoría de
+llamadas a acciones, red y HTTP de Core)._
+
+- **Cinco tools nuevas de solo lectura, familia `system_status`**: ninguna
+  modifica nada ni pide token, y se pueden apagar con
+  `tool_families_disabled`.
+  - `ha_get_system_health`: lo que enseña «Información del sistema» de HA,
+    por dominio. Los valores lentos se esperan hasta `timeout_seconds` (de 1
+    a 30, 10 por defecto); los que no llegan salen en `pending` y los que HA
+    da por fallidos, en `failed`. Si no cabe en el tope de respuesta, quita
+    dominios enteros por el final y los nombra en `omitted_domains`; `domain`
+    pide uno solo. La suscripción de HA se cancela siempre.
+  - `ha_get_system_state`: si HA o el host piden reinicio, por qué y si el
+    aviso se pospuso. No lo descarta.
+  - `ha_list_integration_setup_times`: cuánto tardó cada integración en
+    arrancar, de la más lenta a la más rápida.
+  - `ha_list_integration_manifests` y `ha_get_integration_manifest`: resumen
+    de diez campos por integración y manifiesto entero. El texto de una
+    integración que no es de HA va marcado como de terceros
+    (`_third_party_text`).
+  Las respuestas pasan por la redacción de secretos y el log solo lleva
+  recuentos, nunca valores, URLs ni direcciones. Un comando que HA no conoce
+  se explica por su causa: `system_health_not_loaded` o
+  `unsupported_by_ha_version`.
+- **Tabla de comandos**: `system_health/info`, `subscribe_system_state`,
+  `integration/setup_info`, `manifest/list` y `manifest/get` pasan de `deny`
+  a `dedicated` hacia su tool; las genéricas los rechazan con
+  `use_dedicated_tool`.
+- **Guía**: tema `system_status` (alias `health`, `system_health`,
+  `system_state`, `manifest`, `manifests`, `setup_times`, `urls`).
+- **Banco de Core**: las cinco se ejecutan contra HA Core 2026.11.1 real.
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de

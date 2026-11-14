@@ -132,6 +132,19 @@ class TestCatalogo(unittest.TestCase):
         self.assertTrue(familia.desactivable)
         self.assertEqual(familia.modulos, ("generic_commands",))
 
+    def test_system_status_es_de_la_1_2_0(self) -> None:
+        """Spec 029, T009 (FR-015): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las cinco tools de CAP-043."""
+        familia = FAMILIAS["system_status"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_status",))
+        self.assertEqual(
+            familia.descripcion,
+            "System health, pending restart state, integration setup times and "
+            "manifests (read only).")
+        self.assertEqual(familia_de_modulo("system_status"), "system_status")
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

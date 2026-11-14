@@ -787,6 +787,49 @@ class TestFamiliasDesdeElRegistro(unittest.IsolatedAsyncioTestCase):
         self.assertIn("hermes_guide", mcp.tools)
 
 
+# Spec 029 (CAP-043): los cinco comandos con tool dedicada en `system_status`.
+_DEDICADAS_029_SYSTEM_STATUS = {
+    "system_health/info": "ha_get_system_health",
+    "subscribe_system_state": "ha_get_system_state",
+    "integration/setup_info": "ha_list_integration_setup_times",
+    "manifest/list": "ha_list_integration_manifests",
+    "manifest/get": "ha_get_integration_manifest",
+}
+
+
+class TestDedicadasDeLa029(unittest.IsolatedAsyncioTestCase):
+    """Spec 029, T013 (FR-016): con la tabla real, la genérica de lectura
+    rechaza los cinco comandos de CAP-043 hacia su tool, sin llegar a HA; con
+    `system_status` desactivada, además `family_disabled: true` (la genérica
+    no es una vía hacia lo que el usuario apagó).
+
+    Control negativo (T018 e): dejar `manifest/get` en `deny` → cae
+    `test_rechazo_hacia_su_tool` («manifest/get») y el de dedicadas de
+    test_command_table."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_029_SYSTEM_STATUS.items():
+            with self.subTest(comando=comando):
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual(r["error"], "use_dedicated_tool")
+                self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
+                                 (tool, "system_status", False))
+                self.assertIn(tool, mcp.tools)
+        ha.ws_send.assert_not_awaited()
+        ha.ws_one_shot_subscription.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["system_status"])
+        for comando, tool in _DEDICADAS_029_SYSTEM_STATUS.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()

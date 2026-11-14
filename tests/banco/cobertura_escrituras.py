@@ -154,6 +154,8 @@ XFAIL_PERMITIDOS_028: dict[str, str] = {
 # nueva con tests en el banco suma aquí sus listas.
 TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | PROBADAS_028
+    # Spec 029: lecturas, pero también se exigen por ejecución (FR-022).
+    | cobertura.PROBADAS_EN_BANCO_029
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 

@@ -87,6 +87,11 @@ _CATALOGO: tuple[Familia, ...] = (
             "Generic tools that run Core WebSocket commands and Supervisor API "
             "routes allowed by Hermes' classification table.",
             "1.2.0", True, ("generic_commands",)),
+    # Spec 029 (CAP-043): todo de solo lectura.
+    Familia("system_status",
+            "System health, pending restart state, integration setup times and "
+            "manifests (read only).",
+            "1.2.0", True, ("system_status",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

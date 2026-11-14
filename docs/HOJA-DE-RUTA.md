@@ -398,7 +398,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
-| 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | pendiente |
+| 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | en curso: tramo 1 hecho (CAP-043: cinco tools de `system_status`, `ws_collect_subscription`, tabla, guía y banco); falta el tramo 2 (CAP-049, CAP-058, CAP-068) |
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |

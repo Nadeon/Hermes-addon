@@ -115,6 +115,9 @@ class Sesion:
     cliente: Any
     lector: Lector
     creados: list[tuple[str, str]] = field(default_factory=list)
+    # El `HAClient` de Hermes de esta sesión. Spec 029: comprobar que una
+    # suscripción de varios mensajes no queda registrada en el cliente.
+    ha_client: Any = None
 
     # ── Lecturas del lector ───────────────────────────────────────────────
     async def items(self, dominio: str) -> list[dict[str, Any]]:
@@ -277,6 +280,7 @@ class BancoHelpers(unittest.IsolatedAsyncioTestCase):
             try:
                 async with hermes_conectado(self.entorno) as hermes:
                     sesion.cliente = hermes.cliente
+                    sesion.ha_client = hermes.ha_client
                     yield sesion
             except BaseExceptionGroup as grupo:
                 # El grupo de tareas del cliente MCP envuelve el fallo del test

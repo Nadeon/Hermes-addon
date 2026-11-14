@@ -373,5 +373,42 @@ class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.guide(tema, search=None), texto)
 
 
+
+class TestTemaSystemStatus(unittest.IsolatedAsyncioTestCase):
+    """Spec 029, T015 (FR-021): el tema `system_status` nombra las cinco
+    tools, dice que no modifican, cómo leer la salud con pendientes y que
+    para reiniciar está `sv_restart_core`; sus alias resuelven a él y el
+    índice lo menciona."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_contenido(self) -> None:
+        texto = await self.guide("system_status")
+        self.assertIs(texto, _GUIDE["system_status"])
+        for palabra in ("ha_get_system_health", "ha_get_system_state",
+                        "ha_list_integration_setup_times",
+                        "ha_list_integration_manifests", "ha_get_integration_manifest",
+                        "SOLO LECTURA", "pending", "complete", "failed",
+                        "omitted_domains", "timeout_seconds", "sv_restart_core",
+                        "_third_party_text", "system_health_not_loaded",
+                        "unsupported_by_ha_version"):
+            self.assertIn(palabra, texto)
+
+    async def test_alias(self) -> None:
+        texto = await self.guide("system_status")
+        for alias in ("health", "system_health", "system_state", "manifest",
+                      "manifests", "setup_times", "urls", "HEALTH"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # Los alias de la 1.1.2 no cambian (`system` sigue en `supervisor`).
+        self.assertEqual(await self.guide("system"), _GUIDE["supervisor"])
+        self.assertEqual(await self.guide("statistics"), _GUIDE["data"])
+
+    async def test_el_indice_lo_menciona(self) -> None:
+        self.assertIn("`system_status`", await self.guide())
+
 if __name__ == "__main__":
     unittest.main()

@@ -86,3 +86,14 @@ frontend:
 # hardware ni internet. `uptime`, la de los flujos de configuración, no se
 # carga aquí: la crean y la borran las propias tools durante el test.
 kitchen_sink:
+
+# ── Spec 029 (tramo 1): estado del sistema ───────────────────────────────────
+#
+# system_health: registra `system_health/info` (sin la integración, HA
+# responde `unknown_command` y la tool, `system_health_not_loaded`); lo usa
+# `ha_get_system_health`. Lee de las integraciones cargadas, sin salir a
+# internet. network: da `network` y `network/url` (tramo 2) y publica además
+# su propia salud con los adaptadores del contenedor; solo mira las
+# interfaces locales.
+system_health:
+network:
