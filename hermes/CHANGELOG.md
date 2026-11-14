@@ -173,6 +173,41 @@ _Pendiente: la añade la sub-feature que lo implemente._
   del Supervisor que usa Hermes caben en `manager` según el código del
   Supervisor 2026.11.0.
 
+### Plataforma y deprecaciones
+
+- **`sv_get_job_status` ya no da por bueno un job con sub-jobs fallidos.** El
+  Supervisor guarda el error de un sub-job en ese sub-job y no lo sube al job
+  padre: un backup completo con una app que no se pudo guardar terminaba con
+  `errors: []` y la tool daba `success: true`. Ahora devuelve también
+  `child_errors` (`{job, message}`, recortados y redactados, hasta 20 y 5
+  niveles; `child_errors_truncated: true` si hay más) y, con cualquiera de
+  ellos, `success: false`, igual que con cualquier error del propio job. Es un
+  arreglo, no un cambio de contrato: el campo `success` decía que todo había
+  ido bien cuando no. La descripción explica además que el Supervisor no
+  distingue avisos de errores fatales y que, con errores, `reference` puede
+  apuntar a un backup incompleto.
+- **El safety backup con sub-jobs fallidos ya no deja escribir.** El sondeo
+  del safety backup de las escrituras `fs_*` cuenta esos errores como fallo
+  (`safety_backup_job_failed` con el mensaje del sub-job): no se escribe sin
+  un backup válido. La retención de los safety backups no cambia.
+- **Nada se retira en la 1.2.0.** Los alias `ha_hacs_*` siguen hasta la 1.3.0
+  y `ha_remove_device_from_config_entry` sigue registrada y deprecada, con
+  sus argumentos y anotaciones de siempre. Si Home Assistant retira su comando
+  (anunciado para la 2027.9), la tool responde `command_removed_in_ha` con
+  `replacement: "ha_remove_device"`, sin cambiar nada ni enviar otro comando.
+  Hermes ya no depende de los campos de los dispositivos que HA retira en la
+  2027.8 y la 2027.10 (`config_entries`, `config_entries_subentries`,
+  `primary_config_entry`); hay tests con esa forma.
+- **Socket Unix y API `/v2` del Supervisor: se detectan, no se usan.** Al
+  arrancar, Hermes anota en el log (`supervisor_platform`) si el Supervisor le
+  ofrece `SUPERVISOR_SOCKET` o tiene activada la opción `supervisor_v2_api`, y
+  avisa de que sigue por TCP y por la V1, que el Supervisor mantiene. Si no
+  puede leerlo, lo dice (`api_v2_enabled: null`) y el arranque sigue.
+- **Guarda de deprecaciones del SDK MCP.** La suite falla si Hermes usa algo
+  que el SDK marque como deprecado (`MCPDeprecationWarning`, que no hereda de
+  `DeprecationWarning`, y los `DeprecationWarning` de `mcp` o de Hermes), y
+  fija qué tools declaran `outputSchema` (`ping` y `hermes_guide`).
+
 ### Correcciones
 
 - **La redacción de secretos era cuadrática** (FR-001). Tres de las expresiones
