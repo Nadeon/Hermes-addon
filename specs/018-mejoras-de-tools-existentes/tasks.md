@@ -142,10 +142,16 @@ instantánea de esquemas).
   0, y el docstring de la clase dice que la excepción duró hasta la 018. Es
   parte de la diferencia permitida por FR-016.
 - **Banco**: `conversation:` añadido a `tests/banco/ha_config/configuration.yaml`
-  (lo preveía R-5). `TestRespuestaConfirmada` lee el rechazo sin token con
-  `_rechazo` (Hermes marca `isError` en toda respuesta `{"error": …}`) y
-  cuenta con el lector que la vista previa no llama y la confirmación llama
-  una vez.
+  (lo preveía R-5). `TestRespuestaConfirmada` cuenta con el lector que la
+  vista previa no llama y la confirmación llama una vez.
+- **Duda para el supervisor (`isError`)**: el primer run del banco mostró que
+  la respuesta sin token NO va marcada `isError`, aunque lleve el `error` de
+  la 1.1.2: `_is_error_payload` (`mcp_server.py`, regla existente) no marca
+  una respuesta con `confirmation_token`, porque es el primer paso de una
+  confirmación. En la 1.1.2 sí iba marcada. El JSON conserva el `error` (un
+  cliente que lo lee sigue sin ejecutar nada) y no se ejecuta nada, así que
+  sigue siendo fail-closed; se deja así, coherente con el resto de vistas
+  previas, y se dice en el CHANGELOG. El banco lo comprueba.
 - **Controles negativos** (T023), sobre `test_call_service_security.py`,
   `test_sobre_de_lista.py` y `test_security_regressions.py`:
   (a) ejecutar sin token en la denylist → 11 fallos; (b) token atado a

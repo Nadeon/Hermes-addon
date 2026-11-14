@@ -50,7 +50,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   `error` que en la 1.1.2 (`service_in_denylist` o `entity_restricted`), y
   además el `confirmation_token` y una vista previa como la de
   `ha_call_service`; repitiendo la llamada con el token se ejecutan una vez y
-  devuelven su respuesta. La respuesta no se guarda junto al token. Fuera de
+  devuelven su respuesta. Como toda vista previa con token, esa primera
+  respuesta ya no va marcada `isError`. La respuesta no se guarda junto al token. Fuera de
   la denylist, todo igual que antes. Como defensa en profundidad, la capa de
   cliente que llama a HA aplica también la denylist a los servicios con
   respuesta, y solo la levanta esta tool tras validar el token.

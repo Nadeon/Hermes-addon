@@ -146,7 +146,13 @@ class TestRespuestaConfirmada(BancoEscrituras):
         async with self.sesion() as s:
             await s.preparar_barrera()
             async with s.lector.servicios_llamados() as vistos:
-                vista = await _rechazo(s, tool, **args)
+                # Sin `_rechazo`: la respuesta lleva `error` (el de la 1.1.2) y
+                # también el token, y Hermes no marca `isError` en una vista
+                # previa con token (`_is_error_payload` de `mcp_server.py`):
+                # es el primer paso de la confirmación, no un fallo.
+                resultado = await s.cliente.call_tool(tool, args)
+                self.assertFalse(getattr(resultado, "is_error", False))
+                vista = json.loads(resultado.content[0].text)
                 self.assertEqual(vista["error"], "service_in_denylist", vista)
                 self.assertIn("confirmation_token", vista["hint"])
                 p = vista["preview"]
