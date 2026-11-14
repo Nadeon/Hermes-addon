@@ -31,8 +31,6 @@ import pathlib
 import re
 import unittest
 
-import pytest
-
 from hermes import command_table as ct
 from hermes.config import HA_CORE_LAST_TESTED
 from hermes.tool_families import FAMILIAS, familia_de_modulo
@@ -170,10 +168,6 @@ class TestEstructura(unittest.TestCase):
         sin = sorted(str(k) for k, e in _todas() if "sin revisar" in e.reason)
         self.assertEqual(sin, [], f"entradas «sin revisar»: {sin}")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="pendiente de revisión manual (T013–T015): la vía T de la tabla "
-               "inicial está clasificada por verbo y marcada como provisional")
     def test_ninguna_provisional(self) -> None:
         provisionales = sorted(str(k) for k, e in _todas() if "provisional" in e.reason)
         self.assertEqual(provisionales, [],
