@@ -1,10 +1,11 @@
 """Banco de Core: config entries, flujos y el entorno de `kitchen_sink` (spec 028, tramo B).
 
-- `TestEntornoKitchenSink` (T017): antes de probar ninguna tool, el lector
-  comprueba que `kitchen_sink` cargó en la HA del banco con lo que necesitan
-  las pruebas del tramo B (entrada `loaded`, avisos de reparación propios y
-  dispositivos que se pueden borrar además de `statistics_issues`). Si esto
-  cae, el resto del tramo no prueba nada: falla aquí con el motivo.
+- `TestEntornoKitchenSink` (T017): el lector comprueba que `kitchen_sink`
+  cargó en la HA del banco con lo que necesitan las pruebas del tramo B
+  (entrada `loaded`, avisos de reparación propios y dispositivos que se
+  pueden borrar además de `statistics_issues`). Como este fichero se recoge
+  después del de dispositivos, cada prueba que depende de `kitchen_sink`
+  empieza además con `exigir_kitchen_sink` (T035), que falla con el motivo.
 - `TestConfigEntryUptime` (T020): las 7 tools de flujos y config entries
   sobre una entrada de `uptime` que crean y borran las propias tools.
 - `TestFlujoOpcionesKitchenSink` (T020): `ha_start_options_flow` y
@@ -15,7 +16,6 @@ Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 
 from __future__ import annotations
 
-import asyncio
 import secrets
 from typing import Any
 
@@ -42,6 +42,27 @@ async def dispositivos_kitchen_sink(s: SesionEscrituras) -> list[dict[str, Any]]
     ]
 
 
+async def exigir_kitchen_sink(s: SesionEscrituras) -> dict[str, Any]:
+    """Espera la entrada de `kitchen_sink` en estado `loaded` y la devuelve.
+
+    T035: pytest recoge los ficheros por orden alfabético y
+    `test_banco_escrituras_dispositivos.py` corre antes que este, así que la
+    comprobación del entorno (`TestEntornoKitchenSink`) no puede ir «antes de
+    probar ninguna tool». Cada prueba que necesita `kitchen_sink` empieza
+    llamando a esto: si no cargó, cae aquí con el motivo y no con un
+    `IndexError` o un `StopIteration` lejos de la causa.
+    """
+    return await s.lector.esperar(
+        lambda: entrada_kitchen_sink(s),
+        lambda e: e is not None and e["state"] == "loaded",
+        descripcion=(
+            "entorno del banco: config entry de kitchen_sink en estado loaded "
+            "(sin ella no se pueden probar dispositivos, reparaciones ni el flujo "
+            "de opciones; ver tests/banco/ha_config/configuration.yaml)"
+        ),
+    )
+
+
 def es_statistics_issues(dispositivo: dict[str, Any]) -> bool:
     # El único dispositivo de kitchen_sink que su integración no deja borrar
     # (`async_remove_config_entry_device` devuelve False): ninguna prueba lo usa.
@@ -52,11 +73,7 @@ class TestEntornoKitchenSink(BancoEscrituras):
     async def test_kitchen_sink_cargada(self) -> None:
         async with self.sesion() as s:
             # La entrada se importa en una tarea tras el arranque: se espera.
-            entrada = await s.lector.esperar(
-                lambda: entrada_kitchen_sink(s),
-                lambda e: e is not None and e["state"] == "loaded",
-                descripcion="config entry de kitchen_sink en estado loaded",
-            )
+            entrada = await exigir_kitchen_sink(s)
             self.assertIsNone(entrada["disabled_by"])
 
             avisos = await s.lector.esperar(
@@ -159,17 +176,20 @@ class TestConfigEntryUptime(BancoEscrituras):
             )
             self.assertFalse(await _flujo_en_curso(s, abierto["flow_id"]))
 
-            # Recargar: el sensor guarda la hora a la que se creó la entidad,
-            # así que cambia. Por si el estado redondea a segundos, se deja
-            # pasar más de uno antes de recargar.
+            # Recargar: la entidad se quita al descargar la entrada y se vuelve
+            # a crear al cargarla, así que su `last_changed` (con
+            # microsegundos) es otro. Sin pausa fija (FR-008, T034): el
+            # estado redondea a segundos y podría repetirse, `last_changed`
+            # no, y el sondeo de `esperar_estado` espera lo que haga falta.
             sensor = await _sensor_uptime(s, entry_id)
             antes = await s.esperar_estado(sensor, lambda e: e is not None, "existe")
-            await asyncio.sleep(1.5)
             await s.accion("ha_reload_config_entry", entry_id=entry_id)
             await s.esperar_estado(
                 sensor,
-                lambda e: e is not None and e["state"] not in (antes["state"], "unavailable"),
-                f"estado distinto de {antes['state']} tras recargar",
+                lambda e: e is not None
+                and e["state"] != "unavailable"
+                and e["last_changed"] != antes["last_changed"],
+                f"creado de nuevo (last_changed distinto de {antes['last_changed']}) tras recargar",
             )
 
             # Deshabilitar, en dos pasos.
@@ -210,7 +230,7 @@ class TestFlujoOpcionesKitchenSink(BancoEscrituras):
     async def test_abrir_y_completar(self) -> None:
         ruta = "/api/config/config_entries/options/flow"
         async with self.sesion() as s:
-            entry_id = (await entrada_kitchen_sink(s))["entry_id"]
+            entry_id = (await exigir_kitchen_sink(s))["entry_id"]
             modificada_antes = (await _entrada(s, entry_id))["modified_at"]
 
             abierto = await s.accion("ha_start_options_flow", entry_id=entry_id)

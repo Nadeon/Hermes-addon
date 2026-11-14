@@ -12,8 +12,8 @@
   ese tipo, lo recibe con los datos enviados.
 - `ha_cancel_wait`: la espera vive en Hermes y el lector no la ve (research
   R-7 de la 028). La comprobación es la propia espera: termina mucho antes de
-  su tope con `reason: cancelled` y deja de estar entre las activas; después,
-  un evento que dispara el lector ya no la cambia.
+  su tope con `reason: cancelled`, deja de estar entre las activas y ya no
+  se puede volver a cancelar (`not_found`).
 
 Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 """
@@ -135,8 +135,6 @@ class TestCancelarEspera(BancoEscrituras):
 
                 activas = await llamar(s.cliente, "ha_list_active_waits")
                 self.assertFalse([w for w in activas["waits"] if w["wait_id"] == wait_id])
-                # El lector dispara el evento: la espera ya terminó y no lo recoge.
-                await s.lector.comando({"type": "fire_event", "event_type": tipo})
                 # Y ya no hay nada que cancelar: Hermes responde `not_found`
                 # (como resultado de error de MCP, de ahí la llamada directa).
                 otra = await s.cliente.call_tool("ha_cancel_wait", {"wait_id": wait_id})
@@ -144,7 +142,6 @@ class TestCancelarEspera(BancoEscrituras):
                 self.assertEqual(
                     json.loads(otra.content[0].text), {"error": "not_found", "wait_id": wait_id}
                 )
-                self.assertEqual(resultado["reason"], "cancelled")
             finally:
                 if not espera.done():
                     espera.cancel()

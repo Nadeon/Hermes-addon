@@ -29,8 +29,8 @@ from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufij
 from tests.banco.lector import ErrorCore
 from tests.banco.test_banco_escrituras_integraciones import (
     dispositivos_kitchen_sink,
-    entrada_kitchen_sink,
     es_statistics_issues,
+    exigir_kitchen_sink,
 )
 
 pytestmark = pytest.mark.banco
@@ -72,7 +72,10 @@ async def _entidad(s: SesionEscrituras, entity_id: str) -> dict[str, Any] | None
 class TestDispositivo(BancoEscrituras):
     async def test_editar_nombre(self) -> None:
         async with self.sesion() as s:
-            device_id = (await _borrables(s))[0]["id"]
+            await exigir_kitchen_sink(s)
+            borrables = await _borrables(s)
+            self.assertTrue(borrables, "kitchen_sink no tiene dispositivos que se puedan editar")
+            device_id = borrables[0]["id"]
 
             async def restaurar() -> None:
                 await s.lector.comando(
@@ -95,7 +98,7 @@ class TestDispositivo(BancoEscrituras):
 
     async def test_borrar_dos_dispositivos(self) -> None:
         async with self.sesion() as s:
-            entrada = await entrada_kitchen_sink(s)
+            entrada = await exigir_kitchen_sink(s)
             borrables = await _borrables(s)
             self.assertGreaterEqual(len(borrables), 2, f"borrables: {borrables!r}")
             primero, segundo = borrables[0]["id"], borrables[1]["id"]
@@ -154,7 +157,16 @@ async def _aviso(s: SesionEscrituras, issue_id: str) -> dict[str, Any] | None:
 class TestReparacion(BancoEscrituras):
     async def test_ignorar_y_volver_a_mostrar(self) -> None:
         async with self.sesion() as s:
-            avisos = await s.lector.comando({"type": "repairs/list_issues"})
+            await exigir_kitchen_sink(s)
+            # Los avisos los crea kitchen_sink al cargar: se esperan con su
+            # motivo en vez de dejar que `next` caiga con un StopIteration.
+            avisos = await s.lector.esperar(
+                lambda: s.lector.comando({"type": "repairs/list_issues"}),
+                lambda r: any(
+                    i["domain"] == "kitchen_sink" and not i["ignored"] for i in r["issues"]
+                ),
+                descripcion="entorno del banco: aviso de reparación de kitchen_sink sin ignorar",
+            )
             issue_id = next(
                 i["issue_id"]
                 for i in avisos["issues"]
