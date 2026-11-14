@@ -206,6 +206,10 @@ no está en el registro → `{"error": "not_a_reconfigure_flow", "flow_id",
   rechazará).
 - El token se ata a `flow_id`, `step_id` y `user_input` (sin omitibles: no
   se guarda en disco).
+- `user_input` con `***REDACTED***` en algún valor → `invalid_argument` sin
+  llamar a HA (también en `ha_continue_subentry_flow`): los formularios salen
+  con los secretos sugeridos tapados, y reenviar el marcador lo guardaría
+  como contraseña.
 - Confirmación: vuelve a leer el paso; si el `step_id` cambió, el token no
   vale y no se envía nada. Un solo `POST`. Salida: el resultado de HA con
   `data_schema` y `description_placeholders` tapados (en un campo secreto,

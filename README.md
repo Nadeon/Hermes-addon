@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **224 tools**: turn on lights, write automations,
+external systems). It ships **232 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 224 tools
+## What it can do — 232 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -45,7 +45,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Marketplace (formerly HACS)** | 11 | Read-only: status, repositories, available updates, published versions, critical and removed repositories. Detects on every call whether Home Assistant has the built-in Marketplace (2026.11 or later) or HACS 2.x. Updates are installed through the `update` entity, with confirmation. The 4 `ha_hacs_*` tools remain as deprecated aliases until 1.3.0 |
 | **Event waiting** | 3 | Wait for something to happen, with filters |
 | **Utilities** | 2 | `ping` and `hermes_guide` |
-| **Integration flows** | 4 | Discovered integrations (list and ignore), the domains that can be set up with a config flow, and an integration's title and system options (polling and new entities; disabling them asks for confirmation) |
+| **Integration flows** | 12 | Discovered integrations (list and ignore), the domains that can be set up with a config flow, an integration's title and system options (polling and new entities; disabling them asks for confirmation), config subentries (add, reconfigure, rename; deleting asks for confirmation) and reconfiguring an integration (every step asks for confirmation) |
 | **Generic commands** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` and `sv_call_api`: what no other tool covers, and only what Hermes' command table allows (writes always in two steps) |
 
 There is one more, auxiliary, tool that is only registered with `HERMES_DEV=1`

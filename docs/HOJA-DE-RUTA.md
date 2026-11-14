@@ -404,7 +404,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
-| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | en curso (tramo A): familia `integration_flows` con descubiertos, dominios configurables y título y preferencias de una entrada, probados en el banco de Core con la integración de prueba `banco_flujos`; guía de helpers por config entry. Faltan subentries y reconfigure (tramo B) y Repairs (tramo C) |
+| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | en curso (tramos A y B): familia `integration_flows` con descubiertos, dominios configurables, título y preferencias de una entrada, subentries y reconfigure (con token en cada paso; la tool general de flujos lo rechaza), probados en el banco de Core con la integración de prueba `banco_flujos`; guía de helpers por config entry. Falta Repairs (tramo C) |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | pendiente |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
@@ -585,6 +585,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `fs_set_secret` | VM | pendiente | |
 | `fs_write_file` | VM | pendiente | |
 | `ha_abort_config_entry_flow` | banco de Core | ok | |
+| `ha_abort_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_activate_scene` | banco de Core | ok | |
 | `ha_call_service` | banco de Core | ok | |
 | `ha_call_service_response` | banco de Core | ok | |
@@ -594,6 +595,8 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_change_timer` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
+| `ha_continue_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_continue_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_create_area` | banco de Core | ok | |
 | `ha_create_category` | banco de Core | ok | |
 | `ha_create_floor` | banco de Core | ok | |
@@ -637,6 +640,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_scene` | banco de Core | ok | |
 | `ha_delete_schedule` | banco de Core | ok | |
 | `ha_delete_script` | banco de Core | ok | |
+| `ha_delete_subentry` | banco de Core | ok | spec 016 |
 | `ha_delete_timer` | banco de Core | ok | |
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
@@ -674,6 +678,8 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_set_input_text` | banco de Core | ok | |
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
+| `ha_start_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_start_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_start_timer` | banco de Core | ok | |
 | `ha_toggle_input_boolean` | banco de Core | ok | |
 | `ha_trigger_automation` | banco de Core | ok | comparte el hallazgo de seguridad de `ha_run_script` (spec 033) |
@@ -687,6 +693,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
+| `ha_update_subentry` | banco de Core | ok | spec 016 |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_create_backup_full` | VM | pendiente | |

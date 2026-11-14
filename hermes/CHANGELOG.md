@@ -15,8 +15,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 #### Integraciones: flujos y Repairs (spec 016)
 
-_En curso: tramo A. Los tramos B (subentries y reconfigure) y C (flujos de
-reparación y textos de los avisos) completan esta sección._
+_En curso: tramos A y B. El tramo C (flujos de reparación y textos de los
+avisos) completa esta sección._
 
 - **Familia nueva `integration_flows`** (desactivable con
   `tool_families_disabled`), con cuatro tools:
@@ -50,6 +50,39 @@ reparación y textos de los avisos) completan esta sección._
   `reconfigure` y subentries; `ha_ignore_discovery` y
   `ha_update_config_entry` se ejecutan contra Home Assistant real y el lector
   independiente comprueba su efecto.
+- **Subentries** (tramo B), en la misma familia:
+  - `ha_list_config_subentries` — las subentries de una entrada y los tipos
+    que admite crear.
+  - `ha_start_subentry_flow`, `ha_continue_subentry_flow` y
+    `ha_abort_subentry_flow` — añadir una subentry o reconfigurarla por su
+    flujo, y cerrar un flujo a medias. Sin confirmación, como los flujos de
+    configuración y de opciones.
+  - `ha_update_subentry` — renombrarla. Sin confirmación.
+  - `ha_delete_subentry` — borrarla con confirmación: la vista previa enumera
+    las entidades y los dispositivos que Home Assistant borra con ella.
+- **Reconfigurar una integración** (tramo B): `ha_start_reconfigure_flow` abre
+  el flujo y `ha_continue_reconfigure_flow` envía cada paso con confirmación
+  (vista previa con los campos y los secretos tapados): cualquier paso puede
+  cambiar credenciales o datos de conexión, y Home Assistant recarga la
+  integración al terminar. Hermes recuerda los reconfigure que abre (en
+  memoria; tras una hora sin usarse caducan y los aborta al abrir o
+  continuar otro) y
+  `ha_continue_config_entry_flow` los rechaza y remite a la tool dedicada;
+  con cualquier otro flujo se comporta como antes. Ninguna otra vía de Hermes
+  abre un reconfigure: `ha_start_config_entry_flow` solo manda el dominio, no
+  hay comando WebSocket que abra flujos y el proxy REST de Core del
+  Supervisor está cerrado. Tras reiniciar Hermes, un reconfigure abierto antes
+  ya no se reconoce (Home Assistant no los lista).
+- Los flujos de subentry y de reconfigure devuelven tapados los valores
+  sugeridos de los campos de contraseña, y rechazan `***REDACTED***` en
+  `user_input` (se guardaría tal cual).
+- **Tabla de comandos**: `config_entries/subentries/list`, `…/update` y
+  `…/delete` pasan a `dedicated`.
+- **Guía**: el tema `integration_flows` explica subentries y reconfigure
+  (alias `subentries`, `subentry` y `reconfigure`).
+- **Banco de Core**: las siete tools nuevas que modifican se ejecutan contra
+  Home Assistant real; el reconfigure, con un campo de contraseña de nombre
+  inocente, y con el rechazo de `ha_continue_config_entry_flow`.
 
 ### Automatización
 
