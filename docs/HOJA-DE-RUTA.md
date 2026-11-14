@@ -404,7 +404,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
-| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
+| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | en curso (tramo A): familia `integration_flows` con descubiertos, dominios configurables y título y preferencias de una entrada, probados en el banco de Core con la integración de prueba `banco_flujos`; guía de helpers por config entry. Faltan subentries y reconfigure (tramo B) y Repairs (tramo C) |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | pendiente |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
@@ -645,6 +645,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_enable_config_entry` | banco de Core | ok | |
 | `ha_finish_timer` | banco de Core | ok | |
 | `ha_fire_event` | banco de Core | ok | |
+| `ha_ignore_discovery` | banco de Core | ok | spec 016 |
 | `ha_ignore_repair` | banco de Core | ok | |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
@@ -678,6 +679,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_trigger_automation` | banco de Core | ok | comparte el hallazgo de seguridad de `ha_run_script` (spec 033) |
 | `ha_update_area` | banco de Core | ok | |
 | `ha_update_category` | banco de Core | ok | |
+| `ha_update_config_entry` | banco de Core | ok | spec 016 |
 | `ha_update_device` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
@@ -744,8 +746,8 @@ programa:
 - **Escritura en el Marketplace** (026), con confirmación, backup previo y
   vista previa completa.
 - **Flujos de reparación de Repairs y textos traducidos** (016).
-- **Subentries y reconfigure** (016). **Helpers por config entry**: ya se
-  pueden crear con los flujos; falta explicarlo en la guía (016).
+- **Subentries y reconfigure** (016, tramo B). Los **helpers por config
+  entry** ya los explica la guía (`hermes_guide("helpers")`, 016 tramo A).
   **Triggers y condiciones por propósito; resolución de targets** (017).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,

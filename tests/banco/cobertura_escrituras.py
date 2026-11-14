@@ -44,7 +44,7 @@ job no admite ningún otro `xfail`.
 
 from __future__ import annotations
 
-from tests.banco import cobertura
+from tests.banco import cobertura, cobertura_016
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -151,9 +151,12 @@ XFAIL_PERMITIDOS_028: dict[str, str] = {
 
 # Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
 # por ejecución y todos los `xfail` de hallazgos listados. Una sub-feature
-# nueva con tests en el banco suma aquí sus listas.
+# nueva con tests en el banco suma aquí sus listas (la 016, las suyas).
 TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
-    cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | PROBADAS_028
+    cobertura.PROBADAS_EN_BANCO
+    | cobertura.PROBADAS_GENERICAS
+    | PROBADAS_028
+    | cobertura_016.PROBADAS_016
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 

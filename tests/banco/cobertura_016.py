@@ -1,0 +1,29 @@
+"""Inventario de la spec 016 en el banco de Core (contrato de la 028, S-02).
+
+Las tools de la 016 que modifican HA se ejecutan en el banco
+(`tests/banco/test_banco_integraciones.py` y, en el tramo C,
+`tests/banco/test_banco_repairs.py`) contra HA Core real, con la integración
+de prueba `banco_flujos` (`tests/banco/ha_config/custom_components/`), y su
+efecto lo comprueba el lector independiente.
+
+`PROBADAS_016` se suma a la unión del invariante
+(`tests/test_banco_cobertura_escrituras.py`) y a `TOOLS_EXIGIDAS_DEL_JOB`
+(`tests/banco/cobertura_escrituras.py`): el job exige que cada una se haya
+llamado con éxito dentro de un test que pasa. Cada tramo de la 016 añade aquí
+las suyas.
+"""
+
+from __future__ import annotations
+
+# Tramo A (T013): las dos que modifican. Las dos de lectura
+# (`ha_list_discovered_integrations`, `ha_list_config_flow_domains`) también
+# se ejecutan en el banco, pero el invariante es de las que modifican.
+PROBADAS_016: frozenset[str] = frozenset(
+    {
+        "ha_ignore_discovery",
+        "ha_update_config_entry",
+    }
+)
+
+# `ha_*` de la 016 que no se pueden ejecutar en el banco → motivo. Vacío.
+NO_EJECUTABLES_016: dict[str, str] = {}

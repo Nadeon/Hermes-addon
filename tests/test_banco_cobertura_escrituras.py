@@ -34,7 +34,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tests.banco import cobertura, cobertura_escrituras as c028
+from tests.banco import cobertura, cobertura_016 as c016, cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -65,6 +65,8 @@ def _listas() -> dict[str, set[str]]:
         "PROBADAS_028": set(c028.PROBADAS_028),
         "NO_EJECUTABLES_028": set(c028.NO_EJECUTABLES_028),
         "FUERA_DEL_BANCO": set(c028.FUERA_DEL_BANCO),
+        "PROBADAS_016": set(c016.PROBADAS_016),
+        "NO_EJECUTABLES_016": set(c016.NO_EJECUTABLES_016),
     }
 
 
@@ -81,8 +83,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             f"clasificar: {sin_clasificar}; declaradas que no modifican o no existen: "
             f"{no_modifican}",
         )
-        # Las 124 de la 1.1.2 más las 2 genéricas de escritura de la 011.
-        self.assertEqual(len(reales), 126)
+        # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las 2
+        # que modifican del tramo A de la 016.
+        self.assertEqual(len(reales), 128)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -109,6 +112,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             for nombre, lista in (
                 ("NO_EJECUTABLES_028", c028.NO_EJECUTABLES_028),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
+                ("NO_EJECUTABLES_016", c016.NO_EJECUTABLES_016),
             )
             for tool, motivo in lista.items()
             if not str(motivo).strip()
@@ -128,7 +132,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
 
         self.assertEqual(
             c028.TOOLS_EXIGIDAS_DEL_JOB,
-            cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028,
+            cobertura.PROBADAS_EN_BANCO
+            | cobertura.PROBADAS_GENERICAS
+            | c028.PROBADAS_028
+            | c016.PROBADAS_016,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}

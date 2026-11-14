@@ -1,0 +1,108 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Test bench flows",
+        "description": "Creates a test entry. Nothing is contacted.",
+        "data": {
+          "valor": "Value"
+        }
+      },
+      "discovery_confirm": {
+        "title": "Discovered: {name}",
+        "description": "Set up {name}?"
+      },
+      "reconfigure": {
+        "title": "Reconfigure the test entry",
+        "data": {
+          "valor": "Value"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Already configured",
+      "reconfigure_successful": "Reconfigured"
+    }
+  },
+  "config_subentries": {
+    "elemento": {
+      "entry_type": "Element",
+      "initiate_flow": {
+        "user": "Add element",
+        "reconfigure": "Reconfigure element"
+      },
+      "step": {
+        "user": {
+          "title": "New element",
+          "data": {
+            "nombre": "Name",
+            "valor": "Value"
+          }
+        },
+        "reconfigure": {
+          "title": "Change element",
+          "data": {
+            "nombre": "Name",
+            "valor": "Value"
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Element changed"
+      }
+    }
+  },
+  "issues": {
+    "aviso_reparable": {
+      "title": "Test bench: value {valor} to confirm",
+      "description": "The test value {valor} must be confirmed.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Confirm the test value",
+            "description": "Submit to mark the test value as confirmed.",
+            "data": {
+              "nota": "Note"
+            }
+          }
+        }
+      }
+    },
+    "aviso_para_abortar": {
+      "title": "Test bench: value {valor} to review",
+      "description": "The test value {valor} can be reviewed and left as it is.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Review the test value",
+            "description": "Abort this flow to leave the value as it is.",
+            "data": {
+              "nota": "Note"
+            }
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "descubrir": {
+      "name": "Discover",
+      "description": "Starts a discovery flow for the test integration.",
+      "fields": {
+        "unique_id": {
+          "name": "Unique ID",
+          "description": "Unique ID of the discovered test device."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Name shown for the discovery."
+        }
+      }
+    },
+    "crear_avisos": {
+      "name": "Create issues",
+      "description": "Creates the two fixable test issues again."
+    }
+  }
+}

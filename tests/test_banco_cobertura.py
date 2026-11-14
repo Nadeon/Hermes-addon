@@ -242,11 +242,14 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
             conftest.pytest_configure(config)
         plugin = config.pluginmanager.register.call_args.args[0]
         self.assertIsInstance(plugin, ComprobacionDelJob)
-        # Desde la integración de la 028, la unión de las tres listas.
+        # Desde la integración de la 028, la unión de las tres listas; desde
+        # la 016, también la suya.
+        from tests.banco.cobertura_016 import PROBADAS_016
         from tests.banco.cobertura_escrituras import PROBADAS_028
 
         self.assertEqual(
-            plugin.tools_exigidas, PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028
+            plugin.tools_exigidas,
+            PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_016,
         )
 
 
