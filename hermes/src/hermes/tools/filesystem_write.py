@@ -341,7 +341,10 @@ def register_write(
         """Borra un fichero bajo /config.
 
         SIEMPRE requiere confirmation_token.
-        El preview incluye el contenido actual (si el fichero es legible).
+        El preview incluye el contenido actual (si el fichero es legible). Si
+        no cabe en response_max_bytes, `current_content` llega resumido
+        (`_omitted`, con su tamaño y sus líneas) y la respuesta trae
+        `preview_truncated: true`; el token sigue valiendo.
 
         Rechaza:
         - Paths fuera de /config (traversal).

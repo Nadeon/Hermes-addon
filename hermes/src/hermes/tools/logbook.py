@@ -20,7 +20,7 @@ import structlog
 # antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
-from hermes.tools._common import requires_ready
+from hermes.tools._common import ajustar_lista_a_bytes, requires_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -37,22 +37,27 @@ def _truncate_events_to_bytes(
     Elimina desde el final (eventos más recientes primero). Nunca corta
     a mitad de evento.
 
+    Se mide la respuesta ENTERA (`count`, `truncated`, `truncated_at`), no
+    solo la lista: con el envoltorio fuera de la cuenta la respuesta pasaba
+    del tope, el guardián central quitaba unos eventos más y `count` y
+    `truncated_at` seguían apuntando al último que había quitado, así que
+    paginar desde `truncated_at` se saltaba eventos (revisión de 1.1.1, M-1).
+
     Returns:
         (events_truncados, fue_truncado, when_del_ultimo_incluido)
     """
-    serialized = json.dumps(events, ensure_ascii=False)
-    if len(serialized.encode()) <= max_bytes:
-        return events, False, None
+    out = ajustar_lista_a_bytes(events, _envolver, max_bytes)
+    return out["events"], out["truncated"], out["truncated_at"]
 
-    # Reducir quitando del final hasta que quepa
-    working = list(events)
-    while working:
-        working.pop()
-        if len(json.dumps(working, ensure_ascii=False).encode()) <= max_bytes:
-            break
 
-    last_when: float | None = working[-1].get("when") if working else None
-    return working, True, last_when
+def _envolver(final: list[dict[str, Any]], truncated: bool) -> dict[str, Any]:
+    """La respuesta completa de `ha_get_logbook`, tal como sale."""
+    return {
+        "events": final,
+        "count": len(final),
+        "truncated": truncated,
+        "truncated_at": final[-1].get("when") if truncated and final else None,
+    }
 
 
 def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT) -> None:
@@ -132,16 +137,13 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
             events = events[:_MAX_EVENTS]
 
         # Truncar por bytes (nunca a mitad de evento)
-        final, truncated, truncated_at = _truncate_events_to_bytes(events, response_max_bytes)
+        final, truncated, _ = _truncate_events_to_bytes(events, response_max_bytes)
 
         logger.info(
             "ha_get_logbook_ok",
             count=len(final),
             truncated=truncated,
         )
-        return json.dumps({
-            "events": final,
-            "count": len(final),
-            "truncated": truncated,
-            "truncated_at": truncated_at,
-        })
+        # `ensure_ascii=False`, como se mide: con `\uXXXX` un nombre con
+        # tildes ocupaba más de lo medido.
+        return json.dumps(_envolver(final, truncated), ensure_ascii=False)

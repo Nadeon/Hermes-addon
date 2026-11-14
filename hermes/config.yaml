@@ -184,7 +184,7 @@ options:
   config_write_min_interval_seconds: 5
   config_write_max_per_minute: 10
   response_max_bytes: 131072
-  ha_ws_max_msg_size_bytes: 4194304
+  ha_ws_max_msg_size_bytes: 16777216
   max_request_body_bytes: 4194304
   max_concurrent_requests: 64
   wait_for_event_max_seconds: 90

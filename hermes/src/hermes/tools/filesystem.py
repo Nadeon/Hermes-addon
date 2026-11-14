@@ -34,7 +34,7 @@ import structlog
 # antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes import fs as _fs
-from hermes.tools._common import ajustar_lista_a_bytes
+from hermes.tools._common import ajustar_lista_a_bytes, tam_json
 from hermes.fs import (
     BlacklistedPathError,
     PathTraversalError,
@@ -567,45 +567,49 @@ def register(
         total_lines = len(lines)
         rel_path = _fs._rel_posix(abs_path)
 
-        # Content limit: leave headroom for JSON envelope
-        content_limit = response_max_bytes - 2048
+        base: dict[str, Any] = {
+            "path": rel_path,
+            "size_bytes": len(raw),
+            "content": content,
+            "encoding": encoding,
+            "line_count": total_lines,
+        }
 
-        # Build response (with truncation if needed)
-        if len(content.encode("utf-8")) <= content_limit:
-            result: dict[str, Any] = {
-                "path": rel_path,
-                "size_bytes": len(raw),
-                "content": content,
-                "encoding": encoding,
-                "line_count": total_lines,
-            }
+        # Build response (with truncation if needed). Se mide el JSON que
+        # sale, no el texto en bruto: cada salto de línea viaja como `\n` y
+        # cada comilla como `\"`, y con los 2 KiB de margen fijo de antes un
+        # YAML de líneas cortas pasaba del tope y el guardián central lo
+        # cambiaba por `response_too_large` sin una sola línea (revisión de
+        # 1.1.1, B-1).
+        if tam_json(base) <= response_max_bytes:
+            result: dict[str, Any] = base
         else:
-            # Truncate at clean line boundary
-            kept: list[str] = []
-            used = 0
-            for i, line in enumerate(lines):
-                chunk = len(line.encode("utf-8"))
-                if used + chunk > content_limit:
-                    truncated_at_line = i  # 1-indexed
-                    break
-                kept.append(line)
-                used += chunk
-            else:
-                truncated_at_line = total_lines
+            def armar(n: int) -> dict[str, Any]:
+                return {
+                    **base,
+                    "content": "".join(lines[:n]),
+                    "truncated": True,
+                    "truncated_at_line": n,
+                    "hint": (
+                        f"File has {total_lines} lines; only {n} shown. "
+                        "Use fs_read_file_lines(path, offset, limit) to read in chunks."
+                    ),
+                }
 
-            result = {
-                "path": rel_path,
-                "size_bytes": len(raw),
-                "content": "".join(kept),
-                "encoding": encoding,
-                "line_count": total_lines,
-                "truncated": True,
-                "truncated_at_line": truncated_at_line,
-                "hint": (
-                    f"File has {total_lines} lines; only {truncated_at_line} shown. "
-                    "Use fs_read_file_lines(path, offset, limit) to read in chunks."
-                ),
-            }
+            # Estimación lineal con el tamaño escapado de cada línea y
+            # verificación con el tamaño real, quitando de una en una.
+            presupuesto = response_max_bytes - tam_json(armar(0)) - 8
+            n = usado = 0
+            for line in lines:
+                coste = tam_json(line) - 2
+                if usado + coste > presupuesto:
+                    break
+                usado += coste
+                n += 1
+            result = armar(n)
+            while n > 0 and tam_json(result) > response_max_bytes:
+                n -= 1
+                result = armar(n)
 
         logger.info(
             "fs_read_file_ok",

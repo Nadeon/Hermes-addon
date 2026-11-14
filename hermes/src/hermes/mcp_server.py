@@ -21,7 +21,10 @@
    `ha_get_states(domain="sensor")` devolvía 245 KB con el tope en 128 KiB.
    Aplicarlo aquí, en el único camino de `tools/call`, hace que no dependa de
    que cada tool se acuerde. Las que ya recortan siguen haciéndolo con su
-   forma propia; esto es la red de seguridad.
+   forma propia y miden la respuesta ENTERA, envoltorio incluido: si se
+   pasaran por unos bytes, esto las recortaría otra vez o las cambiaría por
+   `response_too_large` (revisión de 1.1.1, B-1). Esto es la red de seguridad,
+   y nunca quita el `confirmation_token` de una vista previa (A-1).
 """
 
 from __future__ import annotations

@@ -22,7 +22,7 @@ import structlog
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.ha_version import ha_at_least
-from hermes.tools._common import requires_ready
+from hermes.tools._common import requires_ready, tam_json
 
 logger = structlog.get_logger(__name__)
 
@@ -77,26 +77,63 @@ def _expand_stat_point(point: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _ultimo_ts(working: dict[str, list[dict[str, Any]]]) -> str | None:
+    """`end` (o `start`) más reciente entre los últimos puntos incluidos."""
+    last_ts: str | None = None
+    for pts in working.values():
+        if pts:
+            ts = pts[-1].get("end") or pts[-1].get("start")
+            if ts and (last_ts is None or ts > last_ts):
+                last_ts = ts
+    return last_ts
+
+
+def _envolver(
+    working: dict[str, list[dict[str, Any]]], truncated: bool, period: str
+) -> dict[str, Any]:
+    """La respuesta completa de `ha_statistics_during_period`, tal como sale."""
+    all_starts = [pts[0].get("start") for pts in working.values() if pts]
+    all_ends = [
+        pts[-1].get("end") or pts[-1].get("start")
+        for pts in working.values() if pts
+    ]
+    covered_range: dict[str, str | None] = {
+        "start": min(all_starts) if all_starts else None,
+        "end": max(all_ends) if all_ends else None,
+    }
+    return {
+        "statistics": working,
+        "covered_range": covered_range,
+        "granularity": period,
+        "truncated": truncated,
+        "truncated_at": _ultimo_ts(working) if truncated else None,
+    }
+
+
 def _truncate_stats_to_bytes(
     stats: dict[str, list[dict[str, Any]]],
     max_bytes: int,
+    period: str = "hour",
 ) -> tuple[dict[str, list[dict[str, Any]]], bool, str | None]:
     """Trunca a max_bytes eliminando puntos del final (más recientes).
 
     Nunca corta a mitad de punto. Reduce de forma equitativa entre statistic_ids.
 
+    Se mide la respuesta ENTERA (`covered_range`, `granularity`, `truncated`,
+    `truncated_at`): ajustando solo el diccionario de puntos, el envoltorio la
+    dejaba por encima del tope y el guardián central devolvía
+    `response_too_large` en vez de los datos (revisión de 1.1.1, B-1).
+
     Returns:
         (stats_truncados, fue_truncado, truncated_at_iso)
         truncated_at_iso es el campo `end` (o `start`) del último punto incluido.
     """
-    serialized = json.dumps(stats, ensure_ascii=False)
-    if len(serialized.encode()) <= max_bytes:
+    if tam_json(_envolver(stats, False, period)) <= max_bytes:
         return stats, False, None
 
     working = {sid: list(pts) for sid, pts in stats.items()}
     while True:
-        serialized = json.dumps(working, ensure_ascii=False)
-        if len(serialized.encode()) <= max_bytes:
+        if tam_json(_envolver(working, True, period)) <= max_bytes:
             break
         total = sum(len(v) for v in working.values())
         if total == 0:
@@ -107,15 +144,7 @@ def _truncate_stats_to_bytes(
             break
         working[biggest].pop()
 
-    # Encontrar el timestamp del último punto incluido
-    last_ts: str | None = None
-    for pts in working.values():
-        if pts:
-            ts = pts[-1].get("end") or pts[-1].get("start")
-            if ts and (last_ts is None or ts > last_ts):
-                last_ts = ts
-
-    return working, True, last_ts
+    return working, True, _ultimo_ts(working)
 
 
 def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT) -> None:
@@ -326,18 +355,9 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
             expanded[sid] = points
 
         # Truncar por bytes (nunca a mitad de punto)
-        final, truncated, truncated_at = _truncate_stats_to_bytes(expanded, response_max_bytes)
-
-        # Calcular covered_range sobre los datos finales
-        all_starts = [pts[0].get("start") for pts in final.values() if pts]
-        all_ends = [
-            pts[-1].get("end") or pts[-1].get("start")
-            for pts in final.values() if pts
-        ]
-        covered_range: dict[str, str | None] = {
-            "start": min(all_starts) if all_starts else None,
-            "end": max(all_ends) if all_ends else None,
-        }
+        final, truncated, _ = _truncate_stats_to_bytes(
+            expanded, response_max_bytes, period
+        )
 
         logger.info(
             "ha_statistics_during_period_ok",
@@ -345,10 +365,5 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
             period=period,
             truncated=truncated,
         )
-        return json.dumps({
-            "statistics": final,
-            "covered_range": covered_range,
-            "granularity": period,
-            "truncated": truncated,
-            "truncated_at": truncated_at,
-        })
+        # `ensure_ascii=False`, como se mide (ver `_truncate_stats_to_bytes`).
+        return json.dumps(_envolver(final, truncated, period), ensure_ascii=False)

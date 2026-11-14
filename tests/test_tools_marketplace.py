@@ -928,6 +928,30 @@ class TestCatalogoPorCategorias(_Base):
         self.assertNotIn("error", result)
         self.assertEqual(result["count"], 2)
 
+    async def test_hacs_no_repite_la_prueba_de_marketplace_por_categoria(self) -> None:
+        """Revisión de 1.1.1, L-3: con HACS, cada categoría tras la primera
+        probaba antes `marketplace/…` y recibía `unknown_command`: cinco
+        viajes de más. La API detectada vale para el resto de la operación."""
+        responses = _marketplace("hacs", {"repositories/list": self._repos()})
+        fake = FakeHA(responses)
+        await self._mcp(fake).tools["ha_marketplace_list_repositories"](installed_only=False)
+        intentos = [p for p in self._lists(fake) if p["type"].startswith("marketplace/")]
+        self.assertEqual(len(intentos), 1, intentos)
+
+    async def test_el_error_de_una_categoria_dice_cual(self) -> None:
+        """Revisión de 1.1.1, L-3: si falla una categoría, el error la nombra."""
+        repos = self._repos()
+
+        def responder(payload: dict[str, Any]) -> Any:
+            if payload["categories"] == ["plugin"]:
+                return HAConnectionError("boom", code="home_assistant_error")
+            return [r for r in repos if r["category"] in payload["categories"]]
+
+        fake = FakeHA({"marketplace/repositories/list": responder})
+        result = await self._mcp(fake).tools["ha_marketplace_list_repositories"](installed_only=False)
+        self.assertEqual(result.get("category"), "plugin", result)
+        self.assertEqual(result["error"], "home_assistant_error")
+
 
 if __name__ == "__main__":
     unittest.main()

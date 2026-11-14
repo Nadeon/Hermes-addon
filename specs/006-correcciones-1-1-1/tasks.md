@@ -13,7 +13,7 @@ description: "Tareas de Hermes 1.1.1 (spec 006)"
 
 ## Fase 1: Preparación
 
-- [X] T001 Línea base: la suite pasa entera (1838 tests) sobre 1.1.0; al cerrar, 1853
+- [X] T001 Línea base: la suite pasa entera (1838 tests) sobre 1.1.0; al cerrar la primera ronda, 1853
 - [X] T002 Reproducir en vivo, en lectura: `ha_hacs_list_repositories` sin categoría falla y deja `ha_ws_reconnect_failure`; con `category="integration"` funciona (plan R-1)
 
 ## Fase 2: Historia 1 — Marketplace por categorías (P1)
@@ -44,3 +44,16 @@ description: "Tareas de Hermes 1.1.1 (spec 006)"
 ## Fase 6: Cierre
 
 - [X] T016 Suite completa, revisión del diff buscando datos personales e identificadores de modelos, y los dos commits
+
+## Fase 7: Revisión independiente de la 1.1.1 (historia 4)
+
+- [X] T017 [US4] Tests por el servidor real en `tests/test_response_limit.py`: history (3000 puntos, varios topes), statistics (5 × 400), logbook (paginación), registros de entidades y dispositivos y config entries (recuentos), `fs_read_file` de líneas cortas, `sv_get_addon_logs` de 1000 líneas, `fs_delete_file` de un fichero de más de 200 KB (token y borrado); en unidad, vista previa con token, `{id: [puntos]}`, objeto con más campos, recuentos y pista del error; recorrido de todas las tools con un `{id: [puntos]}` cerca del tope y una vista previa con token (FR-009…FR-014)
+- [X] T018 [US4] Recorte con el envoltorio en `history.py`, `statistics.py`, `logbook.py`, `registry_entity.py`, `registry_device.py`, `config_entries.py` y `filesystem.py`; últimas líneas en `addons.py` (FR-009, FR-013)
+- [X] T019 [US4] Guardián en `tools/_common.py`: vista previa sin perder el token, `{id: [puntos]}`, recuentos y pista del error; docstrings de `mcp_server.py` y `fs_delete_file` y guía `security` (FR-010…FR-013)
+- [X] T020 [US4] `ha_ws_max_msg_size_bytes` a 16 MiB con defecto heredado en `config.py`, `config.yaml`, `run.sh` y `__main__.py`; `ha_ws_message_too_big` en `ha.py`; tests en `test_config_validation.py`, `test_run_sh_options.py`, `test_main_wiring.py` y `test_ha_ws_reliability.py` (FR-015)
+- [X] T021 [US4] `oauth_cimd_document` en `cimd.py` con test en `test_cimd.py`; Marketplace con HACS sin reintentos y con `category` en el error, con tests en `test_tools_marketplace.py` (FR-016, FR-017)
+- [X] T022 Control negativo. **Resultado**: sin ningún arreglo de esta fase (código, `config.yaml` y `run.sh` de la punta anterior) caen 22 de los 25 tests nuevos (los otros 3 son controles que deben pasar igual); sin los arreglos de las tools caen 6 (history, statistics, logbook, registros, `fs_read_file` y logs); sin el guardián nuevo caen otros 6 (borrado grande, vista previa, `{id: [puntos]}`, recuentos, pista y recorrido)
+- [X] T023 [P] Docs: `hermes/DOCS.md` (opción `ha_ws_max_msg_size_bytes`, previews y logs, CIMD de claude.ai y recomendación), `SECURITY.md`, `README.md`, `README.es.md`, `hermes/CHANGELOG.md` `[1.1.1]` y `docs/HOJA-DE-RUTA.md` (pruebas hechas con la 1.1.0 y pendientes) (FR-017)
+- [X] T024 Suite completa (1878 tests), revisión del diff buscando datos personales e identificadores de modelos, y commit
+
+BAJO que quedan, con su motivo: L-4 (restos de texto libre en el log: no llevan datos de red y la revisión los da por aceptables) y L-5 (lista de un solo elemento tratada como su elemento, separadores no compactos y escapado JSON-RPC: solo hacen que se recorte de más, nunca de menos ni con datos falsos). Complementos de M-3 fuera de alcance: esquema a 64 MiB, `minimal_response` y `list_for_display`.

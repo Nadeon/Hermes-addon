@@ -90,39 +90,44 @@ def _error_payload(exc: Exception) -> dict[str, Any]:
 
 
 async def _ws_read(
-    ha_client: HAClient, suffix: str, extra: dict[str, Any] | None = None
+    ha_client: HAClient, suffix: str, extra: dict[str, Any] | None = None,
+    *, api: str | None = None,
 ) -> tuple[str, Any]:
     """Envía `marketplace/<suffix>` y, si HA no lo conoce, `hacs/<suffix>`.
 
     Devuelve `(api, resultado)`. Se decide por el código del error, nunca por
     el texto, y en cada llamada: sin caché, porque HA se actualiza sin
     reiniciar Hermes y una API recordada fallaría justo después (001 S-03).
+    `api="hacs"` solo lo pasa quien acaba de detectarla en la MISMA operación
+    (`_list_catalog`): repetir la prueba de `marketplace/*` por cada categoría
+    eran cinco viajes de más (revisión de 1.1.1, L-3).
     """
     if suffix not in _ALLOWED_SUFFIXES:
         # Nunca debería ocurrir: es la guarda de la lista cerrada (FR-019).
         raise RuntimeError(f"marketplace command not allowed: {suffix}")
 
-    payload = {"type": f"marketplace/{suffix}", **(extra or {})}
-    try:
-        return "marketplace", await ha_client.ws_send(payload)
-    except (HAConnectionError, TimeoutError) as exc:
-        code = getattr(exc, "code", None)
-        if code == "not_loaded":
-            # Los comandos `marketplace/*` existen aunque el Marketplace no
-            # esté configurado, y entonces responden `not_loaded`. HACS está
-            # bloqueado en HA >= 2026.11, así que probarlo solo daría un
-            # segundo error engañoso.
-            raise _ApiError({
-                "error": "marketplace_not_loaded",
-                "detail": (
-                    "The Marketplace integration is not set up or failed to "
-                    "load. Check Settings > Devices & services."
-                ),
-            }) from exc
-        if code != "unknown_command":
-            # Otro código es un error real del Marketplace: caer a HACS lo
-            # taparía.
-            raise _ApiError(_error_payload(exc)) from exc
+    if api != "hacs":
+        payload = {"type": f"marketplace/{suffix}", **(extra or {})}
+        try:
+            return "marketplace", await ha_client.ws_send(payload)
+        except (HAConnectionError, TimeoutError) as exc:
+            code = getattr(exc, "code", None)
+            if code == "not_loaded":
+                # Los comandos `marketplace/*` existen aunque el Marketplace no
+                # esté configurado, y entonces responden `not_loaded`. HACS está
+                # bloqueado en HA >= 2026.11, así que probarlo solo daría un
+                # segundo error engañoso.
+                raise _ApiError({
+                    "error": "marketplace_not_loaded",
+                    "detail": (
+                        "The Marketplace integration is not set up or failed to "
+                        "load. Check Settings > Devices & services."
+                    ),
+                }) from exc
+            if code != "unknown_command":
+                # Otro código es un error real del Marketplace: caer a HACS lo
+                # taparía.
+                raise _ApiError(_error_payload(exc)) from exc
 
     payload = {"type": f"hacs/{suffix}", **(extra or {})}
     try:
@@ -177,7 +182,13 @@ async def _list_catalog(
     # no tenga activa vuelve vacía (HA filtra con `in`), no da error.
     resto = MARKETPLACE_CATEGORIES if api == "marketplace" else ALL_CATEGORIES
     for cat in sorted(resto - {"integration"}):
-        _, parte = await _ws_read(ha_client, "repositories/list", {"categories": [cat]})
+        try:
+            _, parte = await _ws_read(
+                ha_client, "repositories/list", {"categories": [cat]}, api=api
+            )
+        except _ApiError as exc:
+            # Sin la categoría, el error no dice cuál de las seis falló.
+            raise _ApiError({**exc.payload, "category": cat}) from exc
         if not isinstance(parte, list):
             raise _unexpected("a list", parte)
         repos.extend(parte)

@@ -405,7 +405,10 @@ Los `ha_hacs_*` son alias deprecados de estas tools y se retiran en 1.3.0.
 
 Confirmación en dos pasos: las acciones destructivas devuelven un `preview` +
 `confirmation_token` en la primera llamada. Revisa el preview y repite la
-llamada con el token (un solo uso, ~60 s) para ejecutar.
+llamada con el token (un solo uso, ~60 s) para ejecutar. Si el preview no cabe
+en el límite de respuesta, sus campos grandes llegan resumidos (`_omitted`) y
+con `preview_truncated: true`: el token sigue valiendo, pero lee lo omitido con
+la tool de lectura que toque antes de confirmar si hace falta verlo.
 
 Servicios peligrosos (denylist): `shell_command.*`, `python_script.*`,
 `homeassistant.restart/stop`, `*.reload`, `mqtt.publish`, `hassio.*`,

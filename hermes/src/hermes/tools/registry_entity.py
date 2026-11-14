@@ -33,7 +33,7 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools._validation import build_ws_payload
-from hermes.tools._common import requires_ready
+from hermes.tools._common import ajustar_lista_a_bytes, requires_ready
 from hermes.tools.registry_device import devices_by_id, effective_area_id
 
 logger = structlog.get_logger(__name__)
@@ -219,25 +219,21 @@ def register(
         elif disabled is False:
             items = [e for e in items if e.get("disabled_by") is None]
 
-        # Truncate by bytes
-        truncated = False
-        serialized = json.dumps(items, ensure_ascii=False)
-        if len(serialized.encode()) > response_max_bytes:
-            truncated = True
-            while items and len(
-                json.dumps(items, ensure_ascii=False).encode()
-            ) > response_max_bytes:
-                items.pop()
+        # Se ajusta la respuesta ENTERA, no solo la lista: con el envoltorio
+        # fuera de la cuenta pasaba del tope y el guardián central quitaba más
+        # entidades sin corregir `count` (revisión de 1.1.1, M-1).
+        out = ajustar_lista_a_bytes(
+            items,
+            lambda kept, cut: {"count": len(kept), "entities": kept, "truncated": cut},
+            response_max_bytes,
+        )
 
         logger.info(
             "ha_list_entities_registry_ok",
-            count=len(items),
-            truncated=truncated,
+            count=out["count"],
+            truncated=out["truncated"],
         )
-        return json.dumps(
-            {"count": len(items), "entities": items, "truncated": truncated},
-            ensure_ascii=False,
-        )
+        return json.dumps(out, ensure_ascii=False)
 
     # ── ha_get_entity_registry ────────────────────────────────────────────
 

@@ -30,6 +30,9 @@ from urllib.parse import unquote
 
 logger = structlog.get_logger(__name__)
 
+# Código de cierre WebSocket «mensaje demasiado grande» (RFC 6455, 7.4.1).
+_WS_MESSAGE_TOO_BIG = 1009
+
 
 class HAConnectionError(RuntimeError):
     """Error general de conexión a Home Assistant.
@@ -179,7 +182,7 @@ class HAClient:
         supervisor_base_url: str,
         supervisor_token: str,
         health_server: HealthServer,
-        ws_max_msg_size: int = 4_194_304,
+        ws_max_msg_size: int = 16_777_216,
     ) -> None:
         self._ws_max_msg_size = ws_max_msg_size
         self._supervisor_base_url = supervisor_base_url.rstrip("/")
@@ -522,12 +525,45 @@ class HAClient:
                 await self._handle_ws_message(json.loads(msg.data))
                 continue
 
+            if self._mensaje_demasiado_grande(msg):
+                # Caso propio: con el texto genérico de abajo nadie sabía que
+                # la causa era `ha_ws_max_msg_size_bytes` ni qué subir (fue
+                # lo que tumbó el Marketplace en 1.1.0; revisión de 1.1.1,
+                # M-3). aiohttp ya ha cerrado la conexión: se reconecta igual.
+                logger.error(
+                    "ha_ws_message_too_big",
+                    max_msg_size=self._ws_max_msg_size,
+                    hint=(
+                        "A single message from Home Assistant exceeded "
+                        "ha_ws_max_msg_size_bytes. Narrow the request (fewer "
+                        "entities, a shorter range) or raise the option."
+                    ),
+                )
+                texto = (
+                    "Un mensaje de Home Assistant superó ha_ws_max_msg_size_bytes "
+                    f"({self._ws_max_msg_size} bytes) y la WebSocket se cerró."
+                )
+                self._fail_pending_requests(HAConnectionError(texto))
+                raise HAConnectionError(texto)
             if msg.type in {WSMsgType.CLOSED, WSMsgType.CLOSING}:
                 self._fail_pending_requests(HAConnectionError("WebSocket cerrado por Home Assistant."))
                 raise HAConnectionError("WebSocket cerrado por Home Assistant.")
             if msg.type == WSMsgType.ERROR:
                 self._fail_pending_requests(HAConnectionError("WebSocket error en la conexión de HA."))
                 raise HAConnectionError("WebSocket error en la conexión de HA.")
+
+    def _mensaje_demasiado_grande(self, msg: Any) -> bool:
+        """¿Se cerró la WS por un mensaje mayor que `max_msg_size` (1009)?
+
+        aiohttp lo entrega como `WSMsgType.ERROR` con un `WebSocketError` de
+        código 1009 en `msg.data`; si el cierre llega por otro camino, el
+        código queda en `close_code` de la propia WebSocket.
+        """
+        if msg.type == WSMsgType.ERROR and getattr(msg.data, "code", None) == _WS_MESSAGE_TOO_BIG:
+            return True
+        if msg.type in {WSMsgType.ERROR, WSMsgType.CLOSED, WSMsgType.CLOSING}:
+            return getattr(self._ws, "close_code", None) == _WS_MESSAGE_TOO_BIG
+        return False
 
     async def _handle_ws_message(self, data: Any) -> None:
         """Procesa mensajes entrantes del WebSocket de HA."""

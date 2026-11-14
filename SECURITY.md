@@ -166,7 +166,12 @@ report about one of them will be closed with a pointer to this section:
   tunnel such as Funnel otherwise hides. Listing hosts (for Claude Code,
   `claude.ai`) makes Hermes refuse any other host before downloading
   anything; removing a host also stops the tokens already issued to it. The
-  request no longer carries the Hermes version in its `User-Agent`.
+  request no longer carries the Hermes version in its `User-Agent`. claude.ai
+  itself has been verified to sign in with CIMD against a real installation,
+  with its document on the host `claude.ai`.
+  Every resolution is logged as `oauth_cimd_document` with the result (`ok`,
+  `cache` or `error` and its reason) and only the `client_id` host, which is
+  public; never an IP address.
 - **Security headers** (`X-Content-Type-Options`, `X-Frame-Options`,
   `Referrer-Policy`, CSP) and a body size limit (`chunked` included).
 - **Resource limits**: caps on concurrency, request body, response size and
@@ -217,10 +222,12 @@ them into account:
   client that has been manipulated into acting against you.
 - Under `network_mode: reverse_proxy`, list your proxy in `trusted_proxy_ips`
   so that rate limits and the login throttle count each client separately.
-- Restrict CIMD to the hosts you use. Claude Code publishes its document on
-  `claude.ai`, so `oauth_cimd_allowed_hosts: ["claude.ai"]` covers it, and
+- Restrict CIMD to the hosts you use. claude.ai and Claude Code publish their
+  documents on `claude.ai` (verified with claude.ai in production), so if you
+  only use Claude, `oauth_cimd_allowed_hosts: ["claude.ai"]` covers it, and
   Hermes will then never contact any other host from your home IP on behalf
-  of an anonymous caller. If another client stops connecting, the
+  of an anonymous caller. The default stays empty so that no other client
+  breaks. If another client stops connecting, the
   `oauth_cimd_rejected` event with reason `host_not_allowed` names the host
   to add.
 - Watch the logs (the add-on's Log tab, or `ha apps logs <slug> -f` with the

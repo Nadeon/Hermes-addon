@@ -151,6 +151,10 @@ class TestValoresPorDefectoDeRunSh(unittest.TestCase):
         self.assertEqual(self._export("HERMES_RESPONSE_MAX_BYTES"),
                          "response_max_bytes 131072")
 
+    def test_ha_ws_max_msg_size_por_defecto_es_16_mib(self) -> None:
+        self.assertEqual(self._export("HERMES_WS_MAX_MSG_SIZE"),
+                         "ha_ws_max_msg_size_bytes 16777216")
+
     def test_exporta_oauth_cimd_enabled_activada(self) -> None:
         self.assertEqual(self._export("HERMES_OAUTH_CIMD_ENABLED"),
                          "oauth_cimd_enabled true")

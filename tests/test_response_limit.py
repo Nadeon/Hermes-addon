@@ -197,3 +197,309 @@ def test_sangria_del_sdk_no_cuesta_datos() -> None:
     result = CallToolResult(content=[TextContent(type="text", text=con_sangria)])
     out = _limitar(result, tope)
     assert json.loads(out.content[0].text) == payload
+
+
+# ── Revisión de 1.1.1: tools que ya recortaban, vistas previas y logs ──
+#
+# El recorrido de arriba solo da al guardián formas sintéticas. Estos tests
+# llaman a las tools REALES por el servidor MCP en memoria, con un HA
+# simulado que devuelve más de lo que cabe, y comprueban que salen datos
+# útiles con su aviso: nunca `response_too_large` (B-1, M-1, M-2, M-4).
+
+
+def _cliente_ws(session: ClientSession, resultado: Any) -> Any:
+    ha_client = make_ready_client(session, {})
+
+    async def ws_send(payload: dict, timeout_seconds: int = 30) -> Any:
+        return resultado
+
+    ha_client.ws_send = ws_send  # type: ignore[method-assign]
+    return ha_client
+
+
+async def _llamar(ha_client: Any, tool: str, args: dict, tope: int) -> tuple[CallToolResult, Any]:
+    server = _server(ha_client, tope)
+    async with Client(server) as client:
+        result = await client.call_tool(tool, args)
+    assert _bytes(result) <= tope, (tool, _bytes(result))
+    return result, json.loads(result.content[0].text)
+
+
+def _sin_error(result: CallToolResult, payload: Any, tool: str) -> None:
+    assert result.is_error is False, (tool, payload)
+    assert "error" not in payload, (tool, payload)
+
+
+async def test_history_amplio_recorta_con_datos_y_no_da_error() -> None:
+    """B-1: 3000 puntos y tope de 10 KiB daban `response_too_large`."""
+    puntos = [
+        {"s": "encendido", "a": {"friendly_name": "Salón ñ"}, "lu": 1_712_000_000.0 + i}
+        for i in range(3000)
+    ]
+    for tope in (10_240, 10_272, 12_000, 16_384):
+        async with ClientSession() as session:
+            ha_client = _cliente_ws(session, {"light.test": puntos})
+            result, payload = await _llamar(
+                ha_client, "ha_get_history",
+                {"entity_ids": ["light.test"], "hours_back": 48}, tope,
+            )
+        _sin_error(result, payload, "ha_get_history")
+        assert payload["truncated"] is True
+        assert payload["history"]["light.test"], tope
+        assert payload["truncated_at"] == payload["history"]["light.test"][-1]["last_updated"]
+        # Lo recortó la tool, no el guardián.
+        assert "_response_limit" not in payload
+
+
+async def test_statistics_amplio_recorta_con_datos_y_no_da_error() -> None:
+    """B-1: 5 ids × 400 puntos fallaban en 50 de 50 casos."""
+    raw = {
+        f"sensor.test_{n}": [
+            {"start": 1_712_000_000_000 + i * 3_600_000,
+             "end": 1_712_003_600_000 + i * 3_600_000, "mean": 1.5, "min": 1.0, "max": 2.0}
+            for i in range(400)
+        ]
+        for n in range(5)
+    }
+    async with ClientSession() as session:
+        ha_client = _cliente_ws(session, raw)
+        result, payload = await _llamar(
+            ha_client, "ha_statistics_during_period",
+            {"statistic_ids": list(raw), "hours_back": 400}, 16_384,
+        )
+    _sin_error(result, payload, "ha_statistics_during_period")
+    assert payload["truncated"] is True
+    assert all(payload["statistics"][sid] for sid in raw)
+    assert payload["covered_range"]["start"] is not None
+    assert "_response_limit" not in payload
+
+
+async def test_logbook_recortado_cuenta_bien_y_no_pierde_eventos_al_paginar() -> None:
+    """M-1: el guardián quitaba más eventos y `count`/`truncated_at` seguían
+    apuntando al último que había quitado."""
+    eventos = [
+        {"when": 1_712_000_000.0 + i, "entity_id": "light.test", "name": "Luz ñ",
+         "message": "turned on", "state": "on"}
+        for i in range(400)
+    ]
+    for tope in (10_240, 12_345, 16_384):
+        async with ClientSession() as session:
+            ha_client = _cliente_ws(session, eventos)
+            result, payload = await _llamar(ha_client, "ha_get_logbook", {}, tope)
+        _sin_error(result, payload, "ha_get_logbook")
+        assert payload["truncated"] is True
+        assert payload["count"] == len(payload["events"]) > 0
+        assert payload["truncated_at"] == payload["events"][-1]["when"]
+        assert "_response_limit" not in payload
+
+
+async def test_registros_y_config_entries_recortados_cuentan_bien() -> None:
+    """M-1: `count`/`returned` no coincidían con la lista devuelta."""
+    entidades = [
+        {"entity_id": f"sensor.test_{i}", "platform": "test", "name": "Sensor ñ",
+         "disabled_by": None, "device_id": None, "area_id": None, "x": "y" * 200}
+        for i in range(300)
+    ]
+    dispositivos = [
+        {"id": f"d{i}", "name": "Dispositivo ñ", "manufacturer": "ACME",
+         "disabled_by": None, "area_id": None, "x": "y" * 200}
+        for i in range(300)
+    ]
+    entradas = [
+        {"entry_id": f"e{i}", "domain": "test", "title": "Entrada ñ", "x": "y" * 200}
+        for i in range(300)
+    ]
+    casos = [
+        ("ha_list_entities_registry", entidades, "entities", "count"),
+        ("ha_list_devices", dispositivos, "devices", "count"),
+        ("ha_list_config_entries", entradas, "entries", "returned"),
+    ]
+    for tool, datos, clave, recuento in casos:
+        for tope in (10_240, 12_345):
+            async with ClientSession() as session:
+                ha_client = _cliente_ws(session, datos)
+                result, payload = await _llamar(ha_client, tool, {}, tope)
+            _sin_error(result, payload, tool)
+            assert payload["truncated"] is True, tool
+            assert payload[recuento] == len(payload[clave]) > 0, (tool, tope)
+            assert "_response_limit" not in payload, tool
+
+
+async def test_fs_read_file_de_lineas_cortas_recorta_y_no_da_error(tmp_path) -> None:
+    """B-1 en ficheros: el margen fijo de 2 KiB no cubría los `\\n` y `\\"`
+    escapados de un YAML de líneas cortas."""
+    import hermes.fs as fs_module
+
+    (tmp_path / "grande.yaml").write_text(
+        "".join(f'k{i}: "v"\n' for i in range(40_000)), encoding="utf-8"
+    )
+    with patch.object(fs_module, "CONFIG_BASE", tmp_path.resolve()):
+        async with ClientSession() as session:
+            result, payload = await _llamar(
+                make_ready_client(session, {}), "fs_read_file", {"path": "grande.yaml"}, TOPE,
+            )
+    _sin_error(result, payload, "fs_read_file")
+    assert payload["truncated"] is True
+    n = payload["truncated_at_line"]
+    assert n > 0 and payload["content"].count("\n") == n
+
+
+async def test_logs_largos_de_un_addon_devuelven_las_ultimas_lineas() -> None:
+    """M-2: un log que no cabía pasaba a `response_too_large`."""
+    lineas = [f"2026-11-14 10:00:{i:04d} INFO linea {i} " + "x" * 220 for i in range(1000)]
+    async with ClientSession() as session:
+        ha_client = make_ready_client(session, {})
+
+        async def sv_request_text(path: str, params: dict | None = None) -> str:
+            return "\n".join(lineas) + "\n"
+
+        ha_client.sv_request_text = sv_request_text  # type: ignore[method-assign]
+        result, payload = await _llamar(
+            ha_client, "sv_get_addon_logs", {"slug": "core_mosquitto", "lines": 1000}, TOPE,
+        )
+    _sin_error(result, payload, "sv_get_addon_logs")
+    assert payload["truncated"] is True
+    devueltas = payload["logs"].splitlines()
+    assert devueltas[-1] == lineas[-1]
+    assert payload["lines_returned"] == len(devueltas) > 0
+    assert "lines" in payload["hint"]
+
+
+async def test_fs_delete_file_de_un_fichero_grande_conserva_el_token(tmp_path) -> None:
+    """A-1: la vista previa con el fichero entero pasaba del tope y el
+    guardián se comía el `confirmation_token`: el borrado era imposible."""
+    import hermes.fs as fs_module
+
+    objetivo = tmp_path / "paquetes" / "grande.yaml"
+    objetivo.parent.mkdir()
+    objetivo.write_text("".join(f"k{i}: v\n" for i in range(30_000)), encoding="utf-8")
+    assert objetivo.stat().st_size > 200_000
+    with patch.object(fs_module, "CONFIG_BASE", tmp_path.resolve()):
+        async with ClientSession() as session:
+            ha_client = make_ready_client(session, {})
+            server = _server(ha_client)
+            async with Client(server) as client:
+                primera = await client.call_tool(
+                    "fs_delete_file", {"path": "paquetes/grande.yaml"}
+                )
+                assert _bytes(primera) <= TOPE
+                vista = json.loads(primera.content[0].text)
+                assert primera.is_error is False, vista
+                assert vista["confirmation_token"]
+                assert vista["preview_truncated"] is True
+                omitido = vista["preview"]["current_content"]
+                assert omitido["_omitted"] is True and omitido["lines"] == 30_000
+                # Lo que sí cabe se ve entero.
+                assert vista["preview"]["path"] == "paquetes/grande.yaml"
+                segunda = await client.call_tool(
+                    "fs_delete_file",
+                    {"path": "paquetes/grande.yaml",
+                     "confirmation_token": vista["confirmation_token"]},
+                )
+    assert segunda.is_error is False, segunda.content[0].text
+    assert not objetivo.exists()
+
+
+# ── El guardián, en unidad ────────────────────────────────────────
+
+
+def test_vista_previa_grande_nunca_pierde_el_token() -> None:
+    """A-1: `current` y `new` de una automatización de más de 64 KiB."""
+    grande = {"alias": "x", "actions": [{"service": "light.turn_on", "n": i} for i in range(3000)]}
+    payload = {
+        "confirmation_token": "tok", "expires_in_seconds": 60,
+        "preview": {"automation_id": "automation.test", "current": grande, "new": grande},
+    }
+    out = recortar_a_bytes(payload, 16_384)
+    assert tam_json(out) <= 16_384
+    assert out["confirmation_token"] == "tok"
+    assert out["preview_truncated"] is True
+    assert out["preview"]["automation_id"] == "automation.test"
+    assert out["preview"]["current"]["_omitted"] is True
+    assert out["preview"]["current"]["keys"] == ["actions", "alias"]
+    # Una lista de la vista previa nunca se recorta a medias.
+    assert "truncated" not in out
+    # Ni con un tope absurdo se pierde el token.
+    assert recortar_a_bytes(payload, 200)["confirmation_token"] == "tok"
+
+
+def test_diccionario_de_listas_se_recorta_en_vez_de_dar_error() -> None:
+    """B-1, red de seguridad: `{id: [puntos]}` sin lista en el nivel superior."""
+    payload = {
+        "history": {f"sensor.test_{n}": [{"s": "1", "i": i} for i in range(500)] for n in range(4)},
+        "truncated": False, "truncated_at": None,
+    }
+    out = recortar_a_bytes(payload, 8192)
+    assert tam_json(out) <= 8192
+    assert out["truncated"] is True
+    assert all(out["history"].values())
+    assert out["_response_limit"]["list"] == "history"
+    assert out["_response_limit"]["total"] == 2000
+    assert "truncated_at" not in out
+
+
+def test_un_objeto_con_mas_campos_no_se_recorta_por_dentro() -> None:
+    """Una vista de Lovelace recortada a medias se podría guardar de vuelta."""
+    vista = {"view": {"title": "x", "cards": [{"type": "entities", "i": i} for i in range(3000)]}}
+    assert recortar_a_bytes(vista, 8192)["error"] == "response_too_large"
+
+
+def test_recuentos_de_la_tool_se_corrigen_al_recortar() -> None:
+    """M-1: `count`, `returned` y `truncated_at` no pueden quedar obsoletos."""
+    payload = {"count": 3000, "returned": 3000, "truncated": False,
+               "truncated_at": 99, "items": _LISTA}
+    out = recortar_a_bytes(payload, 8192)
+    assert out["count"] == out["returned"] == len(out["items"]) < 3000
+    assert "truncated_at" not in out
+    # Un `count` que era el total de otra cosa se deja.
+    otro = recortar_a_bytes({"count": 7, "items": _LISTA}, 8192)
+    assert otro["count"] == 7
+
+
+def test_la_pista_del_error_no_dice_que_se_recorto() -> None:
+    """L-1: `response_too_large` no devuelve nada; su pista no puede decir
+    «The response was cut»."""
+    out = recortar_a_bytes({"a": {"b": "c" * 50_000}}, 8192)
+    assert "was cut" not in out["hint"]
+    assert "Nothing was returned" in out["hint"]
+
+
+_FORMAS_1_1_1: dict[str, Any] = {
+    # Cerca del tope y con envoltorio: lo que la tool ya ajustó a mano.
+    "dict_de_listas": {"history": {"a": _LISTA[:1500], "b": _LISTA[1500:]},
+                       "truncated": True, "truncated_at": "x"},
+    "vista_previa": {"confirmation_token": "tok", "expires_in_seconds": 60,
+                     "preview": {"path": "x", "current_content": "l\n" * 100_000}},
+}
+
+
+async def test_ninguna_tool_pierde_datos_ni_token_con_formas_de_1_1_1() -> None:
+    """M-4: el recorrido de todas las tools con las formas que no cubría:
+    un `{id: [puntos]}` cerca del tope y una vista previa con token."""
+    tope = 16_384
+    server = _server(MagicMock(), tope)
+    tools = server._tool_manager.list_tools()
+    revisadas = 0
+    for tool in tools:
+        for forma, valor in _FORMAS_1_1_1.items():
+            try:
+                bruto = tool.fn_metadata.convert_result(valor)
+            except Exception:
+                continue
+
+            async def falso(self, name, arguments, context=None, _r=bruto):
+                return _r
+
+            with patch.object(MCPServer, "call_tool", falso):
+                result = await server.call_tool(tool.name, {})
+            assert _bytes(result) <= tope, (tool.name, forma)
+            payload = json.loads(result.content[0].text)
+            assert result.is_error is False, (tool.name, forma)
+            if forma == "vista_previa":
+                assert payload["confirmation_token"] == "tok", tool.name
+                assert payload["preview_truncated"] is True, tool.name
+            else:
+                assert payload["truncated"] is True, tool.name
+                assert payload["history"]["a"] and payload["history"]["b"], tool.name
+            revisadas += 1
+    assert revisadas >= 2 * len(tools) - 4

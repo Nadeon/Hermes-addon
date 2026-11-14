@@ -225,7 +225,7 @@ def register_all_tools(
 
     # Supervisor — add-ons, supervisor/host/core, backups
     from hermes.tools.addons import register as register_addons
-    register_addons(mcp, ha_client)
+    register_addons(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     from hermes.tools.supervisor import register as register_supervisor
     register_supervisor(mcp, ha_client)

@@ -635,10 +635,17 @@ class CimdResolver:
         if reason:
             raise CimdInvalidError(reason)
 
+        # Un evento `oauth_cimd_document` por resolución, con el resultado y
+        # SOLO el host del `client_id`: es un dato público del cliente
+        # (claude.ai); la IP de origen y la del servidor del documento no se
+        # registran. Sin él, el log no decía si un login había usado CIMD ni
+        # si la descarga había fallado (spec 006).
+        host = client_id_host(url)
         entry = self._cache.get(url)
         now = self._clock()
         if entry is not None and now < entry.expires_at:
             self._cache.move_to_end(url)
+            logger.info("oauth_cimd_document", host=host, result="cache")
             return entry.client
 
         try:
@@ -646,6 +653,8 @@ class CimdResolver:
                 url, source=source, charge_quota=not (trusted or url in self._pinned)
             )
         except CimdTemporaryError as exc:
+            logger.info("oauth_cimd_document", host=host, result="error",
+                        reason=exc.reason)
             if entry is not None and now - entry.fetched_at < STALE_MAX_AGE:
                 self._cache.move_to_end(url)
                 logger.info("oauth_cimd_stale_copy_used",
@@ -654,6 +663,8 @@ class CimdResolver:
             self._cache.pop(url, None)
             raise
         except CimdInvalidError as exc:
+            logger.info("oauth_cimd_document", host=host, result="error",
+                        reason=exc.reason)
             # Los errores no se cachean, y una copia vieja de un documento que
             # ahora es inválido tampoco puede seguir valiendo. Un fallo que no
             # es definitivo (ver `definitive`) no prueba nada contra el
@@ -668,6 +679,7 @@ class CimdResolver:
         if trusted:
             self.pin(url)
         self._evict()
+        logger.info("oauth_cimd_document", host=host, result="ok")
         return client
 
     def _evict(self) -> None:

@@ -105,6 +105,20 @@ def test_legacy_default_dice_que_valor_poner_si_era_a_proposito() -> None:
     assert "hint" not in eventos["config_value_clamped"]
 
 
+def test_legacy_de_la_websocket_dice_como_volver_a_un_tope_menor() -> None:
+    """Los 4 MiB guardados suben a 16 MiB: quien los eligió a propósito
+    necesita saber qué escribir; la pista de `response_max_bytes` no vale."""
+    config = _config(adjustments=[
+        {"option": "ha_ws_max_msg_size_bytes", "configured": 4_194_304,
+         "applied": 16_777_216, "reason": "legacy_default"},
+    ])
+    with mock.patch.object(main_mod, "setup_logging"), capture_logs() as logs:
+        main_mod._setup_logging_from_config(config)
+    evento = [e for e in logs if e["event"] == "config_legacy_default_replaced"][0]
+    assert (evento["option"], evento["applied"]) == ("ha_ws_max_msg_size_bytes", 16_777_216)
+    assert "4194303" in evento["hint"] and "524288" not in evento["hint"]
+
+
 def test_main_configura_el_log_con_la_funcion_cableada() -> None:
     """`main()` no puede volver a llamar a `setup_logging` sin opciones."""
     fuente = inspect.getsource(main_mod.main)

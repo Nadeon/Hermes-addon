@@ -180,11 +180,30 @@ Las pruebas en vivo de la 1.1.0 con HA 2026.11.1 encontraron tres fallos:
 - El log guardaba el `pattern` de `fs_search_in_config` y la plantilla de
   `ha_render_template`; ahora solo su longitud.
 
+Una revisión independiente de la 1.1.1, antes de publicarla, encontró que el
+límite central rompía lo que ya recortaba por su cuenta: `ha_get_history` y
+`ha_statistics_during_period` devolvían `response_too_large` justo con rangos
+amplios, una vista previa grande perdía su `confirmation_token` (borrar un
+fichero grande o editar una automatización larga era imposible) y los logs
+largos de un add-on daban error. Corregido en la misma 1.1.1, junto con el tope
+de mensaje WebSocket (16 MiB por defecto y `ha_ws_message_too_big` en el log) y
+el evento `oauth_cimd_document`.
+
 Lo que las pruebas en vivo de la 1.1.0 dieron por bueno: arranque y redacción
 de red, `sv_get_supervisor_info`, `sv_get_host_info`, dashboards y recursos de
 Lovelace, `ha_list_services(domain=…)`, avisos de `ha_render_template`, los
 alias `ha_hacs_info` y `ha_hacs_list_repositories`, la protección del
 dashboard principal y los tokens DCR emitidos antes de actualizar.
+
+### Pruebas manuales hechas en una instalación real (1.1.0)
+
+- [x] **Arranque y log redactado**: OK.
+- [x] **Arreglos de la 1.0.12**: OK.
+- [x] **Protección del dashboard `lovelace`**: OK.
+- [x] **Tokens DCR emitidos antes de actualizar**: siguen valiendo. OK.
+- [x] **CIMD con claude.ai**: OK. claude.ai inicia sesión con CIMD con su
+  documento en el host `claude.ai`; si solo usas Claude,
+  `oauth_cimd_allowed_hosts: ["claude.ai"]` basta.
 
 ### Pruebas manuales pendientes en una instalación real
 
@@ -202,9 +221,9 @@ La suite no puede cubrir esto; hay que hacerlo justo después de publicar la
 - [ ] **`ha_get_states(domain="sensor")` en una casa grande**: que llegue
   recortada con `truncated: true` y por debajo de `response_max_bytes`.
 
-- [ ] **CIMD con Claude Code y con claude.ai**: autorizar con los dos clientes,
+- [ ] **CIMD con Claude Code** (con claude.ai ya está hecho): autorizar,
   comprobar la pantalla de autorización (host, nombre y destino del código) y
-  que los clientes DCR de antes siguen funcionando
+  el evento `oauth_cimd_document` del log
   (`specs/003-oauth-y-protocolo/quickstart.md`).
 - [ ] **Primer byte tras el proxy**: Claude Code con una espera de 90 s detrás
   del proxy. Si corta a los 60 s, completar DOCS.md con lo que haga falta en
@@ -226,7 +245,7 @@ La suite no puede cubrir esto; hay que hacerlo justo después de publicar la
 ### 1.2.x y posteriores
 
 - **Pruebas manuales en una instalación real**: las de la sección anterior
-  (CIMD con Claude Code y claude.ai, primer byte tras el proxy, actualización
+  (CIMD con Claude Code, primer byte tras el proxy, actualización
   con la clave `homeassistant`, Funnel en el 8443, publicación de la imagen
   con el CI nuevo y lectura y guardado de dashboards grandes), si no se
   hicieron con la 1.1.0.
