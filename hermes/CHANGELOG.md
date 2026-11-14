@@ -25,11 +25,13 @@ de `ha_ws_max_msg_size_bytes` (ver «Changed»).
   cualquier tool: se recorta la lista más larga y se indica con
   `truncated: true` y `_response_limit` (cuántos se devuelven, cuántos había y
   una pista para filtrar). Una respuesta que es solo una lista, como la de
-  `ha_get_states`, llega entonces como `{truncated, count, total, items}`. Si
-  no hay nada que recortar (un texto o un objeto enorme, como una plantilla
-  renderizada o una vista de Lovelace), la respuesta es el error
-  `response_too_large`, con una pista que pide menos en vez de prometer
-  filtros. Lo que cabe sale igual que antes.
+  `ha_get_states`, llega entonces como `{truncated, count, total, items}`.
+  Solo se recorta una lista del primer nivel de la respuesta. Si no hay
+  ninguna (un texto o un objeto enorme, como una plantilla renderizada, la
+  configuración de un script o una automatización, o una vista de Lovelace),
+  la respuesta es el error `response_too_large`, con una pista que pide menos
+  en vez de prometer filtros: un objeto que se guarda de vuelta nunca sale
+  recortado por dentro. Lo que cabe sale igual que antes.
 - **El historial, las estadísticas y otras tools que ya recortaban no se
   llevan bien con el límite central** (encontrado antes de publicar):
   `ha_get_history` y `ha_statistics_during_period` ajustaban sus datos al tope
@@ -42,9 +44,17 @@ de `ha_ws_max_msg_size_bytes` (ver «Changed»).
   `ha_list_devices` y `ha_list_config_entries`, cuyo `count`/`returned` no
   cuadraba con la lista; y en `fs_read_file`, que con un YAML de líneas cortas
   no contaba los `\n` escapados. Como red de seguridad, el límite central
-  también recorta un `{id: [puntos]}` y pone al día `count`, `returned` y
-  `returned_lines` de la lista que recorta (y quita un `truncated_at` que ya no
-  vale).
+  recorta las listas anidadas de un `{id: [puntos]}` solo en
+  `ha_get_history` y `ha_statistics_during_period`; en cualquier otra tool
+  falla cerrado con `response_too_large`. Además pone al día `count`,
+  `returned` y `returned_lines` de la lista que recorta (y quita un
+  `truncated_at` que ya no vale).
+- **`ha_get_history`, `ha_statistics_during_period` y `ha_get_logbook` no
+  avisaban de su tope por cantidad**: una entidad con 3000 estados devolvía
+  500 con `truncated: false`, y el agente creía tener todo el rango. Ahora
+  `truncated: true` y `truncated_at` lo dicen. Y el recorte por tamaño de
+  history y statistics ya no es cuadrático: con 20 entidades × 500 estados
+  pasaba de un minuto de CPU, con el servidor sin atender otras llamadas.
 - **Una vista previa de confirmación grande perdía su `confirmation_token`**
   (encontrado antes de publicar): borrar con `fs_delete_file` un fichero de
   texto de más de 128 KiB, o editar una automatización o un script largos, era

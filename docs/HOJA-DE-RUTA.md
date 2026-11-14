@@ -189,6 +189,15 @@ largos de un add-on daban error. Corregido en la misma 1.1.1, junto con el tope
 de mensaje WebSocket (16 MiB por defecto y `ha_ws_message_too_big` en el log) y
 el evento `oauth_cimd_document`.
 
+Una verificación independiente de esos arreglos, también antes de publicar,
+encontró que la red de seguridad recortaba por dentro objetos que se guardan
+de vuelta (un script de muchos pasos o una vista de Lovelace de muchas
+tarjetas). Ahora solo `ha_get_history` y `ha_statistics_during_period` pueden
+recortar listas anidadas; el resto da `response_too_large`. En la misma pasada,
+los topes por cantidad de history, statistics y logbook avisan con
+`truncated`, y el recorte de history y statistics es lineal (antes, más de un
+minuto de CPU en el peor caso).
+
 Lo que las pruebas en vivo de la 1.1.0 dieron por bueno: arranque y redacción
 de red, `sv_get_supervisor_info`, `sv_get_host_info`, dashboards y recursos de
 Lovelace, `ha_list_services(domain=…)`, avisos de `ha_render_template`, los

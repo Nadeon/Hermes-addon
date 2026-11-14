@@ -22,7 +22,7 @@ import structlog
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.ha_version import ha_at_least
-from hermes.tools._common import requires_ready, tam_json
+from hermes.tools._common import recortar_grupos_a_bytes, requires_ready, tam_json
 
 logger = structlog.get_logger(__name__)
 
@@ -114,6 +114,7 @@ def _truncate_stats_to_bytes(
     stats: dict[str, list[dict[str, Any]]],
     max_bytes: int,
     period: str = "hour",
+    ya_recortado: bool = False,
 ) -> tuple[dict[str, list[dict[str, Any]]], bool, str | None]:
     """Trunca a max_bytes eliminando puntos del final (más recientes).
 
@@ -124,26 +125,23 @@ def _truncate_stats_to_bytes(
     dejaba por encima del tope y el guardián central devolvía
     `response_too_large` en vez de los datos (revisión de 1.1.1, B-1).
 
+    `ya_recortado`: el tope por cantidad ya quitó puntos. Entonces la
+    respuesta es `truncated` aunque quepa, y se mide con su `truncated_at`.
+
     Returns:
         (stats_truncados, fue_truncado, truncated_at_iso)
         truncated_at_iso es el campo `end` (o `start`) del último punto incluido.
     """
-    if tam_json(_envolver(stats, False, period)) <= max_bytes:
-        return stats, False, None
+    if tam_json(_envolver(stats, ya_recortado, period)) <= max_bytes:
+        return stats, ya_recortado, _ultimo_ts(stats) if ya_recortado else None
 
-    working = {sid: list(pts) for sid, pts in stats.items()}
-    while True:
-        if tam_json(_envolver(working, True, period)) <= max_bytes:
-            break
-        total = sum(len(v) for v in working.values())
-        if total == 0:
-            break
-        # Quitar el último punto de la lista con más puntos
-        biggest = max(working, key=lambda k: len(working[k]))
-        if not working[biggest]:
-            break
-        working[biggest].pop()
-
+    # Quitar el último punto de la lista con más puntos hasta que quepa; en
+    # tiempo lineal (verificación de 1.1.1, N-3).
+    working = recortar_grupos_a_bytes(
+        {sid: list(pts) for sid, pts in stats.items()},
+        lambda w: _envolver(w, True, period),
+        max_bytes,
+    )
     return working, True, _ultimo_ts(working)
 
 
@@ -346,17 +344,21 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
 
         # Expandir timestamps y truncar por conteo
         expanded: dict[str, list[dict[str, Any]]] = {}
+        por_cantidad = False
         for sid, pts in raw.items():
             if not isinstance(pts, list):
                 continue
             points = [_expand_stat_point(p) for p in pts if isinstance(p, dict)]
+            # Este corte también es un recorte y se dice con `truncated`
+            # (verificación de 1.1.1, N-2).
             if len(points) > _MAX_POINTS_PER_STATISTIC:
                 points = points[:_MAX_POINTS_PER_STATISTIC]
+                por_cantidad = True
             expanded[sid] = points
 
         # Truncar por bytes (nunca a mitad de punto)
         final, truncated, _ = _truncate_stats_to_bytes(
-            expanded, response_max_bytes, period
+            expanded, response_max_bytes, period, por_cantidad
         )
 
         logger.info(

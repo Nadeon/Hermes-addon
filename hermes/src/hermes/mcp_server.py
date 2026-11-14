@@ -24,7 +24,8 @@
    forma propia y miden la respuesta ENTERA, envoltorio incluido: si se
    pasaran por unos bytes, esto las recortaría otra vez o las cambiaría por
    `response_too_large` (revisión de 1.1.1, B-1). Esto es la red de seguridad,
-   y nunca quita el `confirmation_token` de una vista previa (A-1).
+   y nunca quita el `confirmation_token` de una vista previa (A-1). Las
+   listas anidadas solo se recortan en las tools de `RECORTE_ANIDADO` (N-1).
 """
 
 from __future__ import annotations
@@ -45,6 +46,20 @@ from hermes.tools._common import recortar_a_bytes
 # aparece una, se añade aquí con su motivo y un test, sin cambiar la forma de
 # su respuesta: marcar como error un resultado parcial confundiría al cliente.
 _NOT_AN_ERROR: dict[str, str] = {}
+
+
+# Únicas tools en las que el guardián puede recortar listas ANIDADAS
+# (`{id: [puntos]}`). Son lecturas de series que nadie guarda de vuelta, y un
+# recorte con aviso es más útil que nada. En cualquier otra, un objeto «todo
+# listas» puede ser un script `{"sequence": [...]}` o una vista de Lovelace
+# `{"cards": [...]}`: recortado y guardado, perdería pasos o tarjetas
+# (verificación de 1.1.1, N-1). Para esas, si no hay lista de primer nivel que
+# recortar, `response_too_large`: fail-closed. Añadir una tool aquí exige que
+# su respuesta no se pueda guardar tal cual y un test.
+RECORTE_ANIDADO: frozenset[str] = frozenset({
+    "ha_get_history",
+    "ha_statistics_during_period",
+})
 
 
 def _is_error_payload(result: CallToolResult) -> bool:
@@ -68,7 +83,9 @@ def _is_error_payload(result: CallToolResult) -> bool:
     )
 
 
-def _limitar(result: CallToolResult, max_bytes: int) -> CallToolResult:
+def _limitar(
+    result: CallToolResult, max_bytes: int, recortar_anidadas: bool = False
+) -> CallToolResult:
     """El mismo resultado si cabe en `max_bytes`; si no, uno que cabe.
 
     Se mide lo que de verdad viaja: la suma de los textos. Una tool que
@@ -90,7 +107,7 @@ def _limitar(result: CallToolResult, max_bytes: int) -> CallToolResult:
 
     valores = [valor(b.text) for b in result.content]
     payload = valores[0] if len(valores) == 1 else valores
-    nuevo = recortar_a_bytes(payload, max_bytes)
+    nuevo = recortar_a_bytes(payload, max_bytes, recortar_anidadas)
     texto = nuevo if isinstance(nuevo, str) else json.dumps(nuevo, ensure_ascii=False)
     # Sin `structured_content`: llevaría el resultado entero otra vez.
     return result.model_copy(update={
@@ -112,7 +129,9 @@ class HermesMCPServer(MCPServer):
         result = await super().call_tool(name, arguments, context)
         if isinstance(result, CallToolResult) and self.response_max_bytes:
             # Antes de marcar `isError`: `response_too_large` es un fallo.
-            result = _limitar(result, self.response_max_bytes)
+            result = _limitar(
+                result, self.response_max_bytes, name in RECORTE_ANIDADO
+            )
         if (
             isinstance(result, CallToolResult)
             and not result.is_error

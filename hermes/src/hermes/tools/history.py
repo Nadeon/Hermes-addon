@@ -18,7 +18,7 @@ import structlog
 # antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
-from hermes.tools._common import requires_ready, tam_json
+from hermes.tools._common import recortar_grupos_a_bytes, requires_ready, tam_json
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +81,7 @@ def _envolver(
 def _truncate_to_bytes(
     result: dict[str, list[dict[str, Any]]],
     max_bytes: int,
+    ya_recortado: bool = False,
 ) -> tuple[dict[str, list[dict[str, Any]]], bool, str | None]:
     """Trunca el resultado para que quepa en max_bytes.
 
@@ -93,30 +94,24 @@ def _truncate_to_bytes(
     convertía en `response_too_large` justo en el caso de rango amplio para el
     que existe el recorte (revisión de 1.1.1, B-1).
 
+    `ya_recortado`: el tope por cantidad ya quitó estados. Entonces la
+    respuesta es `truncated` aunque quepa, y se mide con su `truncated_at`.
+
     Returns:
         (result_truncado, fue_truncado, truncated_at_iso)
         truncated_at_iso es el last_updated del último estado incluido.
     """
     # Comprobación rápida: ¿cabe sin truncar?
-    if tam_json(_envolver(result, False)) <= max_bytes:
-        return result, False, None
+    if tam_json(_envolver(result, ya_recortado)) <= max_bytes:
+        return result, ya_recortado, _ultimo_ts(result) if ya_recortado else None
 
-    # Estrategia: quitar el punto más nuevo de la lista más larga hasta que
-    # quepa, lo que iguala las longitudes de forma natural
-    working = {eid: list(states) for eid, states in result.items()}
-    while True:
-        if tam_json(_envolver(working, True)) <= max_bytes:
-            break
-        # Si todas las listas están vacías, no podemos reducir más
-        total = sum(len(v) for v in working.values())
-        if total == 0:
-            break
-        # Quitar el último estado de la entidad con más estados
-        biggest = max(working, key=lambda k: len(working[k]))
-        if not working[biggest]:
-            break
-        working[biggest].pop()
-
+    # Quitar el punto más nuevo de la lista más larga hasta que quepa, lo que
+    # iguala las longitudes; en tiempo lineal (verificación de 1.1.1, N-3).
+    working = recortar_grupos_a_bytes(
+        {eid: list(states) for eid, states in result.items()},
+        lambda w: _envolver(w, True),
+        max_bytes,
+    )
     return working, True, _ultimo_ts(working)
 
 
@@ -206,17 +201,23 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
         # Descomprimir {s,a,lu,lc} → {state, attributes, last_updated, last_changed}
         # y truncar a _MAX_STATES_PER_ENTITY antes de la serialización global
         expanded: dict[str, list[dict[str, Any]]] = {}
+        por_cantidad = False
         for entity_id, points in raw.items():
             if not isinstance(points, list):
                 continue
             states = [_expand_state(p) for p in points if isinstance(p, dict)]
-            # Truncar por entidad primero
+            # Truncar por entidad primero. Antes este corte no lo decía: 3000
+            # estados salían como 500 con `truncated: false` y el agente
+            # creía tener todo el rango (verificación de 1.1.1, N-2).
             if len(states) > _MAX_STATES_PER_ENTITY:
                 states = states[:_MAX_STATES_PER_ENTITY]
+                por_cantidad = True
             expanded[entity_id] = states
 
         # Truncar por bytes (nunca a mitad de registro)
-        final, truncated, _ = _truncate_to_bytes(expanded, response_max_bytes)
+        final, truncated, _ = _truncate_to_bytes(
+            expanded, response_max_bytes, por_cantidad
+        )
 
         logger.info(
             "ha_get_history_ok",

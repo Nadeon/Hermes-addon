@@ -57,3 +57,11 @@ description: "Tareas de Hermes 1.1.1 (spec 006)"
 - [X] T024 Suite completa (1878 tests), revisión del diff buscando datos personales e identificadores de modelos, y commit
 
 BAJO que quedan, con su motivo: L-4 (restos de texto libre en el log: no llevan datos de red y la revisión los da por aceptables) y L-5 (lista de un solo elemento tratada como su elemento, separadores no compactos y escapado JSON-RPC: solo hacen que se recorte de más, nunca de menos ni con datos falsos). Complementos de M-3 fuera de alcance: esquema a 64 MiB, `minimal_response` y `list_for_display`.
+
+## Fase 8: Verificación independiente de la 1.1.1
+
+- [X] T025 [US4] Tests en `tests/test_response_limit.py`: `ha_get_script` de 3000 pasos y vista de Lovelace de 1500 cards por el servidor real dan `response_too_large`; el dashboard entero que cabe sale intacto y el que no da `too_large` con `top_level`; la red anidada solo con `recortar_anidadas`; el guardián solo recorta listas anidadas en `RECORTE_ANIDADO`; topes por cantidad con `truncated`; recorte de history y statistics en menos de 5 s de CPU (FR-018…FR-020)
+- [X] T026 [US4] Lista blanca `RECORTE_ANIDADO` en `mcp_server.py` y `recortar_anidadas` en `tools/_common.py` (FR-018)
+- [X] T027 [US4] `recortar_grupos_a_bytes` en `tools/_common.py`, usado en `history.py` y `statistics.py` (FR-019); `ya_recortado` en `history.py`, `statistics.py` y `logbook.py` (FR-020)
+- [X] T028 Control negativo con el código de 0533c73. **Resultado**: caen 6 de los 7 tests nuevos (el del dashboard entero es un control que debe pasar igual): el script sale con 1464 de 3000 pasos y la vista recortada, ambos con `is_error: false`; los topes por cantidad salen con `truncated: false`; el recorte de 20 × 500 estados tarda unos 70 s de CPU (después, 0,08 s)
+- [X] T029 CHANGELOG `[1.1.1]` y hoja de ruta; suite completa, revisión del diff buscando datos personales e identificadores de modelos, y commit

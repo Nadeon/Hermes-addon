@@ -31,6 +31,13 @@ Una revisión independiente de la 1.1.1 sin publicar (1 bloqueante, 1 alto,
 - P: ¿Cómo se recorta una vista previa que no cabe? → R: el guardián nunca quita el `confirmation_token`; sustituye sus campos más grandes por un resumen `_omitted` y lo dice con `preview_truncated: true` (ver S-04).
 - P: ¿Se protege ahora `ha.py` de los mensajes WS grandes? → R: sí, lo justo: tope por defecto de 16 MiB, el 4 MiB guardado como defecto heredado y un evento propio para el cierre por tamaño. Sale de «Fuera de alcance».
 
+### Sesión 2026-11-14 (verificación de la 1.1.1)
+
+Una verificación independiente de 0533c73 la da por apta, con tres medios:
+
+- P: ¿Dónde puede el guardián recortar listas anidadas? → R: solo en una lista blanca explícita de tools de series que nadie guarda de vuelta: `ha_get_history` y `ha_statistics_during_period`. Fuera de ella, un objeto «todo listas» puede ser un script `{"sequence": [...]}` o una vista `{"cards": [...]}`; recortado y guardado perdería pasos o tarjetas (N-1). Sin lista de primer nivel que recortar, `response_too_large` (FR-018).
+- P: ¿Se arregla el recorte cuadrático de history y statistics (N-3) y los topes por cantidad sin aviso (N-2)? → R: sí, los dos son acotados (FR-019, FR-020).
+
 ## Escenarios de usuario y pruebas *(obligatorio)*
 
 ### Historia 1 — Actualizaciones del Marketplace (Prioridad: P1)
@@ -96,6 +103,8 @@ mayor que el tope conserva su token.
 3. **Dado** `fs_delete_file` de un fichero de texto de 200 KB, **entonces** la primera llamada trae `confirmation_token`, `preview_truncated: true` y `current_content` resumido, y la segunda borra el fichero.
 4. **Dado** `sv_get_addon_logs` de un log que no cabe, **entonces** devuelve sus últimas líneas con `truncated: true` y `lines_returned`.
 5. **Dado** un mensaje de HA mayor que `ha_ws_max_msg_size_bytes`, **entonces** el log trae `ha_ws_message_too_big` y las llamadas que fallan lo dicen.
+6. **Dado** `ha_get_script` de un script `{"sequence": [3000 pasos]}` o `ha_get_lovelace_dashboard(view_index=N)` de una vista `{"cards": [1500 cards]}` que no caben, **entonces** la respuesta es `response_too_large`, nunca el objeto recortado por dentro.
+7. **Dado** `ha_get_history`, `ha_statistics_during_period` o `ha_get_logbook` con más puntos que su tope por cantidad, **entonces** `truncated: true` y `truncated_at` lo dicen aunque quepa en bytes.
 
 ### Casos límite
 
@@ -117,13 +126,16 @@ mayor que el tope conserva su token.
 - **FR-007**: `fs_search_in_config` y `ha_render_template` no registran en el log su `pattern` ni su `template`; registran `pattern_len` y `template_len`.
 - **FR-008**: Versión 1.1.1 en `config.yaml`, `__init__.py` y `HA_CORE_LAST_TESTED_IN_HERMES`; CHANGELOG `## [1.1.1] — 2026-11-14` con Fixed; DOCS y README dicen la verdad sobre el límite; la hoja de ruta recoge el estado y las pruebas manuales pendientes.
 - **FR-009**: Las tools que recortan por su cuenta (history, statistics, logbook, registros de entidades y dispositivos, config entries, `fs_read_file`) miden la respuesta ENTERA, envoltorio incluido, y escrita como se mide (`ensure_ascii=False`); el guardián nunca tiene que volver a recortarlas (B-1, M-1).
-- **FR-010**: El guardián, sin lista en el nivel superior, recorta un `{id: [puntos]}` (objeto cuyos valores son todos listas) quitando el último punto de la lista más larga; un objeto con más campos no se recorta por dentro (B-1).
+- **FR-010**: El guardián, sin lista en el nivel superior, recorta un `{id: [puntos]}` (objeto cuyos valores son todos listas) quitando el último punto de la lista más larga; un objeto con más campos no se recorta por dentro (B-1). Solo en las tools de FR-018.
 - **FR-011**: Al recortar una lista, el guardián pone al día `count`, `returned` y `returned_lines` que la contaban y quita `truncated_at` (M-1).
 - **FR-012**: Una respuesta con `confirmation_token` nunca pierde el token: los campos más grandes de `preview` (y luego del nivel superior) se sustituyen por `{"_omitted": true, "bytes", "type", "lines"|"keys"|"items"}` y se marca `preview_truncated: true` con `_response_limit` (A-1).
 - **FR-013**: `sv_get_addon_logs` devuelve las últimas líneas que caben, con `truncated`, `lines_returned` y una pista (M-2). La pista de `response_too_large` no dice que se haya recortado nada (L-1).
 - **FR-014**: Un test por el servidor real cubre cada tool de FR-009 y FR-013 y `fs_delete_file` con un fichero de 200 KB; el recorrido de todas las tools incluye un `{id: [puntos]}` cerca del tope y una vista previa con token (M-4).
 - **FR-015**: `ha_ws_max_msg_size_bytes` vale 16 MiB por defecto (config.py, config.yaml, run.sh); un 4194304 guardado se sustituye y se anota como `config_legacy_default_replaced` con su propia pista; el cierre por mensaje demasiado grande (1009) se registra como `ha_ws_message_too_big` (M-3).
 - **FR-016**: Cada resolución CIMD deja `oauth_cimd_document` con `result` (`ok`, `cache`, `error` + `reason`) y solo el host del `client_id`; sin cambios en la lógica SSRF.
+- **FR-018**: La red de FR-010 solo se aplica a las tools de la lista blanca `RECORTE_ANIDADO` de `mcp_server.py` (`ha_get_history`, `ha_statistics_during_period`). En cualquier otra, si no hay lista de primer nivel que recortar, la respuesta es `response_too_large`. `ha_get_script`, `ha_get_automation`, `ha_get_scene`, los helpers, `sv_get_addon_options` y la lectura por vista de `ha_get_lovelace_dashboard` nunca salen recortados por dentro; la lectura completa del dashboard o cabe entera o da su propio `too_large` con `top_level` (verificación, N-1).
+- **FR-019**: El recorte de history y statistics es lineal: descuenta el tamaño de cada punto quitado y solo reserializa la respuesta cuando la estimación dice que cabe (verificación, N-3).
+- **FR-020**: Los topes por cantidad de history (500 estados por entidad), statistics (1000 puntos) y logbook (2000 eventos) marcan `truncated: true` con su `truncated_at` (verificación, N-2).
 - **FR-017**: DOCS, SECURITY, README, CHANGELOG y la hoja de ruta recogen todo lo anterior, la verificación de CIMD con claude.ai y la recomendación `oauth_cimd_allowed_hosts: ["claude.ai"]` para quien solo use Claude (el defecto sigue vacío). Marketplace con HACS: sin reintentos de `marketplace/*` por categoría y el error dice la categoría (L-3).
 
 ## Supuestos

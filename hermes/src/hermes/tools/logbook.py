@@ -31,6 +31,7 @@ _MAX_EVENTS = 2000
 def _truncate_events_to_bytes(
     events: list[dict[str, Any]],
     max_bytes: int,
+    ya_recortado: bool = False,
 ) -> tuple[list[dict[str, Any]], bool, float | None]:
     """Trunca la lista de eventos para que quepa en max_bytes.
 
@@ -43,10 +44,15 @@ def _truncate_events_to_bytes(
     `truncated_at` seguían apuntando al último que había quitado, así que
     paginar desde `truncated_at` se saltaba eventos (revisión de 1.1.1, M-1).
 
+    `ya_recortado`: el tope por cantidad ya quitó eventos; la respuesta es
+    `truncated` aunque quepa (verificación de 1.1.1, N-2).
+
     Returns:
         (events_truncados, fue_truncado, when_del_ultimo_incluido)
     """
-    out = ajustar_lista_a_bytes(events, _envolver, max_bytes)
+    out = ajustar_lista_a_bytes(
+        events, lambda items, r: _envolver(items, r or ya_recortado), max_bytes
+    )
     return out["events"], out["truncated"], out["truncated_at"]
 
 
@@ -132,12 +138,16 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
 
         events: list[dict[str, Any]] = raw if isinstance(raw, list) else []
 
-        # Truncar por conteo primero
-        if len(events) > _MAX_EVENTS:
+        # Truncar por conteo primero; también se dice con `truncated`, o el
+        # agente no sabría que puede paginar desde `truncated_at` (N-2).
+        por_cantidad = len(events) > _MAX_EVENTS
+        if por_cantidad:
             events = events[:_MAX_EVENTS]
 
         # Truncar por bytes (nunca a mitad de evento)
-        final, truncated, _ = _truncate_events_to_bytes(events, response_max_bytes)
+        final, truncated, _ = _truncate_events_to_bytes(
+            events, response_max_bytes, por_cantidad
+        )
 
         logger.info(
             "ha_get_logbook_ok",

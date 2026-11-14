@@ -429,7 +429,7 @@ def test_diccionario_de_listas_se_recorta_en_vez_de_dar_error() -> None:
         "history": {f"sensor.test_{n}": [{"s": "1", "i": i} for i in range(500)] for n in range(4)},
         "truncated": False, "truncated_at": None,
     }
-    out = recortar_a_bytes(payload, 8192)
+    out = recortar_a_bytes(payload, 8192, recortar_anidadas=True)
     assert tam_json(out) <= 8192
     assert out["truncated"] is True
     assert all(out["history"].values())
@@ -475,7 +475,11 @@ _FORMAS_1_1_1: dict[str, Any] = {
 
 async def test_ninguna_tool_pierde_datos_ni_token_con_formas_de_1_1_1() -> None:
     """M-4: el recorrido de todas las tools con las formas que no cubría:
-    un `{id: [puntos]}` cerca del tope y una vista previa con token."""
+    un `{id: [puntos]}` cerca del tope y una vista previa con token. El
+    `{id: [puntos]}` solo se recorta en las tools de series de la lista
+    blanca; en las demás falla cerrado (N-1)."""
+    from hermes.mcp_server import RECORTE_ANIDADO
+
     tope = 16_384
     server = _server(MagicMock(), tope)
     tools = server._tool_manager.list_tools()
@@ -494,6 +498,11 @@ async def test_ninguna_tool_pierde_datos_ni_token_con_formas_de_1_1_1() -> None:
                 result = await server.call_tool(tool.name, {})
             assert _bytes(result) <= tope, (tool.name, forma)
             payload = json.loads(result.content[0].text)
+            if forma == "dict_de_listas" and tool.name not in RECORTE_ANIDADO:
+                assert payload["error"] == "response_too_large", tool.name
+                assert result.is_error is True, tool.name
+                revisadas += 1
+                continue
             assert result.is_error is False, (tool.name, forma)
             if forma == "vista_previa":
                 assert payload["confirmation_token"] == "tok", tool.name
@@ -503,3 +512,179 @@ async def test_ninguna_tool_pierde_datos_ni_token_con_formas_de_1_1_1() -> None:
                 assert payload["history"]["a"] and payload["history"]["b"], tool.name
             revisadas += 1
     assert revisadas >= 2 * len(tools) - 4
+
+
+# ── Verificación de 1.1.1, N-1: objetos que se guardan de vuelta ──
+#
+# 0533c73 recortaba por dentro CUALQUIER objeto cuyos valores fueran todos
+# listas. Un script `{"sequence": [...]}` o una vista `{"cards": [...]}` salían
+# recortados con `is_error: false`; si el agente los editaba y los guardaba,
+# perdía pasos o tarjetas. Solo las tools de series de la lista blanca pueden
+# recortar listas anidadas; el resto falla cerrado con `response_too_large`.
+
+
+async def test_script_grande_sin_alias_no_sale_recortado() -> None:
+    """N-1, escenario 2: `ha_get_script` de un script de 3000 pasos."""
+    config = {"sequence": [{"service": "light.turn_on", "n": i, "x": "y" * 40} for i in range(3000)]}
+    async with ClientSession() as session:
+        ha_client = make_ready_client(
+            session, {"script.test": {"entity_id": "script.test", "state": "off"}}
+        )
+
+        async def config_read(domain: str, object_id: str) -> Any:
+            return config
+
+        ha_client.config_read = config_read  # type: ignore[method-assign]
+        result, payload = await _llamar(
+            ha_client, "ha_get_script", {"script_id": "script.test"}, TOPE,
+        )
+    assert result.is_error is True, payload
+    assert payload["error"] == "response_too_large"
+    assert "config" not in payload
+
+
+async def test_vista_de_lovelace_grande_no_sale_recortada() -> None:
+    """N-1, escenario 1: dashboard con solo `views` y una vista de 1500 cards.
+
+    `top_level_keys` sale vacío, así que no hay lista de primer nivel; la
+    vista recortada se podía guardar con la receta `{**top_level, views}`."""
+    vista = {"cards": [{"type": "entities", "entity": f"sensor.test_{i}", "x": "y" * 100}
+                       for i in range(1500)]}
+    config = {"views": [{"cards": []}, vista]}
+    async with ClientSession() as session:
+        ha_client = _cliente_ws(session, config)
+        result, payload = await _llamar(
+            ha_client, "ha_get_lovelace_dashboard", {"view_index": 1}, TOPE,
+        )
+    assert result.is_error is True, payload
+    assert payload["error"] == "response_too_large"
+    assert "view" not in payload
+
+
+async def test_dashboard_entero_que_cabe_sale_intacto() -> None:
+    """La lectura completa de un dashboard nunca se recorta por arriba: o
+    cabe entera, o la propia tool da `too_large` con `top_level`."""
+    vistas = [{"title": f"v{i}", "cards": [{"type": "entities", "x": "y" * 100}] * 40}
+              for i in range(40)]
+    config = {"title": "Casa", "views": vistas}
+    async with ClientSession() as session:
+        ha_client = _cliente_ws(session, config)
+        _, cabe = await _llamar(
+            ha_client, "ha_get_lovelace_dashboard", {}, tam_json(config) + 10,
+        )
+        _, no_cabe = await _llamar(
+            ha_client, "ha_get_lovelace_dashboard", {}, tam_json(config) - 10,
+        )
+    assert cabe == config
+    assert no_cabe["error"] == "too_large"
+    assert no_cabe["top_level"] == {"title": "Casa"}
+    assert "views" not in no_cabe
+
+
+def test_dict_de_listas_solo_se_recorta_si_se_pide() -> None:
+    """La red de `{id: [puntos]}` es opcional y por defecto falla cerrado."""
+    script = {"config": {"sequence": [{"n": i, "x": "y" * 40} for i in range(3000)]},
+              "state": {"entity_id": "script.test"}}
+    assert recortar_a_bytes(script, 8192)["error"] == "response_too_large"
+    out = recortar_a_bytes(script, 8192, recortar_anidadas=True)
+    assert out["truncated"] is True
+
+
+async def test_el_guardian_solo_recorta_listas_anidadas_en_la_lista_blanca() -> None:
+    """Con la misma respuesta `{x: {id: [puntos]}}`, solo history y
+    statistics la recortan; `ha_get_script` y la vista de Lovelace fallan."""
+    from hermes.mcp_server import RECORTE_ANIDADO
+
+    assert RECORTE_ANIDADO == frozenset({"ha_get_history", "ha_statistics_during_period"})
+    tope = 16_384
+    server = _server(MagicMock(), tope)
+    valor = _FORMAS_1_1_1["dict_de_listas"]
+    for nombre in ("ha_get_history", "ha_statistics_during_period",
+                   "ha_get_script", "ha_get_automation", "ha_get_lovelace_dashboard",
+                   "sv_get_addon_options"):
+        bruto = server._tool_manager.get_tool(nombre).fn_metadata.convert_result(valor)
+
+        async def falso(self, name, arguments, context=None, _r=bruto):
+            return _r
+
+        with patch.object(MCPServer, "call_tool", falso):
+            result = await server.call_tool(nombre, {})
+        payload = json.loads(result.content[0].text)
+        if nombre in RECORTE_ANIDADO:
+            assert payload["truncated"] is True, nombre
+        else:
+            assert payload["error"] == "response_too_large", nombre
+            assert result.is_error is True, nombre
+
+
+# ── Verificación de 1.1.1, N-2: topes por cantidad que no avisaban ──
+
+
+async def test_topes_por_cantidad_marcan_truncated() -> None:
+    """N-2: history con 3000 estados devolvía 500 con `truncated: false`."""
+    from hermes.tools.history import _MAX_STATES_PER_ENTITY
+    from hermes.tools.logbook import _MAX_EVENTS
+    from hermes.tools.statistics import _MAX_POINTS_PER_STATISTIC
+
+    historia = {"light.test": [{"s": "on", "lu": 1_712_000_000.0 + i}
+                               for i in range(_MAX_STATES_PER_ENTITY + 50)]}
+    estadisticas = {"sensor.test": [{"start": 1_712_000_000_000 + i * 3_600_000,
+                                     "end": 1_712_003_600_000 + i * 3_600_000, "mean": 1.0}
+                                    for i in range(_MAX_POINTS_PER_STATISTIC + 50)]}
+    eventos = [{"when": 1_712_000_000.0 + i, "entity_id": "light.test"}
+               for i in range(_MAX_EVENTS + 10)]
+    tope = 8 * 1024 * 1024
+    async with ClientSession() as session:
+        _, h = await _llamar(_cliente_ws(session, historia), "ha_get_history",
+                             {"entity_ids": ["light.test"]}, tope)
+        _, s = await _llamar(_cliente_ws(session, estadisticas), "ha_statistics_during_period",
+                             {"statistic_ids": ["sensor.test"]}, tope)
+        _, e = await _llamar(_cliente_ws(session, eventos), "ha_get_logbook", {}, tope)
+    assert len(h["history"]["light.test"]) == _MAX_STATES_PER_ENTITY
+    assert h["truncated"] is True
+    assert h["truncated_at"] == h["history"]["light.test"][-1]["last_updated"]
+    assert len(s["statistics"]["sensor.test"]) == _MAX_POINTS_PER_STATISTIC
+    assert s["truncated"] is True
+    assert s["truncated_at"] == s["statistics"]["sensor.test"][-1]["end"]
+    assert e["count"] == _MAX_EVENTS
+    assert e["truncated"] is True
+    assert e["truncated_at"] == e["events"][-1]["when"]
+
+
+# ── Verificación de 1.1.1, N-3: recorte cuadrático ────────────────
+
+
+def test_recorte_de_history_y_statistics_es_lineal() -> None:
+    """N-3: 20 entidades × 500 estados con atributos tardaban ~60 s de CPU,
+    con el bucle de eventos bloqueado (y la WS de HA sin heartbeat)."""
+    import time
+
+    from hermes.tools.history import _truncate_to_bytes
+    from hermes.tools.statistics import _truncate_stats_to_bytes
+
+    estados = {
+        f"sensor.test_{n}": [
+            {"state": str(i), "last_updated": f"2026-11-14T10:{i % 60:02d}:00+00:00",
+             "last_changed": f"2026-11-14T10:{i % 60:02d}:00+00:00",
+             "attributes": {"friendly_name": "Sensor ñ", "nota": "x" * 280}}
+            for i in range(500)
+        ]
+        for n in range(20)
+    }
+    inicio = time.process_time()
+    final, recortado, _ = _truncate_to_bytes(estados, TOPE)
+    assert time.process_time() - inicio < 5
+    assert recortado is True
+    assert tam_json({"history": final, "truncated": True,
+                     "truncated_at": "2026-11-14T10:00:00+00:00"}) <= TOPE
+    # Iguala longitudes, como antes: ninguna entidad se queda sin datos.
+    longitudes = {len(v) for v in final.values()}
+    assert max(longitudes) - min(longitudes) <= 1 and min(longitudes) > 0
+
+    puntos = {k: [{"start": f"2026-11-14T{i % 24:02d}:00:00+00:00",
+                   "end": f"2026-11-14T{i % 24:02d}:59:00+00:00", "mean": 1.0, "nota": "x" * 280}
+                  for i in range(1000)] for k in list(estados)[:10]}
+    inicio = time.process_time()
+    final_s, recortado_s, _ = _truncate_stats_to_bytes(puntos, TOPE)
+    assert time.process_time() - inicio < 5
+    assert recortado_s is True and all(final_s.values())

@@ -57,6 +57,33 @@ def ajustar_lista_a_bytes(
         n -= 1
 
 
+def recortar_grupos_a_bytes(
+    grupos: dict[str, list[Any]],
+    construir: Callable[[dict[str, list[Any]]], Any],
+    max_bytes: int,
+) -> dict[str, list[Any]]:
+    """Quita puntos del final de `grupos` (`{id: [puntos]}`) hasta que cabe.
+
+    Se quita el último punto de la lista más larga, lo que iguala las
+    longitudes. `construir(grupos)` arma la respuesta entera para medirla.
+    Antes se reserializaba la respuesta entera por cada punto quitado: con 20
+    entidades × 500 estados con atributos eran unos 60 s de CPU con el bucle
+    de eventos bloqueado, ni otras llamadas MCP ni el heartbeat de la WS
+    (verificación de 1.1.1, N-3). Ahora se descuenta el tamaño de cada punto
+    (lineal) y solo se mide de verdad cuando la estimación dice que ya cabe.
+    Modifica y devuelve `grupos`; si ni vacío cabe, lo devuelve vacío.
+    """
+    exceso = tam_json(construir(grupos)) - max_bytes
+    while exceso > 0 and any(grupos.values()):
+        mayor = max(grupos, key=lambda k: len(grupos[k]))
+        item = grupos[mayor].pop()
+        # ", " separa los elementos; el último de una lista no lleva.
+        exceso -= tam_json(item) + (2 if grupos[mayor] else 0)
+        if exceso <= 0:
+            exceso = tam_json(construir(grupos)) - max_bytes
+    return grupos
+
+
 _LIMIT_HINT = (
     "The response was cut to fit response_max_bytes. Filter more (by domain, "
     "entity, dates or a search argument) instead of repeating the same call."
@@ -178,10 +205,11 @@ def _recortar_dict_de_listas(
     Es la forma de history y statistics. Antes de 1.1.1 no había lista en el
     nivel superior y el guardián lo convertía todo en `response_too_large`
     (revisión de 1.1.1, B-1). Se quita el último punto de la lista más larga,
-    el mismo criterio que esas tools, que iguala las longitudes. Solo se
-    aplica a un objeto cuyos valores son TODOS listas: un objeto con más
-    campos (una vista de Lovelace, una automatización) recortado a medias se
-    podría guardar de vuelta y perder datos.
+    el mismo criterio que esas tools, que iguala las longitudes. Solo lo
+    piden las tools de series de `RECORTE_ANIDADO` (`mcp_server.py`): mirar
+    solo la forma no basta, porque un script `{"sequence": [...]}` o una vista
+    `{"cards": [...]}` también son «todo listas» y, recortados, se guardaban
+    de vuelta con pasos o tarjetas de menos (verificación de 1.1.1, N-1).
     """
     grupos = {k: list(v) for k, v in payload[clave].items()}
     total = sum(len(v) for v in grupos.values())
@@ -197,26 +225,22 @@ def _recortar_dict_de_listas(
         out.pop("truncated_at", None)
         return out
 
-    exceso = tam_json(construir()) - max_bytes
-    while exceso > 0 and any(grupos.values()):
-        mayor = max(grupos, key=lambda k: len(grupos[k]))
-        item = grupos[mayor].pop()
-        # Estimación lineal; se verifica con el tamaño real al llegar a cero.
-        exceso -= tam_json(item) + (2 if grupos[mayor] else 0)
-        if exceso <= 0:
-            exceso = tam_json(construir()) - max_bytes
+    recortar_grupos_a_bytes(grupos, lambda _g: construir(), max_bytes)
     out = construir()
     return out if tam_json(out) <= max_bytes else None
 
 
-def recortar_a_bytes(payload: Any, max_bytes: int) -> Any:
+def recortar_a_bytes(
+    payload: Any, max_bytes: int, recortar_anidadas: bool = False
+) -> Any:
     """`payload` tal cual si cabe en `max_bytes`; si no, recortado y dicho.
 
     Es la red de seguridad de `HermesMCPServer` para las tools que no recortan
     por su cuenta (spec 006). Una lista se envuelve en un objeto, porque una
     lista no tiene dónde decir `truncated`. En un objeto se recorta su lista
     más grande del nivel superior y se ponen al día sus recuentos; si no hay
-    ninguna, un `{id: [puntos]}` del nivel superior. Una vista previa con
+    ninguna y `recortar_anidadas` (solo las tools de series de la lista
+    blanca), un `{id: [puntos]}` del nivel superior. Una vista previa con
     `confirmation_token` nunca pierde el token: se resumen sus campos grandes.
     Si no hay nada que recortar (un texto enorme, un objeto de objetos), se
     devuelve un error en vez de cortar a ciegas: un JSON partido o un texto
@@ -244,7 +268,12 @@ def recortar_a_bytes(payload: Any, max_bytes: int) -> Any:
         out = ajustar_lista_a_bytes(payload, construir, max_bytes)
     elif isinstance(payload, dict):
         listas = [k for k, v in payload.items() if isinstance(v, list) and v]
-        dicts = [k for k, v in payload.items() if _es_dict_de_listas(v)]
+        # Fuera de la lista blanca, nada anidado: un objeto que se guarda de
+        # vuelta (script, vista de Lovelace, opciones de un add-on) recortado
+        # por dentro perdería datos al guardarlo. Mejor el error (N-1).
+        dicts = [
+            k for k, v in payload.items() if _es_dict_de_listas(v)
+        ] if recortar_anidadas else []
         if listas:
             clave = max(listas, key=lambda k: tam_json(payload[k]))
             lista = payload[clave]

@@ -46,6 +46,14 @@ y dos argumentos de texto libre fuera del log.
 7. `config.py` / `config.yaml` / `run.sh` / `__main__.py`: `WS_MAX_MSG_SIZE_DEFAULT` y `_LEGACY_DEFAULT` con su pista; `ha.py`: `_mensaje_demasiado_grande` y `ha_ws_message_too_big`.
 8. `cimd.py`: `oauth_cimd_document` en `CimdResolver.resolve`. `marketplace.py`: `_ws_read(..., api=)` y `category` en el error.
 
+- **R-9 — Verificación de la 1.1.1.** N-1: `_recortar_dict_de_listas` miraba solo la forma «todo listas», que también tienen un script sin `alias` (`{"sequence": [...]}`) y una vista de Lovelace (`{"cards": [...]}`, con `top_level_keys` vacío en un dashboard solo con `views`); salían recortados con `is_error: false` y se podían guardar. N-2: los topes por cantidad no tocaban `truncated`. N-3: history y statistics reserializaban la respuesta entera por cada punto quitado (20 × 500 estados: unos 60 s de CPU con el bucle de eventos bloqueado).
+
+## Diseño de la verificación
+
+9. `mcp_server.py`: lista blanca `RECORTE_ANIDADO` por nombre de tool; `_limitar(..., recortar_anidadas)` y `recortar_a_bytes(..., recortar_anidadas=False)`: por defecto no se mira nada anidado (fail-closed).
+10. `tools/_common.py`: `recortar_grupos_a_bytes`, el bucle lineal que ya usaba la red de seguridad, compartido por `_recortar_dict_de_listas`, `history.py` y `statistics.py`.
+11. `history.py`, `statistics.py`, `logbook.py`: `ya_recortado` cuando el tope por cantidad quitó algo; la respuesta se mide ya con `truncated_at`.
+
 ## Ficheros
 
 - Código: `hermes/src/hermes/tools/marketplace.py`, `hermes/src/hermes/mcp_server.py`, `hermes/src/hermes/tools/_common.py`, `hermes/src/hermes/tools/__init__.py`, `hermes/src/hermes/tools/ha.py` (docstring), `hermes/src/hermes/tools/filesystem.py`, `hermes/src/hermes/tools/templates.py`, `hermes/src/hermes/config.py`, `hermes/src/hermes/__init__.py`, `hermes/config.yaml`.
