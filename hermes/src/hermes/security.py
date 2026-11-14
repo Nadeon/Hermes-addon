@@ -622,6 +622,14 @@ def _looks_sensitive(key: str) -> bool:
     return any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS)
 
 
+# Alias público, sin cambiar el comportamiento: el resumen de la carga de las
+# tools genéricas (`command_policy.resumir_carga`, spec 011, FR-010) decide qué
+# valores enseña en la vista previa con el MISMO criterio que la redacción de
+# las respuestas. Dos criterios distintos acabarían enseñando en la vista
+# previa un secreto que la respuesta sí taparía.
+es_clave_sensible = _looks_sensitive
+
+
 def redact_structure(value: Any, _key: str = "") -> Any:
     """Devuelve una copia del dato con los valores sensibles sustituidos.
 

@@ -280,5 +280,139 @@ class TestEntrada(unittest.TestCase):
                     response="xml")
 
 
+# ── Resumen de la carga (T018, FR-010) ───────────────────────────────────────
+
+# Centinela: si aparece en el resumen serializado, un valor tapado se ha
+# colado en la vista previa (principio II).
+_CENTINELA = "centinela-secreto-0xC0FFEE"
+
+
+def _filas(resumen: dict) -> dict[str, dict]:
+    return {f["path"]: f for f in resumen["rows"]}
+
+
+class TestResumirCarga(unittest.TestCase):
+    """Regla medible de FR-010: una fila por clave a cualquier profundidad; el
+    valor solo si es un escalar corto, de ruta no sensible y que
+    `redact_secrets` no cambia.
+
+    Control negativo (T028 c): mostrar el valor aunque la clave sea sensible →
+    caen `test_clave_sensible`, `test_hijo_de_ancestro_sensible`,
+    `test_redact_extra` y `test_ningun_tapado_en_el_resultado`.
+    """
+
+    def test_escalar_corto_visible(self) -> None:
+        r = cp.resumir_carga({"name": "Llavero azul"})
+        f = _filas(r)["name"]
+        self.assertEqual(f["value"], "Llavero azul")
+        self.assertEqual(f["type"], "string")
+        self.assertNotIn("hidden", f)
+
+    def test_limite_de_64_caracteres(self) -> None:
+        r = _filas(cp.resumir_carga({"a": "x" * 64, "b": "x" * 65}))
+        # Se cuenta el texto sin comillas: 64 cabe, 65 no.
+        self.assertEqual(r["a"]["value"], "x" * 64)
+        self.assertNotIn("value", r["b"])
+        self.assertEqual(r["b"]["hidden"], "too_long")
+
+    def test_numero_largo(self) -> None:
+        largo = 10 ** 70
+        r = _filas(cp.resumir_carga({"n": largo, "m": 12345}))
+        self.assertEqual(r["n"]["hidden"], "too_long")
+        self.assertEqual(r["n"]["type"], "integer")
+        self.assertEqual(r["m"]["value"], 12345)
+
+    def test_clave_sensible(self) -> None:
+        for clave in ("password", "api_key", "network-key", "Api-Key", "mqtt_password"):
+            with self.subTest(clave=clave):
+                f = _filas(cp.resumir_carga({clave: "abc"}))[clave]
+                self.assertEqual(f["hidden"], "sensitive")
+                self.assertNotIn("value", f)
+
+    def test_numero_bajo_clave_sensible(self) -> None:
+        f = _filas(cp.resumir_carga({"pin_token": 1234}))["pin_token"]
+        self.assertEqual(f["hidden"], "sensitive")
+
+    def test_hijo_de_ancestro_sensible(self) -> None:
+        r = _filas(cp.resumir_carga(
+            {"credentials": {"username": "usuario-ficticio", "extra": [1, "dos"]}}
+        ))
+        # El contenedor dice que es contenedor (va antes que `sensitive`)...
+        self.assertEqual(r["credentials"]["hidden"], "container")
+        # ...y todo lo de dentro hereda la sensibilidad.
+        self.assertEqual(r["credentials.username"]["hidden"], "sensitive")
+        self.assertEqual(r["credentials.extra[0]"]["hidden"], "sensitive")
+        self.assertEqual(r["credentials.extra[1]"]["hidden"], "sensitive")
+
+    def test_redact_extra(self) -> None:
+        carga = {"pin": "1234", "nombre": "x"}
+        self.assertEqual(_filas(cp.resumir_carga(carga))["pin"]["value"], "1234")
+        r = _filas(cp.resumir_carga(carga, redact_extra=("pin",)))
+        self.assertEqual(r["pin"]["hidden"], "sensitive")
+        self.assertEqual(r["nombre"]["value"], "x")
+
+    def test_texto_que_redact_secrets_cambia(self) -> None:
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJh"
+        for texto in (jwt, "password=x", f"Bearer {jwt}"):
+            with self.subTest(texto=texto):
+                f = _filas(cp.resumir_carga({"nota": texto}))["nota"]
+                self.assertEqual(f["hidden"], "sensitive")
+
+    def test_contenedores_y_rutas(self) -> None:
+        r = _filas(cp.resumir_carga({"a": {"b": [{"c": 1}, 2]}, "l": []}))
+        self.assertEqual(
+            sorted(r), ["a", "a.b", "a.b[0]", "a.b[0].c", "a.b[1]", "l"]
+        )
+        self.assertEqual(r["a"]["type"], "object")
+        self.assertEqual(r["a"]["hidden"], "container")
+        self.assertEqual(r["a.b"]["type"], "array")
+        self.assertEqual(r["a.b"]["hidden"], "container")
+        self.assertEqual(r["l"]["hidden"], "container")
+        self.assertEqual(r["a.b[0].c"]["value"], 1)
+        self.assertEqual(r["a.b[1]"]["value"], 2)
+
+    def test_tipos_json(self) -> None:
+        r = _filas(cp.resumir_carga(
+            {"i": 3, "f": 1.5, "t": True, "n": None, "s": "x"}
+        ))
+        self.assertEqual(
+            {k: v["type"] for k, v in r.items()},
+            {"i": "integer", "f": "number", "t": "boolean", "n": "null", "s": "string"},
+        )
+        self.assertIs(r["t"]["value"], True)
+        self.assertIsNone(r["n"]["value"])
+        self.assertIn("value", r["n"])
+
+    def test_bytes_de_cada_fila_y_total(self) -> None:
+        import json
+        carga = {"name": "Llavero azul ñ", "lista": [1, 2]}
+        r = cp.resumir_carga(carga)
+        f = _filas(r)
+        self.assertEqual(f["name"]["bytes"], len(json.dumps("Llavero azul ñ", ensure_ascii=False).encode()))
+        self.assertEqual(f["lista"]["bytes"], len(b"[1, 2]"))
+        self.assertEqual(r["bytes"], len(json.dumps(carga, ensure_ascii=False).encode()))
+        self.assertEqual(r["keys"], 4)
+
+    def test_carga_vacia(self) -> None:
+        r = cp.resumir_carga({})
+        self.assertEqual(r["rows"], [])
+        self.assertEqual(r["keys"], 0)
+        self.assertEqual(r["bytes"], 2)
+
+    def test_ningun_tapado_en_el_resultado(self) -> None:
+        import json
+        carga = {
+            "password": _CENTINELA,
+            "credentials": {"user": _CENTINELA, "lista": [_CENTINELA]},
+            "pin": _CENTINELA,
+            "largo": _CENTINELA * 5,
+            "nota": f"token={_CENTINELA}",
+        }
+        texto = json.dumps(cp.resumir_carga(carga, redact_extra=("pin",)))
+        self.assertNotIn(_CENTINELA, texto)
+        # Sí está el nombre de la clave: el resumen dice qué se manda.
+        self.assertIn("password", texto)
+
+
 if __name__ == "__main__":
     unittest.main()
