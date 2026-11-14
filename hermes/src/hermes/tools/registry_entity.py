@@ -26,6 +26,7 @@ import structlog
 # antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
+from hermes.ha_version import ha_at_least
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
@@ -56,6 +57,10 @@ def _coerce_flag(val: Any, field: str) -> str | None:
     if isinstance(val, bool):
         return _DISABLER_USER if val else None
     return val
+
+
+# HA 2026.4 introduce el `null` dentro de `aliases` (nombre calculado).
+_ALIASES_NULL_MIN_HA = "2026.4.0"
 
 
 def _validate_updates(updates: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
@@ -311,6 +316,10 @@ def register(
                                    (ej. [null, "lámpara"]). [] vacía la lista;
                                    [null] deja solo el nombre calculado.
                                    aliases: null (sin lista) se rechaza.
+                                   En HA anterior a 2026.4 un null en la
+                                   lista se rechaza
+                                   (null_alias_requires_ha_2026_4), y también
+                                   si no se puede leer la versión de HA.
           labels (list[str])     — Lista de labels.
           device_class (str|null) — Override del device class.
           categories (dict)      — Categorías por scope.
@@ -336,6 +345,26 @@ def register(
 
         if not normalized:
             return json.dumps({"error": "updates is empty"})
+
+        if None in normalized.get("aliases", []):
+            # El `null` dentro de `aliases` solo existe desde HA 2026.4. En
+            # 2024.10 HA lo guardaba tal cual y luego Assist fallaba al leerlo
+            # (corrupción persistente); en 2026.3 daba `unknown_error`. Sin
+            # versión no se puede saber cuál de los dos casos es: se niega.
+            soporta = await ha_at_least(ha_client, _ALIASES_NULL_MIN_HA)
+            if soporta is None:
+                return json.dumps({
+                    "error": "ha_version_unknown",
+                    "detail": "Could not read the Home Assistant version; a "
+                              "null alias is only valid on 2026.4 or newer.",
+                })
+            if not soporta:
+                return json.dumps({
+                    "error": "null_alias_requires_ha_2026_4",
+                    "detail": "This Home Assistant is older than 2026.4 and "
+                              "does not accept null inside aliases: send only "
+                              "strings.",
+                })
 
         args = {"entity_id": entity_id, "updates": normalized}
         requires_token = _needs_token(normalized)

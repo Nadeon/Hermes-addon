@@ -671,6 +671,31 @@ _ULTIMO_INTENTO = "last_attempt_at"
 
 _SAFETY_POLL_TIMEOUT_SECONDS = 300.0  # 5 min
 _SAFETY_POLL_INTERVAL_SECONDS = 15.0
+# Antigüedad máxima de un job pendiente que sigue «en curso». Un backup
+# completo normal tarda minutos; uno que lleva 2 h sin terminar está colgado
+# (p. ej. en un montaje de red) y, sin tope, bloquearía todas las escrituras
+# `fs_*` para siempre sin decir cómo salir.
+_SAFETY_PENDING_MAX_AGE_SECONDS = 2 * 3600.0
+
+# Una sola comprobación del safety backup a la vez: dos escrituras en
+# paralelo veían «nada pendiente» y lanzaban dos backups completos; el
+# Supervisor rechazaba el segundo y esa escritura fallaba en vez de esperar.
+_SAFETY_LOCK: asyncio.Lock | None = None
+_SAFETY_LOCK_LOOP: Any = None
+
+
+def _safety_lock() -> asyncio.Lock:
+    """Lock del safety backup ligado al bucle de eventos en curso.
+
+    Un `asyncio.Lock` creado en un bucle no se puede usar en otro; en
+    producción hay un solo bucle, pero se recrea si cambia para no romper.
+    """
+    global _SAFETY_LOCK, _SAFETY_LOCK_LOOP
+    loop = asyncio.get_running_loop()
+    if _SAFETY_LOCK is None or _SAFETY_LOCK_LOOP is not loop:
+        _SAFETY_LOCK = asyncio.Lock()
+        _SAFETY_LOCK_LOOP = loop
+    return _SAFETY_LOCK
 
 
 def _es_404(exc: Exception) -> bool:
@@ -726,7 +751,9 @@ def _ya_no_existe(state: dict[str, Any], job_id: str) -> dict[str, Any]:
                      f"be queried", "job_id": job_id}
 
 
-async def _resolver_pendiente(ha_client: Any, state: dict[str, Any]) -> dict[str, Any] | None:
+async def _resolver_pendiente(
+    ha_client: Any, state: dict[str, Any], window_seconds: float
+) -> dict[str, Any] | None:
     """Resuelve el job de un safety backup que quedó pendiente.
 
     Va antes de mirar la ventana: si el plazo se agotó en una escritura
@@ -758,17 +785,46 @@ async def _resolver_pendiente(ha_client: Any, state: dict[str, Any]) -> dict[str
                 "job_id": job_id, "poll_with": "sv_get_job_status"}
 
     resultado, errores = _evaluar_job(job_data)
+    lanzado = _numero(state.get("pending_started_at"))
+    antiguedad = time.time() - lanzado
     if resultado == "en_curso":
+        if antiguedad > _SAFETY_PENDING_MAX_AGE_SECONDS:
+            # Colgado: se olvida (avisando una vez) para que no bloquee para
+            # siempre. Esta escritura se sigue rechazando; la siguiente
+            # intentará un backup nuevo, que el Supervisor aceptará o no.
+            logger.error("safety_backup_pending_stuck", job_id=job_id,
+                         age_seconds=antiguedad)
+            _limpiar_pendiente(state)
+            return {"error": f"safety_backup_state_unknown: job {job_id} has been "
+                             f"running for more than "
+                             f"{int(_SAFETY_PENDING_MAX_AGE_SECONDS // 3600)} h; "
+                             f"it is no longer awaited",
+                    "job_id": job_id, "poll_with": "sv_get_job_status",
+                    "hint": "The next write will start a new safety backup. If "
+                            "writes keep failing, check the job with "
+                            "sv_get_job_status or disable the add-on option "
+                            "safety_backup_enabled."}
         return {"error": f"safety_backup_in_progress: job {job_id} is still running; "
                          f"retry later or check it with sv_get_job_status",
                 "job_id": job_id, "poll_with": "sv_get_job_status"}
     if resultado == "ok":
         logger.info("safety_backup_pending_done", job_id=job_id)
+        # La marca es cuándo se LANZÓ, no ahora: el job puede llevar horas
+        # terminado (el Supervisor conserva los jobs 24 h) y fecharlo «ahora»
+        # daría por reciente un backup viejo. Es una cota conservadora.
         _limpiar_pendiente(state, {
-            _MARCA: time.time(),
+            _MARCA: lanzado,
             "last_backup_name": state.get("pending_backup_name"),
             "job_id": job_id,
         })
+        if antiguedad > window_seconds:
+            # Ya está fuera de la ventana: no cubre esta escritura. No se
+            # lanza otro en la misma llamada (S-01); lo hará la siguiente.
+            return {"error": f"safety_backup_stale: the pending safety backup "
+                             f"{job_id} finished, but it was started more than "
+                             f"{int(window_seconds // 60)} minutes ago; retry and "
+                             f"a new one will be taken",
+                    "job_id": job_id}
         return None
     if resultado == "fallo":
         logger.error("safety_backup_job_failed", job_id=job_id, errors=errores)
@@ -802,6 +858,19 @@ async def maybe_trigger_safety_backup(
     if not enabled:
         return None
 
+    async with _safety_lock():
+        return await _maybe_trigger_safety_backup(
+            ha_client, safety_backup_window_minutes, ctx=ctx
+        )
+
+
+async def _maybe_trigger_safety_backup(
+    ha_client: Any,
+    safety_backup_window_minutes: int,
+    *,
+    ctx: Any = None,
+) -> dict[str, Any] | None:
+    """Cuerpo de `maybe_trigger_safety_backup`, ya con el lock tomado."""
     from hermes.tools.backups import (
         _SAFETY_BACKUP_MIN_INTERVAL_SECONDS,
         _MARCA,
@@ -812,14 +881,15 @@ async def maybe_trigger_safety_backup(
 
     state = _load_safety_state()
 
+    window_seconds = safety_backup_window_minutes * 60
+
     # Un job pendiente de una escritura anterior se resuelve antes que nada.
     if state.get("pending_job_id"):
-        return await _resolver_pendiente(ha_client, state)
+        return await _resolver_pendiente(ha_client, state, window_seconds)
 
     now = time.time()
     last_completed = _leer_marca(state)
 
-    window_seconds = safety_backup_window_minutes * 60
     elapsed = now - last_completed
 
     # Barrera dura: nunca menos de 60s entre safety backups
@@ -840,8 +910,10 @@ async def maybe_trigger_safety_backup(
     # siguiente. Y no hay backup correcto reciente, así que escribir sin él
     # incumpliría el fail-closed: se bloquea hasta que pase el minuto.
     if now - _numero(state.get(_ULTIMO_INTENTO)) < _SAFETY_BACKUP_MIN_INTERVAL_SECONDS:
-        return {"error": "safety_backup_job_failed: the previous safety backup "
-                         "attempt failed less than "
+        # Código propio: aquí no se sabe si el intento anterior falló o quedó
+        # indeterminado (404, datos raros); decir «failed» sería inventarlo.
+        return {"error": "safety_backup_rate_limited: the previous safety backup "
+                         "attempt did not complete less than "
                          f"{_SAFETY_BACKUP_MIN_INTERVAL_SECONDS} s ago; retry later"}
 
     # Disparar safety backup
@@ -854,6 +926,10 @@ async def maybe_trigger_safety_backup(
     timestamp_str = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_name = f"hermes-safety-{timestamp_str}"
 
+    # El intento se anota ANTES del POST: si el POST agota su plazo pero el
+    # Supervisor sí empezó el backup, la escritura siguiente no debe lanzar
+    # otro en el acto (límite de 60 s entre intentos).
+    _save_safety_state({_ULTIMO_INTENTO: time.time()})
     try:
         resp = await ha_client.sv_request(
             "POST",

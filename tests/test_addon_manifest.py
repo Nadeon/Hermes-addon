@@ -165,6 +165,23 @@ class TestManifiesto(unittest.TestCase):
 
         self.assertEqual(HA_CORE_MIN_SUPPORTED, "2024.10.0")
 
+    def test_el_manifiesto_declara_la_misma_version_minima_de_ha(self) -> None:
+        """M4: sin la clave `homeassistant`, el Supervisor instalaba la
+        actualización en una HA 2024.1–2024.9 y el add-on no arrancaba
+        (`HA core … < minimum supported`). Con ella, el Supervisor rechaza la
+        actualización. Las dos versiones no se pueden separar.
+        """
+        from hermes.config import HA_CORE_MIN_SUPPORTED
+
+        valor = self.manifiesto.get("homeassistant")
+        self.assertIsInstance(valor, str, "debe ser una cadena de versión")
+        self.assertEqual(valor, HA_CORE_MIN_SUPPORTED)
+        # Entre comillas: el Supervisor la valida como `version_tag`.
+        texto = CONFIG.read_text(encoding="utf-8")
+        self.assertRegex(
+            texto, rf'(?m)^homeassistant: "{re.escape(HA_CORE_MIN_SUPPORTED)}"'
+        )
+
     def test_toda_opcion_por_defecto_esta_declarada_en_el_schema(self) -> None:
         """Una opción en `options` que no esté en `schema` la rechaza HA."""
         for clave in self.options:

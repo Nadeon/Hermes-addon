@@ -273,6 +273,19 @@ y `sv_request_text` pasan `status=resp.status` al `HAConnectionError`, y
 
 ---
 
+## Fase 9: Hallazgos de la revisión independiente
+
+- [X] T092 [A1] `ha_remove_device` y `ha_remove_device_from_config_entry`: la vista previa lista los dispositivos hijo y sus entidades (HA ≥ 2026.9); sin poder averiguarlos, sin token; un hijo nuevo antes de confirmar aborta. Tests en `tests/test_tools_registry_device.py`; sin el arreglo caen 8
+- [X] T093 [M1] `aliases` con `null` solo con HA ≥ 2026.4; versión desconocida → fail-closed. Tests en `tests/test_tools_registry_entity.py`; sin el arreglo caen 2
+- [X] T094 [M2, M3, B2, B3, B4] Safety backup: marca = `pending_started_at` y `safety_backup_stale`; tope de 2 h para un pendiente en curso; intento anotado antes del `POST`; lock; `safety_backup_rate_limited`. Tests en `tests/test_fs_write_security.py`; sin el arreglo caen 7 (el del lock, solo, cae 1)
+- [X] T095 [M4] `homeassistant: "2024.10.0"` en `hermes/config.yaml`, atado a `HA_CORE_MIN_SUPPORTED` por `tests/test_addon_manifest.py` (sin la clave cae 1); CHANGELOG y README EN/ES
+- [X] T096 [B1] `ha_render_template` quita los avisos repetidos conservando el orden; sin el arreglo cae 1
+- [X] T097 [B6] CodeQL `py/import-and-import-from`: `tests/test_fs_write_security.py` importa `hermes.tools.backups` de una sola forma
+- [X] T098 [B7] La descripción de `ha_delete_lovelace_dashboard` dice que en HA < 2025.12 solo protege `lovelace`
+- [X] T099 CHANGELOG [1.0.12] con los cambios visibles; suite completa en verde
+
+---
+
 ## Dependencias y orden de ejecución
 
 ### Dependencias entre fases

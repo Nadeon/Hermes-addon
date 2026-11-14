@@ -152,5 +152,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         )
         response: dict[str, Any] = {"result": result, "listeners": listeners}
         if event.get("warnings"):
-            response["warnings"] = event["warnings"]
+            # Con `timeout`, HA hace un pre-render y luego el render real con
+            # el mismo aviso: se quitan los repetidos conservando el orden.
+            response["warnings"] = list(dict.fromkeys(event["warnings"]))
         return json.dumps(response)

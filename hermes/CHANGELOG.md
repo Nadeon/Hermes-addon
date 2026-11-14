@@ -13,7 +13,10 @@ Desde HA 2026.4, un `null` dentro de `aliases` significa «el nombre calculado
 de la entidad». `ha_update_entity_registry` lo convertía en el texto `"None"`,
 así que leer los alias, añadir uno y guardarlos dejaba la entidad sin
 responder a su nombre en Assist, sin ningún error. Ahora el `null` llega a HA
-tal cual.
+tal cual, en HA 2026.4 o posterior. En versiones anteriores HA no lo admite
+(en la 2024.10 lo guardaba y Assist fallaba después), así que Hermes lo
+rechaza con `null_alias_requires_ha_2026_4`; si no puede leer la versión de
+HA, también (`ha_version_unknown`).
 
 `aliases: null`, que la descripción presentaba como «limpiar alias», lo
 rechazaba HA. Ahora lo rechaza Hermes antes de llamar a HA y explica qué usar:
@@ -61,8 +64,16 @@ fail-closed:
   (`safety_backup_timeout`), pero el backup queda anotado. La escritura
   siguiente comprueba ese mismo backup en vez de lanzar otro: escribe si ya
   terminó bien y, si sigue en marcha, responde `safety_backup_in_progress`.
-- Entre dos intentos pasan al menos 60 s, también después de uno fallido, para
-  que un fallo no encadene backups completos.
+  Ese backup cuenta desde que se lanzó: si es más antiguo que la ventana, la
+  escritura se rechaza (`safety_backup_stale`) y la siguiente lanza uno nuevo.
+- Un backup que lleva más de 2 horas sin terminar se da por colgado: se deja
+  de esperar (`safety_backup_state_unknown`, con cómo salir) para que no
+  bloquee las escrituras para siempre, y la escritura siguiente lanza otro.
+- Entre dos intentos pasan al menos 60 s, también después de uno fallido o de
+  uno cuyo envío al Supervisor falló, para que un fallo no encadene backups
+  completos. Si una escritura llega antes, la respuesta es
+  `safety_backup_rate_limited`. Dos escrituras a la vez ya no lanzan dos
+  backups: la segunda espera a la primera.
 
 ### Fixed — `sv_get_job_status` daba por terminado un job que había fallado
 
@@ -88,7 +99,8 @@ código de error de HA (`not_found`), que no cambia entre versiones, y responde
 
 Con un simple aviso de HA (una variable sin definir, por ejemplo), la tool
 devolvía error y el resultado se perdía. Ahora devuelve el resultado con los
-avisos en `warnings`. Si HA informa de que la plantilla tardó demasiado, el
+avisos en `warnings`, sin repetidos (HA puede enviar el mismo aviso dos
+veces). Si HA informa de que la plantilla tardó demasiado, el
 error es `template_timeout`.
 
 ### Fixed — Los dispositivos hijo no salían al filtrar por área
@@ -138,7 +150,11 @@ filtrar `ha_list_services` por dominio.
 ### Added — `ha_remove_device`
 
 Borra un dispositivo del registro junto con sus entidades, y la vista previa
-dice qué comando de HA va a usar:
+dice qué comando de HA va a usar. Desde HA 2026.9, borrar un dispositivo borra
+también sus dispositivos hijo y las entidades de estos: la vista previa los
+lista (`child_devices`) y los cuenta en `entities_count`. Si no puede saber
+cuáles son, se niega (`child_devices_unknown`), y si aparece uno nuevo entre la
+vista previa y la confirmación, aborta (`child_devices_changed`).
 
 - HA 2026.9 o posterior: el borrado de dispositivos.
 - Versiones anteriores: quitar la única integración del dispositivo, que HA
@@ -160,8 +176,10 @@ de ese dominio.
 Hermes guarda las automatizaciones con las claves en plural (`triggers`,
 `conditions`, `actions`), que HA solo entiende desde la 2024.10. La 1.0.11
 declaraba la 2024.1, así que una HA 2024.1–2024.9 arrancaba sin aviso y luego
-no podía guardar ninguna automatización. Ahora, con una HA anterior a la
-2024.10, el add-on no arranca y el log dice
+no podía guardar ninguna automatización. El add-on declara ahora la mínima en
+su manifiesto (`homeassistant: "2024.10.0"`), así que con una HA anterior el
+Supervisor rechaza instalar o actualizar Hermes con un error claro, en vez de
+instalar una versión que no arranca. Si aun así llega a arrancar, el log dice
 `HA core … < minimum supported 2024.10.0`: actualiza Home Assistant antes de
 actualizar Hermes.
 
@@ -193,7 +211,10 @@ matarlo, en vez de 10, para que el apagado ordenado termine.
 
 Usa `ha_remove_device`. La antigua sigue funcionando para no romper a quien la
 use, pero su descripción y su vista previa dicen ahora la verdad: en HA 2026.9
-o posterior borra el dispositivo entero, no solo la asociación. HA retira el
+o posterior borra el dispositivo entero, con sus dispositivos hijo y las
+entidades de todos, no solo la asociación; la vista previa los lista. Si no
+puede leer la versión de HA, o no puede saber qué hijos tiene el dispositivo,
+se niega antes de emitir token. HA retira el
 comando que usa en la 2027.9, así que la tool desaparecerá en una versión de
 Hermes anterior a esa.
 

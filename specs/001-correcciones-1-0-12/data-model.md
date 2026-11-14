@@ -19,6 +19,9 @@ Transiciones del safety backup automático (`maybe_trigger_safety_backup`):
 sin pendiente ──(ventana vencida y ≥60 s desde el último intento)──▶ lanzar backup
 lanzar backup ──(Supervisor devuelve job_id)──▶ PENDIENTE (se guarda en el acto)
 PENDIENTE ──(sondeo: done y errors vacío)──▶ OK: _MARCA = ahora, borrar pendiente, escribir
+  (si se resuelve en una escritura posterior: _MARCA = pending_started_at; si es más
+   antiguo que la ventana → safety_backup_stale sin escribir. En curso > 2 h →
+   safety_backup_state_unknown y se borra el pendiente. Revisión independiente, M2/M3)
 PENDIENTE ──(sondeo: done con errors)──▶ FALLO: borrar pendiente, error, no escribir
 PENDIENTE ──(plazo agotado)──▶ sigue PENDIENTE: error con job_id, no escribir
 PENDIENTE (llamada siguiente) ──(job terminado sin errores)──▶ OK y escribir

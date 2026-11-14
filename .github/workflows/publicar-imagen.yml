@@ -6,7 +6,8 @@ name: Publicar imagen
 # instalación falla. Con esto, el usuario instala en segundos en vez de esperar
 # a que su Raspberry Pi compile pydantic-core desde fuente.
 #
-# Se dispara al etiquetar una versión (`v0.38.0`) o a mano. El tag debe
+# Se dispara al etiquetar una versión (`v0.38.0`) o a mano, y a mano solo
+# publica si se lanza sobre una etiqueta o sobre `main`. El tag debe
 # coincidir con el `version:` del config.yaml: el paso de comprobación de abajo
 # aborta si no, porque una imagen etiquetada con una versión que el manifiesto
 # no declara es una que el Supervisor nunca pedirá.
@@ -56,7 +57,7 @@ jobs:
       description: ${{ steps.manifiesto.outputs.description }}
       url: ${{ steps.manifiesto.outputs.url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -79,6 +80,14 @@ jobs:
             VERSION="$MANIFIESTO"
             PUBLICAR=false
           else
+            # Solo se publica código revisado: una etiqueta o `main`. Un
+            # lanzamiento manual sobre otra rama publicaría y firmaría como
+            # `<versión>` y `latest` código sin fusionar, y skip-existing
+            # impediría después publicar la buena con esa versión.
+            if [ "$GITHUB_REF_TYPE" != "tag" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "Solo se publica desde una etiqueta o desde main, no desde $GITHUB_REF." >&2
+              exit 1
+            fi
             if [ -n "$VERSION_PEDIDA" ]; then
               VERSION="$VERSION_PEDIDA"
             else
@@ -176,7 +185,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.comprobar.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -203,7 +212,11 @@ jobs:
   construir:
     name: Publicar ${{ matrix.arch }}
     needs: comprobar
-    if: needs.comprobar.outputs.publicar == 'true'
+    # La misma condición de origen que en `comprobar`, repetida aquí para que
+    # este job, el único con permiso de escritura, no dependa solo del script.
+    if: >-
+      needs.comprobar.outputs.publicar == 'true' &&
+      (github.ref_type == 'tag' || github.ref == 'refs/heads/main')
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -213,7 +226,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.comprobar.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 

@@ -7,6 +7,12 @@ description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscal
 version: "1.0.12"
 url: "https://github.com/Nadeon/Hermes-addon"
 
+# Versión mínima de Home Assistant (igual que HA_CORE_MIN_SUPPORTED en
+# config.py; un test lo comprueba). Sin ella, el Supervisor instalaba la
+# actualización en una HA más antigua y el add-on no arrancaba; con ella,
+# rechaza instalar o actualizar con un error claro.
+homeassistant: "2024.10.0"
+
 # Imagen precompilada. Sin esto, el Supervisor construye la imagen en el equipo
 # del usuario, y sobre Alpine (musl) eso significa compilar pydantic-core,
 # aiohttp y cryptography desde fuente: entre cinco y diez minutos en un x86, y

@@ -64,7 +64,8 @@ ese token. Es lo que impide que un malentendido acabe reiniciando tu casa.
   Hermes, no están disponibles en el plan gratuito.
 - Arquitectura `amd64` o `aarch64`, y Home Assistant **2024.10.0** o superior. Hermes guarda las
   automatizaciones con las claves en plural (`triggers`, `actions`), que Home
-  Assistant solo entiende desde la 2024.10.
+  Assistant solo entiende desde la 2024.10. El add-on lo declara, así que con
+  una Home Assistant anterior el Supervisor se niega a instalarlo o actualizarlo.
 
 ## Cómo se expone Hermes a internet
 

@@ -98,6 +98,74 @@ def device_config_entries(device: dict) -> list[str]:
     return out
 
 
+def child_devices_of(raw_devs: Any, device_id: str) -> list[dict] | None:
+    """Hijos directos de `device_id`, o `None` si la lista no permite saberlo.
+
+    Desde HA 2026.9 borrar un dispositivo borra también sus hijos
+    (`async_remove_device`: «Removing the parent removes its child devices»)
+    y, con ellos, sus entidades. Esa versión serializa `parent_device_id` en
+    TODAS las entradas (null en los principales); si falta en alguna, el
+    formato no es el esperado y no se puede afirmar que no haya hijos, así que
+    se devuelve `None` para que la preview se niegue (fail-closed). HA no
+    permite hijos de un hijo, por eso basta con un nivel.
+    """
+    if not isinstance(raw_devs, list):
+        return None
+    hijos: list[dict] = []
+    for d in raw_devs:
+        if not isinstance(d, dict) or "parent_device_id" not in d:
+            return None
+        if d.get("parent_device_id") == device_id and d.get("id") != device_id:
+            hijos.append(d)
+    return hijos
+
+
+def removal_scope(
+    raw_devs: Any, raw_ents: Any, device_id: str
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Hijos y entidades que HA ≥ 2026.9 borra con el dispositivo.
+
+    Devuelve (alcance, error). Sin la lista de hijos o de entidades la
+    preview no diría la verdad, así que se devuelve un error y no hay token.
+    """
+    hijos = child_devices_of(raw_devs, device_id)
+    if hijos is None:
+        return None, {
+            "error": "child_devices_unknown",
+            "device_id": device_id,
+            "detail": "Could not determine the child devices that Home "
+                      "Assistant would delete together with this device; "
+                      "refusing to issue a confirmation token.",
+        }
+    if not isinstance(raw_ents, list):
+        return None, {
+            "error": "entities_unknown",
+            "device_id": device_id,
+            "detail": "Could not read the entity registry to count the "
+                      "entities that would be deleted.",
+        }
+    por_device: dict[Any, int] = {}
+    for e in raw_ents:
+        if isinstance(e, dict):
+            did = e.get("device_id")
+            por_device[did] = por_device.get(did, 0) + 1
+    child_devices = [
+        {
+            "device_id": h.get("id"),
+            "device_name": h.get("name_by_user") or h.get("name"),
+            "entities_count": por_device.get(h.get("id"), 0),
+        }
+        for h in hijos
+    ]
+    propias = por_device.get(device_id, 0)
+    de_hijos = sum(c["entities_count"] for c in child_devices)
+    return {
+        "child_devices": child_devices,
+        "own_entities_count": propias,
+        "entities_count": propias + de_hijos,
+    }, None
+
+
 def _coerce_disabled_by(val: Any) -> str | None:
     if isinstance(val, bool):
         return "user" if val else None
@@ -377,8 +445,10 @@ def register(
         Envía `config/device_registry/remove_config_entry`. Lo que hace
         depende de la versión de HA:
           - HA 2026.9 o posterior: si la config entry es la del device, BORRA
-            EL DEVICE ENTERO (con sus entidades del registry); HA convirtió
-            este comando en alias del borrado de dispositivos.
+            EL DEVICE ENTERO, sus dispositivos hijo y las entidades del
+            registry de todos ellos; HA convirtió este comando en alias del
+            borrado de dispositivos. La preview lista esos hijos y entidades;
+            si no puede averiguarlos, o no sabe la versión de HA, se niega.
           - Versiones anteriores: quita la asociación; si era la última
             config entry del device, HA borra el device.
         La config entry debe soportar eliminación manual de devices; si no lo
@@ -399,6 +469,32 @@ def register(
         args = {"device_id": device_id, "config_entry_id": config_entry_id}
 
         if not confirmation_token:
+            # Desde HA 2026.9 este comando borra el device con sus hijos y sus
+            # entidades; sin saber la versión no se sabe qué anunciar, y la
+            # preview no puede adivinar (fail-closed).
+            nuevo = await ha_at_least(ha_client, _REMOVE_DEVICE_MIN_HA)
+            if nuevo is None:
+                return json.dumps({
+                    "error": "ha_version_unknown",
+                    "detail": "Could not read the Home Assistant version; "
+                              "refusing to describe the effect blindly.",
+                })
+            alcance: dict[str, Any] | None = None
+            if nuevo:
+                try:
+                    raw_devs: Any = await ha_client.ws_send(
+                        {"type": "config/device_registry/list"}
+                    )
+                    raw_ents: Any = await ha_client.ws_send(
+                        {"type": "config/entity_registry/list"}
+                    )
+                except HAConnectionError as exc:
+                    return json.dumps({"error": str(exc)})
+                alcance, err = removal_scope(raw_devs, raw_ents, device_id)
+                if err is not None or alcance is None:
+                    return json.dumps(
+                        err or {"error": "unknown"}, ensure_ascii=False
+                    )
             preview = {
                 "device_id": device_id,
                 "config_entry_id": config_entry_id,
@@ -411,12 +507,24 @@ def register(
                 "warning": (
                     "DEPRECATED, will be removed before Home Assistant 2027.9. "
                     "On Home Assistant 2026.9 or newer this DELETES THE WHOLE "
-                    "DEVICE if the config entry is the device's own; on older "
-                    "versions it removes the association, and the device is "
-                    "deleted if it was its last config entry. "
+                    "DEVICE, its child devices and the entity registry entries "
+                    "of all of them if the config entry is the device's own; "
+                    "on older versions it removes the association, and the "
+                    "device is deleted if it was its last config entry. "
                     "The config entry must support manual device removal."
                 ),
             }
+            if alcance is not None:
+                # HA ≥ 2026.9: se dice qué se borraría si la entry es la suya.
+                preview["entities_count"] = alcance["entities_count"]
+                preview["child_devices"] = alcance["child_devices"]
+                preview["warning"] += (
+                    f" This Home Assistant is 2026.9 or newer: if the config "
+                    f"entry is the device's own, it deletes the device, its "
+                    f"{len(alcance['child_devices'])} child devices and "
+                    f"{alcance['entities_count']} entity registry entries in "
+                    f"total."
+                )
             token_data = await create_confirmation_token(
                 "ha_remove_device_from_config_entry", args, preview=preview
             )
@@ -472,7 +580,9 @@ def register(
     # que el método anunciado se guarda aquí para comprobar al ejecutar que no
     # ha cambiado: si HA se actualiza entre las dos llamadas, ejecutar otro
     # comando distinto del anunciado sería un preview que miente.
-    metodos_anunciados: dict[str, tuple[str, str | None]] = {}
+    # También se guardan los hijos anunciados: si aparece uno nuevo antes de
+    # confirmar, HA lo borraría sin que la preview lo hubiera dicho.
+    metodos_anunciados: dict[str, tuple[str, str | None, tuple[str, ...]]] = {}
 
     async def _plan_remove_device(
         device_id: str,
@@ -497,8 +607,21 @@ def register(
                           "refusing to choose a removal command blindly.",
             }
         config_entry_id: str | None = None
+        hijos: list[dict] = []
         if nuevo:
             method = "config/device_registry/remove"
+            # HA ≥ 2026.9 borra también los hijos: si no se sabe cuáles son,
+            # la preview no podría decirlo y se niega (fail-closed).
+            hijos_o_none = child_devices_of(raw_devs, device_id)
+            if hijos_o_none is None:
+                return None, {
+                    "error": "child_devices_unknown",
+                    "device_id": device_id,
+                    "detail": "Could not determine the child devices that "
+                              "Home Assistant would delete together with "
+                              "this device; refusing to remove it.",
+                }
+            hijos = hijos_o_none
         else:
             # En HA < 2026.9 el device se borra cuando pierde su última
             # integración; con varias habría que hacer varias llamadas y un
@@ -522,6 +645,8 @@ def register(
             "device": device,
             "method": method,
             "config_entry_id": config_entry_id,
+            "child_ids": sorted(h["id"] for h in hijos if isinstance(h.get("id"), str)),
+            "raw_devs": raw_devs,
         }, None
 
     @mcp.tool()
@@ -540,6 +665,11 @@ def register(
             (`multiple_config_entries`).
         Si no se puede leer la versión de HA, se niega (`ha_version_unknown`).
 
+        En HA 2026.9 o posterior, borrar un device borra también sus
+        dispositivos hijo (`parent_device_id`) y las entidades de todos ellos:
+        la preview los lista en `child_devices` y `entities_count` los suma.
+        Si no se pueden averiguar los hijos, se niega (`child_devices_unknown`).
+
         La integración debe permitir el borrado manual de devices; si no, HA
         devuelve error. Si la integración vuelve a descubrir el device, puede
         recrearlo.
@@ -554,7 +684,8 @@ def register(
             Sin token: {"confirmation_token": "...", "preview": {...}}
             Con token válido: {"result": "ok", "method": "..."}
             Error: {"error": "not_found" | "ha_version_unknown" |
-                    "multiple_config_entries" | "ha_version_changed" | "..."}
+                    "multiple_config_entries" | "ha_version_changed" |
+                    "child_devices_unknown" | "child_devices_changed" | "..."}
         """
         args = {"device_id": device_id}
 
@@ -569,10 +700,17 @@ def register(
             except HAConnectionError as exc:
                 # Sin el recuento la preview no diría la verdad: no hay token.
                 return json.dumps({"error": str(exc)})
-            entities_count = sum(
-                1 for e in (raw_ents if isinstance(raw_ents, list) else [])
-                if isinstance(e, dict) and e.get("device_id") == device_id
+            # En HA < 2026.9 no existen los hijos ni `parent_device_id`: se
+            # pasa una lista vacía para que removal_scope no lo exija.
+            devs_para_alcance = (
+                plan["raw_devs"] if plan["method"] == "config/device_registry/remove"
+                else []
             )
+            alcance, err = removal_scope(devs_para_alcance, raw_ents, device_id)
+            if err is not None or alcance is None:
+                return json.dumps(err or {"error": "unknown"}, ensure_ascii=False)
+            entities_count = alcance["entities_count"]
+            child_devices = alcance["child_devices"]
             device = plan["device"]
             preview: dict[str, Any] = {
                 "device_id": device_id,
@@ -583,12 +721,30 @@ def register(
             if plan["config_entry_id"] is not None:
                 preview["config_entry_id"] = plan["config_entry_id"]
             preview["entities_count"] = entities_count
-            warning = (
-                f"Deletes this device from the device registry together with "
-                f"its {entities_count} entity registry entries. The integration "
-                f"must allow manual removal; it may re-add the device if it "
-                f"discovers it again."
-            )
+            preview["child_devices"] = child_devices
+            if child_devices:
+                # HA ≥ 2026.9 borra los hijos y sus entidades con el padre: la
+                # preview tiene que contarlos o se quedaría corta.
+                nombres = ", ".join(
+                    str(c["device_name"] or c["device_id"]) for c in child_devices
+                )
+                warning = (
+                    f"Deletes this device AND ITS {len(child_devices)} CHILD "
+                    f"DEVICES ({nombres}) from the device registry, together "
+                    f"with {entities_count} entity registry entries "
+                    f"({alcance['own_entities_count']} of this device, "
+                    f"{entities_count - alcance['own_entities_count']} of the "
+                    f"child devices). The integration must allow manual "
+                    f"removal; it may re-add the devices if it discovers them "
+                    f"again."
+                )
+            else:
+                warning = (
+                    f"Deletes this device from the device registry together "
+                    f"with its {entities_count} entity registry entries. The "
+                    f"integration must allow manual removal; it may re-add the "
+                    f"device if it discovers it again."
+                )
             if plan["config_entry_id"] is not None:
                 warning += (
                     " Home Assistant is older than 2026.9, so this removes the "
@@ -599,7 +755,7 @@ def register(
                 "ha_remove_device", args, preview=preview
             )
             metodos_anunciados[token_data["confirmation_token"]] = (
-                plan["method"], plan["config_entry_id"],
+                plan["method"], plan["config_entry_id"], tuple(plan["child_ids"]),
             )
             # Los tokens caducan en segundos; se acota el dict para que las
             # previews nunca confirmadas no lo hagan crecer sin límite.
@@ -624,7 +780,22 @@ def register(
                 confirmation_token, success=False, error=str(err.get("error"))
             )
             return json.dumps(err, ensure_ascii=False)
-        if anunciado != (plan["method"], plan["config_entry_id"]):
+        if (
+            anunciado is not None
+            and anunciado[:2] == (plan["method"], plan["config_entry_id"])
+            and anunciado[2] != tuple(plan["child_ids"])
+        ):
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="child_devices_changed"
+            )
+            return json.dumps({
+                "error": "child_devices_changed",
+                "detail": "The device's child devices changed since the "
+                          "preview. Request a new preview.",
+            })
+        if anunciado is None or anunciado[:2] != (
+            plan["method"], plan["config_entry_id"]
+        ):
             # Sin el método anunciado (Hermes se reinició) tampoco se puede
             # garantizar que se ejecute lo que dijo la preview.
             await complete_confirmation_token(

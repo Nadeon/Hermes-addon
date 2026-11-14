@@ -256,13 +256,19 @@ class TestRemoveDeviceFromConfigEntry(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.session.close()
 
+    def _version(self, *values):
+        return patch.object(
+            device_mod, "ha_at_least", AsyncMock(side_effect=list(values))
+        )
+
     async def test_preview_without_token(self) -> None:
         client = make_ready_client(self.session, {})
         mcp = DummyMCP()
         device_mod.register(mcp, client)
-        raw = await mcp.tools["ha_remove_device_from_config_entry"](
-            "device_0000", "ce_abc"
-        )
+        with self._version(False):
+            raw = await mcp.tools["ha_remove_device_from_config_entry"](
+                "device_0000", "ce_abc"
+            )
         result = json.loads(raw)
         self.assertIn("confirmation_token", result)
         self.assertIn("preview", result)
@@ -277,9 +283,10 @@ class TestRemoveDeviceFromConfigEntry(unittest.IsolatedAsyncioTestCase):
         client.ws_send = capture  # type: ignore[method-assign]
         mcp = DummyMCP()
         device_mod.register(mcp, client)
-        raw = await mcp.tools["ha_remove_device_from_config_entry"](
-            "device_0000", "ce_abc"
-        )
+        with self._version(False):
+            raw = await mcp.tools["ha_remove_device_from_config_entry"](
+                "device_0000", "ce_abc"
+            )
         token = json.loads(raw)["confirmation_token"]
         raw2 = await mcp.tools["ha_remove_device_from_config_entry"](
             "device_0000", "ce_abc", confirmation_token=token
@@ -301,7 +308,8 @@ class TestRemoveDeviceFromConfigEntry(unittest.IsolatedAsyncioTestCase):
         mcp = DummyMCP()
         device_mod.register(mcp, client)
         tool = mcp.tools["ha_remove_device_from_config_entry"]
-        preview = json.loads(await tool("device_0000", "ce_abc"))["preview"]
+        with self._version(False):
+            preview = json.loads(await tool("device_0000", "ce_abc"))["preview"]
         self.assertIs(preview.get("deprecated"), True)
         self.assertEqual(preview.get("replacement"), "ha_remove_device")
         self.assertIn("2026.9", preview["warning"])
@@ -311,6 +319,81 @@ class TestRemoveDeviceFromConfigEntry(unittest.IsolatedAsyncioTestCase):
         self.assertIn("DEPRECATED", doc)
         self.assertIn("2027.9", doc)
         self.assertIn("ha_remove_device", doc.replace("ha_remove_device_from", ""))
+
+
+    async def test_new_ha_preview_lists_child_devices_and_entities(self) -> None:
+        """A1: desde HA 2026.9 este comando borra también los hijos y sus
+        entidades; la preview no lo decía."""
+        devices = [
+            {"id": "padre", "name": "P", "config_entry_id": "ce_abc",
+             "parent_device_id": None},
+            {"id": "hijo", "name": "H", "config_entry_id": "ce_abc",
+             "parent_device_id": "padre"},
+        ]
+        entities = [
+            {"entity_id": "light.p", "device_id": "padre"},
+            {"entity_id": "sensor.h1", "device_id": "hijo"},
+            {"entity_id": "sensor.h2", "device_id": "hijo"},
+        ]
+        client = make_ready_client(self.session, {})
+
+        async def fake_ws(payload, timeout_seconds=30):
+            t = payload.get("type")
+            if t == "config/device_registry/list":
+                return devices
+            if t == "config/entity_registry/list":
+                return entities
+            return None
+
+        client.ws_send = fake_ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        device_mod.register(mcp, client)
+        tool = mcp.tools["ha_remove_device_from_config_entry"]
+        with self._version(True):
+            first = json.loads(await tool("padre", "ce_abc"))
+        preview = first["preview"]
+        self.assertIn("confirmation_token", first)
+        self.assertEqual(preview["entities_count"], 3)
+        self.assertEqual(
+            preview["child_devices"],
+            [{"device_id": "hijo", "device_name": "H", "entities_count": 2}],
+        )
+        self.assertIn("1 child devices", preview["warning"])
+        self.assertIn("3 entity registry entries", preview["warning"])
+
+    async def test_new_ha_without_child_info_refuses(self) -> None:
+        """A1: si no se pueden averiguar los hijos, no hay token."""
+        client = make_ready_client(self.session, {})
+
+        async def fake_ws(payload, timeout_seconds=30):
+            t = payload.get("type")
+            if t == "config/device_registry/list":
+                return [{"id": "padre", "config_entry_id": "ce_abc"}]
+            if t == "config/entity_registry/list":
+                return []
+            return None
+
+        client.ws_send = fake_ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        device_mod.register(mcp, client)
+        with self._version(True):
+            result = json.loads(await mcp.tools[
+                "ha_remove_device_from_config_entry"
+            ]("padre", "ce_abc"))
+        self.assertEqual(result["error"], "child_devices_unknown")
+        self.assertNotIn("confirmation_token", result)
+
+    async def test_unknown_version_refuses(self) -> None:
+        """A1: sin versión no se sabe si borrará hijos: fail-closed."""
+        client = make_ready_client(self.session, {})
+        mcp = DummyMCP()
+        device_mod.register(mcp, client)
+        with self._version(None):
+            result = json.loads(await mcp.tools[
+                "ha_remove_device_from_config_entry"
+            ]("device_0000", "ce_abc"))
+        self.assertEqual(result["error"], "ha_version_unknown")
+        self.assertNotIn("confirmation_token", result)
 
 
 # ── Regresiones 1.0.12: ha_remove_device (P2) ───────────────────────────────
@@ -326,10 +409,12 @@ class TestRemoveDevice(unittest.IsolatedAsyncioTestCase):
             {
                 "id": "dev_a", "name": "Device A", "name_by_user": None,
                 "config_entry_id": "ce_1", "config_entries": ["ce_1"],
+                "parent_device_id": None,
             },
             {
                 "id": "dev_b", "name": "Device B", "name_by_user": "Mi B",
                 "config_entry_id": "ce_1", "config_entries": ["ce_1", "ce_2"],
+                "parent_device_id": None,
             },
         ]
         self.entities = [
@@ -451,6 +536,81 @@ class TestRemoveDevice(unittest.IsolatedAsyncioTestCase):
         self.assertIn("error", again)
         self.assertEqual(self._removals(), [])
 
+    def _add_children(self) -> None:
+        self.devices.append({
+            "id": "hijo_1", "name": "Hijo 1", "name_by_user": None,
+            "config_entry_id": "ce_1", "parent_device_id": "dev_a",
+        })
+        self.devices.append({
+            "id": "hijo_2", "name": "Hijo 2", "name_by_user": "Mi hijo",
+            "config_entry_id": "ce_1", "parent_device_id": "dev_a",
+        })
+        self.entities += [
+            {"entity_id": "sensor.h1a", "device_id": "hijo_1"},
+            {"entity_id": "sensor.h1b", "device_id": "hijo_1"},
+            {"entity_id": "sensor.h2a", "device_id": "hijo_2"},
+        ]
+
+    async def test_preview_lists_child_devices_and_their_entities(self) -> None:
+        """A1: HA ≥ 2026.9 borra los hijos y sus entidades con el padre; la
+        preview solo contaba las 3 entidades propias."""
+        self._add_children()
+        tool = self._tool()
+        with self._version(True, True):
+            first = json.loads(await tool("dev_a"))
+            preview = first["preview"]
+            self.assertEqual(preview["entities_count"], 6)
+            self.assertEqual(preview["child_devices"], [
+                {"device_id": "hijo_1", "device_name": "Hijo 1",
+                 "entities_count": 2},
+                {"device_id": "hijo_2", "device_name": "Mi hijo",
+                 "entities_count": 1},
+            ])
+            self.assertIn("2 CHILD DEVICES", preview["warning"])
+            self.assertIn("6 entity registry entries", preview["warning"])
+            result = json.loads(await tool(
+                "dev_a", confirmation_token=first["confirmation_token"]
+            ))
+        self.assertEqual(result["result"], "ok")
+
+    async def test_preview_without_children_says_so(self) -> None:
+        tool = self._tool()
+        with self._version(True):
+            preview = json.loads(await tool("dev_a"))["preview"]
+        self.assertEqual(preview["child_devices"], [])
+
+    async def test_unknown_children_refuses_without_token(self) -> None:
+        """A1: si el registro no trae `parent_device_id`, no se puede saber
+        qué hijos caerían: no hay token."""
+        for d in self.devices:
+            d.pop("parent_device_id")
+        tool = self._tool()
+        with self._version(True):
+            result = json.loads(await tool("dev_a"))
+        self.assertEqual(result["error"], "child_devices_unknown")
+        self.assertNotIn("confirmation_token", result)
+
+    async def test_unreadable_entity_registry_refuses(self) -> None:
+        self.entities = None  # type: ignore[assignment]
+        tool = self._tool()
+        with self._version(True):
+            result = json.loads(await tool("dev_a"))
+        self.assertEqual(result["error"], "entities_unknown")
+        self.assertNotIn("confirmation_token", result)
+
+    async def test_new_child_between_preview_and_run_aborts(self) -> None:
+        """A1: un hijo que aparece después de la preview se borraría sin
+        haberse anunciado."""
+        tool = self._tool()
+        with self._version(True, True):
+            first = json.loads(await tool("dev_a"))
+            self._add_children()
+            result = json.loads(await tool(
+                "dev_a", confirmation_token=first["confirmation_token"]
+            ))
+        self.assertEqual(result["error"], "child_devices_changed")
+        self.assertEqual(self._removals(), [])
+
     def test_is_classified_destructive(self) -> None:
         from hermes.tools._annotations import classify
         annotations = classify("ha_remove_device")
@@ -459,7 +619,10 @@ class TestRemoveDevice(unittest.IsolatedAsyncioTestCase):
 
     async def test_token_bound_to_device_id(self) -> None:
         tool = self._tool()
-        self.devices.append({"id": "dev_c", "name": "C", "config_entry_id": "ce_3"})
+        self.devices.append({
+            "id": "dev_c", "name": "C", "config_entry_id": "ce_3",
+            "parent_device_id": None,
+        })
         with self._version(True, True):
             first = json.loads(await tool("dev_a"))
             result = json.loads(await tool(

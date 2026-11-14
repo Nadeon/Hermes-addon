@@ -69,6 +69,8 @@
 - [X] T013 Control negativo: extraer el script de `comprobar` y ejecutarlo en local contra el manifiesto real (pasa, 2 filas), contra uno con `timeout: 10` y contra uno sin `{arch}` (fallan)
 - [X] T014 Ejecutar la suite completa de pytest desde la raíz del repositorio → todo en verde
 - [X] T015 Revisar el diff en busca de datos personales e identificadores de modelos (principio VIII) y hacer commit con el mensaje `ci: publicación con las actions nuevas de HA (spec 002)`
+- [X] T016 [M5] `comprobar` falla si no se publica desde una etiqueta o desde `main`, y `construir` repite la condición. Control negativo: el script de `comprobar` con `workflow_dispatch` sobre `refs/heads/<rama>` publicaba (`publicar=true`); ahora sale con 1. `main`, etiqueta y PR siguen igual. actionlint sin errores
+- [X] T017 [B5] `actions/checkout` fijada por SHA (v5.1.0) en `publicar-imagen.yml`
 
 ---
 

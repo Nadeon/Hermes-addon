@@ -213,8 +213,9 @@ Respuestas potencialmente grandes: acota siempre por entidad y rango de fechas.
   `ha_update_entity_registry` (renombrar, ocultar, mover de área…),
   `ha_remove_entity_registry`.
 - Dispositivos: `ha_list_devices`, `ha_get_device`, `ha_update_device`,
-  `ha_remove_device` (token — borra el dispositivo y sus entidades; la
-  preview dice qué comando de HA usará).
+  `ha_remove_device` (token — borra el dispositivo y sus entidades y, desde
+  HA 2026.9, también sus dispositivos hijo con las suyas; la preview los
+  lista y dice qué comando de HA usará).
   `ha_remove_device_from_config_entry` está deprecada: desde HA 2026.9 borra
   el dispositivo entero, no solo la asociación. Usa `ha_remove_device`.
 - Áreas: `ha_list_areas`, `ha_get_area`, `ha_create_area`, `ha_update_area`,

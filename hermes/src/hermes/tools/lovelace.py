@@ -652,7 +652,9 @@ def register(
         entrada de la colección) y el dashboard elegido como panel por
         defecto (`default_panel` de los datos de sistema del frontend). Si no
         se puede leer el `default_panel`, no se borra nada
-        (`default_panel_unknown`).
+        (`default_panel_unknown`). En HA anterior a 2025.12 el panel por
+        defecto lo elige cada navegador y Hermes no puede conocerlo: ahí solo
+        se protege `lovelace` (el frontend vuelve a él si falta el elegido).
 
         Args:
             url_path: URL path del dashboard a borrar.

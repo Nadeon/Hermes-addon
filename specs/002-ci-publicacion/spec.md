@@ -123,9 +123,11 @@ argumentos.
 
 - **FR-001**: La publicación MUST dejar de usar la action retirada `home-assistant/builder@master` y usar las actions de compilación nuevas publicadas por Home Assistant.
 - **FR-002**: Toda action de terceros nueva MUST quedar fijada a una release concreta e inmutable (un SHA de commit con la release anotada), nunca a una rama.
+  - *Nota (revisión independiente de 1.0.12, B5)*: `actions/checkout` también queda fijada por SHA en `publicar-imagen.yml`, el workflow con permisos de escritura.
 - **FR-003**: Los nombres publicados MUST seguir siendo `ghcr.io/nadeon/hermes-amd64` y `ghcr.io/nadeon/hermes-aarch64`, y derivarse del campo `image:` de `hermes/config.yaml` tal como está (DECISIÓN 11). Las imágenes ya publicadas no se tocan.
 - **FR-004**: Cada imagen publicada MUST llevar la etiqueta `<versión>` (y `latest`), y no se MUST sobrescribir una `<versión>` que ya exista en el registro.
 - **FR-005**: La publicación MUST seguir comprobando, antes de compilar, que la versión de la etiqueta o de la entrada manual coincide con `version:` de `hermes/config.yaml`.
+  - *Nota (revisión independiente de 1.0.12, M5)*: además, solo se publica desde una etiqueta o desde `main`; un lanzamiento manual sobre otra rama falla en `comprobar`, y `construir` repite la condición en su `if`.
 - **FR-006**: El workflow `etiquetar.yml` MUST seguir disparando la publicación sin cambios.
 - **FR-007**: Los permisos MUST ser los mínimos por job: lectura por defecto; escritura en el registro y emisión de identidad para firmar solo en el job que publica.
 - **FR-008**: Las imágenes publicadas MUST quedar firmadas con el mecanismo de firma que incorporan las actions nuevas.
@@ -133,6 +135,7 @@ argumentos.
 - **FR-010**: El Dockerfile MUST declarar una imagen base por defecto (Python 3.13 sobre Alpine 3.24, multi-arquitectura) y las labels `io.hass.*` necesarias, con `io.hass.type="app"`.
 - **FR-011**: `hermes/build.yaml` MUST borrarse, ya que el flujo nuevo no lo lee.
 - **FR-012**: `hermes/config.yaml` MUST declarar `timeout: 20`; no se cambia ninguna otra clave de ese fichero.
+  - *Nota*: la spec 001 (revisión independiente, M4) añade después `homeassistant: "2024.10.0"`.
 - **FR-013**: La validación previa MUST fallar si el plazo de parada del manifiesto no supera el margen interno de s6 del Dockerfile, o si `image:` no contiene `{arch}`.
 - **FR-014**: La documentación para contribuir MUST explicar que las PR que tocan la imagen la compilan sin publicarla.
 

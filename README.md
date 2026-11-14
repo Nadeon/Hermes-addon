@@ -62,7 +62,8 @@ token. That is what stops a misunderstanding from restarting your house.
   not available on the free plan.
 - `amd64` or `aarch64` architecture, and Home Assistant **2024.10.0** or newer. Hermes saves automations
   with the plural keys (`triggers`, `actions`) that Home Assistant only
-  understands since 2024.10.
+  understands since 2024.10. The add-on declares it, so on an older Home
+  Assistant the Supervisor refuses to install or update Hermes.
 
 ## How Hermes is exposed to the internet
 

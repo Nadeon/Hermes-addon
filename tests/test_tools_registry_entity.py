@@ -404,10 +404,12 @@ class TestAliasesNullMarker(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.session.close()
 
-    def _client(self, received: list[dict]):
+    def _client(self, received: list[dict], version: object = "2026.11.1"):
         client = make_ready_client(self.session, {})
 
         async def capture(payload, timeout_seconds=30):
+            if payload.get("type") == "get_config":
+                return {"version": version}
             received.append(payload)
             if payload.get("type") == "config/entity_registry/get":
                 return {"entity_id": "light.x", "aliases": [None]}
@@ -439,6 +441,34 @@ class TestAliasesNullMarker(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.get("result"), "ok")
         self.assertEqual(self._sent_update(received)["aliases"], [None, "lámpara"])
+
+    async def test_null_alias_on_old_ha_is_rejected(self) -> None:
+        """M1: antes de 2026.4 HA no admite el null; en 2024.10 lo guardaba y
+        rompía Assist. Sin token y sin llamar a HA."""
+        for version in ("2024.10.0", "2026.3.4"):
+            received: list[dict] = []
+            result = await self._update(
+                self._client(received, version), {"aliases": [None, "lámpara"]}
+            )
+            self.assertEqual(result.get("error"), "null_alias_requires_ha_2026_4")
+            self.assertNotIn("confirmation_token", result)
+            self.assertEqual(received, [])
+
+    async def test_null_alias_with_unknown_version_is_rejected(self) -> None:
+        """M1: versión desconocida → fail-closed."""
+        received: list[dict] = []
+        result = await self._update(
+            self._client(received, None), {"aliases": [None]}
+        )
+        self.assertEqual(result.get("error"), "ha_version_unknown")
+        self.assertEqual(received, [])
+
+    async def test_string_aliases_on_old_ha_still_work(self) -> None:
+        received: list[dict] = []
+        result = await self._update(
+            self._client(received, "2024.10.0"), {"aliases": ["lámpara"]}
+        )
+        self.assertEqual(result.get("result"), "ok")
 
     async def test_aliases_null_rejected_without_ws_call(self) -> None:
         received: list[dict] = []

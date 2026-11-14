@@ -215,6 +215,21 @@ class TestToolsTemplates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"], "ok")
         self.assertEqual(result["warnings"], ["'x' is undefined"])
 
+    async def test_repeated_warnings_are_deduplicated_in_order(self) -> None:
+        """B1: con `timeout`, HA hace un pre-render y el render real con el
+        mismo listener de avisos, así que cada aviso llegaba dos veces."""
+        client = _make_client_with_subscription(self.session, {
+            "result": "ok", "listeners": {},
+            "warnings": ["'x' is undefined", "'y' is undefined",
+                         "'x' is undefined", "'y' is undefined"],
+        })
+        mcp = DummyMCP()
+        mod.register(mcp, client)
+        result = json.loads(await mcp.tools["ha_render_template"]("{{ x }}{{ y }}"))
+        self.assertEqual(
+            result["warnings"], ["'x' is undefined", "'y' is undefined"]
+        )
+
     async def test_render_error_level_is_still_template_error(self) -> None:
         """(c) Un error de nivel ERROR sigue siendo `template_error`."""
         client = _make_client_with_subscription(
