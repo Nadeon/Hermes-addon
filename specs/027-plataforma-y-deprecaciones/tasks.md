@@ -28,7 +28,10 @@ Línea base en Windows al especificar (2026-11-14, punta `7870e5b`, con la 011
 hasta su tramo 3 y sin la 009 ni la 010): 2139 passed, 17 skipped, 6 failed
 (los 6 conocidos). T001 la vuelve a tomar tras integrar las dependencias. Cada
 tramo termina con exactamente esos 6 fallos en local; la referencia es el CI
-de Linux.
+de Linux. Tras integrar `feat/cobertura-total` (009, 010, 011, 028 y 014) al
+empezar el tramo A: 2357 passed, 65 skipped, 6 failed; al cerrarlo: 2409
+passed, 65 skipped, 6 failed (los mismos). Registro por defecto: 221 tools,
+igual antes y después del tramo.
 
 ## Formato: `[ID] [P?] [Historia] Descripción`
 
