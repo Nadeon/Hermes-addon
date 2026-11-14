@@ -319,6 +319,12 @@ async def _boot(config: HermesConfig) -> None:
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette):
         async with mcp.session_manager.run():
+            # Tareas que el registro de tools no pudo lanzar por no tener
+            # bucle en marcha (hoy ninguna: `_build_mcp` corre dentro de
+            # `_boot`). Así el registro no depende de dónde se le llame.
+            from hermes.tools.ha import lanzar_tareas_aplazadas
+
+            lanzar_tareas_aplazadas()
             oauth_server.start_periodic_cleanup()
             confirmations_cleanup = asyncio.create_task(
                 _periodic_confirmations_cleanup(),

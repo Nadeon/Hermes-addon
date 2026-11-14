@@ -19,7 +19,8 @@ Controles negativos comprobados (T015):
 Al escribirla, la guarda vio un `DeprecationWarning` de `tools/ha.py`
 (`asyncio.ensure_future` sin bucle en marcha): la sonda construía el servidor
 fuera del bucle. En el add-on `_build_mcp` corre dentro de `_boot`, con el
-bucle en marcha, y no avisa; la sonda hace ya lo mismo.
+bucle en marcha, y no avisa; la sonda hace ya lo mismo. Desde el tramo B
+`tools/ha.py` ya no depende de tener bucle (`tests/test_tareas_aplazadas.py`).
 """
 
 from __future__ import annotations

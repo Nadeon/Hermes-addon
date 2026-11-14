@@ -7,6 +7,7 @@ import json
 import re
 import unicodedata
 from pathlib import Path
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 import structlog
@@ -361,6 +362,52 @@ def get_auto_restricted_entities() -> frozenset[str]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Tareas de fondo: con el bucle en marcha o aplazadas al arranque
+# ══════════════════════════════════════════════════════════════════════════════
+
+# `asyncio.ensure_future(coro)` sin un bucle en marcha cae en
+# `get_event_loop()`, que da `DeprecationWarning` (y en Python 3.14 es un
+# error); además la tarea quedaba en un bucle que nadie ejecuta. En el add-on
+# `register` corre dentro de `_boot`, con el bucle en marcha, pero no tiene
+# por qué depender de eso: si no hay bucle, la tarea se guarda como FÁBRICA
+# (no como corrutina, que daría «never awaited» si no llega a lanzarse) y la
+# lanza `lanzar_tareas_aplazadas` desde el lifespan del servidor.
+_tareas_aplazadas: list[Callable[[], Coroutine[Any, Any, Any]]] = []
+# Referencias fuertes: el bucle solo guarda referencias débiles a sus tareas y
+# una tarea sin referencia puede desaparecer a medias (documentación de asyncio).
+_tareas_vivas: set[asyncio.Task[Any]] = set()
+
+
+def _lanzar(fabrica: Callable[[], Coroutine[Any, Any, Any]]) -> None:
+    tarea = asyncio.get_running_loop().create_task(fabrica())
+    _tareas_vivas.add(tarea)
+    tarea.add_done_callback(_tareas_vivas.discard)
+
+
+def _lanzar_o_aplazar(fabrica: Callable[[], Coroutine[Any, Any, Any]]) -> None:
+    """Lanza la tarea en el bucle en marcha o, si no lo hay, la aplaza."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        _tareas_aplazadas.append(fabrica)
+        return
+    _lanzar(fabrica)
+
+
+def lanzar_tareas_aplazadas() -> int:
+    """Lanza en el bucle en marcha las tareas aplazadas; devuelve cuántas.
+
+    Se llama desde el lifespan del servidor (`__main__._boot`). Sin tareas
+    aplazadas, que es lo normal en el add-on, no hace nada.
+    """
+    pendientes = list(_tareas_aplazadas)
+    _tareas_aplazadas.clear()
+    for fabrica in pendientes:
+        _lanzar(fabrica)
+    return len(pendientes)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Registro de tools
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -392,7 +439,7 @@ def register(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("auto_classify_boot_error", error=str(exc))
 
-        asyncio.ensure_future(_boot_classify())
+        _lanzar_o_aplazar(_boot_classify)
 
     @mcp.tool()
     @ready
@@ -589,7 +636,7 @@ def register(
                 if call_service_auto_classify and service_lower == "reload" and domain_lower in (
                     "automation", "script"
                 ):
-                    asyncio.ensure_future(auto_classify_dangerous(effective_denylist))
+                    _lanzar_o_aplazar(lambda: auto_classify_dangerous(effective_denylist))
                 return result
             except Exception as exc:  # noqa: BLE001
                 await complete_confirmation_token(
