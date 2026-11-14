@@ -373,6 +373,58 @@ class TestTemaIntegrationFlows(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(inventadas, [])
 
 
+class TestTemaRepairFlows(unittest.IsolatedAsyncioTestCase):
+    """Spec 016, tramo C (T041; FR-020): tema de la familia `repair_flows`,
+    remisión desde `diagnostics` y la reautenticación con token (decisión
+    del supervisor) en `integration_flows`."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("repair_flows")
+        self.assertIs(texto, _GUIDE["repair_flows"])
+        for alias in ("repair_fix", "fix", "FIX"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        for palabra in ("CADA paso", "finished_on_start", "flow_mismatch",
+                        "issue_still_present", "is_fixable",
+                        "arreglar un aviso de Repairs", "external"):
+            self.assertIn(palabra, texto)
+
+    async def test_cada_tool_de_la_familia_nombrada(self) -> None:
+        tools = _tools_de_la_familia("repair_flows")
+        self.assertEqual(len(tools), 4)
+        faltan = sorted(t for t in tools if t not in _GUIDE["repair_flows"])
+        self.assertEqual(faltan, [], f"tools de la familia sin nombrar en el tema: {faltan}")
+
+    async def test_el_indice_lo_lista(self) -> None:
+        self.assertIn("`repair_flows`", await self.guide())
+
+    def test_diagnostics_remite_y_menciona_los_textos(self) -> None:
+        texto = _GUIDE["diagnostics"]
+        self.assertIn('hermes_guide("repair_flows")', texto)
+        self.assertIn("`title`", texto)
+        self.assertIn("`description`", texto)
+
+    def test_reauth_con_token_y_limite_del_reconfigure(self) -> None:
+        texto = _GUIDE["integration_flows"]
+        self.assertIn("REAUTENTICACIÓN", texto)
+        self.assertIn('`source: "reauth"`', texto)
+        self.assertIn("Límite conocido", texto)
+        self.assertIn("reauth", _GUIDE["config_entries"])
+
+    def test_no_nombra_tools_que_no_existen(self) -> None:
+        from tests.test_tools_registration import _declared_tool_names
+
+        existentes = _declared_tool_names()
+        for tema in ("repair_flows", "diagnostics", "integration_flows", "config_entries"):
+            with self.subTest(tema=tema):
+                self.assertEqual(sorted(_tools_nombradas(_GUIDE[tema]) - existentes), [])
+
+
 class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
     """FR-022: el tema explica las genéricas y `search` consulta la tabla real.
 
