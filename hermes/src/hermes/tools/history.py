@@ -32,9 +32,16 @@ _LC = "lc"  # last_changed (float timestamp, solo si difiere de lu)
 _MAX_STATES_PER_ENTITY = 500
 
 # Pista del `_response_limit` de un historial recortado (FR-006 de la 009).
+# Se continúa POR ENTIDAD: `truncated_at` es el más reciente de los últimos
+# estados incluidos, y el recorte quita primero de la lista más larga, así que
+# con una entidad muy activa y otra lenta pedir desde `truncated_at` saltaba
+# los estados de la activa entre su último incluido y ese instante (revisión
+# de la 009, T043: 647 de 1000 perdidos). Corta: se mide dentro del tope, y
+# con uno pequeño una pista larga no deja sitio a ningún estado.
 _HISTORY_LIMIT_HINT = (
-    "The history was cut to fit the response limit. Narrow the time range or "
-    "ask for fewer entities, or call again with start_time set to truncated_at."
+    "Cut to fit the limit. Narrow the range or entities, or call again for "
+    "each entity with start_time = last_updated of its last returned state "
+    "(not truncated_at)."
 )
 
 
@@ -194,14 +201,17 @@ def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONS
               },
               "truncated": false,       // true si se cortó (por tamaño o
                                         // por el tope de 500 por entidad)
-              "truncated_at": null      // ISO del último estado incluido si truncated
+              "truncated_at": null      // si truncated, ISO del último estado
+                                        // incluido más reciente (de todas)
             }
             Solo si truncated, además:
               "_response_limit": {"list": "history", "returned": N,
                                   "total": M, "max_bytes": B, "hint": "..."}
             `returned` son los estados incluidos y `total` los que devolvió
             HA. Para seguir, acota el rango o las entidades, o vuelve a pedir
-            con start_time = truncated_at.
+            cada entidad con start_time = el last_updated de su último estado
+            devuelto. `truncated_at` es el más reciente de esos: pedirlas
+            todas desde ahí se salta estados de las demás.
         """
         from datetime import timedelta
 

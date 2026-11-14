@@ -60,8 +60,11 @@ token que se traiga no cambia de estado. Para cualquier otro slug, como en la
 
 - Solo con `truncated: true`. `returned` = estados incluidos; `total` =
   estados que devolvió HA antes de cualquier corte (por cantidad o por bytes).
-- `hint` (inglés): acotar el rango o las entidades, o pedir de nuevo desde
-  `truncated_at`.
+- `hint` (inglés): acotar el rango o las entidades, o pedir de nuevo cada
+  entidad desde el `last_updated` de su último estado devuelto. No manda
+  pedirlas todas desde `truncated_at`: es el más reciente de esos últimos
+  estados y el recorte quita primero de la lista más larga, así que con una
+  entidad muy activa y otra lenta se saltaría estados de la activa (T043).
 - La respuesta entera, con el bloque, cabe en `response_max_bytes`.
 
 ## `ha_marketplace_list_removed(installed_only=False, limit=None)` (FR-007)

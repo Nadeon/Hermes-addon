@@ -231,6 +231,53 @@ class TestLimiteDeRespuestaDelHistorial(unittest.IsolatedAsyncioTestCase):
         # `total` es lo que devolvió HA, antes del corte por cantidad.
         self.assertEqual(lim["total"], n)
 
+    async def test_la_pista_continua_por_entidad_sin_perder_estados(self) -> None:
+        """T043: con una entidad muy activa y otra lenta, la pista no pierde nada.
+
+        El recorte quita primero de la lista más larga y `truncated_at` es el
+        más reciente de los últimos estados incluidos, así que pedirlo todo
+        desde `truncated_at` (la pista anterior) se saltaba los estados de la
+        entidad activa entre su último incluido y ese instante. La pista manda
+        seguir cada entidad desde su último estado devuelto; aquí se sigue tal
+        cual, simulando a HA con los mismos datos, y no falta ninguno.
+
+        Control negativo: con la pista anterior («call again with start_time
+        set to truncated_at») el test falla en las aserciones de la pista.
+        """
+        base = 1_712_000_000.0
+        puntos = {
+            "sensor.ocupado": [{"s": str(i), "lu": base + i * 60.0} for i in range(1000)],
+            "sensor.lento": [{"s": str(i), "lu": base + i * 6000.0} for i in range(14)],
+        }
+        _, r = await self._pedir(puntos, tope=40_000)
+        self.assertTrue(r["truncated"])
+        devueltos = r["history"]
+        completo = {
+            eid: [hist_mod._expand_state(p) for p in pts] for eid, pts in puntos.items()
+        }
+        # El escenario de la revisión: la activa se corta antes de `truncated_at`.
+        ultimo_ocupado = devueltos["sensor.ocupado"][-1]["last_updated"]
+        self.assertLess(ultimo_ocupado, r["truncated_at"])
+        desde_truncated_at = [
+            s for s in completo["sensor.ocupado"]
+            if s["last_updated"] > ultimo_ocupado and s["last_updated"] < r["truncated_at"]
+        ]
+        self.assertGreater(len(desde_truncated_at), 0)  # lo que perdía la pista anterior
+
+        # La pista dice continuar por entidad y avisa de `truncated_at`.
+        pista = r["_response_limit"]["hint"]
+        self.assertIn("for each entity", pista)
+        self.assertIn("its last returned state", pista)
+        self.assertNotIn("call again with start_time set to truncated_at", pista)
+
+        # Seguirla: cada entidad desde el last_updated de su último devuelto
+        # (HA incluye el estado en start_time). No se pierde ninguno.
+        for eid, estados in completo.items():
+            desde = devueltos[eid][-1]["last_updated"]
+            continuacion = [s for s in estados if s["last_updated"] >= desde]
+            vistos = {s["last_updated"] for s in devueltos[eid] + continuacion}
+            self.assertEqual(vistos, {s["last_updated"] for s in estados}, eid)
+
     async def test_sin_recorte_la_respuesta_de_la_112(self) -> None:
         _, r = await self._pedir({"light.test": _make_compressed_points(3)})
         self.assertEqual(set(r), {"history", "truncated", "truncated_at"})
