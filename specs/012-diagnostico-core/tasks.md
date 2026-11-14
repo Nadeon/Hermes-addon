@@ -113,7 +113,7 @@ implementación.
 - [x] T031 [US2] [US3] [US4] Banco: `diagnostics:` en la configuración del banco; elegir la integración sin red con diagnóstico de entrada (research R-8) y anotarla; `tests/banco/test_banco_core_diagnostico.py`: `ha_validate_config` con una automatización válida y otra con un trigger inválido; `ha_test_condition` con una condición de estado sobre un `input_boolean` del lector (verdadera y falsa); `ha_list_diagnostics_handlers`; `ha_get_config_entry_diagnostics` de la entrada creada por el lector (limpieza al cerrar); `ha_get_device_diagnostics` en su camino `diagnostics_not_supported`; notificación creada por el lector → listada → descarte en dos pasos → el lector no la ve. `ha_dismiss_persistent_notification` a `PROBADAS_012`. Si la integración no carga, el camino feliz del diagnóstico de entrada queda en unitarios y como pendiente manual en la matriz de la 014, con el motivo (FR-019, SC-005)
 - [x] T032 Documentación final: CHANGELOG (sección de la 012 completa: 12 tools, familia, 9 entradas de la tabla, el caso del log sin fichero); hoja de ruta → «hecha» con la lista de lo probado en el banco y los pendientes manuales; `README.md` y `README.es.md` sincronizados (tools nuevas en la lista por áreas y el recuento si lo llevan); `hermes/DOCS.md` si la opción `tool_families_disabled` enumera familias; `specs/008-cobertura-total/plan.md`: filas CAP-040, CAP-041, CAP-042 y CAP-047 de la matriz con las tools y los ficheros de test, sin cambiar las columnas que lee `_matriz_008` (sub-feature y vía) (FR-021)
 - [x] T033 Control negativo del tramo B, anotando recuentos: (a) aceptar `config` y partes a la vez → cae T020; no informar `not_validated` → cae; (b) descargar sin comprobar el handler → caen los de `diagnostics_not_supported` sin descarga; (c) devolver el diagnóstico sin mirar el tope → cae el de `response_too_large`; quitar `redact_structure` → cae el centinela bajo `token`; (d) tomar la dueña de `config_entries[0]` en vez de `config_entry_id` → cae el del dispositivo; (e) en el descarte, no releer al confirmar → cae `already_dismissed`; guardar el mensaje sin redactar en la vista previa → cae el del fichero del token; (f) dejar `diagnostics/list` en `deny` → cae el de la genérica; quitar `ha_validate_config` de `_READ_ONLY_EXACT` → cae el de hints. Restaurar y comprobar verde
-- [ ] T034 Cierre del tramo B: suite completa (los 6 fallos conocidos y ninguno más), CI de la rama y banco en verde, revisión del diff (principio VIII, FR-022), commit con los recuentos de T033 (SC-006, SC-007)
+- [x] T034 Cierre del tramo B: suite completa (los 6 fallos conocidos y ninguno más), CI de la rama y banco en verde, revisión del diff (principio VIII, FR-022), commit con los recuentos de T033 (SC-006, SC-007)
 
 ---
 
@@ -215,3 +215,9 @@ banco, decisiones.)
   - Al pasar a 232 tools, README, README.es y DOCS cambian el recuento y la
     fila de la familia; el invariante de escrituras pasa de 128 a 129.
 - **Controles negativos (T033)**: ver el mensaje del commit del cierre.
+- **CI (T034)**: el primer run del banco cayó en el test del diagnóstico de
+  dispositivo, que leía con `llamar` un rechazo esperado (Hermes marca con
+  `isError` toda respuesta de error); corregido con `call_tool`, como las
+  genéricas. Run final en verde: pytest 3.12 y 3.13, y banco de Core con 56
+  passed y 3 xfailed (los de la 028); `local_calendar` carga en la imagen y
+  su diagnóstico de entrada se prueba de verdad. Semgrep en verde.
