@@ -261,3 +261,14 @@ en su propio commit (solo las rutas que toca, añadidas por nombre).
   comentarios, en español.
 - Si el CI no se puede ejecutar en un tramo, la tarea del banco queda anotada
   como pendiente en el commit, no marcada como hecha.
+
+## Fase 13: Convergencia
+
+Añadida por la revisión independiente y `speckit-converge` sobre la punta de la
+rama (5344721). Severidad entre corchetes. FR-001…FR-013 y SC-001…SC-006
+comprobados contra el código: lo que queda son cuatro remates bajos.
+
+- [ ] T037 [BAJO] El inventario de argumentos atados descubre las tools solo por AST de `hermes/src/hermes/tools/*.py` y decoradores `mcp.tool…`: una tool con token registrada de otra forma (`mcp.add_tool`, un subpaquete) no entraría y el test seguiría en verde. Hoy coinciden (82 en el AST y 82 en el registro real con `confirmation_token` en el esquema, mismos argumentos). Añadir en `tests/test_confirmation_args_inventory.py` un test que compare `firmas_con_token(TOOLS)` (nombres y argumentos) con las tools de `_real_registry()` que publican `confirmation_token`, con su control negativo per FR-003, SC-002 (partial)
+- [ ] T038 [BAJO] `ha_create_scene_from_current`: la comprobación posterior solo compara el conjunto de entidades, así que ante una escena de `configuration.yaml` sin `id` (S-03) con las mismas entidades pedidas, Core ignora el reemplazo (`create_service`: `not old.from_service` → aviso y `return`) y la tool responde `result: ok, replaced: true`. En el camino del reemplazo, guardar `last_updated` (o `context.id`) de la escena antes de `scene.create` y exigir que cambie en la lectura posterior (Core quita la entidad y añade otra); si no cambia, `scene_not_created`. Test con el doble `ignorar_create` y las mismas entidades, y control negativo per FR-006, S-03 (partial)
+- [ ] T039 [BAJO] Falta el test de lo que dicen las notas de T022: con `confirmation_token` y la escena inexistente, el token se valida igual (fail-closed). Añadir en `tests/test_tools_scenes.py` (`TestEscenaDesdeElEstadoActual`) un token ajeno (aleatorio y de otra tool) con una escena nueva → error de token y ninguna llamada a HA; control negativo: validar solo dentro del reemplazo → el test cae per FR-006, Constitution IV (partial)
+- [ ] T040 [BAJO] Textos que ya no cuadran: (1) en `hermes/src/hermes/tools/_annotations.py`, el comentario «Estas piden `confirmation_token`» sigue cubriendo `ha_reload_counters`, que desde la 033 no pide ni emite token: decir que sigue destructiva solo por FR-004 (anotaciones sin cambios hasta la 1.3.0); (2) `spec.md` deja `ha_set_counter_value` «fuera de alcance» y el tramo 2 lo hizo como extra del supervisor: anotar la ampliación en `research.md` (R-7) o `plan.md` per FR-004, FR-009, Constitution V (contradicts)
