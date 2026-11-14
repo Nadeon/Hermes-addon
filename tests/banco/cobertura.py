@@ -85,6 +85,8 @@ PROBADAS_EN_BANCO: frozenset[str] = frozenset(
         "ha_decrement_counter",
         "ha_set_counter_value",
         "ha_reset_counter",
+        # Se ejecuta, pero falla contra HA real: Core 2026.11.1 no tiene
+        # `counter.reload` (xfail estricto en test_banco_helpers_tiempo.py).
         "ha_reload_counters",
         "ha_delete_counter",
         # timer (8)

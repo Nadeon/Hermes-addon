@@ -6,6 +6,9 @@ bus una sola vez y el helper de almacenamiento sigue), `ha_finish_timer` por el
 evento `timer.finished` (el estado `idle` solo no lo distingue de cancelar) y
 `ha_change_timer` sobre un temporizador activo, con `remaining` menor.
 
+HALLAZGO: `ha_reload_counters` falla contra HA real (no existe `counter.reload`
+en Core 2026.11.1); va en `TestCounter.test_recarga` como `xfail` estricto.
+
 Control negativo en el CI (T030, anotado en el commit del tramo B): con
 `ha_increment_counter` llamando a `counter.decrement`, `TestCounter` cae en rojo
 en el job `banco de Core`.
@@ -57,8 +60,27 @@ class TestCounter(BancoHelpers):
             await s.accion("ha_reset_counter", entity_id=eid)
             await s.esperar_estado(eid, lambda e: e["state"] == "5", "vuelta a initial")
 
-            await s.recargar("ha_reload_counters", "counter", nombre)
             await s.borrar("ha_delete_counter", "counter", nombre)
+
+    # HALLAZGO del banco (tramo B): HA Core 2026.11.1 no tiene el servicio
+    # `counter.reload` (la integración `counter` solo registra increment,
+    # decrement, reset y set_value; no hay recarga de YAML para contadores).
+    # `ha_reload_counters` llama a `counter.reload`, Core responde 400 y la
+    # tool acaba en «Error executing tool». Estricto: si algún día pasa (HA
+    # añade el servicio o se corrige la tool), el test se pone en rojo para
+    # quitar la marca y actualizar el inventario.
+    @pytest.mark.xfail(
+        strict=True,
+        raises=AssertionError,
+        reason="HA Core 2026.11.1 no tiene counter.reload: ha_reload_counters recibe 400",
+    )
+    async def test_recarga(self) -> None:
+        nombre = nombre_de_prueba("counter")
+        async with self.sesion() as s:
+            s.creados.append(("counter", nombre))
+            await s.lector.crear("counter", {"name": nombre, "initial": 1})
+            await s.esperar_estado(f"counter.{nombre}", lambda e: True, "creado por el lector")
+            await s.recargar("ha_reload_counters", "counter", nombre)
 
 
 class TestTimer(BancoHelpers):
