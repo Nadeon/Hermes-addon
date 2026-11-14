@@ -396,6 +396,90 @@ class TestRemoveDeviceFromConfigEntry(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("confirmation_token", result)
 
 
+class TestComandoRetiradoEnHA(unittest.IsolatedAsyncioTestCase):
+    """Spec 027, FR-009: el día que HA retire el comando de la tool deprecada.
+
+    HA anuncia la retirada de `config/device_registry/remove_config_entry`
+    para la 2027.9 (`homeassistant/components/config/device_registry.py`,
+    2026.11.1). Un comando que no existe lo responde con el código
+    `unknown_command`; la tool lo traduce a un error que dice qué usar, sin
+    reintentar con `config/device_registry/remove` (sería otro efecto, y el
+    token se dio para este).
+
+    Control negativo comprobado: sin la comprobación de `exc.code` →
+    `test_unknown_command_da_command_removed_in_ha` en rojo; los otros dos
+    siguen en verde, como deben (los demás errores no cambian).
+    """
+
+    _CMD = "config/device_registry/remove_config_entry"
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    async def _confirmar(self, error: Exception):
+        enviados: list[dict] = []
+        client = make_ready_client(self.session, {})
+
+        async def ws(payload, timeout_seconds=30):
+            enviados.append(payload)
+            if payload.get("type") == self._CMD:
+                raise error
+            return None
+
+        client.ws_send = ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        device_mod.register(mcp, client)
+        tool = mcp.tools["ha_remove_device_from_config_entry"]
+        with patch.object(device_mod, "ha_at_least", AsyncMock(return_value=False)):
+            primero = json.loads(await tool("device_0000", "ce_abc"))
+        token = primero["confirmation_token"]
+        enviados.clear()
+        result = json.loads(await tool("device_0000", "ce_abc", confirmation_token=token))
+        return tool, token, result, enviados
+
+    async def test_unknown_command_da_command_removed_in_ha(self) -> None:
+        from hermes.ha import HAConnectionError
+
+        tool, token, result, enviados = await self._confirmar(
+            HAConnectionError("Unknown command.", code="unknown_command"))
+        self.assertEqual(result["error"], "command_removed_in_ha")
+        self.assertEqual(result["command"], self._CMD)
+        self.assertEqual(result["replacement"], "ha_remove_device")
+        self.assertIn("ha_remove_device", result["detail"])
+        self.assertIn("Nothing was changed", result["detail"])
+        # Un solo comando, el de la tool; nunca el de la sustituta.
+        self.assertEqual([p["type"] for p in enviados], [self._CMD])
+        # El token queda gastado: repetir la confirmación no reenvía nada.
+        enviados.clear()
+        otra = json.loads(await tool("device_0000", "ce_abc", confirmation_token=token))
+        self.assertIn("error", otra)
+        self.assertNotEqual(otra["error"], "command_removed_in_ha")
+        self.assertEqual(enviados, [])
+
+    async def test_otros_errores_como_siempre(self) -> None:
+        from hermes.ha import HAConnectionError
+
+        for error in (
+            HAConnectionError("Device not found", code="not_found"),
+            # Mismo texto sin código: se reconoce por el código, nunca por el texto.
+            HAConnectionError("unknown_command", code=None),
+        ):
+            with self.subTest(code=error.code):
+                _, _, result, enviados = await self._confirmar(error)
+                self.assertEqual(result, {"error": str(error)})
+                self.assertEqual([p["type"] for p in enviados], [self._CMD])
+
+    def test_la_descripcion_lo_dice(self) -> None:
+        mcp = DummyMCP()
+        device_mod.register(mcp, object())
+        doc = mcp.tools["ha_remove_device_from_config_entry"].__doc__ or ""
+        self.assertIn("command_removed_in_ha", doc)
+        self.assertIn("ha_remove_device", doc.replace("ha_remove_device_from", ""))
+
+
 # ── Regresiones 1.0.12: ha_remove_device (P2) ───────────────────────────────
 
 
