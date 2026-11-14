@@ -159,8 +159,11 @@ report about one of them will be closed with a pointer to this section:
     URLs, plus a central anti path-injection guard in the HA client.
 - **Secret redaction** in all logs, both Hermes's own and those of other add-ons.
 - **Network redaction** in the log (`log_redact_network`, on by default): the
-  configured `public_hostname`, any `*.ts.net` name and every IP address
-  except loopback are replaced with placeholders. IPs become a pseudonym with
+  configured `public_hostname`, the hosts of Home Assistant's `external_url`
+  and `internal_url` (read from `/api/config` on every connection), any
+  `*.ts.net` name and every IP address except loopback, also when written as
+  `ip-a-b-c-d` (cloud hostnames like `ip-10-0-0-5.ec2.internal`), are replaced
+  with placeholders. IPs become a pseudonym with
   their class (`tailnet`, `private`, `public`…) and an HMAC whose salt changes
   on every start, so lines from one run can be correlated without revealing
   the address. It also covers the standard Python loggers (the MCP SDK,

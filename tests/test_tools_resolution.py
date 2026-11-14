@@ -111,6 +111,34 @@ class TestGetResolution(_Base):
         self.assertIn("error", r)
 
 
+class TestEventoOk(_Base):
+    """FR-008 de la 009: `sv_get_resolution` deja en el log cuántas entradas
+    leyó, sin uuids ni referencias, y solo cuando terminó bien."""
+
+    async def test_registra_los_cinco_recuentos(self) -> None:
+        from structlog.testing import capture_logs
+        with capture_logs() as eventos:
+            r = await self._tools(_Supervisor())["sv_get_resolution"]()
+        self.assertNotIn("error", r)
+        ok = [e for e in eventos if e["event"] == "sv_get_resolution_ok"]
+        self.assertEqual(len(ok), 1)
+        self.assertEqual(
+            {k: v for k, v in ok[0].items() if k not in ("event", "log_level")},
+            {"unsupported": 1, "unhealthy": 1, "issues": 1, "suggestions": 1, "checks": 1},
+        )
+        self.assertNotIn(_ISSUE, json.dumps(eventos))
+        self.assertNotIn(_SUG, json.dumps(eventos))
+
+    async def test_con_error_no_hay_ok(self) -> None:
+        from structlog.testing import capture_logs
+        for sv in (_Supervisor(info=HAConnectionError("caído")), _Supervisor(info=["x"])):
+            with self.subTest(info=type(sv.info).__name__):
+                with capture_logs() as eventos:
+                    r = await self._tools(sv)["sv_get_resolution"]()
+                self.assertIn("error", r)
+                self.assertFalse([e for e in eventos if e["event"].endswith("_ok")])
+
+
 class TestDismiss(_Base):
     casos = (("sv_dismiss_resolution_issue", "issue_uuid", _ISSUE, "issue"),
              ("sv_dismiss_resolution_suggestion", "suggestion_uuid", _SUG, "suggestion"))

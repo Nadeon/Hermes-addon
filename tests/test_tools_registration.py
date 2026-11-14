@@ -728,15 +728,42 @@ _HINTS_SNAPSHOT: dict[str, str] = {
 
 
 # Tools nuevas de la 1.2.0: código de hints y título exactos (spec 011,
-# contracts/tools.md). Las de lectura no son de mundo abierto (ninguna entrada
-# `read` de la tabla sale a internet); las de escritura son destructivas, no
+# contracts/tools.md). La de lectura de Core es de mundo abierto porque
+# `media_source/browse_media` y `search_media` salen a internet con fuentes
+# remotas (T047); la del Supervisor no. Las de escritura son destructivas, no
 # idempotentes y de mundo abierto, porque ejecutan lo que la tabla permita.
 _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
-    "ha_read_ws_command": ("R-I-", "Read WS command (Home Assistant)"),
+    "ha_read_ws_command": ("R-IO", "Read WS command (Home Assistant)"),
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+    # Spec 013 (contracts/tools.md): logs del sistema, familia
+    # `system_diagnostics`. Solo leen, son idempotentes y no salen a internet.
+    "sv_get_core_logs": ("R-I-", "Get core logs (Supervisor)"),
+    "sv_get_supervisor_logs": ("R-I-", "Get supervisor logs (Supervisor)"),
+    "sv_get_plugin_logs": ("R-I-", "Get plugin logs (Supervisor)"),
+    "sv_get_host_logs": ("R-I-", "Get host logs (Supervisor)"),
+    "sv_list_host_log_identifiers": ("R-I-", "List host log identifiers (Supervisor)"),
+    "sv_list_boots": ("R-I-", "List boots (Supervisor)"),
+    # Spec 013, tramo 2: disco, host y OS, misma familia y mismas garantías.
+    "sv_list_host_services": ("R-I-", "List host services (Supervisor)"),
+    "sv_get_disk_usage": ("R-I-", "Get disk usage (Supervisor)"),
+    "sv_get_os_info": ("R-I-", "Get OS info (Supervisor)"),
+    "sv_get_swap": ("R-I-", "Get swap (Supervisor)"),
+    "sv_list_datadisk_candidates": ("R-I-", "List datadisk candidates (Supervisor)"),
 }
+
+# Las tools de la spec 013 en este tramo (logs, CAP-081).
+_LOGS_013 = (
+    "sv_get_core_logs", "sv_get_supervisor_logs", "sv_get_plugin_logs",
+    "sv_get_host_logs", "sv_list_host_log_identifiers", "sv_list_boots",
+)
+
+# Las del tramo 2 de la spec 013 (disco, host y OS, CAP-085).
+_HOST_013 = (
+    "sv_list_host_services", "sv_get_disk_usage", "sv_get_os_info",
+    "sv_get_swap", "sv_list_datadisk_candidates",
+)
 
 
 def _hint_code(ann) -> str:
@@ -833,6 +860,15 @@ class TestToolTitles:
         con_api = sorted(n for n in _HINTS_SNAPSHOT if "api" in n.split("_"))
         assert con_api == [], con_api
 
+    def test_os_no_cambia_ningun_titulo_existente(self):
+        """Spec 013 (T021): `"os": "OS"` da `Get OS info (Supervisor)` y no
+        toca ningún título de la 1.1.2: ninguna tiene `os` como palabra."""
+        from hermes.tools._annotations import title_for
+
+        assert title_for("sv_get_os_info") == "Get OS info (Supervisor)"
+        con_os = sorted(n for n in _HINTS_SNAPSHOT if "os" in n.split("_"))
+        assert con_os == [], con_os
+
     def test_esquemas_de_la_1_1_2(self):
         """Las tools de la 1.1.2 conservan los argumentos (nombres y
         obligatorios) de su esquema de entrada (FR-021).
@@ -858,6 +894,25 @@ class TestToolTitles:
         esperado["hermes_guide"] = {
             "properties": sorted([*esperado["hermes_guide"]["properties"], "search"]),
             "required": esperado["hermes_guide"]["required"],
+        }
+        # Segunda diferencia permitida, de la spec 009 (FR-007 de la 009,
+        # FR-031 de la 008): `ha_marketplace_list_removed` gana los argumentos
+        # OPCIONALES `installed_only` y `limit`. Sin ellos la lista es la de la
+        # 1.1.2. Esta excepción entra al integrar la 011 con la 009: cada rama
+        # tenía la suya y la referencia es común.
+        esperado["ha_marketplace_list_removed"] = {
+            "properties": sorted([*esperado["ha_marketplace_list_removed"]["properties"],
+                                  "installed_only", "limit"]),
+            "required": esperado["ha_marketplace_list_removed"]["required"],
+        }
+        # Tercera diferencia permitida, de la spec 013 (FR-007; research R-3):
+        # `sv_get_addon_logs` gana `boot` y `latest`, OPCIONALES. Sin ellos la
+        # petición y la respuesta son las de la 1.1.2 (lo comprueba
+        # `test_tools_supervisor.TestLogsDeAddonPorArranque`).
+        esperado["sv_get_addon_logs"] = {
+            "properties": sorted([*esperado["sv_get_addon_logs"]["properties"],
+                                  "boot", "latest"]),
+            "required": esperado["sv_get_addon_logs"]["required"],
         }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
@@ -927,7 +982,7 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert "generic_commands" in nuevas
+        assert {"generic_commands", "system_diagnostics"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1017,6 +1072,97 @@ class TestRegistroPorFamilias:
             _do_register(["base"])
 
 
+# ── Spec 013: logs del sistema (FR-021, FR-022; T011) ─────────────────────────
+
+
+class TestLogsDelSistema013:
+    """Las seis tools de logs se registran por defecto, solo leen y no piden
+    token; con `system_diagnostics` apagada no existe ninguna, y
+    `sv_get_addon_logs` (familia `supervisor`) conserva `boot` y `latest`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _LOGS_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _LOGS_013}
+        assert props["sv_get_core_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_supervisor_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_plugin_logs"] == {"plugin", "lines", "boot", "latest"}
+        assert props["sv_get_host_logs"] == {"lines", "boot", "identifier"}
+        assert props["sv_list_host_log_identifiers"] == {"search"}
+        assert props["sv_list_boots"] == set()
+        assert tools["sv_get_plugin_logs"].parameters.get("required") == ["plugin"]
+
+    def test_con_la_familia_apagada(self):
+        tools = _real_registry(["system_diagnostics"])
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+        esquema = tools["sv_get_addon_logs"].parameters
+        assert {"boot", "latest"} <= set(esquema["properties"])
+        assert sorted(esquema.get("required", [])) == ["slug"]
+
+
+# ── Spec 013, tramo 2: disco, host y OS (FR-021; T020, T024) ─────────────────
+
+
+class TestHostSystem013:
+    """Las cinco tools de disco, host y OS se registran por defecto, solo leen
+    y no piden token; con `system_diagnostics` apagada no existe ninguna y la
+    tabla sigue apuntándolas como `dedicated`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _HOST_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _HOST_013}
+        assert props == {
+            "sv_list_host_services": {"state"},
+            "sv_get_disk_usage": {"disk", "max_depth"},
+            "sv_get_os_info": set(),
+            "sv_get_swap": set(),
+            "sv_list_datadisk_candidates": set(),
+        }
+        assert not tools["sv_get_disk_usage"].parameters.get("required")
+
+    def test_con_la_familia_apagada_la_tabla_sigue_igual(self):
+        """T024 (FR-021; FR-012 de la 008): apagar la familia quita las tools
+        pero no cambia la tabla: sus 28 entradas siguen `dedicated` y apuntan
+        a tools de `system_diagnostics` o de `supervisor`."""
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["system_diagnostics"])
+        dedicadas = {
+            k: e for k, e in SUPERVISOR.items()
+            if e.category == "dedicated" and e.family == "system_diagnostics"
+        }
+        assert len(dedicadas) == 26
+        assert {e.tool for e in dedicadas.values()} == set(_LOGS_013 + _HOST_013)
+        con_boot = [k for k, e in SUPERVISOR.items()
+                    if e.category == "dedicated" and e.cap == "CAP-081"
+                    and e.family == "supervisor"]
+        assert len(con_boot) == 2
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+
+
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
 
 _MARKETPLACE_TOOLS = (
@@ -1054,6 +1200,14 @@ class TestMarketplaceRegistration:
         from hermes.tools._annotations import classify
 
         assert not classify("ha_marketplace_install").read_only_hint
+
+    def test_retirados_con_argumentos_nuevos_opcionales(self):
+        """009 (FR-007, FR-014): `installed_only` y `limit` existen en el
+        esquema que ve el cliente y no son obligatorios: una llamada de la
+        1.1.2 sin argumentos sigue valiendo."""
+        esquema = _real_registry()["ha_marketplace_list_removed"].parameters
+        assert {"installed_only", "limit"} <= set(esquema["properties"])
+        assert not {"installed_only", "limit"} & set(esquema.get("required", []))
 
 
 # ── Spec 005, bloques A y B: plantas, etiquetas, categorías y diagnóstico ────

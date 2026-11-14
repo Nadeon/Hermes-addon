@@ -162,10 +162,16 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
     "ha_marketplace_list_releases",
     # Genéricas de escritura (spec 011): algunas entradas `confirm` salen a
-    # internet (actualizar un plugin, calendarios remotos). Las de lectura no:
-    # ninguna entrada `read` puede llevar `open_world`.
+    # internet (actualizar un plugin, calendarios remotos).
     "ha_call_ws_command",
     "sv_call_api",
+    # Y la de lectura de Core: `media_source/browse_media` y `search_media`
+    # consultan APIs externas cuando la fuente es remota (radio_browser,
+    # google_photos, immich…). Una tool no puede decir que no sale a internet
+    # si algún comando suyo lo hace (principio V; T047). `sv_read_api` no:
+    # ninguna ruta `read` del Supervisor sale. tests/test_command_table.py
+    # ata esta lista a las marcas `open_world` de la tabla.
+    "ha_read_ws_command",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -232,6 +238,9 @@ _TITLE_WORDS: dict[str, str] = {
     # Spec 011: `sv_read_api` → «Read API (Supervisor)». Ninguna tool de la
     # 1.1.2 tiene `api` como palabra, así que no cambia ningún título.
     "api": "API",
+    # Spec 013: `sv_get_os_info` → «Get OS info (Supervisor)». Ninguna tool
+    # de la 1.1.2 tiene `os` como palabra (lo comprueba un test).
+    "os": "OS",
     # «addon» es como se escribe en el código; Home Assistant lo llama add-on.
     "addon": "add-on",
     "addons": "add-ons",

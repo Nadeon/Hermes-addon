@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 220 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 231 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -117,7 +117,7 @@ milisegundos) o con `timeout` en la entrada del servidor.
 |---|---|---|
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (por ejemplo `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**. Ver el aviso de abajo |
-| `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los nombres `*.ts.net` y las IPs (salvo las de loopback) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
+| `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs (salvo las de loopback, y también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `tool_families_disabled` | `[]` | Familias de tools que Hermes no registra, para que el cliente cargue menos tools en su contexto. Vacía, están todas. Ver «Familias de tools» |
 
 **Aviso sobre `oauth_cimd_allowed_hosts`.** Con CIMD, quien abre la página de
@@ -172,6 +172,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `lovelace` | 10 | Dashboards y recursos de Lovelace |
 | `marketplace` | 11 | Marketplace y alias `ha_hacs_*` (solo lectura) |
 | `generic_commands` | 4 | Las tools genéricas (nueva en 1.2.0, ver abajo) |
+| `system_diagnostics` | 11 | Logs de Core, del Supervisor, de los plugins y del journal del host, también de arranques anteriores; servicios del host, uso de disco, Home Assistant OS y swap (nueva en 1.2.0, solo lectura) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -183,8 +184,9 @@ tool_families_disabled:
 
 Un nombre que no esté en la tabla, o `base`, impide arrancar: el log dice qué
 valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
-familias desactivadas y cuántas tools quedan. Con `generic_commands`
-desactivada, la lista de tools es exactamente la de la 1.1.2.
+familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
+1.2.0 (`generic_commands` y `system_diagnostics`) desactivadas, la lista de
+tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

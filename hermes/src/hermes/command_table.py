@@ -83,7 +83,10 @@ CORE_WS: dict[str, E] = {
     # backup.create crea un backup fijo en el agente local (y en HAOS ni existe);
     # elegir agentes y contenido es ha_create_backup (CAP-057, spec 031).
     "backup/generate": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands"),
-    "backup/generate_with_automatic_settings": E("dedicated", "cubierto por ha_call_service (acción de HA)", "services", tool="ha_call_service"),
+    # Su acción, `backup.create_automatic`, está en la denylist: `ha_call_service` la
+    # ejecuta, pero solo en dos pasos. `use_dedicated_tool` no dice qué acción ni
+    # que pide confirmación, así que el motivo lo dice (T046).
+    "backup/generate_with_automatic_settings": E("deny", "pendiente de tool dedicada (spec 031); mientras, `ha_call_service` con `backup.create_automatic`, que pide confirmación (denylist)", "generic_commands"),
     "backup/info": E("dedicated", "cubierto por ha_list_backups", "backups", tool="ha_list_backups"),
     # SOBRESCRIBE Core, apps y datos desde cualquier ubicación, también remota.
     # La vista previa genérica no enseña fecha, contenido ni tamaño del backup como
@@ -269,7 +272,10 @@ CORE_WS: dict[str, E] = {
     "hassio/update/addon": E("dedicated", "cubierto por sv_update_addon", "supervisor", tool="sv_update_addon"),
     "hassio/update/config/info": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
     "hassio/update/config/update": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
-    "hassio/update/core": E("dedicated", "cubierto por ha_call_service (acción de HA)", "services", tool="ha_call_service"),
+    # `hassio.core_update` ya no existe en 2026.11: la vía es `update.install` sobre
+    # la entidad update de Core, que está en la denylist (dos pasos). Ver la nota de
+    # `backup/generate_with_automatic_settings` (T046).
+    "hassio/update/core": E("deny", "pendiente de tool dedicada (spec 015); mientras, `ha_call_service` con `update.install` sobre la entidad update de Core, que pide confirmación (denylist)", "generic_commands"),
     "history/history_during_period": E("dedicated", "cubierto por ha_get_history", "data", tool="ha_get_history"),
     "history/stream": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "history_stats/start_preview": E("deny", "vista previa en vivo del formulario de un helper en la UI (clase B)", "generic_commands"),
@@ -385,7 +391,10 @@ CORE_WS: dict[str, E] = {
     "lcn/entities/delete": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "llm/api/list": E("read", "APIs de LLM registradas; solo lee", "generic_commands", cap="CAP-062"),
     "logbook/event_stream": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "logbook/get_action_calls": E("read", "auditoría de llamadas a acciones en un intervalo (los datos pueden llevar códigos: la respuesta se redacta); solo lee", "generic_commands", cap="CAP-058"),
+    # `service_data` es el de la llamada entera: un `alarm_disarm` o un `lock.unlock`
+    # lleva `code` (texto o número), que no es un marcador de redact_structure.
+    # Por eso HA lo hace admin-only, y aquí `code` se tapa con redact_extra (T044).
+    "logbook/get_action_calls": E("read", "auditoría de llamadas a acciones en un intervalo; el `code` de alarmas y cerraduras sale tapado; solo lee", "generic_commands", cap="CAP-058", redact_extra=("code",)),
     "logbook/get_events": E("dedicated", "cubierto por ha_get_logbook", "data", tool="ha_get_logbook"),
     # logger.set_level no persiste ni cubre todos los loggers de la integración;
     # ha_set_log_level es la de CAP-041 (spec 012).
@@ -445,13 +454,16 @@ CORE_WS: dict[str, E] = {
     "matter/subscribe_network_topology": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-102"),
     "media_player/browse_media": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
     "media_player/search_media": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
-    "media_source/browse_media": E("read", "navega por las fuentes de medios; solo lee", "generic_commands", cap="CAP-067"),
+    # Con una fuente remota (radio_browser, google_photos, immich…) navegar y buscar
+    # consultan APIs de internet: `read` de mundo abierto, y por eso
+    # ha_read_ws_command se anuncia con openWorldHint (T047).
+    "media_source/browse_media": E("read", "navega por las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
     "media_source/local_source/remove": E("confirm", "borra del disco un fichero de medios locales (irreversible)", "generic_commands", cap="CAP-067"),
     # async_process_play_media_url firma la ruta con async_sign_path y `expires` es
     # libre (media_source/http.py de Core 2026.11.1). La 008 (FR-087) la daba como
     # lectura; se deniega por coherencia con auth/sign_path.
     "media_source/resolve_media": E("deny", "devuelve una URL firmada (authSig) con la caducidad que pida quien llama: es una credencial temporal, como auth/sign_path (clase D)", "generic_commands", cap="CAP-067"),
-    "media_source/search_media": E("read", "busca en las fuentes de medios; solo lee", "generic_commands", cap="CAP-067"),
+    "media_source/search_media": E("read", "busca en las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
     "mobile_app/push_notification_channel": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "mobile_app/push_notification_confirm": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "modbus/connections/list": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
@@ -702,19 +714,19 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/addons/{app}/info"): E("dedicated", "cubierto por sv_get_addon", "supervisor", tool="sv_get_addon"),
     ("GET", "/addons/{app}/logo"): E("deny", "alias legado de /store/addons/{app}/logo (clase B)", "generic_commands"),
     ("GET", "/addons/{app}/logs"): E("dedicated", "cubierto por sv_get_addon_logs", "supervisor", tool="sv_get_addon_logs"),
-    ("GET", "/addons/{app}/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/addons/{app}/logs/boots/{bootid}"): E("dedicated", "cubierto por sv_get_addon_logs", "supervisor", tool="sv_get_addon_logs", cap="CAP-081"),
     ("GET", "/addons/{app}/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/addons/{app}/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/addons/{app}/logs/latest"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/addons/{app}/logs/latest"): E("dedicated", "cubierto por sv_get_addon_logs", "supervisor", tool="sv_get_addon_logs", cap="CAP-081"),
     ("GET", "/addons/{app}/options/config"): E("deny", "solo la propia app puede leerla (`self`): sería la configuración de Hermes con los secretos resueltos (uso interno de Hermes al arrancar)", "generic_commands"),
     ("GET", "/addons/{app}/stats"): E("dedicated", "cubierto por sv_get_addon_stats", "supervisor", tool="sv_get_addon_stats"),
     ("GET", "/app/{filename}"): E("deny", "Panel del frontend del Supervisor (clase B)", "generic_commands"),
     ("GET", "/audio/info"): E("read", "plugin de audio: versión, tarjetas, entradas y salidas; solo lee", "generic_commands", cap="CAP-091"),
-    ("GET", "/audio/logs"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/audio/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/audio/logs"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
+    ("GET", "/audio/logs/boots/{bootid}"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
     ("GET", "/audio/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/audio/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/audio/logs/latest"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/audio/logs/latest"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
     ("GET", "/audio/stats"): E("read", "CPU, memoria y red del plugin de audio; solo lee", "generic_commands", cap="CAP-091"),
     ("GET", "/auth"): E("deny", "valida usuario y contraseña de HA para el login de una app; Hermes no autentica personas (clase B)", "generic_commands"),
     ("GET", "/auth/list"): E("deny", "Usuarios; Core lo da por WS (`config/auth/list`) (clase B)", "generic_commands"),
@@ -730,21 +742,21 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/core/api/websocket"): E("deny", "proxy de Core: llegaría a la API REST de Core saltándose la denylist y las guardas de las tools ha_* (siempre rechazado)", "generic_commands"),
     ("GET", "/core/api/{path}"): E("deny", "proxy de Core: llegaría a la API REST de Core saltándose la denylist y las guardas de las tools ha_* (siempre rechazado)", "generic_commands"),
     ("GET", "/core/info"): E("dedicated", "cubierto por sv_get_core_info", "supervisor", tool="sv_get_core_info"),
-    ("GET", "/core/logs"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/core/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/core/logs"): E("dedicated", "cubierto por sv_get_core_logs", "system_diagnostics", tool="sv_get_core_logs", cap="CAP-081"),
+    ("GET", "/core/logs/boots/{bootid}"): E("dedicated", "cubierto por sv_get_core_logs", "system_diagnostics", tool="sv_get_core_logs", cap="CAP-081"),
     ("GET", "/core/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/core/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/core/logs/latest"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/core/logs/latest"): E("dedicated", "cubierto por sv_get_core_logs", "system_diagnostics", tool="sv_get_core_logs", cap="CAP-081"),
     ("GET", "/core/stats"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
     ("GET", "/core/websocket"): E("deny", "alias del WebSocket de Core: llegaría a Core saltándose las guardas de las tools ha_* (clase B)", "generic_commands"),
     ("GET", "/discovery"): E("deny", "mensajes con que las apps anuncian su integración a Core; los gestionan las apps y Core, no un cliente MCP (clase B)", "generic_commands"),
     ("GET", "/discovery/{uuid}"): E("deny", "mensajes con que las apps anuncian su integración a Core; los gestionan las apps y Core, no un cliente MCP (clase B)", "generic_commands"),
     ("GET", "/dns/info"): E("read", "plugin DNS: versión, servidores, fallback, LLMNR y mDNS; solo lee", "generic_commands", cap="CAP-091"),
-    ("GET", "/dns/logs"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/dns/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/dns/logs"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
+    ("GET", "/dns/logs/boots/{bootid}"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
     ("GET", "/dns/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/dns/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/dns/logs/latest"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/dns/logs/latest"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
     ("GET", "/dns/stats"): E("read", "CPU, memoria y red del plugin DNS; solo lee", "generic_commands", cap="CAP-091"),
     ("GET", "/docker/info"): E("read", "Docker: versión, storage driver, logging, IPv6, MTU y registros (solo el usuario); solo lee", "generic_commands", cap="CAP-088"),
     ("GET", "/docker/registries"): E("read", "registros Docker privados (solo el usuario, nunca la contraseña); solo lee", "generic_commands", cap="CAP-092"),
@@ -762,32 +774,37 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/homeassistant/logs/latest"): E("deny", "alias legado de /core/logs/latest (clase B)", "generic_commands"),
     ("GET", "/homeassistant/stats"): E("deny", "alias legado de /core/stats (clase B)", "generic_commands"),
     ("GET", "/homeassistant/websocket"): E("deny", "alias legado del WebSocket de Core: llegaría a Core saltándose las guardas de las tools ha_* (clase B)", "generic_commands"),
-    ("GET", "/host/disks"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
-    ("GET", "/host/disks/{disk}/usage"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
+    # Spec 013 (research R-5): lectura menor de CAP-085 que va por la tabla y no
+    # por una tool; sirve para crear montajes (019). El número de serie va en la
+    # respuesta, no en el log (research R-7).
+    ("GET", "/host/disks"): E("read", "discos locales con particiones montables (para crear montajes); solo lee", "generic_commands", cap="CAP-085"),
+    ("GET", "/host/disks/{disk}/usage"): E("dedicated", "cubierto por sv_get_disk_usage", "system_diagnostics", tool="sv_get_disk_usage", cap="CAP-085"),
     ("GET", "/host/info"): E("dedicated", "cubierto por sv_get_host_info", "supervisor", tool="sv_get_host_info"),
-    ("GET", "/host/logs"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/host/logs/boots"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/host/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/host/logs"): E("dedicated", "cubierto por sv_get_host_logs", "system_diagnostics", tool="sv_get_host_logs", cap="CAP-081"),
+    ("GET", "/host/logs/boots"): E("dedicated", "cubierto por sv_list_boots", "system_diagnostics", tool="sv_list_boots", cap="CAP-081"),
+    ("GET", "/host/logs/boots/{bootid}"): E("dedicated", "cubierto por sv_get_host_logs", "system_diagnostics", tool="sv_get_host_logs", cap="CAP-081"),
     ("GET", "/host/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/host/logs/boots/{bootid}/identifiers/{identifier}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/host/logs/boots/{bootid}/identifiers/{identifier}"): E("dedicated", "cubierto por sv_get_host_logs", "system_diagnostics", tool="sv_get_host_logs", cap="CAP-081"),
     ("GET", "/host/logs/boots/{bootid}/identifiers/{identifier}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/host/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/host/logs/identifiers"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/host/logs/identifiers/{identifier}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/host/logs/identifiers"): E("dedicated", "cubierto por sv_list_host_log_identifiers", "system_diagnostics", tool="sv_list_host_log_identifiers", cap="CAP-081"),
+    ("GET", "/host/logs/identifiers/{identifier}"): E("dedicated", "cubierto por sv_get_host_logs", "system_diagnostics", tool="sv_get_host_logs", cap="CAP-081"),
     ("GET", "/host/logs/identifiers/{identifier}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/host/services"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
+    ("GET", "/host/services"): E("dedicated", "cubierto por sv_list_host_services", "system_diagnostics", tool="sv_list_host_services", cap="CAP-085"),
     # sv_get_supervisor_info solo saca `machine` y `docker` de esta ruta.
     ("GET", "/info"): E("read", "información general del sistema (versiones, máquina, arquitectura, canal, zona horaria); solo lee", "generic_commands"),
     ("GET", "/ingress/panels"): E("deny", "Paneles de ingress del frontend (clase B)", "generic_commands"),
-    ("GET", "/jobs/info"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-087"),
+    # Spec 013 (research R-5): FR-046 de la 008 la pone en la tabla; es una
+    # lectura de prioridad media y el tope central recorta bien su lista.
+    ("GET", "/jobs/info"): E("read", "todos los jobs del Supervisor (nombre, progreso, estado, errores, hijos) y si se ignoran condiciones; solo lee", "generic_commands", cap="CAP-087"),
     ("GET", "/jobs/{uuid}"): E("dedicated", "cubierto por sv_get_job_status", "backups", tool="sv_get_job_status"),
     ("GET", "/mounts"): E("deny", "pendiente de tool dedicada (spec 019)", "generic_commands", cap="CAP-083"),
     ("GET", "/multicast/info"): E("read", "plugin multicast: versión; solo lee", "generic_commands", cap="CAP-091"),
-    ("GET", "/multicast/logs"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/multicast/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/multicast/logs"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
+    ("GET", "/multicast/logs/boots/{bootid}"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
     ("GET", "/multicast/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/multicast/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/multicast/logs/latest"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/multicast/logs/latest"): E("dedicated", "cubierto por sv_get_plugin_logs", "system_diagnostics", tool="sv_get_plugin_logs", cap="CAP-081"),
     ("GET", "/multicast/stats"): E("read", "CPU, memoria y red del plugin multicast; solo lee", "generic_commands", cap="CAP-091"),
     ("GET", "/network/info"): E("read", "red del host (interfaces, Docker, conectividad); la clave Wi-Fi nunca sale (solo psk_set); solo lee", "generic_commands", cap="CAP-089"),
     ("GET", "/network/interface/{interface}/accesspoints"): E("read", "escanea las redes Wi-Fi visibles; no cambia la configuración", "generic_commands", cap="CAP-089"),
@@ -801,12 +818,14 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/os/boards/raspberrypi/firmware"): E("read", "versión del firmware/EEPROM de la Raspberry Pi y si hay actualización; solo lee", "generic_commands", cap="CAP-094"),
     ("GET", "/os/boards/yellow"): E("read", "LED de Home Assistant Yellow; solo lee", "generic_commands", cap="CAP-094"),
     ("GET", "/os/boards/{board}"): E("read", "comprueba si la placa indicada es la que está en uso (respuesta vacía); solo lee", "generic_commands", cap="CAP-094"),
-    ("GET", "/os/config/swap"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
-    ("GET", "/os/datadisk/list"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
-    ("GET", "/os/info"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
+    ("GET", "/os/config/swap"): E("dedicated", "cubierto por sv_get_swap", "system_diagnostics", tool="sv_get_swap", cap="CAP-085"),
+    ("GET", "/os/datadisk/list"): E("dedicated", "cubierto por sv_list_datadisk_candidates", "system_diagnostics", tool="sv_list_datadisk_candidates", cap="CAP-085"),
+    ("GET", "/os/info"): E("dedicated", "cubierto por sv_get_os_info", "system_diagnostics", tool="sv_get_os_info", cap="CAP-085"),
     ("GET", "/os/ssh/authorized_keys"): E("deny", "Acceso root por SSH; solo Core (clase D)", "generic_commands"),
     ("GET", "/resolution/info"): E("dedicated", "cubierto por sv_get_resolution", "diagnostics", tool="sv_get_resolution"),
-    ("GET", "/resolution/issue/{issue}/suggestions"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-087"),
+    # Spec 013 (research R-5): sv_get_resolution ya trae las sugerencias; esta
+    # ruta solo filtra las de un issue.
+    ("GET", "/resolution/issue/{issue}/suggestions"): E("read", "sugerencias que arreglan un issue del centro de resolución; solo lee", "generic_commands", cap="CAP-087"),
     ("GET", "/security/info"): E("read", "ajustes de seguridad del Supervisor (content_trust, pwned, force_security); solo lee", "generic_commands", cap="CAP-088"),
     ("GET", "/services"): E("deny", "Descubrimiento entre apps (clase B)", "generic_commands"),
     ("GET", "/services/{service}"): E("deny", "Credenciales MQTT/MySQL; requiere `services:` en config (clase B)", "generic_commands"),
@@ -825,11 +844,11 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     # sv_get_supervisor_info solo devuelve unos campos de esta ruta (versión, canal,
     # salud, arquitectura): no es equivalente, así que la ruta completa va por la tabla.
     ("GET", "/supervisor/info"): E("read", "estado completo del Supervisor (versiones, canal, salud, apps instaladas, opciones de diagnóstico); solo lee", "generic_commands"),
-    ("GET", "/supervisor/logs"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
-    ("GET", "/supervisor/logs/boots/{bootid}"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/supervisor/logs"): E("dedicated", "cubierto por sv_get_supervisor_logs", "system_diagnostics", tool="sv_get_supervisor_logs", cap="CAP-081"),
+    ("GET", "/supervisor/logs/boots/{bootid}"): E("dedicated", "cubierto por sv_get_supervisor_logs", "system_diagnostics", tool="sv_get_supervisor_logs", cap="CAP-081"),
     ("GET", "/supervisor/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/supervisor/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/supervisor/logs/latest"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-081"),
+    ("GET", "/supervisor/logs/latest"): E("dedicated", "cubierto por sv_get_supervisor_logs", "system_diagnostics", tool="sv_get_supervisor_logs", cap="CAP-081"),
     # Hermes lo usa al arrancar; ninguna tool lo expone y no cambia nada.
     ("GET", "/supervisor/ping"): E("read", "comprueba que el Supervisor responde; solo lee", "generic_commands"),
     ("GET", "/supervisor/stats"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
@@ -877,7 +896,7 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/core/stop"): E("deny", "Hermes depende del WebSocket de Core: su watchdog lo reiniciaría y el usuario queda sin UI (clase D)", "generic_commands"),
     ("POST", "/core/update"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
     ("POST", "/discovery"): E("deny", "Una app anuncia su integración (clase B)", "generic_commands"),
-    ("POST", "/dns/options"): E("confirm", "cambia los servidores DNS y fallback/LLMNR/mDNS del host (reinicia el plugin DNS)", "generic_commands", cap="CAP-091"),
+    ("POST", "/dns/options"): E("confirm", "cambia los servidores DNS del plugin DNS (`servers`) y si usa el DNS de reserva (`fallback`); es lo único que admite, y reinicia el plugin", "generic_commands", cap="CAP-091"),
     ("POST", "/dns/reset"): E("confirm", "restablece la configuración del plugin DNS", "generic_commands", cap="CAP-091"),
     ("POST", "/dns/restart"): E("confirm", "reinicia el plugin DNS", "generic_commands", cap="CAP-091"),
     ("POST", "/dns/update"): E("confirm", "actualiza el plugin DNS (descarga la imagen nueva)", "generic_commands", cap="CAP-091", open_world=True),

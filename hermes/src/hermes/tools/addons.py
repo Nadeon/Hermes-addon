@@ -13,7 +13,8 @@ Tools:
   sv_install_addon      — instala desde el store (token + async job)
   sv_uninstall_addon    — desinstala (token + async job)
   sv_update_addon       — actualiza a la última versión (token + async job)
-  sv_get_addon_logs     — logs recientes (REDACTADOS de secretos)
+  sv_get_addon_logs     — logs recientes (REDACTADOS de secretos), también
+                          de un arranque anterior (`boot`, `latest`)
   sv_get_addon_stats    — CPU / RAM / red del add-on
 
 Auto-protección: si el slug del add-on objetivo es el propio Hermes
@@ -39,7 +40,7 @@ import structlog
 
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
-from hermes.logging_setup import redact_network
+from hermes.logging_setup import network_redaction_enabled, redact_network
 from hermes.security import (
     REDACTED_MARKER,
     redact_structure,
@@ -49,6 +50,12 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools._common import tam_json
+from hermes.tools._logs import (
+    ArgumentoInvalido,
+    comprobar_latest,
+    normalizar_boot,
+    ruta_de_log,
+)
 from hermes.tools._validation import InvalidIdentifier, validate_slug
 
 logger = structlog.get_logger(__name__)
@@ -849,6 +856,10 @@ def register(
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
+        Hermes no puede actualizarse a sí mismo: con su propio slug (o `self`)
+        responde `self_update_not_supported`, sin token; se actualiza desde la
+        interfaz de Home Assistant.
+
         Args:
             slug: Identificador del add-on.
             confirmation_token: Token del preview anterior.
@@ -857,9 +868,23 @@ def register(
             Sin token: {"confirmation_token": "...", "preview": {...}}
             Con token: {"job_id": "...", "status": "running",
                         "poll_with": "sv_get_job_status"}
+            Sobre Hermes: {"error": "self_update_not_supported", "detail": "..."}
         """
         if (err := _bad_slug(slug)):
             return err
+        if _es_hermes(slug):
+            # El Supervisor responde 403 («can't update itself») cuando un
+            # add-on pide su propia actualización: la vista previa de la 1.1.2
+            # daba un token para algo imposible. Se rechaza antes de cualquier
+            # petición y sin tocar el token que se traiga (FR-010 de la 009).
+            return {
+                "error": "self_update_not_supported",
+                "detail": (
+                    "Hermes cannot update itself through the Supervisor API. "
+                    "Update it from the Home Assistant UI: "
+                    "Settings > Add-ons > Hermes > Update."
+                ),
+            }
         tool_name = "sv_update_addon"
         args: dict[str, Any] = {"slug": slug}
 
@@ -883,9 +908,6 @@ def register(
             }
             if not avail and avail is not None:
                 preview["note"] = "No update available at this time."
-            w = _self_warning(slug, "updating")
-            if w:
-                preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
 
         valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
@@ -917,7 +939,12 @@ def register(
             return {"error": str(exc)}
 
     @mcp.tool()
-    async def sv_get_addon_logs(slug: str, lines: int = 100) -> object:
+    async def sv_get_addon_logs(
+        slug: str,
+        lines: int = 100,
+        boot: int | str | None = None,
+        latest: bool = False,
+    ) -> object:
         """Lee los logs recientes de un add-on.
 
         Los logs se REDACTAN automáticamente antes de ser devueltos:
@@ -934,28 +961,67 @@ def register(
         Args:
             slug: Identificador del add-on.
             lines: Número de líneas a devolver (default 100, máx 1000).
+            boot: Opcional (1.2.0): arranque a leer, como desplazamiento
+                entero (0 = el actual, -1 = el anterior) o un id de
+                `sv_list_boots`. Sin `boot` ni `latest`, la petición y la
+                respuesta son las de siempre.
+            latest: Opcional (1.2.0): solo las líneas desde el último arranque
+                del contenedor del add-on. No se combina con `boot`.
 
         Returns:
             {"slug": "...", "lines_requested": N, "redacted": bool,
+             "secrets_redacted": bool, "network_redacted": bool,
              "logs": "texto del log"}
+            `redacted`: el texto devuelto difiere del leído.
+            `secrets_redacted`: esta llamada sustituyó al menos un secreto.
+            `network_redacted`: se aplicó la redacción de red (log de Hermes
+            con `log_redact_network` activo), aunque el texto ya viniera
+            redactado y no cambie; `false` para otros add-ons.
             `lines_requested` es el número pedido después de acotarlo a
             [1, 1000]; el log devuelto puede traer menos líneas si el add-on
             no tiene más. Si el log no cabe en `response_max_bytes`, se
             devuelven sus ÚLTIMAS líneas que caben, con `truncated: true`,
             `lines_returned` y una pista.
+            Con `boot` o `latest`, la respuesta lleva además `route` (la
+            plantilla de la ruta) y `boot` o `latest`. Un `boot` inválido, o
+            `boot` con `latest`, devuelve {"error": "invalid_argument",
+            "field", "detail"} sin llamar al Supervisor.
         """
         if (err := _bad_slug(slug)):
             return err
+        # Spec 013 (FR-007): `boot` y `latest` son opcionales y, sin ellos, la
+        # petición y la respuesta son las de la 1.1.2 (FR-020 de la 008). La
+        # validación es la de las tools de logs del sistema (`tools/_logs.py`).
+        try:
+            boot_n = normalizar_boot(boot)
+            comprobar_latest(boot_n, latest)
+        except ArgumentoInvalido as exc:
+            return exc.respuesta()
+        ruta, plantilla = ruta_de_log(f"/addons/{slug}", "/addons/{app}", boot_n, latest)
+        por_arranque = boot_n is not None or latest
         lines = min(max(1, lines), 1000)
         try:
             raw = await ha_client.sv_request_text(
-                f"/addons/{slug}/logs",
+                ruta,
                 params={"lines": str(lines)},
             )
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            # El mensaje del Supervisor puede repetir parte de la petición o
+            # del log: se redacta como el log (FR-024 de la 013), y con la red
+            # tapada si es el de Hermes. La forma `{"error": …}` es la de la
+            # 1.1.2.
+            mensaje = redact_secrets(str(exc))
+            if _es_hermes(slug):
+                mensaje = redact_network(mensaje)
+            return {"error": mensaje}
 
         redacted = redact_secrets(raw)
+        secrets_redacted = redacted != raw
+        # `redacted` solo dice si el texto cambió. El log de Hermes ya se
+        # escribe con la red tapada, así que lo normal es que no cambie aunque
+        # la redacción de red se haya aplicado: sin este campo el agente leía
+        # `redacted: false` y no podía saberlo (FR-005 de la 009).
+        network_redacted = _es_hermes(slug) and network_redaction_enabled()
         if _es_hermes(slug):
             # El log de Hermes se pide para pegarlo en un issue, y las líneas
             # escritas por versiones anteriores (o con la opción recién
@@ -963,18 +1029,33 @@ def register(
             # hace nada si la opción está desactivada.
             redacted = redact_network(redacted)
         was_redacted = redacted != raw
+        # La plantilla de la ruta, nunca el id de arranque, y solo si se pidió
+        # un arranque: sin `boot` ni `latest` el evento es el de antes.
+        extra_log: dict[str, Any] = {"route": plantilla} if por_arranque else {}
         logger.info(
             "sv_get_addon_logs",
             slug=slug,
             lines=lines,
             bytes=len(raw),
             redacted=was_redacted,
+            secrets_redacted=secrets_redacted,
+            network_redacted=network_redacted,
+            **extra_log,
         )
-        return _ultimas_lineas_que_caben(
-            {"slug": slug, "lines_requested": lines, "redacted": was_redacted},
-            redacted,
-            response_max_bytes,
-        )
+        respuesta: dict[str, Any] = {
+            "slug": slug,
+            "lines_requested": lines,
+            "redacted": was_redacted,
+            "secrets_redacted": secrets_redacted,
+            "network_redacted": network_redacted,
+        }
+        if por_arranque:
+            respuesta["route"] = plantilla
+            if boot_n is not None:
+                respuesta["boot"] = boot_n
+            if latest:
+                respuesta["latest"] = True
+        return _ultimas_lineas_que_caben(respuesta, redacted, response_max_bytes)
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:

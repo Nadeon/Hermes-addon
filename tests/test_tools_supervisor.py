@@ -1197,3 +1197,292 @@ class TestSelfProtectionWorksWhereverItIsInstalled(unittest.TestCase):
         self.assertIsNotNone(aviso, "sin aviso al pararse a sí mismo")
         self.assertIn("unavailable", aviso)
         self.assertIsNone(_self_warning("core_mosquitto", "Stopping"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 009 — FR-005: sv_get_addon_logs dice qué redactó
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestQueRedactoElLog(unittest.IsolatedAsyncioTestCase):
+    """`redacted` solo dice si el texto cambió, no qué se tapó (FR-005).
+
+    En la prueba en vivo de la 1.1.1 el log de Hermes ya venía con la red
+    tapada (se redacta al escribir), no traía secretos y la tool dijo
+    `redacted: false`: el agente no podía saber que la redacción de red se
+    había aplicado. `secrets_redacted` y `network_redacted` lo separan.
+    """
+
+    _HERMES = "a1b2c3d4_hermes"
+
+    def setUp(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        from hermes.tools.addons import register
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        self.client = MockHAClient()
+        mcp = DummyMCP()
+        register(mcp, self.client)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        # Estado del módulo: desactivado, como en el arranque.
+        configure_network_redaction(False, "")
+
+    def _log(self, slug: str, texto: str) -> None:
+        self.client.set_sv_text_response(f"/addons/{slug}/logs", texto)
+
+    async def test_log_de_hermes_ya_redactado(self) -> None:
+        self._log(self._HERMES, "conexión desde <ip:private:0a1b2c3d>\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertFalse(r["redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertTrue(r["network_redacted"])
+
+    async def test_otro_addon_con_secreto(self) -> None:
+        self._log("core_mosquitto", "password: centinela-9876\n")
+        r = await self.tools["sv_get_addon_logs"]("core_mosquitto")
+        self.assertTrue(r["redacted"])
+        self.assertTrue(r["secrets_redacted"])
+        self.assertFalse(r["network_redacted"])
+        self.assertNotIn("centinela-9876", r["logs"])
+
+    async def test_hermes_con_la_redaccion_desactivada(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(False, "")
+        self._log(self._HERMES, "conexión desde 10.0.0.5\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertFalse(r["network_redacted"])
+        self.assertFalse(r["redacted"])
+        self.assertIn("10.0.0.5", r["logs"])
+
+    async def test_hermes_con_una_ip_en_claro(self) -> None:
+        self._log(self._HERMES, "conexión desde 10.0.0.5\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertTrue(r["redacted"])
+        self.assertTrue(r["network_redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertNotIn("10.0.0.5", r["logs"])
+
+    async def test_el_evento_lleva_los_tres_campos(self) -> None:
+        from structlog.testing import capture_logs
+        self._log("core_mosquitto", "password: centinela-9876\n")
+        with capture_logs() as eventos:
+            await self.tools["sv_get_addon_logs"]("core_mosquitto")
+        ev = [e for e in eventos if e["event"] == "sv_get_addon_logs"]
+        self.assertEqual(len(ev), 1)
+        self.assertIs(ev[0]["redacted"], True)
+        self.assertIs(ev[0]["secrets_redacted"], True)
+        self.assertIs(ev[0]["network_redacted"], False)
+
+    async def test_el_recorte_por_tamano_conserva_los_campos(self) -> None:
+        from hermes.tools.addons import register
+        mcp = DummyMCP()
+        register(mcp, self.client, response_max_bytes=2048)
+        self._log(self._HERMES, "".join(f"línea {i} desde 10.0.0.5\n" for i in range(400)))
+        r = await mcp.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertTrue(r["truncated"])
+        self.assertTrue(r["redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertTrue(r["network_redacted"])
+
+    async def test_tapa_el_host_de_la_url_externa_de_ha(self) -> None:
+        from hermes.logging_setup import set_ha_url_hosts
+        set_ha_url_hosts("casa.example.org", None)
+        self._log(self._HERMES, "GET https://casa.example.org/api/states\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertNotIn("casa.example.org", r["logs"])
+        self.assertIn("<ha_external_host>", r["logs"])
+        self.assertTrue(r["network_redacted"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 013 — FR-007: sv_get_addon_logs con `boot` y `latest`
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestLogsDeAddonPorArranque(unittest.IsolatedAsyncioTestCase):
+    """`boot` y `latest` son opcionales; sin ellos, la petición y la respuesta
+    son EXACTAMENTE las de antes (FR-007, FR-022; FR-020 de la 008).
+
+    Control negativo (T013 g): añadir `route` a la respuesta siempre → cae
+    `test_sin_boot_ni_latest_identica_a_la_1_1_2`.
+    """
+
+    _HERMES = "a1b2c3d4_hermes"
+
+    def setUp(self) -> None:
+        from tests.fixtures.supervisor_diagnostico import SupervisorSimulado
+        self.sv = SupervisorSimulado()
+        mcp = DummyMCP()
+        addons_mod.register(mcp, self.sv)
+        self.tools = mcp.tools
+
+    async def test_sin_boot_ni_latest_identica_a_la_1_1_2(self) -> None:
+        from tests.fixtures.supervisor_diagnostico import log_con_centinelas
+        self.sv.texto("/addons/core_ficticio/logs", log_con_centinelas())
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", lines=50)
+        # Petición y respuesta capturadas ANTES de añadir `boot` y `latest`.
+        self.assertEqual(self.sv.llamadas, [{
+            "metodo": "GET", "ruta": "/addons/core_ficticio/logs",
+            "params": {"lines": "50"}, "timeout": 60.0, "texto": True}])
+        self.assertEqual(r, {
+            "slug": "core_ficticio", "lines_requested": 50, "redacted": True,
+            "secrets_redacted": True, "network_redacted": False,
+            "logs": (
+                "2026-11-14 12:00:00 core: arrancando\n"
+                "2026-11-14 12:00:01 core: password: ***REDACTED***\n"
+                "2026-11-14 12:00:02 core: Authorization: ***REDACTED*** ***JWT_REDACTED***\n"
+                "2026-11-14 12:00:03 core: GET /api?token=***REDACTED***\n"
+                "2026-11-14 12:00:04 core: listo\n"
+            ),
+        })
+
+    async def test_latest(self) -> None:
+        self.sv.texto("/addons/core_ficticio/logs/latest", "x\n")
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", latest=True)
+        self.assertEqual([c["ruta"] for c in self.sv.llamadas],
+                         ["/addons/core_ficticio/logs/latest"])
+        self.assertEqual(self.sv.llamadas[0]["params"], {"lines": "100"})
+        self.assertEqual(r["route"], "/addons/{app}/logs/latest")
+        self.assertIs(r["latest"], True)
+        self.assertNotIn("boot", r)
+        self.assertEqual(r["slug"], "core_ficticio")
+        self.assertEqual(r["logs"], "x\n")
+
+    async def test_boot(self) -> None:
+        for boot in (-1, "-1"):
+            with self.subTest(boot=boot):
+                self.sv.llamadas.clear()
+                self.sv.texto("/addons/core_ficticio/logs/boots/-1", "x\n")
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=boot)
+                self.assertEqual([c["ruta"] for c in self.sv.llamadas],
+                                 ["/addons/core_ficticio/logs/boots/-1"])
+                self.assertEqual(r["route"], "/addons/{app}/logs/boots/{bootid}")
+                self.assertEqual(r["boot"], -1)
+                self.assertNotIn("latest", r)
+
+    async def test_invalidos_sin_llamada(self) -> None:
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=-1, latest=True)
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "latest"))
+        for boot in ("abc", 1000, "../x", 1.5):
+            with self.subTest(boot=boot):
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=boot)
+                self.assertEqual((r["error"], r["field"]), ("invalid_argument", "boot"))
+        self.assertEqual(self.sv.llamadas, [])
+
+    async def test_error_del_supervisor_redactado(self) -> None:
+        """T030: el error del Supervisor se redacta como el log (FR-024), con
+        y sin `boot`/`latest`, sin cambiar la forma `{"error": …}`. Control
+        negativo: volver a `{"error": str(exc)}` → cae (el centinela sale en
+        claro)."""
+        from hermes.ha import HAConnectionError
+        from tests.fixtures.supervisor_diagnostico import CENTINELA_PASSWORD
+        for ruta, extra in (
+            ("/addons/core_ficticio/logs", {}),
+            ("/addons/core_ficticio/logs/boots/-1", {"boot": -1}),
+            ("/addons/core_ficticio/logs/latest", {"latest": True}),
+        ):
+            with self.subTest(ruta=ruta):
+                self.sv.texto(ruta, HAConnectionError(
+                    f"Supervisor GET {ruta} failed 400: password: {CENTINELA_PASSWORD}",
+                    status=400))
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", **extra)
+                self.assertEqual(list(r), ["error"])
+                self.assertNotIn(CENTINELA_PASSWORD, r["error"])
+                self.assertIn("***REDACTED***", r["error"])
+
+    async def test_error_del_log_de_hermes_tapa_la_red(self) -> None:
+        """T030: en el log de Hermes el error lleva además la red tapada.
+        Control negativo: quitar `redact_network` del error → cae."""
+        from hermes.ha import HAConnectionError
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        try:
+            self.sv.texto(f"/addons/{self._HERMES}/logs/boots/-1", HAConnectionError(
+                "Supervisor failed: conexión desde 192.0.2.10", status=500))
+            r = await self.tools["sv_get_addon_logs"](self._HERMES, boot=-1)
+        finally:
+            configure_network_redaction(False, "")
+        self.assertNotIn("192.0.2.10", r["error"])
+
+    async def test_hermes_con_boot_sigue_tapando_la_red(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        try:
+            self.sv.texto(f"/addons/{self._HERMES}/logs/boots/-1",
+                          "conexión desde 192.0.2.10\n")
+            r = await self.tools["sv_get_addon_logs"](self._HERMES, boot=-1)
+        finally:
+            configure_network_redaction(False, "")
+        self.assertNotIn("192.0.2.10", r["logs"])
+        self.assertIs(r["network_redacted"], True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 009 — FR-010: sv_update_addon no promete actualizar al propio Hermes
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestNoSeActualizaASiMismo(unittest.IsolatedAsyncioTestCase):
+    """El Supervisor contesta 403 («can't update itself») a un add-on que pide
+    su propia actualización. La 1.1.2 daba vista previa y token, y la
+    confirmación fallaba: prometía algo imposible. Ahora se rechaza antes, sin
+    token y sin ninguna petición al Supervisor (FR-010).
+    """
+
+    # El último es un slug de HOSTNAME que no termina en `_hermes`: solo lo
+    # reconoce `_HERMES_SLUG`, parcheado como si viniera del entorno.
+    _SLUG_DEL_HOSTNAME = "a1b2c3d4_hermes_dev"
+    _SLUGS = ("self", "hermes", "a1b2c3d4_hermes", _SLUG_DEL_HOSTNAME)
+
+    def setUp(self) -> None:
+        from hermes.tools.addons import register
+        self._p = patch.object(addons_mod, "_HERMES_SLUG", self._SLUG_DEL_HOSTNAME)
+        self._p.start()
+        self.client = _ClienteQueGraba()
+        mcp = DummyMCP()
+        register(mcp, self.client)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        self._p.stop()
+
+    def _es_el_rechazo(self, r: Any) -> None:
+        self.assertEqual(r.get("error"), "self_update_not_supported")
+        self.assertIn("Home Assistant UI", r["detail"])
+        self.assertNotIn("confirmation_token", r)
+
+    async def test_sin_token_se_rechaza_sin_llamar_al_supervisor(self) -> None:
+        for slug in self._SLUGS:
+            with self.subTest(slug=slug):
+                self.client.peticiones.clear()
+                r = await self.tools["sv_update_addon"](slug)
+                self._es_el_rechazo(r)
+                self.assertEqual(self.client.peticiones, [])
+
+    async def test_con_un_token_de_la_112_tambien(self) -> None:
+        from hermes import security
+        for slug in self._SLUGS:
+            with self.subTest(slug=slug):
+                self.client.peticiones.clear()
+                # Lo que dejaba una vista previa de la 1.1.2.
+                emitido = await security.create_confirmation_token(
+                    "sv_update_addon", {"slug": slug}, preview={"slug": slug}
+                )
+                token = emitido["confirmation_token"]
+                r = await self.tools["sv_update_addon"](slug, confirmation_token=token)
+                self._es_el_rechazo(r)
+                self.assertEqual(self.client.peticiones, [])
+                fichero = security.CONFIRMATIONS_DIR / f"{token}.json"
+                self.assertEqual(
+                    json.loads(fichero.read_text(encoding="utf-8"))["state"], "pending"
+                )
+
+    async def test_otro_addon_sigue_como_en_la_112(self) -> None:
+        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {
+            "version": "6.5.1", "version_latest": "6.5.2", "update_available": True
+        })
+        r = await self.tools["sv_update_addon"]("core_mosquitto")
+        self.assertIn("confirmation_token", r)
+        self.assertEqual(self.client.lecturas("/addons/core_mosquitto/info"), 1)
