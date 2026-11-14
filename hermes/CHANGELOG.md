@@ -9,7 +9,37 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 ### Diagnóstico
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **Diagnóstico del Supervisor: los logs de todo el sistema, también de
+  arranques anteriores.** Seis tools nuevas de solo lectura en la familia
+  nueva `system_diagnostics` (desactivable con `tool_families_disabled`):
+  `sv_get_core_logs` (Home Assistant Core), `sv_get_supervisor_logs`,
+  `sv_get_plugin_logs` (`dns`, `audio` o `multicast`), `sv_get_host_logs`
+  (journal del host, entero o de un identificador de syslog como `kernel`),
+  `sv_list_host_log_identifiers` y `sv_list_boots` (arranques del journal,
+  del actual al más antiguo). Las de log aceptan `lines` (1–1000), `boot`
+  (desplazamiento: 0 el actual, -1 el anterior…; o un id de `sv_list_boots`)
+  y, salvo la del host, `latest` (solo desde el último arranque del
+  contenedor); `boot` y `latest` no se combinan. Un argumento inválido se
+  rechaza con `invalid_argument` sin llegar al Supervisor. Los logs pasan por
+  la misma redacción de secretos que `sv_get_addon_logs`, y el del propio
+  Hermes leído por el journal del host lleva también la redacción de red. Si
+  un log no cabe en `response_max_bytes`, llegan sus últimas líneas. El log
+  de Hermes anota cada lectura (`system_diagnostics_read`) con la plantilla
+  de la ruta y recuentos, nunca el contenido, un id de arranque ni el
+  identificador pedido.
+- **`sv_get_addon_logs` gana `boot` y `latest`**, opcionales: el log de un
+  add-on en un arranque anterior o desde que arrancó su contenedor. Sin
+  ellos, la petición y la respuesta son las de la 1.1.2.
+- **Tabla de comandos**: las 23 rutas de logs del Supervisor que cubren estas
+  tools pasan de «pendiente de tool dedicada» a `dedicated`; `sv_read_api`
+  remite a la tool. Las variantes `follow` (streaming) y el alias legado
+  `/homeassistant/logs*` siguen rechazadas.
+- **Guía**: tema nuevo `hermes_guide("system_diagnostics")` (alias
+  `system_logs`, `supervisor_logs`, `host_logs`, `boots`); el tema
+  `supervisor` explica `boot` y `latest` en los logs de add-ons.
+- La prueba en vivo contra un Supervisor real queda pendiente (spec 014 o el
+  cierre del programa): en los tests, las tools se prueban con un Supervisor
+  simulado con la forma de las respuestas del 2026.11.0.
 
 ### Integraciones
 
@@ -50,8 +80,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 115 y 29), `read` (36 y 26),
-  `confirm` (20 y 25) o `deny` (452 y 174, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 115 y 52), `read` (36 y 26),
+  `confirm` (20 y 25) o `deny` (452 y 151, con su motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -60,7 +90,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   apaga grupos enteros de tools para ahorrar contexto al cliente. Las familias
   de la 1.1.2 son `services`, `automations`, `helpers`, `events`, `data`,
   `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`,
-  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade `generic_commands`.
+  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade `generic_commands` y
+  `system_diagnostics`.
   `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre
   desconocido, o `base`, impide arrancar con un mensaje que nombra el valor y
   los válidos. Con las familias de la 1.2.0 desactivadas, la lista de tools es

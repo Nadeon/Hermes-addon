@@ -54,27 +54,79 @@ El tramo 2 necesita el tramo 1 integrado.
 
 ### Preparación
 
-- [ ] T001 Línea base: comprobar el requisito previo (S-01), ejecutar la suite y anotar passed/skipped/failed y la punta; comprobar que `grep -c "spec 013" hermes/src/hermes/command_table.py` da 31
-- [ ] T002 [P] [US4] Tests en `tests/test_tool_families.py`: `system_diagnostics` existe, es `desde="1.2.0"`, desactivable, con los módulos `("system_logs",)`, y `familia_de_modulo("system_logs") == "system_diagnostics"`; en `tests/test_config_validation.py`, `tool_families_disabled: [system_diagnostics]` es válido. Después, la familia en `hermes/src/hermes/tool_families.py` con un comentario del porqué (research R-1) (FR-021)
+- [x] T001 Línea base: comprobar el requisito previo (S-01), ejecutar la suite y anotar passed/skipped/failed y la punta; comprobar que `grep -c "spec 013" hermes/src/hermes/command_table.py` da 31
+- [x] T002 [P] [US4] Tests en `tests/test_tool_families.py`: `system_diagnostics` existe, es `desde="1.2.0"`, desactivable, con los módulos `("system_logs",)`, y `familia_de_modulo("system_logs") == "system_diagnostics"`; en `tests/test_config_validation.py`, `tool_families_disabled: [system_diagnostics]` es válido. Después, la familia en `hermes/src/hermes/tool_families.py` con un comentario del porqué (research R-1) (FR-021)
 
 ### Tests de las tools de logs (escritos antes, en rojo)
 
-- [ ] T003 [P] [US1] Fixture `tests/fixtures/supervisor_diagnostico.py` (respuestas de la forma del Supervisor 2026.11.0, datos ficticios: logs de texto con líneas numeradas, `{"boots": {"0": …, "-1": …}}`, `{"identifiers": [...]}`) y tests en `tests/test_tools_system_logs.py` para `sv_get_core_logs`, `sv_get_supervisor_logs` y `sv_get_plugin_logs`: ruta según data-model para cada combinación (sin nada, `latest`, `boot=-1`, `boot="-1"`, `boot=0`, `boot=<32 hex en mayúsculas>` → minúsculas); `params={"lines": "N"}` siempre y `lines` acotado (0 → 1, 5000 → 1000); `boot` inválido (`"abc"`, `1.5`, `1000`, `-1000`, 31 y 33 hex, `"../x"`) → `invalid_argument` con `field: "boot"` y **ninguna** llamada; `boot`+`latest` → `invalid_argument` sin llamada; `plugin` `cli`, `observer`, `DNS` y `""` → `invalid_argument` con la lista sin llamada; centinelas (`password: centinela-1`, un JWT, `token=centinela-2`) en el log → no aparecen y `redacted: true`; error del Supervisor con un centinela → `error` redactado; `HAConnectionError` → `error` (FR-001…FR-003, FR-008, FR-009, FR-016, FR-024)
-- [ ] T004 [P] [US1] Tests en `tests/test_tools_system_logs.py` para el host: `sv_get_host_logs` con las cuatro rutas (`identifier` y `boot` combinados); `identifier` inválido (`".."`, `".hidden"`, `"a/b"`, `"a b"`, `"a%2e"`, 65 caracteres, `""`) → `invalid_argument` sin llamada; `identifier` válidos (`kernel`, `systemd-journald`, `NetworkManager`, `addon_<slug>`, `hassio_supervisor`) → llamada; `identifier="addon_<slug de Hermes>"` y `"app_<slug de Hermes>"` → también `redact_network` (con la opción activa una IP ficticia sale seudonimizada) y con otro identificador no; `sv_list_host_log_identifiers` ordena, `search` filtra sin distinguir mayúsculas, sobre `{count, items, truncated}`; `sv_list_boots` → `items` `{offset, boot_id}` de 0 hacia atrás; un log mayor que `response_max_bytes` → últimas líneas con `truncated`, `lines_returned` y la pista (FR-004…FR-006, FR-008, FR-009)
-- [ ] T005 [P] [US1] [US4] Tests en `tests/test_tools_supervisor.py` para `sv_get_addon_logs`: sin `boot` ni `latest`, la petición (`/addons/{slug}/logs`, `params`) y la respuesta son **idénticas** a las de hoy (comparar con una respuesta capturada antes del cambio); `latest=True` → `/addons/{slug}/logs/latest`; `boot=-1` → `/addons/{slug}/logs/boots/-1`; respuesta con `route` y `boot`/`latest` solo entonces; `boot`+`latest` y `boot` inválido → `invalid_argument` sin llamada; Hermes con `boot` → `redact_network` sigue aplicándose (FR-007, FR-009, FR-022)
-- [ ] T006 [P] [US1] Tests del log de Hermes en `tests/test_tools_system_logs.py` con `capture_logs`: un evento `system_diagnostics_read` por llamada con `tool`, `route` (plantilla), `lines`, `bytes`, `redacted` y `outcome`; nunca el contenido, el centinela, el id de arranque, el `identifier` ni el `search`; con un `boot`/`identifier` inválido, `outcome="invalid_argument"` y sin el valor (FR-010)
+- [x] T003 [P] [US1] Fixture `tests/fixtures/supervisor_diagnostico.py` (respuestas de la forma del Supervisor 2026.11.0, datos ficticios: logs de texto con líneas numeradas, `{"boots": {"0": …, "-1": …}}`, `{"identifiers": [...]}`) y tests en `tests/test_tools_system_logs.py` para `sv_get_core_logs`, `sv_get_supervisor_logs` y `sv_get_plugin_logs`: ruta según data-model para cada combinación (sin nada, `latest`, `boot=-1`, `boot="-1"`, `boot=0`, `boot=<32 hex en mayúsculas>` → minúsculas); `params={"lines": "N"}` siempre y `lines` acotado (0 → 1, 5000 → 1000); `boot` inválido (`"abc"`, `1.5`, `1000`, `-1000`, 31 y 33 hex, `"../x"`) → `invalid_argument` con `field: "boot"` y **ninguna** llamada; `boot`+`latest` → `invalid_argument` sin llamada; `plugin` `cli`, `observer`, `DNS` y `""` → `invalid_argument` con la lista sin llamada; centinelas (`password: centinela-1`, un JWT, `token=centinela-2`) en el log → no aparecen y `redacted: true`; error del Supervisor con un centinela → `error` redactado; `HAConnectionError` → `error` (FR-001…FR-003, FR-008, FR-009, FR-016, FR-024)
+- [x] T004 [P] [US1] Tests en `tests/test_tools_system_logs.py` para el host: `sv_get_host_logs` con las cuatro rutas (`identifier` y `boot` combinados); `identifier` inválido (`".."`, `".hidden"`, `"a/b"`, `"a b"`, `"a%2e"`, 65 caracteres, `""`) → `invalid_argument` sin llamada; `identifier` válidos (`kernel`, `systemd-journald`, `NetworkManager`, `addon_<slug>`, `hassio_supervisor`) → llamada; `identifier="addon_<slug de Hermes>"` y `"app_<slug de Hermes>"` → también `redact_network` (con la opción activa una IP ficticia sale seudonimizada) y con otro identificador no; `sv_list_host_log_identifiers` ordena, `search` filtra sin distinguir mayúsculas, sobre `{count, items, truncated}`; `sv_list_boots` → `items` `{offset, boot_id}` de 0 hacia atrás; un log mayor que `response_max_bytes` → últimas líneas con `truncated`, `lines_returned` y la pista (FR-004…FR-006, FR-008, FR-009)
+- [x] T005 [P] [US1] [US4] Tests en `tests/test_tools_supervisor.py` para `sv_get_addon_logs`: sin `boot` ni `latest`, la petición (`/addons/{slug}/logs`, `params`) y la respuesta son **idénticas** a las de hoy (comparar con una respuesta capturada antes del cambio); `latest=True` → `/addons/{slug}/logs/latest`; `boot=-1` → `/addons/{slug}/logs/boots/-1`; respuesta con `route` y `boot`/`latest` solo entonces; `boot`+`latest` y `boot` inválido → `invalid_argument` sin llamada; Hermes con `boot` → `redact_network` sigue aplicándose (FR-007, FR-009, FR-022)
+- [x] T006 [P] [US1] Tests del log de Hermes en `tests/test_tools_system_logs.py` con `capture_logs`: un evento `system_diagnostics_read` por llamada con `tool`, `route` (plantilla), `lines`, `bytes`, `redacted` y `outcome`; nunca el contenido, el centinela, el id de arranque, el `identifier` ni el `search`; con un `boot`/`identifier` inválido, `outcome="invalid_argument"` y sin el valor (FR-010)
 
 ### Implementación
 
-- [ ] T007 [US1] `hermes/src/hermes/tools/system_logs.py`: `register(mcp, ha_client, *, response_max_bytes)`, validadores (`boot`, `identifier`, `latest`+`boot`, `plugin`), ruta por data-model, `sv_request_text` con `params`, `redact_secrets` y `redact_network` para Hermes (`_es_hermes` de `tools/addons.py`), `_ultimas_lineas_que_caben` de `tools/addons.py`, sobre común y `redact_structure` en las listas, errores (research R-8), evento de log; seis tools con docstrings en inglés según contracts/tools.md (también el aviso del Supervisor sin journal). T003, T004 y T006 en verde (FR-001…FR-006, FR-008…FR-010, FR-016, FR-024)
-- [ ] T008 [US1] [US4] `hermes/src/hermes/tools/addons.py`: `boot` y `latest` opcionales en `sv_get_addon_logs` con los validadores de T007 (si importar de `system_logs` crea un ciclo, moverlos a `tools/_logs.py`), camino por defecto sin tocar, docstring ampliado. T005 en verde (FR-007, FR-009)
-- [ ] T009 [US1] Tests en `tests/test_command_table.py`: las 23 rutas de logs de data-model son `dedicated` con su tool y familia (`sv_get_addon_logs` → `supervisor`; el resto → `system_diagnostics`) y su CAP-081; `test_clase_a_de_via_dedicada_pendiente_de_su_spec` admite `dedicated` (además de `deny` «pendiente de tool dedicada (spec NNN)»); las variantes `follow` y `/homeassistant/logs*` siguen `deny` (FR-017)
-- [ ] T010 [US1] `hermes/src/hermes/command_table.py`: las 23 entradas a `dedicated` a mano, una línea cada una, con «cubierto por `<tool>`», familia y `cap="CAP-081"`; ejecutar `scripts/inventario/generar_tabla.py` y comprobar que la tabla no cambia (`git diff --exit-code`); anotarlo en el commit. T009 en verde y `TestDedicadas` en verde (necesita el registro de T011, que va antes) (FR-017)
-- [ ] T011 [US1] [US4] Registro en `hermes/src/hermes/tools/__init__.py` dentro de la comprobación de la familia `system_diagnostics` (patrón de la 011), con `response_max_bytes`. Tests en `tests/test_tools_registration.py`: las seis tools registradas por defecto con `readOnlyHint`, idempotentes, sin mundo abierto y sin `confirmation_token`; ninguna con la familia desactivada (y `sv_get_addon_logs` sigue con `boot`/`latest`); SC-005 de la 011 sigue en verde (con las familias 1.2.0 desactivadas, la lista es la de la 1.1.2); actualizar los recuentos y la comprobación «las únicas tools de más» de la 011 para que admita las de familias 1.2.0; en la instantánea `esquemas_1_1_2.json`, diferencia permitida y comentada para `sv_get_addon_logs` (`boot`, `latest` opcionales, fuera de `required`) (FR-021, FR-022)
-- [ ] T012 [US1] Guía: tests en `tests/test_tools_guide.py` (tema `system_diagnostics` con las seis tools, `boot`/`latest` y cómo usar `sv_list_boots`; alias `system_logs`, `supervisor_logs`, `host_logs`, `boots`; el índice lo nombra; el tema `supervisor` menciona `boot` y `latest`; los temas de la 1.1.2 que no se tocan devuelven lo mismo); después, `hermes/src/hermes/tools/guide.py` (tema en español, como los demás, y lista de temas del docstring de `hermes_guide`) (FR-023)
-- [ ] T013 Control negativo del tramo 1, anotando recuentos: (a) aceptar cualquier texto en `boot` → caen los de `boot` inválido; (b) no rechazar `boot`+`latest` → cae; (c) no aplicar `redact_network` al identificador de Hermes en el host → cae; (d) recortar por el principio en vez de por el final → cae el de recorte; (e) registrar `boot` o el contenido en el evento → caen los del log; (f) dejar una ruta de logs como `deny` → cae el de dedicadas; (g) cambiar el camino por defecto de `sv_get_addon_logs` (p. ej. añadir `route` siempre) → cae el de identidad con la 1.1.2. Restaurar y comprobar verde
-- [ ] T014 Documentación del tramo 1: sección «Diagnóstico del Supervisor» en `## [1.2.0] — <fecha de publicación>` de `hermes/CHANGELOG.md` (las seis tools, `boot`/`latest`, familia nueva); `hermes/DOCS.md`, familia `system_diagnostics` en la lista de `tool_families_disabled`
-- [ ] T015 Cierre del tramo 1: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII: nada de hostnames, IPs reales, slugs, rutas `C:\`), commit con los recuentos de T013 y el resultado de la regeneración de T010
+- [x] T007 [US1] `hermes/src/hermes/tools/system_logs.py`: `register(mcp, ha_client, *, response_max_bytes)`, validadores (`boot`, `identifier`, `latest`+`boot`, `plugin`), ruta por data-model, `sv_request_text` con `params`, `redact_secrets` y `redact_network` para Hermes (`_es_hermes` de `tools/addons.py`), `_ultimas_lineas_que_caben` de `tools/addons.py`, sobre común y `redact_structure` en las listas, errores (research R-8), evento de log; seis tools con docstrings en inglés según contracts/tools.md (también el aviso del Supervisor sin journal). T003, T004 y T006 en verde (FR-001…FR-006, FR-008…FR-010, FR-016, FR-024)
+- [x] T008 [US1] [US4] `hermes/src/hermes/tools/addons.py`: `boot` y `latest` opcionales en `sv_get_addon_logs` con los validadores de T007 (si importar de `system_logs` crea un ciclo, moverlos a `tools/_logs.py`), camino por defecto sin tocar, docstring ampliado. T005 en verde (FR-007, FR-009)
+- [x] T009 [US1] Tests en `tests/test_command_table.py`: las 23 rutas de logs de data-model son `dedicated` con su tool y familia (`sv_get_addon_logs` → `supervisor`; el resto → `system_diagnostics`) y su CAP-081; `test_clase_a_de_via_dedicada_pendiente_de_su_spec` admite `dedicated` (además de `deny` «pendiente de tool dedicada (spec NNN)»); las variantes `follow` y `/homeassistant/logs*` siguen `deny` (FR-017)
+- [x] T010 [US1] `hermes/src/hermes/command_table.py`: las 23 entradas a `dedicated` a mano, una línea cada una, con «cubierto por `<tool>`», familia y `cap="CAP-081"`; ejecutar `scripts/inventario/generar_tabla.py` y comprobar que la tabla no cambia (`git diff --exit-code`); anotarlo en el commit. T009 en verde y `TestDedicadas` en verde (necesita el registro de T011, que va antes) (FR-017)
+- [x] T011 [US1] [US4] Registro en `hermes/src/hermes/tools/__init__.py` dentro de la comprobación de la familia `system_diagnostics` (patrón de la 011), con `response_max_bytes`. Tests en `tests/test_tools_registration.py`: las seis tools registradas por defecto con `readOnlyHint`, idempotentes, sin mundo abierto y sin `confirmation_token`; ninguna con la familia desactivada (y `sv_get_addon_logs` sigue con `boot`/`latest`); SC-005 de la 011 sigue en verde (con las familias 1.2.0 desactivadas, la lista es la de la 1.1.2); actualizar los recuentos y la comprobación «las únicas tools de más» de la 011 para que admita las de familias 1.2.0; en la instantánea `esquemas_1_1_2.json`, diferencia permitida y comentada para `sv_get_addon_logs` (`boot`, `latest` opcionales, fuera de `required`) (FR-021, FR-022)
+- [x] T012 [US1] Guía: tests en `tests/test_tools_guide.py` (tema `system_diagnostics` con las seis tools, `boot`/`latest` y cómo usar `sv_list_boots`; alias `system_logs`, `supervisor_logs`, `host_logs`, `boots`; el índice lo nombra; el tema `supervisor` menciona `boot` y `latest`; los temas de la 1.1.2 que no se tocan devuelven lo mismo); después, `hermes/src/hermes/tools/guide.py` (tema en español, como los demás, y lista de temas del docstring de `hermes_guide`) (FR-023)
+- [x] T013 Control negativo del tramo 1, anotando recuentos: (a) aceptar cualquier texto en `boot` → caen los de `boot` inválido; (b) no rechazar `boot`+`latest` → cae; (c) no aplicar `redact_network` al identificador de Hermes en el host → cae; (d) recortar por el principio en vez de por el final → cae el de recorte; (e) registrar `boot` o el contenido en el evento → caen los del log; (f) dejar una ruta de logs como `deny` → cae el de dedicadas; (g) cambiar el camino por defecto de `sv_get_addon_logs` (p. ej. añadir `route` siempre) → cae el de identidad con la 1.1.2. Restaurar y comprobar verde
+- [x] T014 Documentación del tramo 1: sección «Diagnóstico del Supervisor» en `## [1.2.0] — <fecha de publicación>` de `hermes/CHANGELOG.md` (las seis tools, `boot`/`latest`, familia nueva); `hermes/DOCS.md`, familia `system_diagnostics` en la lista de `tool_families_disabled`
+- [x] T015 Cierre del tramo 1: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII: nada de hostnames, IPs reales, slugs, rutas `C:\`), commit con los recuentos de T013 y el resultado de la regeneración de T010
+
+
+### Notas del tramo 1 (2026-11-14)
+
+- **Línea base** (T001), tras traer `feat/cobertura-total` (009, 010, 011
+  completa y 028) con `git merge --no-ff`: 2320 passed, 65 skipped, 6 failed
+  (los 6 de Windows); `grep -c "spec 013"` en la tabla = 31. Al cerrar el
+  tramo quedan 8 (las 5 de CAP-085 y las 3 que van a `read`, tramo 2).
+- **Desviación — la familia**: en este tramo `system_diagnostics` solo tiene
+  el módulo `system_logs` y la descripción habla solo de logs; el tramo 2
+  añade `host_system` y completa la descripción de data-model
+  (`test_cada_familia_nombra_modulos_que_existen` no admite un módulo que aún
+  no existe).
+- **Desviación — validación en `tools/_logs.py`**: los validadores y la
+  construcción de las rutas van en un módulo aparte para evitar el ciclo
+  `addons` ↔ `system_logs` (lo preveía T008). Además de las reglas de
+  data-model, cada segmento de ruta pasa por `validate_path_segment` (segunda
+  capa común de Hermes): lo exige
+  `test_every_module_that_builds_a_path_has_a_validator` y para, por ejemplo,
+  un `identifier` `a..b`, que cumple la forma pero lleva `..`.
+- **Desviación — campos de la respuesta**: las respuestas de log llevan
+  también `secrets_redacted` y `network_redacted`, como `sv_get_addon_logs`
+  desde la 009 (FR-005 de la 009); data-model no los nombraba.
+- **Desviación — el evento con error y con argumento inválido**: con error
+  lleva `status` (el HTTP) en vez de `bytes`; con argumento inválido, `field`
+  y ninguna ruta.
+- **README, README.es y DOCS** (adelantado del tramo 2 a la fuerza): el
+  recuento de tools (220 → 226), la fila de la familia en DOCS.md y su nombre
+  en los README los exigen `TestToolCountInDocs` y
+  `TestFamiliasEnLaDocumentacion` en cuanto se registran las tools. La matriz
+  de la 008 tiene ya la fila de CAP-081; el resto de filas, en el tramo 2.
+- **CHANGELOG**: sección en el bloque «Diagnóstico» de `## [1.2.0]`; se
+  actualizan los recuentos de la tabla del bloque de la 011 (Supervisor:
+  `dedicated` 29 → 52, `deny` 174 → 151).
+- **Guía**: el tema `system_diagnostics` entra también en la lista de temas
+  de las instrucciones del servidor, solo con la familia activa (como
+  `generic_commands`). La comprobación «los temas que no se tocan no cambian»
+  usa huellas sha256 de los temas tal como estaban antes de la 013.
+- **Matriz de la 014**: no existe todavía en la hoja de ruta; las seis tools
+  son de solo lectura y no entran en la lista de «modifican».
+- **Regeneración de la tabla** (T010): `generar_tabla.py` → 0 nuevas, 0
+  quitadas, contenido idéntico salvo finales de línea (el generador escribe
+  LF; el checkout de Windows es CRLF).
+- **Controles negativos** (T013), sobre `test_tools_system_logs.py`,
+  `test_tools_supervisor.py` y `test_command_table.py`: (a) 28 caídos,
+  entre ellos `test_boot_invalido` y `test_invalidos_sin_llamada`; (b) 5
+  (`test_boot_y_latest_a_la_vez`, `test_invalidos_sin_llamada`); (c) 2
+  (`test_identifier_de_hermes_tapa_la_red`); (d) 1
+  (`test_log_grande_devuelve_las_ultimas_lineas`); (e) 1
+  (`test_lectura_correcta`); (f) 2 (`test_rutas_de_logs_dedicadas`,
+  `test_ninguna_ruta_de_logs_pendiente_de_la_013`); (g) 1
+  (`test_sin_boot_ni_latest_identica_a_la_1_1_2`). Restaurado: verde.
 
 ---
 

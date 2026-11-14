@@ -259,7 +259,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-074 | baja | 021 | FR-075 | T | analytics y labs (banco) |
 | CAP-075 | baja | 026 | FR-091 | D | Marketplace escritura (unitario; en vivo pendiente) |
 | CAP-080 | alta | 015 | FR-049 | D | actualizaciones (simulador; VM pendiente) |
-| CAP-081 | alta | 013 | FR-044 | D | logs del sistema (simulador) |
+| CAP-081 | alta | 013 | FR-044 | D | `sv_get_core_logs`, `sv_get_supervisor_logs`, `sv_get_plugin_logs`, `sv_get_host_logs`, `sv_list_host_log_identifiers`, `sv_list_boots` y `boot`/`latest` en `sv_get_addon_logs`, con Supervisor simulado: `tests/test_tools_system_logs.py`, `TestLogsDeAddonPorArranque` (`tests/test_tools_supervisor.py`); tabla: `TestLogsDeLa013` (`tests/test_command_table.py`); registro: `TestLogsDelSistema013` (`tests/test_tools_registration.py`); guía: `TestTemaSystemDiagnostics` (`tests/test_tools_guide.py`); en vivo, pendiente (014 o cierre) |
 | CAP-082 | alta | 030 | FR-051 | D | tienda (simulador) |
 | CAP-083 | alta | 019 | FR-066 | D | montajes (simulador; centinela CIFS) |
 | CAP-084 | media | 022 | FR-076 | D+T | control de Core y Supervisor (simulador) |
