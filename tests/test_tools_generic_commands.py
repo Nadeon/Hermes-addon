@@ -771,6 +771,20 @@ class TestDedicadasDeLa016(_Base):
         self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_ignore_discovery"))
         self.ha.ws_send.assert_not_awaited()
 
+    async def test_subentries_hacia_sus_dedicadas(self) -> None:
+        # Tramo B (T025): las tres de subentries; borrar no emite token aquí.
+        for tipo, tool in (("config_entries/subentries/delete", "ha_delete_subentry"),
+                           ("config_entries/subentries/update", "ha_update_subentry")):
+            r = await self.t["ha_call_ws_command"](
+                tipo, {"entry_id": "entrada-1", "subentry_id": "sub-1"})
+            self.assertEqual((r["error"], r["tool"], r["family"]),
+                             ("use_dedicated_tool", tool, "integration_flows"))
+            self.assertNotIn("confirmation_token", r)
+        r = await self.t["ha_read_ws_command"](
+            "config_entries/subentries/list", {"entry_id": "entrada-1"})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_list_config_subentries"))
+        self.ha.ws_send.assert_not_awaited()
+
     async def test_con_la_familia_desactivada(self) -> None:
         mcp = DummyMCP()
         mod.register(mcp, self.ha, response_max_bytes=self.max_bytes,

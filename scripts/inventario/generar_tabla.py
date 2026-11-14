@@ -264,6 +264,10 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "config_entries/flow/progress": "ha_list_discovered_integrations",
     "config_entries/ignore_flow": "ha_ignore_discovery",
     "config_entries/update": "ha_update_config_entry",
+    # Spec 016 (tramo B, CAP-045).
+    "config_entries/subentries/delete": "ha_delete_subentry",
+    "config_entries/subentries/list": "ha_list_config_subentries",
+    "config_entries/subentries/update": "ha_update_subentry",
     # Datos.
     "history/history_during_period": "ha_get_history",
     "logbook/get_events": "ha_get_logbook",
