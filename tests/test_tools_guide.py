@@ -373,5 +373,76 @@ class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.guide(tema, search=None), texto)
 
 
+class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
+    """Spec 013, FR-023: tema `system_diagnostics` con las tools de logs,
+    `boot`/`latest` y cómo encontrar un arranque o un identificador; el tema
+    `supervisor` remite a él; los demás temas no cambian."""
+
+    # sha256 (16 primeros hex) de cada tema ANTES de la 013. Una sub-feature
+    # que cambie un tema a propósito actualiza aquí su huella y lo dice en su
+    # CHANGELOG; un cambio accidental cae aquí.
+    _HUELLAS_ANTES_DE_LA_013 = {
+        "automations": "cb414a2c5e0cad24",
+        "backups": "c9a088b65d4f13c5",
+        "config_entries": "7c9723694f529f2f",
+        "data": "c77e3e6782cc89a7",
+        "diagnostics": "66690c9177650ea7",
+        "events": "3765a76095ece40f",
+        "filesystem": "b5902d6d0ff666c1",
+        "generic_commands": "906066a916e93727",
+        "helpers": "685d974fff03f37b",
+        "lovelace": "f2eaa1782992327b",
+        "marketplace": "f83ec233a87ad95b",
+        "registries": "42894b4111cb8c80",
+        "security": "157ee929e7db08ae",
+        "services": "3070fd96727eca8b",
+        "workflows": "53b81454a6708b9a",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("system_diagnostics")
+        self.assertIs(texto, _GUIDE["system_diagnostics"])
+        for palabra in ("sv_get_core_logs", "sv_get_supervisor_logs",
+                        "sv_get_plugin_logs", "sv_get_host_logs",
+                        "sv_list_host_log_identifiers", "sv_list_boots",
+                        "sv_get_addon_logs", "boot", "latest", "identifier",
+                        "-1", "dns", "audio", "multicast"):
+            self.assertIn(palabra, texto)
+        for alias in ("system_logs", "supervisor_logs", "host_logs", "boots",
+                      "SYSTEM_LOGS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `logs` no es alias: chocaría con el log de Core de la spec 012.
+        self.assertNotEqual(await self.guide("logs"), texto)
+
+    async def test_indice_e_instrucciones_lo_nombran(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("system_diagnostics", await self.guide())
+        self.assertIn("system_diagnostics", INSTRUCTIONS)
+        # Sin la familia, las instrucciones no anuncian su tema (principio V).
+        self.assertNotIn("system_diagnostics",
+                         instrucciones(frozenset({"system_diagnostics"})))
+
+    async def test_supervisor_menciona_boot_y_latest(self) -> None:
+        texto = _GUIDE["supervisor"]
+        self.assertIn("boot", texto)
+        self.assertIn("latest", texto)
+        self.assertIn("system_diagnostics", texto)
+
+    def test_los_demas_temas_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS_ANTES_DE_LA_013.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)
+
+
 if __name__ == "__main__":
     unittest.main()
