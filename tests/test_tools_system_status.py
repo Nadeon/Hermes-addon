@@ -167,6 +167,41 @@ class TestSalud(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r["domains"]["lenta"]["info"],
                          {"error": {"type": "failed", "error": "timeout"}})
 
+    async def test_fallo_dado_como_valor_va_a_failed(self) -> None:
+        """T036: HA da algunos fallos como VALOR `{"type": "failed", …}`, no
+        como `success: false`: `hassio.healthy`/`supported` en el inicial con
+        el Supervisor «Unhealthy» y `async_check_can_reach_url` en un
+        `update` con `success: true`. Van en `failed` y conservan su motivo.
+
+        Control negativo comprobado: sin las dos llamadas a `_es_fallo` en
+        `_fusionar_salud`, `failed` sale `[]` y este test cae.
+        """
+        fallo = {"type": "failed", "error": "Unhealthy"}
+        inalcanzable = {"type": "failed", "error": "unreachable"}
+        r = await self._salud([
+            _inicial({
+                "cloud": {"info": {"can_reach_cloud": {"type": "pending"}}},
+                "hassio": {"info": {"healthy": fallo, "supported": True}},
+            }),
+            {"type": "update", "domain": "cloud", "key": "can_reach_cloud",
+             "success": True, "data": inalcanzable},
+            _FIN,
+        ])
+        self.assertEqual(sorted(r["failed"]), ["cloud.can_reach_cloud", "hassio.healthy"])
+        self.assertEqual(r["domains"]["hassio"]["info"]["healthy"], fallo)
+        self.assertIs(r["domains"]["hassio"]["info"]["supported"], True)
+        self.assertEqual(r["domains"]["cloud"]["info"]["can_reach_cloud"], inalcanzable)
+        self.assertEqual(r["pending"], [])
+        # Llegó todo: `complete` dice si falta algo, no si todo está sano.
+        self.assertTrue(r["complete"])
+        # Con `domain`, solo los fallos de ese dominio.
+        r = await self._salud([
+            _inicial({"hassio": {"info": {"healthy": fallo}},
+                      "homeassistant": {"info": {"version": "2026.11.1"}}}),
+            _FIN,
+        ], domain="homeassistant")
+        self.assertEqual(r["failed"], [])
+
     async def test_update_de_algo_desconocido_se_ignora(self) -> None:
         with capture_logs() as logs:
             r = await self._salud([

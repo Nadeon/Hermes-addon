@@ -561,7 +561,10 @@ lo que tenga:
 - `pending` — `<dominio>.<clave>` que no llegaron a tiempo; su valor sale
   `null`. Repite la llamada con más `timeout_seconds` si los necesitas.
 - `failed` — los que HA dio por fallidos (`<dominio>.*` si falló el dominio
-  entero).
+  entero). También los que HA da como valor `{"type": "failed", "error": …}`
+  (un Supervisor «Unhealthy» o «Unsupported», un servicio al que no llega):
+  el valor se conserva con su motivo. `complete` solo dice si llegó todo, no
+  si todo está sano: mira `failed`.
 - `truncated` y `omitted_domains` — no cabía en el límite de respuesta y se
   quitaron dominios enteros por el final: pide uno con `domain=`.
 Las fechas salen como texto ISO. Sin la integración `system_health` cargada,

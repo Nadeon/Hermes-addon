@@ -155,14 +155,29 @@ def _valor(valor: Any) -> Any:
     return valor
 
 
+def _es_fallo(valor: Any) -> bool:
+    """Un fallo que HA da como VALOR: `{"type": "failed", "error": …}`.
+
+    HA lo usa en dos sitios que no son `success: false` (T036): el `healthy`
+    y el `supported` de `hassio` con el Supervisor «Unhealthy» o
+    «Unsupported» (en el inicial) y `async_check_can_reach_url` cuando no
+    llega (en un `update` con `success: true`). La propia interfaz de HA los
+    pinta como fallos; si Hermes no los listara en `failed`, un cliente que
+    mire `failed` daría por sano un Supervisor enfermo (principio V).
+    """
+    return isinstance(valor, dict) and valor.get("type") == "failed"
+
+
 def _fusionar_salud(eventos: list[Any]) -> tuple[dict[str, Any], list[str], list[str], int]:
     """El mensaje inicial con las actualizaciones aplicadas.
 
     Devuelve `(dominios, pendientes, fallidos, ignoradas)`. Un pendiente sin
     actualización sale como `None` y en `pendientes`; uno que HA dio por
-    fallido (`success: false`), como `None` y en `fallidos`. Una actualización
-    de algo que no estaba pendiente se ignora (y se cuenta): inventar la
-    estructura sería afirmar algo que HA no dijo.
+    fallido (`success: false`), como `None` y en `fallidos`. Un valor que es
+    un fallo de HA (`_es_fallo`), en el inicial o en una actualización, se
+    deja tal cual (lleva el motivo) y también va en `fallidos`. Una
+    actualización de algo que no estaba pendiente se ignora (y se cuenta):
+    inventar la estructura sería afirmar algo que HA no dijo.
     """
     dominios: dict[str, Any] = {}
     pendientes: dict[tuple[str, str], None] = {}
@@ -192,6 +207,8 @@ def _fusionar_salud(eventos: list[Any]) -> tuple[dict[str, Any], list[str], list
                             pendientes[(dominio, clave)] = None
                             claves[clave] = None
                         else:
+                            if _es_fallo(valor):
+                                fallidos.append(f"{dominio}.{clave}")
                             claves[clave] = _valor(valor)
                     salida["info"] = claves
                 else:
@@ -207,7 +224,10 @@ def _fusionar_salud(eventos: list[Any]) -> tuple[dict[str, Any], list[str], list
             del pendientes[par]
             dominio, clave = par
             if evento.get("success") is True:
-                dominios[dominio]["info"][clave] = _valor(evento.get("data"))
+                dato = evento.get("data")
+                if _es_fallo(dato):
+                    fallidos.append(f"{dominio}.{clave}")
+                dominios[dominio]["info"][clave] = _valor(dato)
             else:
                 fallidos.append(f"{dominio}.{clave}")
     pend = [f"{d}.{k}" for d, k in pendientes]
@@ -278,7 +298,9 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
         Slow values are awaited up to `timeout_seconds`; the ones that did not
         arrive are null and listed in `pending` as `<domain>.<key>`
         (`complete: false`), and the ones Home Assistant reported as failed
-        are listed in `failed`. Dates come as ISO text. If the report does not
+        are listed in `failed` (a value Home Assistant gives as
+        `{type: failed, error}`, such as an unhealthy Supervisor or a service
+        it cannot reach, is kept with its reason). Dates come as ISO text. If the report does not
         fit in the response size limit, whole domains are left out from the
         end and named in `omitted_domains` (`truncated: true`): ask for one
         with `domain`.
