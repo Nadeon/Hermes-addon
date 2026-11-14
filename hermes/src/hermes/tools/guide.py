@@ -139,6 +139,12 @@ para el detalle de un área. Temas disponibles:
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
 (preview + `confirmation_token`). Ver `hermes_guide("security")`.
+
+Listas: las tools de lista nuevas de la 1.2.0 (y las genéricas) devuelven
+`{..., "count", "items", "truncated"}`: `count` es cuántos `items` vienen y
+`truncated: true` dice que la lista se cortó por el final (si la cortó el tope
+de respuesta, `_response_limit` dice cuántos había). Las tools anteriores a la
+1.2.0 conservan su forma.
 """
 
 _GUIDE: dict[str, str] = {
@@ -156,7 +162,10 @@ El núcleo del día a día.
   puede no caber.
 - `ha_call_service(domain, service, service_data)` — ejecuta una acción.
 - `ha_call_service_response(...)` — para servicios que devuelven datos
-  (return_response). No admite servicios de la denylist.
+  (return_response). Los de la denylist (p. ej. `conversation.process`) y los
+  que alcanzan un script restringido no se ejecutan a la primera: la respuesta
+  trae `error`, `preview` y `confirmation_token`; repite la misma llamada con
+  el `confirmation_token` para ejecutarlo y recibir su respuesta.
 
 Ejemplos:
 - Encender una luz al 80 %:

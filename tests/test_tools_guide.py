@@ -393,5 +393,44 @@ class TestGuiaGuardadoPorVista(unittest.TestCase):
         self.assertIn("una sola vista", INSTRUCTIONS)
 
 
+
+class TestGuiaRespuestaConfirmadaYListas(unittest.IsolatedAsyncioTestCase):
+    """Spec 018 (FR-011, FR-013): el índice describe el sobre común de las
+    listas nuevas, y el tema `services` dice que `ha_call_service_response`
+    confirma la denylist con token. Si la guía siguiera diciendo que no la
+    admite, el cliente no intentaría el segundo paso (principio V).
+
+    Control negativo comprobado: con `guide.py` anterior al tramo 2 de la 018
+    caen los tres.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_indice_describe_el_sobre(self) -> None:
+        texto = await self.guide()
+        for palabra in ('"count"', '"items"', '"truncated"', "_response_limit", "1.2.0"):
+            self.assertIn(palabra, texto)
+        self.assertIn("conservan su forma", texto)
+
+    def test_tema_services(self) -> None:
+        texto = _GUIDE["services"]
+        # La viñeta de `ha_call_service_response` (hasta la línea en blanco),
+        # no el tema entero: «confirmation_token» ya salía en otra línea.
+        ini = texto.index("- `ha_call_service_response(")
+        fin = texto.find("\n\n", ini)
+        vineta = texto[ini:fin]
+        for palabra in ("confirmation_token", "denylist", "conversation.process"):
+            self.assertIn(palabra, vineta)
+
+    def test_nadie_dice_ya_que_no_la_admite(self) -> None:
+        for nombre, texto in [("INSTRUCTIONS", INSTRUCTIONS), *_GUIDE.items()]:
+            with self.subTest(texto=nombre):
+                self.assertNotIn("No admite servicios de la denylist", texto)
+                self.assertNotIn("no admite servicios de la denylist", texto)
+
+
 if __name__ == "__main__":
     unittest.main()
