@@ -256,8 +256,11 @@ con el patrón de `manager` del Supervisor 2026.11.0.
 - **FR-007** *(008: FR-017; CAP-022)*: El comentario de `hassio_role` en
   `hermes/config.yaml` dice la verdad según el Supervisor 2026.11.0:
   `/addons/self/options/config` está en `api_bypass` y pasa con cualquier rol;
-  Hermes no usa `bashio::config` (`run.sh` lee `/data/options.json`); el 403
-  con `manager` era de una versión anterior del Supervisor; se mantiene `admin`
+  Hermes no usa `bashio::config` (`run.sh` lee `/data/options.json`); con el
+  código del Supervisor 2026.11.0, todas las rutas que usa Hermes están
+  permitidas para `manager`, y el rol no se ha bajado porque falta probarlo en
+  una instalación real (no dice de dónde salía el 403 de antes: no se puede
+  comprobar; corregido en la convergencia, T021); se mantiene `admin`
   hasta probar `manager` en vivo, y esa prueba está en la hoja de ruta. El
   valor de `hassio_role` sigue siendo `admin`. Un test lo comprueba.
 - **FR-008** *(008: FR-017; CAP-022, «qué añade `admin` y qué hay que

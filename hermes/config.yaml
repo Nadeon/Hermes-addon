@@ -66,9 +66,10 @@ hassio_role: admin         # Se mantiene 'admin' hasta probar 'manager' en vivo
                            # /addons/self/options/config está en api_bypass y pasa con
                            # cualquier rol (supervisor/api/middleware/security.py), y
                            # Hermes no usa bashio::config: run.sh lee /data/options.json.
-                           # El rechazo con 'manager' que decía este comentario era de
-                           # una versión anterior del Supervisor. Las rutas que usa
-                           # Hermes caben en 'manager' (tests/test_rutas_supervisor_rol.py).
+                           # Con el código del Supervisor 2026.11.0, todas las rutas que
+                           # usa Hermes están permitidas para 'manager'
+                           # (tests/test_rutas_supervisor_rol.py); el rol no se ha bajado
+                           # porque falta probarlo en una instalación real.
 homeassistant_api: true
 ingress: false
 

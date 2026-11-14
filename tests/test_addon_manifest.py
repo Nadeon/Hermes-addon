@@ -412,6 +412,23 @@ class TestComentarioDelRol(unittest.TestCase):
             self.bloque,
             "Hermes no usa bashio::config: run.sh lee /data/options.json",
         )
+        # Convergencia (014, T021): de dónde salía el 403 de antes no se
+        # puede comprobar con el código de 2026.11.0 (el clon no tiene
+        # historia). El comentario dice solo lo comprobado. Control negativo:
+        # con «era de una versión anterior del Supervisor» en el bloque, cae.
+        self.assertNotRegex(
+            self.bloque.replace("#", " "),
+            r"versi[oó]n\s+anterior",
+            "no se ha comprobado que el 403 fuera de una versión anterior",
+        )
+
+    def test_dice_que_falta_la_prueba_real(self) -> None:
+        # Lo comprobado (014, T021): con el código de 2026.11.0 las rutas
+        # caben en manager, y el rol sigue en admin porque falta la prueba en
+        # una instalación real.
+        plano = re.sub(r"\s*#\s*", " ", self.bloque)
+        self.assertIn("todas las rutas que usa Hermes están permitidas para 'manager'", plano)
+        self.assertIn("falta probarlo en una instalación real", plano)
 
     def test_dice_lo_que_si_es_cierto(self) -> None:
         for clave in (

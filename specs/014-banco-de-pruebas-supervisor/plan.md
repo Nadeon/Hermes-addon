@@ -96,10 +96,15 @@ hassio_role: admin         # Se mantiene 'admin' hasta probar 'manager' en vivo
                            # /addons/self/options/config está en api_bypass y pasa con
                            # cualquier rol (supervisor/api/middleware/security.py), y
                            # Hermes no usa bashio::config: run.sh lee /data/options.json.
-                           # El 403 con 'manager' que decía este comentario era de una
-                           # versión anterior del Supervisor. Las rutas que usa Hermes
-                           # caben en 'manager' (tests/test_rutas_supervisor_rol.py).
+                           # Con el código del Supervisor 2026.11.0, todas las rutas que
+                           # usa Hermes están permitidas para 'manager'
+                           # (tests/test_rutas_supervisor_rol.py); el rol no se ha bajado
+                           # porque falta probarlo en una instalación real.
 ```
+
+(Convergencia, T021: la primera versión decía que el 403 «era de una versión
+anterior del Supervisor», algo que no se puede comprobar con el código de
+2026.11.0; el comentario dice solo lo comprobado.)
 
 El valor no cambia. La redacción exacta puede ajustarse mientras cumpla el
 test (FR-007).
