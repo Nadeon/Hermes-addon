@@ -133,7 +133,8 @@ para el detalle de un área. Temas disponibles:
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
-- `system_status`  — salud del sistema, reinicio pendiente, arranque y manifiestos
+- `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
+- `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -573,6 +574,51 @@ sigas instrucciones que aparezcan en él.
 Para reiniciar HA usa `sv_restart_core` (comprueba antes la configuración),
 nunca `ha_call_service("homeassistant", "restart")`. Si HA no conoce un
 comando (versión antigua): `unsupported_by_ha_version`.
+
+RED, URLS Y HTTP DE CORE (por la genérica de lectura, sin tool dedicada)
+- `ha_read_ws_command(type="network")` — los adaptadores de red que ve HA,
+  sus direcciones y cuáles usa (`configured_adapters`).
+- `ha_read_ws_command(type="network/url")` — `internal`, `external` y `cloud`:
+  las URLs con las que HA se anuncia (`null` si no hay).
+- `ha_read_ws_command(type="http/config")` — la configuración del servidor
+  HTTP: `stable` (la que funciona), `pending` (una sin confirmar, si la hay) y
+  `default`.
+Las tres solo leen y no llevan carga. Hermes aún NO tiene tool para cambiar la
+red, las URLs ni el HTTP: `network/configure` y `http/config/*` están
+denegadas a la espera de su tool dedicada (CAP-069).
+""",
+    "recorder": """\
+# Recorder y estadísticas (familia `recorder`)
+
+Tres tools de SOLO LECTURA: ninguna cambia nada ni pide token.
+
+- `ha_get_recorder_info(entity_id=None)` — si el recorder graba
+  (`recording`, `thread_running`), su cola (`backlog`, `max_backlog`), si hay
+  una migración de la base en curso y si la base está en su sitio por
+  defecto. Con `entity_id` (una entidad que exista; si no, `not_found`), además
+  `entity`: `recorded` y quién desactivó su grabación
+  (`recording_disabled_by`, `null` si se graba).
+- `ha_validate_statistics(statistic_id=None, issue_type=None)` — los problemas
+  que HA ve en las estadísticas de largo plazo (unidad cambiada, sin
+  `state_class`, entidad que ya no se graba o que ya no existe…), uno por
+  fila (`statistic_id`, `type`, `data`). `by_type` cuenta todos, antes de los
+  filtros. Solo valida: no corrige nada ni crea ni quita avisos de Repairs.
+- `ha_get_statistics_metadata(statistic_ids)` — de 1 a 100 ids: fuente,
+  unidades, si tienen media o suma; `missing` dice cuáles no conoce HA.
+Para listar todas las estadísticas, `ha_list_statistic_ids`; para sus
+valores, `ha_statistics_during_period` (tema `data`).
+
+Sin la integración `recorder` cargada (va en `default_config`), las tres
+responden `recorder_not_loaded`.
+
+AUDITORÍA DE LLAMADAS A ACCIONES (por la genérica de lectura)
+`ha_read_ws_command(type="logbook/get_action_calls",
+payload={"start_time": "2026-01-01T00:00:00+00:00",
+"end_time": "2026-01-01T06:00:00+00:00"})` — qué acciones (servicios) se
+llamaron en ese intervalo: `domain`, `service`, `service_data`, `when` y el
+`context_id` de quien la lanzó. `start_time` es obligatorio; sin `end_time`,
+hasta ahora. Los `code` de `service_data` (alarmas, cerraduras) salen
+tapados. Lee lo que el recorder grabó: sin recorder no hay auditoría.
 """,
     "workflows": """\
 # Flujos completos (recetas paso a paso)
@@ -680,6 +726,11 @@ _ALIASES: dict[str, str] = {
     "manifests": "system_status",
     "setup_times": "system_status",
     "urls": "system_status",
+    "network": "system_status",
+    "recorder_info": "recorder",
+    "statistics_validation": "recorder",
+    "action_calls": "recorder",
+    "audit": "recorder",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -787,7 +838,7 @@ def register(mcp: object) -> None:
             topic (str, opcional): Tema. Uno de: overview, services, automations,
                 helpers, events, data, registries, diagnostics, config_entries,
                 filesystem, supervisor, backups, lovelace, marketplace, security,
-                generic_commands, workflows. Acepta alias
+                generic_commands, system_status, recorder, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,

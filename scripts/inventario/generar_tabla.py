@@ -302,6 +302,10 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "integration/setup_info": "ha_list_integration_setup_times",
     "manifest/list": "ha_list_integration_manifests",
     "manifest/get": "ha_get_integration_manifest",
+    "recorder/info": "ha_get_recorder_info",
+    "recorder/entity_options/get": "ha_get_recorder_info",
+    "recorder/validate_statistics": "ha_validate_statistics",
+    "recorder/get_statistics_metadata": "ha_get_statistics_metadata",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

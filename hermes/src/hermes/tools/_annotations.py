@@ -70,6 +70,12 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # internet. Por nombre exacto: ningún prefijo las cubre.
     "ha_read_ws_command",
     "sv_read_api",
+    # Spec 029 (CAP-049): `recorder/validate_statistics` solo calcula los
+    # problemas y los devuelve; no corrige nada ni crea avisos en Repairs (eso
+    # es `recorder/update_statistics_issues`, de la 020). Por nombre exacto:
+    # ningún prefijo de lectura la cubre, y `ha_validate_` no debe pasar a
+    # serlo (una futura `validate` podría escribir).
+    "ha_validate_statistics",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────

@@ -240,9 +240,11 @@ class TestDedicadas(unittest.TestCase):
         """Spec 029, T014 (FR-016): los cinco comandos de CAP-043 son
         `dedicated` hacia su tool de `system_status`, con la forma que escribe
         el generador, y el mapa del generador los nombra (una tabla generada
-        desde cero sale igual). En el tramo 1 solo quedan «pendiente (spec
-        029)» los cuatro de CAP-049 (tramo 2).
-        Control negativo (T018 e): `manifest/get` en `deny` → cae."""
+        desde cero sale igual). Tramo 2 (T027): lo mismo con los cuatro de
+        CAP-049 hacia su tool de `recorder`, y ya no queda ninguna entrada
+        «pendiente (spec 029)».
+        Controles negativos: `manifest/get` en `deny` (T018 e) o
+        `recorder/info` en `deny` (T034 f) → cae."""
         from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
 
         cinco = {
@@ -259,10 +261,25 @@ class TestDedicadas(unittest.TestCase):
                     (e.category, e.reason, e.family, e.tool, e.cap),
                     ("dedicated", f"cubierto por {tool}", "system_status", tool, "CAP-043"))
                 self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
-        pendientes = sorted(k for k, e in ct.CORE_WS.items() if "(spec 029)" in e.reason)
-        self.assertEqual(pendientes, [
-            "recorder/entity_options/get", "recorder/get_statistics_metadata",
-            "recorder/info", "recorder/validate_statistics"])
+        # Tramo 2 (T027): los cuatro de CAP-049, hacia su tool de `recorder`.
+        cuatro = {
+            "recorder/info": "ha_get_recorder_info",
+            "recorder/entity_options/get": "ha_get_recorder_info",
+            "recorder/validate_statistics": "ha_validate_statistics",
+            "recorder/get_statistics_metadata": "ha_get_statistics_metadata",
+        }
+        for comando, tool in cuatro.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "recorder", tool, "CAP-049"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        # Y ya no queda nada «pendiente (spec 029)» en ninguna de las dos
+        # tablas (FR-016; control negativo T034 f: `recorder/info` en `deny`
+        # -> cae).
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 029)" in e.reason)
+        self.assertEqual(pendientes, [])
 
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).

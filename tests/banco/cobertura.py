@@ -168,17 +168,24 @@ NO_EJECUTABLES_GENERICAS: dict[str, str] = {
 # escrituras de la 028: tienen el suyo (`tests/test_banco_cobertura.py`,
 # `TestCoberturaDeLa029`): este conjunto es exactamente lo que registran los
 # módulos de sus familias, y el job exige cada una por ejecución (se suma a
-# `TOOLS_EXIGIDAS_DEL_JOB` en `cobertura_escrituras.py`). Tramo 1: la familia
-# `system_status`; el tramo 2 añade `recorder_status`.
-MODULOS_029: tuple[str, ...] = ("system_status",)
+# `TOOLS_EXIGIDAS_DEL_JOB` en `cobertura_escrituras.py`). Los módulos de las
+# familias `system_status` y `recorder`. Cuando la 020 añada a `recorder` el
+# mantenimiento de estadísticas (escrituras), esas tools caerán aquí por el
+# invariante y tendrán que probarse en el banco con el lector y la vista
+# previa, como las de la 028.
+MODULOS_029: tuple[str, ...] = ("system_status", "recorder_status")
 
-# `tests/banco/test_banco_estado_sistema.py`.
 PROBADAS_EN_BANCO_029: frozenset[str] = frozenset(
     {
+        # `tests/banco/test_banco_estado_sistema.py`.
         "ha_get_system_health",
         "ha_get_system_state",
         "ha_list_integration_setup_times",
         "ha_list_integration_manifests",
         "ha_get_integration_manifest",
+        # `tests/banco/test_banco_recorder.py`.
+        "ha_get_recorder_info",
+        "ha_validate_statistics",
+        "ha_get_statistics_metadata",
     }
 )

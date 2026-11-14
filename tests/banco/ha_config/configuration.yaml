@@ -97,3 +97,18 @@ kitchen_sink:
 # interfaces locales.
 system_health:
 network:
+
+# ── Spec 029 (tramo 2): recorder y auditoría ─────────────────────────────────
+#
+# recorder: registra `recorder/info`, `recorder/entity_options/get`,
+# `recorder/validate_statistics` y `recorder/get_statistics_metadata` (sin la
+# integración, HA responde `unknown_command` y las tools,
+# `recorder_not_loaded`). Graba en una SQLite dentro de esta carpeta, que es
+# una copia temporal del runner. Con el recorder cargado, `kitchen_sink`
+# importa además sus estadísticas de demostración (algunas hechas para dar
+# problemas de validación): es lo que leen `ha_validate_statistics` y
+# `ha_get_statistics_metadata`.
+# logbook: registra `logbook/get_action_calls` (auditoría de llamadas a
+# acciones, CAP-058), que lee lo que el recorder graba. Nada sale a internet.
+recorder:
+logbook:

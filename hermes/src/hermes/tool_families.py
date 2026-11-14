@@ -92,6 +92,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "System health, pending restart state, integration setup times and "
             "manifests (read only).",
             "1.2.0", True, ("system_status",)),
+    # Spec 029 (CAP-049). La familia es la del recorder entero, no solo de
+    # estas lecturas: la 020 (CAP-050) añadirá aquí el mantenimiento de
+    # estadísticas, que escribe. Ese día la descripción deja de decir «read
+    # only» (principio V) y quien apague `recorder` apaga lo que lee y lo que
+    # escribe en la base de estadísticas.
+    Familia("recorder",
+            "Recorder status and long-term statistics: validation and metadata "
+            "(read only).",
+            "1.2.0", True, ("recorder_status",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

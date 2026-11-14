@@ -266,8 +266,9 @@ class TestCoberturaDeLa029(unittest.TestCase):
     `tests/banco/test_banco_*.py`. Que se ejecuta de verdad lo exige el job
     (`TOOLS_EXIGIDAS_DEL_JOB`).
 
-    Control negativo (T018 f): quitar `ha_get_system_state` de
-    `PROBADAS_EN_BANCO_029` → cae `test_inventario_exacto` nombrándola."""
+    Controles negativos: quitar `ha_get_system_state` (T018 f) o
+    `ha_get_recorder_info` (T034 g) de `PROBADAS_EN_BANCO_029` → cae
+    `test_inventario_exacto` nombrándola."""
 
     def test_inventario_exacto(self) -> None:
         from tests.banco.cobertura import MODULOS_029, PROBADAS_EN_BANCO_029
@@ -288,7 +289,10 @@ class TestCoberturaDeLa029(unittest.TestCase):
         from hermes.tool_families import FAMILIAS
         from tests.banco.cobertura import MODULOS_029
 
-        self.assertEqual(set(MODULOS_029), set(FAMILIAS["system_status"].modulos))
+        # T031: los módulos de las dos familias de la 029.
+        self.assertEqual(
+            set(MODULOS_029),
+            set(FAMILIAS["system_status"].modulos) | set(FAMILIAS["recorder"].modulos))
 
     def test_cada_una_en_un_fichero_del_banco(self) -> None:
         from tests.banco.cobertura import PROBADAS_EN_BANCO_029
