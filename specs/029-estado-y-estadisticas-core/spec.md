@@ -288,7 +288,11 @@ Cada FR cita el FR y la CAP de la 008 que cumple.
   suscripción hasta que un predicado dice que terminó o vence un plazo total,
   y cancela la suscripción en todos los casos (éxito, plazo, error de HA,
   cancelación de la tarea). `ws_one_shot_subscription` no cambia (FR-040;
-  CAP-043; FR-020 de la 008).
+  CAP-043; FR-020 de la 008). Convergencia (T038): la confirmación puede
+  tener un plazo propio, y entonces el plazo total de los eventos cuenta
+  desde ella; la salud lo usa (10 s) porque HA no confirma
+  `system_health/info` hasta reunir la información rápida
+  (`INFO_CALLBACK_TIMEOUT` = 5 s por dominio).
 - **FR-003**: `ha_get_system_state()` lee `subscribe_system_state` una vez
   (primer evento, tope de 10 s) y cancela: si HA pide reinicio, sus fuentes,
   si el aviso se pospuso, y si el host pide reiniciarse (FR-040; CAP-043).

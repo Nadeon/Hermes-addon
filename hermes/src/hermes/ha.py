@@ -873,6 +873,7 @@ class HAClient:
         *,
         terminado: Callable[[Any], bool],
         timeout_seconds: float,
+        confirmacion_timeout_seconds: float | None = None,
     ) -> tuple[list[Any], bool]:
         """Envía un comando WS de suscripción, recoge sus eventos y cancela.
 
@@ -886,9 +887,16 @@ class HAClient:
         primer evento y la usan otras tools; cambiar su contrato las tocaría
         a todas (FR-020 de la 008).
 
-        - El plazo es TOTAL (confirmación incluida), no por evento: un HA que
-          gotea actualizaciones sin llegar nunca al final no puede alargar la
-          espera sin tope y dejar la tool colgada.
+        - El plazo es TOTAL, no por evento: un HA que gotea actualizaciones
+          sin llegar nunca al final no puede alargar la espera sin tope y
+          dejar la tool colgada.
+        - Sin `confirmacion_timeout_seconds`, la confirmación cuenta dentro
+          de `timeout_seconds`. Con él, la confirmación tiene ese plazo
+          propio y `timeout_seconds` empieza a contar al confirmar (T038):
+          `system_health/info` no confirma hasta que HA reúne la información
+          rápida (hasta 5 s por callback en HA), y con un plazo corto la
+          tool fallaría entera en vez de devolver lo que llegó. La espera
+          sigue acotada: como mucho, la suma de los dos.
         - La suscripción se cancela SIEMPRE en el `finally` (fin, plazo, error
           de HA, caída de la WS y cancelación de la tarea): abierta, HA
           seguiría mandando eventos por la WebSocket compartida sin nadie que
@@ -904,6 +912,9 @@ class HAClient:
 
         loop = asyncio.get_running_loop()
         limite = loop.time() + timeout_seconds
+        limite_confirmacion = (
+            limite if confirmacion_timeout_seconds is None
+            else loop.time() + confirmacion_timeout_seconds)
 
         async with self._ws_request_lock:
             ws = self._ws
@@ -931,11 +942,14 @@ class HAClient:
         eventos: list[Any] = []
         try:
             try:
-                await asyncio.wait_for(result_future, timeout=max(limite - loop.time(), 0))
+                await asyncio.wait_for(
+                    result_future, timeout=max(limite_confirmacion - loop.time(), 0))
             except asyncio.TimeoutError as exc:
                 raise HAConnectionError(
                     f"Timeout waiting for subscription confirmation: {payload.get('type')}"
                 ) from exc
+            if confirmacion_timeout_seconds is not None:
+                limite = loop.time() + timeout_seconds
             while True:
                 restante = limite - loop.time()
                 if restante <= 0:

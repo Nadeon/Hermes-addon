@@ -57,6 +57,12 @@ _DOMINIO_MAX = 64
 
 _SALUD_TIMEOUT_MIN = 1.0
 _SALUD_TIMEOUT_MAX = 30.0
+# Plazo propio de la confirmación de `system_health/info` (T038). HA no la
+# manda hasta reunir la información rápida de TODOS los dominios, cada uno con
+# su tope `INFO_CALLBACK_TIMEOUT` = 5 s (`components/system_health`): 10 s
+# cubre ese tope con margen. `timeout_seconds` cuenta desde la confirmación y
+# es la espera de los valores lentos, que es lo que la descripción promete.
+_SALUD_CONFIRMACION_TIMEOUT = 10.0
 # `subscribe_system_state` manda su estado en cuanto confirma: 10 s es de
 # sobra y es el mismo plazo que las genéricas dan a una suscripción.
 _ESTADO_TIMEOUT = 10.0
@@ -311,7 +317,9 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
         Args:
             domain: Only this domain, e.g. "homeassistant" (lowercase letters,
                 digits and '_').
-            timeout_seconds: Total wait for slow values, 1-30 (default 10).
+            timeout_seconds: Total wait for slow values, 1-30 (default 10),
+                counted once Home Assistant has gathered the fast ones (which
+                can take it up to about 5 s).
 
         Returns:
             {complete, domains: {<domain>: {info, manage_url?}}, pending,
@@ -331,7 +339,8 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
         try:
             eventos, completo = await ha_client.ws_collect_subscription(
                 {"type": "system_health/info"}, terminado=_es_fin,
-                timeout_seconds=float(timeout_seconds))
+                timeout_seconds=float(timeout_seconds),
+                confirmacion_timeout_seconds=_SALUD_CONFIRMACION_TIMEOUT)
         except HAConnectionError as exc:
             return _error_ha(tool, exc, sin_comando="system_health_not_loaded")
 

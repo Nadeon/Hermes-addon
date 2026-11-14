@@ -558,7 +558,9 @@ de mundo abierto: algunas comprobaciones de HA consultan servicios de internet
 CÓMO SE LEE LA SALUD
 HA calcula algunos valores despacio (conectividad de la nube, versiones del
 Supervisor). Hermes espera hasta `timeout_seconds` (de 1 a 30) y responde con
-lo que tenga:
+lo que tenga. El plazo cuenta desde que HA confirma la petición, y HA no la
+confirma hasta reunir lo rápido (hasta unos 5 s), así que un plazo corto no
+hace fallar la consulta:
 - `complete: true` — llegó todo.
 - `pending` — `<dominio>.<clave>` que no llegaron a tiempo; su valor sale
   `null`. Repite la llamada con más `timeout_seconds` si los necesitas.

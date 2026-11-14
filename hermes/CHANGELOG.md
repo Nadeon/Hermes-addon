@@ -97,8 +97,9 @@ la lista de tools es la de la 1.1.2.
   `tool_families_disabled`.
   - `ha_get_system_health`: lo que enseña «Información del sistema» de HA,
     por dominio. Los valores lentos se esperan hasta `timeout_seconds` (de 1
-    a 30, 10 por defecto); los que no llegan salen en `pending` y los que HA
-    da por fallidos, en `failed`. Si no cabe en el tope de respuesta, quita
+    a 30, 10 por defecto), contados desde que HA confirma la petición; los
+    que no llegan salen en `pending` y los que HA da por fallidos (también
+    los que da como valor, como un Supervisor «Unhealthy»), en `failed`. Si no cabe en el tope de respuesta, quita
     dominios enteros por el final y los nombra en `omitted_domains`; `domain`
     pide uno solo. La suscripción de HA se cancela siempre. Se anuncia de
     mundo abierto: algunas comprobaciones de salud de HA consultan servicios

@@ -17,17 +17,21 @@ Controles negativos (T018 b–d), con recuentos en el commit del tramo:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from aiohttp import ClientSession
 from structlog.testing import capture_logs
 
 from hermes.command_table import TABLE_HA_CORE
 from hermes.ha import HAConnectionError
 from hermes.tools import system_status as mod
 from hermes.tools._common import tam_json
+
+from tests.test_ha_ws_reliability import _prepare_ws_client
 
 _CENTINELA = "centinela-029"
 _JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJh"
@@ -127,6 +131,8 @@ class TestSalud(unittest.IsolatedAsyncioTestCase):
         args, kw = self.c.ws_collect_subscription.call_args
         self.assertEqual(args[0], {"type": "system_health/info"})
         self.assertEqual(kw["timeout_seconds"], 3.0)
+        # La confirmación tiene su plazo propio (T038).
+        self.assertEqual(kw["confirmacion_timeout_seconds"], mod._SALUD_CONFIRMACION_TIMEOUT)
         self.assertTrue(kw["terminado"](_FIN))
         self.assertFalse(kw["terminado"]({"type": "update"}))
         # Por defecto, 10 s.
@@ -590,3 +596,45 @@ class TestManifiesto(unittest.IsolatedAsyncioTestCase):
             r = await self.t["ha_get_integration_manifest"]("zha")
         self.assertEqual(r["error"], "unsupported_by_ha_version")
         self.assertNotIn("zha", _textos_de_log(logs))
+
+
+class TestSaludConConfirmacionLenta(unittest.IsolatedAsyncioTestCase):
+    """T038: con el cliente de HA de verdad (WebSocket simulada), un
+    `timeout_seconds` menor que lo que HA tarda en confirmar no hace fallar la
+    tool como error de conexión: responde con lo que llegó.
+
+    Control negativo comprobado: sin `confirmacion_timeout_seconds` en la
+    llamada (confirmación dentro del plazo total) → este test cae con
+    «Timeout waiting for subscription confirmation».
+    """
+
+    async def test_plazo_corto_y_confirmacion_lenta(self) -> None:
+        session = ClientSession()
+        try:
+            client, ws = _prepare_ws_client(session)
+            client.wait_ready = AsyncMock(return_value=True)
+            tools = _tools(client)
+
+            async def ha_lento() -> None:
+                for _ in range(100):
+                    if ws.sent:
+                        break
+                    await asyncio.sleep(0.01)
+                rid = ws.sent[0]["id"]
+                await asyncio.sleep(1.5)  # callbacks de información lentos en HA
+                await client._handle_ws_message(
+                    {"type": "result", "id": rid, "success": True, "result": None})
+                await client._handle_ws_message({"type": "event", "id": rid, "event": {
+                    "type": "initial",
+                    "data": {"homeassistant": {"info": {"version": "2026.11.1"}}}}})
+                await client._handle_ws_message(
+                    {"type": "event", "id": rid, "event": {"type": "finish"}})
+
+            tarea = asyncio.create_task(ha_lento())
+            r = await tools["ha_get_system_health"](timeout_seconds=1)
+            await tarea
+            self.assertNotIn("error", r)
+            self.assertTrue(r["complete"])
+            self.assertEqual(r["domains"]["homeassistant"]["info"]["version"], "2026.11.1")
+        finally:
+            await session.close()

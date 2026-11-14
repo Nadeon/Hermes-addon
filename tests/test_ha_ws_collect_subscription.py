@@ -184,6 +184,60 @@ class TestErrores(_Base):
         self._nada_registrado(rid)
 
 
+class TestPlazoDeConfirmacion(_Base):
+    """T038: con `confirmacion_timeout_seconds`, la confirmación tiene su
+    plazo propio y `timeout_seconds` cuenta desde ella. HA no confirma
+    `system_health/info` hasta reunir la información rápida (hasta 5 s), así
+    que un plazo corto no puede gastarse entero esperando el `result`.
+
+    Control negativo comprobado: esperar la confirmación con el plazo total
+    (`limite_confirmacion = limite`) → caen los tres de esta clase y el de la
+    tool en tests/test_tools_system_status.py (4 failed), con «Timeout waiting
+    for subscription confirmation» los de confirmación lenta.
+    """
+
+    def _lanzar_con(self, timeout: float, confirmacion: float) -> asyncio.Task:
+        return asyncio.create_task(self.client.ws_collect_subscription(
+            {"type": "system_health/info"}, terminado=_es_finish,
+            timeout_seconds=timeout, confirmacion_timeout_seconds=confirmacion))
+
+    async def test_confirmacion_lenta_dentro_de_su_plazo_propio(self) -> None:
+        tarea = self._lanzar_con(timeout=0.3, confirmacion=2.0)
+        rid = await self._id()
+        await asyncio.sleep(0.5)  # más que `timeout_seconds`
+        await self._resultado(rid)
+        await self._evento(rid, {"type": "initial", "data": {}})
+        await self._evento(rid, {"type": "finish"})
+        eventos, completo = await asyncio.wait_for(tarea, 2.0)
+        self.assertTrue(completo)
+        self.assertEqual([e["type"] for e in eventos], ["initial", "finish"])
+        self.assertEqual(len(self._cancelaciones(rid)), 1)
+        self._nada_registrado(rid)
+
+    async def test_los_eventos_cuentan_desde_la_confirmacion(self) -> None:
+        tarea = self._lanzar_con(timeout=0.3, confirmacion=2.0)
+        rid = await self._id()
+        await asyncio.sleep(0.4)
+        await self._resultado(rid)
+        await self._evento(rid, {"type": "initial", "data": {}})
+        # Sin `finish`: vence el plazo de los eventos y devuelve lo que hay.
+        eventos, completo = await asyncio.wait_for(tarea, 2.0)
+        self.assertFalse(completo)
+        self.assertEqual([e["type"] for e in eventos], ["initial"])
+        self.assertEqual(len(self._cancelaciones(rid)), 1)
+
+    async def test_sin_confirmacion_en_su_plazo_propio(self) -> None:
+        tarea = self._lanzar_con(timeout=5.0, confirmacion=0.3)
+        rid = await self._id()
+        inicio = time.monotonic()
+        with self.assertRaises(HAConnectionError) as ctx:
+            await asyncio.wait_for(tarea, 2.0)
+        self.assertLess(time.monotonic() - inicio, 1.5)
+        self.assertIn("confirmation", str(ctx.exception))
+        self.assertEqual(len(self._cancelaciones(rid)), 1)
+        self._nada_registrado(rid)
+
+
 class TestOneShotSinCambios(_Base):
     """FR-002 y FR-020 de la 008: el método nuevo no toca el de un solo
     mensaje. Sus tests de siempre siguen sin cambios (test_tools_templates,
