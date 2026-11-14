@@ -448,6 +448,35 @@ class TestHostsDeLasUrlsDeHA(_Base):
             with self.subTest(texto=texto):
                 self.assertEqual(redact_network(texto), texto)
 
+    def test_host_de_una_sola_etiqueta_no_rompe_los_identificadores(self) -> None:
+        """T044: `internal_url: http://ha:8123` no tapa `ha_ws_connected`.
+
+        `_` hacía de frontera, así que casi todas las líneas de Hermes (eventos
+        y tools empiezan por `ha_`) salían como `<ha_internal_host>_ws_...`. El
+        host sigue tapado en la URL y suelto.
+
+        Control negativo: sin `_` en las fronteras (`guion_bajo` ignorado en
+        `_patron_de_host`) fallan las tres primeras líneas.
+        """
+        set_ha_url_hosts(None, "ha")
+        for texto in (
+            "event=ha_ws_connected tool=ha_get_state",
+            '{"event": "ha_call_service"}',
+            "x_ha y_ha_z ha_",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(redact_network(texto), texto)
+        self.assertEqual(
+            redact_network("GET http://ha:8123/api host=HA ha."),
+            "GET http://<ha_internal_host>:8123/api host=<ha_internal_host> "
+            "<ha_internal_host>.",
+        )
+        set_ha_url_hosts("hass", None)
+        self.assertEqual(
+            redact_network("hass_token https://hass/ ok"),
+            "hass_token https://<ha_external_host>/ ok",
+        )
+
     def test_no_se_anaden_ips_ni_nombres_por_defecto(self) -> None:
         set_ha_url_hosts("homeassistant", "homeassistant.local")
         self.assertEqual(

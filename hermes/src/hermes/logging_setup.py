@@ -192,14 +192,23 @@ _PRIVATE_NETS = (
 _IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 
-def _patron_de_host(host: str) -> re.Pattern[str]:
+def _patron_de_host(host: str, guion_bajo: bool = False) -> re.Pattern[str]:
     """Patrón de un nombre de host sin distinguir mayúsculas.
 
     Las fronteras evitan tapar un trozo de un nombre más largo
     (`sub<host>`, `<host>ic`, `<host>.otro`).
+
+    `guion_bajo`: `_` tampoco hace de frontera. Lo usan los hosts de las URLs
+    de HA, que pueden ser de una sola etiqueta (`http://ha:8123`): sin esto,
+    `ha` tapaba el principio de casi todos los eventos y tools del log
+    (`ha_ws_connected` salía como `<ha_internal_host>_ws_connected`; revisión
+    de la 009, T044). `_` no es válido en un nombre de host, así que no se
+    deja de tapar ninguno en una URL.
     """
+    extra = "_" if guion_bajo else ""
     return re.compile(
-        rf"(?<![A-Za-z0-9.-]){re.escape(host)}(?![A-Za-z0-9-]|\.[A-Za-z0-9])",
+        rf"(?<![A-Za-z0-9{extra}.-]){re.escape(host)}"
+        rf"(?![A-Za-z0-9{extra}-]|\.[A-Za-z0-9])",
         re.IGNORECASE,
     )
 
@@ -259,9 +268,9 @@ def set_ha_url_hosts(external_host: str | None, internal_host: str | None) -> No
     externo = _host_de_ha_util(external_host, public_re)
     interno = _host_de_ha_util(internal_host, public_re)
     if externo is not None:
-        pares.append((_patron_de_host(externo), _NET_HA_EXTERNAL_PLACEHOLDER))
+        pares.append((_patron_de_host(externo, guion_bajo=True), _NET_HA_EXTERNAL_PLACEHOLDER))
     if interno is not None and interno != externo:
-        pares.append((_patron_de_host(interno), _NET_HA_INTERNAL_PLACEHOLDER))
+        pares.append((_patron_de_host(interno, guion_bajo=True), _NET_HA_INTERNAL_PLACEHOLDER))
     _net_state = (enabled, public_re, tuple(pares), salt)
 
 
