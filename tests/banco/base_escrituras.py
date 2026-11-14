@@ -40,13 +40,37 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 
 import pytest
 
-from tests.banco.base_helpers import _devolver, _unica, sin_error
+from tests.banco.base_helpers import _cadena, _devolver, _unica, sin_error
 from tests.banco.entorno import EntornoBanco, confirmar, exigir_banco, llamar
 from tests.banco.lector import Lector
 
 pytestmark = pytest.mark.banco
 
 _log = logging.getLogger(__name__)
+
+
+class RechazadoPorCore(Exception):
+    """La tool falla porque Core rechaza con 400 la llamada que le hace Hermes:
+    el fallo concreto de un hallazgo de la 028. Es su propia clase para que un
+    `xfail` estricto no se trague cualquier `AssertionError`."""
+
+
+class TokenSinAtarLaAccion(Exception):
+    """Se ha aceptado y ejecutado una confirmación con argumentos distintos de
+    los de la vista previa: el fallo concreto de un hallazgo de seguridad de la
+    028. Su propia clase, por el mismo motivo."""
+
+
+def rechazado_por_core(excepciones: list[BaseException], dominio: str, servicio: str) -> bool:
+    """El fallo de la tool, registrado por el servidor MCP, es un 400 de Core a
+    `POST /services/<dominio>/<servicio>` (el mismo criterio que
+    `es_servicio_inexistente` de la 010, sin exigir que el servicio falte)."""
+    ruta = f"/services/{dominio}/{servicio}"
+    return any(
+        getattr(e, "status", None) == 400 and ruta in str(e)
+        for exc in excepciones
+        for e in _cadena(exc)
+    )
 
 
 def sufijo() -> str:

@@ -120,13 +120,32 @@ PROBADAS_028: frozenset[str] = frozenset(
 # (está en `PROBADAS_028` y su test lo ejecuta con éxito), pero el banco ha
 # visto contra HA Core 2026.11.1 un defecto con un argumento concreto. No se
 # arregla aquí: el arreglo es de la spec 033.
-HALLAZGOS_028: dict[str, str] = {}
+HALLAZGOS_028: dict[str, str] = {
+    "ha_create_scene_from_current": (
+        "HALLAZGO pendiente de arreglo (spec 033): con `name` falla siempre, porque "
+        "`scene.create` de Core 2026.11.1 no admite ese campo y responde 400; la "
+        "descripción dice que «HA decide». También dice que una colisión de "
+        "`scene_id` da error, y Core reemplaza en silencio una escena de "
+        "`scene.create` (con una de configuración solo avisa en el log)"
+    ),
+    "ha_run_script": (
+        "HALLAZGO de seguridad pendiente de arreglo (spec 033, prioridad máxima): "
+        "con una entidad restringida, el token no cubre `variables` y se acepta "
+        "una confirmación con variables distintas de las de la vista previa (lo "
+        "mismo en ha_trigger_automation, que pasa por la misma función)"
+    ),
+}
 
 # Los `xfail` de la 028 que el job admite: id del test (como lo escribe pytest
 # desde la raíz del repositorio) → tool de `HALLAZGOS_028` que documenta. Cada
 # uno es estricto y espera una excepción concreta: si la tool se arregla, el
 # test pasa y el job se pone en rojo para quitar la marca.
-XFAIL_PERMITIDOS_028: dict[str, str] = {}
+XFAIL_PERMITIDOS_028: dict[str, str] = {
+    "tests/banco/test_banco_escrituras_automatizacion.py::TestEscena::"
+    "test_hallazgo_escena_desde_el_estado_con_nombre": "ha_create_scene_from_current",
+    "tests/banco/test_banco_escrituras_automatizacion.py::TestScript::"
+    "test_hallazgo_token_sin_variables": "ha_run_script",
+}
 
 # Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
 # por ejecución y todos los `xfail` de hallazgos listados. Una sub-feature
