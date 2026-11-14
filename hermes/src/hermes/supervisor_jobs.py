@@ -28,7 +28,7 @@ def job_errors(data: Any) -> list[str]:
 
     El job termina con `done: true` TAMBIÉN cuando falla, y los motivos van en
     `errors` (lista de `{type, message, stage}`). Solo se toma `message`: el
-    resto no aporta al cliente. Se recorta y se pasa por `redact_secrets`
+    resto no aporta al cliente. Se pasa por `redact_secrets` y luego se recorta
     porque el texto del Supervisor puede citar opciones o rutas con secretos.
     Un error sin `message` de texto cuenta igual como error: perderlo haría
     pasar un job fallido por correcto.
@@ -43,15 +43,25 @@ def job_errors(data: Any) -> list[str]:
         mensaje = error.get("message") if isinstance(error, dict) else None
         if not isinstance(mensaje, str) or not mensaje:
             mensaje = "unknown error"
-        mensajes.append(redact_secrets(mensaje[:JOB_ERROR_MAX_CHARS]))
+        mensajes.append(_redactar_y_recortar(mensaje))
     return mensajes
+
+
+def _redactar_y_recortar(mensaje: str) -> str:
+    """Redacta el mensaje ENTERO y solo después lo recorta.
+
+    Al revés, un secreto que cruzaba el carácter 500 (un JWT, por ejemplo)
+    llegaba cortado a `redact_secrets`, ya no encajaba en el patrón y salía a
+    medias: cabecera y parte del payload (revisión de la 027, T028).
+    """
+    return redact_secrets(mensaje)[:JOB_ERROR_MAX_CHARS]
 
 
 def _mensaje(error: Any) -> str:
     mensaje = error.get("message") if isinstance(error, dict) else None
     if not isinstance(mensaje, str) or not mensaje:
         mensaje = "unknown error"
-    return redact_secrets(mensaje[:JOB_ERROR_MAX_CHARS])
+    return _redactar_y_recortar(mensaje)
 
 
 def child_job_errors(data: Any) -> tuple[list[dict[str, Any]], bool]:

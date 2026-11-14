@@ -156,6 +156,48 @@ class TestChildJobErrors(unittest.TestCase):
         self.assertEqual(job_errors(data), ["propio"])
 
 
+# JWT centinela con la forma de uno real (cabecera, payload y firma base64url).
+_JWT = ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjZW50aW5lbGEtMDI3In0"
+        ".c2VudGluZWxhLWZpcm1hLTAyNy1jZW50aW5lbGE")
+
+
+class TestRedactarAntesDeRecortar(unittest.TestCase):
+    """T028: un secreto que cruza el carácter 500 no sale a medias.
+
+    Recortar antes de redactar dejaba un JWT cortado que ya no encajaba en el
+    patrón: salían su cabecera y parte del payload. Se prueba en `errors`
+    (`job_errors`) y en `child_errors` (`child_job_errors`), con el JWT
+    empezando 5, 10 y 30 caracteres antes del corte.
+
+    Control negativo comprobado: volver a `redact_secrets(mensaje[:500])` en
+    `_redactar_y_recortar` → los dos tests en rojo en los tres cortes (sale
+    `eyJh…`).
+    """
+
+    def _mensajes(self, antes: int) -> list[dict]:
+        return [_err("x" * (JOB_ERROR_MAX_CHARS - antes) + " " + _JWT + " fin")]
+
+    def test_errors_no_deja_el_jwt_a_medias(self) -> None:
+        for antes in (5, 10, 30):
+            with self.subTest(antes=antes):
+                (mensaje,) = job_errors({"errors": self._mensajes(antes)})
+                self.assertLessEqual(len(mensaje), JOB_ERROR_MAX_CHARS)
+                self.assertNotIn("eyJ", mensaje)
+
+    def test_child_errors_no_deja_el_jwt_a_medias(self) -> None:
+        for antes in (5, 10, 30):
+            with self.subTest(antes=antes):
+                errores, _ = child_job_errors(
+                    {"child_jobs": [_sub("backup_store_apps", self._mensajes(antes))]})
+                self.assertLessEqual(len(errores[0]["message"]), JOB_ERROR_MAX_CHARS)
+                self.assertNotIn("eyJ", errores[0]["message"])
+
+    def test_el_jwt_entero_se_tapa(self) -> None:
+        (mensaje,) = job_errors({"errors": [_err("fallo " + _JWT)]})
+        self.assertNotIn("eyJ", mensaje)
+        self.assertIn("REDACTED", mensaje)
+
+
 class TestSondeoSubJobs(unittest.IsolatedAsyncioTestCase):
     """FR-017: el safety backup con un sub-job fallido no deja escribir (D-1)."""
 
