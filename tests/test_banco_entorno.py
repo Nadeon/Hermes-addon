@@ -342,6 +342,70 @@ class TestLlamar(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await entorno.llamar(self._cliente(['{"a": 1}']), "ha_x"), {"a": 1})
 
+    async def test_registro_de_tools_llamadas_con_exito(self) -> None:
+        # T037: solo cuenta lo que termina bien; un error de la tool o una
+        # respuesta `{"error": …}` no. Control negativo (comprobado y
+        # restaurado): anotando antes de mirar `is_error`, este test cae.
+        entorno.tomar_tools_del_test()
+        await entorno.llamar(self._cliente(['{"result": "ok"}']), "ha_bien")
+        with self.assertRaises(AssertionError):
+            await entorno.llamar(self._cliente(["Error executing tool ha_mal"], is_error=True), "ha_mal")
+        await entorno.llamar(self._cliente(['{"error": "token caducado"}']), "ha_con_error")
+        self.assertEqual(entorno.tomar_tools_del_test(), {"ha_bien"})
+        self.assertEqual(entorno.tomar_tools_del_test(), set())
+
+
+class TestServicioInexistente(unittest.TestCase):
+    """T038: el `xfail` de `ha_reload_counters` solo admite el 400 de Core a
+    `/services/counter/reload` con el servicio ausente en Core.
+
+    Control negativo (T038), comprobado en local y restaurado: sin mirar los
+    servicios de Core en `es_servicio_inexistente` cae
+    `test_solo_el_400_del_servicio_que_core_no_tiene`.
+    """
+
+    @staticmethod
+    def _fallo(estado: int, ruta: str = "/core/api/services/counter/reload") -> BaseException:
+        from hermes.ha import HAConnectionError
+
+        causa = HAConnectionError(
+            f"HA REST POST http://127.0.0.1:1{ruta} failed {estado}: 400: Bad Request", status=estado
+        )
+        # Lo que registra el SDK de MCP: el error genérico, con la causa detrás.
+        envoltorio = RuntimeError("Error executing tool ha_reload_counters")
+        envoltorio.__cause__ = causa
+        return envoltorio
+
+    def test_solo_el_400_del_servicio_que_core_no_tiene(self) -> None:
+        from tests.banco.base_helpers import es_servicio_inexistente
+
+        sin_reload = {"counter": {"increment": {}, "decrement": {}}}
+        con_reload = {"counter": {"increment": {}, "reload": {}}}
+        self.assertTrue(es_servicio_inexistente([self._fallo(400)], sin_reload, "counter", "reload"))
+        # Si Core sí tiene el servicio, el 400 es otra cosa.
+        self.assertFalse(es_servicio_inexistente([self._fallo(400)], con_reload, "counter", "reload"))
+        self.assertFalse(es_servicio_inexistente([self._fallo(500)], sin_reload, "counter", "reload"))
+        self.assertFalse(
+            es_servicio_inexistente(
+                [self._fallo(400, "/core/api/services/counter/increment")], sin_reload, "counter", "reload"
+            )
+        )
+        self.assertFalse(es_servicio_inexistente([], sin_reload, "counter", "reload"))
+        self.assertFalse(
+            es_servicio_inexistente([AssertionError("vista previa inesperada")], sin_reload, "counter", "reload")
+        )
+
+    def test_errores_de_tools_recoge_lo_que_registra_el_sdk(self) -> None:
+        from tests.banco.base_helpers import errores_de_tools
+
+        fallo = self._fallo(400)
+        with errores_de_tools() as errores:
+            try:
+                raise fallo
+            except RuntimeError:
+                logging.getLogger("mcp.server.mcpserver.server").exception("Tool %r raised", "ha_x")
+        self.assertEqual(errores, [fallo])
+
 
 if __name__ == "__main__":
     unittest.main()

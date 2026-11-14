@@ -19,11 +19,12 @@ vista previa ya habría llegado antes; por eso se exige que haya exactamente uno
 
 from __future__ import annotations
 
+import logging
 import secrets
 import unittest
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Iterator
 
 import pytest
 
@@ -49,6 +50,64 @@ def sin_error(tool: str, respuesta: Any) -> Any:
     if isinstance(respuesta, dict) and "error" in respuesta:
         raise AssertionError(f"{tool} devolvió un error: {respuesta!r}")
     return respuesta
+
+
+class ServicioInexistente(Exception):
+    """La tool llama a un servicio que Core no tiene: el fallo concreto de un
+    hallazgo de `FALLAN_EN_BANCO`. Es su propia clase para que el `xfail` no
+    se trague cualquier `AssertionError`."""
+
+
+class _Errores(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.excepciones: list[BaseException] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.exc_info and record.exc_info[1] is not None:
+            self.excepciones.append(record.exc_info[1])
+
+
+@contextmanager
+def errores_de_tools() -> Iterator[list[BaseException]]:
+    """Las excepciones con las que fallan las tools dentro del servidor MCP.
+
+    Al cliente solo le llega «Error executing tool <nombre>»: el SDK no deja
+    salir el texto de una excepción inesperada. El servidor corre en este
+    mismo proceso y la registra con su traza en el logger `mcp`, así que se
+    recoge de ahí para ver el fallo concreto que dio HA.
+    """
+    manejador = _Errores()
+    logger = logging.getLogger("mcp")
+    logger.addHandler(manejador)
+    try:
+        yield manejador.excepciones
+    finally:
+        logger.removeHandler(manejador)
+
+
+def _cadena(exc: BaseException) -> Iterator[BaseException]:
+    vistas: set[int] = set()
+    actual: BaseException | None = exc
+    while actual is not None and id(actual) not in vistas:
+        vistas.add(id(actual))
+        yield actual
+        actual = actual.__cause__ or actual.__context__
+
+
+def es_servicio_inexistente(
+    excepciones: list[BaseException], servicios: dict[str, Any], dominio: str, servicio: str
+) -> bool:
+    """El fallo de la tool es el 400 de Core a `POST /services/<dominio>/<servicio>`
+    y Core, leído por el lector, no tiene ese servicio. Las dos cosas a la vez."""
+    if servicio in (servicios.get(dominio) or {}):
+        return False
+    ruta = f"/services/{dominio}/{servicio}"
+    return any(
+        getattr(e, "status", None) == 400 and ruta in str(e)
+        for exc in excepciones
+        for e in _cadena(exc)
+    )
 
 
 @dataclass

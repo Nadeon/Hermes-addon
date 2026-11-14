@@ -326,6 +326,20 @@ def _decodificar(resultado: Any) -> Any:
     return bloques
 
 
+# Tools que el test en curso ha llamado con éxito por MCP (FR-009). El plugin
+# del job (`tests/banco/obligatorio.py`) lo vacía al empezar cada test y, si
+# el test pasa, lo suma a las probadas: así «probada» quiere decir ejecutada
+# contra HA real con su efecto comprobado, no nombrada en un fichero.
+_tools_del_test: set[str] = set()
+
+
+def tomar_tools_del_test() -> set[str]:
+    """Devuelve las tools llamadas con éxito desde la última vez y lo vacía."""
+    tools = set(_tools_del_test)
+    _tools_del_test.clear()
+    return tools
+
+
 async def llamar(cliente: Any, tool: str, **args: Any) -> Any:
     """Llama a una tool por MCP y devuelve su respuesta decodificada.
 
@@ -337,7 +351,11 @@ async def llamar(cliente: Any, tool: str, **args: Any) -> Any:
     if getattr(resultado, "is_error", False):
         textos = " ".join(getattr(c, "text", "") for c in resultado.content)
         raise AssertionError(f"{tool}: la tool falló: {textos}")
-    return _decodificar(resultado)
+    decodificado = _decodificar(resultado)
+    # Una respuesta `{"error": …}` tampoco es un éxito.
+    if not (isinstance(decodificado, dict) and "error" in decodificado):
+        _tools_del_test.add(tool)
+    return decodificado
 
 
 async def confirmar(cliente: Any, tool: str, respuesta: dict[str, Any], **args: Any) -> Any:
