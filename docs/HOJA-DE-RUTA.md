@@ -137,8 +137,9 @@ El flujo de publicación usa la action `build-image` de Home Assistant, fijada
 por SHA, con cada arquitectura en un runner nativo y firma cosign; el
 Dockerfile trae su imagen base por defecto y `build.yaml` desaparece.
 `config.yaml` declara `timeout: 20` para que el apagado ordenado termine antes
-del SIGKILL de Docker. Pendiente: probar la primera publicación con una
-etiqueta y comprobar que las imágenes ya publicadas siguen disponibles.
+del SIGKILL de Docker. Las primeras publicaciones con etiqueta (`v1.1.0` y
+`v1.1.1`) salieron bien; queda comprobar que las imágenes publicadas con el
+builder anterior siguen disponibles (ver las pruebas pendientes).
 
 ### Hecho en 1.1.0 — OAuth moderno, límites y protocolo (spec 003)
 
@@ -230,19 +231,26 @@ dashboard principal y los tokens DCR emitidos antes de actualizar.
 - [x] **`ha_get_history`**: datos útiles con `truncated` y `truncated_at`,
   nunca `response_too_large`.
 - [x] **Log**: solo `pattern_len` y `template_len`, y la red sigue redactada.
+- [x] **Tools nuevas de la 1.1.x, en lectura**, desde un cliente que ya veía
+  la lista nueva: las 18 de lectura (las siete `ha_marketplace_*`, plantas,
+  etiquetas, categorías, Repairs, trazas, `ha_search_related`,
+  `sv_get_resolution`, `ha_list_backups`, `ha_get_backup` y
+  `ha_get_backup_config`) y los cuatro alias `ha_hacs_*` responden con la
+  forma del contrato, sin errores en el log y sin cortar la WebSocket.
+  `ha_marketplace_list_updates` ya funciona. `ha_get_backup_config` solo
+  expone `create_backup.password_set`. Los alias devuelven lo mismo que su
+  sustituta más `_deprecated`. Los `not_found` de `ha_get_trace` y
+  `ha_get_backup` y el `invalid_argument` de `ha_list_categories` son los del
+  contrato. Las 13 tools de escritura de la 1.1.x no se ejecutaron.
 
 ### Pruebas manuales pendientes en una instalación real
 
 La suite no puede cubrir esto; anota aquí el resultado:
 
-- [ ] **Tools nuevas de la 1.1.0 desde un cliente sin la lista cacheada**: el
-  cliente de las pruebas en vivo guardaba la lista de antes de actualizar y no
-  veía ninguna de las tools nuevas. Con una sesión nueva o tras quitar y volver
-  a añadir el conector, probar en lectura las `ha_marketplace_*` (sobre todo
-  `ha_marketplace_list_updates`), `ha_list_floors`, `ha_list_labels`,
-  `ha_list_categories`, `ha_list_repairs`, `ha_list_traces`, `ha_get_trace`,
-  `ha_search_related`, `sv_get_resolution`, `ha_list_backups` y
-  `ha_get_backup_config` (que solo exponga `password_set`).
+- [ ] **Lo que la instalación de prueba no tenía**: la redacción de las
+  referencias de `sv_get_resolution` con issues o sugerencias reales, y las
+  trazas de un script (`ha_list_traces` y `ha_get_trace` con
+  `domain: "script"`).
 - [ ] **CIMD con Claude Code** (con claude.ai ya está hecho): autorizar,
   comprobar la pantalla de autorización (host, nombre y destino del código) y
   el evento `oauth_cimd_document` del log
@@ -271,11 +279,16 @@ La suite no puede cubrir esto; anota aquí el resultado:
   escribe en el log los `entity_id` de automatizaciones y scripts; y
   `ha_get_history` marca `truncated` pero no añade el bloque
   `_response_limit` que llevan las demás tools recortadas.
-- **Pruebas manuales en una instalación real**: las de la sección anterior
-  (CIMD con Claude Code, primer byte tras el proxy, actualización
-  con la clave `homeassistant`, Funnel en el 8443, publicación de la imagen
-  con el CI nuevo y lectura y guardado de dashboards grandes), si no se
-  hicieron con la 1.1.0.
+- **Menores vistos al probar en vivo las tools nuevas de la 1.1.x**:
+  `ha_marketplace_list_removed` devuelve el catálogo entero de repositorios
+  retirados (más de 500 entradas, unos 97 KB, cerca del límite de 128 KiB), y
+  casi siempre solo interesan los instalados: filtrarlos por defecto, o añadir
+  `limit` y un resumen. Su campo `removal_type` llega sin normalizar y a veces
+  es texto libre, así que debería figurar en `_third_party_text`. Además, las
+  tools del Marketplace y `sv_get_resolution` no escriben en el log el evento
+  `*_ok` que escriben las demás.
+- **Pruebas manuales en una instalación real**: las que siguen abiertas en la
+  sección anterior.
 - **Redactar en el log los dominios propios de HA** (`external_url` e
   `internal_url`): hoy solo se tapa `public_hostname`. Exige leer la
   configuración de HA al arrancar, antes de que salgan las primeras líneas.
