@@ -122,5 +122,36 @@ class TestHelpersDeOpciones(unittest.TestCase):
         self.assertEqual(salida, "0")
 
 
+class TestValoresPorDefectoDeRunSh(unittest.TestCase):
+    """FR-032, FR-023, FR-044: lo que exporta run.sh sin opción guardada.
+
+    Se comprueba el texto de run.sh porque ejecutarlo entero necesita
+    /data/options.json y lanza Python; las líneas `export` son la fuente.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.texto = RUN_SH.read_text(encoding="utf-8")
+
+    def _export(self, variable: str) -> str:
+        m = re.search(rf'^export {variable}="\$\(cfg_default (\w+) (\S+)\)"$',
+                      self.texto, re.MULTILINE)
+        self.assertIsNotNone(m, f"run.sh no exporta {variable} con cfg_default")
+        assert m is not None
+        return f"{m.group(1)} {m.group(2)}"
+
+    def test_response_max_bytes_por_defecto_es_131072(self) -> None:
+        self.assertEqual(self._export("HERMES_RESPONSE_MAX_BYTES"),
+                         "response_max_bytes 131072")
+
+    def test_exporta_oauth_cimd_enabled_activada(self) -> None:
+        self.assertEqual(self._export("HERMES_OAUTH_CIMD_ENABLED"),
+                         "oauth_cimd_enabled true")
+
+    def test_exporta_log_redact_network_activada(self) -> None:
+        self.assertEqual(self._export("HERMES_LOG_REDACT_NETWORK"),
+                         "log_redact_network true")
+
+
 if __name__ == "__main__":
     unittest.main()

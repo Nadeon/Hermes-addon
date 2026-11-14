@@ -171,6 +171,37 @@ class TestManifiesto(unittest.TestCase):
             with self.subTest(opcion=clave):
                 self.assertIn(clave, self.schema)
 
+    def test_response_max_bytes_por_defecto_coincide_con_el_codigo(self) -> None:
+        """FR-032: 131 072 en config.yaml y en config.py."""
+        from hermes.config import RESPONSE_MAX_BYTES_DEFAULT, HermesConfig
+
+        self.assertEqual(self.options["response_max_bytes"], 131_072)
+        self.assertEqual(RESPONSE_MAX_BYTES_DEFAULT, 131_072)
+        self.assertEqual(HermesConfig().response_max_bytes,
+                         self.options["response_max_bytes"])
+
+    def test_el_esquema_de_los_limites_no_se_estrecha(self) -> None:
+        """Control de S-03: el Supervisor valida las opciones guardadas.
+
+        Quien tenga guardado 1 048 576 o 300 no podría arrancar si el esquema
+        dejara de admitirlos; el máximo efectivo se aplica en el código.
+        """
+        casos = {"response_max_bytes": 1_048_576,
+                 "wait_for_event_max_seconds": 300}
+        for clave, guardado in casos.items():
+            with self.subTest(opcion=clave):
+                m = RE_SCHEMA_ELEMENT.match(str(self.schema[clave]))
+                assert m is not None
+                self.assertLessEqual(int(m.group("i_min")), guardado)
+                self.assertGreaterEqual(int(m.group("i_max")), guardado)
+
+    def test_opciones_nuevas_declaradas_y_activadas(self) -> None:
+        """FR-023 y FR-044: opcionales en el esquema y `true` por defecto."""
+        for clave in ("oauth_cimd_enabled", "log_redact_network"):
+            with self.subTest(opcion=clave):
+                self.assertEqual(self.schema.get(clave), "bool?")
+                self.assertIs(self.options.get(clave), True)
+
     def test_arranca_despues_del_core_de_home_assistant(self) -> None:
         """`startup: services` arrancaba Hermes ANTES que el core de HA.
 

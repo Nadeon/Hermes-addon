@@ -47,8 +47,8 @@ Notas de reparto:
 
 **Objetivo**: entorno de pruebas y línea base sobre 1.0.12.
 
-- [ ] T001 Crear `.venv` con `hermes/requirements.txt` y `pytest pytest-asyncio aioresponses httpx` (quickstart.md) y ejecutar `.venv/bin/pytest`; anotar el número de tests que pasan como línea base
-- [ ] T002 Comprobar que el árbol está limpio, sobre la rama indicada por el mantenedor y con 1.0.12 fusionada (`HAConnectionError.code` y `hermes/src/hermes/ha_version.py` presentes); cada lote crea su worktree desde el commit con la fase 0 fusionada
+- [X] T001 Crear `.venv` con `hermes/requirements.txt` y `pytest pytest-asyncio aioresponses httpx` (quickstart.md) y ejecutar `.venv/bin/pytest`; anotar el número de tests que pasan como línea base
+- [X] T002 Comprobar que el árbol está limpio, sobre la rama indicada por el mantenedor y con 1.0.12 fusionada (`HAConnectionError.code` y `hermes/src/hermes/ha_version.py` presentes); cada lote crea su worktree desde el commit con la fase 0 fusionada
 
 ---
 
@@ -58,14 +58,14 @@ Notas de reparto:
 
 **Prueba independiente**: `.venv/bin/pytest tests/test_config_validation.py tests/test_addon_manifest.py tests/test_run_sh_options.py`.
 
-- [ ] T003 [US4] Tests en `tests/test_config_validation.py`: sin `HERMES_RESPONSE_MAX_BYTES` → 131 072; `1048576` → 131 072 y `adjustments` con `reason: "legacy_default"`; `300000` → 300 000 sin ajuste; `4000000` → 524 288 con `reason: "above_cap"`; `524288` y `10240` se respetan (FR-032, FR-033, FR-034)
-- [ ] T004 [US5] Tests en `tests/test_config_validation.py`: `HERMES_WAIT_EVENT_MAX_SECONDS=300` → 220 con ajuste `above_cap`; `220`, `90` y `10` se respetan; por defecto 90. Más: `oauth_cimd_enabled` y `log_redact_network` valen `True` por defecto y `False` con `"false"` en el entorno (FR-035, FR-023, FR-044)
-- [ ] T005 [P] [US4] Tests en `tests/test_addon_manifest.py`: `options.response_max_bytes == 131072` y coincide con `config.py`; el esquema de `response_max_bytes` sigue admitiendo 1 048 576 y el de `wait_for_event_max_seconds` 300 (control del supuesto S-03); `oauth_cimd_enabled` y `log_redact_network` están en `schema` como `bool?` y en `options` como `true` (FR-032, FR-023, FR-044)
-- [ ] T006 [P] [US4] Tests en `tests/test_run_sh_options.py`: `run.sh` usa 131072 como valor por defecto de `response_max_bytes` y exporta `HERMES_OAUTH_CIMD_ENABLED` y `HERMES_LOG_REDACT_NETWORK` con `true` por defecto (FR-032, FR-023, FR-044)
-- [ ] T007 Implementar en `hermes/src/hermes/config.py` las constantes, el valor por defecto nuevo, los recortes y `adjustments` en `load_config`, y los campos `oauth_cimd_enabled` y `log_redact_network`, con el comentario del porqué (Supervisor valida opciones guardadas; la interfaz guarda todas) (plan, fase 0; FR-032…FR-035, FR-023, FR-044)
-- [ ] T008 Cambiar `options.response_max_bytes` a 131072 y añadir las dos opciones en `hermes/config.yaml` (esquema de los límites sin cambios, con comentario); en `hermes/run.sh`, valor por defecto 131072 y las dos exportaciones nuevas (FR-032, FR-023, FR-044)
-- [ ] T009 Control negativo de la fase 0: (1) quitar el recorte de `response_max_bytes`, (2) quitar la sustitución de 1 048 576, (3) quitar el recorte de `wait_for_event_max_seconds`, (4) restaurar 1048576 en `config.yaml` y `run.sh`; tras cada uno, comprobar qué tests de T003–T006 caen; restaurar y anotar «con la guarda quitada caen N tests»
-- [ ] T010 Ejecutar la suite completa; grep de privacidad del diff (quickstart.md); commit de la fase 0 con los recuentos
+- [X] T003 [US4] Tests en `tests/test_config_validation.py`: sin `HERMES_RESPONSE_MAX_BYTES` → 131 072; `1048576` → 131 072 y `adjustments` con `reason: "legacy_default"`; `300000` → 300 000 sin ajuste; `4000000` → 524 288 con `reason: "above_cap"`; `524288` y `10240` se respetan (FR-032, FR-033, FR-034)
+- [X] T004 [US5] Tests en `tests/test_config_validation.py`: `HERMES_WAIT_EVENT_MAX_SECONDS=300` → 220 con ajuste `above_cap`; `220`, `90` y `10` se respetan; por defecto 90. Más: `oauth_cimd_enabled` y `log_redact_network` valen `True` por defecto y `False` con `"false"` en el entorno (FR-035, FR-023, FR-044)
+- [X] T005 [P] [US4] Tests en `tests/test_addon_manifest.py`: `options.response_max_bytes == 131072` y coincide con `config.py`; el esquema de `response_max_bytes` sigue admitiendo 1 048 576 y el de `wait_for_event_max_seconds` 300 (control del supuesto S-03); `oauth_cimd_enabled` y `log_redact_network` están en `schema` como `bool?` y en `options` como `true` (FR-032, FR-023, FR-044)
+- [X] T006 [P] [US4] Tests en `tests/test_run_sh_options.py`: `run.sh` usa 131072 como valor por defecto de `response_max_bytes` y exporta `HERMES_OAUTH_CIMD_ENABLED` y `HERMES_LOG_REDACT_NETWORK` con `true` por defecto (FR-032, FR-023, FR-044)
+- [X] T007 Implementar en `hermes/src/hermes/config.py` las constantes, el valor por defecto nuevo, los recortes y `adjustments` en `load_config`, y los campos `oauth_cimd_enabled` y `log_redact_network`, con el comentario del porqué (Supervisor valida opciones guardadas; la interfaz guarda todas) (plan, fase 0; FR-032…FR-035, FR-023, FR-044)
+- [X] T008 Cambiar `options.response_max_bytes` a 131072 y añadir las dos opciones en `hermes/config.yaml` (esquema de los límites sin cambios, con comentario); en `hermes/run.sh`, valor por defecto 131072 y las dos exportaciones nuevas (FR-032, FR-023, FR-044)
+- [X] T009 Control negativo de la fase 0: (1) quitar el recorte de `response_max_bytes`, (2) quitar la sustitución de 1 048 576, (3) quitar el recorte de `wait_for_event_max_seconds`, (4) restaurar 1048576 en `config.yaml` y `run.sh`; tras cada uno, comprobar qué tests de T003–T006 caen; restaurar y anotar «con la guarda quitada caen N tests»
+- [X] T010 Ejecutar la suite completa; grep de privacidad del diff (quickstart.md); commit de la fase 0 con los recuentos
 
 **Punto de control**: fase 0 fusionada; se abren los lotes A, B y C en paralelo.
 

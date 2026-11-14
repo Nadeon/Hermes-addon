@@ -53,6 +53,22 @@ HEALTH_PORT = 8766
 # porque es el número que sale en la documentación y en el schema del add-on.
 MIN_AUTH_PASSWORD_LENGTH = _MIN_AUTH_PASSWORD_LENGTH
 
+# Límites de tamaño y de espera (FR-032…FR-035). Con 1 MB por respuesta, quien
+# recortaba era el cliente, por su cuenta y sin avisar; el truncado de Hermes
+# es controlado y lo dice. Y claude.ai corta las llamadas a los 240 s, así que
+# una espera más larga pierde el resultado sin que nadie se entere.
+#
+# Los máximos se aplican al CARGAR y no en el esquema de config.yaml porque el
+# Supervisor valida las opciones guardadas al arrancar: estrechar el rango
+# dejaría sin arrancar a quien ya tenga guardado un valor mayor (spec S-03).
+RESPONSE_MAX_BYTES_DEFAULT = 131_072
+RESPONSE_MAX_BYTES_CAP = 524_288
+# El valor por defecto anterior. La interfaz del Supervisor guarda TODAS las
+# opciones al pulsar «Guardar», así que 1 048 576 está en las opciones de casi
+# todo el mundo sin que nadie lo eligiera: se trata como «no personalizado».
+RESPONSE_MAX_BYTES_LEGACY_DEFAULT = 1_048_576
+WAIT_FOR_EVENT_MAX_SECONDS_CAP = 220
+
 
 def _env_str(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
@@ -198,7 +214,7 @@ class HermesConfig:
     config_write_max_per_minute: int = 10
 
     # ── Respuestas ────────────────────────────────────────────
-    response_max_bytes: int = 1_048_576  # 1 MB
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT  # 128 KiB
 
     # ── WebSocket HA ──────────────────────────────────────────
     ha_ws_max_msg_size_bytes: int = 4_194_304  # 4 MB
@@ -217,8 +233,23 @@ class HermesConfig:
     call_service_auto_classify_dangerous: bool = True
     fire_event_allowlist: list[str] = field(default_factory=list)
 
+    # ── OAuth ─────────────────────────────────────────────────
+    # Interruptor de los clientes CIMD (`client_id` con URL https://). Existe
+    # para poder volver solo a DCR si CIMD rompe a un cliente real (FR-023).
+    oauth_cimd_enabled: bool = True
+
+    # ── Log ───────────────────────────────────────────────────
+    # Seudonimiza IPs y hostnames en el log, que la gente pega en foros al
+    # pedir ayuda (FR-044). Se puede desactivar para diagnosticar la red.
+    log_redact_network: bool = True
+
     # ── Runtime (no configurables por usuario) ────────────────
     supervisor_token: str = ""
+
+    # Ajustes que `load_config` aplicó a valores guardados, como
+    # `{option, configured, applied, reason}`. No se registran al cargar porque
+    # el log aún no está configurado; los registra el arranque después.
+    adjustments: list[dict[str, object]] = field(default_factory=list)
 
     def validate(self) -> None:
         """Validación de campos obligatorios. Llamar al arranque."""
@@ -287,8 +318,47 @@ class HermesConfig:
             )
 
 
+def _ajustar(
+    opcion: str,
+    configurado: int,
+    aplicado: int,
+    motivo: str,
+    ajustes: list[dict[str, object]],
+) -> int:
+    ajustes.append({
+        "option": opcion,
+        "configured": configurado,
+        "applied": aplicado,
+        "reason": motivo,
+    })
+    return aplicado
+
+
 def load_config() -> HermesConfig:
     """Carga la configuración desde variables de entorno."""
+    ajustes: list[dict[str, object]] = []
+
+    response_max_bytes = _env_int(
+        "HERMES_RESPONSE_MAX_BYTES", RESPONSE_MAX_BYTES_DEFAULT
+    )
+    if response_max_bytes == RESPONSE_MAX_BYTES_LEGACY_DEFAULT:
+        response_max_bytes = _ajustar(
+            "response_max_bytes", response_max_bytes,
+            RESPONSE_MAX_BYTES_DEFAULT, "legacy_default", ajustes,
+        )
+    elif response_max_bytes > RESPONSE_MAX_BYTES_CAP:
+        response_max_bytes = _ajustar(
+            "response_max_bytes", response_max_bytes,
+            RESPONSE_MAX_BYTES_CAP, "above_cap", ajustes,
+        )
+
+    wait_for_event_max_seconds = _env_int("HERMES_WAIT_EVENT_MAX_SECONDS", 90)
+    if wait_for_event_max_seconds > WAIT_FOR_EVENT_MAX_SECONDS_CAP:
+        wait_for_event_max_seconds = _ajustar(
+            "wait_for_event_max_seconds", wait_for_event_max_seconds,
+            WAIT_FOR_EVENT_MAX_SECONDS_CAP, "above_cap", ajustes,
+        )
+
     return HermesConfig(
         auth_password=_env_str("HERMES_AUTH_PASSWORD"),
         public_hostname=_env_str("HERMES_PUBLIC_HOSTNAME"),
@@ -312,9 +382,9 @@ def load_config() -> HermesConfig:
             "HERMES_CONFIG_WRITE_MIN_INTERVAL", 5
         ),
         config_write_max_per_minute=_env_int("HERMES_CONFIG_WRITE_MAX_PER_MINUTE", 10),
-        response_max_bytes=_env_int("HERMES_RESPONSE_MAX_BYTES", 1_048_576),
+        response_max_bytes=response_max_bytes,
         ha_ws_max_msg_size_bytes=_env_int("HERMES_WS_MAX_MSG_SIZE", 4_194_304),
-        wait_for_event_max_seconds=_env_int("HERMES_WAIT_EVENT_MAX_SECONDS", 90),
+        wait_for_event_max_seconds=wait_for_event_max_seconds,
         wait_for_event_max_concurrent=_env_int("HERMES_WAIT_EVENT_MAX_CONCURRENT", 5),
         health_startup_grace_seconds=_env_int("HERMES_HEALTH_STARTUP_GRACE", 120),
         health_reconnect_tolerance_seconds=_env_int(
@@ -328,5 +398,8 @@ def load_config() -> HermesConfig:
             "HERMES_CALL_SERVICE_AUTO_CLASSIFY", True
         ),
         fire_event_allowlist=_env_list("HERMES_FIRE_EVENT_ALLOWLIST"),
+        oauth_cimd_enabled=_env_bool("HERMES_OAUTH_CIMD_ENABLED", True),
+        log_redact_network=_env_bool("HERMES_LOG_REDACT_NETWORK", True),
         supervisor_token=_env_str("SUPERVISOR_TOKEN"),
+        adjustments=ajustes,
     )

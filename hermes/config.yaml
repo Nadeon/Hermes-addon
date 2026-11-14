@@ -121,6 +121,10 @@ schema:
   file_backup_max_total_mb: "int(10,2000)?"
   config_write_min_interval_seconds: "int(1,60)?"
   config_write_max_per_minute: "int(1,60)?"
+  # El rango NO se estrecha aunque el máximo efectivo sea menor (524288 bytes
+  # y 220 s para wait_for_event_max_seconds): el Supervisor valida las opciones
+  # guardadas al arrancar y quien tenga guardado un valor mayor no podría
+  # arrancar. Hermes recorta el valor al cargarlo y lo avisa en el log.
   response_max_bytes: "int(10240,10485760)?"
   ha_ws_max_msg_size_bytes: "int(1048576,16777216)?"
   max_request_body_bytes: "int(65536,16777216)?"
@@ -141,6 +145,11 @@ schema:
   call_service_auto_classify_dangerous: "bool?"
   fire_event_allowlist:
     - "str?"
+  # Clientes OAuth que se identifican con la URL de su documento de metadatos
+  # (CIMD). Con false solo se admite el registro dinámico (DCR).
+  oauth_cimd_enabled: "bool?"
+  # Seudonimiza IPs y hostnames en el log del add-on. Con false se ven tal cual.
+  log_redact_network: "bool?"
 
 # ── Opciones por defecto ──────────────────────────────────────
 options:
@@ -160,7 +169,7 @@ options:
   file_backup_max_total_mb: 200
   config_write_min_interval_seconds: 5
   config_write_max_per_minute: 10
-  response_max_bytes: 1048576
+  response_max_bytes: 131072
   ha_ws_max_msg_size_bytes: 4194304
   max_request_body_bytes: 4194304
   max_concurrent_requests: 64
@@ -172,3 +181,5 @@ options:
   call_service_restricted_entities: []
   call_service_auto_classify_dangerous: true
   fire_event_allowlist: []
+  oauth_cimd_enabled: true
+  log_redact_network: true
