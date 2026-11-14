@@ -1,0 +1,624 @@
+comando	integracion	fichero	cobertura	clase	nota	cap
+ai_task/preferences/get	ai_task	homeassistant/components/ai_task/http.py	no	A	Assist: motores y agentes	CAP-062
+ai_task/preferences/set	ai_task	homeassistant/components/ai_task/http.py	no	A	Assist: motores y agentes	CAP-062
+analytics	analytics	homeassistant/components/analytics/__init__.py	no	A	Analytics y labs	CAP-074
+analytics/preferences	analytics	homeassistant/components/analytics/__init__.py	no	A	Analytics y labs	CAP-074
+application_credentials/config	application_credentials	homeassistant/components/application_credentials/__init__.py	no	A	Credenciales de aplicación (solo lectura, sin secretos)	CAP-073
+application_credentials/config_entry	application_credentials	homeassistant/components/application_credentials/__init__.py	no	A	Credenciales de aplicación (solo lectura, sin secretos)	CAP-073
+application_credentials/create	application_credentials	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	D	introduce o cambia client_secret OAuth de terceros	
+application_credentials/delete	application_credentials	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	D	introduce o cambia client_secret OAuth de terceros	
+application_credentials/list	application_credentials	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Credenciales de aplicación (solo lectura, sin secretos)	CAP-073
+application_credentials/subscribe	application_credentials	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+application_credentials/update	application_credentials	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	D	introduce o cambia client_secret OAuth de terceros	
+assist_pipeline/device/capture	assist_pipeline	homeassistant/components/assist_pipeline/websocket_api.py	no	B	captura de audio en streaming	
+assist_pipeline/device/list	assist_pipeline	homeassistant/components/assist_pipeline/websocket_api.py	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/language/list	assist_pipeline	homeassistant/components/assist_pipeline/websocket_api.py	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline/create	assist_pipeline	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline/delete	assist_pipeline	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline/get	assist_pipeline	homeassistant/components/assist_pipeline/pipeline.py	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline/list	assist_pipeline	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline/set_preferred	assist_pipeline	homeassistant/components/assist_pipeline/pipeline.py	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline/subscribe	assist_pipeline	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+assist_pipeline/pipeline/update	assist_pipeline	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline_debug/get	assist_pipeline	homeassistant/components/assist_pipeline/websocket_api.py	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/pipeline_debug/list	assist_pipeline	homeassistant/components/assist_pipeline/websocket_api.py	no	A	Assist: pipelines y depuración	CAP-061
+assist_pipeline/run	assist_pipeline	homeassistant/components/assist_pipeline/websocket_api.py	no	D	streaming de audio/STT/TTS en tiempo real: no automatizable por MCP	
+assist_satellite/get_configuration	assist_satellite	homeassistant/components/assist_satellite/websocket_api.py	no	A	Assist: satélites	CAP-063
+assist_satellite/intercept_wake_word	assist_satellite	homeassistant/components/assist_satellite/websocket_api.py	no	B	asistente de configuración del satélite, interactivo	
+assist_satellite/set_wake_words	assist_satellite	homeassistant/components/assist_satellite/websocket_api.py	no	A	Assist: satélites	CAP-063
+assist_satellite/test_connection	assist_satellite	homeassistant/components/assist_satellite/websocket_api.py	no	B	prueba de audio del asistente de configuración	
+auth/current_user	auth	homeassistant/components/auth/__init__.py	no	B	identidad de la conexión (es el propio token de Hermes)	
+auth/delete_all_refresh_tokens	auth	homeassistant/components/auth/__init__.py	no	D	crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente	
+auth/delete_refresh_token	auth	homeassistant/components/auth/__init__.py	no	D	crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente	
+auth/depose_mfa	auth	homeassistant/components/auth/mfa_setup_flow.py	no	D	crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente	
+auth/long_lived_access_token	auth	homeassistant/components/auth/__init__.py	no	D	crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente	
+auth/refresh_token_set_expiry	auth	homeassistant/components/auth/__init__.py	no	D	crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente	
+auth/refresh_tokens	auth	homeassistant/components/auth/__init__.py	no	A	Usuarios (auditoría de sesiones, solo lectura)	CAP-056
+auth/setup_mfa	auth	homeassistant/components/auth/mfa_setup_flow.py	no	D	crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente	
+auth/sign_path	auth	homeassistant/components/auth/__init__.py	no	D	crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente	
+automation/config	automation	homeassistant/components/automation/__init__.py	si	cubierto	lectura de config por entity_id; las tools CRUD usan REST /api/config/<tipo>/config/<id>	
+backup/agents/info	backup	homeassistant/components/backup/websocket.py	no	A	Backups de la integración backup (agentes, programación, retención)	CAP-057
+backup/can_decrypt_on_download	backup	homeassistant/components/backup/websocket.py	no	B	comprobación de la UI antes de descargar	
+backup/config/info	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_list_backups / ha_get_backup / ha_get_backup_config	
+backup/config/update	backup	homeassistant/components/backup/websocket.py	no	A	Backups de la integración backup (agentes, programación, retención)	CAP-057
+backup/delete	backup	homeassistant/components/backup/websocket.py	si-equivalente	cubierto	sv_delete_backup (mismo backup vía Supervisor; no cubre agentes remotos)	
+backup/details	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_list_backups / ha_get_backup / ha_get_backup_config	
+backup/end	backup	homeassistant/components/backup/websocket.py	no	B	señal interna del Supervisor	
+backup/generate	backup	homeassistant/components/backup/websocket.py	accion-generica	cubierto	backup.create (denylist) o sv_create_backup_*; dedicada aportaría elegir agentes/ubicaciones	
+backup/generate_with_automatic_settings	backup	homeassistant/components/backup/websocket.py	accion-generica	cubierto	backup.create_automatic (denylist); poco que añadir	
+backup/info	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_list_backups / ha_get_backup / ha_get_backup_config	
+backup/restore	backup	homeassistant/components/backup/websocket.py	si-equivalente	cubierto	sv_restore_backup_full/partial (solo backups locales del Supervisor)	
+backup/start	backup	homeassistant/components/backup/websocket.py	no	B	señal interna del Supervisor	
+backup/subscribe_events	backup	homeassistant/components/backup/websocket.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
+blueprint/delete	blueprint	homeassistant/components/blueprint/websocket_api.py	no	A	Blueprints	CAP-046
+blueprint/import	blueprint	homeassistant/components/blueprint/websocket_api.py	no	A	Blueprints	CAP-046
+blueprint/list	blueprint	homeassistant/components/blueprint/websocket_api.py	no	A	Blueprints	CAP-046
+blueprint/save	blueprint	homeassistant/components/blueprint/websocket_api.py	no	A	Blueprints	CAP-046
+blueprint/substitute	blueprint	homeassistant/components/blueprint/websocket_api.py	no	A	Blueprints	CAP-046
+bluetooth/subscribe_advertisements	bluetooth	homeassistant/components/bluetooth/websocket_api.py	no	C	gestión específica de bluetooth	CAP-105
+bluetooth/subscribe_connection_allocations	bluetooth	homeassistant/components/bluetooth/websocket_api.py	no	C	gestión específica de bluetooth	CAP-105
+bluetooth/subscribe_scanner_details	bluetooth	homeassistant/components/bluetooth/websocket_api.py	no	C	gestión específica de bluetooth	CAP-105
+bluetooth/subscribe_scanner_state	bluetooth	homeassistant/components/bluetooth/websocket_api.py	no	C	gestión específica de bluetooth	CAP-105
+brands/access_token	brands	homeassistant/components/brands/__init__.py	no	B	token o configuración para que el navegador cargue recursos	
+calendar/event/create	calendar	homeassistant/components/calendar/__init__.py	accion-generica	cubierto	calendar.create_event; nada que añadir	
+calendar/event/delete	calendar	homeassistant/components/calendar/__init__.py	no	A	Calendario y tareas (editar/borrar eventos no tiene acción)	CAP-065
+calendar/event/subscribe	calendar	homeassistant/components/calendar/__init__.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+calendar/event/update	calendar	homeassistant/components/calendar/__init__.py	no	A	Calendario y tareas (editar/borrar eventos no tiene acción)	CAP-065
+call_service	websocket_api	homeassistant/components/websocket_api/commands.py	si-rest	cubierto	equivalente REST /api/states, /api/services, /api/services/<d>/<s>	
+camera/capabilities	camera	homeassistant/components/camera/__init__.py	no	B	negociación de vídeo en el navegador (HLS/WebRTC)	
+camera/get_prefs	camera	homeassistant/components/camera/__init__.py	no	A	Cámaras (preferencias de stream)	CAP-059
+camera/stream	camera	homeassistant/components/camera/__init__.py	no	B	negociación de vídeo en el navegador (HLS/WebRTC)	
+camera/update_prefs	camera	homeassistant/components/camera/__init__.py	no	A	Cámaras (preferencias de stream)	CAP-059
+camera/webrtc/candidate	camera	homeassistant/components/camera/webrtc.py	no	B	negociación de vídeo en el navegador (HLS/WebRTC)	
+camera/webrtc/get_client_config	camera	homeassistant/components/camera/webrtc.py	no	B	negociación de vídeo en el navegador (HLS/WebRTC)	
+camera/webrtc/offer	camera	homeassistant/components/camera/webrtc.py	no	B	negociación de vídeo en el navegador (HLS/WebRTC)	
+cloud/alexa/entities	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/alexa/entities/get	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/alexa/sync	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/attempt_auto_login_now	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/cancel_auto_login	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/cloudhook/create	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/cloudhook/delete	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/google_assistant/entities	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/google_assistant/entities/get	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/google_assistant/entities/update	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/onboarding/complete	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/onboarding/postpone	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/remote/connect	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/remote/disconnect	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/remove_data	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/resend_auto_login_confirm	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/status	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/subscribe_events	cloud	homeassistant/components/cloud/http_api.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
+cloud/subscription	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/tts/info	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/update_prefs	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+cloud/webrtc/ice_servers	cloud	homeassistant/components/cloud/http_api.py	no	D	cuenta Nabu Casa (login, suscripción, remote, exposición a Alexa/Google vía cloud): fuera del alcance de un MCP	
+condition_platforms/subscribe	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+config/area_registry/create	config	homeassistant/components/config/area_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/area_registry/delete	config	homeassistant/components/config/area_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/area_registry/list	config	homeassistant/components/config/area_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/area_registry/reorder	config	homeassistant/components/config/area_registry.py	no	A	Registros: orden de áreas y plantas	CAP-070
+config/area_registry/update	config	homeassistant/components/config/area_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/auth/create	config	homeassistant/components/config/auth.py	no	A	Usuarios	CAP-056
+config/auth/delete	config	homeassistant/components/config/auth.py	no	A	Usuarios	CAP-056
+config/auth/list	config	homeassistant/components/config/auth.py	no	A	Usuarios	CAP-056
+config/auth/update	config	homeassistant/components/config/auth.py	no	A	Usuarios	CAP-056
+config/auth_provider/homeassistant/admin_change_password	config	homeassistant/components/config/auth_provider_homeassistant.py	no	D	maneja contraseñas de usuarios	
+config/auth_provider/homeassistant/admin_change_username	config	homeassistant/components/config/auth_provider_homeassistant.py	no	D	maneja contraseñas de usuarios	
+config/auth_provider/homeassistant/change_password	config	homeassistant/components/config/auth_provider_homeassistant.py	no	D	maneja contraseñas de usuarios	
+config/auth_provider/homeassistant/create	config	homeassistant/components/config/auth_provider_homeassistant.py	no	D	maneja contraseñas de usuarios	
+config/auth_provider/homeassistant/delete	config	homeassistant/components/config/auth_provider_homeassistant.py	no	D	maneja contraseñas de usuarios	
+config/category_registry/create	config	homeassistant/components/config/category_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/category_registry/delete	config	homeassistant/components/config/category_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/category_registry/list	config	homeassistant/components/config/category_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/category_registry/update	config	homeassistant/components/config/category_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/core/detect	config	homeassistant/components/config/core.py	no	A	Configuración del núcleo (homeassistant.set_location solo cubre coordenadas)	CAP-053
+config/core/update	config	homeassistant/components/config/core.py	no	A	Configuración del núcleo (homeassistant.set_location solo cubre coordenadas)	CAP-053
+config/device_registry/list	config	homeassistant/components/config/device_registry.py	si	cubierto	ha_list_devices / ha_update_device	
+config/device_registry/list_composite_splits	config	homeassistant/components/config/device_registry.py	no	A	Registros: dispositivos compuestos y enlazados	CAP-070
+config/device_registry/list_linked_devices	config	homeassistant/components/config/device_registry.py	no	A	Registros: dispositivos compuestos y enlazados	CAP-070
+config/device_registry/remove	config	homeassistant/components/config/device_registry.py	si	cubierto	ha_remove_device / ha_remove_device_from_config_entry (con confirmación)	
+config/device_registry/remove_config_entry	config	homeassistant/components/config/device_registry.py	si	cubierto	ha_remove_device / ha_remove_device_from_config_entry (con confirmación)	
+config/device_registry/update	config	homeassistant/components/config/device_registry.py	si	cubierto	ha_list_devices / ha_update_device	
+config/entity_registry/get	config	homeassistant/components/config/entity_registry.py	si	cubierto	ha_*_entity_registry	
+config/entity_registry/get_automatic_entity_ids	config	homeassistant/components/config/entity_registry.py	no	A	Registros: ids automáticos y ajustes del registro de entidades	CAP-070
+config/entity_registry/get_entries	config	homeassistant/components/config/entity_registry.py	no	B	variante en lote de get, optimización de la UI	
+config/entity_registry/list	config	homeassistant/components/config/entity_registry.py	si	cubierto	ha_*_entity_registry	
+config/entity_registry/list_for_display	config	homeassistant/components/config/entity_registry.py	no	B	versión comprimida para la UI	
+config/entity_registry/remove	config	homeassistant/components/config/entity_registry.py	si	cubierto	ha_*_entity_registry	
+config/entity_registry/settings/get	config	homeassistant/components/config/entity_registry.py	no	A	Registros: ids automáticos y ajustes del registro de entidades	CAP-070
+config/entity_registry/settings/update	config	homeassistant/components/config/entity_registry.py	no	A	Registros: ids automáticos y ajustes del registro de entidades	CAP-070
+config/entity_registry/update	config	homeassistant/components/config/entity_registry.py	si	cubierto	ha_*_entity_registry	
+config/floor_registry/create	config	homeassistant/components/config/floor_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/floor_registry/delete	config	homeassistant/components/config/floor_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/floor_registry/list	config	homeassistant/components/config/floor_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/floor_registry/reorder	config	homeassistant/components/config/floor_registry.py	no	A	Registros: orden de áreas y plantas	CAP-070
+config/floor_registry/update	config	homeassistant/components/config/floor_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/label_registry/create	config	homeassistant/components/config/label_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/label_registry/delete	config	homeassistant/components/config/label_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/label_registry/list	config	homeassistant/components/config/label_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config/label_registry/update	config	homeassistant/components/config/label_registry.py	si	cubierto	ha_list/create/update/delete_* de registros	
+config_entries/disable	config	homeassistant/components/config/config_entries.py	si	cubierto	ha_list/get/enable/disable_config_entry	
+config_entries/flow/progress	config	homeassistant/components/config/config_entries.py	no	A	Integraciones: descubiertas, ignorar flujos, preferencias de la entry	CAP-044
+config_entries/flow/subscribe	config	homeassistant/components/config/config_entries.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+config_entries/get	config	homeassistant/components/config/config_entries.py	si	cubierto	ha_list/get/enable/disable_config_entry	
+config_entries/get_single	config	homeassistant/components/config/config_entries.py	si	cubierto	ha_list/get/enable/disable_config_entry	
+config_entries/ignore_flow	config	homeassistant/components/config/config_entries.py	no	A	Integraciones: descubiertas, ignorar flujos, preferencias de la entry	CAP-044
+config_entries/subentries/delete	config	homeassistant/components/config/config_entries.py	no	A	Subentries y reconfigure (planificado 1.2.x)	CAP-045
+config_entries/subentries/list	config	homeassistant/components/config/config_entries.py	no	A	Subentries y reconfigure (planificado 1.2.x)	CAP-045
+config_entries/subentries/update	config	homeassistant/components/config/config_entries.py	no	A	Subentries y reconfigure (planificado 1.2.x)	CAP-045
+config_entries/subscribe	config	homeassistant/components/config/config_entries.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+config_entries/update	config	homeassistant/components/config/config_entries.py	no	A	Integraciones: descubiertas, ignorar flujos, preferencias de la entry	CAP-044
+conversation/agent/homeassistant/debug	conversation	homeassistant/components/conversation/http.py	no	A	Conversación (conversation.process está en la denylist y ha_call_service_response la rechaza)	CAP-060
+conversation/agent/homeassistant/language_scores	conversation	homeassistant/components/conversation/http.py	no	A	Conversación (conversation.process está en la denylist y ha_call_service_response la rechaza)	CAP-060
+conversation/agent/list	conversation	homeassistant/components/conversation/http.py	no	A	Assist: motores y agentes	CAP-060
+conversation/chat_log/subscribe	conversation	homeassistant/components/conversation/http.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+conversation/chat_log/subscribe_index	conversation	homeassistant/components/conversation/http.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+conversation/prepare	conversation	homeassistant/components/conversation/http.py	no	B	precarga de la UI	
+conversation/process	conversation	homeassistant/components/conversation/http.py	no	A	Conversación (conversation.process está en la denylist y ha_call_service_response la rechaza)	CAP-060
+conversation/sentences/list	conversation	homeassistant/components/conversation/http.py	no	A	Conversación (conversation.process está en la denylist y ha_call_service_response la rechaza)	CAP-060
+counter/create	counter	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+counter/delete	counter	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+counter/list	counter	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+counter/subscribe	counter	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+counter/update	counter	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+debug_console/check_input	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/clear	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/complete	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/execute	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/get_attribute	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/info	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/inspect	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/signature	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/stop	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+debug_console/warning/accept	debug_console	homeassistant/components/debug_console/websocket_api.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+device_automation/action/capabilities	device_automation	homeassistant/components/device_automation/__init__.py	no	A	Triggers/condiciones/acciones de dispositivo	CAP-051
+device_automation/action/list	device_automation	homeassistant/components/device_automation/__init__.py	no	A	Triggers/condiciones/acciones de dispositivo	CAP-051
+device_automation/condition/capabilities	device_automation	homeassistant/components/device_automation/__init__.py	no	A	Triggers/condiciones/acciones de dispositivo	CAP-051
+device_automation/condition/list	device_automation	homeassistant/components/device_automation/__init__.py	no	A	Triggers/condiciones/acciones de dispositivo	CAP-051
+device_automation/trigger/capabilities	device_automation	homeassistant/components/device_automation/__init__.py	no	A	Triggers/condiciones/acciones de dispositivo	CAP-051
+device_automation/trigger/list	device_automation	homeassistant/components/device_automation/__init__.py	no	A	Triggers/condiciones/acciones de dispositivo	CAP-051
+dhcp/subscribe_discovery	dhcp	homeassistant/components/dhcp/websocket_api.py	no	C	gestión específica de dhcp	CAP-106
+diagnostics/get	diagnostics	homeassistant/components/diagnostics/__init__.py	no	A	Diagnósticos de integración/dispositivo	CAP-042
+diagnostics/list	diagnostics	homeassistant/components/diagnostics/__init__.py	no	A	Diagnósticos de integración/dispositivo	CAP-042
+dismiss_system_state	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	descarta un banner de la UI	
+dynalite/get-config	dynalite	homeassistant/components/dynalite/panel.py	no	C	gestión específica de dynalite	CAP-106
+dynalite/save-config	dynalite	homeassistant/components/dynalite/panel.py	no	C	gestión específica de dynalite	CAP-106
+energy/fossil_energy_consumption	energy	homeassistant/components/energy/websocket_api.py	no	A	Energía (planificado 1.2.x)	CAP-054
+energy/get_prefs	energy	homeassistant/components/energy/websocket_api.py	no	A	Energía (planificado 1.2.x)	CAP-054
+energy/info	energy	homeassistant/components/energy/websocket_api.py	no	A	Energía (planificado 1.2.x)	CAP-054
+energy/save_prefs	energy	homeassistant/components/energy/websocket_api.py	no	A	Energía (planificado 1.2.x)	CAP-054
+energy/solar_forecast	energy	homeassistant/components/energy/websocket_api.py	no	A	Energía (planificado 1.2.x)	CAP-054
+energy/validate	energy	homeassistant/components/energy/websocket_api.py	no	A	Energía (planificado 1.2.x)	CAP-054
+entity/source	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	obsoleto; el registro de entidades ya da la plataforma	
+esphome/get_device_capabilities	esphome	homeassistant/components/esphome/websocket_api.py	no	C	gestión específica de esphome	CAP-106
+esphome/get_device_wizard	esphome	homeassistant/components/esphome/websocket_api.py	no	C	gestión específica de esphome	CAP-106
+esphome/get_encryption_key	esphome	homeassistant/components/esphome/websocket_api.py	no	C	gestión específica de esphome	CAP-106
+execute_script	websocket_api	homeassistant/components/websocket_api/commands.py	no	D	ejecuta una secuencia arbitraria sin persistirla ni trazarla; mejor un script con confirmación	
+explain_target	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Targets y propósitos (planificado 1.2.x)	CAP-052
+extract_from_target	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Targets y propósitos (planificado 1.2.x)	CAP-052
+fire_event	websocket_api	homeassistant/components/websocket_api/commands.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
+frontend/get_icons	frontend	homeassistant/components/frontend/__init__.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+frontend/get_system_data	frontend	homeassistant/components/frontend/storage.py	si	cubierto	lectura del panel por defecto (lovelace)	
+frontend/get_themes	frontend	homeassistant/components/frontend/__init__.py	no	A	Temas (frontend.set_theme ya va por acción genérica)	CAP-071
+frontend/get_translations	frontend	homeassistant/components/frontend/__init__.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+frontend/get_user_data	frontend	homeassistant/components/frontend/storage.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+frontend/get_version	frontend	homeassistant/components/frontend/__init__.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+frontend/set_system_data	frontend	homeassistant/components/frontend/storage.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+frontend/set_user_data	frontend	homeassistant/components/frontend/storage.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+frontend/subscribe_extra_js	frontend	homeassistant/components/frontend/__init__.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+frontend/subscribe_system_data	frontend	homeassistant/components/frontend/storage.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+frontend/subscribe_user_data	frontend	homeassistant/components/frontend/storage.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+frontend/update_panel	frontend	homeassistant/components/frontend/__init__.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+generic_camera/start_preview	generic	homeassistant/components/generic/config_flow.py	no	C	gestión específica de generic	CAP-106
+get_conditions_for_target	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Targets y propósitos (planificado 1.2.x)	CAP-052
+get_config	websocket_api	homeassistant/components/websocket_api/commands.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
+get_panels	frontend	homeassistant/components/frontend/__init__.py	no	B	datos internos del frontend (iconos, traducciones, preferencias de usuario de la UI, paneles)	
+get_services	websocket_api	homeassistant/components/websocket_api/commands.py	si-rest	cubierto	equivalente REST /api/states, /api/services, /api/services/<d>/<s>	
+get_services_for_target	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Targets y propósitos (planificado 1.2.x)	CAP-052
+get_states	websocket_api	homeassistant/components/websocket_api/commands.py	si-rest	cubierto	equivalente REST /api/states, /api/services, /api/services/<d>/<s>	
+get_triggers_for_target	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Targets y propósitos (planificado 1.2.x)	CAP-052
+group/start_preview	group	homeassistant/components/group/config_flow.py	no	B	vista previa en vivo del formulario de un helper en la UI	
+hardware/info	hardware	homeassistant/components/hardware/websocket_api.py	no	B	placa/hardware: ya lo da sv_get_host_info	
+hardware/subscribe_system_status	hardware	homeassistant/components/hardware/websocket_api.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+hassio/update/addon	hassio	homeassistant/components/hassio/websocket_api.py	si-equivalente	cubierto	sv_update_addon	
+hassio/update/config/info	hassio	homeassistant/components/hassio/websocket_api.py	no	A	Backups de la integración backup (backup previo a actualizar)	CAP-057
+hassio/update/config/update	hassio	homeassistant/components/hassio/websocket_api.py	no	A	Backups de la integración backup (backup previo a actualizar)	CAP-057
+hassio/update/core	hassio	homeassistant/components/hassio/websocket_api.py	accion-generica	cubierto	update.install sobre la entidad update de Core (denylist: pide token; hassio.core_update ya no existe en 2026.11). Sin vista previa útil: ver CAP-080	
+history/history_during_period	history	homeassistant/components/history/websocket_api.py	si	cubierto	ha_get_history	
+history/stream	history	homeassistant/components/history/websocket_api.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+history_stats/start_preview	history_stats	homeassistant/components/history_stats/config_flow.py	no	B	vista previa en vivo del formulario de un helper en la UI	
+homeassistant/expose_entity	homeassistant	homeassistant/components/homeassistant/exposed_entities.py	no	A	Exposición de entidades a asistentes	CAP-055
+homeassistant/expose_entity/list	homeassistant	homeassistant/components/homeassistant/exposed_entities.py	no	A	Exposición de entidades a asistentes	CAP-055
+homeassistant/expose_new_entities/get	homeassistant	homeassistant/components/homeassistant/exposed_entities.py	no	A	Exposición de entidades a asistentes	CAP-055
+homeassistant/expose_new_entities/set	homeassistant	homeassistant/components/homeassistant/exposed_entities.py	no	A	Exposición de entidades a asistentes	CAP-055
+http/config	http	homeassistant/components/http/websocket_api.py	no	A	Red y HTTP (configuración del servidor HTTP: riesgo de perder acceso)	CAP-068
+http/config/configure	http	homeassistant/components/http/websocket_api.py	no	A	Red y HTTP (configuración del servidor HTTP: riesgo de perder acceso)	CAP-069
+http/config/promote	http	homeassistant/components/http/websocket_api.py	no	A	Red y HTTP (configuración del servidor HTTP: riesgo de perder acceso)	CAP-069
+image/create	image_upload	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Imágenes subidas (image_upload): listar/borrar; subir va por REST	CAP-072
+image/delete	image_upload	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Imágenes subidas (image_upload): listar/borrar; subir va por REST	CAP-072
+image/list	image_upload	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Imágenes subidas (image_upload): listar/borrar; subir va por REST	CAP-072
+image/subscribe	image_upload	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+image/update	image_upload	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Imágenes subidas (image_upload): listar/borrar; subir va por REST	CAP-072
+input_boolean/create	input_boolean	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_boolean/delete	input_boolean	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_boolean/list	input_boolean	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_boolean/subscribe	input_boolean	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+input_boolean/update	input_boolean	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_button/create	input_button	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_button/delete	input_button	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_button/list	input_button	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_button/subscribe	input_button	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+input_button/update	input_button	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_datetime/create	input_datetime	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_datetime/delete	input_datetime	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_datetime/list	input_datetime	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_datetime/subscribe	input_datetime	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+input_datetime/update	input_datetime	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_number/create	input_number	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_number/delete	input_number	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_number/list	input_number	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_number/subscribe	input_number	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+input_number/update	input_number	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_select/create	input_select	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_select/delete	input_select	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_select/list	input_select	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_select/subscribe	input_select	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+input_select/update	input_select	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_text/create	input_text	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_text/delete	input_text	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_text/list	input_text	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+input_text/subscribe	input_text	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+input_text/update	input_text	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+insteon/aldb/add_default_links	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/change	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/create	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/get	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/load	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/notify	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/notify_all	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/reset	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/aldb/write	insteon	homeassistant/components/insteon/api/aldb.py	no	C	gestión específica de insteon	CAP-106
+insteon/config/device_override/add	insteon	homeassistant/components/insteon/api/config.py	no	C	gestión específica de insteon	CAP-106
+insteon/config/device_override/remove	insteon	homeassistant/components/insteon/api/config.py	no	C	gestión específica de insteon	CAP-106
+insteon/config/get	insteon	homeassistant/components/insteon/api/config.py	no	C	gestión específica de insteon	CAP-106
+insteon/config/get_broken_links	insteon	homeassistant/components/insteon/api/config.py	no	C	gestión específica de insteon	CAP-106
+insteon/config/get_modem_schema	insteon	homeassistant/components/insteon/api/config.py	no	C	gestión específica de insteon	CAP-106
+insteon/config/get_unknown_devices	insteon	homeassistant/components/insteon/api/config.py	no	C	gestión específica de insteon	CAP-106
+insteon/config/update_modem_config	insteon	homeassistant/components/insteon/api/config.py	no	C	gestión específica de insteon	CAP-106
+insteon/device/add	insteon	homeassistant/components/insteon/api/device.py	no	C	gestión específica de insteon	CAP-106
+insteon/device/add/cancel	insteon	homeassistant/components/insteon/api/device.py	no	C	gestión específica de insteon	CAP-106
+insteon/device/add_x10	insteon	homeassistant/components/insteon/api/device.py	no	C	gestión específica de insteon	CAP-106
+insteon/device/get	insteon	homeassistant/components/insteon/api/device.py	no	C	gestión específica de insteon	CAP-106
+insteon/device/remove	insteon	homeassistant/components/insteon/api/device.py	no	C	gestión específica de insteon	CAP-106
+insteon/properties/change	insteon	homeassistant/components/insteon/api/properties.py	no	C	gestión específica de insteon	CAP-106
+insteon/properties/get	insteon	homeassistant/components/insteon/api/properties.py	no	C	gestión específica de insteon	CAP-106
+insteon/properties/load	insteon	homeassistant/components/insteon/api/properties.py	no	C	gestión específica de insteon	CAP-106
+insteon/properties/reset	insteon	homeassistant/components/insteon/api/properties.py	no	C	gestión específica de insteon	CAP-106
+insteon/properties/write	insteon	homeassistant/components/insteon/api/properties.py	no	C	gestión específica de insteon	CAP-106
+insteon/scene/delete	insteon	homeassistant/components/insteon/api/scenes.py	no	C	gestión específica de insteon	CAP-106
+insteon/scene/get	insteon	homeassistant/components/insteon/api/scenes.py	no	C	gestión específica de insteon	CAP-106
+insteon/scene/save	insteon	homeassistant/components/insteon/api/scenes.py	no	C	gestión específica de insteon	CAP-106
+insteon/scenes/get	insteon	homeassistant/components/insteon/api/scenes.py	no	C	gestión específica de insteon	CAP-106
+integration/descriptions	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	catálogo de marcas de la UI (ha_start_config_entry_flow ya acepta el dominio)	
+integration/setup_info	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Salud y estado del sistema (lectura puntual)	CAP-043
+integration/wait	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	espera interna de onboarding	
+knx/create_device	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/create_entity	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/delete_entity	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/delete_expose	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_base_data	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_entities_by_group	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_entity_config	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_expose_config	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_expose_groups	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_knx_project	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_schema	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/get_time_server_config	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/group_monitor_info	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/group_telegrams	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/project_file_process	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/project_file_remove	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/query_telegrams	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/subscribe_telegrams	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/update_entity	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/update_expose	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/update_time_server_config	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/validate_entity	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+knx/validate_expose	knx	homeassistant/components/knx/websocket.py	no	C	gestión específica de knx	CAP-106
+labs/list	labs	homeassistant/components/labs/websocket_api.py	no	A	Analytics y labs	CAP-074
+labs/subscribe	labs	homeassistant/components/labs/websocket_api.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+labs/update	labs	homeassistant/components/labs/websocket_api.py	no	A	Analytics y labs	CAP-074
+lcn/devices	lcn	homeassistant/components/lcn/websocket.py	no	C	gestión específica de lcn	CAP-106
+lcn/devices/add	lcn	homeassistant/components/lcn/websocket.py	no	C	gestión específica de lcn	CAP-106
+lcn/devices/delete	lcn	homeassistant/components/lcn/websocket.py	no	C	gestión específica de lcn	CAP-106
+lcn/devices/scan	lcn	homeassistant/components/lcn/websocket.py	no	C	gestión específica de lcn	CAP-106
+lcn/entities	lcn	homeassistant/components/lcn/websocket.py	no	C	gestión específica de lcn	CAP-106
+lcn/entities/add	lcn	homeassistant/components/lcn/websocket.py	no	C	gestión específica de lcn	CAP-106
+lcn/entities/delete	lcn	homeassistant/components/lcn/websocket.py	no	C	gestión específica de lcn	CAP-106
+llm/api/list	llm	homeassistant/components/llm/websocket_api.py	no	A	Assist: motores y agentes	CAP-062
+logbook/event_stream	logbook	homeassistant/components/logbook/websocket_api.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+logbook/get_action_calls	logbook	homeassistant/components/logbook/websocket_api.py	no	A	Auditoría de acciones (planificado 1.2.x)	CAP-058
+logbook/get_events	logbook	homeassistant/components/logbook/websocket_api.py	si	cubierto	ha_get_logbook	
+logger/integration_log_level	logger	homeassistant/components/logger/websocket_api.py	accion-generica	cubierto	logger.set_level (denylist: pide token); dedicada aportaría validar el logger y leer el nivel previo	
+logger/log_info	logger	homeassistant/components/logger/websocket_api.py	no	A	Log del sistema y niveles de log	CAP-041
+logger/log_level	logger	homeassistant/components/logger/websocket_api.py	no	A	Log del sistema y niveles de log	CAP-041
+lorawan/devices/list	lorawan	homeassistant/components/lorawan/websocket_api.py	no	C	gestión específica de lorawan	CAP-106
+lorawan/devices/subscribe	lorawan	homeassistant/components/lorawan/websocket_api.py	no	C	gestión específica de lorawan	CAP-106
+lovelace/config	lovelace	homeassistant/components/lovelace/websocket.py	si	cubierto	ha_get/save_lovelace_dashboard	
+lovelace/config/delete	lovelace	homeassistant/components/lovelace/websocket.py	no	A	Lovelace: borrar la config de un dashboard (volver a autogenerado)	CAP-071
+lovelace/config/save	lovelace	homeassistant/components/lovelace/websocket.py	si	cubierto	ha_get/save_lovelace_dashboard	
+lovelace/dashboards/create	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+lovelace/dashboards/delete	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+lovelace/dashboards/list	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+lovelace/dashboards/subscribe	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+lovelace/dashboards/update	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+lovelace/info	lovelace	homeassistant/components/lovelace/websocket.py	no	B	modo de lovelace para la UI	
+lovelace/resources	lovelace	homeassistant/components/lovelace/__init__.py	no	B	alias antiguo de lovelace/resources/list (cubierto)	
+lovelace/resources/create	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+lovelace/resources/delete	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+lovelace/resources/list	lovelace	homeassistant/components/lovelace/__init__.py	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+lovelace/resources/subscribe	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+lovelace/resources/update	lovelace	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_*_lovelace_dashboard(s)/resource(s)	
+manifest/get	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Salud y estado del sistema (lectura puntual)	CAP-043
+manifest/list	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Salud y estado del sistema (lectura puntual)	CAP-043
+map_tiles/access_token	map_tiles	homeassistant/components/map_tiles/__init__.py	no	B	token o configuración para que el navegador cargue recursos	
+marketplace/critical/acknowledge	marketplace	homeassistant/components/marketplace/websocket/critical.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/critical/list	marketplace	homeassistant/components/marketplace/websocket/critical.py	si	cubierto	ha_marketplace_* (solo lectura; cae a hacs/<x>)	
+marketplace/github/connect	marketplace	homeassistant/components/marketplace/websocket/__init__.py	no	D	login OAuth de GitHub / aceptar aviso de código de terceros: decisión humana	
+marketplace/info	marketplace	homeassistant/components/marketplace/websocket/__init__.py	si	cubierto	ha_marketplace_* (solo lectura; cae a hacs/<x>)	
+marketplace/repositories/add	marketplace	homeassistant/components/marketplace/websocket/repositories.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repositories/clear_new	marketplace	homeassistant/components/marketplace/websocket/repositories.py	no	B	marca de 'nuevo' en la UI	
+marketplace/repositories/detect	marketplace	homeassistant/components/marketplace/websocket/repositories.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repositories/list	marketplace	homeassistant/components/marketplace/websocket/repositories.py	si	cubierto	ha_marketplace_* (solo lectura; cae a hacs/<x>)	
+marketplace/repositories/remove	marketplace	homeassistant/components/marketplace/websocket/repositories.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repositories/removed	marketplace	homeassistant/components/marketplace/websocket/repositories.py	si	cubierto	ha_marketplace_* (solo lectura; cae a hacs/<x>)	
+marketplace/repository/beta	marketplace	homeassistant/components/marketplace/websocket/repository.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repository/ignore	marketplace	homeassistant/components/marketplace/websocket/repository.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repository/info	marketplace	homeassistant/components/marketplace/websocket/repository.py	no	B	evitado a propósito: sale a GitHub (se arma con la lista)	
+marketplace/repository/install	marketplace	homeassistant/components/marketplace/websocket/repository.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repository/refresh	marketplace	homeassistant/components/marketplace/websocket/repository.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repository/releases	marketplace	homeassistant/components/marketplace/websocket/repository.py	si	cubierto	ha_marketplace_* (solo lectura; cae a hacs/<x>)	
+marketplace/repository/uninstall	marketplace	homeassistant/components/marketplace/websocket/repository.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/repository/version	marketplace	homeassistant/components/marketplace/websocket/repository.py	no	A	Escritura en el Marketplace (planificado 1.2.x, desactivado por defecto)	CAP-075
+marketplace/subscribe	marketplace	homeassistant/components/marketplace/websocket/__init__.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+marketplace/warning/accept	marketplace	homeassistant/components/marketplace/websocket/__init__.py	no	D	login OAuth de GitHub / aceptar aviso de código de terceros: decisión humana	
+matter/commission	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/commission_on_network	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/interview_node	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/network_topology	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/node_diagnostics	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/open_commissioning_window	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/ping_node	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/remove_matter_fabric	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/set_thread	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/set_wifi_credentials	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+matter/subscribe_network_topology	matter	homeassistant/components/matter/api.py	no	C	gestión específica de matter	CAP-102
+media_player/browse_media	media_player	homeassistant/components/media_player/__init__.py	accion-generica	cubierto	media_player.browse_media / search_media (respuesta); usable tal cual	
+media_player/search_media	media_player	homeassistant/components/media_player/__init__.py	accion-generica	cubierto	media_player.browse_media / search_media (respuesta); usable tal cual	
+media_source/browse_media	media_source	homeassistant/components/media_source/http.py	no	A	Navegación de medios (media_source)	CAP-067
+media_source/local_source/remove	media_source	homeassistant/components/media_source/local_source.py	no	A	Navegación de medios (media_source)	CAP-067
+media_source/resolve_media	media_source	homeassistant/components/media_source/http.py	no	A	Navegación de medios (media_source)	CAP-067
+media_source/search_media	media_source	homeassistant/components/media_source/http.py	no	A	Navegación de medios (media_source)	CAP-067
+mobile_app/push_notification_channel	mobile_app	homeassistant/components/mobile_app/websocket_api.py	no	C	gestión específica de mobile_app	CAP-106
+mobile_app/push_notification_confirm	mobile_app	homeassistant/components/mobile_app/websocket_api.py	no	C	gestión específica de mobile_app	CAP-106
+modbus/connections/list	modbus	homeassistant/components/modbus/websocket_api.py	no	C	gestión específica de modbus	CAP-106
+mold_indicator/start_preview	mold_indicator	homeassistant/components/mold_indicator/config_flow.py	no	B	vista previa en vivo del formulario de un helper en la UI	
+mqtt/device/debug_info	mqtt	homeassistant/components/mqtt/__init__.py	no	C	gestión específica de mqtt	CAP-104
+mqtt/subscribe	mqtt	homeassistant/components/mqtt/__init__.py	no	C	suscripción a topics MQTT (además streaming)	CAP-104
+network	network	homeassistant/components/network/websocket.py	no	A	Red y HTTP	CAP-068
+network/configure	network	homeassistant/components/network/websocket.py	no	A	Red y HTTP	CAP-069
+network/url	network	homeassistant/components/network/websocket.py	no	A	Red y HTTP	CAP-068
+notify/html5/appkey	html5	homeassistant/components/html5/websocket_api.py	no	C	gestión específica de html5	CAP-106
+number/device_class_convertible_units	number	homeassistant/components/number/websocket_api.py	no	B	ayudas de formulario de la UI (unidades convertibles)	
+otbr/create_network	otbr	homeassistant/components/otbr/websocket_api.py	no	C	gestión específica de otbr	CAP-103
+otbr/info	otbr	homeassistant/components/otbr/websocket_api.py	no	C	gestión específica de otbr	CAP-103
+otbr/set_channel	otbr	homeassistant/components/otbr/websocket_api.py	no	C	gestión específica de otbr	CAP-103
+otbr/set_network	otbr	homeassistant/components/otbr/websocket_api.py	no	C	gestión específica de otbr	CAP-103
+persistent_notification/get	persistent_notification	homeassistant/components/persistent_notification/__init__.py	no	A	Notificaciones persistentes (planificado 1.2.x)	CAP-047
+persistent_notification/subscribe	persistent_notification	homeassistant/components/persistent_notification/__init__.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+person/create	person	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+person/delete	person	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+person/list	person	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+person/subscribe	person	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+person/update	person	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+person/update_own_profile	person	homeassistant/components/person/__init__.py	no	B	perfil del usuario conectado (Hermes no es una persona)	
+ping	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	keepalive del protocolo	
+radio_frequency/list	radio_frequency	homeassistant/components/radio_frequency/websocket_api.py	no	A	Infraestructura de radio (lectura)	CAP-071
+recorder/adjust_sum_statistics	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-050
+recorder/change_statistics_unit	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-050
+recorder/clear_statistics	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-050
+recorder/entity_options/get	recorder	homeassistant/components/recorder/entity_options.py	no	A	Mantenimiento de estadísticas (estado del recorder)	CAP-049
+recorder/get_statistics_metadata	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-049
+recorder/import_statistics	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-050
+recorder/info	recorder	homeassistant/components/recorder/basic_websocket_api.py	no	A	Mantenimiento de estadísticas (estado del recorder)	CAP-049
+recorder/list_statistic_ids	recorder	homeassistant/components/recorder/websocket_api.py	si	cubierto	ha_list_statistic_ids / ha_statistics_during_period	
+recorder/statistic_during_period	recorder	homeassistant/components/recorder/websocket_api.py	accion-generica	cubierto	recorder.get_statistics (respuesta) da agregados; dedicada aportaría poco	
+recorder/statistics_during_period	recorder	homeassistant/components/recorder/websocket_api.py	si	cubierto	ha_list_statistic_ids / ha_statistics_during_period	
+recorder/update_statistics_issues	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-050
+recorder/update_statistics_metadata	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-050
+recorder/validate_statistics	recorder	homeassistant/components/recorder/websocket_api.py	no	A	Mantenimiento de estadísticas	CAP-049
+render_template	websocket_api	homeassistant/components/websocket_api/commands.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
+repairs/get_issue_data	repairs	homeassistant/components/repairs/websocket_api.py	no	A	Flujos de reparación de Repairs (planificado 1.2.x)	CAP-048
+repairs/ignore_issue	repairs	homeassistant/components/repairs/websocket_api.py	si	cubierto	ha_list_repairs / ha_ignore_repair	
+repairs/list_issues	repairs	homeassistant/components/repairs/websocket_api.py	si	cubierto	ha_list_repairs / ha_ignore_repair	
+schedule/create	schedule	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+schedule/delete	schedule	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+schedule/list	schedule	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+schedule/subscribe	schedule	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+schedule/update	schedule	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+script/config	script	homeassistant/components/script/__init__.py	si	cubierto	lectura de config por entity_id; las tools CRUD usan REST /api/config/<tipo>/config/<id>	
+search/related	search	homeassistant/components/search/__init__.py	si	cubierto	ha_search_related	
+sendspin/get_pairing_token	esphome	homeassistant/components/esphome/websocket_api.py	no	C	gestión específica de esphome	CAP-106
+sendspin/subscribe_clients	esphome	homeassistant/components/esphome/websocket_api.py	no	C	gestión específica de esphome	CAP-106
+sensor/device_class_convertible_units	sensor	homeassistant/components/sensor/websocket_api.py	no	B	ayudas de formulario de la UI (unidades convertibles)	
+sensor/numeric_device_classes	sensor	homeassistant/components/sensor/websocket_api.py	no	B	ayudas de formulario de la UI (unidades convertibles)	
+shopping_list/items	shopping_list	homeassistant/components/shopping_list/__init__.py	accion-generica	cubierto	shopping_list.* y todo.* sobre todo.shopping_list; nada que añadir	
+shopping_list/items/add	shopping_list	homeassistant/components/shopping_list/__init__.py	accion-generica	cubierto	shopping_list.* y todo.* sobre todo.shopping_list; nada que añadir	
+shopping_list/items/clear	shopping_list	homeassistant/components/shopping_list/__init__.py	accion-generica	cubierto	shopping_list.* y todo.* sobre todo.shopping_list; nada que añadir	
+shopping_list/items/remove	shopping_list	homeassistant/components/shopping_list/__init__.py	accion-generica	cubierto	shopping_list.* y todo.* sobre todo.shopping_list; nada que añadir	
+shopping_list/items/reorder	shopping_list	homeassistant/components/shopping_list/__init__.py	no	B	orden en la UI	
+shopping_list/items/update	shopping_list	homeassistant/components/shopping_list/__init__.py	accion-generica	cubierto	shopping_list.* y todo.* sobre todo.shopping_list; nada que añadir	
+slugify	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	utilidad de la UI	
+ssdp/subscribe_discovery	ssdp	homeassistant/components/ssdp/websocket_api.py	no	C	gestión específica de ssdp	CAP-106
+statistics/start_preview	statistics	homeassistant/components/statistics/config_flow.py	no	B	vista previa en vivo del formulario de un helper en la UI	
+stt/engine/list	stt	homeassistant/components/stt/__init__.py	no	A	Assist: motores y agentes	CAP-062
+subscribe_bootstrap_integrations	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+subscribe_condition	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+subscribe_entities	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+subscribe_events	websocket_api	homeassistant/components/websocket_api/commands.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
+subscribe_system_state	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Salud y estado del sistema (lectura puntual)	CAP-043
+subscribe_trigger	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+supervisor/api	hassio	homeassistant/components/hassio/websocket_api.py	si-equivalente	cubierto	Hermes habla con el Supervisor por REST directo (sv_*)	
+supervisor/event	hassio	homeassistant/components/hassio/websocket_api.py	no	B	canal interno Supervisor→Core	
+supervisor/ingress/info	hassio	homeassistant/components/hassio/websocket_api.py	no	B	sesiones de ingress del navegador	
+supervisor/ingress/session	hassio	homeassistant/components/hassio/websocket_api.py	no	B	sesiones de ingress del navegador	
+supervisor/ingress/validate_session	hassio	homeassistant/components/hassio/websocket_api.py	no	B	sesiones de ingress del navegador	
+supervisor/subscribe	hassio	homeassistant/components/hassio/websocket_api.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+supported_features	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	negociación del protocolo WS	
+system_health/info	system_health	homeassistant/components/system_health/__init__.py	no	A	Salud y estado del sistema (planificado 1.2.x)	CAP-043
+system_log/list	system_log	homeassistant/components/system_log/__init__.py	no	A	Log del sistema y niveles de log	CAP-041
+system_log/subscribe_raw	system_log	homeassistant/components/system_log/stream.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+tag/create	tag	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Tags	CAP-066
+tag/delete	tag	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Tags	CAP-066
+tag/list	tag	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Tags	CAP-066
+tag/subscribe	tag	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+tag/update	tag	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	A	Tags	CAP-066
+template/start_preview	template	homeassistant/components/template/config_flow.py	no	B	vista previa en vivo del formulario de un helper en la UI	
+test_condition	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Validación de automatizaciones	CAP-040
+thread/add_dataset_tlv	thread	homeassistant/components/thread/websocket_api.py	no	C	gestión específica de thread	CAP-103
+thread/delete_dataset	thread	homeassistant/components/thread/websocket_api.py	no	C	gestión específica de thread	CAP-103
+thread/discover_routers	thread	homeassistant/components/thread/websocket_api.py	no	C	gestión específica de thread	CAP-103
+thread/get_dataset_tlv	thread	homeassistant/components/thread/websocket_api.py	no	C	gestión específica de thread	CAP-103
+thread/list_datasets	thread	homeassistant/components/thread/websocket_api.py	no	C	gestión específica de thread	CAP-103
+thread/set_preferred_border_agent	thread	homeassistant/components/thread/websocket_api.py	no	C	gestión específica de thread	CAP-103
+thread/set_preferred_dataset	thread	homeassistant/components/thread/websocket_api.py	no	C	gestión específica de thread	CAP-103
+threshold/start_preview	threshold	homeassistant/components/threshold/config_flow.py	no	B	vista previa en vivo del formulario de un helper en la UI	
+time_date/start_preview	time_date	homeassistant/components/time_date/config_flow.py	no	B	vista previa en vivo del formulario de un helper en la UI	
+timer/create	timer	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+timer/delete	timer	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+timer/list	timer	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+timer/subscribe	timer	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+timer/update	timer	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+todo/item/list	todo	homeassistant/components/todo/__init__.py	accion-generica	cubierto	todo.get_items con ha_call_service_response; nada que añadir	
+todo/item/move	todo	homeassistant/components/todo/__init__.py	no	A	Calendario y tareas (reordenar)	CAP-065
+todo/item/subscribe	todo	homeassistant/components/todo/__init__.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+trace/contexts	trace	homeassistant/components/trace/websocket_api.py	no	A	Trazas: contextos (enlazar una traza con su disparador)	CAP-071
+trace/debug/breakpoint/clear	trace	homeassistant/components/trace/websocket_api.py	no	B	depurador paso a paso interactivo de la UI	
+trace/debug/breakpoint/list	trace	homeassistant/components/trace/websocket_api.py	no	B	depurador paso a paso interactivo de la UI	
+trace/debug/breakpoint/set	trace	homeassistant/components/trace/websocket_api.py	no	B	depurador paso a paso interactivo de la UI	
+trace/debug/breakpoint/subscribe	trace	homeassistant/components/trace/websocket_api.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+trace/debug/continue	trace	homeassistant/components/trace/websocket_api.py	no	B	depurador paso a paso interactivo de la UI	
+trace/debug/step	trace	homeassistant/components/trace/websocket_api.py	no	B	depurador paso a paso interactivo de la UI	
+trace/debug/stop	trace	homeassistant/components/trace/websocket_api.py	no	B	depurador paso a paso interactivo de la UI	
+trace/get	trace	homeassistant/components/trace/websocket_api.py	si	cubierto	ha_list_traces / ha_get_trace	
+trace/list	trace	homeassistant/components/trace/websocket_api.py	si	cubierto	ha_list_traces / ha_get_trace	
+trigger_platforms/subscribe	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+tts/engine/get	tts	homeassistant/components/tts/__init__.py	no	A	Assist: motores y agentes	CAP-062
+tts/engine/list	tts	homeassistant/components/tts/__init__.py	no	A	Assist: motores y agentes	CAP-062
+tts/engine/voices	tts	homeassistant/components/tts/__init__.py	no	A	Assist: motores y agentes	CAP-062
+unsubscribe_events	websocket_api	homeassistant/components/websocket_api/commands.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
+update/release_notes	update	homeassistant/components/update/__init__.py	no	A	Entidades update (update.install/skip ya van por acción genérica)	CAP-064
+usage_prediction/common_control	usage_prediction	homeassistant/components/usage_prediction/__init__.py	no	B	sugerencias de la UI	
+usb/list_serial_integrations	usb	homeassistant/components/usb/__init__.py	no	C	gestión específica de usb	CAP-105
+usb/list_serial_ports	usb	homeassistant/components/usb/__init__.py	no	C	gestión específica de usb	CAP-105
+usb/scan	usb	homeassistant/components/usb/__init__.py	no	C	gestión específica de usb	CAP-105
+vacuum/get_segments	vacuum	homeassistant/components/vacuum/websocket.py	no	A	Aspiradores: segmentos para vacuum.clean_area	CAP-071
+validate_config	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Validación de automatizaciones	CAP-040
+wake_word/info	wake_word	homeassistant/components/wake_word/__init__.py	no	A	Assist: motores y agentes	CAP-062
+weather/convertible_units	weather	homeassistant/components/weather/websocket_api.py	no	B	ayudas de formulario de la UI (unidades convertibles)	
+weather/subscribe_forecast	weather	homeassistant/components/weather/websocket_api.py	accion-generica	cubierto	weather.get_forecasts (respuesta) cubre la lectura puntual	
+web_rtc/ice_servers	web_rtc	homeassistant/components/web_rtc/__init__.py	no	B	token o configuración para que el navegador cargue recursos	
+webhook/handle	webhook	homeassistant/components/webhook/__init__.py	no	D	dispara webhooks como si viniera de fuera; sin valor y con riesgo	
+webhook/list	webhook	homeassistant/components/webhook/__init__.py	no	A	Webhooks registrados (lectura, auditoría)	CAP-071
+wyoming/info	wyoming	homeassistant/components/wyoming/websocket_api.py	no	C	gestión específica de wyoming	CAP-106
+zeroconf/subscribe_discovery	zeroconf	homeassistant/components/zeroconf/websocket_api.py	no	C	gestión específica de zeroconf	CAP-106
+zha/configuration	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/configuration/update	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/device	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/bind	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/bindable	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/clusters	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/clusters/attributes	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/clusters/attributes/value	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/clusters/commands	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/groupable	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/permit	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/reconfigure	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/devices/unbind	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/group	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/group/add	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/group/members/add	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/group/members/remove	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/group/remove	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/groups	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/groups/bind	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/groups/unbind	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/network/backups/create	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/network/backups/list	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/network/backups/restore	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/network/change_channel	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/network/settings	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zha/topology/update	zha	homeassistant/components/zha/websocket_api.py	no	C	gestión específica de zha	CAP-101
+zone/create	zone	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+zone/delete	zone	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+zone/list	zone	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+zone/subscribe	zone	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+zone/update	zone	homeassistant/helpers/collection.py (StorageCollectionWebsocket)	si	cubierto	ha_list/get/create_or_update/delete_* de helpers	
+zwave_js/abort_firmware_update	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/add_node	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/backup_nvm	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/begin_rebuilding_routes	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/cancel_secure_bootstrap_s2	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/check_for_config_updates	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/data_collection_status	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/get_config_parameters	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/get_log_config	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/get_node_firmware_update_capabilities	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/get_provisioning_entries	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/get_raw_config_parameter	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/grant_security_classes	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/hard_reset_controller	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/install_config_update	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/invoke_cc_api	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/is_any_ota_firmware_update_in_progress	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/is_node_firmware_update_in_progress	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/lookup_device	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/network_neighbors	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/network_status	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/node_alerts	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/node_capabilities	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/node_metadata	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/node_status	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/parse_qr_code_string	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/provision_smart_start_node	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/rebuild_node_routes	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/refresh_node_cc_values	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/refresh_node_info	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/refresh_node_values	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/remove_failed_node	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/remove_node	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/replace_failed_node	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/restore_nvm	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/set_config_parameter	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/set_raw_config_parameter	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/stop_exclusion	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/stop_inclusion	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/stop_rebuilding_routes	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_config_parameter_updates	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_controller_statistics	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_firmware_update_status	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_log_updates	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_new_devices	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_node_statistics	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_node_status	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_rebuild_routes_progress	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/subscribe_s2_inclusion	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/supports_feature	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/try_parse_dsk_from_qr_code_string	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/unprovision_smart_start_node	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/update_data_collection_preference	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/update_log_config	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100
+zwave_js/validate_dsk_and_enter_pin	zwave_js	homeassistant/components/zwave_js/api.py	no	C	gestión específica de zwave_js	CAP-100

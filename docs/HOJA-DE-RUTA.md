@@ -14,8 +14,10 @@ las pruebas en vivo de la 1.1.0 y la 1.1.2, lo que encontraron las de la
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
 leyó en esos tags; las tools de lectura se probaron en una instalación de prueba
-con HA 2026.11.1. Las tools de escritura no se ejecutaron: sus fallos están
-confirmados leyendo el código de Hermes y el de Home Assistant.
+con HA 2026.11.1. De las 124 tools que modifican, solo las de dashboards se
+han ejecutado contra una HA real (1.1.2); el resto se verificó leyendo el
+código de Hermes y el de Home Assistant. El banco de pruebas de la spec 008
+cierra ese hueco.
 
 ## Estado de compatibilidad
 
@@ -35,6 +37,11 @@ confirmados leyendo el código de Hermes y el de Home Assistant.
   desde la revisión 2026-07-28) y el parámetro **`iss`** (RFC 9207). El registro
   dinámico (DCR) que usa Hermes sigue funcionando, pero está deprecado. Los dos
   están en la 1.1.0 (spec 003).
+- **Cobertura medida**: Core 2026.11.1 expone 623 comandos WebSocket; Hermes
+  cubre 130 y quedan 147 huecos de administración, 192 de integraciones
+  concretas, 103 internos del frontend y 51 excluidos por diseño. El
+  Supervisor expone 254 rutas; Hermes cubre 37 y quedan 130 huecos. Detalle en
+  `specs/008-cobertura-total/`.
 
 ## Problemas conocidos de 1.1.1
 
@@ -82,9 +89,9 @@ detalle está en el CHANGELOG.
 | 18 | La guía enseña sintaxis heredada de automatizaciones (`platform:`, `service:`) | Cosmética | Hermes | Corregido |
 | 19 | Defectos menores de las tools de HACS (categorías, cálculo de actualizaciones, mensaje de error poco claro) | Cosmética | Hermes | Corregido; en 1.1.0 las `ha_hacs_*` pasan a ser alias de las `ha_marketplace_*` |
 | 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes | Corregido |
-| 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente |
+| 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente (1.2.0, spec 008: sobre común en las tools nuevas) |
 | 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes | Corregido |
-| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Pendiente; la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
+| 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Pendiente (1.2.0, spec 008); la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
 
 Recomendación: actualizar a la 1.0.12. Quien siga en la 1.0.11 no debe
 reenviar `aliases` leídos del registro, ni usar
@@ -100,11 +107,13 @@ desactivada, que es su valor por defecto. En la 1.0.12,
 |---|---|---|
 | Acción `home-assistant/builder@master` y `build.yaml` | Deprecados (aviso del 2026-04-02); retirada anunciada sin fecha | Ninguno: el flujo de publicación ya usa las actions nuevas y `build.yaml` se ha quitado (spec 002) |
 | Campos `config_entries` y `config_entries_subentries` del dispositivo | HA **2027.8** (`primary_config_entry`: **2027.10**) | Ninguno desde la 1.0.12: los recuentos de dispositivos por integración usan `config_entry_id` y solo recurren a `config_entries` como respaldo |
-| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry`, deprecada en la 1.0.12, se retirará antes; `ha_remove_device` usa `config/device_registry/remove` desde HA 2026.9 |
+| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry`, deprecada en la 1.0.12, se retira en la versión de Hermes que fije la spec 008 (como tarde, la última publicada antes de HA 2027.9); `ha_remove_device` usa `config/device_registry/remove` desde HA 2026.9 |
 | Comando `lovelace/resources` (alias de `lovelace/resources/list`) | Anunciado para 2025.1; sigue presente, puede desaparecer sin aviso | Ninguno desde la 1.0.12: `ha_list_lovelace_resources` usa `lovelace/resources/list` |
 | Campo `has_mean` de estadísticas | Plazo vencido; sigue presente | Solo documentación |
-| Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha; preparado en la rama principal del Supervisor, no publicado en 2026.11.0 | Hermes usa solo TCP |
+| Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha. En 2026.11.0 el socket existe solo para Core (`SUPERVISOR_SOCKET` no se inyecta en las apps) y el aviso `deprecated_tcp_api_request` solo salta con el token de Core | Hermes usa solo TCP |
 | API `/v2` del Supervisor (`addons` → `apps`) | Sin fecha; hoy detrás de una opción de desarrollo y sin retirar la V1 | Ninguno hoy |
+| Alias `ha_hacs_*` | Hermes **1.3.0** | Se retiran; desde la 1.1.0 devuelven `_deprecated` |
+| Acciones `hassio.*_update` | Ya no existen en Core 2026.11 | Ninguno: las de la denylist están muertas; actualizar va por `update.install` |
 | DCR (RFC 7591) en MCP | Deprecado en la revisión 2026-07-28; la spec garantiza al menos 12 meses | OAuth de Hermes |
 | Constante de versiones de protocolo admitidas del SDK `mcp` (sustituida por las de handshake y modernas) | Deprecada en 2.x | Puede romper con un futuro SDK 3.x |
 
@@ -125,6 +134,8 @@ README explican cómo pasar una instalación existente del 443 al 8443.
 ## Plan por versiones
 
 > **Propuesta pendiente de decisión.** El orden y el contenido pueden cambiar.
+> Lo que viene tras la 1.1.2 ya está decidido: es el programa de la spec 008
+> (ver «Programa de cobertura total»), que sale entero como 1.2.0.
 
 ### Hecho en 1.0.12 — solo arreglos
 
@@ -184,7 +195,8 @@ siguen disponibles en GHCR.
 - Retención de los safety backups (`safety_backup_keep`, 3 por defecto).
 
 Son 216 tools. Riesgos que quedan: límites más bajos pueden truncar respuestas
-que antes pasaban, y más tools ocupan más contexto en el cliente.
+que antes pasaban, y más tools ocupan más contexto en el cliente: la lista de
+las 216 son unos 215 KB de JSON.
 
 ### Hecho en 1.1.1 — correcciones de la 1.1.0 (spec 006)
 
@@ -338,71 +350,129 @@ La suite no puede cubrir esto; anota aquí el resultado:
   pasados unos dos minutos, el directorio de confirmaciones no conserva el
   contenido (`specs/007-confirmar-con-token/quickstart.md`). Hace falta
   acceso al `/data` del add-on, que las tools no dan.
+- [ ] **`hassio_role: manager` en una instalación real** (o en la VM del
+  procedimiento de la spec 014): arranque, `bashio::config` y todas las
+  `sv_*`.
+- [ ] **Las 13 tools de escritura de la 1.1.x**, en vivo.
+- [ ] **`sv_update_addon` sobre Hermes**, tras el rechazo previo de la
+  spec 009 (CAP-021).
 
-### 1.2.x y posteriores
+### Programa de cobertura total (spec 008) — 1.2.0
 
-- **Guardar un dashboard por vistas.** Hoy, editar un dashboard grande obliga
-  al cliente a reescribir el documento entero, y en la prueba en vivo de la
-  1.1.2 el cliente se dejó tarjetas al reescribir 134 KB (la vista previa lo
-  mostró). Una forma de guardar una sola vista (por ejemplo, `view_index` en
-  `ha_save_lovelace_dashboard`), con el servidor conservando las demás vistas
-  y las claves de nivel superior, evitaría reescribir lo que no cambia. Con
-  confirmación y vista previa, como ahora.
-- **Menor conocido de la 1.1.2: coste del barrido en cada vista previa con
-  documento.** `create_confirmation_token` relee y parsea todos los ficheros de
-  token para barrer caducados y sumar el tope. Con el tope de 16 MiB casi
-  lleno, eso bloquea el bucle de eventos del orden de decenas de milisegundos
-  por vista previa. Solo lo puede provocar un cliente autenticado y no rompe
-  nada. Arreglo posible: llevar el total en memoria (sumar al emitir, restar al
-  completar o caducar) o barrer como mucho una vez por segundo.
+Objetivo: que Hermes cubra todo lo que HA Core 2026.11.1 y el Supervisor
+2026.11.0 ofrecen a un administrador. Modelo híbrido: tools dedicadas para lo
+de prioridad alta y media-alta y para lo que tiene consecuencias; cuatro tools
+genéricas (WebSocket de Core y API del Supervisor, separadas en lectura y
+escritura) gobernadas por una tabla de clasificación fail-closed para la cola
+larga y la gestión de integraciones concretas; familias de tools que se pueden
+desactivar (todas activas por defecto); banco de pruebas con HA Core real en el
+CI. Todo sale como **una sola versión 1.2.0**; fusionar y publicar los decide
+el mantenedor. Spec, plan, tareas, investigación e inventarios en
+`specs/008-cobertura-total/`.
 
-- **Menores vistos en las pruebas en vivo de la 1.1.1**:
-  `sv_get_addon_logs` informa `redacted: false` aunque el log ya trae la red
-  redactada (el campo solo mira los secretos); `auto_classify_restricted`
-  escribe en el log los `entity_id` de automatizaciones y scripts; y
-  `ha_get_history` marca `truncated` pero no añade el bloque
-  `_response_limit` que llevan las demás tools recortadas.
-- **Menores vistos al probar en vivo las tools nuevas de la 1.1.x**:
-  `ha_marketplace_list_removed` devuelve el catálogo entero de repositorios
-  retirados (más de 500 entradas, unos 97 KB, cerca del límite de 128 KiB), y
-  casi siempre solo interesan los instalados: filtrarlos por defecto, o añadir
-  `limit` y un resumen. Su campo `removal_type` llega sin normalizar y a veces
-  es texto libre, así que debería figurar en `_third_party_text`. Además, las
-  tools del Marketplace y `sv_get_resolution` no escriben en el log el evento
-  `*_ok` que escriben las demás.
-- **Pruebas manuales en una instalación real**: las que siguen abiertas en la
-  sección anterior.
-- **Redactar en el log los dominios propios de HA** (`external_url` e
-  `internal_url`): hoy solo se tapa `public_hostname`. Exige leer la
-  configuración de HA al arrancar, antes de que salgan las primeras líneas.
-- **IPs con forma `ip-a-b-c-d`** (nombres de host de algunos proveedores) en
-  el log: no se redactan. Valor bajo.
-- **Distinguir errores fatales de avisos en los jobs del Supervisor**
-  (`sv_get_job_status`): hoy cualquier entrada en `errors` da
-  `success: false`, y el Supervisor no da una señal fiable para separarlos.
-- **`oauth_cimd_allowed_hosts`**: decidir un valor por defecto restrictivo
-  cuando estén documentados los hosts CIMD de todos los clientes de Claude.
+| N.º | Sub-feature | CAP | Estado |
+|---|---|---|---|
+| 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | pendiente |
+| 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | pendiente |
+| 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | pendiente |
+| 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
+| 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
+| 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | pendiente |
+| 015 | Actualizaciones del sistema | 064, 080 | pendiente |
+| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
+| 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
+| 018 | Mejoras de tools existentes | 019, 020, 023 | pendiente |
+| 019 | Montajes y ajustes de backup | 083 | pendiente |
+| 020 | Estadísticas y energía | 050, 054 | pendiente |
+| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
+| 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
+| 023 | Assist y conversación | 060–063 | pendiente |
+| 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
+| 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
+| 026 | Escritura en el Marketplace | 075 | pendiente |
+| 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
+| 028 | Pruebas de las escrituras de Core en el banco | 034 | pendiente |
+| 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | pendiente |
+| 030 | Tienda de apps | 082, 093 | pendiente |
+| 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
+| 032 | Host y red del host | 086, 090 | pendiente |
 
-- **`redact_secrets` (security.py) es cuadrático con cadenas largas sin
-  espacios**: 30 KB sin espacios tardan del orden de medio segundo (0,4–0,7 s
-  según la máquina). Afecta a textos grandes que se redactan enteros, como
-  logs con líneas muy largas o blobs codificados. Hay que acotar las
-  expresiones regulares o trocear la entrada, con un test de tiempo.
-- Cifrado de los safety backups (hoy se crean sin contraseña).
-- Aplicar sugerencias del Supervisor, solo con confirmación y vista previa
-  completa (hoy solo se leen y se descartan).
-- Escritura en el Marketplace, solo si se decide, desactivada por defecto y con
-  confirmación, backup previo y vista previa completa.
-- Flujos de reparación de Repairs (hoy solo se listan e ignoran) y textos de
-  los avisos traducidos.
-- Subentries y reconfigure; helpers por config entry; triggers y condiciones
-  por propósito; resolución de targets.
-- Auditoría de llamadas a acciones (`logbook/get_action_calls`), estado del
-  sistema, notificaciones persistentes, estadísticas agregadas, energía.
-- `outputSchema` y alternativas nativas de MCP a la confirmación en dos pasos.
-- Socket Unix del Supervisor y API `/v2` cuando se publiquen.
-- Revisión de privilegios (`hassio_role`), terminología «apps» y traducciones de
-  las opciones.
+El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
+genéricas, antes que cualquier tool dedicada) y 028; luego el resto según las
+dependencias de `specs/008-cobertura-total/plan.md`.
+
+Lo que antes estaba en esta hoja de ruta como pendiente y ahora es parte del
+programa:
+
+- **Guardar un dashboard por vistas** (018). En la prueba en vivo de la 1.1.2
+  el cliente se dejó tarjetas al reescribir 134 KB; la vista previa lo mostró.
+- **Menores de las 1.1.1 y 1.1.2** (009): coste del barrido de tokens con el
+  tope de 16 MiB casi lleno; `redacted` de `sv_get_addon_logs`; `entity_id` en
+  el log de `auto_classify_restricted`; `_response_limit` de `ha_get_history`;
+  `ha_marketplace_list_removed` (filtros, resumen, `removal_type` como texto
+  de terceros); eventos `*_ok` del Marketplace y de `sv_get_resolution`;
+  `external_url` e `internal_url` y las IPs con forma `ip-a-b-c-d` en el log;
+  `redact_secrets` cuadrático con cadenas largas sin espacios (30 KB tardan del
+  orden de medio segundo).
+- **`sv_update_addon` sobre Hermes** (009): el Supervisor responde 403; se
+  rechaza antes con un mensaje que dice que se actualiza desde la interfaz.
+- **`ha_call_service_response` y la denylist** (018): hoy rechaza todo lo de la
+  denylist y no acepta `confirmation_token`, así que una acción peligrosa con
+  respuesta (`conversation.process`) no puede devolverla ni confirmando.
+- **Actualizar Core, OS y Supervisor con vista previa útil** (015): versión
+  actual → destino, notas, backup y salud del sistema. Hoy solo con
+  `update.install` confirmando.
+- **Banco de pruebas** (010, 028 y 014): HA Core en contenedor en el CI para
+  ejecutar de verdad las escrituras de Core; para el Supervisor, una VM con
+  HAOS cuyo procedimiento se documenta y que queda como prueba manual.
+- **Probar `hassio_role: manager`** (014). En el Supervisor 2026.11.0,
+  `/addons/self/options/config` está en `api_bypass` y el patrón de `manager`
+  cubre todas las rutas que usa Hermes y todos los huecos propuestos (salvo
+  `/reload_updates`; `/refresh_updates` sí entra). `admin` solo añade
+  `/addons/{app}/security`, `/auth/reset`, `/auth/list`, `/os/datadisk/wipe` e
+  `/ingress/panels`, que Hermes no usa. El comentario de `config.yaml` que
+  habla de un 403 es de una versión anterior. Es un cambio de permisos: el
+  Supervisor lo enseña al actualizar; el cambio de rol se decide al final, tras
+  la prueba manual.
+- **Distinguir errores fatales de avisos en `sv_get_job_status`** (027): hasta
+  que el Supervisor dé una señal fiable, se documenta.
+- **Cifrado de los safety backups** (031).
+- **Aplicar sugerencias del Supervisor** con confirmación y vista previa
+  completa (022).
+- **Escritura en el Marketplace** (026), con confirmación, backup previo y
+  vista previa completa.
+- **Flujos de reparación de Repairs y textos traducidos** (016).
+- **Subentries y reconfigure** (016). **Helpers por config entry**: ya se
+  pueden crear con los flujos; falta explicarlo en la guía (016).
+  **Triggers y condiciones por propósito; resolución de targets** (017).
+- **Auditoría de llamadas a acciones, estado del sistema y notificaciones
+  persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
+  corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas
+  agregadas ya existen (`ha_statistics_during_period`).
+- **`outputSchema` y alternativas nativas de MCP a la confirmación** (027,
+  solo investigación).
+- **Terminología «apps» y traducciones de las opciones** (027).
+- **`oauth_cimd_allowed_hosts`** (027): se documentan los hosts CIMD conocidos;
+  el valor por defecto no cambia en la 1.2.0.
+
+Queda fuera del programa la clase B (suscripciones, streaming e internos del
+frontend, que no aplican a un servidor MCP) y la clase D (peligroso o no
+automatizable), que la tabla deniega. La justificación por grupo está en la
+spec 008.
+
+### 1.3.0 y posteriores
+
+- Retirar los alias `ha_hacs_*` (anunciado para la 1.3.0) y, como tarde antes
+  de HA 2027.9, `ha_remove_device_from_config_entry`.
+- Socket Unix del Supervisor y API `/v2`, cuando se publiquen para las apps
+  (bloqueados; la spec 027 deja escrito lo que hará falta).
+- Lo que el programa deja al mantenedor (spec 008, «Dudas para el final»):
+  candidatas de clase D con salvaguardas fuertes, bajar a
+  `hassio_role: manager`, familias de riesgo alto desactivadas por defecto,
+  tamaño de la lista de tools, el banco también contra HA 2024.10, la VM en el
+  CI con KVM, unificar la forma de las listas de las tools existentes, el valor
+  por defecto de `oauth_cimd_allowed_hosts` y la vía nativa de MCP para
+  confirmar.
 
 ## Hermes frente a la integración oficial `mcp_server`
 
@@ -417,7 +487,7 @@ cualquier acción. El control y la consulta ya no distinguen a Hermes.
   atada a los argumentos y backup de seguridad.
 - **Lo que solo tiene la oficial:** viene con Home Assistant y no necesita
   Supervisor; modo de solo lectura y control por usuario; intents de Assist
-  limitados a lo expuesto; CIMD; prompts, búsqueda y acceso a calendario, listas
+  limitados a lo expuesto; prompts, búsqueda y acceso a calendario, listas
   y multimedia.
 
 Hermes se centra en la **administración y la configuración con salvaguardas**,

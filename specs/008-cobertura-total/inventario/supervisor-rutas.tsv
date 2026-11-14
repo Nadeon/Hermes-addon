@@ -1,0 +1,218 @@
+metodo	ruta	area	cobertura	clase	rol_admin	nota	cap
+GET	/addons	Apps / add-ons (/addons)	si	cubierto	✔	Sí (`sv_list_addons`)	
+GET	/addons/{app}/info	Apps / add-ons (/addons)	si	cubierto	✔	Sí (`sv_get_addon`, `sv_get_addon_options`, pre-chequeos) En V1 reenvía a la tienda si no está instalado	
+POST	/addons/{app}/uninstall	Apps / add-ons (/addons)	si	cubierto	✔	Sí (`sv_uninstall_addon`)	
+POST	/addons/{app}/start	Apps / add-ons (/addons)	si	cubierto	✔	Sí	
+POST	/addons/{app}/stop	Apps / add-ons (/addons)	si	cubierto	✔	Sí	
+POST	/addons/{app}/restart	Apps / add-ons (/addons)	si	cubierto	✔	Sí	
+POST	/addons/{app}/options	Apps / add-ons (/addons)	si	cubierto	✔	Sí (`sv_set_addon_options`)	
+POST	/addons/{app}/sys_options	Apps / add-ons (/addons)	no	D	✘ core_only	No Solo Core (watchdog/opciones de sistema)	
+POST	/addons/{app}/options/validate	Apps / add-ons (/addons)	no	A	✔	No Validar antes de guardar: mejora la vista previa de `sv_set_addon_options`	CAP-093
+GET	/addons/{app}/options/config	Apps / add-ons (/addons)	si	cubierto	✔ (solo self)	Sí (bashio, solo `self`)	
+POST	/addons/{app}/rebuild	Apps / add-ons (/addons)	no	A	✔	No Add-ons locales/que se construyen	CAP-093
+POST	/addons/{app}/stdin	Apps / add-ons (/addons)	no	D	✔	No Entrada arbitraria al proceso; ya vetado como `hassio.addon_stdin`	
+POST	/addons/{app}/security	Apps / add-ons (/addons)	no	D	✔	No Cambia `protected` (modo protección): escalada de privilegios de otra app	
+GET	/addons/{app}/stats	Apps / add-ons (/addons)	si	cubierto	✔	Sí (`sv_get_addon_stats`)	
+GET	/addons/{app}/logs	Apps / add-ons (/addons)	si	cubierto	✔	Sí (`sv_get_addon_logs`, con `?lines=`)	
+GET	/addons/{app}/logs/follow	Apps / add-ons (/addons)	no	B	✔	No Streaming	
+GET	/addons/{app}/logs/latest	Apps / add-ons (/addons)	no	A	✔	No Solo el último arranque, sin colores	CAP-081
+GET	/addons/{app}/logs/boots/{bootid}	Apps / add-ons (/addons)	no	A	✔	No Logs de un arranque anterior (tras un cuelgue)	CAP-081
+GET	/addons/{app}/logs/boots/{bootid}/follow	Apps / add-ons (/addons)	no	B	✔	No Streaming	
+GET	/store	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Resumen de repositorios y apps	CAP-082
+GET	/store/addons	Tienda (/store, y reenvíos legados en /addons)	si	cubierto	✔	Sí (`sv_list_addons(installed_only=False)`)	
+GET	/store/addons/{app}	Tienda (/store, y reenvíos legados en /addons)	no	cubierto	✔	No (cubierta vía `/addons/{app}/info`) En V2 `/apps/{app}/info` ya no reenvía: habrá que usar esta	
+GET	/store/addons/{app}/icon	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Imagen del frontend	
+GET	/store/addons/{app}/logo	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Imagen del frontend	
+GET	/store/addons/{app}/changelog	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Changelog antes de actualizar	CAP-082
+GET	/store/addons/{app}/documentation	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No DOCS.md de la app	CAP-082
+GET	/store/addons/{app}/availability	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No ¿Se puede instalar aquí? (arch, versión de HA)	CAP-082
+POST	/store/addons/{app}/install	Tienda (/store, y reenvíos legados en /addons)	si	cubierto	✔	Sí (`sv_install_addon`)	
+POST	/store/addons/{app}/install/{version}	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Instalar una versión concreta	CAP-082
+POST	/store/addons/{app}/update	Tienda (/store, y reenvíos legados en /addons)	si	cubierto	✔ (no self)	Sí (`sv_update_addon`) 403 si `{app}` es Hermes	
+POST	/store/addons/{app}/update/{version}	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Actualizar a versión concreta	CAP-082
+GET	/store/addons/{app}/{version}	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Info de una versión concreta (baja)	CAP-082
+POST	/addons/reload	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Alias legado de `/store/reload`	
+POST	/addons/{app}/install	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Alias legado	
+POST	/addons/{app}/update	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Alias legado	
+GET	/addons/{app}/icon	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Alias legado	
+GET	/addons/{app}/logo	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Alias legado	
+GET	/addons/{app}/changelog	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Alias legado (usar la de `/store`)	
+GET	/addons/{app}/documentation	Tienda (/store, y reenvíos legados en /addons)	no	B	✔	No Alias legado	
+POST	/store/reload	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Recargar la tienda	CAP-082
+GET	/store/repositories	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No	CAP-082
+GET	/store/repositories/{repository}	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No	CAP-082
+POST	/store/repositories	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Añadir repositorio (código de terceros)	CAP-082
+DELETE	/store/repositories/{repository}	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No	CAP-082
+POST	/store/repositories/{repository}/repair	Tienda (/store, y reenvíos legados en /addons)	no	A	✔	No Repara el clon git del repositorio	CAP-082
+GET	/core/info	Core de Home Assistant (/core, alias /homeassistant)	si	cubierto	✔	Sí (`sv_get_core_info`, arranque)	
+GET	/core/stats	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No CPU/RAM del contenedor de Core	CAP-084
+POST	/core/options	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No watchdog, `backups_exclude_database`, puerto/SSL, imagen…	CAP-084
+POST	/core/update	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No Actualizar Core (admite `version`, `backup`)	CAP-080
+POST	/core/restart	Core de Home Assistant (/core, alias /homeassistant)	si	cubierto	✔	Sí (`sv_restart_core`)	
+POST	/core/stop	Core de Home Assistant (/core, alias /homeassistant)	no	D	✔	No Hermes depende del WebSocket de Core: su watchdog lo reiniciaría y el usuario queda sin UI	
+POST	/core/start	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No Recuperación si Core está parado/caído	CAP-084
+POST	/core/check	Core de Home Assistant (/core, alias /homeassistant)	si	cubierto	✔	Sí (`sv_check_core_config`)	
+POST	/core/rebuild	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No Reconstruir el contenedor de Core	CAP-084
+GET	/core/logs	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No Log de Core (journal)	CAP-081
+GET	/core/logs/follow	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Streaming	
+GET	/core/logs/latest	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No	CAP-081
+GET	/core/logs/boots/{bootid}	Core de Home Assistant (/core, alias /homeassistant)	no	A	✔	No	CAP-081
+GET	/core/logs/boots/{bootid}/follow	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Streaming	
+GET/POST	/homeassistant/{info,stats,options,restart,stop,start,update,rebuild,check} (9)	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados de `/core/*`	
+GET	/homeassistant/logs[/follow,/latest,/boots/{b}[/follow]] (5)	Core de Home Assistant (/core, alias /homeassistant)	no	B	✔	No Alias legados	
+GET	/core/api/websocket	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubierto	passthrough	Sí (todo `ha_*` por WS)	
+GET	/core/websocket	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias	
+GET	/core/api/stream	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No SSE	
+GET	/core/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubierto	passthrough	Sí	
+POST	/core/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubierto	passthrough	Sí	
+DELETE	/core/api/{path}	Proxy a Core (/core/api, alias /homeassistant/api)	si	cubierto	passthrough	Sí (config entries, flujos)	
+GET	/core/api/	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Raíz de la API	
+GET/POST	/homeassistant/api/{websocket,stream,{path},''} y /homeassistant/websocket (6)	Proxy a Core (/core/api, alias /homeassistant/api)	no	B	passthrough	No Alias legados	
+GET	/backups	Backups (/backups)	si	cubierto	✔	Sí (`sv_list_backups`, retención)	
+GET	/backups/info	Backups (/backups)	no	A	✔	No Ajustes (`days_until_stale`), ubicaciones/montajes	CAP-083
+POST	/backups/new/partial	Backups (/backups)	si	cubierto	✔	Sí	
+GET	/backups/{slug}/info	Backups (/backups)	si	cubierto	✔	Sí	
+POST	/backups/{slug}/restore/partial	Backups (/backups)	si	cubierto	✔	Sí	
+POST	/backups/options	Backups (/backups)	no	A	✔	No `days_until_stale`	CAP-083
+POST	/backups/reload	Backups (/backups)	no	A	✔	No Releer backups (tras copiar al NAS)	CAP-083
+POST	/backups/freeze	Backups (/backups)	no	D	✔	No Congela Core para snapshots externos; dejarlo congelado rompe el sistema	
+POST	/backups/thaw	Backups (/backups)	no	D	✔	No Par de `freeze`	
+POST	/backups/new/full	Backups (/backups)	si	cubierto	✔	Sí (`sv_create_backup_full`, safety backups)	
+POST	/backups/new/upload	Backups (/backups)	no	D	✔	No Binario de cientos de MB: no transportable por MCP	
+DELETE	/backups/{slug}	Backups (/backups)	si	cubierto	✔	Sí (`sv_delete_backup`, retención)	
+POST	/backups/{slug}/restore/full	Backups (/backups)	si	cubierto	✔	Sí	
+GET	/backups/{slug}/download	Backups (/backups)	no	D	✔	No Ídem `upload` (límite de 128 KiB por respuesta)	
+GET	/host/info	Host (/host)	si	cubierto	✔	Sí (`sv_get_host_info`)	
+GET	/host/logs	Host (/host)	no	A	✔	No Journal del host	CAP-081
+GET	/host/logs/follow	Host (/host)	no	B	✔	No	
+GET	/host/logs/identifiers	Host (/host)	no	A	✔	No Lista de identificadores de syslog	CAP-081
+GET	/host/logs/identifiers/{identifier}	Host (/host)	no	A	✔	No Log de un servicio concreto	CAP-081
+GET	/host/logs/identifiers/{identifier}/follow	Host (/host)	no	B	✔	No	
+GET	/host/logs/boots	Host (/host)	no	A	✔	No Lista de arranques	CAP-081
+GET	/host/logs/boots/{bootid}	Host (/host)	no	A	✔	No	CAP-081
+GET	/host/logs/boots/{bootid}/follow	Host (/host)	no	B	✔	No	
+GET	/host/logs/boots/{bootid}/identifiers/{identifier}	Host (/host)	no	A	✔	No	CAP-081
+GET	/host/logs/boots/{bootid}/identifiers/{identifier}/follow	Host (/host)	no	B	✔	No	
+POST	/host/reboot	Host (/host)	si	cubierto	✔	Sí (`sv_reboot_host`)	
+POST	/host/shutdown	Host (/host)	no	A	✔	No Riesgo alto: nadie lo enciende a distancia	CAP-086
+POST	/host/reload	Host (/host)	no	A	✔	No Refrescar info del host	CAP-084
+POST	/host/options	Host (/host)	no	A	✔	No Hostname	CAP-086
+GET	/host/services	Host (/host)	no	A	✔	No Servicios systemd	CAP-085
+GET	/host/disks	Host (/host)	no	A	✔	No	CAP-085
+GET	/host/disks/{disk}/usage	Host (/host)	no	A	✔	No Uso de disco por carpeta (qué ocupa el disco)	CAP-085
+GET	/os/info	Sistema operativo (/os)	no	A	✔	No Versión, slots de arranque, data disk	CAP-085
+POST	/os/update	Sistema operativo (/os)	no	A	✔	No Actualizar HAOS (reinicia)	CAP-080
+GET	/os/config/swap	Sistema operativo (/os)	no	A	✔	No	CAP-085
+POST	/os/config/swap	Sistema operativo (/os)	no	A	✔	No Tamaño de swap/swappiness	CAP-086
+POST	/os/config/sync	Sistema operativo (/os)	no	D	✔	No Importa configuración de un USB (físico)	
+POST	/os/datadisk/move	Sistema operativo (/os)	no	D	✔	No Formatea el disco destino y mueve los datos; requiere hardware y reinicio	
+GET	/os/datadisk/list	Sistema operativo (/os)	no	A	✔	No Discos candidatos (lectura)	CAP-085
+POST	/os/datadisk/wipe	Sistema operativo (/os)	no	D	✔ (✘ con `manager`)	No Borra todos los datos	
+POST	/os/boot-slot	Sistema operativo (/os)	no	A	✔	No Volver al slot anterior (rollback del OS)	CAP-086
+GET/POST/DELETE	/os/ssh/authorized_keys (3)	Sistema operativo (/os)	no	D	✘ core_only	No Acceso root por SSH; solo Core	
+GET	/os/boards/green	Sistema operativo (/os)	no	A	✔	No LEDs de Home Assistant Green	CAP-094
+POST	/os/boards/green	Sistema operativo (/os)	no	A	✔	No	CAP-094
+GET	/os/boards/raspberrypi/firmware	Sistema operativo (/os)	no	A	✔	No	CAP-094
+POST	/os/boards/raspberrypi/firmware/update	Sistema operativo (/os)	no	A	✔	No Firmware/EEPROM de la Pi	CAP-094
+GET	/os/boards/yellow	Sistema operativo (/os)	no	A	✔	No	CAP-094
+POST	/os/boards/yellow	Sistema operativo (/os)	no	A	✔	No	CAP-094
+GET	/os/boards/{board}	Sistema operativo (/os)	no	A	✔	No Otras placas (vacío)	CAP-094
+GET	/supervisor/ping	Supervisor y raíz (/supervisor, /)	si	cubierto	passthrough	Sí (arranque)	
+GET	/supervisor/info	Supervisor y raíz (/supervisor, /)	si	cubierto	✔	Sí (`sv_get_supervisor_info`)	
+GET	/supervisor/stats	Supervisor y raíz (/supervisor, /)	no	A	✔	No	CAP-084
+POST	/supervisor/update	Supervisor y raíz (/supervisor, /)	no	A	✔	No	CAP-080
+POST	/supervisor/reload	Supervisor y raíz (/supervisor, /)	no	A	✔	No Releer versiones/tienda	CAP-084
+POST	/supervisor/restart	Supervisor y raíz (/supervisor, /)	no	A	✔	No	CAP-084
+POST	/supervisor/options	Supervisor y raíz (/supervisor, /)	no	A (parcial)	✔	No Seguro: `timezone`, `country`, `logging`, `auto_update`, `diagnostics`. D: `channel` (beta/dev), `debug*`, `feature_flags`	CAP-084
+POST	/supervisor/repair	Supervisor y raíz (/supervisor, /)	no	A	✔	No Repara Docker/plugins	CAP-084
+GET	/supervisor/logs	Supervisor y raíz (/supervisor, /)	no	A	✔	No	CAP-081
+GET	/supervisor/logs/follow	Supervisor y raíz (/supervisor, /)	no	B	✔	No	
+GET	/supervisor/logs/latest	Supervisor y raíz (/supervisor, /)	no	A	✔	No	CAP-081
+GET	/supervisor/logs/boots/{bootid}	Supervisor y raíz (/supervisor, /)	no	A	✔	No	CAP-081
+GET	/supervisor/logs/boots/{bootid}/follow	Supervisor y raíz (/supervisor, /)	no	B	✔	No	
+GET	/info	Supervisor y raíz (/supervisor, /)	si	cubierto	bypass	Sí (`sv_get_supervisor_info`)	
+POST	/reload_updates	Supervisor y raíz (/supervisor, /)	no	A	✔ (✘ con `manager` en V1)	No Buscar actualizaciones ya	CAP-080
+GET	/available_updates	Supervisor y raíz (/supervisor, /)	no	A	✔	No Todas las actualizaciones (Core, OS, Supervisor, apps) en una llamada	CAP-080
+POST	/refresh_updates	Supervisor y raíz (/supervisor, /)	no	B	✔	No Alias «desaconsejado» de `/reload_updates`	
+GET	/supervisor/available_updates	Supervisor y raíz (/supervisor, /)	no	B	✔	No Alias «Remove: 2023»	
+GET	/network/info	Red (/network, V1)	no	A	✔	No	CAP-089
+POST	/network/reload	Red (/network, V1)	no	A	✔	No	CAP-090
+GET	/network/interface/{interface}/info	Red (/network, V1)	no	A	✔	No	CAP-089
+POST	/network/interface/{interface}/update	Red (/network, V1)	no	A	✔	No Riesgo alto: IP mal puesta = host inaccesible, sin auto-rollback	CAP-090
+GET	/network/interface/{interface}/accesspoints	Red (/network, V1)	no	A	✔	No Escaneo Wi-Fi	CAP-089
+POST	/network/interface/{interface}/vlan/{vlan}	Red (/network, V1)	no	A	✔	No	CAP-090
+GET	/mounts	Montajes de red (/mounts)	no	A	✔	No	CAP-083
+POST	/mounts/options	Montajes de red (/mounts)	no	A	✔	No Montaje por defecto para backups	CAP-083
+POST	/mounts	Montajes de red (/mounts)	no	A	✔	No CIFS/NFS para backup/media/share (lleva contraseña)	CAP-083
+PUT	/mounts/{mount}	Montajes de red (/mounts)	no	A	✔	No	CAP-083
+DELETE	/mounts/{mount}	Montajes de red (/mounts)	no	A	✔	No	CAP-083
+POST	/mounts/{mount}/reload	Montajes de red (/mounts)	no	A	✔	No Remontar un NAS caído	CAP-083
+GET	/dns/info	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No Servidores, `fallback`, `llmnr`, `mdns`	CAP-091
+GET	/dns/stats	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/dns/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/dns/options	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No Servidores DNS	CAP-091
+POST	/dns/restart	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/dns/reset	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/dns/logs, /dns/logs/latest, /dns/logs/boots/{b} (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/dns/logs/follow, /dns/logs/boots/{b}/follow (2)	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/audio/info	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/audio/stats	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/update, /audio/restart, /audio/reload (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/profile	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/volume/{source}[/application] (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/mute/{source}[/application] (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/audio/default/{source}	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/audio/logs, /latest, /boots/{b} (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/audio/logs/follow, /boots/{b}/follow (2)	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/multicast/info, /multicast/stats (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/multicast/options, /multicast/update, /multicast/restart (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/multicast/logs, /latest, /boots/{b} (3)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-081
+GET	/multicast/logs/follow, /boots/{b}/follow (2)	Plugins: DNS, audio, multicast, observer, CLI	no	B	✔	No	
+GET	/observer/info, /observer/stats (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/observer/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/cli/info, /cli/stats (2)	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+POST	/cli/update	Plugins: DNS, audio, multicast, observer, CLI	no	A	✔	No	CAP-091
+GET	/hardware/info	Hardware, Docker, hora, seguridad	no	A	✔	No Dispositivos (dongles Zigbee/Z-Wave, discos, serie)	CAP-088
+GET	/hardware/audio	Hardware, Docker, hora, seguridad	no	A	✔	No	CAP-088
+GET	/docker/info	Hardware, Docker, hora, seguridad	no	A	✔	No Versión, storage driver, IPv6, MTU	CAP-088
+POST	/docker/migrate-storage-driver	Hardware, Docker, hora, seguridad	no	D	✔	No Migración de almacenamiento; requiere reinicio y puede dejar el sistema sin imágenes	
+POST	/docker/options	Hardware, Docker, hora, seguridad	no	A	✔	No `enable_ipv6`, `mtu` (red de todos los contenedores; confirmación)	CAP-092
+GET	/docker/registries	Hardware, Docker, hora, seguridad	no	A	✔	No	CAP-092
+POST	/docker/registries	Hardware, Docker, hora, seguridad	no	A	✔	No Lleva usuario y contraseña del registro	CAP-092
+DELETE	/docker/registries/{hostname}	Hardware, Docker, hora, seguridad	no	A	✔	No	CAP-092
+POST	/docker/reset-storage	Hardware, Docker, hora, seguridad	no	D	✔	No Borra todas las imágenes y contenedores	
+GET	/time/info	Hardware, Docker, hora, seguridad	no	A	✔	No Zona, NTP, hora del host	CAP-088
+POST	/time/options	Hardware, Docker, hora, seguridad	no	A	✔	No Servidores NTP	CAP-094
+GET	/security/info	Hardware, Docker, hora, seguridad	no	A	✔	No `content_trust`, `pwned`, `force_security`	CAP-088
+POST	/security/options	Hardware, Docker, hora, seguridad	no	D	✔	No Desactivar `content_trust`/`force_security` rebaja la seguridad del sistema	
+POST	/security/integrity	Hardware, Docker, hora, seguridad	no	A	✔	No Comprobación de integridad (firma de imágenes)	CAP-088
+GET	/jobs/info	Jobs y centro de resolución	no	A	✔	No Todos los jobs del Supervisor (no solo los de Hermes)	CAP-087
+POST	/jobs/options	Jobs y centro de resolución	no	D	✔	No `ignore_conditions`: salta los chequeos de salud de los jobs	
+POST	/jobs/reset	Jobs y centro de resolución	no	D	✔	No Resetea la configuración del gestor de jobs	
+GET	/jobs/{uuid}	Jobs y centro de resolución	si	cubierto	✔	Sí (`sv_get_job_status`, safety backups)	
+DELETE	/jobs/{uuid}	Jobs y centro de resolución	no	B	✔	No Limpieza de jobs terminados	
+GET	/resolution/info	Jobs y centro de resolución	si	cubierto	✔	Sí (`sv_get_resolution`) V1 devuelve tipos legados	
+POST	/resolution/check/{check}/options	Jobs y centro de resolución	no	A	✔	No Activar/desactivar un chequeo	CAP-087
+POST	/resolution/check/{check}/run	Jobs y centro de resolución	no	A	✔	No Ejecutar un chequeo ya	CAP-087
+GET	/resolution/issue/{issue}/suggestions	Jobs y centro de resolución	no	A	✔	No (baja: `info` ya trae las sugerencias)	CAP-087
+POST	/resolution/suggestion/{suggestion}	Jobs y centro de resolución	no	A	✔	No Aplicar sugerencia — **ya en la hoja de ruta 1.2.x**	CAP-087
+DELETE	/resolution/suggestion/{suggestion}	Jobs y centro de resolución	si	cubierto	✔	Sí	
+DELETE	/resolution/issue/{issue}	Jobs y centro de resolución	si	cubierto	✔	Sí	
+POST	/resolution/healthcheck	Jobs y centro de resolución	no	A	✔	No Relanzar todos los chequeos	CAP-087
+GET	/auth	Auth, servicios, discovery, ingress, panel	no	B	bypass, ✘ sin `auth_api`	No Login de usuarios de HA para apps	
+POST	/auth	Auth, servicios, discovery, ingress, panel	no	B	bypass, ✘ sin `auth_api`	No Ídem	
+POST	/auth/reset	Auth, servicios, discovery, ingress, panel	no	D	✔ (✘ con `manager`)	No Cambia la contraseña de cualquier usuario	
+DELETE	/auth/cache	Auth, servicios, discovery, ingress, panel	no	B	✔	No Interna	
+GET	/auth/list	Auth, servicios, discovery, ingress, panel	no	B	✔ (✘ con `manager`)	No Usuarios; Core lo da por WS (`config/auth/list`)	
+GET	/services	Auth, servicios, discovery, ingress, panel	no	B	bypass	No Descubrimiento entre apps	
+GET	/services/{service}	Auth, servicios, discovery, ingress, panel	no	B	bypass	No Credenciales MQTT/MySQL; requiere `services:` en config	
+POST	/services/{service}	Auth, servicios, discovery, ingress, panel	no	B	bypass	No Lo usa la app que *provee* el servicio	
+DELETE	/services/{service}	Auth, servicios, discovery, ingress, panel	no	B	bypass	No Ídem	
+GET	/discovery	Auth, servicios, discovery, ingress, panel	no	B	✘ (solo Core)	No	
+GET	/discovery/{uuid}	Auth, servicios, discovery, ingress, panel	no	B	✘ (solo Core)	No	
+POST	/discovery	Auth, servicios, discovery, ingress, panel	no	B	bypass	No Una app anuncia su integración	
+DELETE	/discovery/{uuid}	Auth, servicios, discovery, ingress, panel	no	B	bypass	No	
+POST	/ingress/session	Auth, servicios, discovery, ingress, panel	no	B	✘ (solo Core)	No	
+POST	/ingress/validate_session	Auth, servicios, discovery, ingress, panel	no	B	✘ (solo Core)	No	
+GET	/ingress/panels	Auth, servicios, discovery, ingress, panel	no	B	✔ (✘ con `manager`)	No Paneles de ingress del frontend	
+GET	/app/* (estático)	Auth, servicios, discovery, ingress, panel	no	B	passthrough	No Panel del frontend del Supervisor	
