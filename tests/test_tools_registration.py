@@ -752,7 +752,23 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_os_info": ("R-I-", "Get OS info (Supervisor)"),
     "sv_get_swap": ("R-I-", "Get swap (Supervisor)"),
     "sv_list_datadisk_candidates": ("R-I-", "List datadisk candidates (Supervisor)"),
+    # Spec 019, tramo 1 (contracts/tools.md): montajes, familia `mounts`. Las
+    # cuatro con token se anuncian destructivas; crear no es idempotente
+    # (prefijo `sv_create_`); recargar ni lee solo ni destruye. Ninguna sale a
+    # internet: el NAS está en la red local.
+    "sv_list_mounts": ("R-I-", "List mounts (Supervisor)"),
+    "sv_create_mount": ("-D--", "Create mount (Supervisor)"),
+    "sv_update_mount": ("-DI-", "Update mount (Supervisor)"),
+    "sv_delete_mount": ("-DI-", "Delete mount (Supervisor)"),
+    "sv_reload_mount": ("--I-", "Reload mount (Supervisor)"),
+    "sv_set_default_backup_mount": ("-DI-", "Set default backup mount (Supervisor)"),
 }
+
+# Las de la spec 019, tramo 1 (montajes, CAP-083).
+_MOUNTS_019 = (
+    "sv_list_mounts", "sv_create_mount", "sv_update_mount", "sv_delete_mount",
+    "sv_reload_mount", "sv_set_default_backup_mount",
+)
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
 _LOGS_013 = (
@@ -1002,7 +1018,7 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert {"generic_commands", "system_diagnostics"} <= set(nuevas)
+        assert {"generic_commands", "system_diagnostics", "mounts"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1181,6 +1197,60 @@ class TestHostSystem013:
                     and e.family == "supervisor"]
         assert len(con_boot) == 2
         assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+
+
+# ── Spec 019, tramo 1: montajes del Supervisor (FR-016, SC-001; T011) ────────
+
+
+class TestMontajes019:
+    """Las seis tools de montajes se registran por defecto; las cuatro que
+    piden token se anuncian destructivas y la de lectura `readOnlyHint`; con
+    `mounts` apagada no existe ninguna y sus rutas siguen `dedicated`."""
+
+    _CON_TOKEN = ("sv_create_mount", "sv_update_mount", "sv_delete_mount",
+                  "sv_set_default_backup_mount")
+
+    def test_registradas_y_sus_hints(self):
+        tools = _real_registry()
+        for nombre in _MOUNTS_019:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.open_world_hint is False, nombre
+            con_token = "confirmation_token" in tools[nombre].parameters.get(
+                "properties", {})
+            assert con_token == (nombre in self._CON_TOKEN), nombre
+            assert ann.destructive_hint == con_token, nombre
+        assert tools["sv_list_mounts"].annotations.read_only_hint is True
+        recargar = tools["sv_reload_mount"].annotations
+        assert (recargar.read_only_hint, recargar.destructive_hint,
+                recargar.idempotent_hint) == (False, False, True)
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _MOUNTS_019}
+        campos = {"name", "type", "usage", "server", "share", "path", "port",
+                  "version", "read_only", "username", "password", "device", "uuid",
+                  "confirmation_token"}
+        assert props == {
+            "sv_list_mounts": set(),
+            "sv_create_mount": campos,
+            "sv_update_mount": campos,
+            "sv_delete_mount": {"name", "confirmation_token"},
+            "sv_reload_mount": {"name"},
+            "sv_set_default_backup_mount": {"name", "confirmation_token"},
+        }
+        assert sorted(tools["sv_create_mount"].parameters["required"]) == [
+            "name", "type", "usage"]
+        assert tools["sv_update_mount"].parameters["required"] == ["name"]
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["mounts"])
+        assert [n for n in _MOUNTS_019 if n in tools] == []
+        dedicadas = {e.tool for e in SUPERVISOR.values()
+                     if e.category == "dedicated" and e.family == "mounts"}
+        assert dedicadas == set(_MOUNTS_019)
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

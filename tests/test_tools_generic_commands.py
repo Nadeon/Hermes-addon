@@ -702,6 +702,22 @@ class TestSupervisorTablaReal(_Base):
         r = await self.t["sv_read_api"]("/core/api/config")
         self.assertEqual(r["rule"], "core_proxy")
 
+    async def test_montajes_por_su_tool(self) -> None:
+        """Spec 019 (FR-015): las rutas de montajes llevan a su tool
+        dedicada sin llamar al Supervisor; tampoco para un montaje `disk`,
+        que crea `sv_create_mount`."""
+        r = await self.t["sv_read_api"]("/mounts")
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "sv_list_mounts"))
+        r = await self.t["sv_call_api"](
+            "POST", "/mounts", {"name": "usb", "type": "disk", "usage": "share",
+                                "device": "/dev/sdb1"})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "sv_create_mount"))
+        self.assertNotIn("confirmation_token", r)
+        r = await self.t["sv_call_api"]("POST", "/mounts/options",
+                                        {"default_backup_mount": None})
+        self.assertEqual(r["tool"], "sv_set_default_backup_mount")
+        self.ha.sv_request.assert_not_awaited()
+
 
 # ── Registro ──────────────────────────────────────────────────────────────────
 
@@ -778,6 +794,16 @@ class TestFamiliasDesdeElRegistro(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
                          ("ha_save_lovelace_dashboard", "lovelace", True))
         ha.ws_send.assert_not_awaited()
+
+    async def test_montajes_con_su_familia_apagada(self) -> None:
+        """Spec 019: con `mounts` apagada, la genérica tampoco llega a
+        `/mounts` (sigue `dedicated`, con `family_disabled`)."""
+        mcp, ha = _registrar_todo(["mounts"])
+        self.assertNotIn("sv_create_mount", mcp.tools)
+        r = await mcp.tools["sv_call_api"]("PUT", "/mounts/nas", {"name": "nas"})
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "sv_update_mount", "mounts", True))
+        ha.sv_request.assert_not_awaited()
 
     def test_sin_generic_commands_no_se_registran(self) -> None:
         mcp, _ = _registrar_todo(["generic_commands"])

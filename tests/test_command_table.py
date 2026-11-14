@@ -527,5 +527,47 @@ class TestDiscoHostYOsDeLa013(unittest.TestCase):
         self.assertEqual(pendientes, [])
 
 
+# Spec 019, tramo 1 (data-model): las seis rutas de montajes (CAP-083).
+_MOUNTS_019: dict[tuple[str, str], str] = {
+    ("GET", "/mounts"): "sv_list_mounts",
+    ("POST", "/mounts"): "sv_create_mount",
+    ("PUT", "/mounts/{mount}"): "sv_update_mount",
+    ("DELETE", "/mounts/{mount}"): "sv_delete_mount",
+    ("POST", "/mounts/{mount}/reload"): "sv_reload_mount",
+    ("POST", "/mounts/options"): "sv_set_default_backup_mount",
+}
+
+
+class TestMontajesDeLa019(unittest.TestCase):
+    """FR-015 de la 019: las rutas de `/mounts` pasan a `dedicated` con su
+    tool en el mismo cambio, familia `mounts` y CAP-083. Las tres de
+    `/backups` (ajustes) siguen pendientes del tramo 2.
+
+    Control negativo (T016 i): dejar `POST /mounts` como `deny` → cae
+    `test_rutas_de_montajes_dedicadas` nombrándola.
+    """
+
+    def test_rutas_de_montajes_dedicadas(self) -> None:
+        malas = []
+        for k, tool in _MOUNTS_019.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "mounts", "CAP-083", f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_ninguna_ruta_de_montajes_pendiente(self) -> None:
+        pendientes = sorted(
+            str(k) for k, e in ct.SUPERVISOR.items()
+            if k[1].startswith("/mounts") and e.category != "dedicated")
+        self.assertEqual(pendientes, [])
+        quedan = sorted(str(k) for k, e in ct.SUPERVISOR.items()
+                        if e.reason == "pendiente de tool dedicada (spec 019)")
+        self.assertEqual(quedan, [str(k) for k in sorted([
+            ("GET", "/backups/info"), ("POST", "/backups/options"),
+            ("POST", "/backups/reload")])])
+
+
 if __name__ == "__main__":
     unittest.main()

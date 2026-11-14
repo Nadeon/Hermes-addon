@@ -81,8 +81,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             f"clasificar: {sin_clasificar}; declaradas que no modifican o no existen: "
             f"{no_modifican}",
         )
-        # Las 124 de la 1.1.2 más las 2 genéricas de escritura de la 011.
-        self.assertEqual(len(reales), 126)
+        # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las 5
+        # de montajes de la 019 (tramo 1).
+        self.assertEqual(len(reales), 131)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -118,7 +119,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
     def test_recuento_028(self) -> None:
         total = len(c028.PROBADAS_028) + len(c028.NO_EJECUTABLES_028)
         self.assertEqual(total, 53, f"las listas de la 028 suman {total}, no 53")
-        self.assertEqual(len(c028.FUERA_DEL_BANCO), 24)
+        # 24 de la 1.1.2 y 5 de montajes de la 019 (tramo 1).
+        self.assertEqual(len(c028.FUERA_DEL_BANCO), 29)
 
     def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
         # El plugin del job (010) solo exige lo que le pasa el conftest. Si la

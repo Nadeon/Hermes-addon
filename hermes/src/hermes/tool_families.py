@@ -98,6 +98,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "Supervisor, Core, host and plugin logs; host services, disk "
             "usage, OS and swap (read only).",
             "1.2.0", True, ("system_logs", "host_system")),
+    # Spec 019 (research R-1): montajes de red del Supervisor (CIFS, NFS y
+    # disco local) y sus ajustes de backup. Una capacidad, una familia: quien
+    # no tiene NAS ni discos externos la apaga entera. Va aparte de `backups`
+    # para que apagar las familias de la 1.2.0 deje la lista de la 1.1.2
+    # (FR-010 de la 008). El tramo 2 añade el módulo `backup_settings`.
+    Familia("mounts",
+            "Supervisor network mounts (CIFS/NFS) and local disk mounts for "
+            "backups, media and share.",
+            "1.2.0", True, ("mounts",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}
