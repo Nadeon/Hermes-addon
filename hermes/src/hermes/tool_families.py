@@ -87,6 +87,16 @@ _CATALOGO: tuple[Familia, ...] = (
             "Generic tools that run Core WebSocket commands and Supervisor API "
             "routes allowed by Hermes' classification table.",
             "1.2.0", True, ("generic_commands",)),
+    # Spec 012: una sola familia para el diagnóstico de Core y no una por
+    # módulo (research R-9): es un área y un tema de la guía, y partirla
+    # daría opciones que nadie pediría. No es `diagnostics` (1.1.2: Repairs,
+    # trazas, relaciones y resolución del Supervisor), que no cambia. El
+    # tramo B de la 012 le añade `core_validation`,
+    # `integration_diagnostics` y `persistent_notifications`.
+    Familia("core_diagnostics",
+            "Home Assistant system log, error log and log levels, configuration "
+            "validation, integration diagnostics and persistent notifications.",
+            "1.2.0", True, ("core_logs",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

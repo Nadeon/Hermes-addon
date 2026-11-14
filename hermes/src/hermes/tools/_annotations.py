@@ -145,6 +145,12 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # peor. Siempre piden confirmation_token.
     "ha_call_ws_command",
     "sv_call_api",
+    # Diagnóstico de Core (spec 012): piden token y ocultan rastro. Bajar un
+    # nivel de log o vaciar el log del sistema esconde lo que pasó; es la
+    # misma razón por la que `logger.set_level` y `system_log.clear` están en
+    # la denylist de `ha_call_service` («Ofuscación de rastros»).
+    "ha_set_log_level",
+    "ha_clear_system_log",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

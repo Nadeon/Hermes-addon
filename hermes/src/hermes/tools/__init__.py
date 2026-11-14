@@ -311,6 +311,13 @@ def register_all_tools(
         from hermes.tools.hacs import register as register_hacs
         register_hacs(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Diagnóstico de Core (spec 012): log del sistema, log de errores y
+    # niveles de log. Reciben `response_max_bytes`: el log del sistema guarda
+    # hasta 50 grupos con trazas enteras y el de errores, hasta 1000 líneas.
+    if _activa("core_diagnostics"):
+        from hermes.tools.core_logs import register as register_core_logs
+        register_core_logs(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

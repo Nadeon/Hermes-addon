@@ -9,6 +9,7 @@ suite normal (sin HA ni Docker):
       ∪ cobertura.PROBADAS_GENERICAS ∪ cobertura.NO_EJECUTABLES_GENERICAS (011, 1 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
       ∪ FUERA_DEL_BANCO                                              (24)
+      ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 2)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el
@@ -45,6 +46,7 @@ job no admite ningún otro `xfail`.
 from __future__ import annotations
 
 from tests.banco import cobertura
+from tests.banco.cobertura_012 import PROBADAS_012
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -151,9 +153,10 @@ XFAIL_PERMITIDOS_028: dict[str, str] = {
 
 # Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
 # por ejecución y todos los `xfail` de hallazgos listados. Una sub-feature
-# nueva con tests en el banco suma aquí sus listas.
+# nueva con tests en el banco suma aquí sus listas (la 012, `PROBADAS_012`).
 TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | PROBADAS_028
+    | PROBADAS_012
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 

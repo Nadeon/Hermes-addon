@@ -737,6 +737,13 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+    # Spec 012, tramo A (contracts/tools.md): las de lectura por su prefijo;
+    # fijar el nivel y limpiar piden token y van en `_DESTRUCTIVE_EXACT`.
+    "ha_list_system_log": ("R-I-", "List system log (Home Assistant)"),
+    "ha_get_error_log": ("R-I-", "Get error log (Home Assistant)"),
+    "ha_get_log_levels": ("R-I-", "Get log levels (Home Assistant)"),
+    "ha_set_log_level": ("-DI-", "Set log level (Home Assistant)"),
+    "ha_clear_system_log": ("-DI-", "Clear system log (Home Assistant)"),
 }
 
 
@@ -1140,6 +1147,51 @@ class TestOrganizationAndDiagnosticsRegistration:
         from hermes.tools._annotations import classify
 
         assert [n for n in _ORGANIZACION_Y_DIAGNOSTICO if classify(n).open_world_hint] == []
+
+
+# ── Spec 012, tramo A: logs de Core (FR-013, FR-015, FR-020; T012) ──────────
+
+_CORE_LOGS = (
+    "ha_list_system_log", "ha_get_error_log", "ha_get_log_levels",
+    "ha_set_log_level", "ha_clear_system_log",
+)
+
+
+class TestCoreLogsRegistration:
+    """Las cinco tools de `core_logs` se registran bajo `core_diagnostics`,
+    con los hints del contrato (`_HINTS_NUEVAS_1_2_0`) y desaparecen con la
+    familia desactivada.
+
+    Control negativo (T018 h): quitar `ha_set_log_level` de
+    `_DESTRUCTIVE_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` y el
+    invariante «pide token ⇔ destructiva»
+    (`test_every_tool_that_asks_for_a_token_says_it_is_destructive`).
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _CORE_LOGS if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna(self):
+        mcp = _do_register(["core_diagnostics"])
+        assert [n for n in _CORE_LOGS if n in mcp.tools] == []
+        assert "ha_list_repairs" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.core_logs.register") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
+
+    def test_ninguna_sale_a_internet(self):
+        from hermes.tools._annotations import classify
+
+        assert [n for n in _CORE_LOGS if classify(n).open_world_hint] == []
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────

@@ -81,6 +81,10 @@ CALL_SERVICE_DENYLIST: frozenset[str] = frozenset({
     "conversation.process",
     # Ofuscación de rastros
     "logger.set_level", "system_log.clear",
+    # Spec 012: bajar el nivel por defecto de todos los loggers oculta rastros
+    # igual que `logger.set_level`, y la tool dedicada `ha_set_log_level`
+    # pide confirmación; por `ha_call_service` no puede ser más barato.
+    "logger.set_default_level",
     "persistent_notification.dismiss", "persistent_notification.dismiss_all",
     "homeassistant.set_location", "device_tracker.see",
     # Lo que se veta es el EFECTO, no una variante concreta del servicio:
