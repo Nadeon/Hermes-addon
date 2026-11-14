@@ -27,6 +27,7 @@ from hermes.service_policy import (
 )
 from hermes.health import HealthServer
 from hermes.identifiers import validate_path_segment
+from hermes.security import quitar_secreto_abierto
 from urllib.parse import unquote, urlsplit
 
 from hermes.logging_setup import set_ha_url_hosts
@@ -1255,7 +1256,13 @@ class HAClient:
                 crudo = crudo[:-1]
             recortada = len(crudo) > max_line_bytes
             texto = crudo[:max_line_bytes].decode("utf-8", errors="replace")
-            cola.append(texto + marca if recortada else texto)
+            if recortada:
+                # La redacción viene después (quien llama redacta cada
+                # línea) y no puede ver el final de un secreto que el corte
+                # dejó abierto: `"password": "hunter2` sin su comilla no lo
+                # reconoce. Se quita ese trozo aquí (spec 012, T035).
+                texto = quitar_secreto_abierto(texto) + marca
+            cola.append(texto)
 
         async with self._session.get(url, timeout=ClientTimeout(total=30)) as resp:
             if resp.status >= 400:
