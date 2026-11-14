@@ -70,6 +70,12 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # internet. Por nombre exacto: ningún prefijo las cubre.
     "ha_read_ws_command",
     "sv_read_api",
+    # Spec 029 (CAP-049): `recorder/validate_statistics` solo calcula los
+    # problemas y los devuelve; no corrige nada ni crea avisos en Repairs (eso
+    # es `recorder/update_statistics_issues`, de la 020). Por nombre exacto:
+    # ningún prefijo de lectura la cubre, y `ha_validate_` no debe pasar a
+    # serlo (una futura `validate` podría escribir).
+    "ha_validate_statistics",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -172,6 +178,11 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # ninguna ruta `read` del Supervisor sale. tests/test_command_table.py
     # ata esta lista a las marcas `open_world` de la tabla.
     "ha_read_ws_command",
+    # Spec 029 (T037): pedir `system_health/info` hace que HA ejecute los
+    # callbacks de salud, y varios llaman a `async_check_can_reach_url`, que
+    # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
+    # Es de solo lectura, pero no puede decir que no sale.
+    "ha_get_system_health",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

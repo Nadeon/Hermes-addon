@@ -236,6 +236,51 @@ class TestDedicadas(unittest.TestCase):
                     f"{k}: familia {e.family!r}, la de {e.tool} es {familias[e.tool]!r}")
         self.assertEqual(problemas, [], "\n".join(problemas))
 
+    def test_dedicadas_de_la_029(self) -> None:
+        """Spec 029, T014 (FR-016): los cinco comandos de CAP-043 son
+        `dedicated` hacia su tool de `system_status`, con la forma que escribe
+        el generador, y el mapa del generador los nombra (una tabla generada
+        desde cero sale igual). Tramo 2 (T027): lo mismo con los cuatro de
+        CAP-049 hacia su tool de `recorder`, y ya no queda ninguna entrada
+        «pendiente (spec 029)».
+        Controles negativos: `manifest/get` en `deny` (T018 e) o
+        `recorder/info` en `deny` (T034 f) → cae."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        cinco = {
+            "system_health/info": "ha_get_system_health",
+            "subscribe_system_state": "ha_get_system_state",
+            "integration/setup_info": "ha_list_integration_setup_times",
+            "manifest/list": "ha_list_integration_manifests",
+            "manifest/get": "ha_get_integration_manifest",
+        }
+        for comando, tool in cinco.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "system_status", tool, "CAP-043"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        # Tramo 2 (T027): los cuatro de CAP-049, hacia su tool de `recorder`.
+        cuatro = {
+            "recorder/info": "ha_get_recorder_info",
+            "recorder/entity_options/get": "ha_get_recorder_info",
+            "recorder/validate_statistics": "ha_validate_statistics",
+            "recorder/get_statistics_metadata": "ha_get_statistics_metadata",
+        }
+        for comando, tool in cuatro.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "recorder", tool, "CAP-049"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        # Y ya no queda nada «pendiente (spec 029)» en ninguna de las dos
+        # tablas (FR-016; control negativo T034 f: `recorder/info` en `deny`
+        # -> cae).
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 029)" in e.reason)
+        self.assertEqual(pendientes, [])
+
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
         otras = sorted(str(k) for k, e in _todas()
@@ -332,6 +377,15 @@ class TestPistasYMotivos(unittest.TestCase):
 # la sub-spec lo justifica» (regla de reparto de la 008). Clave → «spec NNN:
 # porqué». Dejarlo aquí hace visible la justificación y obliga a la siguiente
 # sub-feature a dar la suya.
+# Tools de la 1.1.2 que una sub-feature amplía para cubrir una entrada de vía
+# D, en vez de crear una tool nueva. Fuera de esta lista, una entrada
+# `dedicated` de vía D tiene que ir a una tool de una familia de la 1.2.0
+# (029, T002). Integración de la 029 con la 013: sin esta excepción caen
+# `/addons/{app}/logs/latest` y `/addons/{app}/logs/boots/{bootid}`.
+_DE_LA_1_1_2_AMPLIADAS: dict[str, str] = {
+    "sv_get_addon_logs": "spec 013 (CAP-081): `boot` y `latest`",
+}
+
 _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
     ("GET", "/jobs/info"): (
         "spec 013: FR-046 de la 008 lo pide en la tabla; es una lectura de "
@@ -377,10 +431,18 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                 if via not in {"D", "D+T", "D+X"}:
                     continue
                 e = tabla[k]
-                # Una vez que su sub-feature añade la tool, la entrada pasa a
-                # `dedicated` (spec 013, research R-5); el resto de requisitos
-                # de una dedicada los vigila `TestDedicadas`.
+                # Spec 029, T002 (research R-7, mismo diseño que la 012):
+                # cuando su sub-feature crea la tool, la entrada pasa a
+                # `dedicated` hacia ella, y esa tool es de una familia de la
+                # 1.2.0 (no de la 1.1.2 ni una genérica). `read` o `confirm`
+                # siguen siendo un error: la vía D exige tool dedicada.
                 if e.category == "dedicated":
+                    familia = FAMILIAS.get(_tool_a_familia().get(e.tool, ""))
+                    if e.tool in _DE_LA_1_1_2_AMPLIADAS:
+                        continue
+                    if (familia is None or familia.desde != "1.2.0"
+                            or familia.nombre == "generic_commands"):
+                        malas.append(f"{k} ({f['cap']}): dedicated hacia {e.tool!r}")
                     continue
                 if k in _POR_LA_TABLA and e.category in {"read", "confirm"}:
                     spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])

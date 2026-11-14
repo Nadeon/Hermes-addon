@@ -327,6 +327,19 @@ def register_all_tools(
         from hermes.tools.host_system import register as register_host_system
         register_host_system(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Estado del sistema de Core (spec 029, CAP-043): salud, reinicio
+    # pendiente, tiempos de arranque y manifiestos. Solo lee.
+    if _activa("system_status"):
+        from hermes.tools.system_status import register as register_system_status
+        register_system_status(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # El recorder y las estadísticas de largo plazo (spec 029, CAP-049):
+    # estado, validación y metadatos. Hoy solo lee; la 020 añadirá aquí el
+    # mantenimiento de estadísticas.
+    if _activa("recorder"):
+        from hermes.tools.recorder_status import register as register_recorder_status
+        register_recorder_status(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

@@ -538,5 +538,99 @@ class TestGuiaRespuestaConfirmadaYListas(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("no admite servicios de la denylist", texto)
 
 
+class TestTemaSystemStatus(unittest.IsolatedAsyncioTestCase):
+    """Spec 029, T015 (FR-021): el tema `system_status` nombra las cinco
+    tools, dice que no modifican, cómo leer la salud con pendientes y que
+    para reiniciar está `sv_restart_core`; sus alias resuelven a él y el
+    índice lo menciona."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_contenido(self) -> None:
+        texto = await self.guide("system_status")
+        self.assertIs(texto, _GUIDE["system_status"])
+        for palabra in ("ha_get_system_health", "ha_get_system_state",
+                        "ha_list_integration_setup_times",
+                        "ha_list_integration_manifests", "ha_get_integration_manifest",
+                        "SOLO LECTURA", "pending", "complete", "failed",
+                        "omitted_domains", "timeout_seconds", "sv_restart_core",
+                        "_third_party_text", "system_health_not_loaded",
+                        "unsupported_by_ha_version"):
+            self.assertIn(palabra, texto)
+
+    async def test_alias(self) -> None:
+        texto = await self.guide("system_status")
+        for alias in ("health", "system_health", "system_state", "manifest",
+                      "manifests", "setup_times", "urls", "HEALTH"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # Los alias de la 1.1.2 no cambian (`system` sigue en `supervisor`).
+        self.assertEqual(await self.guide("system"), _GUIDE["supervisor"])
+        self.assertEqual(await self.guide("statistics"), _GUIDE["data"])
+
+    async def test_el_indice_lo_menciona(self) -> None:
+        self.assertIn("`system_status`", await self.guide())
+
+    async def test_red_urls_y_http(self) -> None:
+        """Spec 029, T028 (FR-014): la llamada exacta por la genérica a
+        `network`, `network/url` y `http/config`, y que Hermes aún no tiene
+        tool para cambiarlos (la 021, CAP-069, actualizará este texto)."""
+        texto = _GUIDE["system_status"]
+        for palabra in ('ha_read_ws_command(type="network")',
+                        'ha_read_ws_command(type="network/url")',
+                        'ha_read_ws_command(type="http/config")',
+                        "internal", "external", "cloud", "stable", "pending",
+                        "NO tiene tool", "CAP-069"):
+            self.assertIn(palabra, texto)
+        self.assertEqual(await self.guide("network"), texto)
+
+
+class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
+    """Spec 029, T028 (FR-014, FR-021): el tema `recorder` nombra las tres
+    tools y la auditoría por `ha_read_ws_command`; sus alias resuelven a él,
+    el índice lo menciona, la búsqueda en la tabla enseña el ejemplo de
+    `logbook/get_action_calls` y `statistics` sigue en `data`."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_contenido(self) -> None:
+        texto = await self.guide("recorder")
+        self.assertIs(texto, _GUIDE["recorder"])
+        for palabra in ("ha_get_recorder_info", "ha_validate_statistics",
+                        "ha_get_statistics_metadata", "SOLO LECTURA",
+                        'ha_read_ws_command(type="logbook/get_action_calls"',
+                        "start_time", "end_time", "code", "tapados", "missing",
+                        "by_type", "not_found", "recorder_not_loaded",
+                        "Repairs", "ha_list_statistic_ids",
+                        "ha_statistics_during_period"):
+            self.assertIn(palabra, texto)
+
+    async def test_alias(self) -> None:
+        texto = await self.guide("recorder")
+        for alias in ("recorder_info", "statistics_validation", "action_calls",
+                      "audit", "AUDIT"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # Los de la 1.1.2 no cambian.
+        self.assertEqual(await self.guide("statistics"), _GUIDE["data"])
+        self.assertEqual(await self.guide("logbook"), _GUIDE["data"])
+        self.assertEqual(await self.guide("history"), _GUIDE["data"])
+
+    async def test_el_indice_lo_menciona(self) -> None:
+        self.assertIn("`recorder`", await self.guide())
+
+    async def test_la_busqueda_enseña_el_ejemplo(self) -> None:
+        texto = await self.guide("generic_commands", search="action_calls")
+        self.assertIn("logbook/get_action_calls", texto)
+        self.assertIn('"start_time": "2026-01-01T00:00:00+00:00"', texto)
+        self.assertIn('"end_time": "2026-01-01T06:00:00+00:00"', texto)
+
+
 if __name__ == "__main__":
     unittest.main()

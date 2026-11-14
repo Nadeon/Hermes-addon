@@ -306,6 +306,75 @@ class TestLecturaCoreTablaReal(_Base):
         # Lo demás sigue a la vista: solo se tapa el código.
         self.assertEqual(datos[1]["entity_id"], "lock.puerta")
 
+    async def test_action_calls_sin_code_en_el_log(self) -> None:
+        # Spec 029, T026 (FR-012, SC-004): el `code` tapado tampoco llega al
+        # log (la genérica registra solo las claves de la carga), y el resto
+        # de la llamada sigue visible en la respuesta. El tapado en la
+        # respuesta lo prueba ya `test_action_calls_tapa_el_code` (011).
+        # Control negativo (T034 a): sin `redact_extra` en la entrada, cae
+        # aquí la respuesta (centinela y número en claro).
+        self.ha.ws_send.return_value = [
+            {"when": 1.0, "domain": "alarm_control_panel", "service": "alarm_disarm",
+             "service_data": {"entity_id": "alarm_control_panel.casa", "code": _CENTINELA}},
+            {"when": 2.0, "domain": "lock", "service": "unlock",
+             "service_data": {"entity_id": "lock.puerta", "code": 4321}},
+        ]
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"](
+                "logbook/get_action_calls",
+                {"start_time": "2026-01-01T00:00:00+00:00",
+                 "end_time": "2026-01-01T06:00:00+00:00"})
+        texto = json.dumps(r)
+        self.assertNotIn(_CENTINELA, texto)
+        self.assertNotIn("4321", texto)
+        self.assertEqual([i["service"] for i in r["items"]], ["alarm_disarm", "unlock"])
+        self.assertEqual(r["items"][0]["service_data"]["entity_id"], "alarm_control_panel.casa")
+        en_log = json.dumps(logs, default=str)
+        self.assertNotIn(_CENTINELA, en_log)
+        self.assertNotIn("4321", en_log)
+        self.assertEqual(self.eventos(logs)[0]["payload_keys"], ["end_time", "start_time"])
+
+    async def test_action_calls_tiene_ejemplo(self) -> None:
+        # Spec 029, T027 (FR-012): el ejemplo de la tabla, revisado contra
+        # `logbook/websocket_api.py` (`start_time` obligatorio, `end_time`
+        # opcional, los dos como texto ISO).
+        from hermes.command_table import CORE_WS
+
+        e = CORE_WS["logbook/get_action_calls"]
+        self.assertEqual((e.category, e.redact_extra), ("read", ("code",)))
+        self.assertEqual(set(e.example), {"start_time", "end_time"})
+
+    async def test_red_y_http_sin_urls_ni_ips_en_el_log(self) -> None:
+        # Spec 029, T026 (FR-013, SC-006): `network`, `network/url` y
+        # `http/config` siguen `read`; la respuesta trae URLs y direcciones
+        # y el log de la genérica no lleva ninguna.
+        # Control negativo (T034 b): registrar la respuesta en el log -> cae.
+        url_ext = "https://homeassistant.tailXXXX.ts.net"
+        url_int = "http://192.0.2.10:8123"
+        respuestas = {
+            "network": {"adapters": [{"name": "eth0", "enabled": True,
+                                      "ipv4": [{"address": "192.0.2.10",
+                                                "network_prefix": 24}]}],
+                        "configured_adapters": [], "ipv4_address": "192.0.2.10"},
+            "network/url": {"internal": url_int, "external": url_ext, "cloud": None},
+            "http/config": {"stable": {"server_host": ["192.0.2.11"],
+                                       "trusted_proxies": ["192.0.2.0/24"]},
+                            "pending": None, "default": {"server_port": 8123}},
+        }
+        for comando, respuesta in respuestas.items():
+            with self.subTest(comando=comando):
+                self.ha.ws_send.reset_mock()
+                self.ha.ws_send.return_value = respuesta
+                with capture_logs() as logs:
+                    r = await self.t["ha_read_ws_command"](comando)
+                self.ha.ws_send.assert_awaited_once_with({"type": comando})
+                self.assertNotIn("error", r)
+                self.assertEqual(r["result"], respuesta)
+                en_log = json.dumps(logs, default=str)
+                for prohibido in ("192.0.2.", "tailXXXX", url_ext, url_int, "eth0"):
+                    self.assertNotIn(prohibido, en_log)
+                self.assertEqual(self.eventos(logs)[0]["outcome"], "executed")
+
     async def test_reales_rechazadas(self) -> None:
         casos = {
             "lovelace/config/save": "use_dedicated_tool",
@@ -785,6 +854,92 @@ class TestFamiliasDesdeElRegistro(unittest.IsolatedAsyncioTestCase):
                        "sv_read_api", "sv_call_api"):
             self.assertNotIn(nombre, mcp.tools)
         self.assertIn("hermes_guide", mcp.tools)
+
+
+# Spec 029 (CAP-043): los cinco comandos con tool dedicada en `system_status`.
+_DEDICADAS_029_SYSTEM_STATUS = {
+    "system_health/info": "ha_get_system_health",
+    "subscribe_system_state": "ha_get_system_state",
+    "integration/setup_info": "ha_list_integration_setup_times",
+    "manifest/list": "ha_list_integration_manifests",
+    "manifest/get": "ha_get_integration_manifest",
+}
+
+
+class TestDedicadasDeLa029(unittest.IsolatedAsyncioTestCase):
+    """Spec 029, T013 (FR-016): con la tabla real, la genérica de lectura
+    rechaza los cinco comandos de CAP-043 hacia su tool, sin llegar a HA; con
+    `system_status` desactivada, además `family_disabled: true` (la genérica
+    no es una vía hacia lo que el usuario apagó).
+
+    Control negativo (T018 e): dejar `manifest/get` en `deny` → cae
+    `test_rechazo_hacia_su_tool` («manifest/get») y el de dedicadas de
+    test_command_table."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_029_SYSTEM_STATUS.items():
+            with self.subTest(comando=comando):
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual(r["error"], "use_dedicated_tool")
+                self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
+                                 (tool, "system_status", False))
+                self.assertIn(tool, mcp.tools)
+        ha.ws_send.assert_not_awaited()
+        ha.ws_one_shot_subscription.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["system_status"])
+        for comando, tool in _DEDICADAS_029_SYSTEM_STATUS.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+
+# Spec 029 (CAP-049): los cuatro comandos con tool dedicada en `recorder`.
+_DEDICADAS_029_RECORDER = {
+    "recorder/info": "ha_get_recorder_info",
+    "recorder/entity_options/get": "ha_get_recorder_info",
+    "recorder/validate_statistics": "ha_validate_statistics",
+    "recorder/get_statistics_metadata": "ha_get_statistics_metadata",
+}
+
+
+class TestDedicadasDeLa029Recorder(unittest.IsolatedAsyncioTestCase):
+    """Spec 029, T023 (FR-016): con la tabla real, las genéricas rechazan los
+    cuatro comandos de CAP-049 hacia su tool de `recorder`, sin llegar a HA;
+    con la familia desactivada, además `family_disabled: true`.
+
+    Control negativo (T034 f): dejar `recorder/info` en `deny` -> cae
+    `test_rechazo_hacia_su_tool` («recorder/info») y
+    `test_dedicadas_de_la_029` de test_command_table."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_029_RECORDER.items():
+            with self.subTest(comando=comando):
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual(r["error"], "use_dedicated_tool")
+                self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
+                                 (tool, "recorder", False))
+                self.assertIn(tool, mcp.tools)
+                # Tampoco por la de escritura: no es una vía alternativa.
+                r = await mcp.tools["ha_call_ws_command"](comando, {})
+                self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", tool))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["recorder"])
+        for comando, tool in _DEDICADAS_029_RECORDER.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
 
 
 class TestRegistro(unittest.TestCase):

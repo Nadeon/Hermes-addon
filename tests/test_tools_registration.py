@@ -752,6 +752,22 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_os_info": ("R-I-", "Get OS info (Supervisor)"),
     "sv_get_swap": ("R-I-", "Get swap (Supervisor)"),
     "sv_list_datadisk_candidates": ("R-I-", "List datadisk candidates (Supervisor)"),
+    # Spec 029 (CAP-043, familia `system_status`): solo leen; el prefijo
+    # `ha_get_`/`ha_list_` da el `readOnlyHint` (FR-017). La salud es además
+    # de mundo abierto (T037): HA comprueba si llega a servicios de internet
+    # al pedirla. Control negativo comprobado: quitarla de `_OPEN_WORLD` →
+    # cae `test_hints_y_titulos_de_las_nuevas` (sale `R-I-`).
+    "ha_get_system_health": ("R-IO", "Get system health (Home Assistant)"),
+    "ha_get_system_state": ("R-I-", "Get system state (Home Assistant)"),
+    "ha_list_integration_setup_times": ("R-I-", "List integration setup times (Home Assistant)"),
+    "ha_list_integration_manifests": ("R-I-", "List integration manifests (Home Assistant)"),
+    "ha_get_integration_manifest": ("R-I-", "Get integration manifest (Home Assistant)"),
+    # Spec 029 (CAP-049, familia `recorder`): solo leen. `ha_validate_statistics`
+    # no tiene prefijo de lectura: va por nombre exacto en `_READ_ONLY_EXACT`
+    # (T034 e: sin esa línea, este hint cae).
+    "ha_validate_statistics": ("R-I-", "Validate statistics (Home Assistant)"),
+    "ha_get_statistics_metadata": ("R-I-", "Get statistics metadata (Home Assistant)"),
+    "ha_get_recorder_info": ("R-I-", "Get recorder info (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1195,6 +1211,58 @@ _HACS_ALIASES = (
     "ha_hacs_info", "ha_hacs_list_repositories",
     "ha_hacs_get_repository", "ha_hacs_list_updates",
 )
+
+
+class TestSystemStatusRegistration:
+    """Spec 029, T010 (FR-015, FR-017, SC-001): las cinco de CAP-043 se
+    registran, ninguna pide `confirmation_token` y con `system_status`
+    desactivada no queda ninguna y el resto no cambia."""
+
+    _CINCO = {
+        "ha_get_system_health", "ha_get_system_state",
+        "ha_list_integration_setup_times", "ha_list_integration_manifests",
+        "ha_get_integration_manifest",
+    }
+
+    def test_registradas_y_sin_token(self):
+        tools = _real_registry()
+        assert self._CINCO <= set(tools)
+        for nombre in self._CINCO:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" not in props, nombre
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status"]))
+        assert completo - sin == self._CINCO
+        assert sin <= completo
+
+
+class TestRecorderRegistration:
+    """Spec 029, T020 (FR-015, FR-017, SC-001): las tres de CAP-049 se
+    registran sin `confirmation_token`; con `recorder` desactivada no queda
+    ninguna, y con `system_status` y `recorder` desactivadas la lista es
+    exactamente la de antes de la 029."""
+
+    _TRES = {"ha_validate_statistics", "ha_get_statistics_metadata", "ha_get_recorder_info"}
+
+    def test_registradas_y_sin_token(self):
+        tools = _real_registry()
+        assert self._TRES <= set(tools)
+        for nombre in self._TRES:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" not in props, nombre
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["recorder"]))
+        assert completo - sin == self._TRES
+
+    def test_sin_las_dos_familias_es_la_lista_de_antes_de_la_029(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status", "recorder"]))
+        assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
+        assert sin <= completo
 
 
 class TestMarketplaceRegistration:

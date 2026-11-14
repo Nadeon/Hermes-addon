@@ -128,7 +128,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
 
         self.assertEqual(
             c028.TOOLS_EXIGIDAS_DEL_JOB,
-            cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028,
+            cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
+            | cobertura.PROBADAS_EN_BANCO_029,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}
