@@ -20,7 +20,9 @@ pero el inventario, como el de los helpers, solo exige las escrituras.
 
 from __future__ import annotations
 
+import json
 import secrets
+from typing import Any
 
 import pytest
 
@@ -35,6 +37,18 @@ _LLAMAR = "ha_call_ws_command"
 
 def _ids(respuesta: dict) -> set[str]:
     return {t.get("id") for t in respuesta["items"]}
+
+
+async def _rechazo(cliente: Any, tool: str, **args: Any) -> dict[str, Any]:
+    """Llama a una tool que DEBE rechazar y devuelve su `{"error": …}`.
+
+    No sirve `llamar`: Hermes marca con `isError` toda respuesta `{"error": …}`
+    (`mcp_server.py`) y `llamar` la convierte en fallo del test. Aquí el
+    rechazo es lo esperado; que llegue marcado como error también se comprueba.
+    """
+    resultado = await cliente.call_tool(tool, args)
+    assert getattr(resultado, "is_error", False), f"{tool}: se esperaba un rechazo"
+    return json.loads(resultado.content[0].text)
 
 
 class TestGenericasConTags(BancoHelpers):
@@ -75,8 +89,8 @@ class TestGenericasConTags(BancoHelpers):
             self.assertIn(tag_id, _ids(despues))
 
             # La de lectura no ejecuta lo que escribe, y no toca HA.
-            rechazo = await llamar(s.cliente, _LEER, type="tag/delete",
-                                   payload={"tag_id": tag_id})
+            rechazo = await _rechazo(s.cliente, _LEER, type="tag/delete",
+                                     payload={"tag_id": tag_id})
             self.assertEqual(rechazo.get("error"), "wrong_generic_tool")
             self.assertIsNotNone(await s.item("tag", tag_id))
 
