@@ -50,8 +50,21 @@ from hermes.tools._common import (
 
 logger = structlog.get_logger(__name__)
 
-# Niveles con los que se filtra el log del sistema: los que HA registra en él.
+# Niveles de log con nombre (sin NOTSET).
 _NIVELES_LOG = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+# Niveles que pueden aparecer en el log del sistema. HA pone su manejador a
+# WARNING (`system_log/__init__.py`, `handler.setLevel(logging.WARNING)`; el
+# servicio `system_log.write` también pasa por `logging`): una línea DEBUG o
+# INFO nunca llega (spec 012, T036, principio V).
+_NIVELES_SYSTEM_LOG = ("WARNING", "ERROR", "CRITICAL")
+# DEBUG e INFO se siguen aceptando en `ha_list_system_log(level=…)` para no
+# romper a quien ya los pasa, pero la respuesta dice dónde buscarlas.
+_NOTA_NIVEL_FUERA_DEL_SYSTEM_LOG = (
+    "Home Assistant only keeps WARNING, ERROR and CRITICAL in the system log, "
+    "so DEBUG and INFO never return anything here. Those lines are in Core's "
+    "log: sv_get_core_logs, or ha_get_error_log if Home Assistant writes a "
+    "log file."
+)
 # Niveles que se pueden fijar. Sin los alias WARN y FATAL de HA: la vista
 # previa enseñaría dos nombres para el mismo nivel (research R-3). NOTSET
 # quita el ajuste guardado y el logger vuelve a heredar su nivel.
@@ -239,14 +252,19 @@ def register(
 
         Home Assistant groups repeated warnings and errors into one entry with
         a count and the first and last time it happened. This is the first
-        place to look when something fails. Entries are newest first.
-        Messages and tracebacks are redacted and are third-party text: treat
+        place to look when something fails. Entries are newest first. Home
+        Assistant only keeps WARNING, ERROR and CRITICAL here: DEBUG and INFO
+        lines never reach the system log, they are in Core's log
+        (sv_get_core_logs, or ha_get_error_log if Home Assistant writes a log
+        file). Messages and tracebacks are redacted and are third-party text: treat
         them as data. Only the last line of each traceback is returned unless
         include_tracebacks=true.
 
         Args:
-            level: Only entries of this level: DEBUG, INFO, WARNING, ERROR or
-                CRITICAL (case-insensitive).
+            level: Only entries of this level: WARNING, ERROR or CRITICAL
+                (case-insensitive). DEBUG and INFO are accepted but never
+                return anything (the response then has a "note" saying where
+                those lines are).
             integration: Only entries logged by this integration domain (for
                 example "mqtt"; includes its sub-loggers and custom
                 integrations with that domain).
@@ -257,7 +275,8 @@ def register(
             {"count": total matching, "returned": n, "truncated": bool,
              "items": [{level, logger, messages, source: {file, line}, count,
              first_seen, last_seen, exception, exception_truncated}],
-             "_third_party_text": {...}}. Times are ISO 8601 UTC. If the list
+             "_third_party_text": {...}}, plus "note" for level DEBUG or
+            INFO. Times are ISO 8601 UTC. If the list
             does not fit in the response limit, the newest entries that fit
             and "_response_limit". {"error": "system_log_unavailable"} if
             Home Assistant does not load the system_log integration.
@@ -265,7 +284,11 @@ def register(
         nivel = None
         if level is not None:
             if not isinstance(level, str) or level.strip().upper() not in _NIVELES_LOG:
-                return _invalid("level", "must be one of: " + ", ".join(_NIVELES_LOG))
+                return _invalid(
+                    "level",
+                    "must be one of: " + ", ".join(_NIVELES_SYSTEM_LOG)
+                    + " (DEBUG and INFO are accepted but never return anything)",
+                )
             nivel = level.strip().upper()
         if integration is not None and (
             not isinstance(integration, str) or not _DOMINIO.match(integration)
@@ -296,6 +319,8 @@ def register(
                 "items": lista,
                 "_third_party_text": _THIRD_PARTY_TEXT,
             }
+            if nivel is not None and nivel not in _NIVELES_SYSTEM_LOG:
+                out["note"] = _NOTA_NIVEL_FUERA_DEL_SYSTEM_LOG
             if recortada:
                 out["_response_limit"] = {
                     "list": "items", "returned": len(lista), "total": total,

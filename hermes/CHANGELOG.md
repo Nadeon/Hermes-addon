@@ -18,7 +18,10 @@ argumento existente cambia ni pasa a ser obligatorio.
     (ISO 8601) y origen; filtra por nivel y por integración (sus sub-loggers
     incluidos). Mensajes y trazas, redactados y marcados como texto de
     terceros; de cada traza, solo su última línea salvo
-    `include_tracebacks=true`.
+    `include_tracebacks=true`. HA solo guarda ahí WARNING, ERROR y CRITICAL:
+    `level` acepta también DEBUG e INFO, que nunca devuelven nada, y entonces
+    la respuesta trae una `note` que remite al log de Core
+    (`sv_get_core_logs` o `ha_get_error_log`), igual que la guía.
   - `ha_get_error_log(lines)`: las últimas líneas (1 a 1000) del fichero de
     log de Core, leído en flujo sin cargarlo entero, con los secretos
     redactados. Una línea de más de 4 KB se corta, y si el corte cae dentro de

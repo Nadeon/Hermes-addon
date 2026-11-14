@@ -164,6 +164,33 @@ class TestListSystemLog(_Base):
             r = await self.t["ha_list_system_log"](level=nivel)
             self.assertEqual([e["logger"] for e in r["items"]], ["b"], nivel)
 
+    async def test_debug_e_info_aceptados_con_nota(self) -> None:
+        # T036 (principio V): HA pone el manejador de system_log a WARNING, así
+        # que DEBUG e INFO nunca aparecen. Se siguen aceptando (compatibilidad)
+        # y la respuesta dice dónde están esas líneas.
+        # Control negativo (comprobado): sin añadir `note` en `construir` cae
+        # este test; con la nota también en WARNING cae el control de abajo.
+        self.registros = [_registro("a", nivel="ERROR")]
+        for nivel in ("DEBUG", "info"):
+            with self.subTest(nivel=nivel):
+                r = await self.t["ha_list_system_log"](level=nivel)
+                self.assertNotIn("error", r)
+                self.assertEqual(r["items"], [])
+                self.assertIn("sv_get_core_logs", r["note"])
+                self.assertIn("ha_get_error_log", r["note"])
+                self.assertIn("never return anything", r["note"])
+        # Control: con un nivel que sí aparece, o sin nivel, no hay nota.
+        for kw in ({}, {"level": "WARNING"}, {"level": "ERROR"}, {"level": "CRITICAL"}):
+            with self.subTest(kw=kw):
+                self.assertNotIn("note", await self.t["ha_list_system_log"](**kw))
+
+    def test_docstring_no_ofrece_debug_como_filtro_util(self) -> None:
+        # Espacios normalizados: se fija el texto, no el ajuste de línea.
+        doc = " ".join(self.t["ha_list_system_log"].__doc__.split())
+        self.assertIn("level: Only entries of this level: WARNING, ERROR or CRITICAL", doc)
+        self.assertIn("DEBUG and INFO are accepted but never return anything", doc)
+        self.assertIn("DEBUG and INFO lines never reach the system log", doc)
+
     async def test_filtro_por_integracion(self) -> None:
         nombres = ["homeassistant.components.mqtt", "homeassistant.components.mqtt.client",
                    "custom_components.mqtt", "homeassistant.components.mqtt_room",

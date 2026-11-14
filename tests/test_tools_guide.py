@@ -399,6 +399,20 @@ class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
                       "config_entry_id"):
             self.assertIn(clave, tema)
 
+    def test_debug_se_lee_en_el_log_de_core(self) -> None:
+        # T036 (principio V): el log del sistema solo guarda WARNING o más, así
+        # que la receta no puede mandar a buscar las líneas DEBUG en él.
+        # Control negativo (comprobado): con el paso 2 de antes («→ reproducir
+        # el fallo → `ha_list_system_log` o `ha_get_error_log`») cae este test.
+        tema = _GUIDE["core_diagnostics"]
+        self.assertIn("HA solo guarda aquí WARNING, ERROR y CRITICAL", tema)
+        self.assertIn("las líneas DEBUG e INFO NUNCA\nllegan al log del sistema", tema)
+        receta = tema[tema.index("Receta «¿por qué falla esta integración?»"):]
+        paso2 = receta[receta.index("\n2. "):receta.index("\n3. ")]
+        self.assertIn("log de Core: `sv_get_core_logs` o `ha_get_error_log`", paso2)
+        self.assertIn("NO en `ha_list_system_log`", paso2)
+        self.assertNotIn("→ `ha_list_system_log`", paso2)
+
     async def test_indice_y_diagnostics(self) -> None:
         self.assertIn("core_diagnostics", await self.guide())
         self.assertIn('hermes_guide("core_diagnostics")', _GUIDE["diagnostics"])
