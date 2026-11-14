@@ -14,11 +14,11 @@ pydantic serializa por alias.
 
 Los clientes las usan para decidir la experiencia de permisos: autorizar sin
 preguntar lo que solo lee, y avisar antes de lo que borra o reinicia. Hermes
-expone ~186 tools sobre una casa entera, así que esa distinción importa.
+expone más de doscientas tools sobre una casa entera, así que esa distinción importa.
 
 Se aplican de forma centralizada tras registrar las tools (ver
-`apply_tool_annotations`) en vez de repetir `annotations=...` en 186
-decoradores: una sola tabla, revisable de un vistazo y verificada por tests.
+`apply_tool_annotations`) en vez de repetir `annotations=...` en cada
+decorador: una sola tabla, revisable de un vistazo y verificada por tests.
 
 Nota de la spec: son *hints*, no garantías. La seguridad real de Hermes no
 depende de esto, sino de la denylist, los confirmation tokens y el sandbox de
@@ -49,6 +49,20 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     "ha_render_template",
     "ha_statistics_during_period",
     "ha_wait_for_event",      # bloquea a la espera, pero no cambia nada
+    # `search/related` solo consulta el grafo de relaciones de HA; su nombre
+    # no encaja con ningún prefijo de lectura.
+    "ha_search_related",
+    # Marketplace (spec 004): por nombre exacto y NO por el prefijo
+    # `ha_marketplace_`. Si un día se añade una tool que instala o acepta el
+    # aviso de riesgos con ese prefijo, heredaría `readOnlyHint` sin que nadie
+    # lo decidiera: fail-closed, la que no esté aquí no se anuncia inofensiva.
+    "ha_marketplace_info",
+    "ha_marketplace_list_repositories",
+    "ha_marketplace_get_repository",
+    "ha_marketplace_list_updates",
+    "ha_marketplace_list_releases",
+    "ha_marketplace_list_critical",
+    "ha_marketplace_list_removed",
     # Dos que parecen encajar aquí y no encajan: sv_check_core_config y
     # sv_get_job_status escriben. Ver _NOT_READ_ONLY_EXACT más abajo.
 })
@@ -112,6 +126,15 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "sv_start_addon",
     "sv_install_addon",
     "sv_update_addon",            # puede romper un add-on que funcionaba
+    # Spec 005: se hacen confirmar y su nombre no lo delata.
+    "ha_update_floor",            # renombrarla cambia cómo la llaman Assist y la UI
+    "ha_update_label",            # la etiqueta la usan automatizaciones y tarjetas
+    "ha_update_category",         # reorganiza automatizaciones, scripts o helpers
+    "ha_ignore_repair",           # oculta un aviso de HA que puede ser importante
+    # Ocultan un aviso del Supervisor (instalación no saludable, sugerencia
+    # pendiente): quien lo descarta deja de verlo aunque el problema siga.
+    "sv_dismiss_resolution_issue",
+    "sv_dismiss_resolution_suggestion",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -123,8 +146,11 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # HA del navegador. Mismo criterio que sv_install_addon: quien descarga no
     # es Hermes, pero la descarga la provoca esta tool.
     "ha_create_lovelace_resource", "ha_update_lovelace_resource",
-    "ha_hacs_info", "ha_hacs_list_repositories",
-    "ha_hacs_get_repository", "ha_hacs_list_updates",
+    # De todo el Marketplace, solo las versiones publicadas se piden a GitHub
+    # (a través de HA). El resto, y los alias `ha_hacs_*`, leen lo que HA ya
+    # tiene en memoria; antes de 1.1.0 los alias se anunciaban de mundo abierto
+    # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
+    "ha_marketplace_list_releases",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -162,6 +188,46 @@ _NOT_READ_ONLY_EXACT: frozenset[str] = frozenset({
 })
 
 
+# ── Título legible ────────────────────────────────────────────────────────────
+# El cliente enseña `title` al usuario en lugar del nombre técnico. Se genera
+# del nombre, igual que los hints, para que haya un solo sitio que revisar y
+# ninguna tool se quede sin título al añadirla (FR-040). El prefijo pasa a ser
+# un sufijo de área: sin él, `sv_get_backup` y una futura `ha_get_backup`
+# tendrían el mismo título y el usuario no sabría cuál está autorizando.
+_TITLE_AREAS: tuple[tuple[str, str], ...] = (
+    ("ha_", " (Home Assistant)"),
+    ("fs_", " (files)"),
+    ("sv_", " (Supervisor)"),
+)
+
+# Palabras que no se escriben como salen del nombre: siglas y nombres propios.
+_TITLE_WORDS: dict[str, str] = {
+    "hacs": "HACS",
+    "lovelace": "Lovelace",
+    "hermes": "Hermes",
+    "id": "ID",
+    "ids": "IDs",
+    "ws": "WS",
+    # «addon» es como se escribe en el código; Home Assistant lo llama add-on.
+    "addon": "add-on",
+    "addons": "add-ons",
+}
+
+
+def title_for(name: str) -> str:
+    """Título en inglés para una tool: `ha_get_state` → `Get state (Home Assistant)`."""
+    rest, suffix = name, ""
+    for prefix, area in _TITLE_AREAS:
+        if name.startswith(prefix):
+            rest, suffix = name[len(prefix):], area
+            break
+    words = [_TITLE_WORDS.get(w, w) for w in rest.split("_") if w]
+    if words:
+        # Solo la primera letra: así una sigla de la tabla (`HACS`) no cambia.
+        words[0] = words[0][:1].upper() + words[0][1:]
+    return " ".join(words) + suffix
+
+
 def _starts_with(name: str, prefixes: tuple[str, ...]) -> bool:
     return any(name.startswith(p) for p in prefixes)
 
@@ -183,6 +249,7 @@ def classify(name: str) -> ToolAnnotations:
         idempotent = not _starts_with(name, _NON_IDEMPOTENT_PREFIXES)
 
     return ToolAnnotations(
+        title=title_for(name),
         read_only_hint=read_only,
         destructive_hint=destructive,
         idempotent_hint=idempotent,
@@ -224,6 +291,10 @@ def apply_tool_annotations(mcp: Any) -> dict[str, int]:
     for name, tool in tools.items():
         ann = classify(name)
         tool.annotations = ann
+        # El mismo valor en la tool y en sus anotaciones: la spec da
+        # precedencia a `annotations.title`, pero hay clientes que solo leen
+        # el `title` de la tool.
+        tool.title = ann.title
         stats["annotated"] += 1
         if ann.read_only_hint:
             stats["read_only"] += 1

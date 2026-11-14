@@ -4,8 +4,14 @@
 slug: hermes
 name: "Hermes – MCP Home Assistant"
 description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
-version: "1.0.11"
+version: "1.1.0"
 url: "https://github.com/Nadeon/Hermes-addon"
+
+# Versión mínima de Home Assistant (igual que HA_CORE_MIN_SUPPORTED en
+# config.py; un test lo comprueba). Sin ella, el Supervisor instalaba la
+# actualización en una HA más antigua y el add-on no arrancaba; con ella,
+# rechaza instalar o actualizar con un error claro.
+homeassistant: "2024.10.0"
 
 # Imagen precompilada. Sin esto, el Supervisor construye la imagen en el equipo
 # del usuario, y sobre Alpine (musl) eso significa compilar pydantic-core,
@@ -36,6 +42,12 @@ boot: auto                 # Arranca con HAOS
 init: false               # Las imágenes base oficiales ya incluyen s6-overlay como PID 1.
                           # init: true mete tini encima y rompe s6 con
                           # "s6-overlay-suexec: fatal: can only run as pid 1".
+# Segundos que el Supervisor espera al parar antes de que Docker mande SIGKILL.
+# Por defecto son 10, lo mismo que S6_KILL_GRACETIME en el Dockerfile: s6 no
+# llegaba a terminar el apagado ordenado (cerrar las conexiones MCP y borrar
+# los temporales de /data) antes del SIGKILL. Tiene que ser MAYOR que ese
+# margen; el workflow de publicación lo comprueba.
+timeout: 20
 
 # ── Red ────────────────────────────────────────────────────────
 # host_network: true → el contenedor comparte el netns del host.
@@ -111,10 +123,16 @@ schema:
   mcp_preauth_max_requests_per_minute_per_ip: "int(5,200)?"
   safety_backup_enabled: "bool?"
   safety_backup_window_minutes: "int(5,1440)?"
+  # Safety backups automáticos que conserva la retención; 0 la desactiva.
+  safety_backup_keep: "int(0,50)?"
   file_backup_max_per_path: "int(1,100)?"
   file_backup_max_total_mb: "int(10,2000)?"
   config_write_min_interval_seconds: "int(1,60)?"
   config_write_max_per_minute: "int(1,60)?"
+  # El rango NO se estrecha aunque el máximo efectivo sea menor (524288 bytes
+  # y 220 s para wait_for_event_max_seconds): el Supervisor valida las opciones
+  # guardadas al arrancar y quien tenga guardado un valor mayor no podría
+  # arrancar. Hermes recorta el valor al cargarlo y lo avisa en el log.
   response_max_bytes: "int(10240,10485760)?"
   ha_ws_max_msg_size_bytes: "int(1048576,16777216)?"
   max_request_body_bytes: "int(65536,16777216)?"
@@ -135,6 +153,16 @@ schema:
   call_service_auto_classify_dangerous: "bool?"
   fire_event_allowlist:
     - "str?"
+  # Clientes OAuth que se identifican con la URL de su documento de metadatos
+  # (CIMD). Con false solo se admite el registro dinámico (DCR).
+  oauth_cimd_enabled: "bool?"
+  # Hosts cuyos documentos CIMD se aceptan (ej. "claude.ai"). Vacía = cualquier
+  # host público: cada descarga sale de la IP de casa hacia el host que elige
+  # quien abre /oauth/authorize, sin contraseña. Ver DOCS.md.
+  oauth_cimd_allowed_hosts:
+    - "str?"
+  # Seudonimiza IPs y hostnames en el log del add-on. Con false se ven tal cual.
+  log_redact_network: "bool?"
 
 # ── Opciones por defecto ──────────────────────────────────────
 options:
@@ -150,11 +178,12 @@ options:
   mcp_preauth_max_requests_per_minute_per_ip: 20
   safety_backup_enabled: false
   safety_backup_window_minutes: 30
+  safety_backup_keep: 3
   file_backup_max_per_path: 20
   file_backup_max_total_mb: 200
   config_write_min_interval_seconds: 5
   config_write_max_per_minute: 10
-  response_max_bytes: 1048576
+  response_max_bytes: 131072
   ha_ws_max_msg_size_bytes: 4194304
   max_request_body_bytes: 4194304
   max_concurrent_requests: 64
@@ -166,3 +195,6 @@ options:
   call_service_restricted_entities: []
   call_service_auto_classify_dangerous: true
   fire_event_allowlist: []
+  oauth_cimd_enabled: true
+  oauth_cimd_allowed_hosts: []
+  log_redact_network: true

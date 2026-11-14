@@ -94,7 +94,8 @@ report about one of them will be closed with a pointer to this section:
   proxy. **Do not set it to `0.0.0.0`**: that would publish Hermes unencrypted
   across your whole local network, bypassing TLS.
 - **Authentication**: OAuth 2.1 with mandatory PKCE (S256), Dynamic Client
-  Registration, high-entropy opaque tokens stored only as a SHA-256 hash,
+  Registration and Client ID Metadata Documents (CIMD), the `iss` parameter on
+  every redirect to the client (RFC 9207), high-entropy opaque tokens stored only as a SHA-256 hash,
   single-use auth codes, and revocation (RFC 7009). Refresh tokens rotate, with
   reuse detection. Changing `auth_password` closes every open session on the
   next start; to notice the change, Hermes keeps a salted scrypt fingerprint of
@@ -123,6 +124,49 @@ report about one of them will be closed with a pointer to this section:
   - Identifier validation (slug, `entry_id`, …) before interpolating them into
     URLs, plus a central anti path-injection guard in the HA client.
 - **Secret redaction** in all logs, both Hermes's own and those of other add-ons.
+- **Network redaction** in the log (`log_redact_network`, on by default): the
+  configured `public_hostname`, any `*.ts.net` name and every IP address
+  except loopback are replaced with placeholders. IPs become a pseudonym with
+  their class (`tailnet`, `private`, `public`…) and an HMAC whose salt changes
+  on every start, so lines from one run can be correlated without revealing
+  the address. It also covers the standard Python loggers (the MCP SDK,
+  uvicorn, aiohttp) and the lines `sv_get_addon_logs` returns for Hermes
+  itself. Turning it off logs `log_network_redaction_disabled`; secrets are
+  redacted either way.
+- **CIMD downloads (SSRF).** With CIMD, the `client_id` is an `https://` URL
+  chosen by whoever calls the public `/oauth/authorize`, and Hermes downloads
+  it. To keep Hermes from becoming a proxy into the owner's network: the URL
+  shape is checked before anything is fetched; Hermes resolves the host itself
+  and refuses the request if **any** resolved address is special-use (RFC 6890:
+  loopback, private, link-local, CGNAT and therefore the tailnet, ULA,
+  multicast…), then connects to the already-validated addresses without
+  resolving again (against DNS rebinding). The `client_id` host must be a DNS
+  name: any IP literal, including the short, decimal, octal or trailing-dot
+  IPv4 forms that HTTP libraries treat as IPs without resolving them, is
+  refused before anything is fetched. No redirects, no environment proxies, no
+  compressed bodies, 5 s in total, at most 5 120 bytes, at most 4 downloads at
+  once, 30 per minute in total and 10 per source IP. Clients the owner has
+  already signed in with (and every refresh with a valid refresh token) do not
+  use that quota, and their cached documents are never evicted by anonymous
+  ones, so an attacker cannot lock the owner out by exhausting it. The
+  document is parsed as strict JSON and its `client_id` must match the URL
+  exactly; errors are never cached, and every rejection is logged as
+  `oauth_cimd_rejected` with the reason and the host (only when the URL is
+  valid), never the document. A refresh only revokes a client's sessions when
+  its document is really gone or invalid (404/410, invalid document,
+  `client_id` mismatch); a 401/403, a redirect or a special-use address is
+  answered with a temporary error and nothing is revoked.
+  `oauth_cimd_enabled: false` turns CIMD off, including access tokens and
+  codes already issued to CIMD clients, and leaves DCR as it was.
+- **CIMD host allowlist (`oauth_cimd_allowed_hosts`).** Empty by default,
+  which means any public host. Every CIMD download leaves **from your home
+  IP** towards the host in the `client_id`, and anyone who knows your public
+  hostname (it is in Certificate Transparency logs) can pick that host without
+  a password. The host's owner then learns your home's public IP, which a
+  tunnel such as Funnel otherwise hides. Listing hosts (for Claude Code,
+  `claude.ai`) makes Hermes refuse any other host before downloading
+  anything; removing a host also stops the tokens already issued to it. The
+  request no longer carries the Hermes version in its `User-Agent`.
 - **Security headers** (`X-Content-Type-Options`, `X-Frame-Options`,
   `Referrer-Policy`, CSP) and a body size limit (`chunked` included).
 - **Resource limits**: caps on concurrency, request body, response size and
@@ -173,6 +217,12 @@ them into account:
   client that has been manipulated into acting against you.
 - Under `network_mode: reverse_proxy`, list your proxy in `trusted_proxy_ips`
   so that rate limits and the login throttle count each client separately.
+- Restrict CIMD to the hosts you use. Claude Code publishes its document on
+  `claude.ai`, so `oauth_cimd_allowed_hosts: ["claude.ai"]` covers it, and
+  Hermes will then never contact any other host from your home IP on behalf
+  of an anonymous caller. If another client stops connecting, the
+  `oauth_cimd_rejected` event with reason `host_not_allowed` names the host
+  to add.
 - Watch the logs (the add-on's Log tab, or `ha apps logs <slug> -f` with the
   slug shown on the add-on's page) for repeated `oauth_login_locked`,
   `oauth_login_locked_global`, `oauth_login_throttled` or `auth_rejected`

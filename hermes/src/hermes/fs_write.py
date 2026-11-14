@@ -38,6 +38,7 @@ from hermes.identifiers import validate_identifier
 import structlog
 
 import hermes.fs as _fs
+from hermes import safety_retention as _retencion
 
 logger = structlog.get_logger(__name__)
 
@@ -660,12 +661,214 @@ def check_restart_allowed_sync() -> tuple[bool, str]:
 
 # ── Safety backup trigger ─────────────────────────────────────────────────────
 
+# Claves del job pendiente en el estado del safety backup (ver data-model.md de
+# la spec 001). `_MARCA` sigue siendo el último backup CORRECTO; lo lanzado y
+# aún sin resolver va aparte para no dar por bueno un backup que puede fallar.
+_PENDIENTE = ("pending_job_id", "pending_started_at", "pending_backup_name")
+# Momento del último backup lanzado, haya salido bien o mal. Sobrevive a la
+# limpieza de las claves pendientes para que el límite duro de 60 s cuente
+# también desde un intento fallido y un fallo no encadene backups completos.
+_ULTIMO_INTENTO = "last_attempt_at"
+
+_SAFETY_POLL_TIMEOUT_SECONDS = 300.0  # 5 min
+_SAFETY_POLL_INTERVAL_SECONDS = 15.0
+# Antigüedad máxima de un job pendiente que sigue «en curso». Un backup
+# completo normal tarda minutos; uno que lleva 2 h sin terminar está colgado
+# (p. ej. en un montaje de red) y, sin tope, bloquearía todas las escrituras
+# `fs_*` para siempre sin decir cómo salir.
+_SAFETY_PENDING_MAX_AGE_SECONDS = 2 * 3600.0
+
+# Lock del safety backup: vive en `safety_retention` para que la tool
+# `sv_create_safety_backup` lo comparta sin un import circular (ver allí).
+_safety_lock = _retencion.safety_backup_lock
+
+
+def _es_404(exc: Exception) -> bool:
+    """¿El Supervisor dijo que el job no existe?
+
+    Solo por `status`: `sv_request` lo rellena en todos los errores HTTP, así
+    que no hace falta mirar el texto del mensaje.
+    """
+    return getattr(exc, "status", None) == 404
+
+
+def _evaluar_job(job_data: Any) -> tuple[str, list[str]]:
+    """Clasifica la respuesta de `GET /jobs/{uuid}`.
+
+    El job no trae `state` ni `error`: trae `done` (True también si falló) y
+    `errors`. Éxito es SOLO `done is True` con `errors` vacío.
+
+    Returns:
+        ("ok", []), ("fallo", mensajes), ("en_curso", []) o ("raro", []).
+    """
+    from hermes.supervisor_jobs import job_errors as _job_errors
+
+    if not isinstance(job_data, dict) or not isinstance(job_data.get("done"), bool):
+        return "raro", []
+    if not job_data["done"]:
+        return "en_curso", []
+    errores = _job_errors(job_data)
+    return ("fallo", errores) if errores else ("ok", [])
+
+
+def _numero(valor: Any) -> float:
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        return float(valor)
+    return 0.0
+
+
+def _limpiar_pendiente(state: dict[str, Any], extra: dict[str, Any] | None = None) -> None:
+    """Borra las claves pendientes conservando cuándo se lanzó el intento."""
+    from hermes.tools.backups import _save_safety_state
+
+    cambios: dict[str, Any] = {clave: None for clave in _PENDIENTE}
+    lanzado = _numero(state.get("pending_started_at"))
+    if lanzado > _numero(state.get(_ULTIMO_INTENTO)):
+        cambios[_ULTIMO_INTENTO] = lanzado
+    cambios.update(extra or {})
+    _save_safety_state(cambios)
+
+
+def _ya_no_existe(state: dict[str, Any], job_id: str) -> dict[str, Any]:
+    """El job no se podrá consultar nunca: se olvida y se bloquea la escritura."""
+    _limpiar_pendiente(state)
+    return {"error": f"safety_backup_state_unknown: job {job_id} can no longer "
+                     f"be queried", "job_id": job_id}
+
+
+async def _anotar_lanzamiento(nombre: str, job_id: str | None,
+                              slug: Any = None) -> None:
+    """Apunta el safety backup en la anotación de la retención.
+
+    Un fallo aquí (disco lleno, `/data` de solo lectura) solo significa que
+    ese backup no se podará solo; no puede bloquear la escritura.
+    """
+    try:
+        await _retencion.record_launch(nombre, job_id, origin="auto",
+                                       slug=slug if isinstance(slug, str) else None)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("safety_backup_ledger_error", error=str(exc))
+
+
+async def _tras_job(ha_client: Any, job_id: str, job_data: Any, *,
+                    correcto: bool, keep: int, nombre: Any) -> None:
+    """Confirma (o descarta) la anotación del job y, si salió bien, poda.
+
+    La poda solo va tras un safety backup CORRECTO: así nunca se quedan menos
+    copias buenas de las que había. Nada de esto cambia el resultado de la
+    escritura: los fallos se registran y se sigue.
+    """
+    try:
+        await _retencion.confirm_from_job(job_id, job_data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("safety_backup_ledger_error", error=str(exc))
+    if not correcto:
+        return
+    try:
+        await _retencion.apply_retention(
+            ha_client, keep, recien_creado=nombre if isinstance(nombre, str) else None)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("safety_backup_retention_error", error=str(exc))
+
+
+async def _resolver_pendiente(
+    ha_client: Any, state: dict[str, Any], window_seconds: float, keep: int = 0
+) -> dict[str, Any] | None:
+    """Resuelve el job de un safety backup que quedó pendiente.
+
+    Va antes de mirar la ventana: si el plazo se agotó en una escritura
+    anterior, el backup sigue corriendo en el Supervisor, y lanzar otro sería
+    encadenar backups completos de varios GB. Nunca lanza uno nuevo: si el
+    pendiente falló, el siguiente intento ya podrá hacerlo (spec S-01).
+
+    Returns:
+        None si el pendiente terminó bien (la escritura sigue), dict con
+        "error" en cualquier otro caso.
+    """
+    from hermes.tools.backups import _MARCA
+
+    job_id = str(state.get("pending_job_id"))
+    try:
+        validate_identifier(job_id, field="job_id")
+    except Exception:  # noqa: BLE001
+        return _ya_no_existe(state, job_id)
+    try:
+        job_data = await ha_client.sv_request("GET", f"/jobs/{job_id}")
+    except Exception as exc:  # noqa: BLE001
+        if _es_404(exc):
+            # El job ya no existe (p. ej. el Supervisor se reinició).
+            return _ya_no_existe(state, job_id)
+        # Fallo pasajero: se conserva el pendiente y se bloquea (fail-closed).
+        logger.warning("safety_backup_pending_poll_error", job_id=job_id, error=str(exc))
+        return {"error": f"safety_backup_state_unknown: could not query job {job_id}; "
+                         f"retry later or check it with sv_get_job_status",
+                "job_id": job_id, "poll_with": "sv_get_job_status"}
+
+    resultado, errores = _evaluar_job(job_data)
+    lanzado = _numero(state.get("pending_started_at"))
+    antiguedad = time.time() - lanzado
+    if resultado == "en_curso":
+        if antiguedad > _SAFETY_PENDING_MAX_AGE_SECONDS:
+            # Colgado: se olvida (avisando una vez) para que no bloquee para
+            # siempre. Esta escritura se sigue rechazando; la siguiente
+            # intentará un backup nuevo, que el Supervisor aceptará o no.
+            logger.error("safety_backup_pending_stuck", job_id=job_id,
+                         age_seconds=antiguedad)
+            _limpiar_pendiente(state)
+            return {"error": f"safety_backup_state_unknown: job {job_id} has been "
+                             f"running for more than "
+                             f"{int(_SAFETY_PENDING_MAX_AGE_SECONDS // 3600)} h; "
+                             f"it is no longer awaited",
+                    "job_id": job_id, "poll_with": "sv_get_job_status",
+                    "hint": "The next write will start a new safety backup. If "
+                            "writes keep failing, check the job with "
+                            "sv_get_job_status or disable the add-on option "
+                            "safety_backup_enabled."}
+        return {"error": f"safety_backup_in_progress: job {job_id} is still running; "
+                         f"retry later or check it with sv_get_job_status",
+                "job_id": job_id, "poll_with": "sv_get_job_status"}
+    if resultado == "ok":
+        logger.info("safety_backup_pending_done", job_id=job_id)
+        # La marca es cuándo se LANZÓ, no ahora: el job puede llevar horas
+        # terminado (el Supervisor conserva los jobs 24 h) y fecharlo «ahora»
+        # daría por reciente un backup viejo. Es una cota conservadora.
+        _limpiar_pendiente(state, {
+            _MARCA: lanzado,
+            "last_backup_name": state.get("pending_backup_name"),
+            "job_id": job_id,
+        })
+        # El backup salió bien aunque llegue tarde para esta escritura: se
+        # confirma y se poda igual que en el sondeo normal.
+        await _tras_job(ha_client, job_id, job_data, correcto=True, keep=keep,
+                        nombre=state.get("pending_backup_name"))
+        if antiguedad > window_seconds:
+            # Ya está fuera de la ventana: no cubre esta escritura. No se
+            # lanza otro en la misma llamada (S-01); lo hará la siguiente.
+            return {"error": f"safety_backup_stale: the pending safety backup "
+                             f"{job_id} finished, but it was started more than "
+                             f"{int(window_seconds // 60)} minutes ago; retry and "
+                             f"a new one will be taken",
+                    "job_id": job_id}
+        return None
+    if resultado == "fallo":
+        logger.error("safety_backup_job_failed", job_id=job_id, errors=errores)
+        _limpiar_pendiente(state)
+        await _tras_job(ha_client, job_id, job_data, correcto=False, keep=keep,
+                        nombre=None)
+        return {"error": f"safety_backup_job_failed: {'; '.join(errores)}",
+                "job_id": job_id}
+    _limpiar_pendiente(state)
+    return {"error": f"safety_backup_state_unknown: unexpected job data for {job_id}",
+            "job_id": job_id}
+
+
 async def maybe_trigger_safety_backup(
     ha_client: Any,
     safety_backup_window_minutes: int,
     *,
     enabled: bool = False,
     ctx: Any = None,
+    keep: int = 0,
 ) -> dict[str, Any] | None:
     """Dispara un safety backup (FULL de HAOS) antes de escribir en /config.
 
@@ -675,6 +878,11 @@ async def maybe_trigger_safety_backup(
     reversibilidad de la escritura concreta. Actívalo con la opción del add-on
     `safety_backup_enabled` si quieres además un backup completo periódico.
 
+    `keep` es `safety_backup_keep`: tras un safety backup correcto se
+    conservan los `keep` safety backups de Hermes más recientes y se borran
+    los demás (`hermes.safety_retention`); 0 = no podar. La poda nunca
+    cambia el valor de retorno.
+
     Returns:
         None si está desactivado, si no fue necesario, o si el backup completó.
         dict con "error" si el backup falló (la escritura debe abortarse).
@@ -682,20 +890,45 @@ async def maybe_trigger_safety_backup(
     if not enabled:
         return None
 
+    if not await _retencion.acquire_safety_backup_lock():
+        logger.warning("safety_backup_lock_timeout",
+                       waited_seconds=_retencion.SAFETY_LOCK_WAIT_SECONDS)
+        return dict(_retencion.SAFETY_LOCK_BUSY)
+    try:
+        return await _maybe_trigger_safety_backup(
+            ha_client, safety_backup_window_minutes, ctx=ctx, keep=keep
+        )
+    finally:
+        _safety_lock().release()
+
+
+async def _maybe_trigger_safety_backup(
+    ha_client: Any,
+    safety_backup_window_minutes: int,
+    *,
+    ctx: Any = None,
+    keep: int = 0,
+) -> dict[str, Any] | None:
+    """Cuerpo de `maybe_trigger_safety_backup`, ya con el lock tomado."""
     from hermes.tools.backups import (
         _SAFETY_BACKUP_MIN_INTERVAL_SECONDS,
-        _SAFETY_BACKUP_STATE_PATH,
         _MARCA,
         _leer_marca,
         _load_safety_state,
         _save_safety_state,
     )
 
-    now = time.time()
     state = _load_safety_state()
-    last_completed = _leer_marca(state)
 
     window_seconds = safety_backup_window_minutes * 60
+
+    # Un job pendiente de una escritura anterior se resuelve antes que nada.
+    if state.get("pending_job_id"):
+        return await _resolver_pendiente(ha_client, state, window_seconds, keep)
+
+    now = time.time()
+    last_completed = _leer_marca(state)
+
     elapsed = now - last_completed
 
     # Barrera dura: nunca menos de 60s entre safety backups
@@ -711,6 +944,17 @@ async def maybe_trigger_safety_backup(
     if elapsed < window_seconds:
         return None
 
+    # La barrera dura cuenta también desde el último intento, aunque fallara:
+    # si no, un backup fallido permitiría lanzar otro en la escritura
+    # siguiente. Y no hay backup correcto reciente, así que escribir sin él
+    # incumpliría el fail-closed: se bloquea hasta que pase el minuto.
+    if now - _numero(state.get(_ULTIMO_INTENTO)) < _SAFETY_BACKUP_MIN_INTERVAL_SECONDS:
+        # Código propio: aquí no se sabe si el intento anterior falló o quedó
+        # indeterminado (404, datos raros); decir «failed» sería inventarlo.
+        return {"error": "safety_backup_rate_limited: the previous safety backup "
+                         "attempt did not complete less than "
+                         f"{_SAFETY_BACKUP_MIN_INTERVAL_SECONDS} s ago; retry later"}
+
     # Disparar safety backup
     logger.info(
         "safety_backup_auto_trigger",
@@ -721,6 +965,10 @@ async def maybe_trigger_safety_backup(
     timestamp_str = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_name = f"hermes-safety-{timestamp_str}"
 
+    # El intento se anota ANTES del POST: si el POST agota su plazo pero el
+    # Supervisor sí empezó el backup, la escritura siguiente no debe lanzar
+    # otro en el acto (límite de 60 s entre intentos).
+    _save_safety_state({_ULTIMO_INTENTO: time.time()})
     try:
         resp = await ha_client.sv_request(
             "POST",
@@ -743,12 +991,33 @@ async def maybe_trigger_safety_backup(
             _MARCA: time.time(),
             "last_backup_name": backup_name,
         })
+        await _anotar_lanzamiento(backup_name, None, slug=resp.get("slug"))
+        try:
+            await _retencion.apply_retention(ha_client, keep, recien_creado=backup_name)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("safety_backup_retention_error", error=str(exc))
         return None
 
+    job_id = str(job_id)
+    try:
+        validate_identifier(job_id, field="job_id")
+    except Exception:  # noqa: BLE001
+        return {"error": "safety_backup_unexpected_response"}
+
+    # Anotar el job como pendiente EN EL ACTO: si el plazo se agota, la
+    # escritura siguiente lo consulta en vez de lanzar otro backup completo.
+    lanzado = time.time()
+    _save_safety_state({
+        "pending_job_id": job_id,
+        "pending_started_at": lanzado,
+        "pending_backup_name": backup_name,
+        _ULTIMO_INTENTO: lanzado,
+    })
+    pendiente = {"pending_job_id": job_id, "pending_started_at": lanzado}
+    await _anotar_lanzamiento(backup_name, job_id)
+
     # Pollear hasta que el job esté done
-    import asyncio as _asyncio
-    deadline = time.time() + 300.0  # 5 min max
-    poll_interval = 15.0
+    deadline = time.time() + _SAFETY_POLL_TIMEOUT_SECONDS
 
     while time.time() < deadline:
         if ctx is not None:
@@ -760,33 +1029,45 @@ async def maybe_trigger_safety_backup(
             except Exception:  # noqa: BLE001
                 pass
 
-        await _asyncio.sleep(poll_interval)
+        await asyncio.sleep(_SAFETY_POLL_INTERVAL_SECONDS)
 
+        # La ruta del Supervisor es `/jobs/{uuid}`; `/jobs/{uuid}/info` no
+        # existe y daba 404 en cada sondeo, así que nunca se veía terminar.
         try:
-            validate_identifier(str(job_id), field="job_id")
-            job_data = await ha_client.sv_request("GET", f"/jobs/{job_id}/info")
+            job_data = await ha_client.sv_request("GET", f"/jobs/{job_id}")
         except Exception as exc:  # noqa: BLE001
+            if _es_404(exc):
+                return _ya_no_existe(pendiente, job_id)
             logger.warning("safety_backup_poll_error", job_id=job_id, error=str(exc))
             continue
 
-        if not isinstance(job_data, dict):
-            continue
-
-        done = job_data.get("done", False)
-        job_state = job_data.get("state", "")
-
-        if done or job_state in ("finish", "done"):
+        resultado, errores = _evaluar_job(job_data)
+        if resultado == "ok":
             logger.info("safety_backup_auto_done", job_id=job_id, name=backup_name)
-            _save_safety_state({
+            _limpiar_pendiente(pendiente, {
                 _MARCA: time.time(),
                 "last_backup_name": backup_name,
                 "job_id": job_id,
             })
+            await _tras_job(ha_client, job_id, job_data, correcto=True, keep=keep,
+                            nombre=backup_name)
             return None
 
-        if job_state in ("fail", "error", "failed"):
-            error_msg = job_data.get("error", "unknown")
-            logger.error("safety_backup_job_failed", job_id=job_id, error=error_msg)
-            return {"error": f"safety_backup_job_failed: {error_msg}"}
+        if resultado == "fallo":
+            # `done` llega a True también cuando el job falla: un backup sin
+            # espacio NO puede dar paso a la escritura.
+            logger.error("safety_backup_job_failed", job_id=job_id, errors=errores)
+            _limpiar_pendiente(pendiente)
+            await _tras_job(ha_client, job_id, job_data, correcto=False, keep=keep,
+                            nombre=None)
+            return {"error": f"safety_backup_job_failed: {'; '.join(errores)}",
+                    "job_id": job_id}
 
-    return {"error": "safety_backup_timeout: job did not complete within 5 minutes"}
+    # El job sigue corriendo: las claves pendientes se quedan para que la
+    # escritura siguiente lo consulte. Esta se bloquea (fail-closed).
+    return {
+        "error": f"safety_backup_timeout: job {job_id} did not complete within "
+                 f"5 minutes; check it with sv_get_job_status",
+        "job_id": job_id,
+        "poll_with": "sv_get_job_status",
+    }

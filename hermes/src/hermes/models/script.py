@@ -18,7 +18,9 @@ class ScriptConfig(BaseModel):
     sequence: list[dict[str, Any]] | None = None
     variables: dict[str, Any] | None = None
     fields: dict[str, Any] | None = None
-    trace: list[dict[str, Any]] | None = None
+    # HA define `trace` como diccionario (`{"stored_traces": N}`); declararlo
+    # como lista rechazaba cualquier script con trazas configuradas.
+    trace: dict[str, Any] | None = None
 
     model_config = {
         "extra": "allow",

@@ -92,6 +92,33 @@ FAKE_RESOURCES = [
 ]
 
 
+# Forma de `frontend/get_system_data` con `key: "core"`, comprobada en el
+# código de Home Assistant 2026.11.1 (T043, spec S-04):
+# - `components/frontend/storage.py`, `websocket_get_system_data`, responde
+#   `send_result(id, {"value": store.data.get(msg["key"])})`; el almacén es
+#   `.storage/frontend.system_data`. Si nadie escribió nunca la clave `core`,
+#   `value` es `None`.
+# - `components/lovelace/__init__.py`, `_async_migrate_default_config` (la
+#   migración de 2026.2, solo en modo storage), escribe
+#   `core = {**core_data, "default_panel": "lovelace"}` si no había panel; el
+#   usuario puede cambiarlo después desde el frontend.
+# Así que `value` es `None` o un dict, y `default_panel` (si está) es un str.
+# Coincide con research R-C1; cualquier otra forma se trata como desconocida.
+FAKE_SYSTEM_DATA_CORE = {"value": {"default_panel": "lovelace"}}
+
+# Instalación migrada por HA 2026.2: el dashboard principal ya es una entrada
+# más de la colección, con `url_path: "lovelace"`.
+FAKE_LOVELACE_DASHBOARD = {
+    "id": "lovelace",
+    "url_path": "lovelace",
+    "title": "Overview",
+    "icon": "mdi:view-dashboard",
+    "mode": "storage",
+    "show_in_sidebar": True,
+    "require_admin": False,
+}
+
+
 class FakeWSSender:
     """Fake de ws_send con respuestas configurables por type de comando."""
 
@@ -183,7 +210,10 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         # Default responses
         self.ws.set("lovelace/dashboards/list", FAKE_DASHBOARDS)
         self.ws.set("lovelace/config", FAKE_DEFAULT_CONFIG)
-        self.ws.set("lovelace/resources", FAKE_RESOURCES)
+        self.ws.set("lovelace/resources/list", FAKE_RESOURCES)
+        # Respuesta real de HA 2026.11 tras la migración de 2026.2 (ver
+        # FAKE_SYSTEM_DATA_CORE): el panel por defecto es `lovelace`.
+        self.ws.set("frontend/get_system_data", FAKE_SYSTEM_DATA_CORE)
 
         self.mcp = DummyMCP()
         mod.register(self.mcp, self.ha_client, response_max_bytes=1_048_576)
@@ -230,6 +260,26 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         await self.mcp.tools["ha_list_lovelace_dashboards"]()
         self.assertEqual(len(self.ws.calls_for("lovelace/dashboards/list")), 1)
         self.assertEqual(self.ws.calls_for("lovelace/dashboards"), [])
+
+    async def test_list_dashboards_no_duplicate_default_when_lovelace_exists(
+        self,
+    ) -> None:
+        # Regresión C2 (FR-028): desde la migración de HA 2026.2 el dashboard
+        # principal es la entrada `lovelace`, y HA redirige `url_path=None` a
+        # ella. Añadir además el «Default» sintético lo listaba dos veces, y
+        # `lovelace` salía con `is_default: false`.
+        self.ws.set(
+            "lovelace/dashboards/list", [FAKE_LOVELACE_DASHBOARD, *FAKE_DASHBOARDS]
+        )
+        result = await self.mcp.tools["ha_list_lovelace_dashboards"]()
+        self.assertIsInstance(result, list)
+        self.assertNotIn(None, [d.get("url_path") for d in result])
+        self.assertEqual(len(result), 1 + len(FAKE_DASHBOARDS))
+        by_path = {d["url_path"]: d for d in result}
+        self.assertIs(by_path["lovelace"]["is_default"], True)
+        self.assertEqual(
+            [d for d in result if d["is_default"]], [by_path["lovelace"]]
+        )
 
     async def test_list_dashboards_ws_error_is_logged(self) -> None:
         # El error no puede tragarse en silencio: sin log, un comando WS
@@ -338,6 +388,100 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("error", result)
 
+    # ── Regresión M-3 (revisión de 1.1.0): dashboards que solo se leen por
+    # vistas no pierden sus claves de nivel superior al guardarse. ─────────────
+
+    _GRANDE = {
+        "title": "Casa ficticia",
+        "background": "var(--fondo-ficticio)",
+        "kiosk_mode": {"hide_header": True},
+        "views": [
+            {"title": f"Vista {i}", "cards": [{"type": "markdown", "content": "x" * 400}]}
+            for i in range(4)
+        ],
+    }
+
+    def _mcp_tope(self, tope: int) -> Any:
+        mod2 = __import__("hermes.tools.lovelace", fromlist=["register"])
+        mcp = DummyMCP()
+        mod2.register(mcp, self.ha_client, response_max_bytes=tope)
+        return mcp
+
+    async def test_too_large_y_view_index_traen_claves_superiores(self) -> None:
+        self.ws.set("lovelace/config", self._GRANDE)
+        mcp = self._mcp_tope(1024)
+        grande = await mcp.tools["ha_get_lovelace_dashboard"]()
+        self.assertEqual(grande["error"], "too_large")
+        esperado = {"title": "Casa ficticia", "background": "var(--fondo-ficticio)",
+                    "kiosk_mode": {"hide_header": True}}
+        self.assertEqual(grande["top_level"], esperado)
+        vista = await mcp.tools["ha_get_lovelace_dashboard"](None, view_index=2)
+        self.assertEqual(vista["top_level"], esperado)
+        # Con lo que dan las lecturas parciales se reconstruye sin pérdida.
+        vistas = [
+            (await mcp.tools["ha_get_lovelace_dashboard"](None, view_index=i))["view"]
+            for i in range(grande["views_count"])
+        ]
+        self.assertEqual({**grande["top_level"], "views": vistas}, self._GRANDE)
+
+    async def test_too_large_sin_sitio_para_valores_da_nombres(self) -> None:
+        enorme = {**self._GRANDE, "background": "y" * 5000}
+        self.ws.set("lovelace/config", enorme)
+        res = await self._mcp_tope(1024).tools["ha_get_lovelace_dashboard"]()
+        self.assertNotIn("top_level", res)
+        self.assertEqual(res["top_level_keys"], ["background", "kiosk_mode", "title"])
+
+    async def test_guardar_sin_claves_superiores_se_niega(self) -> None:
+        self.ws.set("lovelace/config", self._GRANDE)
+        self.ws.set("lovelace/config/save", None)
+        solo_vistas = {"views": self._GRANDE["views"]}
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](None, solo_vistas)
+        self.assertEqual(res["error"], "top_level_keys_missing")
+        self.assertEqual(res["missing"], ["background", "kiosk_mode", "title"])
+        self.assertNotIn("confirmation_token", res)
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    async def test_guardar_completo_si_emite_token(self) -> None:
+        """Control negativo: con todas las claves, la guarda no estorba."""
+        self.ws.set("lovelace/config", self._GRANDE)
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](None, dict(self._GRANDE))
+        self.assertIn("confirmation_token", res)
+
+    async def test_quitar_claves_a_proposito(self) -> None:
+        self.ws.set("lovelace/config", self._GRANDE)
+        self.ws.set("lovelace/config/save", None)
+        nuevo = {"title": "Casa ficticia", "views": self._GRANDE["views"]}
+        quitar = ["kiosk_mode", "background"]
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, remove_top_level_keys=quitar)
+        self.assertEqual(res["preview"]["top_level_keys_removed"],
+                         ["background", "kiosk_mode"])
+        # El token queda atado a la lista: sin ella no vale.
+        sin = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, confirmation_token=res["confirmation_token"])
+        self.assertIn("error", sin)
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, remove_top_level_keys=quitar)
+        ok = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, confirmation_token=res["confirmation_token"],
+            remove_top_level_keys=quitar)
+        self.assertEqual(ok["result"], "ok")
+
+    async def test_lectura_actual_fallida_sin_token(self) -> None:
+        self.ws.set("lovelace/config", HAConnectionError("ws down"))
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, {"views": []})
+        self.assertEqual(res["error"], "preview_unavailable")
+        self.assertNotIn("confirmation_token", res)
+
+    async def test_dashboard_sin_config_si_emite_token(self) -> None:
+        self.ws.set("lovelace/config",
+                    HAConnectionError("No config found.", code="config_not_found"))
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, {"views": []})
+        self.assertIn("confirmation_token", res)
+
     # ── ha_create_lovelace_dashboard ───────────────────────────────────────────
 
     async def test_create_dashboard(self) -> None:
@@ -434,6 +578,140 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         result = await self.mcp.tools["ha_delete_lovelace_dashboard"](None)
         self.assertEqual(result.get("error"), "cannot_delete_default_dashboard")
 
+    # P3 (FR-025…FR-027): el dashboard principal nunca se borra. Desde la
+    # migración de HA 2026.2 es la entrada `lovelace` de la colección (y
+    # `lovelace/dashboards/delete` la acepta), y el panel por defecto puede ser
+    # otro dashboard. Ninguna respuesta de rechazo lleva token.
+
+    def _assert_rejected(self, result: Any, error: str) -> None:
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result.get("error"), error)
+        self.assertNotIn("confirmation_token", result)
+        self.assertEqual(self.ws.calls_for("lovelace/dashboards/delete"), [])
+
+    async def test_delete_lovelace_rejected_without_token(self) -> None:
+        self.ws.set(
+            "lovelace/dashboards/list", [FAKE_LOVELACE_DASHBOARD, *FAKE_DASHBOARDS]
+        )
+        self.ws.set("lovelace/dashboards/delete", None)
+        result = await self.mcp.tools["ha_delete_lovelace_dashboard"]("lovelace")
+        self._assert_rejected(result, "cannot_delete_default_dashboard")
+
+    async def test_delete_lovelace_rejected_with_any_token(self) -> None:
+        # La guarda va antes de mirar el token: ningún token sirve para
+        # saltársela.
+        self.ws.set(
+            "lovelace/dashboards/list", [FAKE_LOVELACE_DASHBOARD, *FAKE_DASHBOARDS]
+        )
+        self.ws.set("lovelace/dashboards/delete", None)
+        result = await self.mcp.tools["ha_delete_lovelace_dashboard"](
+            "lovelace", confirmation_token="cualquiera"
+        )
+        self._assert_rejected(result, "cannot_delete_default_dashboard")
+
+    async def test_delete_lovelace_rejected_even_without_system_data(self) -> None:
+        # `lovelace` se protege aunque HA no tenga `frontend/get_system_data`.
+        self.ws.set(
+            "lovelace/dashboards/list", [FAKE_LOVELACE_DASHBOARD, *FAKE_DASHBOARDS]
+        )
+        self.ws.set(
+            "frontend/get_system_data",
+            HAConnectionError("Unknown command.", code="unknown_command"),
+        )
+        result = await self.mcp.tools["ha_delete_lovelace_dashboard"]("lovelace")
+        self._assert_rejected(result, "cannot_delete_default_dashboard")
+
+    async def test_delete_default_panel_dashboard_rejected(self) -> None:
+        # El usuario eligió `map` como panel por defecto: es su dashboard
+        # principal y se protege igual, con o sin token.
+        self.ws.set("frontend/get_system_data", {"value": {"default_panel": "map"}})
+        self.ws.set("lovelace/dashboards/delete", None)
+        result = await self.mcp.tools["ha_delete_lovelace_dashboard"]("map")
+        self._assert_rejected(result, "cannot_delete_default_dashboard")
+        result = await self.mcp.tools["ha_delete_lovelace_dashboard"](
+            "map", confirmation_token="cualquiera"
+        )
+        self._assert_rejected(result, "cannot_delete_default_dashboard")
+
+    async def test_delete_rejected_when_default_panel_read_fails(self) -> None:
+        # Fail-closed (FR-026): si no se sabe cuál es el panel por defecto,
+        # no se borra ningún dashboard.
+        self.ws.set("lovelace/dashboards/delete", None)
+        for failure in (
+            HAConnectionError("ws down"),
+            HAConnectionError("Unauthorized", code="unauthorized"),
+        ):
+            for token in (None, "cualquiera"):
+                with self.subTest(failure=str(failure), token=token):
+                    self.ws.set("frontend/get_system_data", failure)
+                    result = await self.mcp.tools["ha_delete_lovelace_dashboard"](
+                        "map", confirmation_token=token
+                    )
+                    self._assert_rejected(result, "default_panel_unknown")
+
+    async def test_delete_rejected_when_default_panel_shape_unexpected(self) -> None:
+        for response in (
+            None,
+            [],
+            "lovelace",
+            {},
+            {"value": ["lovelace"]},
+            {"value": "lovelace"},
+            {"value": {"default_panel": 42}},
+            {"value": {"default_panel": ["map"]}},
+        ):
+            with self.subTest(response=response):
+                self.ws.set("frontend/get_system_data", response)
+                result = await self.mcp.tools["ha_delete_lovelace_dashboard"]("map")
+                self._assert_rejected(result, "default_panel_unknown")
+
+    async def test_delete_allowed_when_core_data_has_no_default_panel(self) -> None:
+        # `value: None` (nadie escribió `core`) o `core` sin `default_panel`
+        # son formas reales de HA: el frontend usa entonces `lovelace`, que ya
+        # está protegido, así que un dashboard extra se puede borrar.
+        for response in (
+            {"value": None},
+            {"value": {}},
+            {"value": {"default_panel": None}},
+        ):
+            with self.subTest(response=response):
+                self.ws.set("frontend/get_system_data", response)
+                result = await self.mcp.tools["ha_delete_lovelace_dashboard"]("map")
+                self.assertIn("confirmation_token", result)
+
+    async def test_delete_extra_allowed_with_unknown_command(self) -> None:
+        # HA anterior a 2025.12: sin `frontend/get_system_data` no hay panel
+        # por defecto configurable; basta con proteger `null` y `lovelace`, y
+        # un dashboard extra se borra con el flujo de token normal.
+        self.ws.set(
+            "frontend/get_system_data",
+            HAConnectionError("Unknown command.", code="unknown_command"),
+        )
+        self.ws.set("lovelace/dashboards/delete", None)
+        token_resp = await self.mcp.tools["ha_delete_lovelace_dashboard"]("map")
+        self.assertIn("confirmation_token", token_resp)
+        result = await self.mcp.tools["ha_delete_lovelace_dashboard"](
+            "map", confirmation_token=token_resp["confirmation_token"]
+        )
+        self.assertEqual(result.get("result"), "ok")
+        self.assertEqual(len(self.ws.calls_for("lovelace/dashboards/delete")), 1)
+
+    async def test_delete_reads_default_panel_from_core_system_data(self) -> None:
+        await self.mcp.tools["ha_delete_lovelace_dashboard"]("map")
+        calls = self.ws.calls_for("frontend/get_system_data")
+        self.assertTrue(calls)
+        self.assertEqual(calls[0].get("key"), "core")
+
+    async def test_dashboard_docstrings_name_protected_dashboards(self) -> None:
+        # FR-027: las descripciones dicen qué se protege y por qué, no solo
+        # «el default».
+        for name in ("ha_delete_lovelace_dashboard", "ha_list_lovelace_dashboards"):
+            with self.subTest(tool=name):
+                doc = self.mcp.tools[name].__doc__ or ""
+                self.assertIn("`lovelace`", doc)
+                self.assertIn("default_panel", doc)
+                self.assertIn("2026.2", doc)
+
     async def test_delete_dashboard_preview(self) -> None:
         result = await self.mcp.tools["ha_delete_lovelace_dashboard"]("map")
         self.assertIn("confirmation_token", result)
@@ -469,8 +747,16 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], "res1")
 
+    async def test_list_resources_uses_current_ws_command(self) -> None:
+        # Regresión (FR-029): `lovelace/resources` a secas es un alias que HA
+        # anunció retirar en 2025.1; `lovelace/resources/list` existe en modo
+        # storage y en modo YAML.
+        await self.mcp.tools["ha_list_lovelace_resources"]()
+        self.assertEqual(len(self.ws.calls_for("lovelace/resources/list")), 1)
+        self.assertEqual(self.ws.calls_for("lovelace/resources"), [])
+
     async def test_list_resources_ws_error(self) -> None:
-        self.ws.set("lovelace/resources", HAConnectionError("ws error"))
+        self.ws.set("lovelace/resources/list", HAConnectionError("ws error"))
         result = await self.mcp.tools["ha_list_lovelace_resources"]()
         self.assertIn("error", result)
 
@@ -499,6 +785,13 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         calls = self.ws.calls_for("lovelace/resources/create")
         self.assertEqual(calls[0]["url"], "/hacsfiles/card.js")
         self.assertEqual(calls[0]["res_type"], "module")
+
+    def test_create_resource_doc_uses_marketplace_path(self) -> None:
+        # Desde HA 2026.11 el Marketplace sirve los recursos en
+        # `/local/community/`; el ejemplo con `/hacsfiles/` llevaba al agente a
+        # la ruta antigua (FR-023).
+        doc = self.mcp.tools["ha_create_lovelace_resource"].__doc__ or ""
+        self.assertIn("/local/community/", doc)
 
     async def test_create_resource_invalid_token(self) -> None:
         result = await self.mcp.tools["ha_create_lovelace_resource"](

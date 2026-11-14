@@ -11,6 +11,7 @@ from aiohttp import ClientSession
 from aioresponses import aioresponses
 
 from hermes import security
+from hermes.ha import HAConnectionError
 from hermes.models.counter import CounterConfig
 import hermes.tools.counter as mod
 
@@ -184,6 +185,63 @@ class TestToolsCounter(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, {"result": "ok"})
         self.assertIsNone(self.store.get("counter", "cafes"))
+
+    def _real_delete_raising(self, exc: HAConnectionError) -> list[dict]:
+        """Vuelve a poner el `ws_collection_delete` real del cliente (el
+        FakeCollectionStore lo sustituye) y hace que `counter/delete` falle
+        con `exc`, como lo haría HA."""
+        del self.ha_client.ws_collection_delete
+        sent: list[dict] = []
+
+        async def fake_ws_send(payload, timeout_seconds=30):
+            sent.append(payload)
+            raise exc
+
+        self.ha_client.ws_send = fake_ws_send  # type: ignore[method-assign]
+        return sent
+
+    async def test_delete_missing_returns_not_found_by_code(self) -> None:
+        """D1: HA responde «Unable to find counter_id …» con código
+        `not_found`; el texto no contiene «not found», así que buscarlo en el
+        mensaje convertía el caso en un error genérico."""
+        sent = self._real_delete_raising(
+            HAConnectionError(
+                "HA WS command failed: Unable to find counter_id no_existe",
+                code="not_found",
+            )
+        )
+        token_response = await security.create_confirmation_token(
+            "ha_delete_counter",
+            {"entity_id": "counter.no_existe"},
+        )
+        result = await self.mcp.tools["ha_delete_counter"](
+            "counter.no_existe",
+            confirmation_token=token_response["confirmation_token"],
+        )
+        self.assertEqual(result, {"result": "not_found"})
+        self.assertEqual(
+            sent, [{"type": "counter/delete", "counter_id": "no_existe"}]
+        )
+
+    async def test_delete_other_error_code_is_error(self) -> None:
+        """Un error con otro código no se disfraza de `not_found`, aunque su
+        texto diga «not found»."""
+        self._real_delete_raising(
+            HAConnectionError(
+                "HA WS command failed: storage not found",
+                code="home_assistant_error",
+            )
+        )
+        token_response = await security.create_confirmation_token(
+            "ha_delete_counter",
+            {"entity_id": "counter.cafes"},
+        )
+        result = await self.mcp.tools["ha_delete_counter"](
+            "counter.cafes",
+            confirmation_token=token_response["confirmation_token"],
+        )
+        self.assertIn("error", result)
+        self.assertNotEqual(result.get("result"), "not_found")
 
     async def test_increment(self) -> None:
         with aioresponses() as m:

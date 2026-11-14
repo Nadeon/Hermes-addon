@@ -34,6 +34,8 @@ from typing import Any
 
 import structlog
 
+from hermes import safety_retention as _retencion
+from hermes.supervisor_jobs import job_errors
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
@@ -93,13 +95,26 @@ def _save_safety_state(state: dict[str, Any]) -> None:
 
     Reemplazar el documento entero es lo que permitía que un camino borrara la
     marca del otro.
+
+    Un valor `None` borra la clave: el safety backup automático necesita
+    quitar sus claves pendientes (`pending_*`) al resolver el job, y dejarlas
+    a `null` haría que la escritura siguiente las tomara por un job en curso.
     """
     actual = _load_safety_state()
-    actual.update(state)
+    for clave, valor in state.items():
+        if valor is None:
+            actual.pop(clave, None)
+        else:
+            actual[clave] = valor
     _SAFETY_BACKUP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = _SAFETY_BACKUP_STATE_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(actual, ensure_ascii=False), encoding="utf-8")
     tmp.replace(_SAFETY_BACKUP_STATE_PATH)
+
+
+# `_job_errors` vive en `hermes.supervisor_jobs` para romper el import
+# circular con `safety_retention`; el alias mantiene el nombre de siempre.
+_job_errors = job_errors
 
 
 def _size_mb(backup: dict[str, Any]) -> float | None:
@@ -148,7 +163,11 @@ def register(
         Returns:
             {"backups": [...], "count": N}
             Cada item: slug, name, date, type (full/partial),
-            size_mb, protected.
+            size_mb, protected, location.
+            `location: null` significa almacenamiento local (el disco de
+            HAOS); otro valor es el nombre de un montaje de red. Si el backup
+            está en varias ubicaciones, `location` y `protected` son los de
+            la primera.
         """
         try:
             data = await ha_client.sv_request("GET", "/backups")
@@ -313,11 +332,30 @@ def register(
 
         No requiere confirmation_token — crear backups es defensivo.
 
+        Retención: el backup se anota como safety backup de Hermes y entra en
+        la retención `safety_backup_keep` (opción del add-on, 3 por defecto).
+        Esta tool nunca borra nada: la poda se aplica tras cada safety backup
+        automático correcto (el que se hace antes de escribir en /config) y
+        solo toca safety backups que Hermes anotó y confirmó.
+
         Returns:
             Si reutiliza uno reciente: {"reused": true, "job_id"|"slug": ...}.
             Si crea uno nuevo: {"job_id": "...", "status": "running",
             "poll_with": "sv_get_job_status"}.
         """
+        # El mismo lock que el safety backup automático de `fs_write`: sin él,
+        # la tool reescribía el estado entero mientras el camino automático
+        # sondeaba un job, y se perdía la referencia `pending_*` (revisión
+        # 1.1.0, BAJO-11). Espera acotada, como las escrituras (BAJO-12).
+        if not await _retencion.acquire_safety_backup_lock():
+            return dict(_retencion.SAFETY_LOCK_BUSY)
+        try:
+            return await _crear_safety_backup()
+        finally:
+            _retencion.safety_backup_lock().release()
+
+    async def _crear_safety_backup() -> object:
+        """Cuerpo de `sv_create_safety_backup`, ya con el lock tomado."""
         now = time.time()
         state = _load_safety_state()
         last_ts = _leer_marca(state)
@@ -365,6 +403,16 @@ def register(
                 "backup_name": backup_name,
             }
             _save_safety_state(new_state)
+            # Se anota para la retención, pero aquí NO se poda: esta tool
+            # «crea» y no lleva token; si borrara backups sería destructiva
+            # sin confirmación. Sus backups se podan en la siguiente poda,
+            # tras un safety backup automático correcto.
+            try:
+                await _retencion.record_launch(
+                    backup_name, job_id if isinstance(job_id, str) else None,
+                    origin="tool", slug=slug if isinstance(slug, str) else None)
+            except Exception as exc:  # noqa: BLE001 — anotar no puede tumbar el backup
+                logger.warning("safety_backup_ledger_error", error=str(exc))
 
             if job_id:
                 await _track_job(job_id, {"op": "create_safety_backup", "name": backup_name})
@@ -636,8 +684,12 @@ def register(
 
         Returns:
             {"job_id": "...", "name": "...", "done": bool,
+             "success": true|false|null, "errors": ["..."],
              "progress": 0-100, "stage": "...", "reference": "..."}
-            Cuando done=True, reference puede contener el slug del backup
+            `done` es True también cuando el job FALLA: mira `success`.
+            success=true: terminado sin errores; false: terminado con
+            errores (los motivos en `errors`); null: aún en curso.
+            Cuando success=true, reference puede contener el slug del backup
             creado u otro identificador del resultado.
         """
         if (err := _bad_job(job_id)):
@@ -647,10 +699,19 @@ def register(
             if not isinstance(data, dict):
                 return {"error": "unexpected_response"}
 
+            # `done` no basta: el Supervisor lo pone a True también cuando el
+            # job falla, y deja los motivos en `errors`. Sin mirarlos, un
+            # backup fallido por falta de espacio se veía como correcto.
+            done = data.get("done") is True
+            errores = _job_errors(data)
+            success = (not errores) if done else None
+
             result: dict[str, Any] = {
                 "job_id": job_id,
                 "name": data.get("name"),
                 "done": data.get("done", False),
+                "success": success,
+                "errors": errores,
                 "progress": data.get("progress"),
                 "stage": data.get("stage"),
                 "reference": data.get("reference"),
@@ -662,7 +723,7 @@ def register(
                 async with _jobs_lock:
                     jobs = _load_jobs_sync()
                     if job_id in jobs:
-                        jobs[job_id]["status"] = "done"
+                        jobs[job_id]["status"] = "failed" if errores else "done"
                         jobs[job_id]["reference"] = data.get("reference")
                         _write_jobs_sync(jobs)
 
@@ -683,6 +744,8 @@ def register(
         Returns:
             {"jobs": [...], "count": N}
             Cada item: job_id, op, slug, started_at, status.
+            `status` es `running`, `done` o `failed` (terminado con errores),
+            según la última consulta con sv_get_job_status.
         """
         async with _jobs_lock:
             jobs = _load_jobs_sync()

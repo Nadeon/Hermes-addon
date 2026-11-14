@@ -40,7 +40,8 @@ describe el enfoque. Sale más barato redirigir un plan que una rama terminada.
 Abre un [issue nuevo](../../issues/new). Lo que hace que un reporte sea
 accionable:
 
-- **La versión de Hermes** (Ajustes → Add-ons → Hermes, o el campo `version:` de
+- **La versión de Hermes** (Configuración → Aplicaciones → Hermes, que antes
+  de HA 2026.2 se llamaba Complementos, o el campo `version:` de
   `hermes/config.yaml`).
 - **`network_mode`** y cómo expones Hermes (Tailscale Funnel, Cloudflare Tunnel,
   proxy inverso clásico).
@@ -157,6 +158,11 @@ otro lado en vez de dejar el cambio esperando.
 imagen se niega a ejecutarse cuando un tag `v*.*.*` no coincide con ella. Subir
 la versión es una decisión de publicación: déjasela a quien mantiene el proyecto,
 salvo que tu PR sea la publicación.
+
+Si tu PR toca algo que entra en la imagen (`hermes/Dockerfile`,
+`hermes/requirements.txt`, `hermes/run.sh`, `hermes/src/`, `hermes/config.yaml`)
+o el propio workflow, ese mismo workflow compila la imagen de `amd64` y de
+`aarch64` sin publicarla. Si no compila en la PR, tampoco se podría publicar.
 
 ## Revisión
 

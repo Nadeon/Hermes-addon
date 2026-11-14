@@ -37,8 +37,8 @@ approach. It is cheaper to redirect a plan than a finished branch.
 
 Open a [new issue](../../issues/new). What makes a report actionable:
 
-- **The Hermes version** (Settings → Add-ons → Hermes, or the `version:` field in
-  `hermes/config.yaml`).
+- **The Hermes version** (Settings → Apps → Hermes, called Add-ons before
+  HA 2026.2, or the `version:` field in `hermes/config.yaml`).
 - **`network_mode`** and how you expose Hermes (Tailscale Funnel, Cloudflare
   Tunnel, classic reverse proxy).
 - **The Home Assistant version** and whether you run HAOS or Supervised.
@@ -149,6 +149,12 @@ side rather than let the change wait.
 workflow refuses to run when a `v*.*.*` tag does not match it. Bumping the
 version is a release decision: leave it to a maintainer unless your PR is the
 release.
+
+If your PR touches anything that goes into the image (`hermes/Dockerfile`,
+`hermes/requirements.txt`, `hermes/run.sh`, `hermes/src/`, `hermes/config.yaml`)
+or the workflow itself, that same workflow builds the `amd64` and `aarch64`
+images without publishing them. If it does not build in the PR, it could not be
+published either.
 
 ## Review
 

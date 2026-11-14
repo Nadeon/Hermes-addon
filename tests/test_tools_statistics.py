@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 
 from aiohttp import ClientSession
 
 import hermes.tools.statistics as stats_mod
+from hermes.ha import HAConnectionError
 from tests._ha_fixture import make_ready_client
 
 
@@ -117,6 +119,27 @@ class TestListStatisticIds(unittest.IsolatedAsyncioTestCase):
         result = json.loads(raw)
         self.assertIn("error", result)
 
+    async def test_description_lists_real_fields(self) -> None:
+        """C3: la descripción prometía `unit_of_measurement`, que HA no
+        devuelve; los campos reales son `statistics_unit_of_measurement`,
+        `display_unit_of_measurement`, `unit_class` y `mean_type`, y
+        `has_mean` está deprecado."""
+        client = self._make_client([])
+        mcp = DummyMCP()
+        stats_mod.register(mcp, client)
+        doc = mcp.tools["ha_list_statistic_ids"].__doc__
+        for campo in (
+            "statistics_unit_of_measurement",
+            "display_unit_of_measurement",
+            "unit_class",
+            "mean_type",
+            "has_sum",
+        ):
+            self.assertIn(campo, doc)
+        # `unit_of_measurement` a secas (no como sufijo de otro campo).
+        self.assertIsNone(re.search(r"(?<![a-z_])unit_of_measurement", doc))
+        self.assertRegex(doc, r"has_mean[^\n]*deprecat")
+
 
 # ── Tests ha_statistics_during_period ────────────────────────────────────────
 
@@ -219,14 +242,24 @@ class TestStatisticsDuringPeriod(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["truncated"])
         self.assertIsNotNone(result["truncated_at"])
 
-    async def test_period_year_is_accepted(self) -> None:
-        """HA acepta "year" en recorder/statistics_during_period; Hermes no."""
-        received: list[dict] = []
+    def _make_versioned_client(self, version, received: list[dict]):
+        """Cliente cuyo `get_config` responde con `version` (o falla si es
+        None) y que apunta los envíos de `recorder/statistics_during_period`."""
         client = make_ready_client(self.session, {})
-        async def capture(payload, timeout_seconds=30):
+        async def fake_ws_send(payload, timeout_seconds=30):
+            if payload.get("type") == "get_config":
+                if version is None:
+                    raise HAConnectionError("HA WS command failed: boom")
+                return {"version": version}
             received.append(payload)
             return {}
-        client.ws_send = capture  # type: ignore[method-assign]
+        client.ws_send = fake_ws_send  # type: ignore[method-assign]
+        return client
+
+    async def test_period_year_is_accepted(self) -> None:
+        """HA acepta "year" en recorder/statistics_during_period desde 2026.3."""
+        received: list[dict] = []
+        client = self._make_versioned_client("2026.3.0", received)
         mcp = DummyMCP()
         stats_mod.register(mcp, client)
         raw = await mcp.tools["ha_statistics_during_period"](
@@ -235,6 +268,34 @@ class TestStatisticsDuringPeriod(unittest.IsolatedAsyncioTestCase):
         result = json.loads(raw)
         self.assertNotIn("error", result)
         self.assertEqual(result["granularity"], "year")
+        self.assertEqual(received[0]["period"], "year")
+
+    async def test_period_year_rejected_before_2026_3(self) -> None:
+        """C8: HA < 2026.3 no conoce "year"; Hermes debe decirlo claro y no
+        mandar el comando (HA respondería con un error de esquema opaco)."""
+        received: list[dict] = []
+        client = self._make_versioned_client("2026.2.3", received)
+        mcp = DummyMCP()
+        stats_mod.register(mcp, client)
+        raw = await mcp.tools["ha_statistics_during_period"](
+            ["sensor.temp"], period="year"
+        )
+        result = json.loads(raw)
+        self.assertEqual(result["error"], "period_not_supported")
+        self.assertIn("2026.3", result["detail"])
+        self.assertEqual(received, [])
+
+    async def test_period_year_unknown_version_lets_ha_decide(self) -> None:
+        """Con versión desconocida se envía: es una lectura y decide HA."""
+        received: list[dict] = []
+        client = self._make_versioned_client(None, received)
+        mcp = DummyMCP()
+        stats_mod.register(mcp, client)
+        raw = await mcp.tools["ha_statistics_during_period"](
+            ["sensor.temp"], period="year"
+        )
+        result = json.loads(raw)
+        self.assertNotIn("error", result)
         self.assertEqual(received[0]["period"], "year")
 
     async def test_invalid_period(self) -> None:

@@ -208,8 +208,21 @@ class TestDangerousContentScanner(unittest.TestCase):
     def test_modern_action_syntax(self) -> None:
         self.assertTrue(self._scan([{"action": "shell_command.evil"}]))
 
-    def test_perform_action_alias(self) -> None:
+    def test_perform_action_defense_in_depth(self) -> None:
+        """`perform_action` NO es una clave de HA (no es alias de `action`).
+
+        Se sigue detectando como defensa en profundidad: mirarla solo puede
+        dar falsos positivos, nunca dejar pasar un servicio peligroso.
+        """
         self.assertTrue(self._scan([{"perform_action": "homeassistant.restart"}]))
+
+    def test_action_is_the_real_key(self) -> None:
+        """`action` es la clave real de HA para llamar a un servicio; es la que
+        no puede faltar en la detección."""
+        self.assertTrue(self._scan([{"action": "homeassistant.restart"}]))
+        self.assertTrue(self._scan(
+            [{"sequence": [{"action": "lock.open", "target": {}}]}]
+        ))
 
     def test_templates_cannot_be_analysed_so_they_count(self) -> None:
         self.assertTrue(self._scan([{"service": "{{ 'shell_command.evil' }}"}]))

@@ -38,6 +38,7 @@ from typing import Any
 import structlog
 
 from hermes.ha import HAClient, HAConnectionError
+from hermes.logging_setup import redact_network
 from hermes.security import (
     REDACTED_MARKER,
     redact_structure,
@@ -70,7 +71,10 @@ _LONG_OP_TIMEOUT = 300.0  # 5 minutos
 def _es_hermes(slug: str) -> bool:
     """True si el slug apunta al propio Hermes, esté instalado como esté."""
     s = slug.lower()
-    return s == _HERMES_SLUG or s == "hermes" or s.endswith("_hermes")
+    # `self` es el alias del Supervisor para el add-on que llama: con él,
+    # `/addons/self/logs` es el log de Hermes y se saltaba la redacción de red
+    # (revisión 1.1.0, BAJO-1).
+    return s in (_HERMES_SLUG, "hermes", "self") or s.endswith("_hermes")
 
 
 def _self_warning(slug: str, action: str) -> str | None:
@@ -870,6 +874,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
         passwords, tokens, JWT, URLs con auth básica son sustituidos
         por ***REDACTED*** / ***JWT_REDACTED***.
 
+        En el log del PROPIO Hermes, con `log_redact_network` activo (por
+        defecto), también se redactan el hostname público (`<public_hostname>`),
+        los nombres `*.ts.net` y las IPs que no son de loopback
+        (`<ip:CLASE:HHHHHHHH>`, misma IP → mismo seudónimo), incluidas las
+        líneas escritas antes de actualizar. Los logs de otros add-ons
+        conservan sus IPs, que suelen ser justo lo que se quiere diagnosticar.
+
         Args:
             slug: Identificador del add-on.
             lines: Número de líneas a devolver (default 100, máx 1000).
@@ -893,6 +904,12 @@ def register(mcp: object, ha_client: HAClient) -> None:
             return {"error": str(exc)}
 
         redacted = redact_secrets(raw)
+        if _es_hermes(slug):
+            # El log de Hermes se pide para pegarlo en un issue, y las líneas
+            # escritas por versiones anteriores (o con la opción recién
+            # activada) traen hostname e IPs en claro. `redact_network` no
+            # hace nada si la opción está desactivada.
+            redacted = redact_network(redacted)
         was_redacted = redacted != raw
         logger.info(
             "sv_get_addon_logs",
@@ -910,15 +927,18 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:
-        """Devuelve estadísticas de recursos de un add-on (CPU, RAM, red).
+        """Devuelve estadísticas de recursos de un add-on (CPU, RAM, red, disco).
 
         Args:
             slug: Identificador del add-on.
 
         Returns:
-            {"cpu_percent": ..., "memory_usage": ..., "memory_limit": ...,
-             "network_tx": ..., "network_rx": ...,
-             "disk_read": ..., "disk_write": ...}
+            La respuesta del Supervisor tal cual:
+            {"cpu_percent": ..., "cpu_usage": ..., "cpu_system_usage": ...,
+             "online_cpus": ..., "memory_usage": ..., "memory_limit": ...,
+             "memory_percent": ..., "network_tx": ..., "network_rx": ...,
+             "blk_read": ..., "blk_write": ...}
+            Memoria, red y `blk_*` (lectura/escritura en disco) van en bytes.
         """
         if (err := _bad_slug(slug)):
             return err

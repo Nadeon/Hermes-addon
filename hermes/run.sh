@@ -62,9 +62,10 @@ export HERMES_SAFETY_BACKUP_ENABLED="$(cfg_default safety_backup_enabled false)"
 export HERMES_SAFETY_BACKUP_WINDOW="$(cfg_default safety_backup_window_minutes 30)"
 export HERMES_FILE_BACKUP_MAX_PER_PATH="$(cfg_default file_backup_max_per_path 20)"
 export HERMES_FILE_BACKUP_MAX_TOTAL_MB="$(cfg_default file_backup_max_total_mb 200)"
+export HERMES_SAFETY_BACKUP_KEEP="$(cfg_default safety_backup_keep 3)"
 export HERMES_CONFIG_WRITE_MIN_INTERVAL="$(cfg_default config_write_min_interval_seconds 5)"
 export HERMES_CONFIG_WRITE_MAX_PER_MINUTE="$(cfg_default config_write_max_per_minute 10)"
-export HERMES_RESPONSE_MAX_BYTES="$(cfg_default response_max_bytes 1048576)"
+export HERMES_RESPONSE_MAX_BYTES="$(cfg_default response_max_bytes 131072)"
 export HERMES_WS_MAX_MSG_SIZE="$(cfg_default ha_ws_max_msg_size_bytes 4194304)"
 export HERMES_MAX_REQUEST_BODY_BYTES="$(cfg_default max_request_body_bytes 4194304)"
 export HERMES_MAX_CONCURRENT_REQUESTS="$(cfg_default max_concurrent_requests 64)"
@@ -72,6 +73,8 @@ export HERMES_WAIT_EVENT_MAX_SECONDS="$(cfg_default wait_for_event_max_seconds 9
 export HERMES_WAIT_EVENT_MAX_CONCURRENT="$(cfg_default wait_for_event_max_concurrent 5)"
 export HERMES_HEALTH_STARTUP_GRACE="$(cfg_default health_startup_grace_seconds 120)"
 export HERMES_HEALTH_RECONNECT_TOLERANCE="$(cfg_default health_reconnect_tolerance_seconds 300)"
+export HERMES_OAUTH_CIMD_ENABLED="$(cfg_default oauth_cimd_enabled true)"
+export HERMES_LOG_REDACT_NETWORK="$(cfg_default log_redact_network true)"
 
 # ── Opciones de listas (JSON arrays) ──────────────────────────
 # Proxies de confianza para X-Forwarded-For: se pasa a uvicorn como
@@ -83,6 +86,7 @@ export HERMES_CALL_SERVICE_DENYLIST_EXTRA="$(jq -c '.call_service_denylist_extra
 export HERMES_CALL_SERVICE_RESTRICTED_ENTITIES="$(jq -c '.call_service_restricted_entities // []' "$OPTIONS")"
 export HERMES_CALL_SERVICE_AUTO_CLASSIFY="$(cfg_default call_service_auto_classify_dangerous true)"
 export HERMES_FIRE_EVENT_ALLOWLIST="$(jq -c '.fire_event_allowlist // []' "$OPTIONS")"
+export HERMES_OAUTH_CIMD_ALLOWED_HOSTS="$(jq -c '.oauth_cimd_allowed_hosts // []' "$OPTIONS")"
 
 # ── Token del Supervisor (inyectado por HAOS) ─────────────────
 # SUPERVISOR_TOKEN ya está en el entorno del contenedor del add-on.

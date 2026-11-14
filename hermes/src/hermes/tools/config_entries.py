@@ -29,6 +29,9 @@ from typing import Any
 
 import structlog
 
+# Sin opción explícita, el mismo tope que la configuración (spec 003): el
+# antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
@@ -37,6 +40,7 @@ from hermes.security import (
 )
 from hermes.tools._common import requires_ready
 from hermes.tools._validation import InvalidIdentifier, validate_identifier
+from hermes.tools.registry_device import device_config_entries
 
 logger = structlog.get_logger(__name__)
 
@@ -65,17 +69,20 @@ async def _count_config_entry_dependents(
             {"type": "config/device_registry/list"}
         )
         if isinstance(raw_devs, list):
+            # `config_entry_id` es el campo vigente: los dispositivos hijo
+            # (HA 2026.9) solo traen ese, y `config_entries` es retirable en
+            # 2027.8. Se mira la unión de ambos, contando cada device una vez.
             devices_count = sum(
                 1
                 for d in raw_devs
-                if entry_id in (d.get("config_entries") or [])
+                if isinstance(d, dict) and entry_id in device_config_entries(d)
             )
     except HAConnectionError:
         pass
     return {"entities": entities_count, "devices": devices_count}
 
 
-def register(mcp: object, ha_client: HAClient, response_max_bytes: int = 1_048_576) -> None:
+def register(mcp: object, ha_client: HAClient, response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT) -> None:
     """Registra las tools de config entries."""
 
     ready = requires_ready(ha_client)

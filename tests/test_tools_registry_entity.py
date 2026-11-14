@@ -388,3 +388,195 @@ class TestRemoveEntityRegistry(unittest.IsolatedAsyncioTestCase):
         )
         result = json.loads(raw)
         self.assertIn("error", result)
+
+
+# ── Regresiones 1.0.12: alias, not_found y área efectiva ────────────────────
+
+
+class TestAliasesNullMarker(unittest.IsolatedAsyncioTestCase):
+    """P1/R6: desde HA 2026.4 un `null` dentro de `aliases` es el nombre
+    calculado de la entidad. Hermes lo convertía en el texto "None" (P1) y
+    aceptaba `aliases: null`, que el esquema de HA rechaza (R6)."""
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    def _client(self, received: list[dict], version: object = "2026.11.1"):
+        client = make_ready_client(self.session, {})
+
+        async def capture(payload, timeout_seconds=30):
+            if payload.get("type") == "get_config":
+                return {"version": version}
+            received.append(payload)
+            if payload.get("type") == "config/entity_registry/get":
+                return {"entity_id": "light.x", "aliases": [None]}
+            return {"entity_entry": {"entity_id": "light.x"}}
+
+        client.ws_send = capture  # type: ignore[method-assign]
+        return client
+
+    async def _update(self, client, updates):
+        mcp = DummyMCP()
+        entity_mod.register(mcp, client)
+        tool = mcp.tools["ha_update_entity_registry"]
+        first = json.loads(await tool("light.x", updates))
+        if "confirmation_token" not in first:
+            return first
+        return json.loads(await tool(
+            "light.x", updates, confirmation_token=first["confirmation_token"]
+        ))
+
+    def _sent_update(self, received: list[dict]) -> dict:
+        return next(
+            p for p in received if p.get("type") == "config/entity_registry/update"
+        )
+
+    async def test_null_inside_aliases_reaches_ha_as_null(self) -> None:
+        received: list[dict] = []
+        result = await self._update(
+            self._client(received), {"aliases": [None, "lámpara"]}
+        )
+        self.assertEqual(result.get("result"), "ok")
+        self.assertEqual(self._sent_update(received)["aliases"], [None, "lámpara"])
+
+    async def test_null_alias_on_old_ha_is_rejected(self) -> None:
+        """M1: antes de 2026.4 HA no admite el null; en 2024.10 lo guardaba y
+        rompía Assist. Sin token y sin llamar a HA."""
+        for version in ("2024.10.0", "2026.3.4"):
+            received: list[dict] = []
+            result = await self._update(
+                self._client(received, version), {"aliases": [None, "lámpara"]}
+            )
+            self.assertEqual(result.get("error"), "null_alias_requires_ha_2026_4")
+            self.assertNotIn("confirmation_token", result)
+            self.assertEqual(received, [])
+
+    async def test_null_alias_with_unknown_version_is_rejected(self) -> None:
+        """M1: versión desconocida → fail-closed."""
+        received: list[dict] = []
+        result = await self._update(
+            self._client(received, None), {"aliases": [None]}
+        )
+        self.assertEqual(result.get("error"), "ha_version_unknown")
+        self.assertEqual(received, [])
+
+    async def test_string_aliases_on_old_ha_still_work(self) -> None:
+        received: list[dict] = []
+        result = await self._update(
+            self._client(received, "2024.10.0"), {"aliases": ["lámpara"]}
+        )
+        self.assertEqual(result.get("result"), "ok")
+
+    async def test_aliases_null_rejected_without_ws_call(self) -> None:
+        received: list[dict] = []
+        result = await self._update(self._client(received), {"aliases": None})
+        self.assertIn("error", result)
+        self.assertIn("[]", result["error"])
+        self.assertIn("[null]", result["error"])
+        self.assertEqual(received, [], "no debe llamarse a HA")
+
+    async def test_aliases_with_dict_element_rejected(self) -> None:
+        received: list[dict] = []
+        result = await self._update(self._client(received), {"aliases": [{"a": 1}]})
+        self.assertIn("error", result)
+        self.assertEqual(received, [])
+
+    async def test_aliases_number_becomes_text(self) -> None:
+        received: list[dict] = []
+        await self._update(self._client(received), {"aliases": [3]})
+        self.assertEqual(self._sent_update(received)["aliases"], ["3"])
+
+    async def test_description_explains_null_and_name(self) -> None:
+        """C1 + FR-013: la descripción no puede mentir sobre `null` ni `name`."""
+        mcp = DummyMCP()
+        entity_mod.register(mcp, make_ready_client(self.session, {}))
+        doc = mcp.tools["ha_update_entity_registry"].__doc__ or ""
+        self.assertNotIn("null = limpiar", doc)
+        # null dentro de la lista = nombre calculado; la lista sustituye.
+        self.assertIn("[null]", doc)
+        self.assertIn("calculado", doc)
+        self.assertIn("sustituye", doc)
+        # Desde 2026.11 HA antepone el nombre del dispositivo a `name`.
+        self.assertIn("2026.11", doc)
+        self.assertIn("antepone", doc)
+
+
+class TestGetEntityRegistryNotFoundCode(unittest.IsolatedAsyncioTestCase):
+    """C6: HA responde a una entidad inexistente con un error `not_found`, no
+    con `None`; Hermes devolvía el texto del error en vez de `not_found`."""
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    async def _get(self, exc):
+        client = make_ready_client(self.session, {})
+
+        async def boom(payload, timeout_seconds=30):
+            raise exc
+
+        client.ws_send = boom  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        entity_mod.register(mcp, client)
+        return json.loads(await mcp.tools["ha_get_entity_registry"]("sensor.ghost"))
+
+    async def test_not_found_code_maps_to_not_found(self) -> None:
+        from hermes.ha import HAConnectionError
+        result = await self._get(HAConnectionError(
+            "HA WS command failed: Entity not found", code="not_found"
+        ))
+        self.assertEqual(
+            result, {"error": "not_found", "entity_id": "sensor.ghost"}
+        )
+
+    async def test_other_code_keeps_error_text(self) -> None:
+        from hermes.ha import HAConnectionError
+        result = await self._get(HAConnectionError(
+            "HA WS command failed: boom", code="unknown_error"
+        ))
+        self.assertEqual(result, {"error": "HA WS command failed: boom"})
+
+
+class TestListEntitiesEffectiveArea(unittest.IsolatedAsyncioTestCase):
+    """D3: una entidad sin área propia está en el área de su dispositivo, y un
+    dispositivo hijo sin área está en la de su padre (HA 2026.9)."""
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    async def test_filter_uses_effective_area(self) -> None:
+        devices = [
+            {"id": "padre", "area_id": "salon"},
+            {"id": "hijo", "area_id": None, "parent_device_id": "padre"},
+            {"id": "otro", "area_id": "cocina"},
+        ]
+        entities = [
+            {"entity_id": "light.propia", "area_id": "salon", "device_id": None},
+            {"entity_id": "light.del_padre", "area_id": None, "device_id": "padre"},
+            {"entity_id": "light.del_hijo", "area_id": None, "device_id": "hijo"},
+            {"entity_id": "light.override", "area_id": "cocina", "device_id": "padre"},
+            {"entity_id": "light.de_otro", "area_id": None, "device_id": "otro"},
+        ]
+        client = make_ready_client(self.session, {})
+
+        async def fake_ws(payload, timeout_seconds=30):
+            if payload.get("type") == "config/device_registry/list":
+                return devices
+            return entities
+
+        client.ws_send = fake_ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        entity_mod.register(mcp, client)
+        result = json.loads(
+            await mcp.tools["ha_list_entities_registry"](area_id="salon")
+        )
+        ids = {e["entity_id"] for e in result["entities"]}
+        self.assertEqual(ids, {"light.propia", "light.del_padre", "light.del_hijo"})

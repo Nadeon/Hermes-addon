@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.13 es la del add-on (ver build.yaml); 3.12 como red por si algo
+        # 3.13 es la del add-on (ver el FROM de hermes/Dockerfile); 3.12 como red por si algo
         # depende de una versión concreta sin decirlo.
         python: ["3.12", "3.13"]
 

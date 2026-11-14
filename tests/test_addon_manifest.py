@@ -154,11 +154,77 @@ class TestManifiesto(unittest.TestCase):
             "súbela, o deja la versión de HA y actualiza solo la pareja",
         )
 
+    def test_la_version_minima_de_ha_es_2024_10(self) -> None:
+        """Regresión FR-041 (R4): la mínima declarada era 2024.1.0, pero Hermes
+        guarda las automatizaciones con las claves en plural (`triggers`,
+        `conditions`, `actions`), que HA solo entiende desde 2024.10. Con una
+        HA 2024.1–2024.9 el arranque no avisaba y las automatizaciones no se
+        podían guardar.
+        """
+        from hermes.config import HA_CORE_MIN_SUPPORTED
+
+        self.assertEqual(HA_CORE_MIN_SUPPORTED, "2024.10.0")
+
+    def test_el_manifiesto_declara_la_misma_version_minima_de_ha(self) -> None:
+        """M4: sin la clave `homeassistant`, el Supervisor instalaba la
+        actualización en una HA 2024.1–2024.9 y el add-on no arrancaba
+        (`HA core … < minimum supported`). Con ella, el Supervisor rechaza la
+        actualización. Las dos versiones no se pueden separar.
+        """
+        from hermes.config import HA_CORE_MIN_SUPPORTED
+
+        valor = self.manifiesto.get("homeassistant")
+        self.assertIsInstance(valor, str, "debe ser una cadena de versión")
+        self.assertEqual(valor, HA_CORE_MIN_SUPPORTED)
+        # Entre comillas: el Supervisor la valida como `version_tag`.
+        texto = CONFIG.read_text(encoding="utf-8")
+        self.assertRegex(
+            texto, rf'(?m)^homeassistant: "{re.escape(HA_CORE_MIN_SUPPORTED)}"'
+        )
+
     def test_toda_opcion_por_defecto_esta_declarada_en_el_schema(self) -> None:
         """Una opción en `options` que no esté en `schema` la rechaza HA."""
         for clave in self.options:
             with self.subTest(opcion=clave):
                 self.assertIn(clave, self.schema)
+
+    def test_response_max_bytes_por_defecto_coincide_con_el_codigo(self) -> None:
+        """FR-032: 131 072 en config.yaml y en config.py."""
+        from hermes.config import RESPONSE_MAX_BYTES_DEFAULT, HermesConfig
+
+        self.assertEqual(self.options["response_max_bytes"], 131_072)
+        self.assertEqual(RESPONSE_MAX_BYTES_DEFAULT, 131_072)
+        self.assertEqual(HermesConfig().response_max_bytes,
+                         self.options["response_max_bytes"])
+
+    def test_el_esquema_de_los_limites_no_se_estrecha(self) -> None:
+        """Control de S-03: el Supervisor valida las opciones guardadas.
+
+        Quien tenga guardado 1 048 576 o 300 no podría arrancar si el esquema
+        dejara de admitirlos; el máximo efectivo se aplica en el código.
+        """
+        casos = {"response_max_bytes": 1_048_576,
+                 "wait_for_event_max_seconds": 300}
+        for clave, guardado in casos.items():
+            with self.subTest(opcion=clave):
+                m = RE_SCHEMA_ELEMENT.match(str(self.schema[clave]))
+                assert m is not None
+                self.assertLessEqual(int(m.group("i_min")), guardado)
+                self.assertGreaterEqual(int(m.group("i_max")), guardado)
+
+    def test_opciones_nuevas_declaradas_y_activadas(self) -> None:
+        """FR-023 y FR-044: opcionales en el esquema y `true` por defecto."""
+        for clave in ("oauth_cimd_enabled", "log_redact_network"):
+            with self.subTest(opcion=clave):
+                self.assertEqual(self.schema.get(clave), "bool?")
+                self.assertIs(self.options.get(clave), True)
+
+    def test_safety_backup_keep_declarada_con_su_rango(self) -> None:
+        """Spec 005, FR-031: 0–50 y 3 por defecto. Sin ella en el esquema, el
+        Supervisor rechaza el `options` que la incluye y el add-on no arranca;
+        sin el `?`, quien actualice sin tocarla no podría guardar."""
+        self.assertEqual(self.schema.get("safety_backup_keep"), "int(0,50)?")
+        self.assertEqual(self.options.get("safety_backup_keep"), 3)
 
     def test_arranca_despues_del_core_de_home_assistant(self) -> None:
         """`startup: services` arrancaba Hermes ANTES que el core de HA.

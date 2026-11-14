@@ -156,8 +156,13 @@ def register_write(
     file_backup_max_total_mb: int = 100,
     config_write_min_interval_seconds: int = 5,
     config_write_max_per_minute: int = 10,
+    safety_backup_keep: int = 3,
 ) -> None:
-    """Registra las tools de escritura en /config."""
+    """Registra las tools de escritura en /config.
+
+    `safety_backup_keep` llega a cada safety backup automático para podar
+    después los safety backups de Hermes que sobren (0 = no podar).
+    """
 
     # ── fs_write_file ─────────────────────────────────────────────────────────
 
@@ -279,6 +284,7 @@ def register_write(
         backup_err = await maybe_trigger_safety_backup(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
+            keep=safety_backup_keep,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -451,6 +457,7 @@ def register_write(
         backup_err = await maybe_trigger_safety_backup(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
+            keep=safety_backup_keep,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -630,6 +637,7 @@ def register_write(
         backup_err = await maybe_trigger_safety_backup(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
+            keep=safety_backup_keep,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -786,6 +794,7 @@ def register_write(
         backup_err = await maybe_trigger_safety_backup(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
+            keep=safety_backup_keep,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -1098,6 +1107,7 @@ def register_write(
         backup_err = await maybe_trigger_safety_backup(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
+            keep=safety_backup_keep,
         )
         if backup_err:
             await complete_confirmation_token(

@@ -30,7 +30,11 @@ from typing import Any
 
 import structlog
 
+# Sin opción explícita, el mismo tope que la configuración (spec 003): el
+# antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes import fs as _fs
+from hermes.tools._common import ajustar_lista_a_bytes
 from hermes.fs import (
     BlacklistedPathError,
     PathTraversalError,
@@ -63,6 +67,18 @@ _SEARCH_TIMEOUT_SECONDS = 10.0
 _SEARCH_POLL_INTERVAL_SECONDS = 0.05
 #: Margen que se le da a un hijo terminado (o matado) para acabar de morir.
 _SEARCH_REAP_TIMEOUT_SECONDS = 5.0
+#: Bytes que se leen de cada fichero al buscar. Va DESACOPLADO de
+#: `response_max_bytes` a propósito: ese tope es de lo que se DEVUELVE (y la
+#: salida ya está acotada por `max_matches` y por el recorte en bytes del
+#: final), no de lo que se lee. Atado a él, con el defecto de 128 KiB un
+#: `automations.yaml` de 300 KB se buscaba solo en su primer 43 % y la tool
+#: respondía «0 matches» sin avisar (hallazgo M-2 de la revisión de 1.1.0).
+#: 4 MiB cubre con holgura los YAML de una instalación grande; el plazo de
+#: 10 s sigue acotando el trabajo total. Lo que pase de aquí se busca a medias
+#: y se dice en `partially_searched`.
+_SEARCH_MAX_FILE_BYTES = 4 * 1024 * 1024
+#: Cuántos ficheros se nombran en `partially_searched` (el recuento es exacto).
+_SEARCH_PARTIAL_LIST_MAX = 20
 
 
 def _pattern_redos_risk(pattern: str) -> str | None:
@@ -239,6 +255,10 @@ def _scan_files_worker(
     searched = 0
     skipped = 0
     truncated = False
+    # Ficheros que superan `max_read_bytes`: se buscan solo hasta ahí y se
+    # nombran en la respuesta, porque un «0 matches» callado lleva a romper
+    # cosas (se usa justo antes de renombrar o borrar).
+    partial: list[str] = []
 
     try:
         regex = re.compile(pattern, flags)
@@ -251,10 +271,20 @@ def _scan_files_worker(
 
             file_path = Path(file_str)
             try:
-                raw = read_bytes(file_path, max_bytes=max_read_bytes)
+                # Un byte de más para saber si el fichero sigue.
+                raw = read_bytes(file_path, max_bytes=max_read_bytes + 1)
             except (OSError, FileNotFoundError):
                 skipped += 1
                 continue
+            cortado = len(raw) > max_read_bytes
+            if cortado:
+                raw = raw[:max_read_bytes]
+                # Se corta en el último salto de línea: media línea daría una
+                # coincidencia falsa o un carácter UTF-8 partido que haría
+                # saltarse el fichero entero como «no texto».
+                fin = raw.rfind(b"\n")
+                if fin >= 0:
+                    raw = raw[: fin + 1]
 
             if is_binary(raw[:_BINARY_PROBE]):
                 skipped += 1
@@ -271,6 +301,8 @@ def _scan_files_worker(
                 file_rel = file_path.relative_to(base).as_posix()
             except ValueError:
                 file_rel = file_path.as_posix()
+            if cortado:
+                partial.append(file_rel)
 
             for lineno, line in enumerate(content.splitlines(), start=1):
                 if len(matches) >= max_matches:
@@ -296,6 +328,7 @@ def _scan_files_worker(
             "searched": searched,
             "skipped": skipped,
             "truncated": truncated,
+            "partial": partial,
         }
     except Exception as exc:  # noqa: BLE001 — el hijo no puede propagar nada
         payload = {
@@ -451,7 +484,7 @@ def _run_scan_in_subprocess(
 
 def register(
     mcp: object,
-    response_max_bytes: int = 1_048_576,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las tools de filesystem."""
 
@@ -825,7 +858,9 @@ def register(
               "count": N,
               "searched_files": M,
               "skipped_files": K,   # blacklisted/binary
-              "truncated": bool
+              "truncated": bool,    # por max_matches o por tamaño de respuesta
+              "partially_searched": {"count", "paths", ...}  # solo si algún
+                                    # fichero pasa de 4 MiB: se buscó hasta ahí
             }
             Error: {"error": "pattern_too_complex"|"invalid_pattern"|
                              "search_timeout"|"search_failed", "detail": "..."}
@@ -885,7 +920,7 @@ def register(
                 flags=int(flags),
                 max_matches=max_matches,
                 max_line_len=_SEARCH_MAX_LINE_LEN,
-                max_read_bytes=response_max_bytes,
+                max_read_bytes=_SEARCH_MAX_FILE_BYTES,
                 timeout=_SEARCH_TIMEOUT_SECONDS,
             )
             if "error" not in payload:
@@ -915,6 +950,7 @@ def register(
         searched = int(result_payload.get("searched", 0))
         skipped = int(result_payload.get("skipped", 0))
         truncated = bool(result_payload.get("truncated"))
+        partial = [str(f) for f in result_payload.get("partial") or []]
 
         logger.info(
             "fs_search_in_config_ok",
@@ -924,18 +960,38 @@ def register(
             searched=searched,
             skipped=skipped,
         )
-        result: dict[str, Any] = {
-            "pattern": pattern,
-            "glob": glob,
-            "case_sensitive": case_sensitive,
-            "matches": matches,
-            "count": len(matches),
-            "searched_files": searched,
-            "skipped_files": skipped,
-        }
-        if truncated:
-            result["truncated"] = True
-            result["hint"] = f"Results capped at {max_matches}; use a narrower pattern or glob"
+        def construir(items: list[Any], por_bytes: bool) -> dict[str, Any]:
+            result: dict[str, Any] = {
+                "pattern": pattern,
+                "glob": glob,
+                "case_sensitive": case_sensitive,
+                "matches": items,
+                "count": len(items),
+                "searched_files": searched,
+                "skipped_files": skipped,
+            }
+            if partial:
+                result["partially_searched"] = {
+                    "count": len(partial),
+                    "paths": partial[:_SEARCH_PARTIAL_LIST_MAX],
+                    "searched_bytes_per_file": _SEARCH_MAX_FILE_BYTES,
+                    "hint": (
+                        "These files are larger than the search limit and were "
+                        "only searched up to it; read the rest with "
+                        "fs_read_file_lines"
+                    ),
+                }
+            if truncated or por_bytes:
+                result["truncated"] = True
+                result["hint"] = (
+                    f"Results capped at {max_matches} or by the response size "
+                    "limit; use a narrower pattern or glob"
+                )
+            return result
+
+        # 200 líneas de hasta 4096 caracteres pasan del tope de respuesta:
+        # se recorta por bytes y se dice, como el resto de tools (M-1).
+        result = ajustar_lista_a_bytes(matches, construir, response_max_bytes)
         return json.dumps(result, ensure_ascii=False)
 
     # ── fs_stat ───────────────────────────────────────────────────────────

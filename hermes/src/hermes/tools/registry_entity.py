@@ -22,7 +22,11 @@ from typing import Any
 
 import structlog
 
+# Sin opción explícita, el mismo tope que la configuración (spec 003): el
+# antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
+from hermes.ha_version import ha_at_least
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
@@ -30,6 +34,7 @@ from hermes.security import (
 )
 from hermes.tools._validation import build_ws_payload
 from hermes.tools._common import requires_ready
+from hermes.tools.registry_device import devices_by_id, effective_area_id
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +59,10 @@ def _coerce_flag(val: Any, field: str) -> str | None:
     return val
 
 
+# HA 2026.4 introduce el `null` dentro de `aliases` (nombre calculado).
+_ALIASES_NULL_MIN_HA = "2026.4.0"
+
+
 def _validate_updates(updates: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     """Valida y normaliza el dict de updates para entity registry.
 
@@ -72,9 +81,20 @@ def _validate_updates(updates: dict[str, Any]) -> tuple[dict[str, Any], str | No
                 return {}, f"hidden_by must be 'user', null, true or false; got {v!r}"
             out[k] = coerced
         elif k == "aliases":
-            if v is not None and not isinstance(v, list):
-                return {}, "aliases must be a list of strings or null"
-            out[k] = [str(a) for a in v] if v is not None else v
+            # Desde HA 2026.4 un `null` dentro de la lista es el marcador del
+            # nombre calculado y toda entidad nace con `[null]`: convertirlo
+            # en el texto "None" creaba un alias falso y perdía el nombre al
+            # reenviar lo leído. `aliases: null` a secas no lo admite el
+            # esquema de HA (`[Any(str, None)]`), así que se rechaza aquí con
+            # un mensaje útil en vez de dejar que HA falle.
+            if not isinstance(v, list):
+                return {}, (
+                    "aliases must be a list; use [] to clear or [null] to keep "
+                    "only the computed name"
+                )
+            if any(isinstance(a, (list, dict)) for a in v):
+                return {}, "aliases items must be strings or null"
+            out[k] = [a if a is None else str(a) for a in v]
         elif k == "labels":
             if not isinstance(v, list):
                 return {}, "labels must be a list of strings"
@@ -101,7 +121,7 @@ def _needs_token(updates: dict[str, Any]) -> bool:
 def register(
     mcp: object,
     ha_client: HAClient,
-    response_max_bytes: int = 1_048_576,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las tools de entity registry."""
 
@@ -127,7 +147,9 @@ def register(
         acotar.
 
         Args:
-            area_id:   Filtrar por area asignada (string area_id de HA).
+            area_id:   Filtrar por área efectiva (string area_id de HA): la
+                       propia de la entidad o, si no tiene, la de su
+                       dispositivo (o la del padre de un dispositivo hijo).
                        Si se omite, no se filtra por área.
             device_id: Filtrar por device_id (UUID del device registry).
             platform:  Filtrar por plataforma de integración (ej. "mqtt",
@@ -167,7 +189,27 @@ def register(
 
         # Apply filters
         if area_id is not None:
-            items = [e for e in items if e.get("area_id") == area_id]
+            # Lo normal es que una entidad no tenga área propia y herede la de
+            # su dispositivo (y un dispositivo hijo, la de su padre). Filtrar
+            # solo por `area_id` propio dejaba fuera casi todo el área. El
+            # registro de dispositivos solo se lee cuando hace falta.
+            try:
+                raw_devs: Any = await ha_client.ws_send(
+                    {"type": "config/device_registry/list"}
+                )
+            except HAConnectionError as exc:
+                logger.error("ha_list_entities_registry_ws_error", error=str(exc))
+                return json.dumps({"error": str(exc)})
+            by_id = devices_by_id(raw_devs)
+
+            def _area_efectiva(e: dict) -> str | None:
+                propia = e.get("area_id")
+                if propia is not None:
+                    return propia
+                device = by_id.get(e.get("device_id"))
+                return effective_area_id(device, by_id) if device else None
+
+            items = [e for e in items if _area_efectiva(e) == area_id]
         if device_id is not None:
             items = [e for e in items if e.get("device_id") == device_id]
         if platform is not None:
@@ -219,6 +261,11 @@ def register(
                 {"type": "config/entity_registry/get", "entity_id": entity_id}
             )
         except HAConnectionError as exc:
+            # HA no devuelve `None` para una entidad inexistente: responde con
+            # error `not_found`. Se decide por el código y no por el texto, que
+            # HA puede cambiar o traducir.
+            if exc.code == "not_found":
+                return json.dumps({"error": "not_found", "entity_id": entity_id})
             logger.error(
                 "ha_get_entity_registry_ws_error",
                 entity_id=entity_id,
@@ -247,7 +294,11 @@ def register(
         renombrarla (new_entity_id), gestionar aliases y labels.
 
         Campos soportados en `updates`:
-          name (str|null)        — Override del nombre mostrado. null = usar original.
+          name (str|null)        — Override del nombre de la entidad. null = usar
+                                   original. Desde HA 2026.11 es solo la parte de
+                                   la entidad: HA le antepone el nombre del
+                                   dispositivo (p. ej. "Luz" en el dispositivo
+                                   "Salón" se muestra "Salón Luz").
           icon (str|null)        — Override del icono. null = usar original.
           area_id (str|null)     — Asignar a área. null = desasignar.
           disabled_by (str|null|bool) — Deshabilitar/habilitar entidad.
@@ -257,7 +308,18 @@ def register(
           hidden_by (str|null|bool)   — Ocultar/mostrar entidad. Mismo patrón.
           new_entity_id (str)    — DESTRUCTIVO: renombra el entity_id. Requiere
                                    confirmation_token.
-          aliases (list[str]|null) — Lista de aliases. null = limpiar aliases.
+          aliases (list[str|null]) — La lista sustituye a la anterior. Un null
+                                   DENTRO de la lista es el nombre calculado de
+                                   la entidad (HA 2026.4+; las entidades nacen
+                                   con [null]). Para añadir un alias, lee los
+                                   actuales y reenvíalos conservando el null
+                                   (ej. [null, "lámpara"]). [] vacía la lista;
+                                   [null] deja solo el nombre calculado.
+                                   aliases: null (sin lista) se rechaza.
+                                   En HA anterior a 2026.4 un null en la
+                                   lista se rechaza
+                                   (null_alias_requires_ha_2026_4), y también
+                                   si no se puede leer la versión de HA.
           labels (list[str])     — Lista de labels.
           device_class (str|null) — Override del device class.
           categories (dict)      — Categorías por scope.
@@ -283,6 +345,26 @@ def register(
 
         if not normalized:
             return json.dumps({"error": "updates is empty"})
+
+        if None in normalized.get("aliases", []):
+            # El `null` dentro de `aliases` solo existe desde HA 2026.4. En
+            # 2024.10 HA lo guardaba tal cual y luego Assist fallaba al leerlo
+            # (corrupción persistente); en 2026.3 daba `unknown_error`. Sin
+            # versión no se puede saber cuál de los dos casos es: se niega.
+            soporta = await ha_at_least(ha_client, _ALIASES_NULL_MIN_HA)
+            if soporta is None:
+                return json.dumps({
+                    "error": "ha_version_unknown",
+                    "detail": "Could not read the Home Assistant version; a "
+                              "null alias is only valid on 2026.4 or newer.",
+                })
+            if not soporta:
+                return json.dumps({
+                    "error": "null_alias_requires_ha_2026_4",
+                    "detail": "This Home Assistant is older than 2026.4 and "
+                              "does not accept null inside aliases: send only "
+                              "strings.",
+                })
 
         args = {"entity_id": entity_id, "updates": normalized}
         requires_token = _needs_token(normalized)

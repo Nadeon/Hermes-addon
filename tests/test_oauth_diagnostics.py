@@ -51,10 +51,13 @@ class TestMotivoDelFalloDeLogin(unittest.TestCase):
 
 class TestDestinoDeLaRedireccion(unittest.TestCase):
     def test_se_registra_el_host_pero_nunca_la_url_entera(self) -> None:
-        """La URL de redirección lleva el código dentro: no puede ir al log."""
+        """La URL de redirección lleva el código dentro: no puede ir al log.
+
+        Desde 1.1.0 el código lo emite `_issue_code` (común a DCR y CIMD).
+        """
         import inspect
 
-        fuente = inspect.getsource(oauth_mod.OAuthServer.authorize_post)
+        fuente = inspect.getsource(oauth_mod.OAuthServer._issue_code)
         self.assertIn("redirect_host=urlparse(redirect_uri).netloc", fuente)
         self.assertNotIn("redirect_url=redirect_url", fuente)
         self.assertNotIn("url=redirect_url", fuente)
@@ -62,7 +65,7 @@ class TestDestinoDeLaRedireccion(unittest.TestCase):
     def test_se_registra_si_venia_state(self) -> None:
         import inspect
 
-        fuente = inspect.getsource(oauth_mod.OAuthServer.authorize_post)
+        fuente = inspect.getsource(oauth_mod.OAuthServer._issue_code)
         self.assertIn("has_state=bool(state)", fuente)
 
 

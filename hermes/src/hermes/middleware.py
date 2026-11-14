@@ -21,7 +21,7 @@ import uuid
 from typing import Any
 
 import structlog
-from mcp_types.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -310,6 +310,10 @@ class OAuthBearerAuth(BaseHTTPMiddleware):
         challenge = 'Bearer realm="hermes"'
         if resource_metadata_url:
             challenge += f', resource_metadata="{resource_metadata_url}"'
+        # El scope que hay que pedir (RFC 6750 §3): Hermes solo tiene `mcp`, y
+        # sin decirlo el cliente tiene que deducirlo de los metadatos o pedir
+        # a ciegas.
+        challenge += ', scope="mcp"'
         self._www_authenticate = challenge
 
     def _reject(self, request: Request) -> Response:
@@ -583,7 +587,9 @@ class McpProtocolVersionMiddleware:
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
-        self._supported = tuple(SUPPORTED_PROTOCOL_VERSIONS)
+        # Las dos familias por separado: el SDK marca como deprecado el alias
+        # que las une y puede retirarlo.
+        self._supported = (*HANDSHAKE_PROTOCOL_VERSIONS, *MODERN_PROTOCOL_VERSIONS)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http" or scope.get("method") != "POST":

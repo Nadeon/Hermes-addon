@@ -7,8 +7,11 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **185 tools**: turn on lights, write automations,
+external systems). It ships **216 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
+
+> Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
+> keeps the term "add-on", as do the repository name and the Supervisor API.
 
 In practice: you ask Claude to "turn off the living room lights", or "write me an
 automation that raises the blind at sunrise, but not on Sundays", and it does —
@@ -18,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 185 tools
+## What it can do — 216 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -30,15 +33,16 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Scenes** | 7 | Including capturing the current state of the house as a new scene |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zones and people** | 10 | Geographic zones and person tracking |
-| **Registries** | 13 | Entities, devices and areas: rename, move, hide, disable |
+| **Registries** | 26 | Entities, devices, areas, floors, labels and categories: rename, move, hide, disable, delete. Deleting a floor or a label previews which automations and scripts use it as a target and will stop matching, apart from those only related to it |
 | **Integrations** | 13 | Config entries and their config flows, options flows included |
 | **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
 | **Lovelace** | 10 | Dashboards and resources |
 | **Add-ons** | 12 | List, install, start, stop, update, read logs and statistics |
-| **Backups** | 10 | Full and partial, create and restore |
+| **Backups** | 13 | Full and partial, create and restore. Also, read-only, the backups of Home Assistant's `backup` integration (HA 2025.1 or later) in every location (local, network, cloud), and its configuration without the encryption password |
 | **Supervisor and system** | 6 | Host and core info, validate configuration, restart |
 | **History and statistics** | 4 | History, logbook and long-term statistics |
-| **HACS** | 4 | Query repositories and available updates |
+| **Diagnostics** | 8 | Repairs issues (list and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; suggestions are never applied) |
+| **Marketplace (formerly HACS)** | 11 | Read-only: status, repositories, available updates, published versions, critical and removed repositories. Detects on every call whether Home Assistant has the built-in Marketplace (2026.11 or later) or HACS 2.x. Updates are installed through the `update` entity, with confirmation. The 4 `ha_hacs_*` tools remain as deprecated aliases until 1.3.0 |
 | **Event waiting** | 3 | Wait for something to happen, with filters |
 | **Utilities** | 2 | `ping` and `hermes_guide` |
 
@@ -57,7 +61,10 @@ token. That is what stops a misunderstanding from restarting your house.
   not do this for you; the next section covers the three ways to get there.
 - **A paid Claude plan.** Custom Connectors, which is how Hermes connects, are
   not available on the free plan.
-- `amd64` or `aarch64` architecture, and Home Assistant **2024.1.0** or newer.
+- `amd64` or `aarch64` architecture, and Home Assistant **2024.10.0** or newer. Hermes saves automations
+  with the plural keys (`triggers`, `actions`) that Home Assistant only
+  understands since 2024.10. The add-on declares it, so on an older Home
+  Assistant the Supervisor refuses to install or update Hermes.
 
 ## How Hermes is exposed to the internet
 
@@ -86,7 +93,9 @@ Whichever you pick, all Hermes needs is:
 Opens no router port, and Tailscale manages the certificate. This is the option
 Hermes is most thoroughly tested against.
 
-1. Install the **official Tailscale add-on** on HAOS.
+1. Install the **Tailscale add-on** on HAOS. It is the community add-on (Home
+   Assistant Community Add-ons repository, `a0d7b954`), not an official one,
+   although the store lists it by default.
 2. Set **`userspace_networking: false`**. This is mandatory: without it the
    `tailscale0` interface is never created and, under `network_mode: tailscale`,
    Hermes waits for it and never starts.
@@ -101,18 +110,27 @@ Hermes is most thoroughly tested against.
    The Tailscale add-on has no terminal in the HA UI. The most direct way in:
    1. Install **Advanced SSH & Web Terminal** (the community one; the official
       "Terminal & SSH" gives no Docker access).
-   2. In its configuration, disable **Protection mode**. Without that there is
+   2. On its **Info** tab, disable **Protection mode**. Without that there is
       no `docker` command. You can turn it back on when done.
    3. From its web terminal:
       ```
-      docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg 8765
+      docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg --https=8443 8765
       docker exec -it addon_a0d7b954_tailscale tailscale funnel status
       ```
       If the container name does not match, `docker ps | grep tailscale`
-      gives it. `funnel status` must list `https://<hostname>` pointing at
-      `http://127.0.0.1:8765`.
+      gives it. `funnel status` must list `https://<hostname>:8443` pointing
+      at `http://127.0.0.1:8765`.
 
-   Three things to know:
+   **Why 8443 and not 443.** Funnel only accepts ports 443, 8443 and 10000.
+   The Tailscale add-on's `share_homeassistant: funnel` option publishes Home
+   Assistant on 443 by default, at the same path `/`, and a second Funnel on
+   the same port and path replaces the first: whichever was set up last wins
+   and the other stops answering. With Hermes on 8443 (or 10000) the two never
+   collide, now or if you enable that option later. If you do not use
+   `share_homeassistant: funnel`, 443 still works: `tailscale funnel --bg 8765`
+   and a `public_hostname` with no port.
+
+   Four things to know:
    - **Funnel must be allowed on your tailnet**: HTTPS enabled and the
      `funnel` attribute in the access policy. If it is not, the command prints
      a link to the Tailscale admin panel to enable it; it does not fail
@@ -121,14 +139,48 @@ Hermes is most thoroughly tested against.
      so the HA UI does not show it. It survives add-on restarts and updates,
      but not a reinstall. If Hermes ever becomes unreachable after touching
      Tailscale, check `tailscale funnel status` first.
+     One exception on updates: the first time a Tailscale add-on 0.14.0 or
+     later starts, it runs `tailscale serve reset` once, which erases every
+     Serve and Funnel setting, this one included. If you set up the Funnel on
+     an older version and then updated, run the `funnel --bg --https=8443 8765`
+     command again. It does not happen a second time.
    - `--bg` is what makes it persistent. Without it, the Funnel lasts only as
      long as the foreground command.
+   - **Hermes and `share_homeassistant: funnel` must be on different ports.**
+     That option publishes Home Assistant with `tailscale funnel
+     --https=<share_on_port> --set-path=/`, and `share_on_port` defaults to
+     `443`. With Hermes on 8443, leave it at 443 (or use 10000); just do not
+     set it to 8443. You can tell they collided when `tailscale funnel status`
+     shows `/` on Hermes' port pointing at Home Assistant's port (`8123` by
+     default) instead of `http://127.0.0.1:8765`.
 4. In the Hermes options:
    - `network_mode`: `tailscale`
-   - `public_hostname`: the hostname Funnel gives you (e.g.
-     `homeassistant.tailXXXX.ts.net`), **with no scheme and no path**
+   - `public_hostname`: the hostname Funnel gives you **followed by the
+     port** (e.g. `homeassistant.tailXXXX.ts.net:8443`), **with no scheme and
+     no path**. With the Funnel on 443, the hostname alone.
    - `mcp_bind`: `127.0.0.1` (the Tailscale add-on shares the host network, so it
      can reach the loopback)
+
+   The connector URL in Claude will be
+   `https://homeassistant.tailXXXX.ts.net:8443/mcp`.
+
+**Moving an existing setup from 443 to 8443.** The port is part of the
+address Claude uses and of the OAuth URLs Hermes announces, so the connector
+has to be added again:
+
+1. Remove the old Funnel and create the new one, from the same terminal:
+   ```
+   docker exec -it addon_a0d7b954_tailscale tailscale funnel --https=443 off
+   docker exec -it addon_a0d7b954_tailscale tailscale funnel --bg --https=8443 8765
+   ```
+   If Home Assistant is also published with `share_homeassistant: funnel`, skip
+   the first line: 443 now belongs to Home Assistant. Restart the Tailscale
+   add-on so it publishes it again.
+2. In the Hermes options, change `public_hostname` to
+   `homeassistant.tailXXXX.ts.net:8443` and restart the add-on.
+3. In Claude, remove the Hermes connector and add it again with
+   `https://homeassistant.tailXXXX.ts.net:8443/mcp`. Authorize it with your
+   `auth_password`.
 
 ---
 
@@ -187,7 +239,8 @@ to the internet, so this is the option with the largest attack surface.
 
 ## Installation
 
-1. In Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**,
+1. In Home Assistant: **Settings → Apps → Install app → ⋮ → Repositories**
+   (before HA 2026.2: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**),
    and paste:
 
    ```
@@ -209,7 +262,8 @@ to the internet, so this is the option with the largest attack surface.
      Generate it with your password manager, or with `openssl rand -base64 18`.
      It is the only secret protecting your home.
    - **`public_hostname`** *(required)*: the public hostname, with no `https://`
-     and no trailing path.
+     and no trailing path. If it is not served on 443, add the port
+     (`homeassistant.tailXXXX.ts.net:8443`).
    - **`network_mode`**: `tailscale` or `reverse_proxy`, matching the option you
      set up above.
    - **`mcp_bind`**: `127.0.0.1` by default; change it only if your proxy does
@@ -230,7 +284,7 @@ updates with one click.
 If you would rather not add a third-party repository to your Home Assistant, copy
 **the contents of the `hermes/` folder** (not the repository root) to
 `/addons/hermes` on the host, over Samba or SSH. It will appear under **Local
-add-ons** after a *Check for updates*.
+apps** (**Local add-ons** in older versions) after a *Check for updates*.
 
 Installed this way you get no new-version notifications: every update means
 copying the files again.
@@ -255,7 +309,7 @@ minutes on x86, and considerably longer on a Raspberry Pi, because
 | `trusted_proxy_ips contiene un valor que no es una IP ni una red` | A typo in that list. Write single IPs (`172.30.32.2`) or CIDR ranges (`172.30.32.0/23`). |
 | `SUPERVISOR_TOKEN no está disponible` | You are not on Home Assistant OS or Supervised. Hermes is an add-on and needs the Supervisor. |
 | `network_mode inválido` | Only `tailscale` and `reverse_proxy` are accepted. |
-| `HA core … < minimum supported 2024.1.0` | Your Home Assistant is too old. Update it. |
+| `HA core … < minimum supported 2024.10.0` | Your Home Assistant is too old. Update it. |
 | `No se puede escuchar el health en …` | Something else holds port 8766, or the HAOS bridge network is missing. The message ends with a hint about which. |
 | `Crash loop detectado` | Hermes started 10 times in 5 minutes and stopped itself. Fix the cause shown earlier in the log, then start the add-on by hand. Manual restarts count too. |
 | The tunnel reports *connection refused* | `mcp_bind` is not reachable from your proxy. If it runs on the bridge network, use `172.30.32.1`. A blank `mcp_bind` silently becomes `127.0.0.1`. |
@@ -322,6 +376,15 @@ upstream.
 > range you trust can forge the client IP — which only skews the rate limits and
 > the logs, never authorization.
 
+### Claude Code cuts slow calls at 60 s
+
+Claude Code drops a call if it receives no byte for 60 seconds. Hermes answers
+in streaming and sends a *ping* every 15 s, so a long `ha_wait_for_event` is not
+cut. If the proxy in front buffers the whole response before forwarding it, the
+pings arrive too late: raise the limit in Claude Code with the
+`MCP_TOOL_TIMEOUT` environment variable (milliseconds) or with `timeout` in the
+server entry.
+
 ## Connecting Claude
 
 1. In Claude, mobile or desktop: **Settings → Connectors → Add custom
@@ -331,6 +394,9 @@ upstream.
    ```
    https://<your_public_hostname>/mcp
    ```
+
+   `public_hostname` includes the port when there is one: with the Tailscale
+   Funnel on 8443 it is `https://homeassistant.tailXXXX.ts.net:8443/mcp`.
 
 3. Claude opens the Hermes authorization page. Enter the `auth_password` you set
    in the add-on configuration.
@@ -344,9 +410,14 @@ upstream.
 > their own destination.
 
 What happens underneath, if you are curious: Claude discovers the OAuth endpoints
-from the `401` Hermes returns, registers a client automatically (RFC 7591), sends
-you to the login, and in exchange for your password receives a token. There are
-no keys to copy and paste.
+from the `401` Hermes returns, identifies itself, sends you to the login, and in
+exchange for your password receives a token. There are no keys to copy and
+paste. Clients that publish a metadata document (CIMD), such as Claude Code,
+identify themselves with that document's URL: Hermes downloads it, checks it,
+and the authorization screen shows the host of that URL. The rest register a
+client automatically (RFC 7591), as before. Every redirect back to the client
+carries the `iss` parameter (RFC 9207), so the client can tell the answer comes
+from Hermes.
 
 **How long it lasts.** Each authorization is good for **7 days**: Claude renews
 its access every hour within that week, but once it runs out the connector asks
@@ -368,20 +439,24 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `auth_password` | _(required)_ | OAuth flow password. Minimum 12 characters, and checked for guessability: Hermes will not start with a weak one |
-| `public_hostname` | _(required)_ | Public hostname Hermes is reached at, with no scheme and no path |
+| `public_hostname` | _(required)_ | Public hostname Hermes is reached at, with no scheme and no path. With a port other than 443, include it (`host:8443`) |
 | `network_mode` | `tailscale` | Who publishes the hostname: `tailscale` (Funnel) or `reverse_proxy` (Cloudflare Tunnel, Nginx, Caddy…) |
 | `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
 | `trusted_proxy_ips` | `[]` | Proxies whose `X-Forwarded-For` is trusted, as plain IPs or CIDR ranges (`172.30.32.0/23` is the HAOS bridge network). Empty means only `127.0.0.1` is trusted, which under `reverse_proxy` turns every per-IP limit into a single global bucket. Anybody inside a trusted range can forge the client IP (rate limits and logs only — never authorization) |
 | `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
-| `safety_backup_enabled` | `false` | Automatic **full** HAOS backup before writing to `/config`. Off by default (it produces several GB). The per-file backup always happens |
+| `log_redact_network` | `true` | Replaces your `public_hostname`, any `*.ts.net` name and every non-loopback IP in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
+| `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
+| `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |
+| `safety_backup_enabled` | `false` | Automatic **full** HAOS backup before writing to `/config`. Off by default (it produces several GB). The per-file backup always happens. If the backup fails, or Hermes cannot tell whether it finished, the write is not made (`safety_backup_job_failed`, `safety_backup_state_unknown`) |
 | `mcp_max_requests_per_minute` | `120` | Global post-auth rate limit |
 | `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Pre-auth per-IP rate limit. Applies to the public surface (OAuth and discovery), and the same value caps per IP the requests to protected routes that carry a missing or invalid token. Valid requests are governed by `mcp_max_requests_per_minute` |
-| `response_max_bytes` | `1048576` | Per-tool response cap (1 MB) |
+| `response_max_bytes` | `131072` | Per-tool response cap (128 KiB). Effective maximum `524288` (512 KiB): a larger saved value is clamped. Raise it up to that if your answers come back truncated |
 | `ha_ws_max_msg_size_bytes` | `4194304` | WS message cap towards HA (4 MB). A larger result closes the whole WebSocket, not just that call: raise it if you use `ha_get_history` over wide ranges |
 | `max_request_body_bytes` | `4194304` | Body cap for an authenticated HTTP request (4 MB). The public OAuth endpoints have their own fixed 64 KiB cap, independent of this option |
 | `max_concurrent_requests` | `64` | Simultaneous requests the server accepts. Bounds the maximum in-flight memory (`max_concurrent_requests × max_request_body_bytes`). Claude fires bursts of ~24 calls, so 64 leaves headroom |
-| `wait_for_event_max_seconds` | `90` | Maximum timeout allowed for `ha_wait_for_event` (10–300) |
+| `wait_for_event_max_seconds` | `90` | Maximum timeout allowed for `ha_wait_for_event` (10–220; a saved value above 220 is clamped) |
 | `wait_for_event_max_concurrent` | `5` | Maximum simultaneous `ha_wait_for_event` calls (1–20) |
+| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected or partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
 | `safety_backup_window_minutes` | `30` | If Hermes made its own safety backup more recently than this, another one is skipped. Backups made by hand or by other tools do not count. While the backup runs, the write waits up to 5 minutes, and it is cancelled if the backup fails |
 | `file_backup_max_per_path` | `20` | Copies kept of each file before overwriting it |
 | `file_backup_max_total_mb` | `200` | Total cap for the per-file backup directory |
@@ -389,6 +464,15 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `config_write_max_per_minute` | `10` | Maximum writes per minute to `/config` |
 | `health_startup_grace_seconds` | `120` | Startup grace **per boot step**, not total: steps 4 (Tailscale), 6 (`/core/info`) and 8 (HA WebSocket) may each use the full budget |
 | `health_reconnect_tolerance_seconds` | `300` | How long the WebSocket to HA may stay down before `/health` reports `degraded_long` instead of `degraded`. It never returns 503: a restart does not help with a Core outage, and the reconnect loop recovers on its own |
+
+> [!NOTE]
+> **If you had saved values.** The add-on UI stores the default even if you
+> never touched it, so a `response_max_bytes` of `1048576` (the old 1 MiB
+> default) is treated as untouched and becomes `131072`. A value above
+> `524288`, or a `wait_for_event_max_seconds` above `220`, is clamped to the
+> maximum. The add-on starts anyway and logs `config_legacy_default_replaced`
+> or `config_value_clamped` with the saved and the applied value. These limits
+> match what Claude's clients accept.
 
 ### Security levers
 
@@ -418,6 +502,8 @@ See `config.yaml` for the full schema with valid ranges.
 - **Security headers** (`X-Content-Type-Options`, `X-Frame-Options`,
   `Referrer-Policy`, CSP) and a body size limit (`chunked` included).
 - **Secret redaction** across all logs.
+- **Network redaction** in the log (`log_redact_network`, on by default): your
+  hostname and IPs are replaced with placeholders, so the log can be shared.
 - **Rate limiting** globally after authentication, plus a separate ceiling for the
   public surface (OAuth and discovery). Authentication failures get their own
   bucket, so someone without credentials cannot burn through yours.
@@ -443,6 +529,14 @@ The rules all of this is written under: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.md)
 - **`network_mode: reverse_proxy` is less battle-tested than `tailscale`.** It has
   its tests, but sees far less real-world use. If something breaks, an issue with
   the startup log is much appreciated.
+- **Supervisor suggestions are never applied.** `sv_get_resolution` shows them
+  and they can be dismissed, but some delete backups or reboot the host: apply
+  them yourself from the Home Assistant UI.
+- **Safety backups are not encrypted.** They are full HAOS backups without a
+  password. For an encrypted one, use `sv_create_backup_full` with `password`.
+- **Safety backups made before 1.1.0 are not pruned.** Hermes did not record
+  them, so retention cannot tell them apart from yours: delete them with
+  `sv_delete_backup` if you no longer need them.
 
 ## Architecture
 

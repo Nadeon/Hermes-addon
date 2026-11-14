@@ -512,6 +512,45 @@ class TestFsSearchRedos(unittest.IsolatedAsyncioTestCase):
         final = _j(await self.tools["fs_search_in_config"]("aguja_final"))
         self.assertEqual(final["count"], 0)
 
+    # ── Regresión M-2 (revisión de 1.1.0): lo que se lee de cada fichero no
+    # depende del tope de respuesta, y lo que no se pudo leer entero se dice.
+
+    async def test_busca_mas_alla_del_tope_de_respuesta(self) -> None:
+        tools = _make_tools(self.root, response_max_bytes=131_072)
+        (self.root / "automations.yaml").write_text(
+            "- alias: relleno\n" * 20_000 + "- entity_id: light.cocina_ficticia\n",
+            encoding="utf-8",
+        )
+        self.assertGreater((self.root / "automations.yaml").stat().st_size, 300_000)
+        result = _j(await tools["fs_search_in_config"]("light.cocina_ficticia"))
+        self.assertEqual(result["count"], 1)
+        self.assertNotIn("partially_searched", result)
+
+    async def test_fichero_mayor_que_el_limite_se_anuncia(self) -> None:
+        import hermes.tools.filesystem as fs_tools
+        (self.root / "enorme.yaml").write_text(
+            "linea: relleno\n" * 200 + "aguja: al_final\n", encoding="utf-8",
+        )
+        (self.root / "corto.yaml").write_text("aguja: corta\n", encoding="utf-8")
+        with patch.object(fs_tools, "_SEARCH_MAX_FILE_BYTES", 1024):
+            result = _j(await self.tools["fs_search_in_config"]("aguja"))
+        self.assertEqual([m["path"] for m in result["matches"]], ["corto.yaml"])
+        parcial = result["partially_searched"]
+        self.assertEqual(parcial["count"], 1)
+        self.assertEqual(parcial["paths"], ["enorme.yaml"])
+
+    async def test_respuesta_recortada_por_bytes(self) -> None:
+        tools = _make_tools(self.root, response_max_bytes=8192)
+        (self.root / "muchas.yaml").write_text(
+            "".join(f"aguja_{i}: {'x' * 200}\n" for i in range(150)), encoding="utf-8",
+        )
+        texto = await tools["fs_search_in_config"]("aguja", max_matches=200)
+        self.assertLessEqual(len(texto.encode()), 8192)
+        result = _j(texto)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["count"], len(result["matches"]))
+        self.assertGreater(result["count"], 0)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Paths que el kernel no admite

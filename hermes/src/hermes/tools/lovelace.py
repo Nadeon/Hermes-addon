@@ -11,13 +11,14 @@ Comandos WS usados:
     lovelace/dashboards/create   — crea dashboard nuevo
     lovelace/dashboards/update   — actualiza metadata (dashboard_id)
     lovelace/dashboards/delete   — borra dashboard (dashboard_id)
-    lovelace/resources           — lista resources
+    lovelace/resources/list      — lista resources
     lovelace/resources/create    — crea resource
     lovelace/resources/update    — modifica resource (resource_id)
     lovelace/resources/delete    — borra resource (resource_id)
 
-El dashboard principal ("default") no aparece en `lovelace/dashboards/list`.
-`ha_list_lovelace_dashboards` añade una entrada sintética para él.
+Desde la migración de HA 2026.2 el dashboard principal es la entrada `lovelace`
+de `lovelace/dashboards/list`; si no existe, `ha_list_lovelace_dashboards`
+añade una entrada sintética (`url_path: null`) para él.
 
 Concurrencia: last-write-wins. HA no tiene locking de dashboard.
 Si dos clientes guardan simultáneamente, el último gana.
@@ -30,6 +31,9 @@ from typing import Any
 
 import structlog
 
+# Sin opción explícita, el mismo tope que la configuración (spec 003): el
+# antiguo 1 MiB supera lo que el cliente acepta en una respuesta.
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
@@ -98,6 +102,32 @@ def _validate_dashboard_config(config: Any) -> str | None:
     return None
 
 
+def _claves_superiores(config: dict[str, Any]) -> dict[str, Any]:
+    """Todo lo del dashboard que NO son las vistas (title, background…).
+
+    Es lo que se perdía al reconstruir por vistas un dashboard demasiado
+    grande para leerlo entero (hallazgo M-3 de la revisión de 1.1.0): ninguna
+    lectura parcial lo devolvía y el guardado reemplaza el documento entero.
+    """
+    return {k: v for k, v in config.items() if k != "views"}
+
+
+def _con_claves_superiores(
+    respuesta: dict[str, Any], config: dict[str, Any], max_bytes: int
+) -> dict[str, Any]:
+    """Añade `top_level` a una lectura parcial, o solo sus nombres si no cabe.
+
+    Con solo los nombres el agente no puede reconstruir el documento, pero
+    `ha_save_lovelace_dashboard` se niega a guardar sin ellos: el fallo es
+    visible en vez de una pérdida callada.
+    """
+    superiores = _claves_superiores(config)
+    con_valores = {**respuesta, "top_level": superiores}
+    if len(json.dumps(con_valores, ensure_ascii=False).encode("utf-8")) <= max_bytes:
+        return con_valores
+    return {**respuesta, "top_level_keys": sorted(superiores)}
+
+
 async def _list_extra_dashboards(ha_client: HAClient) -> list[dict[str, Any]]:
     """Lista los dashboards extra (excluye el default) vía WS.
 
@@ -127,6 +157,55 @@ async def _list_extra_dashboards(ha_client: HAClient) -> list[dict[str, Any]]:
         return []
 
 
+async def _default_panel(ha_client: HAClient) -> tuple[str | None, str | None]:
+    """Lee el panel por defecto de HA. Devuelve `(panel, error)`.
+
+    Por qué: desde la migración de HA 2026.2 el dashboard principal es la
+    entrada `lovelace` de la colección, y el usuario puede elegir otro
+    dashboard como panel por defecto. Ese valor vive en los datos de sistema
+    del frontend: `frontend/get_system_data` con `key: "core"` responde
+    `{"value": <dict o None>}`, y el dict lleva `default_panel` (str) si se
+    fijó (`components/frontend/storage.py` y `components/lovelace/__init__.py`
+    de HA 2026.11.1).
+
+    - `value` nulo o sin `default_panel`: el frontend usa `lovelace`, que ya se
+      protege aparte → `(None, None)`.
+    - `unknown_command` (HA anterior a 2025.12): no hay panel configurable por
+      esta vía → `(None, None)`.
+    - Cualquier otro error o forma: fail-closed → `(None,
+      "default_panel_unknown")`; quien llama no debe borrar nada.
+    """
+    try:
+        result = await ha_client.ws_send(
+            {"type": "frontend/get_system_data", "key": "core"}
+        )
+    except HAConnectionError as exc:
+        if exc.code == "unknown_command":
+            return None, None
+        logger.warning("lovelace_default_panel_read_failed", error=str(exc))
+        return None, "default_panel_unknown"
+    if not isinstance(result, dict) or "value" not in result:
+        logger.warning(
+            "lovelace_default_panel_unexpected_shape", got=type(result).__name__
+        )
+        return None, "default_panel_unknown"
+    core = result["value"]
+    if core is None:
+        return None, None
+    if not isinstance(core, dict):
+        logger.warning(
+            "lovelace_default_panel_unexpected_shape", got=type(core).__name__
+        )
+        return None, "default_panel_unknown"
+    panel = core.get("default_panel")
+    if panel is None or isinstance(panel, str):
+        return panel, None
+    logger.warning(
+        "lovelace_default_panel_unexpected_shape", got=type(panel).__name__
+    )
+    return None, "default_panel_unknown"
+
+
 async def _get_dashboard_meta_by_url_path(
     ha_client: HAClient,
     url_path: str,
@@ -145,7 +224,7 @@ async def _get_dashboard_meta_by_url_path(
 def register(
     mcp: object,
     ha_client: HAClient,
-    response_max_bytes: int = 1_048_576,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las tools de Lovelace dashboards."""
 
@@ -158,33 +237,49 @@ def register(
     async def ha_list_lovelace_dashboards() -> object:
         """Lista todos los dashboards Lovelace configurados.
 
-        Devuelve el dashboard principal (synthetic `url_path: null`) más los
-        dashboards extra registrados. Cada item incluye:
+        Devuelve el dashboard principal más los dashboards extra registrados.
+        Desde la migración de HA 2026.2 el principal es la entrada `lovelace`
+        (marcada `is_default: true`); en instalaciones sin ella se añade una
+        entrada sintética con `url_path: null`. Cada item incluye:
         `url_path`, `title`, `icon`, `mode` ("storage"|"yaml"),
-        `require_admin`, `show_in_sidebar`, `id` (null para el default),
+        `require_admin`, `show_in_sidebar`, `id` (null para el sintético),
         `is_default` (bool).
 
-        El dashboard default no se puede borrar.
+        `ha_delete_lovelace_dashboard` no borra nunca el principal
+        (`url_path: null` y `lovelace`) ni el dashboard elegido como panel por
+        defecto (`default_panel` de los datos de sistema del frontend), porque
+        es la pantalla de inicio de la casa.
         Los dashboards en YAML mode no se pueden guardar con
         `ha_save_lovelace_dashboard` — usar `fs_write_file` en su lugar.
         """
         try:
             extra = await _list_extra_dashboards(ha_client)
-            result: list[dict[str, Any]] = [
-                {
-                    "url_path": None,
-                    "title": "Default",
-                    "icon": None,
-                    "mode": "storage",
-                    "require_admin": False,
-                    "show_in_sidebar": True,
-                    "id": None,
-                    "is_default": True,
-                }
-            ]
+            # HA redirige `url_path=None` a `lovelace` cuando existe: son el
+            # mismo dashboard, así que el sintético solo se añade si falta
+            # (instalaciones anteriores a la migración de 2026.2 o en YAML).
+            has_lovelace = any(
+                isinstance(d, dict) and d.get("url_path") == "lovelace"
+                for d in extra
+            )
+            result: list[dict[str, Any]] = []
+            if not has_lovelace:
+                result.append(
+                    {
+                        "url_path": None,
+                        "title": "Default",
+                        "icon": None,
+                        "mode": "storage",
+                        "require_admin": False,
+                        "show_in_sidebar": True,
+                        "id": None,
+                        "is_default": True,
+                    }
+                )
             for d in extra:
                 if isinstance(d, dict):
-                    result.append({**d, "is_default": False})
+                    result.append(
+                        {**d, "is_default": d.get("url_path") == "lovelace"}
+                    )
             return result
         except HAConnectionError as exc:
             logger.warning("ha_list_lovelace_dashboards_ws_error", error=str(exc))
@@ -207,12 +302,18 @@ def register(
             url_path: URL path del dashboard (p.ej. "map"). Omitir o `null`
                 para el dashboard principal.
             view_index: Si se especifica, devuelve solo esa view por índice
-                (0-based). Útil cuando el dashboard entero supera el límite
-                de respuesta.
+                (0-based), junto con `top_level` (todas las claves del
+                dashboard salvo `views`). Útil cuando el dashboard entero
+                supera el límite de respuesta.
+
+        Para reconstruir un dashboard leído por vistas, guarda
+        `{**top_level, "views": [vista0, vista1, ...]}`: si falta alguna clave
+        de nivel superior, `ha_save_lovelace_dashboard` se niega a guardar.
 
         Errores posibles:
         - `yaml_mode`: el dashboard es YAML mode — leer con `fs_read_file`.
-        - `too_large`: config > `response_max_bytes`. Usar `view_index`.
+        - `too_large`: config > `response_max_bytes`. Usar `view_index`; la
+          respuesta ya trae `top_level`.
         - `view_index_out_of_range`: índice fuera de rango.
         """
         try:
@@ -256,29 +357,39 @@ def register(
                         "views_count": len(views),
                         "requested": view_index,
                     }
-                return {
-                    "url_path": url_path,
-                    "view_index": view_index,
-                    "views_total": len(views),
-                    "view": views[view_index],
-                }
+                return _con_claves_superiores(
+                    {
+                        "url_path": url_path,
+                        "view_index": view_index,
+                        "views_total": len(views),
+                        "view": views[view_index],
+                    },
+                    config,
+                    response_max_bytes,
+                )
 
             # Comprobar tamaño
             encoded = json.dumps(config, ensure_ascii=False)
             size = len(encoded.encode("utf-8"))
             if size > response_max_bytes:
                 views = config.get("views", [])
-                return {
-                    "error": "too_large",
-                    "url_path": url_path,
-                    "views_count": len(views) if isinstance(views, list) else 0,
-                    "total_size_bytes": size,
-                    "hint": (
-                        "Dashboard config exceeds the response limit. "
-                        "Call ha_get_lovelace_dashboard with view_index=N "
-                        "to read individual views."
-                    ),
-                }
+                return _con_claves_superiores(
+                    {
+                        "error": "too_large",
+                        "url_path": url_path,
+                        "views_count": len(views) if isinstance(views, list) else 0,
+                        "total_size_bytes": size,
+                        "hint": (
+                            "Dashboard config exceeds the response limit. "
+                            "Call ha_get_lovelace_dashboard with view_index=N "
+                            "to read individual views, and save "
+                            "{**top_level, 'views': [...]} so no top-level key "
+                            "is lost."
+                        ),
+                    },
+                    config,
+                    response_max_bytes,
+                )
 
             return config
 
@@ -297,12 +408,21 @@ def register(
         url_path: str | None,
         config: dict[str, Any],
         confirmation_token: str | None = None,
+        remove_top_level_keys: list[str] | None = None,
     ) -> object:
         """Sobrescribe la configuración completa de un dashboard Lovelace.
 
         Esta operación **siempre requiere `confirmation_token`** porque sustituye
         el dashboard entero (no es un merge parcial). El preview muestra un diff
         resumido (vistas y cards antes/después), no el JSON completo.
+
+        **Claves de nivel superior**: si el dashboard actual tiene claves
+        distintas de `views` (title, background, kiosk_mode…) que `config` no
+        trae, se niega con `top_level_keys_missing` y no emite token: suele
+        ser un documento reconstruido desde una lectura parcial. Para
+        quitarlas a propósito, nómbralas en `remove_top_level_keys`. Si no se
+        puede leer el dashboard actual, tampoco hay token
+        (`preview_unavailable`).
 
         **Concurrencia**: last-write-wins. Si dos clientes guardan
         simultáneamente, el último gana. HA no tiene locking de dashboard.
@@ -312,12 +432,21 @@ def register(
             config: Configuración completa. Debe tener `views` o `strategy`.
             confirmation_token: Token de un solo uso obtenido en la llamada
                 previa sin token.
+            remove_top_level_keys: Claves de nivel superior del dashboard
+                actual que se quieren eliminar a propósito.
 
         Rechaza si el dashboard está en YAML mode (usar `fs_write_file`).
         """
         err = _validate_dashboard_config(config)
         if err:
             return {"error": f"invalid_config: {err}"}
+        if remove_top_level_keys is not None and not (
+            isinstance(remove_top_level_keys, list)
+            and all(isinstance(k, str) for k in remove_top_level_keys)
+        ):
+            return {"error": "invalid_argument", "field": "remove_top_level_keys",
+                    "detail": "must be a list of strings"}
+        quitar = sorted(set(remove_top_level_keys or []))
 
         # Detectar YAML mode
         if url_path is not None:
@@ -336,24 +465,63 @@ def register(
                 }
 
         args: dict[str, Any] = {"url_path": url_path, "config": config}
+        if quitar:
+            # En el token solo si se usa: así un token de antes del cambio
+            # sigue valiendo para la llamada de siempre.
+            args["remove_top_level_keys"] = quitar
 
         if not confirmation_token:
             try:
                 get_payload: dict[str, Any] = {"type": "lovelace/config"}
                 if url_path is not None:
                     get_payload["url_path"] = url_path
+                # Fail-closed: antes un fallo de lectura daba una vista previa
+                # con «0 vistas antes» y token, y sin el documento actual no se
+                # puede comprobar qué se pierde. Solo `config_not_found` (el
+                # dashboard aún no tiene configuración) significa «nada que
+                # perder».
                 try:
                     current = await ha_client.ws_send(get_payload)
-                    if not isinstance(current, dict):
-                        current = None
-                except HAConnectionError:
+                except HAConnectionError as exc:
+                    if exc.code != "config_not_found":
+                        return {"error": "preview_unavailable", "url_path": url_path,
+                                "detail": f"lovelace/config failed: {exc}"}
                     current = None
+                if current is not None and not isinstance(current, dict):
+                    return {"error": "preview_unavailable", "url_path": url_path,
+                            "detail": "lovelace/config returned an unexpected shape"}
+
+                # Lo que tiene el dashboard actual y el nuevo no trae se
+                # perdería en silencio, porque se reemplaza el documento
+                # entero. Pasa sobre todo al reconstruir desde lecturas por
+                # vistas (hallazgo M-3), así que se niega en vez de avisar.
+                faltan = sorted(
+                    k for k in _claves_superiores(current or {})
+                    if k not in config and k not in quitar
+                )
+                if faltan:
+                    return {
+                        "error": "top_level_keys_missing",
+                        "url_path": url_path,
+                        "missing": faltan,
+                        "detail": (
+                            "The current dashboard has top-level keys that the new "
+                            "config lacks; saving would delete them. Include them "
+                            "(ha_get_lovelace_dashboard returns them in "
+                            "`top_level`), or list them in remove_top_level_keys "
+                            "to delete them on purpose."
+                        ),
+                    }
 
                 preview: dict[str, Any] = {
                     "url_path": url_path,
                     "diff": _summarize_dashboard_diff(current, config),
                     "warning": "This replaces the ENTIRE dashboard configuration.",
                 }
+                if quitar:
+                    preview["top_level_keys_removed"] = [
+                        k for k in quitar if current and k in current and k not in config
+                    ]
                 return await create_confirmation_token(
                     "ha_save_lovelace_dashboard", args, preview=preview
                 )
@@ -575,18 +743,54 @@ def register(
     ) -> object:
         """Elimina un dashboard Lovelace extra.
 
-        Esta operación **siempre requiere `confirmation_token`**. No se puede
-        eliminar el dashboard principal (`url_path=null`).
+        Esta operación **siempre requiere `confirmation_token`**.
+
+        El dashboard principal está protegido siempre, sin token ni opción que
+        lo salte (error `cannot_delete_default_dashboard`): `url_path=null`,
+        `lovelace` (desde la migración de HA 2026.2 el principal es esa
+        entrada de la colección) y el dashboard elegido como panel por
+        defecto (`default_panel` de los datos de sistema del frontend). Si no
+        se puede leer el `default_panel`, no se borra nada
+        (`default_panel_unknown`). En HA anterior a 2025.12 el panel por
+        defecto lo elige cada navegador y Hermes no puede conocerlo: ahí solo
+        se protege `lovelace` (el frontend vuelve a él si falta el elegido).
 
         Args:
             url_path: URL path del dashboard a borrar.
             confirmation_token: Token de un solo uso obtenido en la llamada
                 previa sin token.
         """
-        if url_path is None:
+        # Guarda única, antes de mirar el token: borrar el dashboard principal
+        # deja la casa sin su pantalla de inicio, y desde HA 2026.2 `lovelace`
+        # es una entrada más que `lovelace/dashboards/delete` acepta. Se
+        # repite en la llamada con token porque el panel por defecto puede
+        # cambiar entre la vista previa y la confirmación.
+        if url_path is None or url_path == "lovelace":
             return {
                 "error": "cannot_delete_default_dashboard",
-                "hint": "The default Lovelace dashboard cannot be deleted.",
+                "url_path": url_path,
+                "hint": "The main Lovelace dashboard cannot be deleted.",
+            }
+        default_panel, panel_error = await _default_panel(ha_client)
+        if panel_error:
+            # Fail-closed: sin saber cuál es el panel por defecto, cualquier
+            # dashboard podría ser el principal.
+            return {
+                "error": panel_error,
+                "url_path": url_path,
+                "hint": (
+                    "Could not read the default panel from Home Assistant; "
+                    "refusing to delete any dashboard."
+                ),
+            }
+        if url_path == default_panel:
+            return {
+                "error": "cannot_delete_default_dashboard",
+                "url_path": url_path,
+                "hint": (
+                    "This dashboard is the default panel of Home Assistant "
+                    "and cannot be deleted."
+                ),
             }
 
         args: dict[str, Any] = {"url_path": url_path}
@@ -682,7 +886,10 @@ def register(
         el frontend de HA. Incluyen `id`, `url` y `type` ("module"|"css").
         """
         try:
-            result = await ha_client.ws_send({"type": "lovelace/resources"})
+            # `lovelace/resources` a secas es un alias que HA anunció retirar
+            # en 2025.1 y puede desaparecer sin aviso; `/list` existe en modo
+            # storage y en modo YAML.
+            result = await ha_client.ws_send({"type": "lovelace/resources/list"})
             return result if isinstance(result, list) else []
         except HAConnectionError as exc:
             logger.warning("ha_list_lovelace_resources_ws_error", error=str(exc))
@@ -709,7 +916,8 @@ def register(
         malicioso puede inyectar JS que robe el token de HA del navegador.
 
         Args:
-            url: URL del fichero JS/CSS (p.ej. "/hacsfiles/card/card.js").
+            url: URL del fichero JS/CSS (p.ej. "/local/community/card/card.js",
+                la ruta del Marketplace; "/hacsfiles/..." sigue funcionando).
             res_type: Tipo de resource: "module" (ES module JS) o "css".
             confirmation_token: Token de confirmación requerido.
         """

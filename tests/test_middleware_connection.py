@@ -9,6 +9,7 @@ from unittest import mock
 
 from mcp_types.version import (
     HANDSHAKE_PROTOCOL_VERSIONS,
+    MODERN_PROTOCOL_VERSIONS,
     SUPPORTED_PROTOCOL_VERSIONS,
 )
 from starlette.applications import Starlette
@@ -95,15 +96,20 @@ class TestWwwAuthenticate(unittest.TestCase):
         url = "https://hermes.tail-xxxx.ts.net/.well-known/oauth-protected-resource"
         resp = self._client(resource_metadata_url=url).post("/mcp")
         self.assertEqual(resp.status_code, 401)
+        # `scope="mcp"` (spec 003, FR-029): sin él, un cliente que sigue la
+        # spec MCP no sabe qué scope pedir y tiene que adivinarlo o pedir
+        # todos los que anuncian los metadatos.
         self.assertEqual(
             resp.headers["www-authenticate"],
-            f'Bearer realm="hermes", resource_metadata="{url}"',
+            f'Bearer realm="hermes", resource_metadata="{url}", scope="mcp"',
         )
 
     def test_401_without_metadata_url_keeps_plain_challenge(self) -> None:
         resp = self._client().post("/mcp")
         self.assertEqual(resp.status_code, 401)
-        self.assertEqual(resp.headers["www-authenticate"], 'Bearer realm="hermes"')
+        self.assertEqual(
+            resp.headers["www-authenticate"], 'Bearer realm="hermes", scope="mcp"'
+        )
 
 
 class TestDefaultOAuthPathsArePublic(unittest.TestCase):
@@ -353,12 +359,25 @@ class TestMcpProtocolVersionMiddleware(unittest.TestCase):
         self.assertEqual(payload["id"], "probe-1")
         self.assertEqual(payload["error"]["code"], -32022)
         self.assertEqual(payload["error"]["data"]["requested"], UNSUPPORTED_VERSION)
-        self.assertEqual(payload["error"]["data"]["supported"], list(SUPPORTED_PROTOCOL_VERSIONS))
+        # El mismo conjunto que antes, leído de las dos tuplas no deprecadas
+        # del SDK (spec 003, FR-042).
+        self.assertEqual(
+            payload["error"]["data"]["supported"],
+            [*HANDSHAKE_PROTOCOL_VERSIONS, *MODERN_PROTOCOL_VERSIONS],
+        )
 
         logged = self.fake.find("mcp_protocol_version_unsupported")
         self.assertEqual(len(logged), 1)
         self.assertEqual(logged[0]["requested"], UNSUPPORTED_VERSION)
         self.assertEqual(logged[0]["method"], "server/discover")
+
+    def test_middleware_does_not_use_the_deprecated_alias(self) -> None:
+        """`SUPPORTED_PROTOCOL_VERSIONS` está marcado como deprecado en el SDK
+        («Kept as the union for v1.x compatibility»): si desaparece, el
+        middleware no puede dejar de importar (spec 003, FR-042)."""
+        import inspect
+
+        self.assertNotIn("SUPPORTED_PROTOCOL_VERSIONS", inspect.getsource(mw))
 
     def test_numeric_id_is_echoed(self) -> None:
         resp = self._post({"jsonrpc": "2.0", "id": 7, "method": "tools/list"}, UNSUPPORTED_VERSION)

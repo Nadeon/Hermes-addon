@@ -55,6 +55,7 @@ from hermes.fs_write import (
 )
 from hermes.tools.filesystem_write import register_write
 from hermes import security
+from hermes.ha import HAConnectionError
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -834,16 +835,13 @@ class TestSafetyBackupTrigger(unittest.IsolatedAsyncioTestCase):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     async def test_triggers_after_window_exceeded(self) -> None:
-        from hermes.tools.backups import (
-            _SAFETY_BACKUP_STATE_PATH,
-            _save_safety_state,
-        )
+        import hermes.tools.backups as backups
         state_path = self.data_root / "last_safety_backup.json"
 
         # Estado: último backup hace 31 minutos
         old_time = time.time() - 31 * 60
         with patch("hermes.tools.backups._SAFETY_BACKUP_STATE_PATH", state_path):
-            _save_safety_state({"last_completed_at": old_time})
+            backups._save_safety_state({"last_completed_at": old_time})
 
         ha_client = MagicMock()
         # Respuesta sin job_id → backup síncrono
@@ -860,16 +858,13 @@ class TestSafetyBackupTrigger(unittest.IsolatedAsyncioTestCase):
         self.assertIn("background", str(call_args) + str(call_args.args) + str(call_args.kwargs))
 
     async def test_does_not_trigger_within_window(self) -> None:
-        from hermes.tools.backups import (
-            _SAFETY_BACKUP_STATE_PATH,
-            _save_safety_state,
-        )
+        import hermes.tools.backups as backups
         state_path = self.data_root / "last_safety_backup.json"
 
         # Estado: último backup hace 10 minutos (dentro del window)
         recent_time = time.time() - 10 * 60
         with patch("hermes.tools.backups._SAFETY_BACKUP_STATE_PATH", state_path):
-            _save_safety_state({"last_completed_at": recent_time})
+            backups._save_safety_state({"last_completed_at": recent_time})
 
         ha_client = MagicMock()
         ha_client.sv_request = AsyncMock(return_value={})
@@ -883,16 +878,13 @@ class TestSafetyBackupTrigger(unittest.IsolatedAsyncioTestCase):
         ha_client.sv_request.assert_not_called()
 
     async def test_hard_limit_60s_respected(self) -> None:
-        from hermes.tools.backups import (
-            _SAFETY_BACKUP_STATE_PATH,
-            _save_safety_state,
-        )
+        import hermes.tools.backups as backups
         state_path = self.data_root / "last_safety_backup.json"
 
         # Estado: último backup hace 30 segundos (< 60s barrera dura)
         very_recent = time.time() - 30
         with patch("hermes.tools.backups._SAFETY_BACKUP_STATE_PATH", state_path):
-            _save_safety_state({"last_completed_at": very_recent})
+            backups._save_safety_state({"last_completed_at": very_recent})
 
         ha_client = MagicMock()
         ha_client.sv_request = AsyncMock(return_value={})
@@ -910,12 +902,12 @@ class TestSafetyBackupTrigger(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_by_default_does_not_trigger(self) -> None:
         """Con safety_backup_enabled=False (default) no se crea el backup FULL,
         aunque haya pasado el window."""
-        from hermes.tools.backups import _save_safety_state
+        import hermes.tools.backups as backups
 
         state_path = self.data_root / "last_safety_backup.json"
         old_time = time.time() - 31 * 60  # window superado
         with patch("hermes.tools.backups._SAFETY_BACKUP_STATE_PATH", state_path):
-            _save_safety_state({"last_completed_at": old_time})
+            backups._save_safety_state({"last_completed_at": old_time})
 
         ha_client = MagicMock()
         ha_client.sv_request = AsyncMock(return_value={"slug": "x"})
@@ -928,6 +920,298 @@ class TestSafetyBackupTrigger(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
         ha_client.sv_request.assert_not_called()
+
+
+class _SupervisorDeJobs:
+    """Supervisor simulado para el safety backup con `job_id` (R1).
+
+    El `POST /backups/new/full` devuelve un job y cada `GET` lo contesta la
+    función `job`, que recibe la ruta pedida. Se graban todas las peticiones
+    para comprobar la ruta de sondeo y que no se lanza más de un backup.
+    """
+
+    def __init__(self, job, job_id: str = "0123abcd4567ef89") -> None:
+        self.job = job
+        self.job_id = job_id
+        self.peticiones: list[tuple[str, str]] = []
+
+    async def sv_request(self, method, path, json_body=None, params=None,
+                         timeout_seconds=60.0):
+        self.peticiones.append((method, path))
+        if method == "POST":
+            return {"job_id": self.job_id}
+        respuesta = self.job(path)
+        if isinstance(respuesta, Exception):
+            raise respuesta
+        return respuesta
+
+    @property
+    def posts(self) -> int:
+        return sum(1 for m, _ in self.peticiones if m == "POST")
+
+    @property
+    def gets(self) -> list[str]:
+        return [p for m, p in self.peticiones if m == "GET"]
+
+
+def _job(done: bool, errores: list | None = None) -> dict:
+    return {"name": "backup_manager_full_backup", "done": done,
+            "errors": errores or [], "progress": 100 if done else 40}
+
+
+_SIN_ESPACIO = [{"type": "BackupError", "message": "Not enough free space",
+                 "stage": None}]
+
+
+def _404(job_id: str) -> HAConnectionError:
+    return HAConnectionError(
+        f"Supervisor REST GET http://supervisor/jobs/{job_id} failed 404: "
+        '{"result": "error", "message": "Job does not exist"}',
+        status=404,
+    )
+
+
+class TestSafetyBackupJobPolling(unittest.IsolatedAsyncioTestCase):
+    """R1: el safety backup automático nunca llegaba a darse por bueno.
+
+    Sondeaba `/jobs/{id}/info`, una ruta que el Supervisor no tiene (404 en
+    cada intento), y buscaba `state`/`error`, campos que el job no trae. Tras
+    5 minutos daba timeout sin dejar rastro, y la escritura siguiente lanzaba
+    OTRO backup completo de varios GB. Además, un job terminado con `errors`
+    contaba como correcto porque solo se miraba `done`.
+    """
+
+    def setUp(self) -> None:
+        import hermes.tools.backups as backups
+
+        self.b = backups
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patch_estado = patch.object(
+            backups, "_SAFETY_BACKUP_STATE_PATH",
+            Path(self._tmp.name) / "last_safety_backup.json")
+        self._patch_estado.start()
+        # Reloj simulado: `asyncio.sleep` lo adelanta en vez de esperar, así
+        # el plazo de 5 minutos se agota sin que el test tarde 5 minutos.
+        self.reloj = [time.time()]
+
+        async def _dormir(segundos: float) -> None:
+            self.reloj[0] += segundos
+
+        self._patch_time = patch("time.time", side_effect=lambda: self.reloj[0])
+        self._patch_sleep = patch("asyncio.sleep", side_effect=_dormir)
+        self._patch_time.start()
+        self._patch_sleep.start()
+        # Último backup correcto hace 31 minutos: la ventana de 30 ha vencido.
+        self.marca_vieja = self.reloj[0] - 31 * 60
+        backups._save_safety_state({backups._MARCA: self.marca_vieja})
+
+    def tearDown(self) -> None:
+        self._patch_sleep.stop()
+        self._patch_time.stop()
+        self._patch_estado.stop()
+        self._tmp.cleanup()
+
+    async def _disparar(self, sv) -> dict | None:
+        return await maybe_trigger_safety_backup(
+            sv, safety_backup_window_minutes=30, enabled=True)
+
+    def _estado(self) -> dict:
+        return self.b._load_safety_state()
+
+    def _sin_pendiente(self) -> None:
+        estado = self._estado()
+        for clave in ("pending_job_id", "pending_started_at", "pending_backup_name"):
+            self.assertNotIn(clave, estado)
+
+    # (a) y (b)
+    async def test_polls_the_real_job_route_and_succeeds(self) -> None:
+        sv = _SupervisorDeJobs(lambda path: _job(True))
+        result = await self._disparar(sv)
+        self.assertIsNone(result)
+        self.assertEqual(sv.gets, [f"/jobs/{sv.job_id}"])
+        self.assertFalse(any(p.endswith("/info") for p in sv.gets))
+        self.assertGreater(self.b._leer_marca(self._estado()), self.marca_vieja)
+        self._sin_pendiente()
+
+    # (c)
+    async def test_done_with_errors_is_a_failure(self) -> None:
+        sv = _SupervisorDeJobs(lambda path: _job(True, _SIN_ESPACIO))
+        result = await self._disparar(sv)
+        self.assertIsNotNone(result)
+        self.assertIn("safety_backup_job_failed", result["error"])
+        self.assertIn("Not enough free space", result["error"])
+        self.assertEqual(self.b._leer_marca(self._estado()), self.marca_vieja)
+        self._sin_pendiente()
+
+    async def test_transient_poll_error_keeps_polling(self) -> None:
+        respuestas = [HAConnectionError("timeout"), _job(True)]
+        sv = _SupervisorDeJobs(lambda path: respuestas.pop(0))
+        self.assertIsNone(await self._disparar(sv))
+        self.assertEqual(len(sv.gets), 2)
+
+    # (d) y (e)
+    async def test_timeout_keeps_the_pending_job_and_does_not_chain_backups(self) -> None:
+        sv = _SupervisorDeJobs(lambda path: _job(False))
+        result = await self._disparar(sv)
+        self.assertIn("safety_backup_timeout", result["error"])
+        self.assertIn(sv.job_id, result["error"])
+        self.assertEqual(result["job_id"], sv.job_id)
+        self.assertEqual(result["poll_with"], "sv_get_job_status")
+        estado = self._estado()
+        self.assertEqual(estado["pending_job_id"], sv.job_id)
+        self.assertIn("pending_started_at", estado)
+        self.assertEqual(self.b._leer_marca(estado), self.marca_vieja)
+
+        # La escritura siguiente consulta ese job en vez de lanzar otro.
+        otra = await self._disparar(sv)
+        self.assertIn("safety_backup_in_progress", otra["error"])
+        self.assertEqual(otra["job_id"], sv.job_id)
+        self.assertEqual(sv.posts, 1)
+
+    def _con_pendiente(self, hace_segundos: float, job_id: str = "0123abcd4567ef89") -> None:
+        self.b._save_safety_state({
+            "pending_job_id": job_id,
+            "pending_started_at": self.reloj[0] - hace_segundos,
+            "pending_backup_name": "hermes-safety-x",
+        })
+
+    # (f)
+    async def test_pending_job_finished_ok_allows_the_write_without_new_backup(self) -> None:
+        self._con_pendiente(600)
+        sv = _SupervisorDeJobs(lambda path: _job(True))
+        self.assertIsNone(await self._disparar(sv))
+        self.assertEqual(sv.posts, 0)
+        self.assertEqual(sv.gets, [f"/jobs/{sv.job_id}"])
+        self.assertGreater(self.b._leer_marca(self._estado()), self.marca_vieja)
+        self.assertEqual(self._estado()["last_backup_name"], "hermes-safety-x")
+        self._sin_pendiente()
+
+    # (g)
+    async def test_pending_job_failed_or_missing_blocks_without_new_backup(self) -> None:
+        casos = {
+            "safety_backup_job_failed": lambda path: _job(True, _SIN_ESPACIO),
+            "safety_backup_state_unknown": lambda path: _404("0123abcd4567ef89"),
+        }
+        for codigo, job in casos.items():
+            with self.subTest(codigo=codigo):
+                self._con_pendiente(600)
+                sv = _SupervisorDeJobs(job)
+                result = await self._disparar(sv)
+                self.assertIn(codigo, result["error"])
+                self.assertEqual(sv.posts, 0)
+                self._sin_pendiente()
+                self.assertEqual(self.b._leer_marca(self._estado()), self.marca_vieja)
+
+    async def test_pending_job_unreachable_stays_pending(self) -> None:
+        """Un fallo pasajero al consultar no borra el pendiente: falla cerrado."""
+        self._con_pendiente(600)
+        sv = _SupervisorDeJobs(lambda path: HAConnectionError("timeout"))
+        result = await self._disparar(sv)
+        self.assertIn("safety_backup_state_unknown", result["error"])
+        self.assertEqual(sv.posts, 0)
+        self.assertEqual(self._estado()["pending_job_id"], sv.job_id)
+
+    # (h)
+    async def test_hard_limit_also_counts_from_the_last_attempt(self) -> None:
+        self._con_pendiente(30)
+        sv = _SupervisorDeJobs(lambda path: _job(True, _SIN_ESPACIO))
+        primera = await self._disparar(sv)
+        self.assertIn("safety_backup_job_failed", primera["error"])
+
+        # 30 s después del intento fallido: ni backup nuevo ni escritura sin él.
+        segunda = await self._disparar(sv)
+        self.assertIsNotNone(segunda)
+        self.assertEqual(sv.posts, 0)
+        # B4: no se sabe si falló, así que no puede decir «failed».
+        self.assertIn("safety_backup_rate_limited", segunda["error"])
+        self.assertNotIn("job_failed", segunda["error"])
+
+        # Pasados los 60 s ya puede lanzarse otro.
+        self.reloj[0] += 31
+        sv.job = lambda path: _job(True)
+        self.assertIsNone(await self._disparar(sv))
+        self.assertEqual(sv.posts, 1)
+
+    async def test_pending_job_done_keeps_its_launch_time_as_mark(self) -> None:
+        """M2: la marca era «ahora» aunque el job llevara horas terminado."""
+        self._con_pendiente(600)
+        lanzado = self._estado()["pending_started_at"]
+        sv = _SupervisorDeJobs(lambda path: _job(True))
+        self.assertIsNone(await self._disparar(sv))
+        self.assertEqual(self.b._leer_marca(self._estado()), lanzado)
+
+    async def test_pending_job_done_but_older_than_window_blocks(self) -> None:
+        """M2: un backup de hace 20 h no cubre la escritura de ahora; tampoco
+        se lanza otro en la misma llamada (S-01), sí en la siguiente."""
+        self._con_pendiente(20 * 3600)
+        lanzado = self._estado()["pending_started_at"]
+        sv = _SupervisorDeJobs(lambda path: _job(True))
+        result = await self._disparar(sv)
+        self.assertIsNotNone(result)
+        self.assertIn("safety_backup_stale", result["error"])
+        self.assertEqual(sv.posts, 0)
+        self._sin_pendiente()
+        self.assertEqual(self.b._leer_marca(self._estado()), lanzado)
+        self.assertIsNone(await self._disparar(sv))
+        self.assertEqual(sv.posts, 1)
+
+    async def test_stuck_pending_job_stops_blocking_after_the_cap(self) -> None:
+        """M3: un job que nunca termina bloqueaba las escrituras para siempre."""
+        import hermes.fs_write as fsw
+
+        sv = _SupervisorDeJobs(lambda path: _job(False))
+        # Dentro del tope: sigue en curso y se espera.
+        self._con_pendiente(fsw._SAFETY_PENDING_MAX_AGE_SECONDS - 60)
+        en_curso = await self._disparar(sv)
+        self.assertIn("safety_backup_in_progress", en_curso["error"])
+        self.assertEqual(self._estado()["pending_job_id"], sv.job_id)
+        # Pasado el tope: se avisa con la salida y se olvida el pendiente.
+        self._con_pendiente(fsw._SAFETY_PENDING_MAX_AGE_SECONDS + 60)
+        colgado = await self._disparar(sv)
+        self.assertIn("safety_backup_state_unknown", colgado["error"])
+        self.assertIn("safety_backup_enabled", colgado["hint"])
+        self.assertEqual(sv.posts, 0)
+        self._sin_pendiente()
+
+    async def test_post_failure_still_records_the_attempt(self) -> None:
+        """B2: si el POST fallaba no se anotaba el intento y la escritura
+        siguiente lanzaba otro backup completo en el acto."""
+        class _PostFalla(_SupervisorDeJobs):
+            async def sv_request(self, method, path, **kw):
+                self.peticiones.append((method, path))
+                raise HAConnectionError("timeout")
+
+        sv = _PostFalla(lambda path: _job(True))
+        primera = await self._disparar(sv)
+        self.assertIn("safety_backup_failed", primera["error"])
+        segunda = await self._disparar(sv)
+        self.assertIn("safety_backup_rate_limited", segunda["error"])
+        self.assertEqual(sv.posts, 1)
+
+    async def test_concurrent_writes_launch_a_single_backup(self) -> None:
+        """B3: dos escrituras en paralelo lanzaban dos backups completos."""
+        class _PostLento(_SupervisorDeJobs):
+            async def sv_request(self, method, path, **kw):
+                # Cede el bucle de verdad (asyncio.sleep está parcheado) para
+                # que la otra escritura se cuele mientras se lanza el backup.
+                loop = asyncio.get_running_loop()
+                fut = loop.create_future()
+                loop.call_soon(fut.set_result, None)
+                await fut
+                return await super().sv_request(method, path, **kw)
+
+        sv = _PostLento(lambda path: _job(True))
+        resultados = await asyncio.gather(self._disparar(sv), self._disparar(sv))
+        self.assertEqual(resultados, [None, None])
+        self.assertEqual(sv.posts, 1)
+
+    # (i)
+    async def test_404_while_polling_ends_with_state_unknown(self) -> None:
+        sv = _SupervisorDeJobs(lambda path: _404("0123abcd4567ef89"))
+        result = await self._disparar(sv)
+        self.assertIn("safety_backup_state_unknown", result["error"])
+        self.assertEqual(len(sv.gets), 1)
+        self._sin_pendiente()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1104,7 +1388,9 @@ class TestTheTwoSafetyBackupPathsShareTheirMark(unittest.IsolatedAsyncioTestCase
         """Si mañana uno vuelve a inventarse la suya, esto lo caza."""
         import inspect
 
-        fuente = inspect.getsource(fsw_module.maybe_trigger_safety_backup)
+        # El cuerpo vive en `_maybe_trigger_safety_backup` (B3: el público
+        # solo toma el lock).
+        fuente = inspect.getsource(fsw_module._maybe_trigger_safety_backup)
         self.assertIn("_leer_marca", fuente,
                       "el disparo automático no usa la lectura compartida")
         self.assertNotIn("last_completed_at", fuente,

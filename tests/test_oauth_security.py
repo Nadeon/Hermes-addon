@@ -508,3 +508,180 @@ class TestPasswordChangeRevokesSessions(_OAuthTestBase):
             self._rearrancar("otra-password-distinta-9876")
         self.assertIsNotNone(self.server)
         self.assertIn("oauth_password_fingerprint_failed", [e["event"] for e in logs])
+
+
+# ── 1.1.0: `iss` en la redirección (RFC 9207) ─────────────────
+
+
+class TestIssParameter(_OAuthTestBase):
+    """Toda redirección de éxito lleva `iss`, igual carácter a carácter al
+    `issuer` de los metadatos; ningún error redirige."""
+
+    async def _register(self, server, redirect_uri: str) -> str:
+        reg = await server.register_client(_FakeRequest({
+            "client_name": "Claude", "redirect_uris": [redirect_uri],
+        }))
+        return _body(reg)["client_id"]
+
+    async def _authorize(self, server, client_id: str, redirect_uri: str, **extra):
+        _, challenge = _pkce_pair()
+        form = {
+            "password": "test-password-1234", "client_id": client_id,
+            "redirect_uri": redirect_uri, "state": "s1",
+            "code_challenge": challenge, "code_challenge_method": "S256",
+        }
+        form.update(extra)
+        return await server.authorize_post(_FakeFormRequest(form))
+
+    async def test_dcr_success_carries_iss_equal_to_issuer(self) -> None:
+        from urllib.parse import parse_qs, urlsplit
+
+        for host in ("hermes.tail-xxxx.ts.net", "homeassistant.tailXXXX.ts.net:8443"):
+            with self.subTest(public_hostname=host):
+                server = oauth.OAuthServer(auth_password="test-password-1234",
+                                           public_hostname=host)
+                issuer = _body(await server.authorization_server_metadata(None))["issuer"]
+                cid = await self._register(server, "https://client.example.com/cb")
+                resp = await self._authorize(server, cid, "https://client.example.com/cb")
+                self.assertEqual(resp.status_code, 302)
+                q = parse_qs(urlsplit(resp.headers["location"]).query)
+                self.assertEqual(q["iss"], [issuer])
+                self.assertEqual(q["iss"][0], f"https://{host}")
+
+    async def test_existing_query_is_kept_and_iss_added_once(self) -> None:
+        from urllib.parse import parse_qs, urlsplit
+
+        uri = "https://client.example.com/cb?tenant=42"
+        cid = await self._register(self.server, uri)
+        resp = await self._authorize(self.server, cid, uri)
+        self.assertEqual(resp.status_code, 302)
+        loc = resp.headers["location"]
+        self.assertTrue(loc.startswith("https://client.example.com/cb?tenant=42&"))
+        q = parse_qs(urlsplit(loc).query)
+        self.assertEqual(q["tenant"], ["42"])
+        self.assertEqual(len(q["iss"]), 1)
+        self.assertEqual(loc.count("iss="), 1)
+
+    async def test_metadata_advertises_iss_support(self) -> None:
+        meta = _body(await self.server.authorization_server_metadata(None))
+        self.assertIs(meta["authorization_response_iss_parameter_supported"], True)
+
+    async def test_errors_never_redirect(self) -> None:
+        cid = await self._register(self.server, "https://client.example.com/cb")
+        casos = {
+            "sin PKCE": (cid, "https://client.example.com/cb",
+                         {"code_challenge": "", "code_challenge_method": ""}),
+            "resource ajeno": (cid, "https://client.example.com/cb",
+                               {"resource": "https://otro.example/mcp"}),
+            "cliente desconocido": ("0b5e6f8a-1111-4222-8333-444455556666",
+                                    "https://client.example.com/cb", {}),
+            "redirect_uri no registrado": (cid, "https://attacker.example.com/cb", {}),
+        }
+        for nombre, (client_id, uri, extra) in casos.items():
+            with self.subTest(caso=nombre):
+                resp = await self._authorize(self.server, client_id, uri, **extra)
+                self.assertFalse(300 <= resp.status_code < 400, resp.status_code)
+                self.assertNotIn("location", resp.headers)
+
+
+# ── 1.1.0: recurso protegido, audiencia y compatibilidad ──────
+
+
+class TestAudienceAndCompat(_OAuthTestBase):
+    RESOURCE = "https://hermes.tail-xxxx.ts.net/mcp"
+
+    async def test_protected_resource_advertises_scopes(self) -> None:
+        meta = _body(await self.server.protected_resource_metadata(None))
+        self.assertEqual(meta["scopes_supported"], ["mcp"])
+        self.assertEqual(meta["resource"], self.RESOURCE)
+
+    async def _issue_tokens(self) -> dict:
+        from urllib.parse import parse_qs, urlsplit
+
+        reg = await self.server.register_client(_FakeRequest({
+            "client_name": "Claude", "redirect_uris": ["https://client.example.com/cb"],
+        }))
+        cid = _body(reg)["client_id"]
+        verifier, challenge = _pkce_pair()
+        resp = await self.server.authorize_post(_FakeFormRequest({
+            "password": "test-password-1234", "client_id": cid,
+            "redirect_uri": "https://client.example.com/cb",
+            "code_challenge": challenge, "code_challenge_method": "S256",
+        }))
+        code = parse_qs(urlsplit(resp.headers["location"]).query)["code"][0]
+        tok = await self.server._token_auth_code({
+            "code": code, "client_id": cid, "code_verifier": verifier,
+            "redirect_uri": "https://client.example.com/cb",
+        })
+        self.assertEqual(tok.status_code, 200, tok.body)
+        return _body(tok)
+
+    async def test_issued_tokens_carry_the_canonical_resource(self) -> None:
+        datos = await self._issue_tokens()
+        for valor in (datos["access_token"], datos["refresh_token"]):
+            rec = oauth._safe_read(oauth._TOKENS_DIR / f"{oauth._hash_token(valor)}.json")
+            self.assertEqual(rec["resource"], self.RESOURCE)
+
+    def _seed(self, token_type: str, **extra) -> str:
+        token = oauth._generate_token()
+        now = time.time()
+        data = {
+            "token_hash": oauth._hash_token(token), "token_type": token_type,
+            "client_id": "cid", "sub": oauth._FIXED_SUB, "scope": "mcp",
+            "created_at": now, "expires_at": now + 3600,
+        }
+        data.update(extra)
+        oauth._atomic_write(oauth._TOKENS_DIR / f"{oauth._hash_token(token)}.json", data)
+        return token
+
+    async def test_token_for_another_resource_is_rejected(self) -> None:
+        otro = self._seed("access", resource="https://otro.example/mcp")
+        self.assertFalse(await self.server.validate_token(otro))
+        propio = self._seed("access", resource=self.RESOURCE)
+        self.assertTrue(await self.server.validate_token(propio))
+
+    async def test_tokens_from_1_0_12_without_resource_still_work(self) -> None:
+        acceso = self._seed("access")
+        self.assertTrue(await self.server.validate_token(acceso))
+        refresh = self._seed("refresh", access_token_hash="")
+        resp = await self.server._token_refresh({"refresh_token": refresh})
+        self.assertEqual(resp.status_code, 200, resp.body)
+        nuevo = _body(resp)
+        for valor in (nuevo["access_token"], nuevo["refresh_token"]):
+            rec = oauth._safe_read(oauth._TOKENS_DIR / f"{oauth._hash_token(valor)}.json")
+            self.assertEqual(rec["resource"], self.RESOURCE)
+        self.assertTrue(await self.server.validate_token(nuevo["access_token"]))
+
+    async def test_live_code_from_1_0_12_is_exchanged_as_dcr_with_refresh(self) -> None:
+        verifier, challenge = _pkce_pair()
+        code = "codigo-de-la-1012"
+        oauth._atomic_write(oauth._CODES_DIR / f"{oauth._hash_token(code)}.json", {
+            "client_id": "cid", "redirect_uri": "https://client.example.com/cb",
+            "code_challenge": challenge, "code_challenge_method": "S256",
+            "scope": "mcp", "sub": oauth._FIXED_SUB, "resource": self.RESOURCE,
+            "expires_at": time.time() + 60,
+        })
+        resp = await self.server._token_auth_code({
+            "code": code, "client_id": "cid", "code_verifier": verifier,
+            "redirect_uri": "https://client.example.com/cb",
+        })
+        self.assertEqual(resp.status_code, 200, resp.body)
+        self.assertIn("refresh_token", _body(resp))
+
+    async def test_dcr_client_id_is_uuid_and_redirect_is_exact(self) -> None:
+        import uuid as _uuid
+
+        reg = await self.server.register_client(_FakeRequest({
+            "client_name": "App", "redirect_uris": ["http://localhost/callback"],
+        }))
+        cid = _body(reg)["client_id"]
+        self.assertEqual(str(_uuid.UUID(cid)), cid)
+        self.assertFalse(cid.startswith("https://"))
+        _, challenge = _pkce_pair()
+        # DCR no tiene la excepción de loopback de CIMD: otro puerto no vale.
+        resp = await self.server.authorize_post(_FakeFormRequest({
+            "password": "test-password-1234", "client_id": cid,
+            "redirect_uri": "http://localhost:41000/callback",
+            "code_challenge": challenge, "code_challenge_method": "S256",
+        }))
+        self.assertNotEqual(resp.status_code, 302)

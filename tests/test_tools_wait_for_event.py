@@ -1,22 +1,20 @@
-"""Tests de tools wait_for_event y HACS."""
+"""Tests de la tool wait_for_event (los de HACS están en test_tools_hacs.py)."""
 
 from __future__ import annotations
 
 import asyncio
 import unittest
 from typing import Any
-from unittest.mock import AsyncMock
 
 from aiohttp import ClientSession
 
-from hermes.ha import HAConnectionError, _WS_CLOSED_SENTINEL
+from hermes.ha import _WS_CLOSED_SENTINEL
 import hermes.tools.wait_for_event as wfe_mod
 from hermes.tools.wait_for_event import (
     _compare_value,
     _match_event,
     _resolve_dot_path,
 )
-import hermes.tools.hacs as hacs_mod
 from tests._ha_fixture import make_ready_client
 
 
@@ -313,104 +311,3 @@ class TestWaitForEvent(unittest.IsolatedAsyncioTestCase):
             filters={"data.new_state.state": "on"},
         )
         self.assertTrue(result["matched"])
-
-
-# ── TestHACSTools ──────────────────────────────────────────────────────────────
-
-
-class TestHACSTools(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self) -> None:
-        self.session = ClientSession()
-        self.ha_client = make_ready_client(self.session, {})
-        self.mcp = DummyMCP()
-        hacs_mod.register(self.mcp, self.ha_client)
-
-    async def asyncTearDown(self) -> None:
-        await self.session.close()
-
-    def _mock_ws_send(self, response: Any) -> None:
-        self.ha_client.ws_send = AsyncMock(return_value=response)
-
-    async def test_hacs_info_ok(self) -> None:
-        self._mock_ws_send({"version": "2.0.0", "categories": ["integration"]})
-        result = await self.mcp.tools["ha_hacs_info"]()
-        self.assertIsInstance(result, dict)
-        self.assertIn("_disclaimer", result)
-        self.assertEqual(result["version"], "2.0.0")
-
-    async def test_hacs_list_repos_ok(self) -> None:
-        repos = [
-            {"id": "1", "name": "test-repo", "installed": True,
-             "installed_version": "1.0.0", "available_version": "1.0.0"},
-        ]
-        self._mock_ws_send(repos)
-        result = await self.mcp.tools["ha_hacs_list_repositories"]()
-        self.assertEqual(result["count"], 1)
-        self.assertEqual(len(result["repositories"]), 1)
-        self.assertIn("_disclaimer", result)
-
-    async def test_hacs_list_repos_category_filter(self) -> None:
-        repos = [{"id": "2", "name": "my-integration", "category": "integration"}]
-        self._mock_ws_send(repos)
-        result = await self.mcp.tools["ha_hacs_list_repositories"](category="integration")
-        self.assertEqual(result["count"], 1)
-        # HACS declara `{Optional("categories"): [str]}` con PREVENT_EXTRA: el
-        # mock anterior daba por bueno un `category` singular que HA rechaza.
-        call_args = self.ha_client.ws_send.call_args[0][0]
-        self.assertEqual(call_args.get("categories"), ["integration"])
-        self.assertNotIn("category", call_args)
-
-    async def test_hacs_list_repos_invalid_category(self) -> None:
-        result = await self.mcp.tools["ha_hacs_list_repositories"](category="invalid_cat")
-        self.assertIn("error", result)
-        self.assertIn("Invalid category", result["error"])
-
-    async def test_hacs_get_repo_ok(self) -> None:
-        repo_info = {"id": "123", "name": "cool-card", "full_name": "user/cool-card"}
-        self._mock_ws_send(repo_info)
-        result = await self.mcp.tools["ha_hacs_get_repository"]("123")
-        self.assertEqual(result["name"], "cool-card")
-        self.assertIn("_disclaimer", result)
-
-    async def test_hacs_list_updates_ok(self) -> None:
-        repos = [
-            {
-                "id": "1", "name": "outdated-repo", "full_name": "user/outdated-repo",
-                "category": "integration", "installed": True,
-                "installed_version": "1.0.0", "available_version": "2.0.0",
-            },
-            {
-                "id": "2", "name": "up-to-date", "installed": True,
-                "installed_version": "1.0.0", "available_version": "1.0.0",
-            },
-            {
-                "id": "3", "name": "not-installed", "installed": False,
-                "installed_version": None, "available_version": "1.0.0",
-            },
-        ]
-        self._mock_ws_send(repos)
-        result = await self.mcp.tools["ha_hacs_list_updates"]()
-        self.assertEqual(result["count"], 1)
-        self.assertEqual(result["updates"][0]["name"], "outdated-repo")
-        self.assertIn("_disclaimer", result)
-
-    async def test_hacs_list_updates_no_updates(self) -> None:
-        repos = [
-            {
-                "id": "1", "name": "up-to-date", "installed": True,
-                "installed_version": "1.0.0", "available_version": "1.0.0",
-            },
-        ]
-        self._mock_ws_send(repos)
-        result = await self.mcp.tools["ha_hacs_list_updates"]()
-        self.assertEqual(result["count"], 0)
-        self.assertEqual(result["updates"], [])
-
-    async def test_hacs_ws_error(self) -> None:
-        self.ha_client.ws_send = AsyncMock(
-            side_effect=HAConnectionError("WS connection failed")
-        )
-        result = await self.mcp.tools["ha_hacs_info"]()
-        self.assertIn("error", result)
-        self.assertIn("WS connection failed", result["error"])
-        self.assertIn("_disclaimer", result)

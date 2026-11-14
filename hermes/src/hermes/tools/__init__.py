@@ -24,6 +24,7 @@ def register_all_tools(
     call_service_auto_classify: bool | None = None,
     wait_for_event_max_seconds: int | None = None,
     wait_for_event_max_concurrent: int | None = None,
+    safety_backup_keep: int | None = None,
 ) -> None:
     """Registra todas las tools disponibles en el servidor MCP.
 
@@ -46,6 +47,7 @@ def register_all_tools(
         or call_service_auto_classify is None
         or wait_for_event_max_seconds is None
         or wait_for_event_max_concurrent is None
+        or safety_backup_keep is None
     )
     if needs_cfg:
         from hermes.config import load_config
@@ -76,6 +78,8 @@ def register_all_tools(
             wait_for_event_max_seconds = cfg.wait_for_event_max_seconds
         if wait_for_event_max_concurrent is None:
             wait_for_event_max_concurrent = cfg.wait_for_event_max_concurrent
+        if safety_backup_keep is None:
+            safety_backup_keep = cfg.safety_backup_keep
 
     # ping y test_progress
     from hermes.tools.ping import register as register_ping
@@ -157,7 +161,7 @@ def register_all_tools(
     from hermes.tools.statistics import register as register_statistics
     register_statistics(mcp, ha_client, response_max_bytes=response_max_bytes)
 
-    # registries (entity, device, area)
+    # registries (entity, device, area, floor, label, category)
     from hermes.tools.registry_entity import register as register_registry_entity
     register_registry_entity(mcp, ha_client, response_max_bytes=response_max_bytes)
 
@@ -166,6 +170,27 @@ def register_all_tools(
 
     from hermes.tools.registry_area import register as register_registry_area
     register_registry_area(mcp, ha_client)
+
+    from hermes.tools.registry_floor import register as register_registry_floor
+    register_registry_floor(mcp, ha_client)
+
+    from hermes.tools.registry_label import register as register_registry_label
+    register_registry_label(mcp, ha_client)
+
+    from hermes.tools.registry_category import register as register_registry_category
+    register_registry_category(mcp, ha_client)
+
+    # Diagnóstico: repairs, trazas y relaciones. Trazas y relaciones reciben
+    # `response_max_bytes`: una traza larga pesa megas y `search/related` de
+    # una integración grande, 200 ids por cada uno de 14 tipos.
+    from hermes.tools.repairs import register as register_repairs
+    register_repairs(mcp, ha_client)
+
+    from hermes.tools.traces import register as register_traces
+    register_traces(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    from hermes.tools.search import register as register_search
+    register_search(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # config entries y flows
     from hermes.tools.config_entries import register as register_config_entries
@@ -189,6 +214,7 @@ def register_all_tools(
         file_backup_max_total_mb=file_backup_max_total_mb,
         config_write_min_interval_seconds=config_write_min_interval_seconds,
         config_write_max_per_minute=config_write_max_per_minute,
+        safety_backup_keep=safety_backup_keep,
     )
 
     # Supervisor — add-ons, supervisor/host/core, backups
@@ -205,6 +231,15 @@ def register_all_tools(
         safety_backup_window_minutes=safety_backup_window_minutes,
     )
 
+    # Centro de resolución del Supervisor (lee y descarta; nunca aplica
+    # sugerencias) y backups de la integración `backup` de HA, que ven todas
+    # las ubicaciones y no solo las locales del Supervisor.
+    from hermes.tools.resolution import register as register_resolution
+    register_resolution(mcp, ha_client)
+
+    from hermes.tools.ha_backups import register as register_ha_backups
+    register_ha_backups(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Lovelace dashboards y resources.
     # Cada módulo hay que registrarlo aquí explícitamente. Olvidar una de
     # estas llamadas no da ningún error: el servidor arranca igual y sus tools
@@ -212,7 +247,7 @@ def register_all_tools(
     from hermes.tools.lovelace import register as register_lovelace
     register_lovelace(mcp, ha_client, response_max_bytes=response_max_bytes)
 
-    # wait_for_event y HACS
+    # wait_for_event, Marketplace y alias HACS
     from hermes.tools.wait_for_event import register as register_wait_for_event
     register_wait_for_event(
         mcp,
@@ -221,8 +256,13 @@ def register_all_tools(
         wait_for_event_max_concurrent=wait_for_event_max_concurrent,
     )
 
+    # El Marketplace va antes que los alias `ha_hacs_*` para que el cliente vea
+    # primero las tools nuevas; los alias solo reenvían a sus funciones.
+    from hermes.tools.marketplace import register as register_marketplace
+    register_marketplace(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     from hermes.tools.hacs import register as register_hacs
-    register_hacs(mcp, ha_client)
+    register_hacs(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Anotaciones MCP (readOnly / destructive / idempotent / openWorld).
     # Se aplican al final, sobre todo lo ya registrado, para que los clientes

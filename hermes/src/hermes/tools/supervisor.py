@@ -56,17 +56,32 @@ def register(mcp: object, ha_client: HAClient) -> None:
             data = redact_structure(await ha_client.sv_request("GET", "/supervisor/info"))
             if not isinstance(data, dict):
                 return {"error": "unexpected_response"}
-            return {
-                "version": data.get("version"),
-                "channel": data.get("channel"),
-                "healthy": data.get("healthy"),
-                "supported": data.get("supported"),
-                "arch": data.get("arch"),
-                "machine": data.get("machine"),
-                "docker_version": data.get("docker_version"),
-            }
         except HAConnectionError as exc:
             return {"error": str(exc)}
+
+        # `/supervisor/info` no trae `machine` ni `docker_version`: por eso
+        # llegaban siempre a null. Viven en `GET /info` (`machine` y `docker`).
+        # Se leen en su propio `try` para que un fallo aquí deje solo esos dos
+        # campos a null y no se pierda el resto. Se conservan los nombres de
+        # salida para no romper a los clientes existentes.
+        machine = docker_version = None
+        try:
+            info = redact_structure(await ha_client.sv_request("GET", "/info"))
+            if isinstance(info, dict):
+                machine = info.get("machine")
+                docker_version = info.get("docker")
+        except HAConnectionError as exc:
+            logger.warning("sv_info_unavailable", error=str(exc))
+
+        return {
+            "version": data.get("version"),
+            "channel": data.get("channel"),
+            "healthy": data.get("healthy"),
+            "supported": data.get("supported"),
+            "arch": data.get("arch"),
+            "machine": machine,
+            "docker_version": docker_version,
+        }
 
     @mcp.tool()
     async def sv_get_host_info() -> object:
@@ -78,7 +93,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
         Returns:
             {"hostname": "...", "operating_system": "...",
              "kernel_version": "...", "disk_total": N, "disk_used": N,
-             "disk_free": N, "boot_timestamp": "..."}
+             "disk_free": N, "boot_timestamp": N}
+            `disk_*` van en GiB. `boot_timestamp` es un entero: el momento
+            del arranque en microsegundos desde epoch (no segundos).
         """
         try:
             data = redact_structure(await ha_client.sv_request("GET", "/host/info"))
@@ -87,7 +104,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
             return {
                 "hostname": data.get("hostname"),
                 "operating_system": data.get("operating_system"),
-                "kernel_version": data.get("kernel_version"),
+                # El Supervisor publica el kernel como `kernel`; la clave
+                # `kernel_version` no existe y el campo llegaba siempre a null.
+                "kernel_version": data.get("kernel"),
                 "chassis": data.get("chassis"),
                 "disk_total": data.get("disk_total"),
                 "disk_used": data.get("disk_used"),

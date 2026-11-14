@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import json
 from typing import Any, Callable
 
 import structlog
@@ -15,6 +16,45 @@ from hermes.security import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def tam_json(valor: Any) -> int:
+    """Bytes UTF-8 de `valor` serializado como lo devuelven las tools."""
+    return len(json.dumps(valor, ensure_ascii=False).encode("utf-8"))
+
+
+def ajustar_lista_a_bytes(
+    items: list[Any],
+    construir: Callable[[list[Any], bool], Any],
+    max_bytes: int,
+) -> Any:
+    """Respuesta con tantos `items` como quepan en `max_bytes`.
+
+    `construir(items, recortada)` arma la respuesta completa; así los
+    recuentos y la marca `truncated` los decide quien conoce su forma. Se
+    estima cuántos caben sumando el tamaño de cada elemento (lineal, en vez de
+    reserializar la lista entera por cada uno que se quita) y se verifica al
+    final con el tamaño real, quitando de uno en uno si la estimación se pasó.
+    Es el mismo criterio que `ha_list_entities_registry`: recortar por el
+    final y decirlo, nunca dejar que el cliente corte a ciegas (spec 003).
+    """
+    completa = construir(items, False)
+    if tam_json(completa) <= max_bytes:
+        return completa
+    presupuesto = max_bytes - tam_json(construir([], True))
+    n = usado = 0
+    for item in items:
+        # ", " separa los elementos en la serialización por defecto.
+        coste = tam_json(item) + (2 if n else 0)
+        if usado + coste > presupuesto:
+            break
+        usado += coste
+        n += 1
+    while True:
+        out = construir(items[:n], True)
+        if n == 0 or tam_json(out) <= max_bytes:
+            return out
+        n -= 1
 
 
 def requires_ready(ha_client: HAClient, timeout: float = 5.0) -> Callable:
