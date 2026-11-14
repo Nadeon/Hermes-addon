@@ -318,6 +318,8 @@ class TestToolFamiliesDisabled(unittest.TestCase):
     def test_validas_arrancan(self) -> None:
         self._cfg([]).validate()
         self._cfg(["lovelace", "generic_commands", "lovelace"]).validate()
+        # Spec 013: la familia de los logs del sistema también se desactiva.
+        self._cfg(["system_diagnostics"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

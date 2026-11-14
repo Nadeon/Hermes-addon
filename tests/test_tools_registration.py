@@ -428,22 +428,22 @@ class TestDestructiveToolsAskBeforeActing:
 
     Al escribir este test había dos que la rompían. Una se corrigió
     —`ha_disable_config_entry`, que deja una integración fuera de servicio— y la
-    otra queda documentada abajo como excepción deliberada.
+    otra, `ha_call_service_response`, fue excepción deliberada hasta la spec
+    018, que le dio `confirmation_token` (ver abajo).
 
     El invariante inverso también se vigila: una herramienta que pide token es,
     por definición, consecuente, y debe declararse como tal. Si no, el cliente
     la trata como inofensiva y solo descubre lo contrario al llamarla.
     """
 
-    # Única excepción admitida, y por qué.
+    # Excepciones admitidas: ninguna.
     #
-    # `ha_call_service_response` invoca servicios que devuelven datos
-    # (`calendar.get_events`, `weather.get_forecasts`…). Va marcada como
-    # destructiva porque el servicio lo elige quien llama y hay que asumir lo
-    # peor, pero su guarda no es el token: es la denylist, que la rechaza de
-    # plano ante cualquier servicio peligroso. Añadirle el token obligaría a dos
-    # pasos para leer el tiempo.
-    SIN_TOKEN_A_PROPOSITO = {"ha_call_service_response"}
+    # Hasta la 1.1.2 lo era `ha_call_service_response`, que rechazaba de plano
+    # la denylist sin flujo de confirmación. Desde la spec 018 (FR-008, FR-016)
+    # acepta `confirmation_token` para la denylist y las entidades
+    # restringidas, así que la excepción deja de hacer falta. Fuera de ellas
+    # sigue respondiendo a la primera: leer el tiempo no pide dos pasos.
+    SIN_TOKEN_A_PROPOSITO: set[str] = set()
 
     @staticmethod
     def _firmas() -> dict:
@@ -489,8 +489,9 @@ class TestDestructiveToolsAskBeforeActing:
             "piden confirmación pero se anuncian inofensivas: " + str(incumplen))
 
     def test_the_documented_exception_is_still_only_one(self):
-        """Si mañana hay dos, que haya que justificar la segunda a mano."""
-        assert len(self.SIN_TOKEN_A_PROPOSITO) == 1
+        """Ya no queda ninguna (spec 018): si mañana aparece una, que haya
+        que justificarla a mano."""
+        assert len(self.SIN_TOKEN_A_PROPOSITO) == 0
 
 
 # ── title (spec 003, FR-040) e hints intactos (FR-043) ───────────────────────
@@ -737,7 +738,33 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+    # Spec 013 (contracts/tools.md): logs del sistema, familia
+    # `system_diagnostics`. Solo leen, son idempotentes y no salen a internet.
+    "sv_get_core_logs": ("R-I-", "Get core logs (Supervisor)"),
+    "sv_get_supervisor_logs": ("R-I-", "Get supervisor logs (Supervisor)"),
+    "sv_get_plugin_logs": ("R-I-", "Get plugin logs (Supervisor)"),
+    "sv_get_host_logs": ("R-I-", "Get host logs (Supervisor)"),
+    "sv_list_host_log_identifiers": ("R-I-", "List host log identifiers (Supervisor)"),
+    "sv_list_boots": ("R-I-", "List boots (Supervisor)"),
+    # Spec 013, tramo 2: disco, host y OS, misma familia y mismas garantías.
+    "sv_list_host_services": ("R-I-", "List host services (Supervisor)"),
+    "sv_get_disk_usage": ("R-I-", "Get disk usage (Supervisor)"),
+    "sv_get_os_info": ("R-I-", "Get OS info (Supervisor)"),
+    "sv_get_swap": ("R-I-", "Get swap (Supervisor)"),
+    "sv_list_datadisk_candidates": ("R-I-", "List datadisk candidates (Supervisor)"),
 }
+
+# Las tools de la spec 013 en este tramo (logs, CAP-081).
+_LOGS_013 = (
+    "sv_get_core_logs", "sv_get_supervisor_logs", "sv_get_plugin_logs",
+    "sv_get_host_logs", "sv_list_host_log_identifiers", "sv_list_boots",
+)
+
+# Las del tramo 2 de la spec 013 (disco, host y OS, CAP-085).
+_HOST_013 = (
+    "sv_list_host_services", "sv_get_disk_usage", "sv_get_os_info",
+    "sv_get_swap", "sv_list_datadisk_candidates",
+)
 
 
 def _hint_code(ann) -> str:
@@ -834,6 +861,15 @@ class TestToolTitles:
         con_api = sorted(n for n in _HINTS_SNAPSHOT if "api" in n.split("_"))
         assert con_api == [], con_api
 
+    def test_os_no_cambia_ningun_titulo_existente(self):
+        """Spec 013 (T021): `"os": "OS"` da `Get OS info (Supervisor)` y no
+        toca ningún título de la 1.1.2: ninguna tiene `os` como palabra."""
+        from hermes.tools._annotations import title_for
+
+        assert title_for("sv_get_os_info") == "Get OS info (Supervisor)"
+        con_os = sorted(n for n in _HINTS_SNAPSHOT if "os" in n.split("_"))
+        assert con_os == [], con_os
+
     def test_esquemas_de_la_1_1_2(self):
         """Las tools de la 1.1.2 conservan los argumentos (nombres y
         obligatorios) de su esquema de entrada (FR-021).
@@ -869,6 +905,34 @@ class TestToolTitles:
             "properties": sorted([*esperado["ha_marketplace_list_removed"]["properties"],
                                   "installed_only", "limit"]),
             "required": esperado["ha_marketplace_list_removed"]["required"],
+        }
+        # Tercera diferencia permitida, de la spec 013 (FR-007; research R-3):
+        # `sv_get_addon_logs` gana `boot` y `latest`, OPCIONALES. Sin ellos la
+        # petición y la respuesta son las de la 1.1.2 (lo comprueba
+        # `test_tools_supervisor.TestLogsDeAddonPorArranque`).
+        esperado["sv_get_addon_logs"] = {
+            "properties": sorted([*esperado["sv_get_addon_logs"]["properties"],
+                                  "boot", "latest"]),
+            "required": esperado["sv_get_addon_logs"]["required"],
+        }
+        # Cuarta diferencia permitida, de la spec 018 (FR-016 de la 018,
+        # FR-063 de la 008): `ha_save_lovelace_dashboard` gana `view_index` y
+        # `view`, OPCIONALES, para guardar una sola vista. Sin ellos el
+        # guardado completo es el de la 1.1.2; `required` no cambia.
+        esperado["ha_save_lovelace_dashboard"] = {
+            "properties": sorted([*esperado["ha_save_lovelace_dashboard"]["properties"],
+                                  "view", "view_index"]),
+            "required": esperado["ha_save_lovelace_dashboard"]["required"],
+        }
+        # Quinta diferencia permitida, de la spec 018 (FR-016 de la 018,
+        # FR-064 de la 008): `ha_call_service_response` gana
+        # `confirmation_token`, OPCIONAL, para confirmar la denylist y las
+        # entidades restringidas. Sin él responde como en la 1.1.2 (el mismo
+        # `error`, con el token añadido); `required` no cambia.
+        esperado["ha_call_service_response"] = {
+            "properties": sorted([*esperado["ha_call_service_response"]["properties"],
+                                  "confirmation_token"]),
+            "required": esperado["ha_call_service_response"]["required"],
         }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
@@ -938,7 +1002,7 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert "generic_commands" in nuevas
+        assert {"generic_commands", "system_diagnostics"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1026,6 +1090,97 @@ class TestRegistroPorFamilias:
             _do_register(["familia_inventada"])
         with pytest.raises(ValueError, match="base"):
             _do_register(["base"])
+
+
+# ── Spec 013: logs del sistema (FR-021, FR-022; T011) ─────────────────────────
+
+
+class TestLogsDelSistema013:
+    """Las seis tools de logs se registran por defecto, solo leen y no piden
+    token; con `system_diagnostics` apagada no existe ninguna, y
+    `sv_get_addon_logs` (familia `supervisor`) conserva `boot` y `latest`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _LOGS_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _LOGS_013}
+        assert props["sv_get_core_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_supervisor_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_plugin_logs"] == {"plugin", "lines", "boot", "latest"}
+        assert props["sv_get_host_logs"] == {"lines", "boot", "identifier"}
+        assert props["sv_list_host_log_identifiers"] == {"search"}
+        assert props["sv_list_boots"] == set()
+        assert tools["sv_get_plugin_logs"].parameters.get("required") == ["plugin"]
+
+    def test_con_la_familia_apagada(self):
+        tools = _real_registry(["system_diagnostics"])
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+        esquema = tools["sv_get_addon_logs"].parameters
+        assert {"boot", "latest"} <= set(esquema["properties"])
+        assert sorted(esquema.get("required", [])) == ["slug"]
+
+
+# ── Spec 013, tramo 2: disco, host y OS (FR-021; T020, T024) ─────────────────
+
+
+class TestHostSystem013:
+    """Las cinco tools de disco, host y OS se registran por defecto, solo leen
+    y no piden token; con `system_diagnostics` apagada no existe ninguna y la
+    tabla sigue apuntándolas como `dedicated`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _HOST_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _HOST_013}
+        assert props == {
+            "sv_list_host_services": {"state"},
+            "sv_get_disk_usage": {"disk", "max_depth"},
+            "sv_get_os_info": set(),
+            "sv_get_swap": set(),
+            "sv_list_datadisk_candidates": set(),
+        }
+        assert not tools["sv_get_disk_usage"].parameters.get("required")
+
+    def test_con_la_familia_apagada_la_tabla_sigue_igual(self):
+        """T024 (FR-021; FR-012 de la 008): apagar la familia quita las tools
+        pero no cambia la tabla: sus 28 entradas siguen `dedicated` y apuntan
+        a tools de `system_diagnostics` o de `supervisor`."""
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["system_diagnostics"])
+        dedicadas = {
+            k: e for k, e in SUPERVISOR.items()
+            if e.category == "dedicated" and e.family == "system_diagnostics"
+        }
+        assert len(dedicadas) == 26
+        assert {e.tool for e in dedicadas.values()} == set(_LOGS_013 + _HOST_013)
+        con_boot = [k for k, e in SUPERVISOR.items()
+                    if e.category == "dedicated" and e.cap == "CAP-081"
+                    and e.family == "supervisor"]
+        assert len(con_boot) == 2
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
@@ -1302,3 +1457,18 @@ class TestArgumentosCambiadosAnteLaValidacionDelSdk:
             args = meta.validate_arguments({destino: "ficticio", "config": {"a": 1}})
             assert args["config"] == {"a": 1}, nombre
             assert meta.validate_arguments({destino: "ficticio"})["config"] is None, nombre
+
+    def test_view_se_preparsea_como_config(self):
+        """Spec 018 (FR-016): `view` de `ha_save_lovelace_dashboard` es
+        `dict | None` como `config`: un objeto mandado como texto JSON llega
+        como dict y omitido llega None (se puede omitir al confirmar)."""
+        meta = _real_registry()["ha_save_lovelace_dashboard"].fn_metadata
+        base = {"url_path": "panel-prueba", "view_index": 1}
+        args = meta.validate_arguments({**base, "view": '{"title": "Cocina"}'})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments({**base, "view": {"title": "Cocina"}})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments(base)
+        assert args["view"] is None
+        assert args["view_index"] == 1
+        assert meta.validate_arguments({"url_path": "panel-prueba"})["view_index"] is None

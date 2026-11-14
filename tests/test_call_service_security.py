@@ -522,5 +522,275 @@ class TestTargetsRestrictedEntity(unittest.TestCase):
         self.assertFalse(targets_restricted_entity("script", {}, self.R))
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. ha_call_service_response con confirmation_token (spec 018, US2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Centinela en la respuesta simulada de HA: no puede acabar en el fichero del
+# token (`/data` entra en los backups del add-on; principio II).
+_CENTINELA_RESPUESTA = "centinela-respuesta-018"
+
+
+class TestCallServiceResponseConfirmacion(unittest.IsolatedAsyncioTestCase):
+    """FR-008…FR-010 de la 018: la denylist y las entidades restringidas piden
+    token también en `ha_call_service_response`.
+
+    Sin token, la respuesta de la 1.1.2 (`error` y `hint`) MÁS el token y la
+    vista previa (aditivo: un cliente de la 1.1.2 sigue viendo un rechazo).
+    Con token, se ejecuta una vez y se devuelve la respuesta de HA tal cual;
+    en el fichero del token solo queda `{"called": true}`.
+
+    Control negativo (T023), con los fallos de este fichero:
+    (a) ejecutar a la primera aunque esté en la denylist → 11 (los 8 de aquí
+    que esperan «no llamado» o un token, los dos de la 1.1.2
+    `test_denylist_service_rejected_in_response_tool` y
+    `test_response_tool_refuses_restricted_script`, y
+    `test_la_tool_confirmada_pasa_la_guarda`, donde la guarda del cliente
+    para la llamada: la defensa en profundidad hace su trabajo);
+    (b) atar el token a `ha_call_service` → cae `test_tokens_cruzados`;
+    (c) guardar la respuesta en `cached_result` → cae
+    `test_el_fichero_del_token_no_guarda_la_respuesta`;
+    (g) confirmar sin `allow_dangerous=True` → caen
+    `test_confirmado_autoriza_la_capa_de_cliente` y, con el cliente real,
+    `TestGuardaDeClienteConRespuesta.test_la_tool_confirmada_pasa_la_guarda`.
+    """
+
+    ARGS = {"domain": "conversation", "service": "process",
+            "service_data": {"text": "turn on the kitchen light", "language": "en"}}
+
+    async def asyncSetUp(self) -> None:
+        import hermes.security as security
+
+        self._security = security
+        self._dir_original = security.CONFIRMATIONS_DIR
+        self._tmp = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self._tmp.name)
+        _auto_restricted.clear()
+        self.ha_client = _make_ha_client()
+        self.respuesta_ha = {
+            "changed_states": [],
+            "service_response": {"response": {"response_type": "action_done",
+                                              "speech": _CENTINELA_RESPUESTA}},
+        }
+        self.ha_client.call_service_response = AsyncMock(return_value=self.respuesta_ha)
+        self.tools = _register_ha_tools(self.ha_client, call_service_auto_classify=False)
+
+    async def asyncTearDown(self) -> None:
+        self._security.CONFIRMATIONS_DIR = self._dir_original
+        self._tmp.cleanup()
+        _auto_restricted.clear()
+
+    def _fichero(self, token: str) -> dict:
+        ruta = self._security.CONFIRMATIONS_DIR / f"{token}.json"
+        return json.loads(ruta.read_text(encoding="utf-8"))
+
+    async def test_sin_token_no_ejecuta_y_da_token(self) -> None:
+        res = await self.tools["ha_call_service_response"](**self.ARGS)
+        self.assertEqual(res["error"], "service_in_denylist")
+        self.assertIn("confirmation_token", res["hint"])
+        self.assertIsInstance(res["confirmation_token"], str)
+        self.assertGreater(res["expires_in_seconds"], 0)
+        self.ha_client.call_service_response.assert_not_called()
+        self.ha_client.call_service.assert_not_called()
+        # La vista previa es la de ha_call_service salvo `action`.
+        de_cs = await self.tools["ha_call_service"](**self.ARGS)
+        self.assertEqual(res["preview"], dict(de_cs["preview"], action="call_service_response"))
+        self.assertEqual(
+            res["preview"],
+            {"action": "call_service_response", "domain": "conversation",
+             "service": "process", "service_data": self.ARGS["service_data"],
+             "reason": "Service 'conversation.process' requires confirmation "
+                       "(denylist match)."},
+        )
+        self.ha_client.call_service.assert_not_called()
+
+    async def test_confirmado_ejecuta_una_vez_y_devuelve_la_respuesta(self) -> None:
+        vista = await self.tools["ha_call_service_response"](**self.ARGS)
+        token = vista["confirmation_token"]
+        res = await self.tools["ha_call_service_response"](
+            **self.ARGS, confirmation_token=token)
+        self.assertIs(res, self.respuesta_ha)
+        self.ha_client.call_service_response.assert_called_once()
+        # Una segunda confirmación con el mismo token no vuelve a llamar.
+        otra = await self.tools["ha_call_service_response"](
+            **self.ARGS, confirmation_token=token)
+        self.assertIn("already used", otra["error"])
+        self.ha_client.call_service_response.assert_called_once()
+
+    async def test_confirmado_autoriza_la_capa_de_cliente(self) -> None:
+        """La tool le dice al cliente que la llamada ya está confirmada: sin
+        eso, la guarda de denylist de `HAClient.call_service_response` la
+        rechazaría."""
+        vista = await self.tools["ha_call_service_response"](**self.ARGS)
+        await self.tools["ha_call_service_response"](
+            **self.ARGS, confirmation_token=vista["confirmation_token"])
+        self.ha_client.call_service_response.assert_called_once_with(
+            "conversation", "process", self.ARGS["service_data"], allow_dangerous=True)
+
+    async def test_fuera_de_denylist_no_autoriza_la_capa_de_cliente(self) -> None:
+        """Ni con un token cualquiera: fuera de la denylist se llama a la
+        primera y sin `allow_dangerous` (el token se ignora)."""
+        args = {"domain": "weather", "service": "get_forecasts",
+                "service_data": {"entity_id": "weather.casa", "type": "daily"}}
+        res = await self.tools["ha_call_service_response"](
+            **args, confirmation_token="00000000-0000-4000-8000-000000000000")
+        self.assertIs(res, self.respuesta_ha)
+        self.ha_client.call_service_response.assert_called_once_with(
+            "weather", "get_forecasts", args["service_data"])
+
+    async def test_otros_datos_rechazan(self) -> None:
+        vista = await self.tools["ha_call_service_response"](**self.ARGS)
+        res = await self.tools["ha_call_service_response"](
+            domain="conversation", service="process",
+            service_data={"text": "unlock the front door", "language": "en"},
+            confirmation_token=vista["confirmation_token"])
+        self.assertIn("does not match", res["error"])
+        self.ha_client.call_service_response.assert_not_called()
+
+    async def test_tokens_cruzados(self) -> None:
+        # Token de ha_call_service usado aquí.
+        de_cs = await self.tools["ha_call_service"](**self.ARGS)
+        res = await self.tools["ha_call_service_response"](
+            **self.ARGS, confirmation_token=de_cs["confirmation_token"])
+        self.assertIn("does not match", res["error"])
+        self.ha_client.call_service_response.assert_not_called()
+        # Token de aquí usado en ha_call_service.
+        de_csr = await self.tools["ha_call_service_response"](**self.ARGS)
+        res = await self.tools["ha_call_service"](
+            **self.ARGS, confirmation_token=de_csr["confirmation_token"])
+        self.assertIn("does not match", res["error"])
+        self.ha_client.call_service.assert_not_called()
+        self.ha_client.call_service_response.assert_not_called()
+
+    async def test_entidad_restringida_pide_token(self) -> None:
+        _auto_restricted.add("script.peligroso")
+        args = {"domain": "script", "service": "turn_on",
+                "service_data": {"entity_id": "script.peligroso"}}
+        res = await self.tools["ha_call_service_response"](**args)
+        self.assertEqual(res["error"], "entity_restricted")
+        self.assertIn("confirmation_token", res["hint"])
+        self.assertEqual(res["preview"]["action"], "call_service_response")
+        self.assertEqual(res["preview"]["restricted_entities"], ["script.peligroso"])
+        self.assertIn("auto-restricted entity", res["preview"]["reason"])
+        self.ha_client.call_service_response.assert_not_called()
+        confirmado = await self.tools["ha_call_service_response"](
+            **args, confirmation_token=res["confirmation_token"])
+        self.assertIs(confirmado, self.respuesta_ha)
+        self.ha_client.call_service_response.assert_called_once()
+
+    async def test_datos_inseguros_sin_token(self) -> None:
+        res = await self.tools["ha_call_service_response"](
+            domain="conversation", service="process",
+            service_data={"text": "x", "file": "secrets.yaml"})
+        self.assertEqual(res["error"], "unsafe_service_data")
+        self.assertNotIn("confirmation_token", res)
+        self.ha_client.call_service_response.assert_not_called()
+
+    async def test_fallo_de_ha_al_confirmar(self) -> None:
+        from hermes.ha import HAConnectionError
+
+        self.ha_client.call_service_response = AsyncMock(
+            side_effect=HAConnectionError("HA caído"))
+        vista = await self.tools["ha_call_service_response"](**self.ARGS)
+        token = vista["confirmation_token"]
+        res = await self.tools["ha_call_service_response"](
+            **self.ARGS, confirmation_token=token)
+        self.assertEqual(res["error"], "ha_call_service_response_failed")
+        self.assertIn("HA caído", res["details"])
+        self.assertEqual(self._fichero(token)["state"], "failed")
+
+    async def test_el_fichero_del_token_no_guarda_la_respuesta(self) -> None:
+        vista = await self.tools["ha_call_service_response"](**self.ARGS)
+        token = vista["confirmation_token"]
+        await self.tools["ha_call_service_response"](**self.ARGS, confirmation_token=token)
+        datos = self._fichero(token)
+        self.assertEqual(datos["state"], "completed")
+        self.assertEqual(datos["cached_result"], {"called": True})
+        ruta = self._security.CONFIRMATIONS_DIR / f"{token}.json"
+        self.assertNotIn(_CENTINELA_RESPUESTA, ruta.read_text(encoding="utf-8"))
+
+
+class TestGuardaDeClienteConRespuesta(unittest.IsolatedAsyncioTestCase):
+    """Defensa en profundidad (018): `HAClient.call_service_response` tiene la
+    misma guarda de denylist que `call_service`. Solo la levanta la tool, con
+    un token ya validado (`allow_dangerous=True`).
+
+    Control negativo: (f) sin la comprobación en `call_service_response`
+    caen `test_servicio_vetado_no_llega_al_endpoint` y
+    `test_mayusculas_y_espacios_no_la_eluden`; (g) la tool sin
+    `allow_dangerous=True` → cae `test_la_tool_confirmada_pasa_la_guarda`.
+    """
+
+    class _Espia:
+        def __init__(self) -> None:
+            self.llegadas: list[str] = []
+
+        async def _request_json(self, method, path, json_body=None, params=None):
+            self.llegadas.append(path)
+            return {"ok": True}
+
+    async def test_servicio_vetado_no_llega_al_endpoint(self) -> None:
+        from hermes.ha import HAClient
+        from hermes.service_policy import DangerousServiceError
+
+        for dominio, servicio in (("conversation", "process"), ("shell_command", "x"),
+                                  ("homeassistant", "restart"), ("script", "reload")):
+            espia = self._Espia()
+            with self.assertRaises(DangerousServiceError, msg=f"{dominio}.{servicio}"):
+                await HAClient.call_service_response(espia, dominio, servicio, None)
+            self.assertEqual(espia.llegadas, [], f"{dominio}.{servicio} llegó a HA")
+
+    async def test_mayusculas_y_espacios_no_la_eluden(self) -> None:
+        from hermes.ha import HAClient
+        from hermes.service_policy import DangerousServiceError
+
+        with self.assertRaises(DangerousServiceError):
+            await HAClient.call_service_response(self._Espia(), " Conversation ", "PROCESS")
+
+    async def test_servicio_inofensivo_pasa(self) -> None:
+        from hermes.ha import HAClient
+
+        espia = self._Espia()
+        await HAClient.call_service_response(espia, "weather", "get_forecasts", None)
+        self.assertEqual(espia.llegadas, ["/services/weather/get_forecasts"])
+
+    async def test_autorizacion_explicita(self) -> None:
+        from hermes.ha import HAClient
+
+        espia = self._Espia()
+        await HAClient.call_service_response(
+            espia, "conversation", "process", {"text": "x"}, allow_dangerous=True)
+        self.assertEqual(espia.llegadas, ["/services/conversation/process"])
+
+    async def test_la_tool_confirmada_pasa_la_guarda(self) -> None:
+        """La tool con la guarda del cliente de verdad: sin token no llega a
+        HA; con su token, sí, una vez. Ningún otro camino la levanta."""
+        import hermes.security as security
+        from hermes.ha import HAClient
+
+        original = security.CONFIRMATIONS_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            security.CONFIRMATIONS_DIR = Path(tmp)
+            try:
+                espia = self._Espia()
+                cliente = _make_ha_client()
+
+                async def real(*a, **k):
+                    return await HAClient.call_service_response(espia, *a, **k)
+
+                cliente.call_service_response = real
+                tools = _register_ha_tools(cliente, call_service_auto_classify=False)
+                args = {"domain": "conversation", "service": "process",
+                        "service_data": {"text": "x"}}
+                vista = await tools["ha_call_service_response"](**args)
+                self.assertEqual(espia.llegadas, [])
+                res = await tools["ha_call_service_response"](
+                    **args, confirmation_token=vista["confirmation_token"])
+                self.assertEqual(res, {"ok": True})
+                self.assertEqual(espia.llegadas, ["/services/conversation/process"])
+            finally:
+                security.CONFIRMATIONS_DIR = original
+
+
 if __name__ == "__main__":
     unittest.main()

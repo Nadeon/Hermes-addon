@@ -373,5 +373,170 @@ class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.guide(tema, search=None), texto)
 
 
+class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
+    """Spec 013, FR-023: tema `system_diagnostics` con las tools de logs,
+    `boot`/`latest` y cómo encontrar un arranque o un identificador; el tema
+    `supervisor` remite a él; los demás temas no cambian."""
+
+    # sha256 (16 primeros hex) de cada tema ANTES de la 013. Una sub-feature
+    # que cambie un tema a propósito actualiza aquí su huella y lo dice en su
+    # CHANGELOG; un cambio accidental cae aquí.
+    _HUELLAS_ANTES_DE_LA_013 = {
+        "automations": "cb414a2c5e0cad24",
+        "backups": "c9a088b65d4f13c5",
+        "config_entries": "7c9723694f529f2f",
+        "data": "c77e3e6782cc89a7",
+        "diagnostics": "66690c9177650ea7",
+        "events": "3765a76095ece40f",
+        "filesystem": "b5902d6d0ff666c1",
+        "generic_commands": "906066a916e93727",
+        "helpers": "685d974fff03f37b",
+        # La 018 cambia `lovelace` (guardado por vista) y `services`
+        # (`ha_call_service_response` con token); su CHANGELOG lo dice.
+        "lovelace": "38d00048b136b460",
+        "marketplace": "f83ec233a87ad95b",
+        "registries": "42894b4111cb8c80",
+        "security": "157ee929e7db08ae",
+        "services": "e7b494a2e8ad587e",
+        "workflows": "53b81454a6708b9a",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("system_diagnostics")
+        self.assertIs(texto, _GUIDE["system_diagnostics"])
+        for palabra in ("sv_get_core_logs", "sv_get_supervisor_logs",
+                        "sv_get_plugin_logs", "sv_get_host_logs",
+                        "sv_list_host_log_identifiers", "sv_list_boots",
+                        "sv_get_addon_logs", "boot", "latest", "identifier",
+                        "-1", "dns", "audio", "multicast"):
+            self.assertIn(palabra, texto)
+        for alias in ("system_logs", "supervisor_logs", "host_logs", "boots",
+                      "SYSTEM_LOGS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `logs` no es alias: chocaría con el log de Core de la spec 012.
+        self.assertNotEqual(await self.guide("logs"), texto)
+
+    async def test_indice_e_instrucciones_lo_nombran(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("system_diagnostics", await self.guide())
+        self.assertIn("system_diagnostics", INSTRUCTIONS)
+        # Sin la familia, las instrucciones no anuncian su tema (principio V).
+        self.assertNotIn("system_diagnostics",
+                         instrucciones(frozenset({"system_diagnostics"})))
+
+    async def test_supervisor_menciona_boot_y_latest(self) -> None:
+        texto = _GUIDE["supervisor"]
+        self.assertIn("boot", texto)
+        self.assertIn("latest", texto)
+        self.assertIn("system_diagnostics", texto)
+
+    async def test_disco_host_y_os(self) -> None:
+        """Tramo 2 (T025): las once tools, la poda, Home Assistant OS y las
+        rutas de diagnóstico que se leen con `sv_read_api`."""
+        texto = _GUIDE["system_diagnostics"]
+        for palabra in ("sv_list_host_services", "sv_get_disk_usage",
+                        "sv_get_os_info", "sv_get_swap",
+                        "sv_list_datadisk_candidates", "max_depth", "20",
+                        "children_omitted", "omitted_bytes", "Home Assistant OS",
+                        "sv_read_api", "/jobs/info",
+                        "/resolution/issue/{issue}/suggestions", "/host/disks",
+                        "/hardware/info", "/security/info", "/docker/info",
+                        "/time/info", "/network/info", "/security/integrity"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        # T032: los niveles que da cada `max_depth`, que en un montaje son
+        # uno menos (el Supervisor convierte < 2 en 0). Control negativo:
+        # volver al texto anterior («`max_depth` de 0 a 3.») → cae.
+        for frase in ("montaje: 0 y 1 dan solo los totales",
+                      "0 y 1 dan solo ese nivel",
+                      "(en un montaje, 2)", "`truncated: true`"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, texto)
+        for alias in ("disk", "storage", "os", "jobs", "DISK"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `host` sigue llevando al tema `supervisor`, como en la 1.1.2.
+        self.assertEqual(await self.guide("host"), _GUIDE["supervisor"])
+
+    async def test_jobs_en_la_tabla(self) -> None:
+        texto = await self.guide("generic_commands", search="jobs")
+        linea = next(l for l in texto.splitlines() if "/jobs/info" in l)
+        self.assertIn("read", linea)
+
+    def test_los_demas_temas_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS_ANTES_DE_LA_013.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)
+
+
+class TestGuiaGuardadoPorVista(unittest.TestCase):
+    """Spec 018 (FR-007, FR-016): la guía y las instrucciones explican el
+    guardado de una sola vista; si siguieran diciendo solo que
+    `ha_save_lovelace_dashboard` reemplaza el dashboard entero, el cliente
+    seguiría reescribiendo dashboards grandes (y perdiendo tarjetas).
+
+    Control negativo comprobado: con `guide.py` anterior a la 018 caen los dos.
+    """
+
+    def test_tema_lovelace(self) -> None:
+        texto = _GUIDE["lovelace"]
+        self.assertIn("view_index", texto)
+        self.assertIn("dashboard_changed", texto)
+        self.assertIn("omit_on_confirm", texto)
+
+    def test_instrucciones_mencionan_una_sola_vista(self) -> None:
+        self.assertIn("view_index", INSTRUCTIONS)
+        self.assertIn("una sola vista", INSTRUCTIONS)
+
+
+
+class TestGuiaRespuestaConfirmadaYListas(unittest.IsolatedAsyncioTestCase):
+    """Spec 018 (FR-011, FR-013): el índice describe el sobre común de las
+    listas nuevas, y el tema `services` dice que `ha_call_service_response`
+    confirma la denylist con token. Si la guía siguiera diciendo que no la
+    admite, el cliente no intentaría el segundo paso (principio V).
+
+    Control negativo comprobado: con `guide.py` anterior al tramo 2 de la 018
+    caen los tres.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_indice_describe_el_sobre(self) -> None:
+        texto = await self.guide()
+        for palabra in ('"count"', '"items"', '"truncated"', "_response_limit", "1.2.0"):
+            self.assertIn(palabra, texto)
+        self.assertIn("conservan su forma", texto)
+
+    def test_tema_services(self) -> None:
+        texto = _GUIDE["services"]
+        # La viñeta de `ha_call_service_response` (hasta la línea en blanco),
+        # no el tema entero: «confirmation_token» ya salía en otra línea.
+        ini = texto.index("- `ha_call_service_response(")
+        fin = texto.find("\n\n", ini)
+        vineta = texto[ini:fin]
+        for palabra in ("confirmation_token", "denylist", "conversation.process"):
+            self.assertIn(palabra, vineta)
+
+    def test_nadie_dice_ya_que_no_la_admite(self) -> None:
+        for nombre, texto in [("INSTRUCTIONS", INSTRUCTIONS), *_GUIDE.items()]:
+            with self.subTest(texto=nombre):
+                self.assertNotIn("No admite servicios de la denylist", texto)
+                self.assertNotIn("no admite servicios de la denylist", texto)
+
+
 if __name__ == "__main__":
     unittest.main()

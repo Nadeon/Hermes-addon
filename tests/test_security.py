@@ -808,3 +808,113 @@ class TestBarridoAcotado(unittest.IsolatedAsyncioTestCase):
             self.TOOL, {"url_path": "panel-ficticio", "config": None},
             preview={}, omitibles=self.OMITIBLES)
         self.assertEqual(self.barridos.call_count, 0)
+
+
+class TestTokenAtadoAlEstado(unittest.IsolatedAsyncioTestCase):
+    """Spec 018 (FR-003, data-model «Estado ligado al token»): argumento
+    opcional `estado` en `create_confirmation_token` y
+    `resolve_confirmation_token`.
+
+    El guardado por vista de Lovelace promete en la vista previa que conserva
+    las demás vistas y las claves de nivel superior. Si el dashboard cambia en
+    los 60 s del token, esa promesa ya no vale: el token se ata también a la
+    huella del estado leído en la vista previa. Sin `estado`, nada cambia
+    respecto a la 1.1.2 (FR-020 de la 008).
+
+    Control negativo comprobado (T007): sin la comparación de `state_hash` en
+    `resolve_confirmation_token` caen (c), (d) y (e) (3 de 8); sin guardar
+    `state_hash` al crear caen (b), (c), (d), (f) y (h) (5 de 8).
+    """
+
+    TOOL = "ha_save_lovelace_dashboard"
+
+    async def asyncSetUp(self) -> None:
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+        self.args = {"url_path": "panel-prueba", "view_index": 1,
+                     "view": {"title": "Cocina", "cards": []}}
+        self.estado = {"title": "Casa ficticia",
+                       "views": [{"title": "Inicio"}, {"title": "Cocina"}]}
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    def _datos(self, token: str) -> dict:
+        ruta = security.CONFIRMATIONS_DIR / f"{token}.json"
+        return json.loads(ruta.read_text(encoding="utf-8"))
+
+    async def _crear(self, **kwargs) -> dict:
+        return await security.create_confirmation_token(
+            self.TOOL, dict(self.args), preview={"x": 1}, **kwargs)
+
+    async def _resolver(self, token: str, **kwargs):
+        return await security.resolve_confirmation_token(
+            token, self.TOOL, dict(self.args), **kwargs)
+
+    async def test_a_sin_estado_igual_que_hoy(self) -> None:
+        r = await self._crear()
+        datos = self._datos(r["confirmation_token"])
+        self.assertNotIn("state_hash", datos)
+        self.assertEqual(datos["action_hash"],
+                         security.compute_action_hash(self.TOOL, self.args))
+        ok, error, resueltos = await self._resolver(r["confirmation_token"])
+        self.assertTrue(ok, error)
+        self.assertEqual(resueltos, self.args)
+
+    async def test_b_mismo_estado_vale(self) -> None:
+        r = await self._crear(estado=self.estado)
+        token = r["confirmation_token"]
+        self.assertRegex(self._datos(token)["state_hash"], r"^[0-9a-f]{64}$")
+        ok, error, _ = await self._resolver(token, estado=json.loads(
+            json.dumps(self.estado)))
+        self.assertTrue(ok, error)
+        self.assertEqual(self._datos(token)["state"], "executing")
+
+    async def test_c_estado_distinto_se_rechaza_sin_gastar_el_token(self) -> None:
+        r = await self._crear(estado=self.estado)
+        token = r["confirmation_token"]
+        otro = {**self.estado, "title": "Otro título ficticio"}
+        self.assertEqual(await self._resolver(token, estado=otro),
+                         (False, security.ESTADO_CAMBIADO, {}))
+        self.assertEqual(self._datos(token)["state"], "pending")
+        ok, error, _ = await self._resolver(token, estado=self.estado)
+        self.assertTrue(ok, error)
+
+    async def test_d_token_con_estado_resuelto_sin_estado(self) -> None:
+        r = await self._crear(estado=self.estado)
+        self.assertEqual(await self._resolver(r["confirmation_token"]),
+                         (False, security.ESTADO_CAMBIADO, {}))
+        self.assertEqual(self._datos(r["confirmation_token"])["state"], "pending")
+
+    async def test_e_token_sin_estado_resuelto_con_estado(self) -> None:
+        r = await self._crear()
+        self.assertEqual(
+            await self._resolver(r["confirmation_token"], estado=self.estado),
+            (False, security.ESTADO_CAMBIADO, {}))
+        self.assertEqual(self._datos(r["confirmation_token"])["state"], "pending")
+
+    async def test_f_el_orden_de_las_claves_no_cuenta(self) -> None:
+        r = await self._crear(estado={"a": 1, "b": {"x": 1, "y": 2}})
+        ok, error, _ = await self._resolver(
+            r["confirmation_token"], estado={"b": {"y": 2, "x": 1}, "a": 1})
+        self.assertTrue(ok, error)
+
+    async def test_g_el_estado_no_toca_las_pistas(self) -> None:
+        con = await self._crear(estado=self.estado, omitibles=("view",))
+        sin = await self._crear(omitibles=("view",))
+        for clave in ("confirm_with", "omit_on_confirm", "confirm_hint"):
+            self.assertEqual(con[clave], sin[clave], clave)
+        self.assertEqual(con["confirm_with"],
+                         ["confirmation_token", "url_path", "view_index"])
+        self.assertEqual(set(await self._crear(estado=self.estado)),
+                         {"confirmation_token", "expires_in_seconds", "preview"})
+
+    async def test_h_en_el_fichero_solo_la_huella(self) -> None:
+        centinela = "CENTINELA-ESTADO-91c2"
+        estado = {**self.estado, "background": centinela}
+        r = await self._crear(estado=estado)
+        ruta = security.CONFIRMATIONS_DIR / f"{r['confirmation_token']}.json"
+        self.assertNotIn(centinela, ruta.read_text(encoding="utf-8"))
+        self.assertIn("state_hash", self._datos(r["confirmation_token"]))

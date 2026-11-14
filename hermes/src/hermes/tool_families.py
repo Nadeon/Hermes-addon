@@ -87,6 +87,17 @@ _CATALOGO: tuple[Familia, ...] = (
             "Generic tools that run Core WebSocket commands and Supervisor API "
             "routes allowed by Hermes' classification table.",
             "1.2.0", True, ("generic_commands",)),
+    # Spec 013 (research R-1): logs de Core, del Supervisor, de los plugins y
+    # del host, también de arranques anteriores. Una sola familia para todo el
+    # diagnóstico del sistema porque es un mismo caso de uso y cabe en un tema
+    # de la guía; va aparte de `supervisor` para que apagar las familias de la
+    # 1.2.0 deje exactamente la lista de la 1.1.2 (FR-010 de la 008). El
+    # módulo `host_system` (tramo 2: servicios del host, uso de disco, OS y
+    # swap) es el otro lado del mismo diagnóstico y también solo lee.
+    Familia("system_diagnostics",
+            "Supervisor, Core, host and plugin logs; host services, disk "
+            "usage, OS and swap (read only).",
+            "1.2.0", True, ("system_logs", "host_system")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

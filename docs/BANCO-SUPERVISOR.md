@@ -387,6 +387,12 @@ la instalación real:
 - **`sv_get_resolution` con avisos reales**: las referencias salen redactadas.
 - **Trazas de un script**: `ha_list_traces` y `ha_get_trace` con
   `domain: "script"`.
+- **Diagnóstico del Supervisor (spec 013)**: las once tools de
+  `system_diagnostics` (logs de Core, del Supervisor, de los plugins y del
+  host, también con `boot=-1` y `latest`; `sv_get_disk_usage` con
+  `max_depth` 3 y con un montaje; las tres de OS) y las rutas `read` de la
+  tabla por `sv_read_api`. Solo leen: no entran en «Tandas de pruebas», que
+  es de las tools que modifican.
 
 ## Anotar el resultado
 
