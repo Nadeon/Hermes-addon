@@ -147,7 +147,7 @@ ajustados. T022 cambia y se añaden T022a y T022b.
 - [x] T043 Documentación final: CHANGELOG (sección de la 016 completa: 15 tools, 2 familias, 7 entradas de la tabla, textos traducidos en Repairs, guía de helpers, docstring corregida); hoja de ruta → «hecha» con lo probado en el banco y los pendientes manuales (quickstart.md); `README.md` y `README.es.md` sincronizados (tools nuevas en la lista por áreas y el recuento si lo llevan); `hermes/DOCS.md` si la opción `tool_families_disabled` enumera familias; `specs/008-cobertura-total/plan.md`: filas CAP-036, CAP-037, CAP-044, CAP-045 y CAP-048 de la matriz con las tools y los ficheros de test, sin cambiar las columnas que lee `_matriz_008` (sub-feature y vía) (FR-025)
 - [x] T044 Revisión del principio V de las tools del tramo y del tema (como T015) y control negativo del tramo C, anotando recuentos: (a) no redactar los marcadores antes de sustituir → cae el centinela de T030; lanzar si falla `get_translations` → cae el fail-soft de T030/T032; (b) quitar un campo de la 1.1.2 en `ha_list_repairs` → cae T032; (c) abrir el flujo sin comprobar `is_fixable` → cae T035; (d) hacer el POST en la vista previa → cae el de «ningún POST» de T036; no comprobar el dominio del flujo → cae `flow_mismatch`; atar el token sin `user_input` → cae T036(d); (e) guardar `user_input` sin redactar en la vista previa → cae T036(e); (f) devolver `issue_data` sin mirar el tope → cae T034; (g) dejar `repairs/get_issue_data` en `deny` → cae el de la genérica; quitar `ha_continue_repair_fix` de `_DESTRUCTIVE_EXACT` → cae el invariante de registro. Restaurar y comprobar verde
 - [x] T045a [US2] (decisión del supervisor, tramo C) Reautenticación con token en `ha_continue_config_entry_flow` (FR-010d): tests en `tests/test_tools_config_entry_flows_reauth.py` (vista previa sin `POST`, secretos tapados por clave y por selector, token atado a `flow_id`, paso y `user_input`, reutilizado, paso cambiado, `form` siguiente, 404, lectura que falla, marcador rechazado, centinelas fuera de la vista previa, el log y `CONFIRMATIONS_DIR`; descubrimiento, flujo fuera de la lista y lectura de la lista que falla → como en la 1.1.2; reconfigure registrado → rechazado sin leer); implementación en `config_entry_flows.py` (ayudantes de tapado movidos a `tools/_flujos.py` sin cambiarlos); `confirmation_token` opcional y hint `-DI-` justificados en `test_tools_registration.py`; docstring, guía (`integration_flows`, `config_entries`) y `SECURITY.md`; `banco_flujos` con `reauth` y el servicio `pedir_reauth`, y `TestReauth` en `tests/banco/test_banco_integraciones.py`
-- [ ] T045 Cierre del tramo C: suite completa (los 6 fallos conocidos y ninguno más), CI de la rama y banco en verde, revisión del diff (principio VIII, FR-026), commit con los recuentos de T044 (SC-006, SC-007)
+- [x] T045 Cierre del tramo C: suite completa (los 6 fallos conocidos y ninguno más), CI de la rama y banco en verde, revisión del diff (principio VIII, FR-026), commit con los recuentos de T044 (SC-006, SC-007)
 
 ---
 
@@ -323,4 +323,7 @@ banco, decisiones.)
     `flow_id`, `step_id`, `user_input`) y el `reauth` de
     `ha_continue_config_entry_flow` (`flow_id`, `step_id`, `user_input`)
     tienen que entrar en ese inventario.
-- **Hallazgos en el banco**: ver el informe de cierre (T045).
+- **CI de la rama**: verde a la primera; banco de Core 56 passed, 3 xfailed
+  (los de siempre): los 4 tests nuevos (Repairs, arreglo, abortar y
+  reautenticación) contra HA Core 2026.11.1.
+- **Hallazgos en el banco**: ninguno.
