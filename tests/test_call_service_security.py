@@ -522,5 +522,58 @@ class TestTargetsRestrictedEntity(unittest.TestCase):
         self.assertFalse(targets_restricted_entity("script", {}, self.R))
 
 
+
+class TestClasificarAlGuardarConLaDenylistExtra(unittest.TestCase):
+    """Al guardar, se clasifica con la denylist EFECTIVA (base + extra).
+
+    `classify_saved_config` usaba solo la de base: un script que llamaba a un
+    servicio vetado SOLO por `call_service_denylist_extra` se guardaba sin
+    restringir, aunque `ha_call_service` sí lo vetaba (revisión de la 027).
+
+    Control negativo comprobado: volver a `CALL_SERVICE_DENYLIST` en
+    `classify_saved_config` → `test_servicio_solo_en_la_extra_se_restringe` en
+    rojo.
+    """
+
+    SERVICIO = "input_boolean.turn_on"
+    CONFIG = {"sequence": [{"action": "input_boolean.turn_on"}]}
+
+    def setUp(self) -> None:
+        from hermes import service_policy
+
+        service_policy.set_auto_restricted_entities(set())
+        self.assertFalse(_is_in_denylist("input_boolean", "turn_on", CALL_SERVICE_DENYLIST),
+                         "el servicio de prueba tiene que estar SOLO en la extra")
+
+    def tearDown(self) -> None:
+        from hermes import service_policy
+
+        # Deja la denylist de guardado como la de base para los demás tests.
+        _register_ha_tools(call_service_auto_classify=False)
+        service_policy.set_auto_restricted_entities(set())
+
+    def test_servicio_solo_en_la_extra_se_restringe(self) -> None:
+        from hermes.tools.ha import classify_saved_config
+
+        _register_ha_tools(call_service_denylist_extra=[self.SERVICIO],
+                           call_service_auto_classify=False)
+        self.assertTrue(classify_saved_config("script.extra", self.CONFIG))
+        self.assertIn("script.extra", get_auto_restricted_entities())
+
+    def test_sin_la_extra_no_se_restringe(self) -> None:
+        from hermes.tools.ha import classify_saved_config
+
+        _register_ha_tools(call_service_auto_classify=False)
+        self.assertFalse(classify_saved_config("script.extra", self.CONFIG))
+        self.assertNotIn("script.extra", get_auto_restricted_entities())
+
+    def test_la_base_sigue_restringiendo_con_extra(self) -> None:
+        from hermes.tools.ha import classify_saved_config
+
+        _register_ha_tools(call_service_denylist_extra=[self.SERVICIO],
+                           call_service_auto_classify=False)
+        self.assertTrue(classify_saved_config(
+            "script.base", {"sequence": [{"action": "shell_command.algo"}]}))
+
 if __name__ == "__main__":
     unittest.main()

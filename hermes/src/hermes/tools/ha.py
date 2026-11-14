@@ -311,6 +311,15 @@ def automation_entity_ids_for(config: dict, config_id: str) -> list[str]:
     return ids
 
 
+# Denylist efectiva (la de base más `call_service_denylist_extra`) con la que
+# se clasifica lo que se guarda. La fija `register`, que es quien conoce la
+# opción; hasta entonces vale la de base. Antes `classify_saved_config` usaba
+# solo la de base: un script que llamaba a un servicio vetado SOLO por la
+# extra se guardaba sin restringir, aunque `ha_call_service` sí lo vetaba
+# (revisión de la 027).
+_denylist_al_guardar: frozenset[str] = CALL_SERVICE_DENYLIST
+
+
 def classify_saved_config(entity_id: str, config: dict) -> bool:
     """Clasifica AL VUELO la config que se acaba de guardar.
 
@@ -324,11 +333,15 @@ def classify_saved_config(entity_id: str, config: dict) -> bool:
     Se clasifica el dict recibido en vez de releer el YAML del disco: es
     inmediato y no depende de cuándo escriba HA el fichero.
 
+    No depende de `call_service_auto_classify_dangerous`: esa opción apaga la
+    clasificación del arranque y la de tras un `reload`, pero lo que se guarda
+    por Hermes se clasifica siempre (fail-closed), con la denylist efectiva.
+
     Devuelve True si la entidad ha quedado marcada como restringida.
     """
     if not isinstance(config, dict) or not entity_id:
         return False
-    if _scan_for_dangerous_services(config, CALL_SERVICE_DENYLIST):
+    if _scan_for_dangerous_services(config, _denylist_al_guardar):
         _policy.add_auto_restricted_entity(entity_id)
         # Sin `entity_id` (FR-003 de la 009): el log se pega en issues
         # públicos y el id de una automatización sale de su alias, que nombra
@@ -426,6 +439,10 @@ def register(
     effective_denylist: frozenset[str] = CALL_SERVICE_DENYLIST
     if call_service_denylist_extra:
         effective_denylist = effective_denylist | frozenset(call_service_denylist_extra)
+    # La misma para clasificar al guardar automatizaciones y scripts: lo que
+    # `ha_call_service` veta tiene que restringirse también al guardarlo.
+    global _denylist_al_guardar
+    _denylist_al_guardar = effective_denylist
 
     # Añadir entidades restringidas por config
     if call_service_restricted_entities:
