@@ -392,3 +392,7 @@ protegido), no el texto literal.
 - [P] = ficheros distintos y sin dependencias pendientes.
 - Cada lote deja en su commit «con la guarda quitada caen N tests» por arreglo.
 - Ningún lote empuja ni fusiona a `main`; eso lo decide el mantenedor.
+
+## Revisión de corrección de 1.1.0
+
+- [X] T900 FR-028a: guarda de claves de nivel superior en `ha_save_lovelace_dashboard` y `top_level` en las lecturas parciales de `ha_get_lovelace_dashboard`, con tests en `tests/test_tools_lovelace.py` (reconstrucción por vistas sin pérdida, negativa sin token, borrado explícito atado al token, lectura fallida sin token, `config_not_found` con token)

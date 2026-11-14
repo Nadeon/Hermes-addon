@@ -33,7 +33,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Scenes** | 7 | Including capturing the current state of the house as a new scene |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zones and people** | 10 | Geographic zones and person tracking |
-| **Registries** | 26 | Entities, devices, areas, floors, labels and categories: rename, move, hide, disable, delete. Deleting a floor or a label previews which automations, scripts and scenes still point at it |
+| **Registries** | 26 | Entities, devices, areas, floors, labels and categories: rename, move, hide, disable, delete. Deleting a floor or a label previews which automations and scripts use it as a target and will stop matching, apart from those only related to it |
 | **Integrations** | 13 | Config entries and their config flows, options flows included |
 | **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
 | **Lovelace** | 10 | Dashboards and resources |

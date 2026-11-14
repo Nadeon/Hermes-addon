@@ -789,5 +789,63 @@ class TestOnlyAllowedCommands(_Base):
             self.assertNotIn(forbidden, code)
 
 
+
+class TestRespetaTope(_Base):
+    """Regresión M-1: con `limit=500` y descripciones largas la lista no pasa
+    de `response_max_bytes` y lo dice con `truncated`."""
+
+    def _mcp_tope(self, fake: FakeHA, tope: int) -> DummyMCP:
+        self._install(fake)
+        mcp = DummyMCP()
+        mp.register(mcp, self.client, response_max_bytes=tope)
+        return mcp
+
+    async def test_list_repositories_recorta_por_bytes(self) -> None:
+        repos = [_repo(str(i), f"owner/repo-{i:04d}", description="d" * 300)
+                 for i in range(500)]
+        mcp = self._mcp_tope(FakeHA(_marketplace("marketplace", {"repositories/list": repos})),
+                             32768)
+        result = await mcp.tools["ha_marketplace_list_repositories"](
+            installed_only=False, limit=500)
+        self.assertLessEqual(len(json.dumps(result, ensure_ascii=False).encode()), 32768)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["total"], 500)
+        self.assertEqual(result["count"], len(result["repositories"]))
+        self.assertLess(result["count"], 500)
+        # Se recorta por el final: el orden se mantiene.
+        self.assertEqual(result["repositories"][0]["full_name"], "owner/repo-0000")
+
+    async def test_list_critical_recorta_por_bytes(self) -> None:
+        criticos = [{"repository": f"owner/bad-{i}", "reason": "r" * 300,
+                     "link": None, "acknowledged": False} for i in range(200)]
+        mcp = self._mcp_tope(FakeHA(_marketplace("marketplace", {"critical/list": criticos})),
+                             8192)
+        result = await mcp.tools["ha_marketplace_list_critical"]()
+        self.assertLessEqual(len(json.dumps(result, ensure_ascii=False).encode()), 8192)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["total"], 200)
+
+    async def test_alias_hacs_recorta_igual(self) -> None:
+        from hermes.tools import hacs as hacs_mod
+        repos = [_repo(str(i), f"owner/repo-{i:04d}", description="d" * 300)
+                 for i in range(500)]
+        self._install(FakeHA(_marketplace("marketplace", {"repositories/list": repos})))
+        mcp = DummyMCP()
+        hacs_mod.register(mcp, self.client, response_max_bytes=32768)
+        result = await mcp.tools["ha_hacs_list_repositories"](installed_only=False, limit=500)
+        self.assertTrue(result["truncated"])
+        self.assertLessEqual(len(json.dumps(result, ensure_ascii=False).encode()), 32768 + 512)
+
+    async def test_releases_unknown_con_pista(self) -> None:
+        """Regresión B-2: con GitHub conectado el límite sale como `unknown`."""
+        mcp = self._mcp(FakeHA({
+            "marketplace/repository/releases": HAConnectionError(
+                "HA WS command failed: x", code="unknown"),
+        }))
+        result = await mcp.tools["ha_marketplace_list_releases"]("123456")
+        self.assertEqual(result["error"], "unknown")
+        self.assertIn("try again later", result["hint"])
+
+
 if __name__ == "__main__":
     unittest.main()

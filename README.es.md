@@ -35,7 +35,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Escenas** | 7 | Incluido capturar el estado actual de la casa como escena nueva |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zonas y personas** | 10 | Zonas geográficas y seguimiento de personas |
-| **Registros** | 26 | Entidades, dispositivos, áreas, plantas, etiquetas y categorías: renombrar, mover, ocultar, deshabilitar, borrar. Al borrar una planta o una etiqueta, la vista previa dice qué automatizaciones, scripts y escenas siguen apuntando a ella |
+| **Registros** | 26 | Entidades, dispositivos, áreas, plantas, etiquetas y categorías: renombrar, mover, ocultar, deshabilitar, borrar. Al borrar una planta o una etiqueta, la vista previa dice qué automatizaciones y scripts la usan como destino y dejarán de funcionar, aparte de los que solo están relacionados |
 | **Integraciones** | 13 | Config entries y sus flujos de configuración, incluidos los de opciones |
 | **Ficheros de `/config`** | 11 | Leer, escribir, mover, borrar, buscar, gestionar `secrets.yaml` y restaurar copias |
 | **Lovelace** | 10 | Dashboards y recursos |

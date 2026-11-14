@@ -160,5 +160,45 @@ class TestIncludeDisabledEntities(_Base):
         self.assertNotIn("include_disabled_entities", self.sent[0])
 
 
+
+class TestSearchRelatedRespetaTope(unittest.IsolatedAsyncioTestCase):
+    """Regresión M-1 (revisión de 1.1.0): la respuesta no pasa de
+    `response_max_bytes`; antes 200 ids × 14 tipos salían enteros."""
+
+    async def asyncSetUp(self) -> None:
+        self.session = ClientSession()
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close()
+
+    async def _tool(self, respuesta: Any, tope: int) -> Any:
+        client = make_ready_client(self.session, {})
+
+        async def fake_ws(payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
+            return respuesta
+
+        client.ws_send = fake_ws  # type: ignore[method-assign]
+        mcp = DummyMCP()
+        search_mod.register(mcp, client, response_max_bytes=tope)
+        return mcp.tools["ha_search_related"]
+
+    async def test_recorta_por_bytes_con_recuentos_exactos(self) -> None:
+        respuesta = {t: [f"{t}.elemento_ficticio_{i:04d}" for i in range(150)] for t in _TIPOS}
+        tool = await self._tool(respuesta, 8192)
+        texto = await tool("integration", "demo")
+        self.assertLessEqual(len(texto.encode()), 8192)
+        res = json.loads(texto)
+        self.assertTrue(res["truncated"])
+        self.assertEqual(res["counts"], {t: 150 for t in _TIPOS})
+        # Se recorta igual en todos los tipos: ninguno se queda vacío.
+        self.assertTrue(all(res["related"][t] for t in _TIPOS))
+
+    async def test_sin_recorte_si_cabe(self) -> None:
+        tool = await self._tool({"automation": ["automation.a"]}, 8192)
+        res = json.loads(await tool("entity", "light.a"))
+        self.assertFalse(res["truncated"])
+        self.assertEqual(res["related"], {"automation": ["automation.a"]})
+
+
 if __name__ == "__main__":
     unittest.main()

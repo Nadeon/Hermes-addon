@@ -28,7 +28,8 @@ import structlog
 from hermes.ha import HAClient, HAConnectionError
 from hermes.ha_version import ha_at_least, ha_core_version
 from hermes.security import redact_secrets, redact_structure
-from hermes.tools._common import requires_ready
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
+from hermes.tools._common import ajustar_lista_a_bytes, requires_ready
 from hermes.tools._validation import InvalidIdentifier, validate_identifier
 
 logger = structlog.get_logger(__name__)
@@ -120,10 +121,23 @@ def _backup_permitido(b: dict[str, Any]) -> dict[str, Any]:
                   "with_automatic_settings"):
         out[clave] = _escalar(b.get(clave))
     agentes = b.get("agents")
-    out["agents"] = {
-        str(aid): {"protected": _escalar(a.get("protected")), "size": _escalar(a.get("size"))}
-        for aid, a in agentes.items() if isinstance(a, dict)
-    } if isinstance(agentes, dict) else {}
+    if isinstance(agentes, dict):
+        out["agents"] = {
+            str(aid): {"protected": _escalar(a.get("protected")),
+                       "size": _escalar(a.get("size"))}
+            for aid, a in agentes.items() if isinstance(a, dict)
+        }
+    elif isinstance(b.get("agent_ids"), list):
+        # HA 2025.1.x: el dict `agents` llegó en 2025.2; antes había
+        # `agent_ids` y `protected`/`size` comunes a todas las ubicaciones.
+        # Sin esto, la tool que anuncia 2025.1+ devolvía cada backup sin
+        # ubicaciones (hallazgo B-4).
+        out["agents"] = {
+            aid: {"protected": _escalar(b.get("protected")), "size": _escalar(b.get("size"))}
+            for aid in b["agent_ids"] if isinstance(aid, str)
+        }
+    else:
+        out["agents"] = {}
     out["addons"] = _lista_addons(b.get("addons")) or []
     out["folders"] = _lista_textos(b.get("folders")) or []
     out["failed_agent_ids"] = _lista_textos(b.get("failed_agent_ids")) or []
@@ -202,7 +216,11 @@ def _json(valor: Any) -> str:
     return json.dumps(valor, ensure_ascii=False)
 
 
-def register(mcp: object, ha_client: HAClient) -> None:
+def register(
+    mcp: object,
+    ha_client: HAClient,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
+) -> None:
     """Registra las tools de backups de Home Assistant."""
 
     ready = requires_ready(ha_client)
@@ -234,12 +252,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """List Home Assistant backups (backup integration, HA 2025.1+), newest first.
 
         Covers every backup location HA knows (local, network storage, cloud).
-        Returns {"count", "total", "backups": [...], "last_attempted_automatic_backup",
+        Returns {"count", "total", "truncated", "backups": [...], "last_attempted_automatic_backup",
         "last_completed_automatic_backup", "next_automatic_backup", "state",
         "agent_errors"}. Each backup has backup_id, name, date, agents
         ({agent_id: {protected, size}}), addons, folders, database_included,
         homeassistant_included, homeassistant_version, failed_* lists and
         with_automatic_settings. The installation id is never returned.
+        `truncated` is true when the response size limit cut the list.
 
         Args:
             limit: 1–100 (default 20).
@@ -256,11 +275,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
             return _json({"error": "unexpected_response from backup/info"})
         backups = [_backup_permitido(b) for b in data["backups"] if isinstance(b, dict)]
         backups.sort(key=_orden_fecha, reverse=True)
-        seleccion = backups[:limit]
-        out = {
-            "count": len(seleccion),
-            "total": len(backups),
-            "backups": seleccion,
+        # Se sanea antes de medir: lo que cuenta es lo que sale.
+        seleccion = [_saneado(b) for b in backups[:limit]]
+        resto = _saneado({
             "last_attempted_automatic_backup": _escalar(
                 data.get("last_attempted_automatic_backup")),
             "last_completed_automatic_backup": _escalar(
@@ -268,9 +285,18 @@ def register(mcp: object, ha_client: HAClient) -> None:
             "next_automatic_backup": _escalar(data.get("next_automatic_backup")),
             "state": _escalar(data.get("state")),
             "agent_errors": _errores_agentes(data.get("agent_errors")),
-        }
-        logger.info("ha_list_backups_ok", count=len(seleccion))
-        return _json(_saneado(out))
+        })
+
+        def construir(items: list[Any], recortada: bool) -> dict[str, Any]:
+            return {"count": len(items), "total": len(backups),
+                    "truncated": recortada, "backups": items, **resto}
+
+        # Cien backups con veinte add-ons cada uno pasan del tope de
+        # respuesta (hallazgo M-1): se recorta por el final, que son los
+        # más antiguos.
+        out = ajustar_lista_a_bytes(seleccion, construir, response_max_bytes)
+        logger.info("ha_list_backups_ok", count=out["count"], truncated=out["truncated"])
+        return _json(out)
 
     @mcp.tool()
     @ready

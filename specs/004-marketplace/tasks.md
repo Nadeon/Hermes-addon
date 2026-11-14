@@ -251,3 +251,8 @@ Agente D: T038–T045 (lote D)
 | FR-029 | D | revisión manual (T045) | T044 | — (documentación) |
 | FR-030 | todos | — | controles negativos | T008, T012, T015, T019, T022, T030, T036, T040 |
 | FR-031 | todos | T048 | — | — |
+
+## Revisión de corrección de 1.1.0
+
+- [X] T900 M-1: `ha_marketplace_list_repositories`, `list_updates`, `list_critical` y `list_removed` (y sus alias `ha_hacs_*`) recortan por `response_max_bytes`; las tres últimas añaden `total` y `truncated`
+- [X] T901 B-2: `ha_marketplace_list_releases` añade una pista de reintento cuando HA responde `unknown` (límite de GitHub con cuenta conectada)

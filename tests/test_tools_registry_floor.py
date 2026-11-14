@@ -67,11 +67,99 @@ def _areas(n_en_a: int, n_en_b: int = 1) -> list[dict]:
     return areas
 
 
+# Forma REAL de `search/related` para una planta con áreas (HA 2026.11.1,
+# `components/search/__init__.py`, `_async_search_floor`): además de lo que
+# usa `floor_id`, por cada área llama a `_async_search_area(entry_point=False)`
+# y añade lo que apunta al área, a sus dispositivos y a sus entidades, las
+# escenas que contienen esas entidades y las entidades `automation.*` que
+# están asignadas al área. Un mock que solo devolviera «lo que apunta a la
+# planta» es lo que escondió el fallo A-1 de la revisión de 1.1.0.
+RELATED_PLANTA = {
+    "area": ["area_a0", "area_a1"],
+    "device": ["dev_cocina"],
+    "entity": ["light.cocina", "light.salon", "automation.asignada_al_area"],
+    "config_entry": ["entry_luces"],
+    "automation": [
+        "automation.luz_cocina",
+        "automation.luces_planta",
+        "automation.area_salon",
+        "automation.varias_plantas",
+        "automation.asignada_al_area",
+        "automation.trigger_planta",
+        "automation.otra_planta",
+        "automation.blueprint_planta",
+        "automation.no_cargada",
+    ],
+    "script": ["script.cocina", "script.apagar_planta"],
+    "scene": ["scene.cena"],
+}
+
+# `raw_config` de cada una, como lo devuelven `automation/config` y
+# `script/config`.
+CONFIGS_PLANTA: dict[str, dict] = {
+    # Apuntan a la planta: dejan de funcionar.
+    "automation.luces_planta": {
+        "id": "1", "triggers": [{"trigger": "time", "at": "20:00:00"}],
+        "actions": [{"action": "light.turn_on", "target": {"floor_id": "planta_a"}}],
+    },
+    "automation.varias_plantas": {
+        "id": "2", "triggers": [],
+        "actions": [{"choose": [{"conditions": [], "sequence": [
+            {"action": "light.turn_off",
+             "target": {"floor_id": ["planta_b", "planta_a"]}},
+        ]}]}],
+    },
+    "automation.trigger_planta": {
+        "id": "3",
+        "triggers": [{"trigger": "light.turned_on", "target": {"floor_id": "planta_a"}}],
+        "actions": [{"action": "notify.notify", "data": {"message": "x"}}],
+    },
+    "automation.blueprint_planta": {
+        "id": "4", "use_blueprint": {"path": "ficticio/luces.yaml",
+                                     "input": {"planta": "planta_a"}},
+    },
+    "script.apagar_planta": {
+        "sequence": [{"action": "light.turn_off", "target": {"floor_id": "planta_a"}}],
+    },
+    # Solo relacionadas a través de áreas, dispositivos o entidades: siguen.
+    "automation.luz_cocina": {
+        "id": "5", "triggers": [],
+        "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.cocina"}}],
+    },
+    "automation.area_salon": {
+        "id": "6", "triggers": [],
+        "actions": [{"action": "light.turn_on", "target": {"area_id": "area_a1"}}],
+    },
+    "automation.asignada_al_area": {
+        "id": "7", "triggers": [],
+        "actions": [{"action": "switch.turn_on", "target": {"entity_id": "switch.ficticio"}}],
+    },
+    "automation.otra_planta": {
+        "id": "8", "triggers": [],
+        "actions": [{"action": "light.turn_on",
+                     "target": {"area_id": "area_a0", "floor_id": "planta_b"}}],
+    },
+    "script.cocina": {
+        "sequence": [{"action": "light.turn_off", "target": {"entity_id": "light.cocina"}}],
+    },
+}
+
+
+def _leer_config(payload: dict) -> dict:
+    entity_id = payload["entity_id"]
+    if entity_id not in CONFIGS_PLANTA:
+        # Lo que responde HA para una entidad que no está cargada.
+        raise HAConnectionError("Entity not found", code="not_found")
+    return {"config": CONFIGS_PLANTA[entity_id]}
+
+
 def _rutas_borrado(**cambios: Any) -> dict[str, Any]:
     rutas: dict[str, Any] = {
         "config/floor_registry/list": FLOORS,
         "config/area_registry/list": _areas(2),
-        "search/related": {"automation": ["automation.a"], "area": ["area_a0", "area_a1"]},
+        "search/related": RELATED_PLANTA,
+        "automation/config": _leer_config,
+        "script/config": _leer_config,
         "config/floor_registry/delete": None,
     }
     rutas.update(cambios)
@@ -253,23 +341,59 @@ class TestDeleteFloor(_Base):
         areas = preview["impact"]["assignments_removed"]["areas"]
         self.assertEqual(areas, {"count": 2, "ids": ["area_a0", "area_a1"], "truncated": False})
         refs = preview["impact"]["references_unresolved"]
-        self.assertEqual(refs["automation"]["ids"], ["automation.a"])
-        self.assertEqual(refs["automation"]["count"], 1)
-        self.assertEqual(refs["script"]["count"], 0)
-        self.assertEqual(refs["scene"]["count"], 0)
-        # Las áreas que devuelve search/related no se cuelan como referencias.
+        # Solo lo que usa `floor_id: planta_a` (acciones, disparadores o un
+        # blueprint que recibe la planta) deja de funcionar.
+        self.assertEqual(refs["automation"]["ids"], [
+            "automation.blueprint_planta", "automation.luces_planta",
+            "automation.trigger_planta", "automation.varias_plantas",
+        ])
+        self.assertEqual(refs["automation"]["count"], 4)
+        self.assertEqual(refs["script"]["ids"], ["script.apagar_planta"])
+        # Una escena no puede apuntar a una planta.
+        self.assertNotIn("scene", refs)
         self.assertNotIn("area", refs)
-        self.assertIn("2 areas", preview["warning"])
-        self.assertIn("1 automation", preview["warning"])
-        self.assertIn("0 scripts", preview["warning"])
-        self.assertIn("0 scenes", preview["warning"])
+        rel = preview["impact"]["related_unaffected"]
+        self.assertEqual(rel["automation"]["ids"], [
+            "automation.area_salon", "automation.asignada_al_area",
+            "automation.luz_cocina", "automation.no_cargada", "automation.otra_planta",
+        ])
+        self.assertEqual(rel["script"]["ids"], ["script.cocina"])
+        self.assertEqual(rel["scene"]["ids"], ["scene.cena"])
+        warning = preview["warning"]
+        self.assertIn("2 areas", warning)
+        self.assertIn("4 automations and 1 script use this floor", warning)
+        self.assertIn("5 automations, 1 script and 1 scene", warning)
+        self.assertIn("keep working", warning)
+        self.assertIn("templates", warning)
         related = [p for p in fake.sent if p["type"] == "search/related"]
         self.assertEqual(related[0]["item_type"], "floor")
         self.assertEqual(related[0]["item_id"], "planta_a")
         self.assertNotIn("config/floor_registry/delete", fake.types())
 
+    async def test_relacionadas_por_area_no_cuentan_como_rotas(self) -> None:
+        """Regresión A-1: treinta automatizaciones que solo encienden luces
+        de las áreas de la planta NO dejan de funcionar al borrarla."""
+        ids = [f"automation.cocina_{i}" for i in range(30)]
+        configs = {
+            i: {"id": i, "triggers": [], "actions": [
+                {"action": "light.turn_on", "target": {"entity_id": "light.cocina"}}]}
+            for i in ids
+        }
+        tools, _ = self._tools(_rutas_borrado(**{
+            "search/related": {"area": ["area_a0"], "entity": ["light.cocina"],
+                               "automation": ids, "scene": ["scene.cena"]},
+            "automation/config": lambda p: {"config": configs[p["entity_id"]]},
+        }))
+        out = json.loads(await tools["ha_delete_floor"]("planta_a"))
+        impact = out["preview"]["impact"]
+        self.assertEqual(impact["references_unresolved"]["automation"]["count"], 0)
+        self.assertEqual(impact["related_unaffected"]["automation"]["count"], 30)
+        self.assertIn("0 automations and 0 scripts use this floor", out["preview"]["warning"])
+
     async def test_cada_lectura_fallando_preview_unavailable(self) -> None:
-        for comando in ("config/floor_registry/list", "config/area_registry/list", "search/related"):
+        comandos = ("config/floor_registry/list", "config/area_registry/list",
+                    "search/related", "automation/config", "script/config")
+        for comando in comandos:
             for fallo in (HAConnectionError("offline"), "no es una lista ni un dict"):
                 with self.subTest(comando=comando, fallo=fallo):
                     tools, fake = self._tools(_rutas_borrado(**{comando: fallo}))
@@ -278,6 +402,12 @@ class TestDeleteFloor(_Base):
                     self.assertIn("detail", out)
                     self.assertNotIn("confirmation_token", out)
                     self.assertNotIn("config/floor_registry/delete", fake.types())
+
+    async def test_config_sin_clave_config_preview_unavailable(self) -> None:
+        tools, _ = self._tools(_rutas_borrado(**{"automation/config": {"otra": 1}}))
+        out = json.loads(await tools["ha_delete_floor"]("planta_a"))
+        self.assertEqual(out["error"], "preview_unavailable")
+        self.assertNotIn("confirmation_token", out)
 
     async def test_areas_que_no_son_lista(self) -> None:
         tools, _ = self._tools(_rutas_borrado(**{"config/area_registry/list": {"a": 1}}))

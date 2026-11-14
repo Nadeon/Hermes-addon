@@ -309,3 +309,11 @@ Agente C: T036–T057 (ficheros del bloque C)
 - Cada bloque deja en su commit «con la guarda quitada caen N tests» por guarda.
 - Ningún bloque empuja ni fusiona a `main`; eso lo decide el mantenedor.
 - Los centinelas de los tests empiezan por `SENTINEL-` y las IPs de ejemplo son de `192.0.2.0/24`.
+
+## Revisión de corrección de 1.1.0
+
+- [X] T900 [US2] A-1/A-2/M-4: `ha_delete_floor` y `ha_delete_label` leen la configuración de cada automatización y script que da `search/related` y separan `references_unresolved` (usan `floor_id`/`label_id`) de `related_unaffected` (relacionadas por áreas, dispositivos o entidades, o solo etiquetadas; las escenas siempre aquí). Tests con la forma real de `search/related` de HA 2026.11.1 (áreas, entidades, escenas transitivas y automatizaciones etiquetadas), disparadores con `target`, blueprints, `not_found` y cada lectura nueva fallando → `preview_unavailable` (FR-005, FR-006, FR-008)
+- [X] T901 M-1: `ha_search_related` recibe `response_max_bytes` y baja el tope de ids por tipo hasta que la respuesta quepa, con `truncated` y recuentos exactos
+- [X] T902 [US7] M-1/B-4: `ha_list_backups` recibe `response_max_bytes` y recorta por el final con `truncated`; con HA 2025.1.x construye `agents` desde `agent_ids`
+- [X] T903 M-2: `fs_search_in_config` lee hasta 4 MiB por fichero, desacoplado de `response_max_bytes`; los ficheros mayores se buscan hasta ahí y se nombran en `partially_searched`; la respuesta se recorta por bytes
+- [X] T904 M-3: ver FR-028a y T900 en `specs/001-correcciones-1-0-12/` (guarda de claves de nivel superior en dashboards)

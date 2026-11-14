@@ -66,11 +66,15 @@ ha_delete_floor(floor_id: str, confirmation_token: str | None = None)
   "impact": {
     "assignments_removed": {"areas": {"count": 2, "ids": ["salon", "cocina"], "truncated": false}},
     "references_unresolved": {"automation": {"count": 1, "ids": ["automation.luces_planta_baja"]},
-                              "script": {"count": 0, "ids": []}, "scene": {"count": 0, "ids": []}}
+                              "script": {"count": 0, "ids": []}},
+    "related_unaffected": {"automation": {"count": 3, "ids": ["automation.luz_cocina", "…"]},
+                           "script": {"count": 0, "ids": []}, "scene": {"count": 1, "ids": ["scene.cena"]}}
   },
-  "warning": "Deleting this floor sets floor_id to null on 2 areas. 1 automation, 0 scripts and 0 scenes that target this floor will no longer match anything; Home Assistant does not edit them."
+  "warning": "Deleting this floor sets floor_id to null on 2 areas. 1 automation and 0 scripts use this floor as a target and will no longer match it; Home Assistant does not edit them. 3 automations, 0 scripts and 1 scene are only related (through its areas, devices or entities) and keep working. References written inside templates are not detected."
 }
 ```
+
+`references_unresolved` sale de leer la configuración (`automation/config`, `script/config`) de cada automatización y script que devuelve `search/related`: cuenta si usa `floor_id` con esta planta en cualquier nivel (acciones, disparadores, condiciones); si es un blueprint, si el id aparece como valor de alguna entrada. `not_found` al leerla = no está cargada → `related_unaffected`. Cualquier otro fallo → `preview_unavailable`. Las escenas nunca apuntan a una planta.
 
 Errores sin token: `not_found`, `preview_unavailable` (con `detail`: qué lectura falló). Con token: `{"result": "ok"}`.
 
@@ -85,7 +89,7 @@ ha_delete_label(label_id: str, confirmation_token: str | None = None)
 
 - `updates` admite `name`, `color`, `icon`, `description`.
 - `color`: `primary, accent, disabled, red, pink, purple, deep-purple, indigo, blue, light-blue, cyan, teal, green, light-green, lime, yellow, amber, orange, deep-orange, brown, light-grey, grey, dark-grey, blue-grey, black, white` o `#rrggbb`.
-- `ha_delete_label` preview: `impact.assignments_removed` con `areas`, `devices` y `entities`; `impact.references_unresolved` con `automation`, `script` y `scene`; `warning` con los recuentos.
+- `ha_delete_label` preview: `impact.assignments_removed` con `areas`, `devices` y `entities`; `impact.references_unresolved` con `automation` y `script` (las que usan `label_id` de destino, mismo método que en plantas); `impact.related_unaffected` con `automation`, `script` y `scene` (las que solo llevan la etiqueta o están relacionadas: siguen funcionando); `warning` con los recuentos.
 
 ## Categorías
 
@@ -181,7 +185,7 @@ ha_search_related(item_type: str, item_id: str, include_disabled_entities: bool 
  "counts": {"automation": 1, "scene": 1, "area": 1}, "truncated": false}
 ```
 
-Como mucho 200 ids por tipo. `include_disabled_entities=true` con HA < 2026.10 → `ha_version_unsupported` (`feature: "include_disabled_entities"`, `required: "2026.10.0"`).
+Como mucho 200 ids por tipo; si la respuesta pasa de `response_max_bytes`, el tope baja por igual para todos los tipos (100, 50, 20, 10, 5, 1, 0) hasta que quepa, con `truncated: true` y `counts` exactos (revisión de 1.1.0, M-1). `include_disabled_entities=true` con HA < 2026.10 → `ha_version_unsupported` (`feature: "include_disabled_entities"`, `required: "2026.10.0"`).
 
 ---
 
@@ -216,7 +220,7 @@ ha_get_backup_config()
 ```
 
 - Mínimo 2025.1.0 (`feature: "backup"`). Versión desconocida → se llama; `unknown_command` → `{"error": "backup_integration_unavailable", "detail": "The Home Assistant backup integration is not available on this installation."}`.
-- `ha_list_backups` → `{"count": n, "total": m, "backups": [backup…], "last_attempted_automatic_backup", "last_completed_automatic_backup", "next_automatic_backup", "state", "agent_errors": {agent_id: "<mensaje redactado>"}}`. `limit` 1–100.
+- `ha_list_backups` → `{"count": n, "total": m, "truncated": bool, "backups": [backup…], "last_attempted_automatic_backup", "last_completed_automatic_backup", "next_automatic_backup", "state", "agent_errors": {agent_id: "<mensaje redactado>"}}`. `limit` 1–100. Si la respuesta pasa de `response_max_bytes`, se quitan los backups más antiguos y `truncated: true` (revisión de 1.1.0, M-1). Con HA 2025.1.x, que da `agent_ids` y `protected`/`size` en el nivel superior, `agents` se construye a partir de ellos (B-4).
 - `ha_get_backup` → `{"backup": backup, "agent_errors": {…}}`; `backup: null` → `{"error": "not_found", "backup_id": …}`.
 - `ha_get_backup_config` → `{"config": config}` con `create_backup.password_set` y **sin** `password`.
 

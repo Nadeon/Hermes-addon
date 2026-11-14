@@ -231,10 +231,12 @@ Respuestas potencialmente grandes: acota siempre por entidad y rango de fechas.
   `ha_list_categories(scope)`, `ha_create_category`, `ha_update_category`
   (token), `ha_delete_category` (token).
 
-Al borrar una planta o una etiqueta, las automatizaciones, scripts y escenas
-que la usan como objetivo NO se editan: dejan de encontrar nada sin avisar. La
-preview lo separa en `assignments_removed` y `references_unresolved`; revísalo
-con el usuario antes de confirmar.
+Al borrar una planta o una etiqueta, las automatizaciones y scripts que la usan
+como objetivo (`floor_id`/`label_id`) NO se editan: dejan de encontrar nada sin
+avisar. La preview lo separa en `assignments_removed` (lo que HA limpia),
+`references_unresolved` (lo que deja de funcionar) y `related_unaffected` (lo
+relacionado que sigue funcionando, como las automatizaciones que solo llevan la
+etiqueta); revísalo con el usuario antes de confirmar.
 
 Ejemplo (mover una entidad a un área):
   `ha_update_entity_registry("light.cocina", {"area_id": "cocina"})`

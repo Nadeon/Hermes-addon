@@ -388,6 +388,100 @@ class TestToolsLovelace(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("error", result)
 
+    # ── Regresión M-3 (revisión de 1.1.0): dashboards que solo se leen por
+    # vistas no pierden sus claves de nivel superior al guardarse. ─────────────
+
+    _GRANDE = {
+        "title": "Casa ficticia",
+        "background": "var(--fondo-ficticio)",
+        "kiosk_mode": {"hide_header": True},
+        "views": [
+            {"title": f"Vista {i}", "cards": [{"type": "markdown", "content": "x" * 400}]}
+            for i in range(4)
+        ],
+    }
+
+    def _mcp_tope(self, tope: int) -> Any:
+        mod2 = __import__("hermes.tools.lovelace", fromlist=["register"])
+        mcp = DummyMCP()
+        mod2.register(mcp, self.ha_client, response_max_bytes=tope)
+        return mcp
+
+    async def test_too_large_y_view_index_traen_claves_superiores(self) -> None:
+        self.ws.set("lovelace/config", self._GRANDE)
+        mcp = self._mcp_tope(1024)
+        grande = await mcp.tools["ha_get_lovelace_dashboard"]()
+        self.assertEqual(grande["error"], "too_large")
+        esperado = {"title": "Casa ficticia", "background": "var(--fondo-ficticio)",
+                    "kiosk_mode": {"hide_header": True}}
+        self.assertEqual(grande["top_level"], esperado)
+        vista = await mcp.tools["ha_get_lovelace_dashboard"](None, view_index=2)
+        self.assertEqual(vista["top_level"], esperado)
+        # Con lo que dan las lecturas parciales se reconstruye sin pérdida.
+        vistas = [
+            (await mcp.tools["ha_get_lovelace_dashboard"](None, view_index=i))["view"]
+            for i in range(grande["views_count"])
+        ]
+        self.assertEqual({**grande["top_level"], "views": vistas}, self._GRANDE)
+
+    async def test_too_large_sin_sitio_para_valores_da_nombres(self) -> None:
+        enorme = {**self._GRANDE, "background": "y" * 5000}
+        self.ws.set("lovelace/config", enorme)
+        res = await self._mcp_tope(1024).tools["ha_get_lovelace_dashboard"]()
+        self.assertNotIn("top_level", res)
+        self.assertEqual(res["top_level_keys"], ["background", "kiosk_mode", "title"])
+
+    async def test_guardar_sin_claves_superiores_se_niega(self) -> None:
+        self.ws.set("lovelace/config", self._GRANDE)
+        self.ws.set("lovelace/config/save", None)
+        solo_vistas = {"views": self._GRANDE["views"]}
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](None, solo_vistas)
+        self.assertEqual(res["error"], "top_level_keys_missing")
+        self.assertEqual(res["missing"], ["background", "kiosk_mode", "title"])
+        self.assertNotIn("confirmation_token", res)
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+
+    async def test_guardar_completo_si_emite_token(self) -> None:
+        """Control negativo: con todas las claves, la guarda no estorba."""
+        self.ws.set("lovelace/config", self._GRANDE)
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](None, dict(self._GRANDE))
+        self.assertIn("confirmation_token", res)
+
+    async def test_quitar_claves_a_proposito(self) -> None:
+        self.ws.set("lovelace/config", self._GRANDE)
+        self.ws.set("lovelace/config/save", None)
+        nuevo = {"title": "Casa ficticia", "views": self._GRANDE["views"]}
+        quitar = ["kiosk_mode", "background"]
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, remove_top_level_keys=quitar)
+        self.assertEqual(res["preview"]["top_level_keys_removed"],
+                         ["background", "kiosk_mode"])
+        # El token queda atado a la lista: sin ella no vale.
+        sin = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, confirmation_token=res["confirmation_token"])
+        self.assertIn("error", sin)
+        self.assertEqual(self.ws.calls_for("lovelace/config/save"), [])
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, remove_top_level_keys=quitar)
+        ok = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, nuevo, confirmation_token=res["confirmation_token"],
+            remove_top_level_keys=quitar)
+        self.assertEqual(ok["result"], "ok")
+
+    async def test_lectura_actual_fallida_sin_token(self) -> None:
+        self.ws.set("lovelace/config", HAConnectionError("ws down"))
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, {"views": []})
+        self.assertEqual(res["error"], "preview_unavailable")
+        self.assertNotIn("confirmation_token", res)
+
+    async def test_dashboard_sin_config_si_emite_token(self) -> None:
+        self.ws.set("lovelace/config",
+                    HAConnectionError("No config found.", code="config_not_found"))
+        res = await self.mcp.tools["ha_save_lovelace_dashboard"](
+            None, {"views": []})
+        self.assertIn("confirmation_token", res)
+
     # ── ha_create_lovelace_dashboard ───────────────────────────────────────────
 
     async def test_create_dashboard(self) -> None:

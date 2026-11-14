@@ -9,7 +9,7 @@ description, created_at, modified_at.
 Al borrar una etiqueta, Home Assistant la quita de áreas, dispositivos y
 entidades (comprobado en `helpers/area_registry.py`, que escucha el borrado en
 el registro de etiquetas igual que los otros dos registros). Las
-automatizaciones, scripts y escenas que la usan como destino no se editan.
+automatizaciones y scripts que la usan como destino (`label_id`) no se editan.
 """
 
 from __future__ import annotations
@@ -37,13 +37,13 @@ from hermes.tools.registry_floor import (
     LecturaFallida,
     acotar,
     buscar_entrada,
+    clasificar_referencias,
     frase_referencias,
     ids_con_etiqueta,
     invalid_argument,
     leer_lista,
     plural,
     preview_unavailable,
-    referencias_sin_resolver,
 )
 
 logger = structlog.get_logger(__name__)
@@ -107,9 +107,10 @@ async def _impacto_etiqueta(ha_client: HAClient, label_id: str) -> dict[str, Any
             "devices": acotar(ids_con_etiqueta(devices, "id", "labels", label_id)),
             "entities": acotar(ids_con_etiqueta(entities, "entity_id", "labels", label_id)),
         },
-        "references_unresolved": await referencias_sin_resolver(
-            ha_client, "label", label_id
-        ),
+        # Las automatizaciones etiquetadas salen también en `search/related`
+        # (son entidades con la etiqueta); `clasificar_referencias` las deja
+        # en `related_unaffected` salvo que además usen `label_id` de destino.
+        **await clasificar_referencias(ha_client, "label", label_id, "label_id"),
     }
 
 
@@ -283,11 +284,14 @@ def register(mcp: object, ha_client: HAClient) -> None:
     ) -> object:
         """Delete a label. Two-step confirmation with an impact preview.
 
-        Home Assistant removes the label from areas, devices and entities.
-        Automations, scripts and scenes that target the label are NOT edited:
-        their targets silently stop matching. The preview lists both, per
-        type, up to 50 ids each with the exact count. If any read fails, no
-        token is issued (preview_unavailable).
+        Home Assistant removes the label from areas, devices and entities
+        (labelled automations, scripts and scenes included: they keep
+        working). Automations and scripts that use label_id as a target are
+        NOT edited: their targets silently stop matching
+        (references_unresolved, checked by reading each config). Those only
+        related keep working (related_unaffected). Up to 50 ids per type with
+        the exact count. If any read fails, no token is issued
+        (preview_unavailable).
 
         Args:
             label_id:           Label to delete.
@@ -296,8 +300,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
         Returns:
             Without token: {"confirmation_token", "preview": {"label_id",
             "current", "impact": {"assignments_removed": {"areas", "devices",
-            "entities"}, "references_unresolved": {"automation", "script",
-            "scene"}}, "warning"}}. With token: {"result": "ok"}.
+            "entities"}, "references_unresolved": {"automation", "script"},
+            "related_unaffected": {"automation", "script", "scene"}},
+            "warning"}}. With token: {"result": "ok"}.
         """
         try:
             validate_identifier(label_id, field="label_id")
@@ -328,7 +333,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     f"{plural(asign['areas']['count'], 'area', 'areas')}, "
                     f"{plural(asign['devices']['count'], 'device', 'devices')} and "
                     f"{plural(asign['entities']['count'], 'entity', 'entities')}. "
-                    + frase_referencias(impact["references_unresolved"], "label")
+                    + frase_referencias(
+                        impact, "label", "they carry the label or use something that does"
+                    )
                 ),
             }
             token_data = await create_confirmation_token(

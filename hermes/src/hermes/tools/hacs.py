@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient
 from hermes.tools import marketplace
 from hermes.tools._common import requires_ready
@@ -32,7 +33,11 @@ def _deprecated(result: Any, alias: str, replacement: str) -> Any:
     return result
 
 
-def register(mcp: object, ha_client: HAClient) -> None:
+def register(
+    mcp: object,
+    ha_client: HAClient,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
+) -> None:
     """Registra los cuatro alias `ha_hacs_*`."""
 
     ready = requires_ready(ha_client)
@@ -63,7 +68,8 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """
         return _deprecated(
             await marketplace.list_repositories(
-                ha_client, category, installed_only, search, limit
+                ha_client, category, installed_only, search, limit,
+                max_bytes=response_max_bytes,
             ),
             "ha_hacs_list_repositories",
             "ha_marketplace_list_repositories",
@@ -94,7 +100,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         which requires a confirmation_token.
         """
         return _deprecated(
-            await marketplace.list_updates(ha_client),
+            await marketplace.list_updates(ha_client, max_bytes=response_max_bytes),
             "ha_hacs_list_updates",
             "ha_marketplace_list_updates",
         )

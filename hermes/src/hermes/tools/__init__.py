@@ -180,9 +180,9 @@ def register_all_tools(
     from hermes.tools.registry_category import register as register_registry_category
     register_registry_category(mcp, ha_client)
 
-    # Diagnóstico: repairs, trazas y relaciones. Las trazas reciben
-    # `response_max_bytes` porque una sola traza de una automatización larga
-    # puede pesar megas; las otras dos devuelven listas acotadas.
+    # Diagnóstico: repairs, trazas y relaciones. Trazas y relaciones reciben
+    # `response_max_bytes`: una traza larga pesa megas y `search/related` de
+    # una integración grande, 200 ids por cada uno de 14 tipos.
     from hermes.tools.repairs import register as register_repairs
     register_repairs(mcp, ha_client)
 
@@ -190,7 +190,7 @@ def register_all_tools(
     register_traces(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     from hermes.tools.search import register as register_search
-    register_search(mcp, ha_client)
+    register_search(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # config entries y flows
     from hermes.tools.config_entries import register as register_config_entries
@@ -238,7 +238,7 @@ def register_all_tools(
     register_resolution(mcp, ha_client)
 
     from hermes.tools.ha_backups import register as register_ha_backups
-    register_ha_backups(mcp, ha_client)
+    register_ha_backups(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Lovelace dashboards y resources.
     # Cada módulo hay que registrarlo aquí explícitamente. Olvidar una de
@@ -259,10 +259,10 @@ def register_all_tools(
     # El Marketplace va antes que los alias `ha_hacs_*` para que el cliente vea
     # primero las tools nuevas; los alias solo reenvían a sus funciones.
     from hermes.tools.marketplace import register as register_marketplace
-    register_marketplace(mcp, ha_client)
+    register_marketplace(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     from hermes.tools.hacs import register as register_hacs
-    register_hacs(mcp, ha_client)
+    register_hacs(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Anotaciones MCP (readOnly / destructive / idempotent / openWorld).
     # Se aplican al final, sobre todo lo ya registrado, para que los clientes

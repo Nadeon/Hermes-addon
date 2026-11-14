@@ -34,8 +34,9 @@ formas que tiene HA de organizar la casa. Doce tools nuevas:
 Crear no pide confirmación (no se pierde nada). Editar y borrar sí. La vista
 previa de un borrado separa lo que HA limpia solo (áreas, dispositivos o
 entidades que pierden la planta, la etiqueta o la categoría) de lo que no
-edita: automatizaciones, scripts y escenas que la usan como objetivo y que
-dejarán de encontrar nada sin avisar. Si alguna lectura falla, no hay token.
+edita: automatizaciones y scripts que la usan como objetivo y que dejarán de
+encontrar nada sin avisar. Aparte, y dicho como tal, lo que solo está
+relacionado y sigue funcionando. Si alguna lectura falla, no hay token.
 
 ### Added — Diagnóstico: Repairs, trazas y relaciones
 
@@ -227,6 +228,44 @@ multicast…), y conecta a las direcciones ya validadas sin volver a resolver.
 Sin redirecciones ni proxies del entorno, 5 s en total, 5 120 bytes como
 mucho, 4 descargas a la vez y 30 por minuto. Cada rechazo queda en el log como
 `oauth_cimd_rejected` con el motivo y el host, nunca con el documento.
+
+### Fixed — Revisión de corrección antes de publicar
+
+- **Borrar una planta o una etiqueta ya no exagera lo que se rompe.** La
+  búsqueda de relaciones de HA devuelve, para una planta, todo lo que apunta a
+  sus áreas, dispositivos y entidades, y para una etiqueta, las
+  automatizaciones que solo la llevan para organizarlas. La vista previa lo
+  daba todo por roto. Ahora lee la configuración de cada automatización y
+  script: en `references_unresolved` quedan solo los que usan `floor_id` o
+  `label_id` como objetivo (en acciones, disparadores o condiciones), y el
+  resto, con las escenas, va a `related_unaffected`, que sigue funcionando.
+  Las referencias dentro de plantillas no se detectan, y la vista previa lo
+  dice.
+- **Dashboards demasiado grandes para leerlos enteros.** Con el nuevo tope de
+  128 KiB, un dashboard grande solo se puede leer por vistas, y al rehacerlo
+  se perdían `title`, `background` y las demás claves de nivel superior.
+  `ha_get_lovelace_dashboard` las devuelve ahora en `top_level`, tanto en
+  `too_large` como con `view_index`. Además, `ha_save_lovelace_dashboard` se
+  niega a guardar, sin token, si el documento nuevo pierde alguna clave que el
+  actual tiene (`top_level_keys_missing`). Para quitarlas a propósito, nómbralas
+  en `remove_top_level_keys`. Si no puede leer el dashboard actual, tampoco
+  hay token.
+- **`fs_search_in_config` volvía a buscar solo en el principio de cada
+  fichero.** Leía tantos bytes como `response_max_bytes`, así que con el nuevo
+  defecto un `automations.yaml` de 300 KB se buscaba solo en su primer 43 %, y
+  la tool respondía «0 matches» sin avisar. Ahora lee hasta 4 MiB por fichero,
+  sea cual sea el tope de respuesta. Los ficheros más grandes se buscan hasta
+  ahí y salen en `partially_searched`.
+- **Más tools recortan en `response_max_bytes`.** Ahora también lo hacen
+  `ha_search_related`, `ha_list_backups`, `fs_search_in_config` y las listas
+  del Marketplace (`ha_marketplace_list_repositories`, `_list_updates`,
+  `_list_critical`, `_list_removed` y sus alias `ha_hacs_*`). Lo indican con
+  `truncated: true` y mantienen los recuentos exactos.
+- `ha_list_backups` y `ha_get_backup` con HA 2025.1.x devolvían cada backup sin
+  ubicaciones (`agents: {}`). Ahora las construyen desde `agent_ids`.
+- `ha_marketplace_list_releases`: con GitHub conectado, HA devuelve el límite de
+  peticiones como un error genérico (`unknown`). La respuesta añade una
+  pista: reintentar más tarde.
 
 ## [1.0.12] — 2026-11-14
 

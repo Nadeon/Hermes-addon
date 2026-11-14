@@ -102,6 +102,32 @@ def _validate_dashboard_config(config: Any) -> str | None:
     return None
 
 
+def _claves_superiores(config: dict[str, Any]) -> dict[str, Any]:
+    """Todo lo del dashboard que NO son las vistas (title, background…).
+
+    Es lo que se perdía al reconstruir por vistas un dashboard demasiado
+    grande para leerlo entero (hallazgo M-3 de la revisión de 1.1.0): ninguna
+    lectura parcial lo devolvía y el guardado reemplaza el documento entero.
+    """
+    return {k: v for k, v in config.items() if k != "views"}
+
+
+def _con_claves_superiores(
+    respuesta: dict[str, Any], config: dict[str, Any], max_bytes: int
+) -> dict[str, Any]:
+    """Añade `top_level` a una lectura parcial, o solo sus nombres si no cabe.
+
+    Con solo los nombres el agente no puede reconstruir el documento, pero
+    `ha_save_lovelace_dashboard` se niega a guardar sin ellos: el fallo es
+    visible en vez de una pérdida callada.
+    """
+    superiores = _claves_superiores(config)
+    con_valores = {**respuesta, "top_level": superiores}
+    if len(json.dumps(con_valores, ensure_ascii=False).encode("utf-8")) <= max_bytes:
+        return con_valores
+    return {**respuesta, "top_level_keys": sorted(superiores)}
+
+
 async def _list_extra_dashboards(ha_client: HAClient) -> list[dict[str, Any]]:
     """Lista los dashboards extra (excluye el default) vía WS.
 
@@ -276,12 +302,18 @@ def register(
             url_path: URL path del dashboard (p.ej. "map"). Omitir o `null`
                 para el dashboard principal.
             view_index: Si se especifica, devuelve solo esa view por índice
-                (0-based). Útil cuando el dashboard entero supera el límite
-                de respuesta.
+                (0-based), junto con `top_level` (todas las claves del
+                dashboard salvo `views`). Útil cuando el dashboard entero
+                supera el límite de respuesta.
+
+        Para reconstruir un dashboard leído por vistas, guarda
+        `{**top_level, "views": [vista0, vista1, ...]}`: si falta alguna clave
+        de nivel superior, `ha_save_lovelace_dashboard` se niega a guardar.
 
         Errores posibles:
         - `yaml_mode`: el dashboard es YAML mode — leer con `fs_read_file`.
-        - `too_large`: config > `response_max_bytes`. Usar `view_index`.
+        - `too_large`: config > `response_max_bytes`. Usar `view_index`; la
+          respuesta ya trae `top_level`.
         - `view_index_out_of_range`: índice fuera de rango.
         """
         try:
@@ -325,29 +357,39 @@ def register(
                         "views_count": len(views),
                         "requested": view_index,
                     }
-                return {
-                    "url_path": url_path,
-                    "view_index": view_index,
-                    "views_total": len(views),
-                    "view": views[view_index],
-                }
+                return _con_claves_superiores(
+                    {
+                        "url_path": url_path,
+                        "view_index": view_index,
+                        "views_total": len(views),
+                        "view": views[view_index],
+                    },
+                    config,
+                    response_max_bytes,
+                )
 
             # Comprobar tamaño
             encoded = json.dumps(config, ensure_ascii=False)
             size = len(encoded.encode("utf-8"))
             if size > response_max_bytes:
                 views = config.get("views", [])
-                return {
-                    "error": "too_large",
-                    "url_path": url_path,
-                    "views_count": len(views) if isinstance(views, list) else 0,
-                    "total_size_bytes": size,
-                    "hint": (
-                        "Dashboard config exceeds the response limit. "
-                        "Call ha_get_lovelace_dashboard with view_index=N "
-                        "to read individual views."
-                    ),
-                }
+                return _con_claves_superiores(
+                    {
+                        "error": "too_large",
+                        "url_path": url_path,
+                        "views_count": len(views) if isinstance(views, list) else 0,
+                        "total_size_bytes": size,
+                        "hint": (
+                            "Dashboard config exceeds the response limit. "
+                            "Call ha_get_lovelace_dashboard with view_index=N "
+                            "to read individual views, and save "
+                            "{**top_level, 'views': [...]} so no top-level key "
+                            "is lost."
+                        ),
+                    },
+                    config,
+                    response_max_bytes,
+                )
 
             return config
 
@@ -366,12 +408,21 @@ def register(
         url_path: str | None,
         config: dict[str, Any],
         confirmation_token: str | None = None,
+        remove_top_level_keys: list[str] | None = None,
     ) -> object:
         """Sobrescribe la configuración completa de un dashboard Lovelace.
 
         Esta operación **siempre requiere `confirmation_token`** porque sustituye
         el dashboard entero (no es un merge parcial). El preview muestra un diff
         resumido (vistas y cards antes/después), no el JSON completo.
+
+        **Claves de nivel superior**: si el dashboard actual tiene claves
+        distintas de `views` (title, background, kiosk_mode…) que `config` no
+        trae, se niega con `top_level_keys_missing` y no emite token: suele
+        ser un documento reconstruido desde una lectura parcial. Para
+        quitarlas a propósito, nómbralas en `remove_top_level_keys`. Si no se
+        puede leer el dashboard actual, tampoco hay token
+        (`preview_unavailable`).
 
         **Concurrencia**: last-write-wins. Si dos clientes guardan
         simultáneamente, el último gana. HA no tiene locking de dashboard.
@@ -381,12 +432,21 @@ def register(
             config: Configuración completa. Debe tener `views` o `strategy`.
             confirmation_token: Token de un solo uso obtenido en la llamada
                 previa sin token.
+            remove_top_level_keys: Claves de nivel superior del dashboard
+                actual que se quieren eliminar a propósito.
 
         Rechaza si el dashboard está en YAML mode (usar `fs_write_file`).
         """
         err = _validate_dashboard_config(config)
         if err:
             return {"error": f"invalid_config: {err}"}
+        if remove_top_level_keys is not None and not (
+            isinstance(remove_top_level_keys, list)
+            and all(isinstance(k, str) for k in remove_top_level_keys)
+        ):
+            return {"error": "invalid_argument", "field": "remove_top_level_keys",
+                    "detail": "must be a list of strings"}
+        quitar = sorted(set(remove_top_level_keys or []))
 
         # Detectar YAML mode
         if url_path is not None:
@@ -405,24 +465,63 @@ def register(
                 }
 
         args: dict[str, Any] = {"url_path": url_path, "config": config}
+        if quitar:
+            # En el token solo si se usa: así un token de antes del cambio
+            # sigue valiendo para la llamada de siempre.
+            args["remove_top_level_keys"] = quitar
 
         if not confirmation_token:
             try:
                 get_payload: dict[str, Any] = {"type": "lovelace/config"}
                 if url_path is not None:
                     get_payload["url_path"] = url_path
+                # Fail-closed: antes un fallo de lectura daba una vista previa
+                # con «0 vistas antes» y token, y sin el documento actual no se
+                # puede comprobar qué se pierde. Solo `config_not_found` (el
+                # dashboard aún no tiene configuración) significa «nada que
+                # perder».
                 try:
                     current = await ha_client.ws_send(get_payload)
-                    if not isinstance(current, dict):
-                        current = None
-                except HAConnectionError:
+                except HAConnectionError as exc:
+                    if exc.code != "config_not_found":
+                        return {"error": "preview_unavailable", "url_path": url_path,
+                                "detail": f"lovelace/config failed: {exc}"}
                     current = None
+                if current is not None and not isinstance(current, dict):
+                    return {"error": "preview_unavailable", "url_path": url_path,
+                            "detail": "lovelace/config returned an unexpected shape"}
+
+                # Lo que tiene el dashboard actual y el nuevo no trae se
+                # perdería en silencio, porque se reemplaza el documento
+                # entero. Pasa sobre todo al reconstruir desde lecturas por
+                # vistas (hallazgo M-3), así que se niega en vez de avisar.
+                faltan = sorted(
+                    k for k in _claves_superiores(current or {})
+                    if k not in config and k not in quitar
+                )
+                if faltan:
+                    return {
+                        "error": "top_level_keys_missing",
+                        "url_path": url_path,
+                        "missing": faltan,
+                        "detail": (
+                            "The current dashboard has top-level keys that the new "
+                            "config lacks; saving would delete them. Include them "
+                            "(ha_get_lovelace_dashboard returns them in "
+                            "`top_level`), or list them in remove_top_level_keys "
+                            "to delete them on purpose."
+                        ),
+                    }
 
                 preview: dict[str, Any] = {
                     "url_path": url_path,
                     "diff": _summarize_dashboard_diff(current, config),
                     "warning": "This replaces the ENTIRE dashboard configuration.",
                 }
+                if quitar:
+                    preview["top_level_keys_removed"] = [
+                        k for k in quitar if current and k in current and k not in config
+                    ]
                 return await create_confirmation_token(
                     "ha_save_lovelace_dashboard", args, preview=preview
                 )

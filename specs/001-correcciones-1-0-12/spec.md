@@ -261,6 +261,7 @@ recomiendan 8443/10000.
 - **FR-026** [P3]: Si Hermes no puede determinar el panel por defecto (error de lectura o respuesta con forma inesperada), DEBE rechazar el borrado (fail-closed). Si la versión de Home Assistant no tiene esa información (comando desconocido), la protección se limita a `url_path` nulo y `lovelace`.
 - **FR-027** [P3]: Las descripciones de `ha_delete_lovelace_dashboard` y `ha_list_lovelace_dashboards` DEBEN decir qué dashboards están protegidos y por qué.
 - **FR-028** [C2]: Si existe el dashboard `lovelace`, `ha_list_lovelace_dashboards` NO DEBE añadir el «Default» sintético y DEBE marcar `lovelace` con `is_default: true`.
+- **FR-028a** *(añadido en la revisión de corrección de 1.1.0, M-3)*: `ha_save_lovelace_dashboard` reemplaza el documento entero, así que NO DEBE emitir token si el dashboard actual tiene claves de nivel superior (distintas de `views`) que el documento nuevo no trae, salvo las nombradas en `remove_top_level_keys` (error `top_level_keys_missing`), ni si no puede leer el actual (`preview_unavailable`; `config_not_found` cuenta como dashboard vacío). Las lecturas parciales de `ha_get_lovelace_dashboard` (`too_large` y `view_index`) DEBEN incluir esas claves en `top_level` para poder reconstruirlo sin pérdida.
 - **FR-029** [lovelace/resources]: `ha_list_lovelace_resources` DEBE usar el comando vigente de listado de recursos, no el alias deprecado.
 
 **Automatizaciones, scripts, plantillas, errores, servicios, estadísticas y HACS**

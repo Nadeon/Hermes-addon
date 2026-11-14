@@ -35,8 +35,12 @@ impact = {
     "devices":  {...},              # solo etiquetas
     "entities": {...}               # etiquetas y categorías
   },
-  "references_unresolved": {        # lo que HA NO edita (planta y etiqueta)
-    "automation": {"count": n, "ids": [...]},
+  "references_unresolved": {        # lo que HA NO edita y deja de funcionar
+    "automation": {"count": n, "ids": [...]},   # usan floor_id/label_id
+    "script":     {...}
+  },
+  "related_unaffected": {           # relacionado según search/related, sigue
+    "automation": {...},            # funcionando (planta y etiqueta)
     "script":     {...},
     "scene":      {...}
   }

@@ -18,9 +18,10 @@ from typing import Any
 
 import structlog
 
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.ha_version import ha_at_least
-from hermes.tools._common import requires_ready
+from hermes.tools._common import ajustar_lista_a_bytes, requires_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -251,6 +252,13 @@ async def _update_entity_ids(ha_client: HAClient, api: str) -> dict[str, str]:
     return out
 
 
+def _ajustar(items: list[Any], construir: Any, max_bytes: int | None) -> dict[str, Any]:
+    """Recorta por bytes si hay tope; sin él (llamadas internas), entero."""
+    if max_bytes is None:
+        return construir(items, False)
+    return ajustar_lista_a_bytes(items, construir, max_bytes)
+
+
 def _api_errors(fn):
     """Convierte `_ApiError` en su respuesta: las tools nunca lanzan."""
 
@@ -296,6 +304,7 @@ async def list_repositories(
     installed_only: bool = True,
     search: str | None = None,
     limit: int = 50,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
     for error in (
         _validate_category(category),
@@ -331,15 +340,19 @@ async def list_repositories(
             )
         ]
     repos.sort(key=lambda r: str(r["full_name"] or "").casefold())
-    page = repos[:limit]
-    return {
-        "api": api,
-        "total": len(repos),
-        "count": len(page),
-        "truncated": len(page) < len(repos),
-        "repositories": page,
-        "_third_party_text": _third_party(["name", "description"]),
-    }
+    def construir(items: list[Any], _recortada: bool) -> dict[str, Any]:
+        return {
+            "api": api,
+            "total": len(repos),
+            "count": len(items),
+            "truncated": len(items) < len(repos),
+            "repositories": items,
+            "_third_party_text": _third_party(["name", "description"]),
+        }
+
+    # Con `limit=500` y descripciones largas la lista pasa del doble del tope
+    # de respuesta (hallazgo M-1): se recorta también por bytes.
+    return _ajustar(repos[:limit], construir, max_bytes)
 
 
 @_api_errors
@@ -386,7 +399,7 @@ def _has_update(repo: dict[str, Any]) -> bool:
 
 
 @_api_errors
-async def list_updates(ha_client: HAClient) -> dict[str, Any]:
+async def list_updates(ha_client: HAClient, max_bytes: int | None = None) -> dict[str, Any]:
     api, raw = await _ws_read(ha_client, "repositories/list")
     if not isinstance(raw, list):
         raise _unexpected("a list", raw)
@@ -405,13 +418,19 @@ async def list_updates(ha_client: HAClient) -> dict[str, Any]:
         }
         for r in pending
     ]
-    return {
-        "api": api,
-        "count": len(updates),
-        "updates": updates,
-        "how_to_update": _HOW_TO_UPDATE,
-        "_third_party_text": _third_party(["name"]),
-    }
+
+    def construir(items: list[Any], recortada: bool) -> dict[str, Any]:
+        return {
+            "api": api,
+            "count": len(items),
+            "total": len(updates),
+            "truncated": recortada,
+            "updates": items,
+            "how_to_update": _HOW_TO_UPDATE,
+            "_third_party_text": _third_party(["name"]),
+        }
+
+    return _ajustar(updates, construir, max_bytes)
 
 
 @_api_errors
@@ -446,6 +465,19 @@ async def list_releases(
             }
         if code == "repository_not_found":
             return {**exc.payload, "repository_id": repository_id}
+        if code == "unknown":
+            # HA 2026.11.1 (`websocket/repository.py`) solo traduce el límite
+            # ANÓNIMO de GitHub; con GitHub conectado, el límite y cualquier
+            # otro fallo al pedir las versiones salen como `unknown`. Sin esta
+            # pista el agente no sabe que basta con esperar (hallazgo B-2).
+            return {
+                **exc.payload,
+                "hint": (
+                    "Home Assistant could not fetch the releases from GitHub. "
+                    "With GitHub connected this is often its rate limit: try "
+                    "again later."
+                ),
+            }
         raise
     if not isinstance(raw, list):
         raise _unexpected("a list", raw)
@@ -468,7 +500,9 @@ async def list_releases(
     }
 
 
-async def _list_flagged(ha_client: HAClient, suffix: str, fields: tuple[str, ...]) -> dict[str, Any]:
+async def _list_flagged(
+    ha_client: HAClient, suffix: str, fields: tuple[str, ...], max_bytes: int | None
+) -> dict[str, Any]:
     api, raw = await _ws_read(ha_client, suffix)
     if not isinstance(raw, list):
         raise _unexpected("a list", raw)
@@ -479,31 +513,43 @@ async def _list_flagged(ha_client: HAClient, suffix: str, fields: tuple[str, ...
         item = {field: entry.get(field) for field in fields}
         item["reason"] = _trim(entry.get("reason"))
         items.append(item)
-    return {
-        "api": api,
-        "count": len(items),
-        "repositories": items,
-        "_third_party_text": _third_party(["reason"]),
-    }
+
+    def construir(parte: list[Any], recortada: bool) -> dict[str, Any]:
+        return {
+            "api": api,
+            "count": len(parte),
+            "total": len(items),
+            "truncated": recortada,
+            "repositories": parte,
+            "_third_party_text": _third_party(["reason"]),
+        }
+
+    return _ajustar(items, construir, max_bytes)
 
 
 @_api_errors
-async def list_critical(ha_client: HAClient) -> dict[str, Any]:
+async def list_critical(ha_client: HAClient, max_bytes: int | None = None) -> dict[str, Any]:
     return await _list_flagged(
-        ha_client, "critical/list", ("repository", "reason", "link", "acknowledged")
+        ha_client, "critical/list", ("repository", "reason", "link", "acknowledged"),
+        max_bytes,
     )
 
 
 @_api_errors
-async def list_removed(ha_client: HAClient) -> dict[str, Any]:
+async def list_removed(ha_client: HAClient, max_bytes: int | None = None) -> dict[str, Any]:
     return await _list_flagged(
         ha_client,
         "repositories/removed",
         ("repository", "reason", "link", "removal_type", "acknowledged"),
+        max_bytes,
     )
 
 
-def register(mcp: object, ha_client: HAClient) -> None:
+def register(
+    mcp: object,
+    ha_client: HAClient,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
+) -> None:
     """Registra las siete tools `ha_marketplace_*`."""
 
     ready = requires_ready(ha_client)
@@ -551,8 +597,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
         Returns:
             {api, total, count, truncated, repositories: [...]}, sorted by
             full_name. name and description are third-party text.
+            `truncated` is true when `limit` or the response size limit cut
+            the list.
         """
-        return await list_repositories(ha_client, category, installed_only, search, limit)
+        return await list_repositories(
+            ha_client, category, installed_only, search, limit,
+            max_bytes=response_max_bytes,
+        )
 
     @mcp.tool()
     @ready
@@ -584,11 +635,12 @@ def register(mcp: object, ha_client: HAClient) -> None:
         Marketplace UI; Hermes never accepts it.
 
         Returns:
-            {api, count, updates: [{id, full_name, name, category,
-            installed_version, available_version, update_entity_id}],
-            how_to_update}.
+            {api, count, total, truncated, updates: [{id, full_name, name,
+            category, installed_version, available_version,
+            update_entity_id}], how_to_update}. `truncated` is true when the
+            response size limit cut the list.
         """
-        return await list_updates(ha_client)
+        return await list_updates(ha_client, max_bytes=response_max_bytes)
 
     @mcp.tool()
     @ready
@@ -616,10 +668,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
         Does not acknowledge anything.
 
         Returns:
-            {api, count, repositories: [{repository, reason, link,
-            acknowledged}]}. reason is third-party text.
+            {api, count, total, truncated, repositories: [{repository,
+            reason, link, acknowledged}]}. reason is third-party text.
         """
-        return await list_critical(ha_client)
+        return await list_critical(ha_client, max_bytes=response_max_bytes)
 
     @mcp.tool()
     @ready
@@ -627,7 +679,8 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """List repositories removed from the catalogue, read-only.
 
         Returns:
-            {api, count, repositories: [{repository, reason, link,
-            removal_type, acknowledged}]}. reason is third-party text.
+            {api, count, total, truncated, repositories: [{repository,
+            reason, link, removal_type, acknowledged}]}. reason is
+            third-party text.
         """
-        return await list_removed(ha_client)
+        return await list_removed(ha_client, max_bytes=response_max_bytes)

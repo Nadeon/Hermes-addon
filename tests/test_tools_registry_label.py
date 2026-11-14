@@ -65,13 +65,62 @@ ENTITIES = [
     {"entity_id": "sensor.tres", "labels": ["etiqueta_a", "etiqueta_b"]},
     {"entity_id": "sensor.cuatro", "labels": ["etiqueta_b"]},
     {"entity_id": "sensor.cinco", "labels": []},
+    # El uso principal de las etiquetas en la UI: organizar automatizaciones.
+    {"entity_id": "automation.alarma_noche", "labels": ["etiqueta_a"]},
+    {"entity_id": "scene.cine", "labels": ["etiqueta_a"]},
 ]
+
+# Forma REAL de `search/related` para una etiqueta (HA 2026.11.1,
+# `_async_search_label`): las entidades etiquetadas de dominio automation,
+# script o scene (`EXIST_AS_ENTITY`) salen en la clave de su dominio junto a
+# las que usan `label_id` como destino; `_async_resolve_up_*` añade además
+# áreas, dispositivos, entradas e integraciones. Un mock sin automatizaciones
+# etiquetadas es lo que escondió el fallo A-2 de la revisión de 1.1.0.
 RELATED = {
-    "automation": ["automation.a"],
-    "script": ["script.s"],
-    "scene": ["scene.e"],
-    "entity": ["light.uno"],
+    "area": ["area_1", "area_3"],
+    "device": ["dev_1", "dev_2"],
+    "entity": ["light.uno", "light.dos", "sensor.tres", "automation.alarma_noche",
+               "scene.cine"],
+    "config_entry": ["entry_ficticia"],
+    "integration": ["demo"],
+    "automation": ["automation.alarma_noche", "automation.apagar_etiquetadas",
+                   "automation.condicion_etiqueta"],
+    "script": ["script.s", "script.etiquetado"],
+    "scene": ["scene.cine"],
 }
+
+CONFIGS: dict[str, dict] = {
+    # Lleva la etiqueta pero no la usa: HA se la quita y sigue igual.
+    "automation.alarma_noche": {
+        "id": "1", "triggers": [{"trigger": "time", "at": "23:00:00"}],
+        "actions": [{"action": "alarm_control_panel.alarm_arm_night",
+                     "target": {"entity_id": "alarm_control_panel.casa"}}],
+    },
+    # Usan la etiqueta como destino: dejan de funcionar.
+    "automation.apagar_etiquetadas": {
+        "id": "2", "triggers": [],
+        "actions": [{"action": "light.turn_off", "target": {"label_id": ["etiqueta_a"]}}],
+    },
+    "automation.condicion_etiqueta": {
+        "id": "3", "triggers": [],
+        "conditions": [{"condition": "light.is_on", "target": {"label_id": "etiqueta_a"}}],
+        "actions": [],
+    },
+    "script.s": {
+        "sequence": [{"action": "light.turn_on", "target": {"label_id": "etiqueta_a"}}],
+    },
+    # Usa OTRA etiqueta: relacionado, pero no se rompe.
+    "script.etiquetado": {
+        "sequence": [{"action": "light.turn_on", "target": {"label_id": "etiqueta_b"}}],
+    },
+}
+
+
+def _leer_config(payload: dict) -> dict:
+    entity_id = payload["entity_id"]
+    if entity_id not in CONFIGS:
+        raise HAConnectionError("Entity not found", code="not_found")
+    return {"config": CONFIGS[entity_id]}
 
 
 def _rutas_borrado(**cambios: Any) -> dict[str, Any]:
@@ -81,6 +130,8 @@ def _rutas_borrado(**cambios: Any) -> dict[str, Any]:
         "config/device_registry/list": DEVICES,
         "config/entity_registry/list": ENTITIES,
         "search/related": RELATED,
+        "automation/config": _leer_config,
+        "script/config": _leer_config,
         "config/label_registry/delete": None,
     }
     rutas.update(cambios)
@@ -235,19 +286,47 @@ class TestDeleteLabel(_Base):
         self.assertEqual(asign["areas"], {"count": 1, "ids": ["area_1"], "truncated": False})
         self.assertEqual(asign["devices"]["count"], 2)
         self.assertEqual(asign["devices"]["ids"], ["dev_1", "dev_2"])
-        self.assertEqual(asign["entities"]["count"], 3)
-        self.assertEqual(asign["entities"]["ids"], ["light.uno", "light.dos", "sensor.tres"])
+        self.assertEqual(asign["entities"]["count"], 5)
+        self.assertEqual(asign["entities"]["ids"], [
+            "light.uno", "light.dos", "sensor.tres", "automation.alarma_noche", "scene.cine",
+        ])
         refs = impact["references_unresolved"]
-        self.assertEqual(refs["automation"]["ids"], ["automation.a"])
+        self.assertEqual(refs["automation"]["ids"], [
+            "automation.apagar_etiquetadas", "automation.condicion_etiqueta",
+        ])
         self.assertEqual(refs["script"]["ids"], ["script.s"])
-        self.assertEqual(refs["scene"]["ids"], ["scene.e"])
+        self.assertNotIn("scene", refs)
         self.assertNotIn("entity", refs)
+        rel = impact["related_unaffected"]
+        self.assertEqual(rel["automation"]["ids"], ["automation.alarma_noche"])
+        self.assertEqual(rel["script"]["ids"], ["script.etiquetado"])
+        self.assertEqual(rel["scene"]["ids"], ["scene.cine"])
         warning = out["preview"]["warning"]
-        for trozo in ("1 area", "2 devices", "3 entities", "1 automation", "1 script", "1 scene"):
+        for trozo in ("1 area", "2 devices", "5 entities",
+                      "2 automations and 1 script use this label",
+                      "1 automation, 1 script and 1 scene", "keep working"):
             self.assertIn(trozo, warning)
         related = [p for p in fake.sent if p["type"] == "search/related"]
         self.assertEqual((related[0]["item_type"], related[0]["item_id"]), ("label", "etiqueta_a"))
         self.assertNotIn("config/label_registry/delete", fake.types())
+
+    async def test_automatizaciones_etiquetadas_no_son_destinos(self) -> None:
+        """Regresión A-2: veinte automatizaciones que solo LLEVAN la etiqueta
+        (para filtrarlas en la UI) no dejan de funcionar al borrarla."""
+        ids = [f"automation.seguridad_{i}" for i in range(20)]
+        entidades = [{"entity_id": i, "labels": ["etiqueta_a"]} for i in ids]
+        tools, _ = self._tools(_rutas_borrado(**{
+            "config/entity_registry/list": entidades,
+            "search/related": {"entity": ids, "automation": ids},
+            "automation/config": lambda p: {"config": {
+                "id": p["entity_id"], "triggers": [],
+                "actions": [{"action": "notify.notify", "data": {"message": "x"}}]}},
+        }))
+        out = json.loads(await tools["ha_delete_label"]("etiqueta_a"))
+        impact = out["preview"]["impact"]
+        self.assertEqual(impact["references_unresolved"]["automation"]["count"], 0)
+        self.assertEqual(impact["related_unaffected"]["automation"]["count"], 20)
+        self.assertEqual(impact["assignments_removed"]["entities"]["count"], 20)
 
     async def test_cada_lectura_fallando(self) -> None:
         comandos = (
@@ -256,6 +335,8 @@ class TestDeleteLabel(_Base):
             "config/device_registry/list",
             "config/entity_registry/list",
             "search/related",
+            "automation/config",
+            "script/config",
         )
         for comando in comandos:
             for fallo in (HAConnectionError("offline"), "forma rara"):
@@ -283,8 +364,10 @@ class TestDeleteLabel(_Base):
         impact = out["preview"]["impact"]
         for tipo in ("areas", "devices", "entities"):
             self.assertEqual(impact["assignments_removed"][tipo]["count"], 0)
-        for tipo in ("automation", "script", "scene"):
+        for tipo in ("automation", "script"):
             self.assertEqual(impact["references_unresolved"][tipo]["count"], 0)
+        for tipo in ("automation", "script", "scene"):
+            self.assertEqual(impact["related_unaffected"][tipo]["count"], 0)
 
     async def test_con_token_borra(self) -> None:
         tools, fake = self._tools(_rutas_borrado())

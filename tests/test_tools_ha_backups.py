@@ -278,5 +278,48 @@ class TestGetBackupConfig(_Base):
         self.assertNotIn("SENTINEL-N", json.dumps(r))
 
 
+
+class TestListBackupsRespetaTope(_Base):
+    """Regresión M-1: cien backups con muchos add-ons no pasan del tope."""
+
+    async def test_recorta_por_bytes(self) -> None:
+        addons = [{"slug": f"addon_ficticio_{i}", "name": f"Add-on {i}", "version": "1.0"}
+                  for i in range(30)]
+        backups = [_backup(f"b{i:07d}", f"2026-10-{1 + i % 28:02d}T08:00:00+00:00",
+                           addons=addons) for i in range(100)]
+        ha = _HA({"backup/info": _info(backups)})
+        mcp = _MCP()
+        mod.register(mcp, ha, response_max_bytes=16384)
+        texto = await mcp.tools["ha_list_backups"](limit=100)
+        self.assertLessEqual(len(texto.encode()), 16384)
+        res = json.loads(texto)
+        self.assertTrue(res["truncated"])
+        self.assertEqual(res["total"], 100)
+        self.assertEqual(res["count"], len(res["backups"]))
+        self.assertGreater(res["count"], 0)
+        self.assertLess(res["count"], 100)
+        # Los campos de arriba no se pierden al recortar.
+        self.assertEqual(res["state"], "idle")
+
+    async def test_sin_recorte(self) -> None:
+        res = await self._llamar(_HA({"backup/info": _info()}), "ha_list_backups")
+        self.assertFalse(res["truncated"])
+        self.assertEqual(res["count"], 3)
+
+
+class TestBackupsHA2025_1(_Base):
+    """Regresión B-4: HA 2025.1.x da `agent_ids` y `protected`/`size` arriba."""
+
+    async def test_agent_ids_sin_agents(self) -> None:
+        b = _backup("aaaa0009", "2026-01-05T08:00:00+00:00",
+                    agent_ids=["backup.local", "hassio.ficticio"], protected=True, size=4096)
+        del b["agents"]
+        res = await self._llamar(_HA({"backup/info": _info([b])}), "ha_list_backups")
+        self.assertEqual(res["backups"][0]["agents"], {
+            "backup.local": {"protected": True, "size": 4096},
+            "hassio.ficticio": {"protected": True, "size": 4096},
+        })
+
+
 if __name__ == "__main__":
     unittest.main()

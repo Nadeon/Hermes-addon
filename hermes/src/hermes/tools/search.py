@@ -12,9 +12,10 @@ from typing import Any
 
 import structlog
 
+from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.ha_version import ha_at_least, ha_core_version
-from hermes.tools._common import requires_ready
+from hermes.tools._common import requires_ready, tam_json
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +32,12 @@ _ITEM_TYPES: tuple[str, ...] = (
 # entidades devolverían miles de ids; los recuentos siguen siendo exactos.
 _MAX_IDS_POR_TIPO = 200
 
+# Topes por tipo que se prueban, de mayor a menor, hasta que la respuesta
+# quepa en `response_max_bytes`: 200 ids de 14 tipos pueden pasar del tope
+# (hallazgo M-1). Bajar el tope de todos por igual conserva un poco de cada
+# tipo en vez de vaciar los últimos; los recuentos siguen siendo exactos.
+_TOPES_POR_BYTES = (_MAX_IDS_POR_TIPO, 100, 50, 20, 10, 5, 1, 0)
+
 # `include_disabled_entities` llegó en 2026.10; las versiones anteriores
 # rechazan cualquier clave extra con `invalid_format`.
 _MIN_INCLUDE_DISABLED = "2026.10.0"
@@ -45,7 +52,11 @@ def _version_no_soportada(current: str | None) -> str:
     })
 
 
-def register(mcp: object, ha_client: HAClient) -> None:
+def register(
+    mcp: object,
+    ha_client: HAClient,
+    response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
+) -> None:
     """Registra la tool de búsqueda de relaciones."""
 
     ready = requires_ready(ha_client)
@@ -60,8 +71,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """Find what is related to an item (what uses it and what it uses).
 
         Read-only. Results are grouped by type (automation, scene, script,
-        area, device, entity…) with counts; at most 200 ids per type
-        ("truncated": true when cut).
+        area, device, entity…) with counts; at most 200 ids per type, fewer
+        if the response would exceed the size limit ("truncated": true when
+        cut; counts are always exact).
 
         Args:
             item_type: One of area, automation, automation_blueprint,
@@ -124,29 +136,24 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 {"error": "unexpected response from search/related"}
             )
 
-        related: dict[str, list[Any]] = {}
-        counts: dict[str, int] = {}
-        truncated = False
-        for tipo, ids in raw.items():
-            # HA devuelve listas (o conjuntos serializados como listas); lo
-            # que no tenga esa forma se ignora en vez de devolverse en crudo.
-            if not isinstance(ids, list):
-                continue
-            counts[tipo] = len(ids)
-            if len(ids) > _MAX_IDS_POR_TIPO:
-                truncated = True
-            related[tipo] = ids[:_MAX_IDS_POR_TIPO]
-
-        logger.info(
-            "ha_search_related_ok", item_type=item_type, types=len(related)
-        )
-        return json.dumps(
-            {
+        # HA devuelve listas (o conjuntos serializados como listas); lo que
+        # no tenga esa forma se ignora en vez de devolverse en crudo.
+        listas = {t: ids for t, ids in raw.items() if isinstance(ids, list)}
+        counts = {t: len(ids) for t, ids in listas.items()}
+        out: dict[str, Any] = {}
+        for tope in _TOPES_POR_BYTES:
+            out = {
                 "item_type": item_type,
                 "item_id": item_id,
-                "related": related,
+                "related": {t: ids[:tope] for t, ids in listas.items()},
                 "counts": counts,
-                "truncated": truncated,
-            },
-            ensure_ascii=False,
+                "truncated": any(n > tope for n in counts.values()),
+            }
+            if tam_json(out) <= response_max_bytes:
+                break
+
+        logger.info(
+            "ha_search_related_ok", item_type=item_type, types=len(listas),
+            truncated=out["truncated"],
         )
+        return json.dumps(out, ensure_ascii=False)
