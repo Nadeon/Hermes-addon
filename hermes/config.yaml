@@ -4,7 +4,7 @@
 slug: hermes
 name: "Hermes – MCP Home Assistant"
 description: "Servidor MCP que expone Home Assistant completo a Claude (Tailscale Funnel o proxy inverso)"
-version: "1.1.2"
+version: "1.2.0"
 url: "https://github.com/Nadeon/Hermes-addon"
 
 # Versión mínima de Home Assistant (igual que HA_CORE_MIN_SUPPORTED en
@@ -163,6 +163,13 @@ schema:
     - "str?"
   # Seudonimiza IPs y hostnames en el log del add-on. Con false se ven tal cual.
   log_redact_network: "bool?"
+  # Familias de tools que no se registran, para ahorrar contexto al cliente
+  # (ej. "lovelace", "marketplace"). Vacía = todas. `base` (ping y
+  # hermes_guide) no se puede desactivar. Los nombres los valida Hermes al
+  # arrancar, no este esquema: uno desconocido impide arrancar y el log dice
+  # cuál falla y cuáles valen. Lista en DOCS.md.
+  tool_families_disabled:
+    - "str?"
 
 # ── Opciones por defecto ──────────────────────────────────────
 options:
@@ -198,3 +205,4 @@ options:
   oauth_cimd_enabled: true
   oauth_cimd_allowed_hosts: []
   log_redact_network: true
+  tool_families_disabled: []

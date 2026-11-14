@@ -22,12 +22,15 @@ plantilla ambigua no casa; una ruta con forma dudosa no llega a buscarse.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from hermes.ha import HAConnectionError, _assert_safe_request_path
+from hermes.security import es_clave_sensible, redact_secrets
 
 Categoria = Literal["dedicated", "read", "confirm", "deny"]
 _CATEGORIAS = frozenset({"dedicated", "read", "confirm", "deny"})
@@ -78,8 +81,10 @@ class Entrada:
     response: str = "json"
     # Claves que se tapan además de los marcadores de `redact_structure`.
     redact_extra: tuple[str, ...] = ()
-    # La ejecución sale a internet. Nunca con `read`: las genéricas de lectura
-    # se anuncian sin mundo abierto.
+    # La ejecución sale a internet. Puede ir en `read` (navegar fuentes de
+    # medios remotas): entonces la genérica de lectura de esa tabla se anuncia
+    # de mundo abierto, y tests/test_command_table.py lo comprueba (FR-018,
+    # T047).
     open_world: bool = False
     # Ejemplo de carga revisado, con datos ficticios, para la guía.
     example: Mapping[str, Any] | None = None
@@ -97,8 +102,6 @@ class Entrada:
             raise ValueError("`one_shot` solo con la categoría `read`")
         if self.response not in ("json", "text"):
             raise ValueError(f"respuesta inválida: {self.response!r}")
-        if self.open_world and self.category == "read":
-            raise ValueError("una entrada `read` no puede salir a internet")
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,3 +289,112 @@ def decidir(
         return Rechazo("family_disabled", {"family": entrada.family})
 
     return Permitido(entrada)
+
+
+# ── Resumen de la carga (FR-010) ─────────────────────────────────────────────
+
+# Hasta aquí, un valor se enseña entero. Uno más largo se enseña por su INICIO
+# (`_INICIO_VISIBLE` caracteres, pasados por `redact_secrets`), su tamaño y un
+# hash corto (`_HASH_VISIBLE` hex de su SHA-256): quien confirma sabe qué
+# aprueba (de qué texto se trata y cuánto mide; el hash le deja compararlo con
+# el que quería enviar) sin que la vista previa crezca con la carga. No se
+# enseña entero porque un texto largo es donde se esconde un secreto sin clave
+# que lo delate (una clave privada, un token opaco) y porque la vista previa
+# tiene tope (`preview_too_large`). Enmienda E-1 y T045 de la 011.
+_MAX_VALOR_VISIBLE = 64
+_INICIO_VISIBLE = 32
+_HASH_VISIBLE = 12
+
+
+def _tipo_json(valor: Any) -> str:
+    # `bool` antes que `int`: en Python `True` es un `int`.
+    if valor is None:
+        return "null"
+    if isinstance(valor, bool):
+        return "boolean"
+    if isinstance(valor, int):
+        return "integer"
+    if isinstance(valor, float):
+        return "number"
+    if isinstance(valor, str):
+        return "string"
+    if isinstance(valor, Mapping):
+        return "object"
+    if isinstance(valor, (list, tuple)):
+        return "array"
+    return type(valor).__name__
+
+
+def _bytes_json(valor: Any) -> int:
+    return len(json.dumps(valor, ensure_ascii=False).encode("utf-8"))
+
+
+def resumir_carga(
+    valor: Mapping[str, Any] | None,
+    redact_extra: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Resumen de la carga para la vista previa de las genéricas de escritura
+    (FR-010, data-model «Fila del resumen de la carga»).
+
+    Una fila por clave, a cualquier profundidad (los elementos de una lista,
+    por índice), con su ruta `a.b[0].c`, su tipo JSON y sus bytes. El valor
+    solo si es un escalar, mide 64 caracteres o menos (el texto tal cual; un
+    número, booleano o `null`, su JSON), ninguna clave de su ruta es sensible
+    (`es_clave_sensible` o `redact_extra`) y `redact_secrets` no lo cambia. Si
+    no, `hidden` dice por qué, con esta precedencia: `container`, `sensitive`,
+    `too_long`. Una fila `too_long` lleva además `head` (los 32 primeros
+    caracteres, pasados por `redact_secrets`) y `sha256` (12 hex del SHA-256
+    del texto entero); una `sensitive`, solo tipo y tamaño.
+
+    POR QUÉ ASÍ: la vista previa genérica no interpreta el comando; lo único
+    que puede enseñar con verdad es lo que se va a enviar. Y lo enseña sin
+    filtrar secretos: la sensibilidad se HEREDA (lo que cuelga de
+    `credentials` es sensible aunque se llame `username`), porque una clave
+    sensible con un objeto dentro es justo donde un secreto no lleva un nombre
+    que lo delate.
+    """
+    extra = {k.lower() for k in redact_extra}
+    carga: Any = {} if valor is None else valor
+    filas: list[dict[str, Any]] = []
+
+    def sensible(clave: str) -> bool:
+        return es_clave_sensible(clave) or clave.lower() in extra
+
+    def visitar(v: Any, ruta: str, heredada: bool) -> None:
+        fila: dict[str, Any] = {"path": ruta, "type": _tipo_json(v), "bytes": _bytes_json(v)}
+        filas.append(fila)
+        if isinstance(v, (Mapping, list, tuple)):
+            fila["hidden"] = "container"
+            recorrer(v, ruta, heredada)
+            return
+        if heredada:
+            fila["hidden"] = "sensitive"
+            return
+        texto = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+        if redact_secrets(texto) != texto:
+            fila["hidden"] = "sensitive"
+        elif len(texto) > _MAX_VALOR_VISIBLE:
+            fila["hidden"] = "too_long"
+            # Ya se ha comprobado que `redact_secrets` no cambia el texto
+            # entero; se vuelve a pasar el inicio por si el corte deja a la
+            # vista un trozo que sí casa con un patrón.
+            fila["head"] = redact_secrets(texto[:_INICIO_VISIBLE])
+            fila["sha256"] = hashlib.sha256(
+                texto.encode("utf-8")
+            ).hexdigest()[:_HASH_VISIBLE]
+        else:
+            fila["value"] = v
+
+    def recorrer(v: Any, ruta: str, heredada: bool) -> None:
+        if isinstance(v, Mapping):
+            for k, hijo in v.items():
+                clave = str(k)
+                visitar(hijo, f"{ruta}.{clave}" if ruta else clave,
+                        heredada or sensible(clave))
+        else:
+            for i, hijo in enumerate(v):
+                visitar(hijo, f"{ruta}[{i}]", heredada)
+
+    if isinstance(carga, (Mapping, list, tuple)):
+        recorrer(carga, "", False)
+    return {"bytes": _bytes_json(carga), "keys": len(filas), "rows": filas}

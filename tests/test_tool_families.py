@@ -27,11 +27,6 @@ _TOOLS_DIR = (
     pathlib.Path(__file__).resolve().parents[1] / "hermes" / "src" / "hermes" / "tools"
 )
 
-# Módulos que una familia puede nombrar aunque todavía no existan en disco.
-# `generic_commands` lo crea el tramo 2 (T024); T025 quita esta excepción para
-# que, desde entonces, una familia que nombre un módulo inexistente falle.
-_MODULOS_AUN_NO_CREADOS = {"generic_commands"}
-
 # Catálogo de la 1.1.2 (research R-5): familia → módulos.
 _CATALOGO_1_1_2 = {
     "base": {"ping", "guide"},
@@ -93,7 +88,7 @@ class TestCatalogo(unittest.TestCase):
         existentes = {p.stem for p in _TOOLS_DIR.glob("*.py")}
         faltan = sorted(
             f"{f.nombre}: {m}" for f in FAMILIAS.values() for m in f.modulos
-            if m not in existentes and m not in _MODULOS_AUN_NO_CREADOS
+            if m not in existentes
         )
         self.assertEqual(faltan, [], f"módulos inexistentes: {faltan}")
 
@@ -183,6 +178,60 @@ class TestValidarDesactivadas(unittest.TestCase):
     def test_forma_invalida(self) -> None:
         with self.assertRaises(ValueError):
             validar_desactivadas(["Lovelace"])
+
+
+class TestFamiliasEnLaDocumentacion(unittest.TestCase):
+    """DOCS.md tiene una fila por familia y los README las nombran todas (la
+    opción no sirve si el usuario no sabe qué nombres valen). Una familia
+    nueva sin documentar hace caer este test."""
+
+    def test_cada_familia_documentada(self) -> None:
+        raiz = pathlib.Path(__file__).resolve().parents[1]
+        docs = (raiz / "hermes" / "DOCS.md").read_text(encoding="utf-8")
+        readmes = {n: (raiz / n).read_text(encoding="utf-8")
+                   for n in ("README.md", "README.es.md")}
+        for nombre in FAMILIAS:
+            with self.subTest(familia=nombre):
+                self.assertRegex(docs, rf"(?m)^\| `{nombre}` \| \d+ \|")
+                for fichero, texto in readmes.items():
+                    self.assertIn(f"`{nombre}`", texto, fichero)
+
+
+class TestAliasDeFamilias(unittest.TestCase):
+    """Nombres antiguos de familias renombradas (decisión del supervisor del
+    programa, desviación anotada en tasks.md): quien tenga guardado el nombre
+    viejo en `tool_families_disabled` no puede quedarse sin arrancar al
+    actualizar, ni —peor— con la familia activa sin enterarse. Hoy `ALIAS`
+    está vacío; el mecanismo se prueba con alias inyectados.
+
+    Control negativo (T042): ignorar `alias` en `validar_desactivadas` → cae
+    `test_el_alias_se_traduce_al_nombre_actual` («no existe»).
+    """
+
+    def test_el_alias_se_traduce_al_nombre_actual(self) -> None:
+        alias = {"paneles": "lovelace"}
+        self.assertEqual(
+            validar_desactivadas(["paneles", "lovelace"], alias=alias),
+            frozenset({"lovelace"}),
+        )
+
+    def test_un_alias_de_base_tampoco_la_desactiva(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            validar_desactivadas(["nucleo"], alias={"nucleo": "base"})
+        self.assertIn("no se puede desactivar", str(ctx.exception))
+
+    def test_sin_el_alias_el_nombre_viejo_no_existe(self) -> None:
+        with self.assertRaises(ValueError):
+            validar_desactivadas(["paneles"])
+
+    def test_los_alias_reales_son_coherentes(self) -> None:
+        """Cada alias apunta a una familia que existe, no tapa un nombre
+        actual (sería ambiguo) y tiene la forma de un nombre de familia."""
+        for viejo, actual in tool_families.ALIAS.items():
+            with self.subTest(alias=viejo):
+                self.assertNotIn(viejo, FAMILIAS)
+                self.assertIn(actual, FAMILIAS)
+                self.assertRegex(viejo, r"^[a-z][a-z0-9_]*$")
 
 
 if __name__ == "__main__":

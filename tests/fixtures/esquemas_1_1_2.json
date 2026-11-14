@@ -1,0 +1,1803 @@
+{
+ "fs_delete_file": {
+  "properties": [
+   "confirmation_token",
+   "path"
+  ],
+  "required": [
+   "path"
+  ]
+ },
+ "fs_list_dir": {
+  "properties": [
+   "max_depth",
+   "path",
+   "recursive"
+  ],
+  "required": []
+ },
+ "fs_list_file_backups": {
+  "properties": [
+   "path"
+  ],
+  "required": []
+ },
+ "fs_move_file": {
+  "properties": [
+   "confirmation_token",
+   "dst",
+   "overwrite",
+   "src"
+  ],
+  "required": [
+   "dst",
+   "src"
+  ]
+ },
+ "fs_read_file": {
+  "properties": [
+   "path"
+  ],
+  "required": [
+   "path"
+  ]
+ },
+ "fs_read_file_lines": {
+  "properties": [
+   "limit",
+   "offset",
+   "path"
+  ],
+  "required": [
+   "path"
+  ]
+ },
+ "fs_restore_file_backup": {
+  "properties": [
+   "confirmation_token",
+   "path",
+   "timestamp"
+  ],
+  "required": [
+   "path",
+   "timestamp"
+  ]
+ },
+ "fs_search_in_config": {
+  "properties": [
+   "case_sensitive",
+   "glob",
+   "max_matches",
+   "pattern"
+  ],
+  "required": [
+   "pattern"
+  ]
+ },
+ "fs_set_secret": {
+  "properties": [
+   "confirmation_token",
+   "key",
+   "value"
+  ],
+  "required": [
+   "key",
+   "value"
+  ]
+ },
+ "fs_stat": {
+  "properties": [
+   "path"
+  ],
+  "required": [
+   "path"
+  ]
+ },
+ "fs_write_file": {
+  "properties": [
+   "confirmation_token",
+   "content",
+   "path"
+  ],
+  "required": [
+   "path"
+  ]
+ },
+ "ha_abort_config_entry_flow": {
+  "properties": [
+   "flow_id"
+  ],
+  "required": [
+   "flow_id"
+  ]
+ },
+ "ha_activate_scene": {
+  "properties": [
+   "scene_id",
+   "transition"
+  ],
+  "required": [
+   "scene_id"
+  ]
+ },
+ "ha_call_service": {
+  "properties": [
+   "confirmation_token",
+   "domain",
+   "service",
+   "service_data"
+  ],
+  "required": [
+   "domain",
+   "service"
+  ]
+ },
+ "ha_call_service_response": {
+  "properties": [
+   "domain",
+   "service",
+   "service_data"
+  ],
+  "required": [
+   "domain",
+   "service"
+  ]
+ },
+ "ha_cancel_timer": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_cancel_wait": {
+  "properties": [
+   "wait_id"
+  ],
+  "required": [
+   "wait_id"
+  ]
+ },
+ "ha_change_timer": {
+  "properties": [
+   "duration",
+   "entity_id"
+  ],
+  "required": [
+   "duration",
+   "entity_id"
+  ]
+ },
+ "ha_continue_config_entry_flow": {
+  "properties": [
+   "flow_id",
+   "user_input"
+  ],
+  "required": [
+   "flow_id",
+   "user_input"
+  ]
+ },
+ "ha_continue_options_flow": {
+  "properties": [
+   "flow_id",
+   "user_input"
+  ],
+  "required": [
+   "flow_id",
+   "user_input"
+  ]
+ },
+ "ha_create_area": {
+  "properties": [
+   "aliases",
+   "floor_id",
+   "icon",
+   "labels",
+   "name",
+   "picture"
+  ],
+  "required": [
+   "name"
+  ]
+ },
+ "ha_create_category": {
+  "properties": [
+   "icon",
+   "name",
+   "scope"
+  ],
+  "required": [
+   "name",
+   "scope"
+  ]
+ },
+ "ha_create_floor": {
+  "properties": [
+   "aliases",
+   "icon",
+   "level",
+   "name"
+  ],
+  "required": [
+   "name"
+  ]
+ },
+ "ha_create_label": {
+  "properties": [
+   "color",
+   "description",
+   "icon",
+   "name"
+  ],
+  "required": [
+   "name"
+  ]
+ },
+ "ha_create_lovelace_dashboard": {
+  "properties": [
+   "icon",
+   "require_admin",
+   "show_in_sidebar",
+   "title",
+   "url_path"
+  ],
+  "required": [
+   "title",
+   "url_path"
+  ]
+ },
+ "ha_create_lovelace_resource": {
+  "properties": [
+   "confirmation_token",
+   "res_type",
+   "url"
+  ],
+  "required": [
+   "res_type",
+   "url"
+  ]
+ },
+ "ha_create_or_update_automation": {
+  "properties": [
+   "automation_id",
+   "config",
+   "confirmation_token"
+  ],
+  "required": [
+   "automation_id"
+  ]
+ },
+ "ha_create_or_update_counter": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_input_boolean": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_input_button": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_input_datetime": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_input_number": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_input_select": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_input_text": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_scene": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "scene_id"
+  ],
+  "required": [
+   "scene_id"
+  ]
+ },
+ "ha_create_or_update_schedule": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_script": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "script_id"
+  ],
+  "required": [
+   "script_id"
+  ]
+ },
+ "ha_create_or_update_timer": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_or_update_zone": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_create_person": {
+  "properties": [
+   "device_trackers",
+   "name",
+   "picture",
+   "user_id"
+  ],
+  "required": [
+   "name"
+  ]
+ },
+ "ha_create_scene_from_current": {
+  "properties": [
+   "entity_ids",
+   "name",
+   "scene_id"
+  ],
+  "required": [
+   "entity_ids",
+   "scene_id"
+  ]
+ },
+ "ha_cycle_input_select": {
+  "properties": [
+   "cycle",
+   "direction",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_decrement_counter": {
+  "properties": [
+   "amount",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_decrement_input_number": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_area": {
+  "properties": [
+   "area_id",
+   "confirmation_token"
+  ],
+  "required": [
+   "area_id"
+  ]
+ },
+ "ha_delete_automation": {
+  "properties": [
+   "automation_id",
+   "confirmation_token"
+  ],
+  "required": [
+   "automation_id"
+  ]
+ },
+ "ha_delete_category": {
+  "properties": [
+   "category_id",
+   "confirmation_token",
+   "scope"
+  ],
+  "required": [
+   "category_id",
+   "scope"
+  ]
+ },
+ "ha_delete_config_entry": {
+  "properties": [
+   "confirmation_token",
+   "entry_id"
+  ],
+  "required": [
+   "entry_id"
+  ]
+ },
+ "ha_delete_counter": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_floor": {
+  "properties": [
+   "confirmation_token",
+   "floor_id"
+  ],
+  "required": [
+   "floor_id"
+  ]
+ },
+ "ha_delete_input_boolean": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_input_button": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_input_datetime": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_input_number": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_input_select": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_input_text": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_label": {
+  "properties": [
+   "confirmation_token",
+   "label_id"
+  ],
+  "required": [
+   "label_id"
+  ]
+ },
+ "ha_delete_lovelace_dashboard": {
+  "properties": [
+   "confirmation_token",
+   "url_path"
+  ],
+  "required": [
+   "url_path"
+  ]
+ },
+ "ha_delete_lovelace_resource": {
+  "properties": [
+   "confirmation_token",
+   "resource_id"
+  ],
+  "required": [
+   "resource_id"
+  ]
+ },
+ "ha_delete_person": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_scene": {
+  "properties": [
+   "confirmation_token",
+   "scene_id"
+  ],
+  "required": [
+   "scene_id"
+  ]
+ },
+ "ha_delete_schedule": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_script": {
+  "properties": [
+   "confirmation_token",
+   "script_id"
+  ],
+  "required": [
+   "script_id"
+  ]
+ },
+ "ha_delete_timer": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_delete_zone": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_disable_automation": {
+  "properties": [
+   "automation_id"
+  ],
+  "required": [
+   "automation_id"
+  ]
+ },
+ "ha_disable_config_entry": {
+  "properties": [
+   "confirmation_token",
+   "entry_id"
+  ],
+  "required": [
+   "entry_id"
+  ]
+ },
+ "ha_enable_automation": {
+  "properties": [
+   "automation_id"
+  ],
+  "required": [
+   "automation_id"
+  ]
+ },
+ "ha_enable_config_entry": {
+  "properties": [
+   "entry_id"
+  ],
+  "required": [
+   "entry_id"
+  ]
+ },
+ "ha_finish_timer": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_fire_event": {
+  "properties": [
+   "event_data",
+   "event_type"
+  ],
+  "required": [
+   "event_type"
+  ]
+ },
+ "ha_get_area": {
+  "properties": [
+   "area_id"
+  ],
+  "required": [
+   "area_id"
+  ]
+ },
+ "ha_get_automation": {
+  "properties": [
+   "automation_id"
+  ],
+  "required": [
+   "automation_id"
+  ]
+ },
+ "ha_get_backup": {
+  "properties": [
+   "backup_id"
+  ],
+  "required": [
+   "backup_id"
+  ]
+ },
+ "ha_get_backup_config": {
+  "properties": [],
+  "required": []
+ },
+ "ha_get_config_entry": {
+  "properties": [
+   "entry_id"
+  ],
+  "required": [
+   "entry_id"
+  ]
+ },
+ "ha_get_config_entry_options": {
+  "properties": [
+   "entry_id"
+  ],
+  "required": [
+   "entry_id"
+  ]
+ },
+ "ha_get_counter": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_device": {
+  "properties": [
+   "device_id"
+  ],
+  "required": [
+   "device_id"
+  ]
+ },
+ "ha_get_entity_registry": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_history": {
+  "properties": [
+   "end_time",
+   "entity_ids",
+   "hours_back",
+   "no_attributes",
+   "significant_changes_only",
+   "start_time"
+  ],
+  "required": [
+   "entity_ids"
+  ]
+ },
+ "ha_get_input_boolean": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_input_button": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_input_datetime": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_input_number": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_input_select": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_input_text": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_logbook": {
+  "properties": [
+   "end_time",
+   "entity_ids",
+   "hours_back",
+   "start_time"
+  ],
+  "required": []
+ },
+ "ha_get_lovelace_dashboard": {
+  "properties": [
+   "url_path",
+   "view_index"
+  ],
+  "required": []
+ },
+ "ha_get_person": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_scene": {
+  "properties": [
+   "scene_id"
+  ],
+  "required": [
+   "scene_id"
+  ]
+ },
+ "ha_get_schedule": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_script": {
+  "properties": [
+   "script_id"
+  ],
+  "required": [
+   "script_id"
+  ]
+ },
+ "ha_get_state": {
+  "properties": [
+   "compact",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_states": {
+  "properties": [
+   "compact",
+   "domain"
+  ],
+  "required": []
+ },
+ "ha_get_timer": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_get_trace": {
+  "properties": [
+   "detail",
+   "domain",
+   "entity_id",
+   "item_id",
+   "run_id"
+  ],
+  "required": [
+   "domain",
+   "run_id"
+  ]
+ },
+ "ha_get_zone": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_hacs_get_repository": {
+  "properties": [
+   "repository_id"
+  ],
+  "required": [
+   "repository_id"
+  ]
+ },
+ "ha_hacs_info": {
+  "properties": [],
+  "required": []
+ },
+ "ha_hacs_list_repositories": {
+  "properties": [
+   "category",
+   "installed_only",
+   "limit",
+   "search"
+  ],
+  "required": []
+ },
+ "ha_hacs_list_updates": {
+  "properties": [],
+  "required": []
+ },
+ "ha_ignore_repair": {
+  "properties": [
+   "confirmation_token",
+   "domain",
+   "ignore",
+   "issue_id"
+  ],
+  "required": [
+   "domain",
+   "issue_id"
+  ]
+ },
+ "ha_increment_counter": {
+  "properties": [
+   "amount",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_increment_input_number": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_list_active_waits": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_areas": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_automations": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_backups": {
+  "properties": [
+   "limit"
+  ],
+  "required": []
+ },
+ "ha_list_categories": {
+  "properties": [
+   "scope"
+  ],
+  "required": [
+   "scope"
+  ]
+ },
+ "ha_list_config_entries": {
+  "properties": [
+   "domain",
+   "type_filter"
+  ],
+  "required": []
+ },
+ "ha_list_configured_domains": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_counters": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_devices": {
+  "properties": [
+   "area_id",
+   "disabled",
+   "manufacturer"
+  ],
+  "required": []
+ },
+ "ha_list_entities_registry": {
+  "properties": [
+   "area_id",
+   "device_id",
+   "disabled",
+   "platform"
+  ],
+  "required": []
+ },
+ "ha_list_floors": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_input_booleans": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_input_buttons": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_input_datetimes": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_input_numbers": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_input_selects": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_input_texts": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_labels": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_lovelace_dashboards": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_lovelace_resources": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_persons": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_repairs": {
+  "properties": [
+   "domain",
+   "include_ignored",
+   "severity"
+  ],
+  "required": []
+ },
+ "ha_list_scenes": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_schedules": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_scripts": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_services": {
+  "properties": [
+   "domain"
+  ],
+  "required": []
+ },
+ "ha_list_statistic_ids": {
+  "properties": [
+   "statistic_type"
+  ],
+  "required": []
+ },
+ "ha_list_timers": {
+  "properties": [],
+  "required": []
+ },
+ "ha_list_traces": {
+  "properties": [
+   "domain",
+   "entity_id",
+   "item_id",
+   "limit"
+  ],
+  "required": [
+   "domain"
+  ]
+ },
+ "ha_list_zones": {
+  "properties": [],
+  "required": []
+ },
+ "ha_marketplace_get_repository": {
+  "properties": [
+   "repository_id"
+  ],
+  "required": [
+   "repository_id"
+  ]
+ },
+ "ha_marketplace_info": {
+  "properties": [],
+  "required": []
+ },
+ "ha_marketplace_list_critical": {
+  "properties": [],
+  "required": []
+ },
+ "ha_marketplace_list_releases": {
+  "properties": [
+   "limit",
+   "repository_id"
+  ],
+  "required": [
+   "repository_id"
+  ]
+ },
+ "ha_marketplace_list_removed": {
+  "properties": [],
+  "required": []
+ },
+ "ha_marketplace_list_repositories": {
+  "properties": [
+   "category",
+   "installed_only",
+   "limit",
+   "search"
+  ],
+  "required": []
+ },
+ "ha_marketplace_list_updates": {
+  "properties": [],
+  "required": []
+ },
+ "ha_pause_timer": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_press_input_button": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_reload_automations": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "ha_reload_config_entry": {
+  "properties": [
+   "entry_id"
+  ],
+  "required": [
+   "entry_id"
+  ]
+ },
+ "ha_reload_counters": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "ha_reload_scenes": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "ha_reload_schedules": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "ha_reload_scripts": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "ha_reload_timers": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "ha_reload_zones": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "ha_remove_device": {
+  "properties": [
+   "confirmation_token",
+   "device_id"
+  ],
+  "required": [
+   "device_id"
+  ]
+ },
+ "ha_remove_device_from_config_entry": {
+  "properties": [
+   "config_entry_id",
+   "confirmation_token",
+   "device_id"
+  ],
+  "required": [
+   "config_entry_id",
+   "device_id"
+  ]
+ },
+ "ha_remove_entity_registry": {
+  "properties": [
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_render_template": {
+  "properties": [
+   "strict",
+   "template",
+   "timeout",
+   "variables"
+  ],
+  "required": [
+   "template"
+  ]
+ },
+ "ha_reset_counter": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_run_script": {
+  "properties": [
+   "confirmation_token",
+   "script_id",
+   "variables"
+  ],
+  "required": [
+   "script_id"
+  ]
+ },
+ "ha_save_lovelace_dashboard": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "remove_top_level_keys",
+   "url_path"
+  ],
+  "required": [
+   "url_path"
+  ]
+ },
+ "ha_search_related": {
+  "properties": [
+   "include_disabled_entities",
+   "item_id",
+   "item_type"
+  ],
+  "required": [
+   "item_id",
+   "item_type"
+  ]
+ },
+ "ha_set_counter_value": {
+  "properties": [
+   "entity_id",
+   "value"
+  ],
+  "required": [
+   "entity_id",
+   "value"
+  ]
+ },
+ "ha_set_input_boolean": {
+  "properties": [
+   "entity_id",
+   "value"
+  ],
+  "required": [
+   "entity_id",
+   "value"
+  ]
+ },
+ "ha_set_input_datetime": {
+  "properties": [
+   "date",
+   "datetime",
+   "entity_id",
+   "time",
+   "timestamp"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_set_input_number": {
+  "properties": [
+   "entity_id",
+   "value"
+  ],
+  "required": [
+   "entity_id",
+   "value"
+  ]
+ },
+ "ha_set_input_select": {
+  "properties": [
+   "entity_id",
+   "option"
+  ],
+  "required": [
+   "entity_id",
+   "option"
+  ]
+ },
+ "ha_set_input_select_options": {
+  "properties": [
+   "entity_id",
+   "options"
+  ],
+  "required": [
+   "entity_id",
+   "options"
+  ]
+ },
+ "ha_set_input_text": {
+  "properties": [
+   "entity_id",
+   "value"
+  ],
+  "required": [
+   "entity_id",
+   "value"
+  ]
+ },
+ "ha_start_config_entry_flow": {
+  "properties": [
+   "handler"
+  ],
+  "required": [
+   "handler"
+  ]
+ },
+ "ha_start_options_flow": {
+  "properties": [
+   "entry_id"
+  ],
+  "required": [
+   "entry_id"
+  ]
+ },
+ "ha_start_timer": {
+  "properties": [
+   "duration",
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_statistics_during_period": {
+  "properties": [
+   "end_time",
+   "hours_back",
+   "period",
+   "start_time",
+   "statistic_ids",
+   "types",
+   "units"
+  ],
+  "required": [
+   "statistic_ids"
+  ]
+ },
+ "ha_toggle_input_boolean": {
+  "properties": [
+   "entity_id"
+  ],
+  "required": [
+   "entity_id"
+  ]
+ },
+ "ha_trigger_automation": {
+  "properties": [
+   "automation_id",
+   "confirmation_token",
+   "variables"
+  ],
+  "required": [
+   "automation_id"
+  ]
+ },
+ "ha_update_area": {
+  "properties": [
+   "area_id",
+   "confirmation_token",
+   "updates"
+  ],
+  "required": [
+   "area_id",
+   "updates"
+  ]
+ },
+ "ha_update_category": {
+  "properties": [
+   "category_id",
+   "confirmation_token",
+   "scope",
+   "updates"
+  ],
+  "required": [
+   "category_id",
+   "scope",
+   "updates"
+  ]
+ },
+ "ha_update_device": {
+  "properties": [
+   "confirmation_token",
+   "device_id",
+   "updates"
+  ],
+  "required": [
+   "device_id",
+   "updates"
+  ]
+ },
+ "ha_update_entity_registry": {
+  "properties": [
+   "confirmation_token",
+   "entity_id",
+   "updates"
+  ],
+  "required": [
+   "entity_id",
+   "updates"
+  ]
+ },
+ "ha_update_floor": {
+  "properties": [
+   "confirmation_token",
+   "floor_id",
+   "updates"
+  ],
+  "required": [
+   "floor_id",
+   "updates"
+  ]
+ },
+ "ha_update_label": {
+  "properties": [
+   "confirmation_token",
+   "label_id",
+   "updates"
+  ],
+  "required": [
+   "label_id",
+   "updates"
+  ]
+ },
+ "ha_update_lovelace_dashboard_metadata": {
+  "properties": [
+   "confirmation_token",
+   "updates",
+   "url_path"
+  ],
+  "required": [
+   "updates",
+   "url_path"
+  ]
+ },
+ "ha_update_lovelace_resource": {
+  "properties": [
+   "confirmation_token",
+   "resource_id",
+   "updates"
+  ],
+  "required": [
+   "resource_id",
+   "updates"
+  ]
+ },
+ "ha_update_person": {
+  "properties": [
+   "config",
+   "confirmation_token",
+   "entity_id"
+  ],
+  "required": [
+   "config",
+   "entity_id"
+  ]
+ },
+ "ha_wait_for_event": {
+  "properties": [
+   "ctx",
+   "event_type",
+   "filters",
+   "timeout_seconds"
+  ],
+  "required": [
+   "ctx",
+   "event_type"
+  ]
+ },
+ "hermes_guide": {
+  "properties": [
+   "topic"
+  ],
+  "required": []
+ },
+ "ping": {
+  "properties": [],
+  "required": []
+ },
+ "sv_check_core_config": {
+  "properties": [],
+  "required": []
+ },
+ "sv_create_backup_full": {
+  "properties": [
+   "name",
+   "password"
+  ],
+  "required": [
+   "name"
+  ]
+ },
+ "sv_create_backup_partial": {
+  "properties": [
+   "addons",
+   "folders",
+   "include_homeassistant",
+   "name",
+   "password"
+  ],
+  "required": [
+   "name"
+  ]
+ },
+ "sv_create_safety_backup": {
+  "properties": [],
+  "required": []
+ },
+ "sv_delete_backup": {
+  "properties": [
+   "confirmation_token",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_dismiss_resolution_issue": {
+  "properties": [
+   "confirmation_token",
+   "issue_uuid"
+  ],
+  "required": [
+   "issue_uuid"
+  ]
+ },
+ "sv_dismiss_resolution_suggestion": {
+  "properties": [
+   "confirmation_token",
+   "suggestion_uuid"
+  ],
+  "required": [
+   "suggestion_uuid"
+  ]
+ },
+ "sv_get_addon": {
+  "properties": [
+   "include_long_description",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_get_addon_logs": {
+  "properties": [
+   "lines",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_get_addon_options": {
+  "properties": [
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_get_addon_stats": {
+  "properties": [
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_get_backup": {
+  "properties": [
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_get_core_info": {
+  "properties": [],
+  "required": []
+ },
+ "sv_get_host_info": {
+  "properties": [],
+  "required": []
+ },
+ "sv_get_job_status": {
+  "properties": [
+   "job_id"
+  ],
+  "required": [
+   "job_id"
+  ]
+ },
+ "sv_get_resolution": {
+  "properties": [],
+  "required": []
+ },
+ "sv_get_supervisor_info": {
+  "properties": [],
+  "required": []
+ },
+ "sv_install_addon": {
+  "properties": [
+   "confirmation_token",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_list_addons": {
+  "properties": [
+   "installed_only"
+  ],
+  "required": []
+ },
+ "sv_list_backups": {
+  "properties": [],
+  "required": []
+ },
+ "sv_list_pending_jobs": {
+  "properties": [],
+  "required": []
+ },
+ "sv_reboot_host": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "sv_restart_addon": {
+  "properties": [
+   "confirmation_token",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_restart_core": {
+  "properties": [
+   "confirmation_token"
+  ],
+  "required": []
+ },
+ "sv_restore_backup_full": {
+  "properties": [
+   "confirmation_token",
+   "password",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_restore_backup_partial": {
+  "properties": [
+   "addons",
+   "confirmation_token",
+   "folders",
+   "include_homeassistant",
+   "password",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_set_addon_options": {
+  "properties": [
+   "confirmation_token",
+   "options",
+   "slug"
+  ],
+  "required": [
+   "options",
+   "slug"
+  ]
+ },
+ "sv_start_addon": {
+  "properties": [
+   "confirmation_token",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_stop_addon": {
+  "properties": [
+   "confirmation_token",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_uninstall_addon": {
+  "properties": [
+   "confirmation_token",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "sv_update_addon": {
+  "properties": [
+   "confirmation_token",
+   "slug"
+  ],
+  "required": [
+   "slug"
+  ]
+ },
+ "test_progress": {
+  "properties": [
+   "duration_seconds"
+  ],
+  "required": []
+ }
+}

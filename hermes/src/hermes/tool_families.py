@@ -22,7 +22,7 @@ la de la 1.1.2.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 _FORMA_NOMBRE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -91,6 +91,18 @@ _CATALOGO: tuple[Familia, ...] = (
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}
 
+# Nombres antiguos de familias renombradas → nombre actual. Hoy vacío.
+#
+# POR QUÉ: `tool_families_disabled` se guarda en las opciones del add-on. Si
+# una versión futura renombra una familia, quien tenga guardado el nombre
+# viejo no puede quedarse sin arrancar al actualizar (el nombre «no existiría»)
+# ni, peor aún, con la familia activa sin saberlo. Al renombrar, se añade aquí
+# `"nombre_viejo": "nombre_nuevo"` y se mantiene al menos durante una versión
+# mayor. Un alias nunca puede llevar a desactivar `base`: la comprobación de
+# `desactivable` se hace sobre el nombre actual. Lo vigila
+# tests/test_tool_families.py (`TestAliasDeFamilias`).
+ALIAS: dict[str, str] = {}
+
 _FAMILIA_DE_MODULO: dict[str, str] = {
     modulo: familia.nombre for familia in _CATALOGO for modulo in familia.modulos
 }
@@ -105,15 +117,22 @@ def familia_de_modulo(modulo: str) -> str:
     return _FAMILIA_DE_MODULO[modulo]
 
 
-def validar_desactivadas(nombres: Iterable[str]) -> frozenset[str]:
-    """Valida la opción `tool_families_disabled` y devuelve el conjunto.
+def validar_desactivadas(
+    nombres: Iterable[str],
+    *,
+    alias: Mapping[str, str] | None = None,
+) -> frozenset[str]:
+    """Valida la opción `tool_families_disabled` y devuelve el conjunto de
+    nombres actuales.
 
     Fail-closed: un nombre desconocido o `base` lanza `ValueError` para que
     Hermes no arranque con una configuración que no hace lo que el usuario
     cree (por ejemplo, una errata que dejaría activa una familia que quería
     apagar). El mensaje nombra el valor inválido y los válidos. Los duplicados
-    no son un error: se ignoran.
+    no son un error: se ignoran. Un nombre antiguo de `ALIAS` (o de `alias`,
+    que solo pasan los tests) se traduce al actual antes de comprobarlo.
     """
+    tabla_alias = ALIAS if alias is None else alias
     validos = sorted(n for n, f in FAMILIAS.items() if f.desactivable)
     resultado: set[str] = set()
     for nombre in nombres:
@@ -122,6 +141,7 @@ def validar_desactivadas(nombres: Iterable[str]) -> frozenset[str]:
                 f"tool_families_disabled: nombre de familia inválido {nombre!r}. "
                 f"Válidas: {', '.join(validos)}"
             )
+        nombre = tabla_alias.get(nombre, nombre)
         if nombre not in FAMILIAS:
             raise ValueError(
                 f"tool_families_disabled: la familia {nombre!r} no existe. "
