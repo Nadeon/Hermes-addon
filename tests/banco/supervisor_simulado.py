@@ -175,7 +175,7 @@ def crear_app(core_url: str, token_addon: str, token_core: str, version_core: st
         async def de_core_al_addon() -> None:
             async for msg in cliente:
                 if msg.type == WSMsgType.TEXT:
-                    continue  # CONTROL NEGATIVO T021: no reenvía nada de Core
+                    await servidor.send_str(msg.data)
                 elif msg.type == WSMsgType.BINARY:
                     await servidor.send_bytes(msg.data)
                 else:
