@@ -358,8 +358,27 @@ class HAClient:
         domain: str,
         service: str,
         service_data: dict[str, Any] | None = None,
+        *,
+        allow_dangerous: bool = False,
     ) -> Any:
-        """Llama un servicio de Home Assistant con return_response=1."""
+        """Llama un servicio de Home Assistant con return_response=1.
+
+        Misma guarda de denylist que `call_service`, y por lo mismo (spec
+        018): es otra puerta al mismo endpoint REST, y desde la 1.2.0 la tool
+        `ha_call_service_response` ejecuta servicios vetados tras confirmar.
+        La tool ya comprueba la denylist antes de llegar aquí; esta guarda es
+        defensa en profundidad para cualquier camino futuro que llame a este
+        método sin pasar por ella. El único que pasa `allow_dangerous=True` es
+        `ha_call_service_response`, después de validar su `confirmation_token`.
+        """
+        if not allow_dangerous and is_in_denylist(
+            domain.strip().lower(), service.strip().lower(), CALL_SERVICE_DENYLIST
+        ):
+            raise DangerousServiceError(
+                f"El servicio {domain}.{service} exige confirmación explícita. "
+                f"Usa la tool ha_call_service_response, que emite un preview y "
+                f"un confirmation_token."
+            )
         validate_path_segment(domain, field="domain")
         validate_path_segment(service, field="service")
         if service_data is None:
