@@ -774,8 +774,11 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/homeassistant/logs/latest"): E("deny", "alias legado de /core/logs/latest (clase B)", "generic_commands"),
     ("GET", "/homeassistant/stats"): E("deny", "alias legado de /core/stats (clase B)", "generic_commands"),
     ("GET", "/homeassistant/websocket"): E("deny", "alias legado del WebSocket de Core: llegaría a Core saltándose las guardas de las tools ha_* (clase B)", "generic_commands"),
-    ("GET", "/host/disks"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
-    ("GET", "/host/disks/{disk}/usage"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
+    # Spec 013 (research R-5): lectura menor de CAP-085 que va por la tabla y no
+    # por una tool; sirve para crear montajes (019). El número de serie va en la
+    # respuesta, no en el log (research R-7).
+    ("GET", "/host/disks"): E("read", "discos locales con particiones montables (para crear montajes); solo lee", "generic_commands", cap="CAP-085"),
+    ("GET", "/host/disks/{disk}/usage"): E("dedicated", "cubierto por sv_get_disk_usage", "system_diagnostics", tool="sv_get_disk_usage", cap="CAP-085"),
     ("GET", "/host/info"): E("dedicated", "cubierto por sv_get_host_info", "supervisor", tool="sv_get_host_info"),
     ("GET", "/host/logs"): E("dedicated", "cubierto por sv_get_host_logs", "system_diagnostics", tool="sv_get_host_logs", cap="CAP-081"),
     ("GET", "/host/logs/boots"): E("dedicated", "cubierto por sv_list_boots", "system_diagnostics", tool="sv_list_boots", cap="CAP-081"),
@@ -787,11 +790,13 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/host/logs/identifiers"): E("dedicated", "cubierto por sv_list_host_log_identifiers", "system_diagnostics", tool="sv_list_host_log_identifiers", cap="CAP-081"),
     ("GET", "/host/logs/identifiers/{identifier}"): E("dedicated", "cubierto por sv_get_host_logs", "system_diagnostics", tool="sv_get_host_logs", cap="CAP-081"),
     ("GET", "/host/logs/identifiers/{identifier}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
-    ("GET", "/host/services"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
+    ("GET", "/host/services"): E("dedicated", "cubierto por sv_list_host_services", "system_diagnostics", tool="sv_list_host_services", cap="CAP-085"),
     # sv_get_supervisor_info solo saca `machine` y `docker` de esta ruta.
     ("GET", "/info"): E("read", "información general del sistema (versiones, máquina, arquitectura, canal, zona horaria); solo lee", "generic_commands"),
     ("GET", "/ingress/panels"): E("deny", "Paneles de ingress del frontend (clase B)", "generic_commands"),
-    ("GET", "/jobs/info"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-087"),
+    # Spec 013 (research R-5): FR-046 de la 008 la pone en la tabla; es una
+    # lectura de prioridad media y el tope central recorta bien su lista.
+    ("GET", "/jobs/info"): E("read", "todos los jobs del Supervisor (nombre, progreso, estado, errores, hijos) y si se ignoran condiciones; solo lee", "generic_commands", cap="CAP-087"),
     ("GET", "/jobs/{uuid}"): E("dedicated", "cubierto por sv_get_job_status", "backups", tool="sv_get_job_status"),
     ("GET", "/mounts"): E("deny", "pendiente de tool dedicada (spec 019)", "generic_commands", cap="CAP-083"),
     ("GET", "/multicast/info"): E("read", "plugin multicast: versión; solo lee", "generic_commands", cap="CAP-091"),
@@ -813,12 +818,14 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/os/boards/raspberrypi/firmware"): E("read", "versión del firmware/EEPROM de la Raspberry Pi y si hay actualización; solo lee", "generic_commands", cap="CAP-094"),
     ("GET", "/os/boards/yellow"): E("read", "LED de Home Assistant Yellow; solo lee", "generic_commands", cap="CAP-094"),
     ("GET", "/os/boards/{board}"): E("read", "comprueba si la placa indicada es la que está en uso (respuesta vacía); solo lee", "generic_commands", cap="CAP-094"),
-    ("GET", "/os/config/swap"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
-    ("GET", "/os/datadisk/list"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
-    ("GET", "/os/info"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-085"),
+    ("GET", "/os/config/swap"): E("dedicated", "cubierto por sv_get_swap", "system_diagnostics", tool="sv_get_swap", cap="CAP-085"),
+    ("GET", "/os/datadisk/list"): E("dedicated", "cubierto por sv_list_datadisk_candidates", "system_diagnostics", tool="sv_list_datadisk_candidates", cap="CAP-085"),
+    ("GET", "/os/info"): E("dedicated", "cubierto por sv_get_os_info", "system_diagnostics", tool="sv_get_os_info", cap="CAP-085"),
     ("GET", "/os/ssh/authorized_keys"): E("deny", "Acceso root por SSH; solo Core (clase D)", "generic_commands"),
     ("GET", "/resolution/info"): E("dedicated", "cubierto por sv_get_resolution", "diagnostics", tool="sv_get_resolution"),
-    ("GET", "/resolution/issue/{issue}/suggestions"): E("deny", "pendiente de tool dedicada (spec 013)", "generic_commands", cap="CAP-087"),
+    # Spec 013 (research R-5): sv_get_resolution ya trae las sugerencias; esta
+    # ruta solo filtra las de un issue.
+    ("GET", "/resolution/issue/{issue}/suggestions"): E("read", "sugerencias que arreglan un issue del centro de resolución; solo lee", "generic_commands", cap="CAP-087"),
     ("GET", "/security/info"): E("read", "ajustes de seguridad del Supervisor (content_trust, pwned, force_security); solo lee", "generic_commands", cap="CAP-088"),
     ("GET", "/services"): E("deny", "Descubrimiento entre apps (clase B)", "generic_commands"),
     ("GET", "/services/{service}"): E("deny", "Credenciales MQTT/MySQL; requiere `services:` en config (clase B)", "generic_commands"),

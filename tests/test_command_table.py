@@ -327,6 +327,24 @@ class TestPistasYMotivos(unittest.TestCase):
             self.assertNotIn(otra, motivo)
 
 
+# Clase A de una CAP de vía dedicada que su sub-feature deja por la tabla:
+# «dentro de una CAP dedicada, sus lecturas menores pueden ir por la tabla si
+# la sub-spec lo justifica» (regla de reparto de la 008). Clave → «spec NNN:
+# porqué». Dejarlo aquí hace visible la justificación y obliga a la siguiente
+# sub-feature a dar la suya.
+_POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
+    ("GET", "/jobs/info"): (
+        "spec 013: FR-046 de la 008 lo pide en la tabla; es una lectura de "
+        "prioridad media y su forma (objeto con una lista) la recorta bien el tope"),
+    ("GET", "/resolution/issue/{issue}/suggestions"): (
+        "spec 013: sv_get_resolution ya trae las sugerencias; esta ruta solo "
+        "filtra las de un issue"),
+    ("GET", "/host/disks"): (
+        "spec 013: lectura menor de CAP-085 (discos con particiones montables, "
+        "para los montajes de la 019); sin tool en el research de la 008"),
+}
+
+
 class TestReglasDeLaClasificacionInicial(unittest.TestCase):
     def test_proxy_de_core_siempre_deny(self) -> None:
         abiertas = sorted(
@@ -345,6 +363,10 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
         self.assertEqual(malas, [])
 
     def test_clase_a_de_via_dedicada_pendiente_de_su_spec(self) -> None:
+        """Clase A de vía D/D+T/D+X: `deny` «pendiente de tool dedicada (spec
+        NNN)» con NNN de la matriz, `dedicated` cuando su tool existe, o
+        `read`/`confirm` si la clave está en `_POR_LA_TABLA` con su spec y su
+        porqué (research R-5 de la 013)."""
         matriz = _matriz_008()
         malas = []
         for inventario, tabla in ((_CORE, ct.CORE_WS), (_SV, ct.SUPERVISOR)):
@@ -360,6 +382,10 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                 # de una dedicada los vigila `TestDedicadas`.
                 if e.category == "dedicated":
                     continue
+                if k in _POR_LA_TABLA and e.category in {"read", "confirm"}:
+                    spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])
+                    if spec and spec.group(1) in subs:
+                        continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)
                 if e.category != "deny" or not m or m.group(1) not in subs:
                     malas.append(f"{k} ({f['cap']}, {via}, {subs}): {e.category} {e.reason!r}")
@@ -418,6 +444,86 @@ class TestLogsDeLa013(unittest.TestCase):
         pendientes = sorted(
             str(k) for k, e in ct.SUPERVISOR.items()
             if "/logs" in k[1] and e.reason == "pendiente de tool dedicada (spec 013)")
+        self.assertEqual(pendientes, [])
+
+
+
+# Spec 013, tramo 2 (data-model): disco, host y OS (CAP-085) a `dedicated`.
+_HOST_013: dict[tuple[str, str], str] = {
+    ("GET", "/host/services"): "sv_list_host_services",
+    ("GET", "/host/disks/{disk}/usage"): "sv_get_disk_usage",
+    ("GET", "/os/info"): "sv_get_os_info",
+    ("GET", "/os/config/swap"): "sv_get_swap",
+    ("GET", "/os/datadisk/list"): "sv_list_datadisk_candidates",
+}
+
+# Las que pasan a `read` (FR-018 de la 013) con su CAP.
+_READ_013: dict[tuple[str, str], str] = {
+    ("GET", "/jobs/info"): "CAP-087",
+    ("GET", "/resolution/issue/{issue}/suggestions"): "CAP-087",
+    ("GET", "/host/disks"): "CAP-085",
+}
+
+# Las de CAP-088 y CAP-089 que siguen `read` (FR-019, FR-020 de la 013).
+_READ_SIN_CAMBIO_013: dict[tuple[str, str], str] = {
+    **{("GET", r): "CAP-088" for r in (
+        "/hardware/info", "/hardware/audio", "/security/info", "/docker/info",
+        "/time/info")},
+    **{("GET", r): "CAP-089" for r in (
+        "/network/info", "/network/interface/{interface}/info",
+        "/network/interface/{interface}/accesspoints")},
+}
+
+
+class TestDiscoHostYOsDeLa013(unittest.TestCase):
+    """FR-017…FR-019 de la 013: las cinco rutas de CAP-085 son `dedicated`
+    con su tool; `/jobs/info`, las sugerencias de un issue y `/host/disks`
+    pasan a `read` con su porqué en `_POR_LA_TABLA`; las de hardware, Docker,
+    hora, seguridad y red siguen `read`, y la comprobación de integridad
+    sigue `deny` (desviación de FR-047 de la 008: el Supervisor 2026.11.0
+    responde 410).
+
+    Controles negativos (T027): (d) dejar `/jobs/info` como `deny` → cae
+    `test_tres_rutas_a_read`; (e) pasar `/security/integrity` a `confirm` →
+    cae `test_integridad_sigue_deny`.
+    """
+
+    def test_cinco_rutas_dedicadas(self) -> None:
+        malas = []
+        for k, tool in _HOST_013.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "system_diagnostics", "CAP-085",
+                        f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_tres_rutas_a_read(self) -> None:
+        malas = []
+        for k, cap in _READ_013.items():
+            e = ct.SUPERVISOR[k]
+            if (e.category, e.family, e.cap, e.tool) != ("read", "generic_commands", cap, None):
+                malas.append(f"{k}: {(e.category, e.family, e.cap, e.tool)}")
+            elif "solo lee" not in e.reason:
+                malas.append(f"{k}: el motivo no dice que solo lee: {e.reason!r}")
+        self.assertEqual(malas, [], "\n".join(malas))
+        self.assertEqual(set(_READ_013), set(_POR_LA_TABLA))
+
+    def test_hardware_y_red_siguen_read(self) -> None:
+        malas = sorted(
+            str(k) for k, cap in _READ_SIN_CAMBIO_013.items()
+            if (ct.SUPERVISOR[k].category, ct.SUPERVISOR[k].cap) != ("read", cap))
+        self.assertEqual(malas, [])
+
+    def test_integridad_sigue_deny(self) -> None:
+        e = ct.SUPERVISOR[("POST", "/security/integrity")]
+        self.assertEqual(e.category, "deny")
+        self.assertIn("410", e.reason)
+
+    def test_ninguna_entrada_pendiente_de_la_013(self) -> None:
+        pendientes = sorted(
+            str(k) for k, e in _todas() if "spec 013" in e.reason)
         self.assertEqual(pendientes, [])
 
 
