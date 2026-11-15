@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **283 tools**: turn on lights, write automations,
+external systems). It ships **284 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 283 tools
+## What it can do — 284 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -44,7 +44,8 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Core and Supervisor control** | 7 | Start Home Assistant Core when it is stopped, rebuild it (also in safe mode) and change its Supervisor options (boot, watchdog, audio…); reload, restart and repair the Supervisor and change its options (time zone, country, logging, auto-update, diagnostics). Everything that interrupts something shows what stops, for how long and what happens to Hermes, and asks for confirmation (reloading does not); options go through closed lists. Family `system_control`, new in 1.2.0 |
 | **System diagnostics** | 11 | Read only: Home Assistant Core, Supervisor, plugin (`dns`, `audio`, `multicast`) and host journal logs, also from previous boots, with secrets redacted; the journal's identifiers and boots; host services, what fills the disk, Home Assistant OS version and slots, swap and data disk candidates |
 | **History and statistics** | 4 | History, logbook and long-term statistics |
-| **Diagnostics** | 8 | Repairs issues (list, with their title and description as the UI shows them, and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; suggestions are never applied) |
+| **Diagnostics** | 8 | Repairs issues (list, with their title and description as the UI shows them, and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; applying one is the next row) |
+| **Resolution fixes** | 1 | Apply a Supervisor resolution suggestion after a preview that explains what it does (what it interrupts, whether it can be undone, which full backups it would delete, which automatic fixes the Supervisor applies on the way), always with confirmation. Suggestions with no fix, that Hermes cannot explain, that touch the data disks or that act on Hermes itself are refused. Family `resolution_fixes`, new in 1.2.0 |
 | **Marketplace (formerly HACS)** | 11 | Read-only: status, repositories, available updates, published versions, critical and removed repositories. Detects on every call whether Home Assistant has the built-in Marketplace (2026.11 or later) or HACS 2.x. Updates are installed through the `update` entity, with confirmation. The 4 `ha_hacs_*` tools remain as deprecated aliases until 1.3.0 |
 | **Event waiting** | 3 | Wait for something to happen, with filters |
 | **Utilities** | 2 | `ping` and `hermes_guide` |
@@ -63,8 +64,8 @@ the `tool_families_disabled` option (for example `lovelace` or
 `marketplace`); see [DOCS.md](hermes/DOCS.md) for the list of families. `ping`
 and `hermes_guide` are always on, and switching off the families new in 1.2.0
 (`generic_commands`, `system_diagnostics`, `system_status`, `recorder`,
-`core_diagnostics`, `integration_flows`, `repair_flows`, `mounts` and
-`system_control`) gives you
+`core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`,
+`system_control` and `resolution_fixes`) gives you
 exactly the tool list of 1.1.2.
 
 On their first call, destructive tools return a preview and a
@@ -466,7 +467,7 @@ is below.
 | `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
 | `trusted_proxy_ips` | `[]` | Proxies whose `X-Forwarded-For` is trusted, as plain IPs or CIDR ranges (`172.30.32.0/23` is the HAOS bridge network). Empty means only `127.0.0.1` is trusted, which under `reverse_proxy` turns every per-IP limit into a single global bucket. Anybody inside a trusted range can forge the client IP (rate limits and logs only — never authorization) |
 | `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts` and `system_control`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
+| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_control` and `resolution_fixes`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
 | `log_redact_network` | `true` | Replaces your `public_hostname`, the hosts of Home Assistant's `external_url` and `internal_url`, any `*.ts.net` name and every non-loopback IP (also when written as `ip-a-b-c-d`) in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
 | `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |
@@ -557,9 +558,15 @@ The rules all of this is written under: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.md)
 - **`network_mode: reverse_proxy` is less battle-tested than `tailscale`.** It has
   its tests, but sees far less real-world use. If something breaks, an issue with
   the startup log is much appreciated.
-- **Supervisor suggestions are never applied.** `sv_get_resolution` shows them
-  and they can be dismissed, but some delete backups or reboot the host: apply
-  them yourself from the Home Assistant UI.
+- **Supervisor suggestions are applied only with a preview and confirmation.**
+  Up to 1.1.x Hermes never applied them. Since 1.2.0
+  `sv_apply_resolution_suggestion` does, but only after a preview that says
+  what the fix does (some delete an app or old full backups, or reboot the
+  host) and with a confirmation token tied to the suggestion and to the
+  automatic fixes the Supervisor would apply on the way. It refuses, without
+  a token, suggestions with no fix, that it cannot explain, that touch the
+  data disks or that act on Hermes itself. Switch off the `resolution_fixes`
+  family if you do not want this at all.
 - **Safety backups are not encrypted.** They are full HAOS backups without a
   password. For an encrypted one, use `sv_create_backup_full` with `password`.
 - **Safety backups made before 1.1.0 are not pruned.** Hermes did not record

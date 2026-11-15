@@ -387,6 +387,13 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
     durante el reinicio y vuelve solo; con un backup en curso responde
     `jobs_in_progress`) y `sv_repair_supervisor` (la respuesta llega al
     terminar o dice `started`; después, `sv_get_resolution`).
+  - Tanda 3, con instantánea antes: `sv_apply_resolution_suggestion` con una
+    sugerencia provocada (por ejemplo, llenar el disco hasta que aparezca
+    `clear_full_backup` con cuatro backups completos y uno parcial, o parar
+    el servicio NTP para `enable_ntp`): la vista previa lista los backups que
+    se borrarían (nunca el parcial) y `also_auto_applied`; al confirmar, la
+    sugerencia desaparece de `sv_get_resolution`. Una sugerencia sobre el
+    propio Hermes responde `targets_hermes` sin token.
 
 ## Probar hassio_role: manager
 

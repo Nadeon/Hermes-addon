@@ -391,6 +391,40 @@ _Pendiente: la añade la sub-feature que lo implemente._
   - Anotaciones: las seis con token se anuncian destructivas; recargar y
     reparar, de mundo abierto.
   - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Aplicar sugerencias del Supervisor (022, tramo 2).** **Cambio de política
+  respecto a la 1.1.x**: hasta ahora Hermes no aplicaba nunca una sugerencia
+  del centro de resolución; desde esta versión lo hace
+  `sv_apply_resolution_suggestion`, en una familia nueva `resolution_fixes`
+  (desactivable), y solo así:
+  - La vista previa traduce el arreglo que el Supervisor 2026.11.0 tiene para
+    cada par tipo/contexto: qué hace, qué corta, cuánto tarda y si se puede
+    deshacer, los issues que arregla y datos concretos (los backups completos
+    que `clear_full_backup` borraría —todos menos los 2 más nuevos, nunca los
+    parciales—, los contenedores que se reconstruirían, la app afectada).
+  - Tras el arreglo, el Supervisor lanza su healthcheck, que puede aplicar sus
+    arreglos automáticos: la vista previa los lista (`also_auto_applied`). El
+    token ata la sugerencia, esa lista, los backups y los contenedores: si
+    algo cambia antes de confirmar, se rechaza sin aplicar
+    (`suggestion_changed`).
+  - Se rechazan sin token, también al confirmar: las sugerencias sin arreglo
+    (`no_fixup`: el Supervisor respondería «ok» sin hacer nada), las que
+    Hermes no sabe traducir (`unknown_effect`), las de discos de datos
+    (`not_allowed`) y las que pararían, reconstruirían o desinstalarían al
+    propio Hermes, también por un arreglo automático (`targets_hermes`;
+    Hermes se reconoce por el slug exacto de `/addons/self/info`).
+  - `sv_get_resolution` y `sv_dismiss_resolution_suggestion` no cambian de
+    comportamiento; sus descripciones y la guía (`diagnostics`) ya no dicen
+    que Hermes nunca aplica sugerencias.
+  - Por la tabla: `POST /resolution/check/{check}/run` y `/options` y
+    `POST /resolution/healthcheck` pasan de `deny` a `confirm` (el
+    healthcheck avisa de que puede aplicar los arreglos automáticos). Las
+    rutas de plugins, Docker, placas y hora no cambian; ahora tienen tests
+    con el Supervisor simulado, y la contraseña de un registro Docker no sale
+    ni en la vista previa, ni en el log, ni en un error del Supervisor.
+  - La guía (`system_control`, alias `suggestions` y `fixups`) explica todo
+    esto y avisa de que `/dns/options` y `/docker/options` pueden dejar sin
+    red a las apps.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
 
 ### Sistema
 
