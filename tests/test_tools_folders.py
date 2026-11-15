@@ -408,6 +408,8 @@ class TestLeer:
                 fd = os.open(f, os.O_WRONLY | os.O_NONBLOCK)
                 os.close(fd)
             except OSError:
+                # Solo desbloquea al hilo si sigue esperando: sin lector
+                # (ENXIO) es que ya terminó, y el resultado lo mira el assert.
                 pass
         assert r["error"] == "not_regular_file"
 

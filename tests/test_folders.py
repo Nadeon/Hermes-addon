@@ -383,6 +383,26 @@ class TestPuntosDeMontaje:
         assert not folders.es_punto_de_montaje(raices["share"] / "a")
         assert not folders.contiene_punto_de_montaje(raices["share"] / "a")
 
+    def test_sin_dispositivo_del_padre_falla_cerrado(self, raices, monkeypatch) -> None:
+        # Sin el `st_dev` del padre no se ve un bind mount que `ismount` no
+        # detecta, así que el error se propaga (quien llama rechaza) en vez de
+        # dar la carpeta por buena. Control negativo comprobado: con el
+        # `try/except OSError: pass` de antes, las dos llamadas no lanzan.
+        _arbol(raices["share"])
+        carpeta = raices["share"] / "a"
+        real = os.lstat
+
+        def lstat(ruta, *a, **k):
+            if os.fspath(ruta) == os.fspath(carpeta.parent):
+                raise PermissionError(13, "Permission denied", os.fspath(ruta))
+            return real(ruta, *a, **k)
+
+        monkeypatch.setattr(folders.os, "lstat", lstat)
+        with pytest.raises(PermissionError):
+            folders.contiene_punto_de_montaje(carpeta)
+        with pytest.raises(PermissionError):
+            folders.inspeccionar(carpeta)
+
 
 # ── T009: índice de apps locales ──────────────────────────────────────────────
 

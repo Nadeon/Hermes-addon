@@ -25,9 +25,9 @@ import errno
 import os
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 from typing import Any
-from unittest import mock
 
 from hermes import folders
 from hermes.tools import _store
@@ -108,7 +108,7 @@ class TestRutaLarga(_ConRecarga):
         self.sv.respuesta("GET", f"/store/addons/{_LOCAL}", _ficha_local())
         self.sv.respuesta("GET", f"/store/addons/{_LOCAL}/availability", {})
         self.sv.respuesta("POST", f"/store/addons/{_LOCAL}/install", {"job_id": "j1"})
-        p = mock.patch.object(folders, "TOPE_RUTA_EN_EL_SUPERVISOR", _TOPE)
+        p = unittest.mock.patch.object(folders, "TOPE_RUTA_EN_EL_SUPERVISOR", _TOPE)
         p.start()
         self.addCleanup(p.stop)
 
@@ -136,6 +136,7 @@ class TestRutaLarga(_ConRecarga):
         # Sin ella, la siguiente recarga relee y hay token con la copia buena.
         (self.addons / largo).unlink()
         r = await self.recargar()
+        self.assertEqual(r.get("result"), "ok", r)
         self.assertEqual(self.sv.copia[_LOCAL]["privileged"], ["NET_ADMIN"])
         r = await self.t["sv_install_addon"](_LOCAL)
         self.assertIn("confirmation_token", r, r)
@@ -221,7 +222,7 @@ class TestNingunErrorSeIgnora(_ConRaices):
                 raise PermissionError(errno.EACCES, "Permission denied", ruta)
             return real(ruta)
 
-        with mock.patch.object(folders.os, "scandir", side_effect=scandir):
+        with unittest.mock.patch.object(folders.os, "scandir", side_effect=scandir):
             detalle = self.recorrer()
         self.assertIn("'s'", detalle)
         self.assertIn("could not be listed", detalle)
@@ -229,8 +230,8 @@ class TestNingunErrorSeIgnora(_ConRaices):
 
     def test_en_la_vista_previa(self) -> None:
         _store._ULTIMA_RECARGA = 0.0  # no se llega a mirar la fecha
-        with mock.patch.object(folders, "fecha_mas_reciente",
-                               side_effect=folders.RecorridoNoFiable("'x': boom (EIO)")):
+        with unittest.mock.patch.object(folders, "fecha_mas_reciente",
+                                        side_effect=folders.RecorridoNoFiable("'x': boom (EIO)")):
             rechazo, _nota = _store.copia_de_tienda_desfasada(_LOCAL)
         self.assertEqual(rechazo["error"], "store_copy_stale")
         self.assertIn("'x': boom (EIO)", rechazo["reason"])
@@ -263,7 +264,7 @@ class TestHerramientasNoCreanRutasLargas(_ConRaices):
         mcp = _MCP()
         folders_write.register(mcp, SupervisorConFechas(self.addons))
         self.t = mcp.tools
-        p = mock.patch.object(folders, "TOPE_RUTA_EN_EL_SUPERVISOR", _TOPE)
+        p = unittest.mock.patch.object(folders, "TOPE_RUTA_EN_EL_SUPERVISOR", _TOPE)
         p.start()
         self.addCleanup(p.stop)
         for raiz in (self.addons, self.share):
@@ -307,7 +308,7 @@ class TestHerramientasNoCreanRutasLargas(_ConRaices):
     def test_tambien_al_confirmar(self) -> None:
         r = self.llamar("fs_create_dir_in_folder", folder="addons", path=_CORTA)
         self.assertIn("confirmation_token", r, r)
-        with mock.patch.object(folders, "TOPE_RUTA_EN_EL_SUPERVISOR", _PREFIJO + 5):
+        with unittest.mock.patch.object(folders, "TOPE_RUTA_EN_EL_SUPERVISOR", _PREFIJO + 5):
             c = self.llamar("fs_create_dir_in_folder", folder="addons", path=_CORTA,
                             confirmation_token=r["confirmation_token"])
         self.assertEqual(c.get("error"), "path_too_long", c)

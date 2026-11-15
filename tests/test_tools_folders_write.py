@@ -1245,5 +1245,7 @@ def test_escribir_sobre_un_fifo_real_no_bloquea(raices) -> None:
         try:
             os.close(os.open(f, os.O_WRONLY | os.O_NONBLOCK))
         except OSError:
+            # Solo desbloquea al hilo si sigue esperando: sin lector (ENXIO)
+            # es que ya terminó, y el resultado lo mira el assert.
             pass
     assert r["error"] == "not_regular_file"

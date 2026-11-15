@@ -590,11 +590,9 @@ def contiene_punto_de_montaje(p: Path) -> bool:
         return False
     if not _stat.S_ISDIR(st.st_mode):
         return False
-    dev_padre = None
-    try:
-        dev_padre = os.lstat(Path(p).parent).st_dev
-    except OSError:
-        pass
+    # Sin el dispositivo del padre no se ve un bind mount que `ismount` no
+    # detecta: un error aquí se propaga y quien llama rechaza (falla cerrado).
+    dev_padre = os.lstat(Path(p).parent).st_dev
     if _es_montaje(Path(p), st, dev_padre):
         return True
     return any(e[1] == "mount" for e in recorrer(p))
@@ -626,11 +624,9 @@ def inspeccionar(p: Path) -> dict[str, Any]:
                 else "file" if _stat.S_ISREG(modo) else "other")
         return {"tipo": tipo, "huella": huella(p), "montaje": False,
                 "recuento": None, "size": st.st_size if tipo == "file" else None}
-    dev_padre = None
-    try:
-        dev_padre = os.lstat(Path(p).parent).st_dev
-    except OSError:
-        pass
+    # Sin el dispositivo del padre no se ve un bind mount que `ismount` no
+    # detecta: un error aquí se propaga y quien llama rechaza (falla cerrado).
+    dev_padre = os.lstat(Path(p).parent).st_dev
     if _es_montaje(Path(p), st, dev_padre):
         # No se entra: recorrerlo sería recorrer el NAS. La huella basta con
         # decir que es un montaje (la vista previa se rechaza de todos modos).
@@ -788,6 +784,7 @@ _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 #: True donde se puede operar relativo a un descriptor de carpeta sin seguir
 #: symlinks (Linux). Mutable para los tests (que prueban los dos caminos).
+#: Aquí no se lee: la lee `tools/folders_write.py` (`_folders.USAR_DIR_FD`).
 USAR_DIR_FD: bool = bool(
     _O_DIRECTORY and _O_NOFOLLOW
     and {os.open, os.mkdir, os.rename, os.unlink, os.rmdir} <= os.supports_dir_fd
@@ -812,6 +809,9 @@ def abrir_padre(base: Path, padre: Path, *, crear: bool = False) -> int:
                 try:
                     os.mkdir(parte, dir_fd=fd)
                 except FileExistsError:
+                    # Como `mkdir -p`: si ya existe, el `os.open` de abajo,
+                    # con O_NOFOLLOW|O_DIRECTORY, comprueba que sea una
+                    # carpeta normal y no un symlink.
                     pass
             try:
                 nuevo = os.open(parte, flags, dir_fd=fd)

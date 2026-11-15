@@ -637,11 +637,13 @@ _CASOS_DE_RUTA = [
 
 
 def _resultado(funcion, *args):
-    """("ok", ruta relativa) o ("error", tipo, mensaje) de una normalización."""
+    """("ok", ruta, None) o ("error", tipo, mensaje) de una normalización.
+
+    Siempre tres elementos, para que los dos casos se comparen igual."""
     from hermes.fs import PathTraversalError as Error
 
     try:
-        return ("ok", funcion(*args))
+        return ("ok", funcion(*args), None)
     except Error as exc:
         return ("error", type(exc).__name__, str(exc))
 

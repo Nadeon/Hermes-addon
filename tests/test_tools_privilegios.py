@@ -34,9 +34,9 @@ import os
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 from typing import Any
-from unittest import mock
 
 from hermes import folders
 from hermes.ha import HAConnectionError
@@ -167,7 +167,7 @@ class _ConRaices(unittest.IsolatedAsyncioTestCase):
         self.addons.mkdir()
         self.share.mkdir()
         for nombre, valor in (("ADDONS_BASE", self.addons), ("SHARE_BASE", self.share)):
-            p = mock.patch.object(folders, nombre, valor)
+            p = unittest.mock.patch.object(folders, nombre, valor)
             p.start()
             self.addCleanup(p.stop)
         self.addCleanup(self._tmp.cleanup)
@@ -439,7 +439,7 @@ class TestInstalar(_Instalar):
     async def test_app_local_con_addons_sin_montar(self) -> None:
         self.app_local()
         self.tienda(_LOCAL, repository="local")
-        with mock.patch.object(folders, "ADDONS_BASE", self.addons / "sin_montar"):
+        with unittest.mock.patch.object(folders, "ADDONS_BASE", self.addons / "sin_montar"):
             r = await self.t["sv_install_addon"](_LOCAL)
         # Convergencia T047: sin /addons no se sabe qué copia tiene el
         # Supervisor: sin token.
@@ -792,7 +792,7 @@ class TestCopiaDeTienda(_ConRaices):
     async def test_no_se_supone_nada(self) -> None:
         _store._ULTIMA_RECARGA = time.time() + 60
         casos = {
-            "sin /addons": lambda: mock.patch.object(
+            "sin /addons": lambda: unittest.mock.patch.object(
                 folders, "ADDONS_BASE", self.addons / "sin_montar"),
             "no está en el índice": None,
             "dos config para el mismo slug": "dos",

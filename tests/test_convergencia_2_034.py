@@ -28,9 +28,9 @@ import asyncio
 import os
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 from typing import Any
-from unittest import mock
 
 from hermes import folders
 from hermes.security import CONFIRMATION_TTL_SECONDS, REDACTED_MARKER
@@ -163,11 +163,11 @@ class TestTodoAddons(_Tienda):
             (self.addons / f"d{i}").mkdir()
         self.envejecer()
         self.recargada()
-        with mock.patch.object(folders, "MAX_ENTRADAS", 3):
+        with unittest.mock.patch.object(folders, "MAX_ENTRADAS", 3):
             r = await self.t["sv_install_addon"](_LOCAL)
         self.assertEqual(r.get("error"), "store_copy_stale", r)
         self.assertIn("too large", r["reason"])
-        with mock.patch.object(folders, "MAX_SEGUNDOS", 0.0):
+        with unittest.mock.patch.object(folders, "MAX_SEGUNDOS", 0.0):
             r = await self.t["sv_install_addon"](_LOCAL)
         self.assertEqual(r.get("error"), "store_copy_stale", r)
 
@@ -454,7 +454,7 @@ class TestFolderBusy(_Tienda):
 
     def setUp(self) -> None:
         super().setUp()
-        p = mock.patch.object(folders, "ESPERA_MAX_CANDADO_S", 0.05)
+        p = unittest.mock.patch.object(folders, "ESPERA_MAX_CANDADO_S", 0.05)
         p.start()
         self.addCleanup(p.stop)
 
