@@ -623,6 +623,66 @@ class TestCorteTrasEnviar(_Base):
                     self.assertEqual(len(self.sv.escrituras), 1)
 
 
+class TestContratoSent(_Base):
+    """Integración con la 022: el `_enviar` de la red del host respeta el
+    contrato de tres valores de `HAConnectionError.sent`. `False` (o una
+    conexión que ni se estableció) es «no se hizo nada»: error con
+    `sent: false`, sin la PSK, nunca `outcome: "unknown"`. `True` y `None`
+    no aseguran nada: `unknown`, nunca `ok`. Recargar tampoco deja escapar
+    un corte como excepción.
+
+    Control negativo comprobado: con `_no_salio` devolviendo siempre False,
+    `test_no_salio_es_error_sin_unknown` cae (sale `outcome: "unknown"`) y
+    `test_recargar_sin_salir` también (sin `sent`); restaurado, verde."""
+
+    async def test_no_salio_es_error_sin_unknown(self) -> None:
+        import aiohttp
+        from unittest.mock import MagicMock
+
+        ruta = "/network/interface/wlan0/update"
+        for exc in (HAConnectionError(f"Cliente HTTP no inicializado {PSK}", sent=False),
+                    aiohttp.ClientConnectorError(MagicMock(), OSError(111, "refused"))):
+            with self.subTest(exc=type(exc).__name__):
+                self._montar()
+                self.sv.errores[("POST", ruta)] = exc
+                vista = await self._vista("sv_update_network_interface", **KW_WLAN)
+                token = vista["confirmation_token"]
+                r = await self.t["sv_update_network_interface"](
+                    **KW_WLAN, confirmation_token=token)
+                self.assertIs(r.get("sent"), False, r)
+                self.assertIn("nothing was done", r["note"])
+                self.assertNotIn("outcome", r)
+                self.assertNotIn(PSK, json.dumps(r))
+                otra = await self.t["sv_update_network_interface"](
+                    **KW_WLAN, confirmation_token=token)
+                self.assertIn("error", otra)
+                self.assertEqual(len(self.sv.escrituras), 1)
+
+    async def test_salio_es_unknown(self) -> None:
+        self._montar()
+        self.sv.errores[("POST", "/network/interface/eth0/vlan/20")] = HAConnectionError(
+            "Timeout esperando al Supervisor", sent=True)
+        kw = {"interface": "eth0", "vlan_id": 20}
+        vista = await self._vista("sv_create_vlan", **kw)
+        r = await self.t["sv_create_vlan"](**kw, confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r.get("outcome"), "unknown", r)
+        self.assertNotIn("sent", r)
+
+    async def test_recargar_sin_salir(self) -> None:
+        import aiohttp
+
+        for exc, sent in ((HAConnectionError("no inicializado", sent=False), False),
+                          (aiohttp.ServerDisconnectedError(), None),
+                          (TimeoutError(), None)):
+            with self.subTest(exc=type(exc).__name__):
+                self._montar()
+                self.sv.errores[("POST", "/network/reload")] = exc
+                r = await self.t["sv_reload_network"]()
+                self.assertTrue(r["error"], r)
+                self.assertNotIn("result", r)
+                self.assertIs(r.get("sent"), sent, r)
+
+
 class TestLog(_Base):
     _PROHIBIDO = (IP_ETH0, IP_WLAN0, "192.0.2.", GATEWAY, SSID, MAC, PSK, IP_NUEVA)
 

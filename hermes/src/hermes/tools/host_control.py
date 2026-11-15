@@ -169,6 +169,20 @@ def _es_respuesta_del_supervisor(exc: Exception) -> bool:
     return False
 
 
+def _no_salio(exc: BaseException) -> bool:
+    """True si la petición NO llegó a salir hacia el Supervisor.
+
+    Contrato de tres valores de `HAConnectionError.sent` (spec 022): `False`
+    es «seguro que no salió» (cliente HTTP sin inicializar); `True` y `None`
+    no lo aseguran. Una conexión que ni se estableció
+    (`ClientConnectorError`: rechazada, sin ruta, DNS) tampoco pudo hacer
+    nada. Decir entonces `outcome: "unknown"` sería mentir: se sabe que no
+    se hizo (principio V); lo mismo decide `system_control._no_enviada`.
+    """
+    return (getattr(exc, "sent", None) is False
+            or isinstance(exc, aiohttp.ClientConnectorError))
+
+
 def register(mcp: object, ha_client: HAClient) -> None:
     """Registra las tools de control del host y del OS en la instancia MCP."""
 
@@ -219,9 +233,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
     ) -> dict[str, Any] | None:
         """POST con la carga exacta. None si fue bien; si no, la respuesta.
 
-        Distingue un error del Supervisor (la orden no se aplicó: `error`) de
-        un corte después de enviar (no se sabe: `outcome: "unknown"`). En los
-        dos casos el token queda completado como fallido y no se reintenta.
+        Distingue un error del Supervisor (la orden no se aplicó: `error`),
+        una petición que ni salió (`sent: false`: no se hizo nada) y un corte
+        después de enviar o sin saber si salió (`outcome: "unknown"`). En los
+        tres casos el token queda completado como fallido y no se reintenta.
         """
         try:
             await ha_client.sv_request("POST", ruta, json_body=carga)
@@ -231,6 +246,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 await complete_confirmation_token(token, success=False, error=texto)
                 _log(tool, "error", changed=changed, reason="supervisor")
                 return {"error": texto}
+            if _no_salio(exc):
+                await complete_confirmation_token(
+                    token, success=False, error="request not sent; nothing was done")
+                _log(tool, "error", changed=changed, reason="not_sent")
+                return {"error": "supervisor_request_failed", "sent": False,
+                        "detail": redact_secrets(str(exc)),
+                        "note": "The request never reached the Supervisor: nothing was done. Ask for a new preview when Hermes is connected."}
             await complete_confirmation_token(
                 token, success=False, error="connection lost after sending; outcome unknown")
             _log(tool, "unknown", changed=changed, reason="connection_lost")

@@ -995,9 +995,18 @@ desactivar), y analytics y labs por la tabla.
     `/network/interface/{interface}/vlan/{vlan}`) pasan de `deny` a
     `dedicated`; las lecturas de red siguen por `sv_read_api`.
   - Guía: el tema `host_control` cubre también la red (alias
-    `host_network`, `network_config`, `vlan`, `wifi`).
+    `host_network`, `network_config`, `vlan`, `wifi`). El alias `network`
+    es del tema `core_network` (021), y los dos temas explican la
+    diferencia entre la red del host y la de Core y remiten al otro.
   - Prueba contra un Supervisor real: pendiente (VM de la 014, con una
     segunda interfaz).
+- **Host y red del host (032): resultado de un envío que falla.** Las seis
+  tools con token siguen el contrato de `sent` de la 022: si la petición ni
+  llegó a salir (Hermes sin conexión con el Supervisor), la respuesta es un
+  error con `sent: false` («no se hizo nada») y no `outcome: "unknown"`;
+  un corte con la petición ya enviada, o sin saber si salió, sigue siendo
+  `unknown`, nunca `ok`. `sv_reload_network` devuelve un error, y no una
+  excepción, ante un corte o un tiempo agotado.
 
 ### Mejoras de tools existentes
 

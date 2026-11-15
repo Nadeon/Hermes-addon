@@ -1236,7 +1236,9 @@ Apagar y la ranura tumban el host: la respuesta puede no llegar. Si la
 conexión se corta después de enviar la orden, la respuesta es
 `outcome: "unknown"` con `verify_with` (`sv_get_os_info` tras la ranura,
 `sv_get_host_info` tras apagar): no reintentes; comprueba cuando Hermes
-vuelva a responder.
+vuelva a responder. Si la petición ni llegó a salir (Hermes sin conexión con
+el Supervisor), es un error con `sent: false`: no se hizo nada (lo mismo en
+la red del host).
 
 Para leer sin cambiar nada: `sv_get_host_info` (hostname y disco),
 `sv_get_os_info` (ranuras y versiones) y `sv_get_swap` (tema

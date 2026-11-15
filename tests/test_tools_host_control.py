@@ -30,6 +30,7 @@ from typing import Any
 import aiohttp
 from structlog.testing import capture_logs
 
+from hermes.ha import HAConnectionError
 from hermes.tools.host_control import register
 from tests.fixtures.supervisor_host import (
     HOSTNAME_ACTUAL,
@@ -610,6 +611,55 @@ class TestCorteTrasEnviar(_Base):
         self.assertIn("error", r)
         self.assertNotIn("outcome", r)
         self.assertNotIn("confirmation_token", r)
+
+
+class TestContratoSent(_Base):
+    """Integración con la 022: el `_enviar` del control del host respeta el
+    contrato de tres valores de `HAConnectionError.sent`. `False` (o una
+    conexión que ni se estableció) es «no se hizo nada»: error con
+    `sent: false`, nunca `outcome: "unknown"`. `True` y `None` (sin `status`
+    ni `Supervisor error:`) no aseguran nada: `unknown`, nunca `ok`.
+
+    Control negativo comprobado: con `_no_salio` devolviendo siempre False,
+    `test_no_salio_es_error_sin_unknown` cae (sale `outcome: "unknown"`);
+    restaurado, verde."""
+
+    async def _con_error(self, exc: BaseException) -> tuple[dict, dict, SupervisorDeHost]:
+        sv = SupervisorDeHost()
+        sv.errores[("POST", "/host/options")] = exc
+        mcp = DummyMCP()
+        register(mcp, sv)
+        kw = {"hostname": HOSTNAME_NUEVO}
+        vista = await mcp.tools["sv_set_hostname"](**kw)
+        token = vista["confirmation_token"]
+        r = await mcp.tools["sv_set_hostname"](**kw, confirmation_token=token)
+        otra = await mcp.tools["sv_set_hostname"](**kw, confirmation_token=token)
+        return r, otra, sv
+
+    async def test_no_salio_es_error_sin_unknown(self) -> None:
+        from unittest.mock import MagicMock
+
+        for exc in (HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False),
+                    aiohttp.ClientConnectorError(MagicMock(), OSError(111, "refused"))):
+            with self.subTest(exc=type(exc).__name__):
+                r, otra, sv = await self._con_error(exc)
+                self.assertIs(r.get("sent"), False, r)
+                self.assertIn("nothing was done", r["note"])
+                self.assertNotIn("outcome", r)
+                self.assertNotIn("result", r)
+                # El token queda gastado: no se reintenta solo.
+                self.assertIn("error", otra)
+                self.assertEqual(len(sv.escrituras), 1)
+
+    async def test_salio_o_no_se_sabe_es_unknown(self) -> None:
+        for exc in (HAConnectionError("Timeout esperando al Supervisor", sent=True),
+                    HAConnectionError("Server disconnected"),
+                    aiohttp.ServerDisconnectedError(), TimeoutError()):
+            with self.subTest(exc=repr(exc)):
+                r, _, _ = await self._con_error(exc)
+                self.assertEqual(r.get("outcome"), "unknown", r)
+                self.assertNotIn("sent", r)
+                self.assertNotIn("result", r)
 
 
 class TestLog(_Base):
