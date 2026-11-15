@@ -411,39 +411,88 @@ def _limpio(valor: Any) -> Any:
     return redact_secrets(str(valor))
 
 
-def _verdadero(valor: Any) -> bool:
-    # El `config.yaml` pasa por `vol.Boolean()`, que admite también textos.
-    if valor is True:
-        return True
-    return isinstance(valor, str) and valor.strip().lower() in {
-        "true", "yes", "on", "1", "enable"}
+#: Textos que admite `vol.Boolean()` (voluptuous), con `lower()` y SIN
+#: `strip()`: lo que el Supervisor hace con los booleanos del `config.*`
+#: (`apps/validate.py`, `_SCHEMA_APP_CONFIG`).
+_TEXTOS_VERDADEROS = frozenset({"1", "true", "yes", "on", "enable"})
+_TEXTOS_FALSOS = frozenset({"0", "false", "no", "off", "disable"})
+#: Roles que admite el Supervisor (`vol.In(ROLE_ALL)`).
+_ROLES: frozenset[str] = frozenset({"default", "homeassistant", "backup",
+                                    "manager", "admin"})
+#: Un valor que el Supervisor no sabría interpretar (convergencia de la 034,
+#: T046). Cuenta como elevado: Hermes no puede asegurar que no se aplique.
+_SIN_INTERPRETAR = object()
 
 
-def _falso(valor: Any) -> bool:
-    if valor is False:
-        return True
-    return isinstance(valor, str) and valor.strip().lower() in {
-        "false", "no", "off", "0", "disable"}
+def _booleano_del_fichero(valor: Any) -> Any:
+    """Como `vol.Boolean()` del Supervisor: un texto, por su lista; cualquier
+    otra cosa, `bool(valor)` (`host_dbus: 1` se aplica como `True` y
+    `apparmor: 0` como `False`). Un texto fuera de las listas devuelve
+    `_SIN_INTERPRETAR`."""
+    if isinstance(valor, str):
+        texto = valor.lower()
+        if texto in _TEXTOS_VERDADEROS:
+            return True
+        if texto in _TEXTOS_FALSOS:
+            return False
+        return _SIN_INTERPRETAR
+    return bool(valor)
 
 
-def _elevados(fuente: dict[str, Any]) -> set[str]:
-    """Nombres de los privilegios elevados de UNA fuente (regla de R-7)."""
-    out = {c for c in _BOOLEANOS_ELEVADOS if _verdadero(fuente.get(c))}
+def _elevados(fuente: dict[str, Any], *, fichero: bool = False) -> set[str]:
+    """Nombres de los privilegios elevados de UNA fuente (regla de R-7).
+
+    `fichero=True` para `declared_in_folder`: los valores se interpretan como
+    el esquema del Supervisor (T046), porque es él quien los aplica. Lo que
+    no sabría interpretar sale como `<campo>:unparsed` y cuenta como elevado
+    (fail-closed). En la API (`store`, `installed`) los booleanos son JSON y
+    `apparmor` es texto (`disable`, `default` o `profile`, `apps/model.py`).
+    """
+    out: set[str] = set()
+    for c in _BOOLEANOS_ELEVADOS:
+        if fichero:
+            if c not in fuente:
+                continue
+            valor = _booleano_del_fichero(fuente[c])
+            if valor is _SIN_INTERPRETAR:
+                out.add(c + ":unparsed")
+            elif valor:
+                out.add(c)
+        elif fuente.get(c) is True:
+            out.add(c)
     for lista in ("privileged", "devices"):
         if fuente.get(lista):
             out.add(lista)
     rol = fuente.get("hassio_role")
     if isinstance(rol, str) and rol in _ROLES_ELEVADOS:
         out.add("hassio_role:" + rol)
-    # En la API `apparmor` es texto (`disable`, `default` o `profile`,
-    # `apps/model.py`); en el fichero, booleano.
-    if _falso(fuente.get("apparmor")):
+    elif fichero and "hassio_role" in fuente and not (
+            isinstance(rol, str) and rol in _ROLES):
+        out.add("hassio_role:unparsed")
+    if fichero:
+        if "apparmor" in fuente:
+            aa = _booleano_del_fichero(fuente["apparmor"])
+            if aa is _SIN_INTERPRETAR:
+                out.add("apparmor:unparsed")
+            elif not aa:
+                out.add("apparmor:disabled")
+    elif fuente.get("apparmor") in ("disable", False):
         out.add("apparmor:disabled")
     mapa = fuente.get("map")
     for entrada in mapa if isinstance(mapa, list) else []:
-        if isinstance(entrada, dict) and _falso(entrada.get("read_only")):
-            tipo = str(entrada.get("type"))[:_MAX_TEXTO]
+        if not isinstance(entrada, dict):
+            continue
+        tipo = str(entrada.get("type"))[:_MAX_TEXTO]
+        if "unparsed" in entrada:
+            # Lo que el Supervisor descarta al migrar no se aplica.
+            continue
+        solo_lectura = entrada.get("read_only", True)
+        # `read_only` es `bool` ESTRICTO en el esquema: otra cosa invalida
+        # la app; Hermes no lo supone y lo cuenta como elevado.
+        if solo_lectura is False:
             out.add(f"map:{tipo} (read-write)")
+        elif solo_lectura is not True:
+            out.add(f"map:{tipo} (unparsed)")
     return out
 
 
@@ -554,7 +603,7 @@ def privilegios_de(
     nunca se inventa nada.
     """
     bloque: dict[str, Any] = {}
-    leidas: list[dict[str, Any]] = []
+    leidas: list[tuple[str, dict[str, Any]]] = []
     for clave, fuente, campos in (("store", store, CAMPOS_PRIVILEGIO_TIENDA),
                                   ("installed", installed, CAMPOS_PRIVILEGIO_INSTALADA),
                                   ("declared_in_folder", declared, None)):
@@ -566,12 +615,12 @@ def privilegios_de(
         elegido = _limpio({c: fuente.get(c) for c in campos} if campos is not None
                           else fuente)
         bloque[clave] = elegido
-        leidas.append(elegido)
+        leidas.append((clave, elegido))
     if not leidas:
         return None
     elevados: set[str] = set()
-    for fuente in leidas:
-        elevados |= _elevados(fuente)
+    for clave, fuente in leidas:
+        elevados |= _elevados(fuente, fichero=clave == "declared_in_folder")
     bloque["elevated"] = sorted(elevados)
     no_leidas = {k: redact_secrets(v) for k, v in (motivos or {}).items()
                  if bloque.get(k, False) is None}

@@ -253,6 +253,46 @@ class TestBloque(_ConRaices):
                               {"type": "ssl", "read_only": True}]})
         self.assertEqual(b["elevated"], ["apparmor:disabled", "map:share (read-write)"])
 
+    def test_fichero_como_el_supervisor(self) -> None:
+        # Convergencia T046: el `config.*` pasa por `vol.Boolean()` del
+        # Supervisor (`apps/validate.py`): un texto por su lista (con
+        # `lower()`, sin `strip()`) y cualquier otro valor con `bool(v)`.
+        # Esos campos no salen en la ficha de la tienda: si `elevated` no
+        # los ve en el fichero, nada los ve.
+        # Control negativo comprobado: con la interpretación anterior (solo
+        # `True` y textos) `elevated` salía vacío con los enteros y caía este
+        # test.
+        decl = {"config": "ejemplo/config.yaml", "host_dbus": 1, "kernel_modules": 1,
+                "udev": 2, "host_ipc": 1.0, "host_uts": "ON", "full_access": "enable",
+                "docker_api": "1", "host_network": [0], "host_pid": 0,
+                "apparmor": 0}
+        b = privilegios_de(store=ficha_extendida(_LOCAL), declared=decl)
+        self.assertEqual(b["elevated"], [
+            "apparmor:disabled", "docker_api", "full_access", "host_dbus",
+            "host_ipc", "host_network", "host_uts", "kernel_modules", "udev"])
+        # Lo que el Supervisor apaga no es elevado: 0, "off", None, [] y
+        # `apparmor` encendido de cualquier forma.
+        for valor in (0, "off", "No", "disable", None, [], False):
+            with self.subTest(apagado=valor):
+                b = privilegios_de(declared={"config": "x/config.yaml",
+                                             "host_dbus": valor, "apparmor": 1})
+                self.assertEqual(b["elevated"], [])
+        # Lo que no sabría interpretar cuenta como elevado (fail-closed).
+        b = privilegios_de(declared={
+            "config": "x/config.yaml", "host_dbus": " true", "apparmor": "quizas",
+            "hassio_role": "root",
+            "map": [{"type": "share", "read_only": "false"},
+                    {"type": "ssl", "read_only": 0},
+                    {"type": "media", "read_only": True}]})
+        self.assertEqual(b["elevated"], [
+            "apparmor:unparsed", "hassio_role:unparsed", "host_dbus:unparsed",
+            "map:share (unparsed)", "map:ssl (unparsed)"])
+        # En la API los booleanos son JSON y `apparmor` es texto: `"default"`
+        # o `"profile"` no son «sin interpretar».
+        b = privilegios_de(store=ficha_extendida(_LOCAL, apparmor="profile"),
+                           installed=info_instalada(_LOCAL, apparmor="default"))
+        self.assertEqual(b["elevated"], [])
+
     def test_sin_nada_elevated_vacio(self) -> None:
         b = privilegios_de(store=ficha_extendida(_LOCAL), installed=info_instalada(_LOCAL),
                            declared={"config": "ejemplo/config.yaml", "map": []})
