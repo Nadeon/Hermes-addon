@@ -197,10 +197,13 @@ class TestCatalogo(unittest.TestCase):
         familia = FAMILIAS["backup_integration"]
         self.assertEqual(familia.desde, "1.2.0")
         self.assertTrue(familia.desactivable)
-        self.assertEqual(familia.modulos, ("ha_backup_settings", "ha_backup_actions"))
+        self.assertEqual(familia.modulos, ("ha_backup_settings", "ha_backup_actions",
+                                           "ha_backup_restore"))
         self.assertEqual(familia_de_modulo("ha_backup_settings"), "backup_integration")
         # Tramo 2 (T025): crear y borrar.
         self.assertEqual(familia_de_modulo("ha_backup_actions"), "backup_integration")
+        # Tramo 3 (T040): restaurar.
+        self.assertEqual(familia_de_modulo("ha_backup_restore"), "backup_integration")
         self.assertEqual(familia_de_modulo("ha_backups"), "backups")
         self.assertEqual(validar_desactivadas(["backup_integration"]),
                          frozenset({"backup_integration"}))

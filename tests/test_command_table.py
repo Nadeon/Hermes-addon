@@ -292,13 +292,19 @@ class TestDedicadas(unittest.TestCase):
         Control negativo (T015 d): `backup/config/update` en `deny` → cae.
 
         Tramo 2 (T027): crear y borrar, `dedicated` SIN `cap` (sus filas del
-        inventario son `cubierto`, sin CAP) y sin « (acción de HA)»."""
+        inventario son `cubierto`, sin CAP) y sin « (acción de HA)».
+
+        Tramo 3 (T042): restaurar, igual que los del tramo 2, y ya no queda
+        ninguna entrada «pendiente de tool dedicada (spec 031)» en ninguna
+        tabla (SC-001). Control negativo (T045 g): `backup/restore` en `deny`
+        → cae."""
         from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES, _Deny
 
         tramo_2 = {
             "backup/delete": "ha_delete_backup",
             "backup/generate": "ha_create_backup",
             "backup/generate_with_automatic_settings": "ha_create_automatic_backup",
+            "backup/restore": "ha_restore_backup",
         }
         for comando, tool in tramo_2.items():
             with self.subTest(comando=comando):
@@ -327,6 +333,8 @@ class TestDedicadas(unittest.TestCase):
                     (e.category, e.reason, e.family, e.tool, e.cap),
                     ("deny", MOTIVO_PROXY_SUPERVISOR, "generic_commands", None, "CAP-057"))
                 self.assertEqual(_DEDICADAS_INICIALES[comando], _Deny(MOTIVO_PROXY_SUPERVISOR))
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 031)" in e.reason)
+        self.assertEqual(pendientes, [])
 
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).

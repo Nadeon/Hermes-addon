@@ -92,6 +92,16 @@ hallazgo.
 
 Recuento: 103 al traer la rama del programa a la 031 (antes del tramo 3):
 las 99 de la rama y las 4 de los tramos 1 y 2 de la 031 de arriba.
+
+Spec 031, tramo 3: 104. Suma `ha_restore_backup`, que ata sus siete
+argumentos, `password` incluido: desde la 019 el `action_hash` es un
+HMAC-SHA256 con una clave del proceso, así que el fichero del token no
+permite atacarla sin conexión. El estado de la vista previa (el backup en esa
+ubicación, su contenido y de dónde sale la contraseña) va aparte con
+`estado=`. La clave de HA que se manda sin `password` no es un argumento: se
+lee en la confirmación y no entra ni en el hash ni en el estado. Las
+`sv_restore_backup_*` siguen atando lo mismo; ganan el estado
+`password_source`.
 """
 
 from __future__ import annotations
@@ -258,6 +268,17 @@ INVENTARIO: dict[str, dict[str, str]] = {
     },
     "ha_create_automatic_backup": {},
     "ha_delete_backup": {"backup_id": A},
+    # Spec 031, tramo 3: `password` también atado (HMAC de la 019); la clave
+    # de HA no es un argumento y no entra.
+    "ha_restore_backup": {
+        "backup_id": A,
+        "agent_id": A,
+        "restore_homeassistant": A,
+        "restore_database": A,
+        "restore_addons": A,
+        "restore_folders": A,
+        "password": A,
+    },
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     "sv_set_addon_options": {"slug": A, "options": A},
@@ -386,8 +407,8 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019 + las cuatro de la 015 (99) +
         # `ha_update_backup_config` (031, tramo 1) + crear, crear con los
-        # ajustes automáticos y borrar (031, tramo 2).
-        self.assertEqual(len(firmas_con_token(TOOLS)), 103)
+        # ajustes automáticos y borrar (031, tramo 2) + restaurar (031, tramo 3).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 104)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -407,7 +428,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 103)
+        self.assertEqual(len(publicadas), 104)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

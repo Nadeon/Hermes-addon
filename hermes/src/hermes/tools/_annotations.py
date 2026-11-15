@@ -186,6 +186,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # (`ha_delete_backup` ya lo es por el prefijo `ha_delete_`.)
     "ha_create_backup",
     "ha_create_automatic_backup",
+    # Spec 031, tramo 3: restaurar sustituye la configuración, la base de
+    # datos, apps y carpetas por su estado en la fecha del backup y reinicia
+    # Core; lo posterior se pierde. Pide token y su prefijo `ha_restore_` no
+    # lo delata. Idempotente: repetirla deja lo mismo que la primera vez.
+    "ha_restore_backup",
     # Spec 016: puede pedir token. Desactivar el sondeo recarga la integración
     # y deja sus entidades sin actualizar; desactivar las entidades nuevas hace
     # que lo que se añada entre deshabilitado. Invariante «pide token ⇔
@@ -263,6 +268,8 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     "ha_create_backup",
     "ha_create_automatic_backup",
     "ha_delete_backup",
+    # Tramo 3: restaurar desde un agente remoto descarga antes el backup.
+    "ha_restore_backup",
     # Spec 015 (contracts/tools.md): actualizar Core descarga la imagen nueva,
     # y buscar actualizaciones descarga el registro de versiones y refresca los
     # repositorios de la tienda. Quien sale es el Supervisor, pero lo provoca

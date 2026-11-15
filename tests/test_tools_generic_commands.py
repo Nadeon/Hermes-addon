@@ -378,7 +378,9 @@ class TestLecturaCoreTablaReal(_Base):
     async def test_reales_rechazadas(self) -> None:
         casos = {
             "lovelace/config/save": "use_dedicated_tool",
-            "backup/restore": "command_denied",
+            # `backup/restore` era el ejemplo hasta que la 031 (tramo 3) le dio
+            # tool dedicada; `backup/start` es una señal interna (clase B).
+            "backup/start": "command_denied",
             "tag/create": "wrong_generic_tool",
             "comando/que/no/existe": "command_not_classified",
         }
@@ -1121,6 +1123,8 @@ _DEDICADAS_031_TRAMO_2 = {
     "backup/generate": "ha_create_backup",
     "backup/generate_with_automatic_settings": "ha_create_automatic_backup",
     "backup/delete": "ha_delete_backup",
+    # Tramo 3 (T041): restaurar.
+    "backup/restore": "ha_restore_backup",
 }
 # Los ajustes del backup previo a actualizar no tienen tool: el proxy
 # WebSocket del Supervisor rechaza `hassio/*` a las apps (HALLAZGO de la 031).
@@ -1142,6 +1146,10 @@ class TestDedicadasDeLa031(unittest.IsolatedAsyncioTestCase):
     motivo ya no remite a `ha_call_service`. Control negativo (T030 g),
     comprobado: `backup/delete` en `deny` → caen `test_rechazo_hacia_su_tool`,
     `test_con_la_familia_desactivada` y `test_dedicadas_de_la_031`.
+
+    Tramo 3 (T041): `backup/restore` hacia `ha_restore_backup`. Control
+    negativo (T045 g), comprobado: `backup/restore` en `deny` → caen los dos
+    tests de rechazo y `test_dedicadas_de_la_031`.
     """
 
     async def test_rechazo_hacia_su_tool(self) -> None:

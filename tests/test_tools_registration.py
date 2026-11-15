@@ -800,6 +800,9 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_create_backup": ("-D-O", "Create backup (Home Assistant)"),
     "ha_create_automatic_backup": ("-D-O", "Create automatic backup (Home Assistant)"),
     "ha_delete_backup": ("-DIO", "Delete backup (Home Assistant)"),
+    # Tramo 3 (T040): restaurar es destructiva, idempotente (repetirla deja
+    # lo mismo) y sale a internet al descargar de un agente remoto.
+    "ha_restore_backup": ("-DIO", "Restore backup (Home Assistant)"),
     # Spec 016, tramo A (contracts/tools.md). Las dos de lectura, por prefijo.
     # `ha_ignore_discovery` modifica sin destruir y es idempotente: crea la
     # entrada `ignore` y HA deja de ofrecer ese descubrimiento (se deshace
@@ -1646,10 +1649,12 @@ class TestBackupIntegrationRegistration:
     """
 
     # Tramo 2 (T025): las tres de crear y borrar, todas con token.
+    # Tramo 3 (T040): restaurar, con token.
     _DOS = {"ha_list_backup_agents", "ha_update_backup_config",
-            "ha_create_backup", "ha_create_automatic_backup", "ha_delete_backup"}
+            "ha_create_backup", "ha_create_automatic_backup", "ha_delete_backup",
+            "ha_restore_backup"}
     _CON_TOKEN = {"ha_update_backup_config", "ha_create_backup",
-                  "ha_create_automatic_backup", "ha_delete_backup"}
+                  "ha_create_automatic_backup", "ha_delete_backup", "ha_restore_backup"}
     # HALLAZGO del tramo 1: el proxy WebSocket del Supervisor rechaza
     # `hassio/*` a las apps, así que estas dos no podían funcionar
     # (principio V) y se quitaron. No pueden volver sin otra vía hacia HA.
@@ -1673,7 +1678,7 @@ class TestBackupIntegrationRegistration:
     def test_recibe_response_max_bytes(self):
         from unittest.mock import patch
 
-        for modulo in ("ha_backup_settings", "ha_backup_actions"):
+        for modulo in ("ha_backup_settings", "ha_backup_actions", "ha_backup_restore"):
             with patch(f"hermes.tools.{modulo}.register") as reg:
                 register_all_tools(
                     _RecordingMCP(), MagicMock(), fire_event_allowlist=[],

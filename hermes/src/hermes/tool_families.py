@@ -123,13 +123,13 @@ _CATALOGO: tuple[Familia, ...] = (
             ("core_logs", "core_validation", "integration_diagnostics",
              "persistent_notifications")),
     # Spec 031 (CAP-057): los backups de la integración `backup` de HA
-    # (agentes, ajustes; en los tramos siguientes, crear, borrar y
-    # restaurar). Familia propia y no `backups` (1.1.2), para que apagar las
+    # (agentes, ajustes, crear, borrar y restaurar). Familia propia y no `backups` (1.1.2), para que apagar las
     # de la 1.2.0 deje la lista de la 1.1.2 (FR-010 de la 008).
     Familia("backup_integration",
             "Home Assistant backup integration: backup agents, automatic "
-            "backup settings, and creating and deleting backups.",
-            "1.2.0", True, ("ha_backup_settings", "ha_backup_actions")),
+            "backup settings, and creating, deleting and restoring backups.",
+            "1.2.0", True, ("ha_backup_settings", "ha_backup_actions",
+                            "ha_backup_restore")),
     # Spec 016. Dos familias y no una (research R-8): quien no quiere que el
     # agente aplique arreglos de Repairs (`repair_flows`, tramo C) puede
     # quitarlos sin perder la gestión de integraciones, y al revés. No amplían

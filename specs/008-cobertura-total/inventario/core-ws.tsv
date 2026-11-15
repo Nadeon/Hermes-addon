@@ -47,7 +47,7 @@ backup/end	backup	homeassistant/components/backup/websocket.py	no	B	señal inter
 backup/generate	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_create_backup (spec 031: elegir agentes y contenido, cifrado con la clave de HA)	
 backup/generate_with_automatic_settings	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_create_automatic_backup (spec 031: con la estimación de la retención)	
 backup/info	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_list_backups / ha_get_backup / ha_get_backup_config	
-backup/restore	backup	homeassistant/components/backup/websocket.py	si-equivalente	cubierto	sv_restore_backup_full/partial (solo backups locales del Supervisor)	
+backup/restore	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_restore_backup (spec 031: cualquier ubicación, con la clave de HA)	
 backup/start	backup	homeassistant/components/backup/websocket.py	no	B	señal interna del Supervisor	
 backup/subscribe_events	backup	homeassistant/components/backup/websocket.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
 blueprint/delete	blueprint	homeassistant/components/blueprint/websocket_api.py	no	A	Blueprints	CAP-046

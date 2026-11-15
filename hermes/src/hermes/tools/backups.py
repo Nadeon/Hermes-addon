@@ -36,12 +36,15 @@ from typing import Any
 import structlog
 
 from hermes import safety_retention as _retencion
+from hermes.backup_key import leer_clave_de_backups
 from hermes.supervisor_jobs import child_job_errors, job_errors, redact_child_jobs
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
+    ESTADO_CAMBIADO,
     complete_confirmation_token,
     create_confirmation_token,
     redact_secrets,
+    resolve_confirmation_token,
     validate_confirmation_token,
 )
 from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
@@ -163,12 +166,79 @@ def _size_mb(backup: dict[str, Any]) -> float | None:
     return None
 
 
+# ── Contraseña de las restauraciones (spec 031, FR-015) ─────────────────────
+# Sin `password`, un backup protegido se restaura con la clave de los backups
+# de HA (la del kit de emergencia, `backup_key.py`): es con la que la 031
+# cifra los backups que crea Hermes. `password_source` dice en la vista previa
+# de dónde sale, NUNCA el valor. `unknown` es cuando no se pudo leer el
+# backup (`/backups/{slug}/info`): no se sabe si está protegido y se manda
+# sin contraseña, como en la 1.1.2.
+_FUENTE_PROVIDED = "provided"
+_FUENTE_CLAVE = "backup_encryption_key"
+_FUENTE_CLAVE_NO = "backup_encryption_key_unavailable"
+_FUENTE_NO_HACE_FALTA = "not_needed"
+_FUENTE_DESCONOCIDA = "unknown"
+_PISTA_CLAVE_ANTERIOR = (
+    "The password was Home Assistant's current backup encryption key; the "
+    "backup may be encrypted with an older key. Pass that one as password."
+)
+
+
+def _tapar(texto: str, secreto: str | None) -> str:
+    """Quita la clave del texto de un error, por si el Supervisor la citara."""
+    return texto.replace(secreto, "***") if secreto else texto
+
+
 def register(
     mcp: object,
     ha_client: HAClient,
     safety_backup_window_minutes: int = 30,
 ) -> None:
     """Registra las tools de backups en la instancia MCP."""
+
+    async def _fuente_password(
+        protegido: bool | None, password: str | None,
+    ) -> tuple[str, str | None, str | None]:
+        """(password_source, clave de HA o None, motivo si no hay clave).
+
+        La clave solo se lee si hace falta, en cada llamada y sin caché; quien
+        la recibe la manda al Supervisor y la descarta."""
+        if password:
+            return _FUENTE_PROVIDED, None, None
+        if protegido is None:
+            return _FUENTE_DESCONOCIDA, None, None
+        if not protegido:
+            return _FUENTE_NO_HACE_FALTA, None, None
+        leida = await leer_clave_de_backups(ha_client)
+        if leida.clave is None:
+            return _FUENTE_CLAVE_NO, None, leida.motivo
+        return _FUENTE_CLAVE, leida.clave, None
+
+    async def _info_backup(slug: str) -> tuple[dict[str, Any] | None, bool | None]:
+        """(info del backup o None, si está protegido o None si no se sabe)."""
+        try:
+            info = await ha_client.sv_request("GET", f"/backups/{slug}/info")
+        except HAConnectionError:
+            return None, None
+        if not isinstance(info, dict):
+            return None, None
+        return info, info.get("protected") is True
+
+    def _poner_fuente(preview: dict[str, Any], fuente: str, motivo: str | None) -> None:
+        preview["password_source"] = fuente
+        if fuente == _FUENTE_CLAVE_NO:
+            preview["password_source_reason"] = motivo
+            preview["password_warning"] = (
+                "The backup is encrypted and Home Assistant has no backup "
+                "encryption key: the restore will fail unless you pass password."
+            )
+
+    def _error_restaurar(exc: HAConnectionError, fuente: str, clave: str | None) -> dict[str, Any]:
+        out: dict[str, Any] = {"error": _tapar(str(exc), clave)}
+        # «Invalid password for backup» del Supervisor (2026.11.0).
+        if fuente == _FUENTE_CLAVE and "invalid password" in str(exc).lower():
+            out["hint"] = _PISTA_CLAVE_ANTERIOR
+        return out
 
     def _bad_slug(slug: str) -> dict[str, Any] | None:
         try:
@@ -557,7 +627,11 @@ def register(
         Args:
             slug: Identificador del backup.
             confirmation_token: Token del preview anterior.
-            password: Contraseña del backup si está cifrado.
+            password: Contraseña del backup si está cifrado. Sin ella, un
+                backup protegido se restaura con la clave de cifrado de los
+                backups de Home Assistant (la del kit de emergencia); la
+                vista previa dice de dónde sale en `password_source`, nunca
+                el valor.
 
         Returns:
             Sin token: {"confirmation_token": "...", "preview": {...}}
@@ -568,17 +642,18 @@ def register(
             return err
         tool_name = "sv_restore_backup_full"
         args: dict[str, Any] = {"slug": slug, "password": password}
+        # La clave de HA no es un argumento: no entra en el token. Lo que ata
+        # el token es de dónde sale la contraseña (estado de la 018).
+        info, protegido = (None, None) if password else await _info_backup(slug)
+        fuente, clave, motivo = await _fuente_password(protegido, password)
+        estado = {"password_source": fuente}
 
         if not confirmation_token:
-            try:
-                info = await ha_client.sv_request("GET", f"/backups/{slug}/info")
-                name = info.get("name") if isinstance(info, dict) else None
-                bdate = info.get("date") if isinstance(info, dict) else None
-                ha_version = (
-                    info.get("homeassistant") if isinstance(info, dict) else None
-                )
-            except HAConnectionError:
-                name = bdate = ha_version = None
+            if info is None and password:
+                info, _ = await _info_backup(slug)
+            name = info.get("name") if info else None
+            bdate = info.get("date") if info else None
+            ha_version = info.get("homeassistant") if info else None
             preview: dict[str, Any] = {
                 "slug": slug,
                 "name": name,
@@ -592,16 +667,23 @@ def register(
                     "Recovery requires manual intervention if the restored Hermes is broken."
                 ),
             }
-            return await create_confirmation_token(tool_name, args, preview=preview)
+            _poner_fuente(preview, fuente, motivo)
+            return await create_confirmation_token(tool_name, args, preview=preview,
+                                                   estado=estado)
 
-        valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
+        valid, error, _ = await resolve_confirmation_token(
+            confirmation_token, tool_name, args, estado=estado)
         if not valid:
+            if error == ESTADO_CAMBIADO:
+                return {"error": "state_changed", "detail": error}
             return {"error": error}
 
+        payload: dict[str, Any] = {"background": True}
+        if password:
+            payload["password"] = password
+        elif clave is not None:
+            payload["password"] = clave
         try:
-            payload: dict[str, Any] = {"background": True}
-            if password:
-                payload["password"] = password
             data = await ha_client.sv_request(
                 "POST", f"/backups/{slug}/restore/full",
                 json_body=payload,
@@ -618,11 +700,17 @@ def register(
             else:
                 result = {"result": "ok"}
             await complete_confirmation_token(confirmation_token, success=True, result=result)
-            logger.info("sv_restore_backup_full_started", slug=slug, job_id=job_id)
+            logger.info("sv_restore_backup_full_started", slug=slug, job_id=job_id,
+                        password_source=fuente)
             return result
         except HAConnectionError as exc:
-            await complete_confirmation_token(confirmation_token, success=False, error=str(exc))
-            return {"error": str(exc)}
+            out = _error_restaurar(exc, fuente, clave)
+            await complete_confirmation_token(confirmation_token, success=False,
+                                              error=out["error"])
+            return out
+        finally:
+            # La carga puede llevar la clave: no se queda más de lo necesario.
+            payload.pop("password", None)
 
     @mcp.tool()
     async def sv_restore_backup_partial(
@@ -642,7 +730,10 @@ def register(
             confirmation_token: Token del preview anterior.
             addons: JSON array de slugs de add-ons a restaurar.
             folders: JSON array de carpetas a restaurar.
-            password: Contraseña del backup si está cifrado.
+            password: Contraseña del backup si está cifrado. Sin ella, un
+                backup protegido se restaura con la clave de cifrado de los
+                backups de Home Assistant (la del kit de emergencia); la
+                vista previa dice de dónde sale en `password_source`.
             include_homeassistant: Si restaurar la configuración de HA.
 
         Returns:
@@ -660,13 +751,14 @@ def register(
             "password": password,
             "include_homeassistant": include_homeassistant,
         }
+        info, protegido = (None, None) if password else await _info_backup(slug)
+        fuente, clave, motivo = await _fuente_password(protegido, password)
+        estado = {"password_source": fuente}
 
         if not confirmation_token:
-            try:
-                info = await ha_client.sv_request("GET", f"/backups/{slug}/info")
-                name = info.get("name") if isinstance(info, dict) else None
-            except HAConnectionError:
-                name = None
+            if info is None and password:
+                info, _ = await _info_backup(slug)
+            name = info.get("name") if info else None
             preview: dict[str, Any] = {
                 "slug": slug,
                 "name": name,
@@ -678,10 +770,15 @@ def register(
                     "Selected components will be overwritten with the backup versions."
                 ),
             }
-            return await create_confirmation_token(tool_name, args, preview=preview)
+            _poner_fuente(preview, fuente, motivo)
+            return await create_confirmation_token(tool_name, args, preview=preview,
+                                                   estado=estado)
 
-        valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
+        valid, error, _ = await resolve_confirmation_token(
+            confirmation_token, tool_name, args, estado=estado)
         if not valid:
+            if error == ESTADO_CAMBIADO:
+                return {"error": "state_changed", "detail": error}
             return {"error": error}
 
         payload: dict[str, Any] = {
@@ -690,6 +787,8 @@ def register(
         }
         if password:
             payload["password"] = password
+        elif clave is not None:
+            payload["password"] = clave
         if addons:
             try:
                 payload["addons"] = json.loads(addons)
@@ -724,11 +823,16 @@ def register(
             else:
                 result = {"result": "ok"}
             await complete_confirmation_token(confirmation_token, success=True, result=result)
-            logger.info("sv_restore_backup_partial_started", slug=slug, job_id=job_id)
+            logger.info("sv_restore_backup_partial_started", slug=slug, job_id=job_id,
+                        password_source=fuente)
             return result
         except HAConnectionError as exc:
-            await complete_confirmation_token(confirmation_token, success=False, error=str(exc))
-            return {"error": str(exc)}
+            out = _error_restaurar(exc, fuente, clave)
+            await complete_confirmation_token(confirmation_token, success=False,
+                                              error=out["error"])
+            return out
+        finally:
+            payload.pop("password", None)
 
     @mcp.tool()
     async def sv_get_job_status(job_id: str) -> object:

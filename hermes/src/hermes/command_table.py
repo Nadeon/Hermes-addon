@@ -80,10 +80,7 @@ CORE_WS: dict[str, E] = {
     "backup/generate": E("dedicated", "cubierto por ha_create_backup", "backup_integration", tool="ha_create_backup"),
     "backup/generate_with_automatic_settings": E("dedicated", "cubierto por ha_create_automatic_backup", "backup_integration", tool="ha_create_automatic_backup"),
     "backup/info": E("dedicated", "cubierto por ha_list_backups", "backups", tool="ha_list_backups"),
-    # SOBRESCRIBE Core, apps y datos desde cualquier ubicación, también remota.
-    # La vista previa genérica no enseña fecha, contenido ni tamaño del backup como
-    # sv_restore_backup_full: hasta la tool dedicada de la 031, deny.
-    "backup/restore": E("deny", "pendiente de tool dedicada (spec 031): restaurar o borrar backups exige una vista previa fuerte como la de `sv_restore_backup_full`", "generic_commands"),
+    "backup/restore": E("dedicated", "cubierto por ha_restore_backup", "backup_integration", tool="ha_restore_backup"),
     "backup/start": E("deny", "señal interna del Supervisor (clase B)", "generic_commands"),
     "backup/subscribe_events": E("deny", "suscripción al progreso de los backups: MCP es petición-respuesta (clase B)", "generic_commands"),
     "blueprint/delete": E("deny", "pendiente de tool dedicada (spec 017)", "generic_commands", cap="CAP-046"),
