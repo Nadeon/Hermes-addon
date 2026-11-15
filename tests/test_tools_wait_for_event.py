@@ -311,3 +311,67 @@ class TestWaitForEvent(unittest.IsolatedAsyncioTestCase):
             filters={"data.new_state.state": "on"},
         )
         self.assertTrue(result["matched"])
+
+
+# ── Spec 017 (T039, FR-009): gestor de esperas compartido con la de trigger ──
+
+
+class TestGestorCompartido(unittest.IsolatedAsyncioTestCase):
+    """`register` acepta un gestor; con el mismo gestor, `ha_wait_for_event` y
+    `ha_wait_for_trigger` cuentan en el mismo cupo. Las entradas de eventos de
+    `ha_list_active_waits` conservan exactamente sus claves de antes.
+
+    Control negativo, comprobado y restaurado: ignorando el `manager` recibido
+    (creando siempre uno propio) cae `test_dos_registros_comparten_cupo`.
+    """
+
+    _CLAVES_EVENTO = {"wait_id", "event_type", "filters", "started_at_iso",
+                      "timeout_at_iso", "elapsed_seconds"}
+
+    async def test_dos_registros_comparten_cupo(self) -> None:
+        gestor = wfe_mod._WaitManager(max_concurrent=1)
+        uno, dos = DummyMCP(), DummyMCP()
+        wfe_mod.register(uno, FakeHAClientForWait(), wait_for_event_max_seconds=30,
+                         manager=gestor)
+        wfe_mod.register(dos, FakeHAClientForWait(), wait_for_event_max_seconds=30,
+                         manager=gestor)
+        tarea = asyncio.ensure_future(
+            uno.tools["ha_wait_for_event"](None, "state_changed", timeout_seconds=5))
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            if gestor.active_count:
+                break
+        try:
+            r = await dos.tools["ha_wait_for_event"](None, "state_changed", timeout_seconds=1)
+            self.assertEqual(r.get("error"), "too_many_waits")
+            self.assertEqual((await dos.tools["ha_list_active_waits"]())["count"], 1)
+        finally:
+            for w in list(gestor._active):
+                gestor.cancel(w)
+            await tarea
+
+    async def test_entrada_de_evento_con_las_claves_de_siempre(self) -> None:
+        gestor = wfe_mod._WaitManager()
+        await gestor.register(wfe_mod._ActiveWait(
+            wait_id="a", event_type="state_changed", filters={}, started_at=0.0,
+            timeout_at=1.0))
+        self.assertEqual(set(gestor.list_active()[0]), self._CLAVES_EVENTO)
+
+    async def test_entrada_de_trigger_con_kind_y_plataforma(self) -> None:
+        gestor = wfe_mod._WaitManager()
+        await gestor.register(wfe_mod._ActiveWait(
+            wait_id="b", event_type="", filters={}, started_at=0.0, timeout_at=1.0,
+            kind="trigger", trigger_platform="state"))
+        entrada = gestor.list_active()[0]
+        self.assertEqual(entrada["kind"], "trigger")
+        self.assertEqual(entrada["trigger_platform"], "state")
+        self.assertEqual(set(entrada), {"wait_id", "kind", "trigger_platform",
+                                        "started_at_iso", "timeout_at_iso",
+                                        "elapsed_seconds"})
+
+    async def test_sin_gestor_crea_el_suyo(self) -> None:
+        mcp = DummyMCP()
+        wfe_mod.register(mcp, FakeHAClientForWait(), wait_for_event_max_seconds=30,
+                         wait_for_event_max_concurrent=2)
+        r = await mcp.tools["ha_list_active_waits"]()
+        self.assertEqual(r["max_concurrent"], 2)

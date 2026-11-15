@@ -103,6 +103,11 @@ class _ActiveWait:
     started_at: float
     timeout_at: float
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # Spec 017: las esperas de trigger (`ha_wait_for_trigger`) comparten este
+    # gestor. `kind` es None en las de eventos, para que su entrada en
+    # `ha_list_active_waits` siga teniendo exactamente las claves de antes.
+    kind: str | None = None
+    trigger_platform: str | None = None
 
 
 class _WaitManager:
@@ -129,6 +134,18 @@ class _WaitManager:
         now = time.monotonic()
         result = []
         for w in self._active.values():
+            if w.kind == "trigger":
+                # Espera de trigger (spec 017, data-model): sin `event_type`
+                # ni `filters`, que no tiene; con su tipo y su plataforma.
+                result.append({
+                    "wait_id": w.wait_id,
+                    "kind": "trigger",
+                    "trigger_platform": w.trigger_platform,
+                    "started_at_iso": _monotonic_to_approx_iso(w.started_at),
+                    "timeout_at_iso": _monotonic_to_approx_iso(w.timeout_at),
+                    "elapsed_seconds": round(now - w.started_at, 1),
+                })
+                continue
             result.append({
                 "wait_id": w.wait_id,
                 "event_type": w.event_type,
@@ -171,11 +188,18 @@ def register(
     ha_client: HAClient,
     wait_for_event_max_seconds: int = 90,
     wait_for_event_max_concurrent: int = 5,
+    manager: _WaitManager | None = None,
 ) -> None:
-    """Registra las tools de wait_for_event."""
+    """Registra las tools de wait_for_event.
+
+    `manager` (spec 017): el gestor de esperas compartido con
+    `ha_wait_for_trigger`, para que las dos cuenten en el mismo cupo y se
+    listen y cancelen juntas. Sin él, se crea uno propio como antes.
+    """
 
     ready = requires_ready(ha_client)
-    manager = _WaitManager(max_concurrent=wait_for_event_max_concurrent)
+    if manager is None:
+        manager = _WaitManager(max_concurrent=wait_for_event_max_concurrent)
 
     @mcp.tool()
     @ready
@@ -366,7 +390,9 @@ def register(
         Returns:
             {"count": N, "max_concurrent": M, "waits": [...]}
             Cada wait incluye: wait_id, event_type, filters, elapsed_seconds,
-            started_at_iso, timeout_at_iso.
+            started_at_iso, timeout_at_iso. Las esperas de ha_wait_for_trigger
+            (mismo cupo) salen con kind: "trigger" y trigger_platform en vez
+            de event_type y filters.
         """
         waits = manager.list_active()
         return {
@@ -377,7 +403,7 @@ def register(
 
     @mcp.tool()
     async def ha_cancel_wait(wait_id: str) -> object:
-        """Cancela un ha_wait_for_event activo por su wait_id.
+        """Cancela un ha_wait_for_event (o ha_wait_for_trigger) activo por su wait_id.
 
         El wait activo recibirá {matched: false, reason: "cancelled"} y terminará.
 

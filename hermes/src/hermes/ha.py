@@ -1012,11 +1012,34 @@ class HAClient:
         El llamador es responsable de llamar ws_unsubscribe_events_queue(sub_id)
         cuando termine, incluso si recibe el sentinel.
         """
+        # Delega en `ws_subscribe_queue` (spec 017): el mismo montaje y la
+        # misma limpieza sirven para `subscribe_trigger`. El payload es
+        # exactamente el de antes, y el texto del plazo también.
+        return await self.ws_subscribe_queue(
+            {"type": "subscribe_events", "event_type": event_type},
+            descripcion=f"'{event_type}'",
+        )
+
+    async def ws_subscribe_queue(
+        self,
+        payload: dict[str, Any],
+        *,
+        descripcion: str | None = None,
+    ) -> "tuple[int, asyncio.Queue[Any], int]":
+        """Abre una suscripción WS cualquiera con cola persistente (spec 017).
+
+        `payload` es el mensaje sin `id` (p. ej. `{"type": "subscribe_trigger",
+        "trigger": …}`). Devuelve lo mismo que `ws_subscribe_events_queue`, y
+        el llamador cancela igual, con `ws_unsubscribe_events_queue(sub_id)`.
+        Si HA rechaza la suscripción, sale `HAConnectionError` con su `code`
+        (p. ej. `invalid_format` de un trigger mal escrito).
+        """
         if self._ws is None or self._ws.closed:
             raise HAConnectionError("WebSocket no disponible para suscripción.")
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Any] = asyncio.Queue()
+        que = descripcion or f"'{payload.get('type')}'"
 
         async with self._ws_request_lock:
             sub_id = self._next_ws_request_id
@@ -1026,11 +1049,7 @@ class HAClient:
             self._pending_ws_responses[sub_id] = result_future
             self._event_subscription_queues[sub_id] = queue
 
-            await self._ws.send_json({
-                "id": sub_id,
-                "type": "subscribe_events",
-                "event_type": event_type,
-            })
+            await self._ws.send_json({"id": sub_id, **payload})
 
         # Si algo sale mal aqui hay que deshacer TODO lo que se dejo montado
         # antes de mandar el subscribe: la cola, el future pendiente y —sobre
@@ -1048,7 +1067,7 @@ class HAClient:
             self._pending_ws_responses.pop(sub_id, None)
             await self._ws_unsubscribe(sub_id)
             raise HAConnectionError(
-                f"Timeout esperando confirmación de suscripción a '{event_type}'"
+                f"Timeout esperando confirmación de suscripción a {que}"
             ) from exc
         except BaseException:
             self._pending_ws_responses.pop(sub_id, None)

@@ -807,6 +807,9 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_list_triggers_for_target": ("R-I-", "List triggers for target (Home Assistant)"),
     "ha_list_conditions_for_target": ("R-I-", "List conditions for target (Home Assistant)"),
     "ha_list_actions_for_target": ("R-I-", "List actions for target (Home Assistant)"),
+    # Tramo D: la espera de trigger solo escucha (lista cerrada de triggers,
+    # research R-8), en `_READ_ONLY_EXACT`.
+    "ha_wait_for_trigger": ("R-I-", "Wait for trigger (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1613,6 +1616,56 @@ class TestAutomationAssistRegistration:
             ann = classify(nombre)
             assert ann.read_only_hint and not ann.destructive_hint, nombre
             assert not ann.open_world_hint, nombre
+
+
+class TestEsperaDeTriggerRegistration:
+    """Spec 017, tramo D (T042): `ha_wait_for_trigger` se registra en
+    `automation_assist` con el gestor de esperas compartido; solo lee; y,
+    como `ha_wait_for_event` desde la 033, `ctx` es el `Context` del SDK y no
+    sale en el esquema.
+
+    Control negativo comprobado: anotando `ctx: Any` caen
+    `test_esquema_sin_ctx` y `test_ctx_es_el_contexto_inyectado`; quitando
+    `ha_wait_for_trigger` de `_READ_ONLY_EXACT` caen `test_solo_lee` y
+    `test_hints_y_titulos_de_las_nuevas`.
+    """
+
+    def test_registrada_en_su_familia(self):
+        assert "ha_wait_for_trigger" in _register_all().tools
+        mcp = _do_register(["automation_assist"])
+        assert "ha_wait_for_trigger" not in mcp.tools
+        assert "ha_wait_for_event" in mcp.tools
+
+    def test_solo_lee(self):
+        from hermes.tools._annotations import classify
+
+        ann = classify("ha_wait_for_trigger")
+        assert ann.read_only_hint and not ann.destructive_hint
+        assert not ann.open_world_hint
+
+    def test_esquema_sin_ctx(self):
+        esquema = _real_registry()["ha_wait_for_trigger"].parameters
+        assert sorted(esquema["properties"]) == ["timeout_seconds", "trigger", "variables"]
+        assert esquema.get("required", []) == ["trigger"]
+
+    def test_ctx_es_el_contexto_inyectado(self):
+        assert _real_registry()["ha_wait_for_trigger"].context_kwarg == "ctx"
+
+    def test_gestor_compartido_y_mismo_tope(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.wait_for_event.register") as evento,                 patch("hermes.tools.wait_for_trigger.register") as trigger:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                wait_for_event_max_seconds=77, wait_for_event_max_concurrent=3,
+                tool_families_disabled=[],
+            )
+        gestor = evento.call_args.kwargs["manager"]
+        assert trigger.call_args.kwargs["manager"] is gestor
+        assert gestor.max_concurrent == 3
+        assert trigger.call_args.kwargs["wait_for_event_max_seconds"] == 77
+        assert trigger.call_args.kwargs["response_max_bytes"] == 54_321
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────

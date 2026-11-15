@@ -292,6 +292,14 @@ def register_all_tools(
         from hermes.tools.lovelace import register as register_lovelace
         register_lovelace(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Gestor de esperas compartido (spec 017, research R-8): `ha_wait_for_event`
+    # y `ha_wait_for_trigger` cuentan en el MISMO cupo
+    # (`wait_for_event_max_concurrent`); con dos gestores, el tope real sería
+    # el doble del configurado. Se crea una sola vez, aunque alguna de las dos
+    # familias esté apagada.
+    from hermes.tools.wait_for_event import _WaitManager
+    gestor_de_esperas = _WaitManager(max_concurrent=wait_for_event_max_concurrent)
+
     # wait_for_event, Marketplace y alias HACS
     if _activa("events"):
         from hermes.tools.wait_for_event import register as register_wait_for_event
@@ -300,6 +308,7 @@ def register_all_tools(
             ha_client,
             wait_for_event_max_seconds=wait_for_event_max_seconds,
             wait_for_event_max_concurrent=wait_for_event_max_concurrent,
+            manager=gestor_de_esperas,
         )
 
     # El Marketplace va antes que los alias `ha_hacs_*` para que el cliente vea
@@ -381,6 +390,17 @@ def register_all_tools(
 
         from hermes.tools.targets import register as register_targets
         register_targets(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+        # Espera de trigger (spec 017, tramo D): mismo gestor y mismo tope
+        # de segundos que `ha_wait_for_event`.
+        from hermes.tools.wait_for_trigger import register as register_wait_for_trigger
+        register_wait_for_trigger(
+            mcp,
+            ha_client,
+            manager=gestor_de_esperas,
+            wait_for_event_max_seconds=wait_for_event_max_seconds,
+            response_max_bytes=response_max_bytes,
+        )
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

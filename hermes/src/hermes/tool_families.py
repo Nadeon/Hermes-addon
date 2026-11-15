@@ -136,12 +136,15 @@ _CATALOGO: tuple[Familia, ...] = (
     # de solo lectura: lo que ofrece un dispositivo (`device_automation`) y
     # qué abarca un target y qué se puede hacer con él (`targets`). No va en
     # `automations` (1.1.2) por FR-010 de la 008, ni con `blueprints`, que
-    # escribe en /config. El tramo D añade aquí `wait_for_trigger`.
+    # escribe en /config. `wait_for_trigger` (tramo D) va aquí y no en
+    # `events` (1.1.2) por lo mismo: FR-010 de la 008 pide familias nuevas
+    # para las tools nuevas; comparte con `ha_wait_for_event` solo el gestor
+    # de esperas.
     Familia("automation_assist",
             "Help to write automations: device triggers, conditions and "
-            "actions, and resolving a target and what can be done with it "
-            "(read only).",
-            "1.2.0", True, ("device_automation", "targets")),
+            "actions, resolving a target and what can be done with it, and "
+            "waiting once for a trigger (read only).",
+            "1.2.0", True, ("device_automation", "targets", "wait_for_trigger")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

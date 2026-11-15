@@ -1098,6 +1098,26 @@ class TestDedicadasDeLa017TramoC(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+class TestDedicadaDeLa017TramoD(unittest.IsolatedAsyncioTestCase):
+    """Spec 017, tramo D (FR-012, T045): `subscribe_trigger` deja de ser
+    clase B y las genéricas lo mandan a `ha_wait_for_trigger` sin ejecutarlo.
+
+    Control negativo (T054, 8): `subscribe_trigger` de vuelta a `deny` →
+    cae `test_a_su_dedicada` (`command_denied`).
+    """
+
+    async def test_a_su_dedicada(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+            with self.subTest(generica=generica):
+                r = await mcp.tools[generica](
+                    "subscribe_trigger", {"trigger": {"trigger": "state"}})
+                self.assertEqual(
+                    (r["error"], r["tool"], r["family"], r["family_disabled"]),
+                    ("use_dedicated_tool", "ha_wait_for_trigger", "automation_assist", False))
+        ha.ws_send.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()

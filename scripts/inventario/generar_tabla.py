@@ -341,6 +341,10 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "get_triggers_for_target": "ha_list_triggers_for_target",
     "get_conditions_for_target": "ha_list_conditions_for_target",
     "get_services_for_target": "ha_list_actions_for_target",
+    # Espera de trigger (spec 017, tramo D): `subscribe_trigger` pasa de
+    # clase B a A con CAP-038 en el inventario (research R-13); un solo
+    # disparo, con lista cerrada de triggers.
+    "subscribe_trigger": "ha_wait_for_trigger",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

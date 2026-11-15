@@ -540,7 +540,7 @@ CORE_WS: dict[str, E] = {
     "subscribe_entities": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "subscribe_events": E("dedicated", "cubierto por ha_wait_for_event", "events", tool="ha_wait_for_event"),
     "subscribe_system_state": E("dedicated", "cubierto por ha_get_system_state", "system_status", tool="ha_get_system_state", cap="CAP-043"),
-    "subscribe_trigger": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
+    "subscribe_trigger": E("dedicated", "cubierto por ha_wait_for_trigger", "automation_assist", tool="ha_wait_for_trigger", cap="CAP-038"),
     "supervisor/api": E("deny", "proxy WS a la API del Supervisor: se saltaría las guardas de las tools sv_* (usar sv_read_api/sv_call_api)", "generic_commands"),
     "supervisor/event": E("deny", "canal interno Supervisor→Core (clase B)", "generic_commands"),
     "supervisor/ingress/info": E("deny", "sesiones de ingress del navegador (clase B)", "generic_commands"),

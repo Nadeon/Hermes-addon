@@ -305,6 +305,23 @@ class TestDedicadas(unittest.TestCase):
                     ("dedicated", f"cubierto por {tool}", "blueprints", tool, "CAP-046"))
                 self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
 
+    def test_dedicada_de_la_017_tramo_d(self) -> None:
+        """Spec 017, T045 (FR-012, research R-13): `subscribe_trigger` pasa de
+        clase B a A (CAP-038) y es `dedicated` hacia `ha_wait_for_trigger`,
+        con la forma del generador y en su mapa.
+        Control negativo (T054, 8): la fila del inventario de vuelta a clase
+        B → cae `test_subscribe_trigger_es_clase_a` de test_generar_tabla;
+        la entrada de la tabla de vuelta a `deny` → cae este test (y tres
+        más de este fichero y el de las genéricas)."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        e = ct.CORE_WS["subscribe_trigger"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_wait_for_trigger", "automation_assist",
+             "ha_wait_for_trigger", "CAP-038"))
+        self.assertEqual(_DEDICADAS_INICIALES["subscribe_trigger"], "ha_wait_for_trigger")
+
     def test_dedicadas_de_la_017_tramo_c(self) -> None:
         """Spec 017, T032 (FR-012): los seis comandos de `device_automation/*`
         (lista y capacidades van a la misma tool) y los cinco de targets son
@@ -335,8 +352,7 @@ class TestDedicadas(unittest.TestCase):
                     (e.category, e.reason, e.family, e.tool, e.cap),
                     ("dedicated", f"cubierto por {tool}", "automation_assist", tool, cap))
                 self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
-        # Ya no queda nada de la 017 «pendiente», salvo `subscribe_trigger`
-        # (clase B hasta el tramo D).
+        # Ya no queda nada de la 017 «pendiente» (T053).
         pendientes = sorted(str(k) for k, e in _todas() if "(spec 017)" in e.reason)
         self.assertEqual(pendientes, [])
 

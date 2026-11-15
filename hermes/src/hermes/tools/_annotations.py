@@ -88,6 +88,11 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # lectura; las `ha_list_*_for_target` y `ha_list_device_*` ya lo tienen.
     "ha_resolve_target",
     "ha_explain_target",
+    # Espera de trigger (spec 017, tramo D): solo escucha. Es verdad porque
+    # solo admite triggers de una lista cerrada de los que se sabe que solo
+    # escuchan (research R-8); `webhook`, `conversation` o el `turn_on` de
+    # una tele, que hacen algo más mientras existen, se rechazan.
+    "ha_wait_for_trigger",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
