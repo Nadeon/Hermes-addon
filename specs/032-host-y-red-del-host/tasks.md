@@ -1,0 +1,104 @@
+---
+
+description: "Tareas de la sub-feature 032 — host y red del host (Hermes 1.2.0)"
+---
+
+# Tareas: host y red del host (032)
+
+**Entrada**: `specs/032-host-y-red-del-host/` (spec.md, plan.md, research.md,
+data-model.md, contracts/tools.md, quickstart.md) y la paraguas
+`specs/008-cobertura-total/`.
+
+**Tests**: obligatorios, escritos ANTES del código que prueban (TDD: se ven en
+rojo y luego en verde) y con control negativo anotado (principio VII). Estilo
+de los existentes: `unittest.IsolatedAsyncioTestCase`, `DummyMCP`, un
+`MockHAClient` como **Supervisor simulado** (guarda método, ruta y
+`json_body`; responde por método y ruta; lanza `HAConnectionError` con
+`status`) con la forma del Supervisor 2026.11.0, `capture_logs` y el
+`CONFIRMATIONS_DIR` temporal de `tests/conftest.py`. Solo datos genéricos:
+`192.0.2.x`, `2001:db8::`, `aa:bb:cc:dd:ee:ff`, «mi-red», `homeassistant`,
+`casa-ha`, y la PSK centinela `PSK-CENTINELA-032`.
+
+**Suite** (desde la raíz del worktree, en Git Bash):
+`export MSYS_NO_PATHCONV=1; HERMES_CONFIG_BASE="$(cygpath -w <carpeta propia>)" <python del .venv del checkout principal> -m pytest -q -p no:cacheprovider`.
+Línea base al especificar (2026-11-15, `feat/cobertura-total` en `0b7d5e2`):
+3172 passed, 106 skipped, 6 failed (los 6 conocidos de Windows);
+`grep -c "spec 032" hermes/src/hermes/command_table.py` = 7. Cada tramo anota
+su línea base al empezar y termina con exactamente esos 6 fallos en local; la
+referencia es el CI de Linux.
+
+**Requisito previo**: 011, 013, 014 y 033 integradas (lo están en la base). El
+tramo 2 necesita además el HMAC de la 019 (T014). Si falta, el agente se
+detiene y lo anota.
+
+## Formato: `[ID] [P?] [Historia] Descripción`
+
+Historias: US1 apagar, US2 hostname, swap y ranura, US3 segunda interfaz y
+VLAN, US4 nada de lo actual cambia.
+
+## Tramos de implementación
+
+| Tramo | Tareas | Resultado al cerrar |
+|---|---|---|
+| **1** — `host_control` (CAP-086) | **T001–T013** | `sv_shutdown_host`, `sv_set_hostname`, `sv_set_swap`, `sv_set_boot_slot`; token atado a argumentos y estado; 4 `dedicated`; inventario de la 033; 4 filas de la matriz; tema de guía (host); documentación (parte) |
+| **2** — `host_network` (CAP-090) | **T014–T027** | `sv_reload_network`, `sv_update_network_interface`, `sv_create_vlan`; guarda de la interfaz de acceso; PSK que no sale; 3 `dedicated` y ninguna «spec 032»; 3 filas; guía y documentación completas; filas de la 008 |
+
+El tramo 2 necesita el tramo 1 integrado.
+
+---
+
+## Tramo 1 — `host_control` (CAP-086)
+
+### Preparación
+
+- [ ] T001 Línea base: comprobar el requisito previo, ejecutar la suite y anotar passed/skipped/failed y la punta; `grep -c "spec 032" hermes/src/hermes/command_table.py` = 7
+- [ ] T002 [P] [US4] Tests en `tests/test_tool_families.py` (`host_control` existe, `desde="1.2.0"`, desactivable, módulos `("host_control",)`, `familia_de_modulo`) y en `tests/test_config_validation.py` (`tool_families_disabled: [host_control]` válido). Después, la familia en `hermes/src/hermes/tool_families.py` con el porqué (research R-1) (FR-015)
+- [ ] T003 [P] Fixtures en `tests/fixtures/supervisor_host.py`: `GET /host/info` (`hostname: "homeassistant"`, `disk_free` en GiB), `GET /os/config/swap` (`1G`, 1) y su 404, `GET /os/info` con ranuras A (booted, good, 17.0) y B (inactive, bad, 17.1) y variantes (B sin versión, sin B), errores del Supervisor (migración de la base de datos en curso, hostname inválido) y formas inesperadas. Solo datos genéricos (FR-019)
+
+### Tests (escritos antes, en rojo)
+
+- [ ] T004 [P] [US1] [US2] `TestApagar`, `TestHostname`, `TestSwap` y `TestRanura` en `tests/test_tools_host_control.py`: (a) vistas previas con los campos y avisos de data-model, sin ninguna llamada que no sea GET; `sv_shutdown_host` dice que nadie puede encenderlo a distancia y que se corta Hermes; (b) confirmación → `POST` con la carga exacta (`/host/shutdown` con `{}` y sin `force`; `/host/options` `{"hostname"}`; `/os/config/swap` solo con lo pasado; `/os/boot-slot` `{"boot_slot": "B"}` aunque se pase `"b"`); (c) `invalid_argument` sin llamar para cada regla de FR-002…FR-004 (hostname con mayúsculas, espacio, punto, `-` al borde, 64 caracteres, vacío, no `str`; swap sin argumentos, `swap_size` `"2T"`, `"-1"`, `swappiness` 201, -1, `True`; ranura `"C"`), sin el valor en el mensaje; (d) `no_change` (hostname igual, swap igual), `insufficient_disk`, aviso de `"0"`, `not_supported` (404 en swap y en `/os/info`), `already_booted`, `slot_unusable`, aviso de ranura `bad`; (e) migración en curso → error redactado y ningún reintento con `force` (FR-001…FR-004)
+- [ ] T005 [US1] [US2] `TestTokenAtado`, `TestCorteTrasEnviar` y `TestLog` en `tests/test_tools_host_control.py`: (a) confirmar con otro hostname, otra swap u otra ranura → no se ejecuta; (b) entre vista previa y confirmación cambia el hostname, la swap o las ranuras → no se ejecuta y pide otra vista previa; si solo cambia `disk_free` el token sigue valiendo, pero `insufficient_disk` se vuelve a comprobar al confirmar; un cambio de `wifi.signal` o `ready` no invalida el token de red (lo prueba T019); (c) `HAConnectionError` tras enviar `shutdown` o `boot-slot` → `outcome: "unknown"` con `hint` y `verify_with`, token completado como fallido; en la lectura previa → `error` sin token; (d) los eventos no llevan `homeassistant`, `casa-ha`, `1G` ni versiones de OS de los fixtures y sí `tool`, `outcome`, `changed` (FR-011…FR-013)
+
+### Implementación
+
+- [ ] T006 [US1] [US2] `hermes/src/hermes/tools/host_control.py` con las cuatro tools según contracts/tools.md: validadores, lecturas, huella como `estado=`, `create_confirmation_token` sin `omitibles`, `_enviar` con `outcome: "unknown"`, eventos `host_control`, descripciones en inglés que dicen lo que hacen (sin `force`; nadie enciende a distancia; la ranura reinicia ya). Comentarios en español con el porqué. T004–T005 en verde
+- [ ] T007 [US4] Registro y anotaciones: tests primero en `tests/test_tools_registration.py` (las 4 registradas por defecto y ninguna con `host_control` desactivada; las 4 `destructiveHint`; títulos «Shut down host (Supervisor)», «Set hostname (Supervisor)», «Set swap (Supervisor)», «Set boot slot (Supervisor)»; el invariante destructiva ⇔ token en verde); después `tools/__init__.py` (`_activa("host_control")`) y `_DESTRUCTIVE_EXACT` con comentario (FR-016)
+- [ ] T008 [US4] Tabla: tests primero en `tests/test_command_table.py` (las 4 rutas de data-model `dedicated` con su tool, familia `host_control` y `cap="CAP-086"`), `tests/test_tools_generic_commands.py` (`sv_call_api("POST", "/host/shutdown")` y `("POST", "/os/boot-slot", …)` → `use_dedicated_tool` sin llamada; con la familia desactivada, `family_disabled`) y `tests/test_generar_tabla.py` si compara el mapa. Después, las 4 claves en `_DEDICADAS_INICIALES` de `scripts/inventario/generar_tabla.py` y en `hermes/src/hermes/command_table.py`; regenerar y `git diff --exit-code` sobre la tabla. `grep -c "spec 032"` = 3 (FR-014)
+- [ ] T009 Inventario de la 033: `sv_shutdown_host` (solo `confirmation_token`, exento como en `sv_reboot_host`), `sv_set_hostname`, `sv_set_swap`, `sv_set_boot_slot` (todo `atado`; `boot_slot` normalizado) con el comentario de la huella; `test_recuento` + 4 (FR-011)
+- [ ] T010 [P] Matriz de la 014: en `docs/HOJA-DE-RUTA.md`, filas `VM` / `pendiente` (orden alfabético) de las 4 con las notas de contracts/tools.md; en `docs/BANCO-SUPERVISOR.md`, «Tools nuevas del programa», su línea (qué comprobar y en qué tanda: hostname y swap en la 3 con instantánea; ranura y apagar al final, una por instantánea). `tests/test_matriz_pruebas.py` en verde (FR-018)
+- [ ] T011 [P] Guía: tests primero en `tests/test_tools_guide.py` (tema `host_control` con los alias `hostname`, `swap`, `boot_slot`, `shutdown`; nombra las 4 tools, el aviso de encendido y la vuelta de ranura; las tools que nombra existen; el índice lo lista); después el tema en `hermes/src/hermes/tools/guide.py`. Si cambia un tema existente (`overview`, `supervisor`), actualizar su huella en el test (FR-017, parte)
+- [ ] T012 Control negativo del tramo 1, anotando recuentos: (a) quitar `estado=` → caen los de estado cambiado; (b) quitar `swap_size` del dict del hash → cae el de otra swap; (c) tratar el corte tras enviar como «ok» → cae `TestCorteTrasEnviar`; (d) añadir `hostname` al evento → cae `TestLog`; (e) aceptar hostname con punto → cae; (f) dejar `/host/shutdown` como `deny` → caen los de la tabla y la genérica. Restaurar y comprobar verde
+- [ ] T013 Documentación (parte): sección «Host y red del host (032)» en `## [1.2.0]` de `hermes/CHANGELOG.md` (tramo 1); familia `host_control` en la tabla de familias de `hermes/DOCS.md` y en la lista de `tool_families_disabled` de `README.md` y `README.es.md` (sincronizados); estado «en curso (tramo 1)» en la tabla del programa de `docs/HOJA-DE-RUTA.md`; revisar el diff buscando datos personales; commit del tramo (FR-020)
+
+---
+
+## Tramo 2 — `host_network` (CAP-090)
+
+### Preparación
+
+- [ ] T014 Línea base y requisito: tramo 1 integrado; `compute_action_hash` de `hermes/src/hermes/security.py` es HMAC con clave en memoria (019). Si no lo es, **detenerse** y anotarlo (research R-9). Suite y `grep -c "spec 032"` = 3
+- [ ] T015 [P] [US4] Familia `host_network`: tests en `tests/test_tool_families.py` y `tests/test_config_validation.py`, después la familia en `tool_families.py` (FR-015)
+- [ ] T016 [P] Fixtures de red en `tests/fixtures/supervisor_host.py`: `GET /network/info` con `eth0` (ethernet, principal, conectada), `wlan0` (wireless, no principal, no conectada) y `eth0.10` (vlan); variantes: sin principal, `wlan0` única conectada y no principal, forma inesperada; `GET /network/interface/{i}/info`; 404 de interfaz; error del Supervisor que repite la PSK centinela. Solo datos genéricos
+
+### Tests (escritos antes, en rojo)
+
+- [ ] T017 [P] [US3] `TestRecargar`, `TestEditarInterfaz` y `TestCrearVlan` en `tests/test_tools_host_network.py`: `sv_reload_network` → `POST /network/reload` sin token y respuesta con la conectividad; `sv_update_network_interface("wlan0", …)` → vista previa con `role`, `before`, `after` (`"psk": "set"`), `replaces_blocks` y `warning`; `route_warning` con `gateway`; confirmación con la carga exacta (PSK incluida) y la interfaz releída sin PSK; relectura fallida → `"interface": null` y `verify_with`; `sv_create_vlan("eth0", 20, …)` → vista previa y `POST /network/interface/eth0/vlan/20`; `vlan_exists` (`eth0.10`), `not_ethernet` (`wlan0`), `interface_not_found`, `vlan_id` 0, 4095 y `True` → error sin token; crear sobre la madre principal se permite (FR-005, FR-006, FR-009)
+- [ ] T018 [P] [US3] `TestGuardaDeAcceso` y `TestValidacionDeBloques`: (a) `eth0` principal con cualquier cambio (también solo `mdns`) → `primary_interface`; `default` → `invalid_argument`; `wlan0` única conectada → `only_connected_interface`; sin principal, lectura fallida o forma inesperada → `primary_unknown`; en todos, **ninguna llamada de escritura** y sin token; (b) la guarda se repite al confirmar: si entre medias `wlan0` pasa a principal → no se ejecuta; (c) cada regla de FR-008 con un valor que la incumple (bloque sin `method`, `static` sin dirección, `auto` con `address` o `gateway`, IPv6 en `ipv4`, prefijo ausente, `route_metric` `True`, `addr_gen_mode` desconocido, `wifi` sin `auth`/`ssid`/`mode`, `ssid` de 33 bytes, `wpa-psk` sin `psk` o con 7 caracteres, `psk` con `open`, clave desconocida, `enabled` `"yes"`, `mdns` `"on"`, ningún cambio) → `invalid_argument` con `field` y sin el valor (FR-007, FR-008)
+- [ ] T019 [US3] `TestPsk`, `TestTokenAtado`, `TestCorteTrasEnviar` y `TestLog`: (a) la PSK centinela no aparece en la vista previa, la confirmación, la respuesta, el error del Supervisor que la repite, ningún evento de `capture_logs` ni **ningún fichero** de `CONFIRMATIONS_DIR` tras la vista previa y tras la confirmación; PSK igual al marcador de redacción o con salto de línea → `invalid_argument`; (b) confirmar con otra PSK, otro SSID u otra IP → no se ejecuta; cambio de la configuración o del papel de la interfaz → no se ejecuta; cambio solo de `wifi.signal` o `ready` → sí se ejecuta; (c) corte tras enviar el cambio → `outcome: "unknown"`; (d) los eventos no llevan IP, gateway, DNS, SSID, MAC ni PSK de los fixtures y sí `tool`, `interface`, `changed`, `outcome` (FR-010…FR-013)
+
+### Implementación
+
+- [ ] T020 [US3] `hermes/src/hermes/tools/host_network.py` con las tres tools según contracts/tools.md: lectura de la red y guarda (dos veces), validadores de bloques con `ipaddress`, `_interfaz_publica`, `_limpiar_error`, huella como `estado=`, sin `omitibles`, eventos `host_network`, descripciones en inglés (reemplaza bloques; principal rechazada; sin reversión; PSK no se devuelve; recargar no cambia nada). Comentarios en español con el porqué (research R-2, R-4, R-9). T017–T019 en verde
+- [ ] T021 [US4] Registro y anotaciones: tests primero en `tests/test_tools_registration.py` (las 3 por defecto y ninguna con `host_network` desactivada; las 2 con token `destructiveHint`; `sv_reload_network` ni de solo lectura ni destructiva e idempotente; `sv_create_vlan` no idempotente; títulos); después registro y `_DESTRUCTIVE_EXACT` (FR-016)
+- [ ] T022 [US4] Tabla: tests primero (las 3 rutas `dedicated` con `cap="CAP-090"` y familia `host_network`; `sv_call_api("POST", "/network/interface/eth0/update", …)` → `use_dedicated_tool` sin llamada; `sv_read_api("/network/info")` sigue `read`); después `_DEDICADAS_INICIALES` y `command_table.py`; regenerar sin cambios; `grep -c "spec 032"` = 0 (FR-014)
+- [ ] T023 Inventario de la 033: `sv_update_network_interface` y `sv_create_vlan` con todos sus argumentos `atado` (y `confirmation_token` exento) (la PSK dentro de `wifi`, sin guardarse) y el comentario de la huella; `test_recuento` + 2 (FR-011)
+- [ ] T024 [P] Matriz: 3 filas `VM` / `pendiente` y sus líneas en el procedimiento (VM con segunda interfaz; comprobar el rechazo de la principal y que la PSK no sale) (FR-018)
+- [ ] T025 [P] Guía completa: tests primero (alias `host_network`, `network_config`, `vlan`, `wifi`; nombra las 3 tools, la guarda de la principal, que la red se lee con `sv_read_api("/network/info")`, que los bloques se reemplazan enteros y que la PSK no se devuelve); después el tema (FR-017)
+- [ ] T026 Control negativo del tramo 2, anotando recuentos: (a) quitar la guarda de la principal → caen los de `primary_interface` y SC-002; (b) quitar la de la única conectada → cae; (c) tratar «sin principal» como permitido → cae; (d) pasar `omitibles=("wifi",)` → cae el del directorio de tokens; (e) no limpiar la PSK del error → cae; (f) aceptar `ipv4` sin `method` → cae; (g) añadir `ssid` al evento → cae `TestLog`; (h) dejar `/network/reload` como `deny` → caen tabla y genérica. Restaurar y comprobar verde
+- [ ] T027 Documentación completa: CHANGELOG (tramo 2), familia `host_network` en DOCS y README (sincronizados), hoja de ruta «hecha», filas CAP-086 y CAP-090 de la matriz de `specs/008-cobertura-total/plan.md` con las tools y los tests reales; revisar el diff buscando datos personales; commit del tramo (FR-020)
+
+## Dependencias y paralelismo
+
+- T002, T003 en paralelo; T004–T005 antes de T006; T007–T011 tras T006 (T010 y T011 en paralelo); T012 y T013 al final del tramo.
+- T014 primero en el tramo 2; T015 y T016 en paralelo; T017–T019 antes de T020; T021–T025 tras T020; T026 y T027 al final.
