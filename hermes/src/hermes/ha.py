@@ -8,6 +8,7 @@ estado en tiempo real.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import re
 import time
@@ -27,6 +28,7 @@ from hermes.service_policy import (
 )
 from hermes.health import HealthServer
 from hermes.identifiers import validate_path_segment
+from hermes.security import quitar_secreto_abierto
 from urllib.parse import unquote, urlsplit
 
 from hermes.logging_setup import set_ha_url_hosts
@@ -335,8 +337,10 @@ class HAClient:
         Quien necesite de verdad ejecutar un servicio vetado tiene que pedirlo
         explícitamente, y solo lo hacen las tools con confirmación en dos
         pasos, después de validar su `confirmation_token`: `ha_call_service`,
-        las recargas (`guarded_reload`) y las de atajo sobre una entidad
-        restringida (`guarded_entity_invoke`). La lista exacta la vigila
+        las recargas (`guarded_reload`), las de atajo sobre una entidad
+        restringida (`guarded_entity_invoke`) y, desde la spec 012,
+        `ha_clear_system_log` y `ha_dismiss_persistent_notification`. La lista
+        exacta la vigila
         `tests/test_allow_dangerous_inventario.py`.
         """
         if not allow_dangerous and is_in_denylist(
@@ -1341,6 +1345,84 @@ class HAClient:
             timeout=ClientTimeout(total=30),
         ) as resp:
             return await self._parse_response(resp)
+
+    async def rest_get_text_tail(
+        self,
+        path: str,
+        *,
+        lines: int,
+        max_line_bytes: int = 4096,
+    ) -> list[str]:
+        """GET de texto a la API de Core; devuelve sus ÚLTIMAS `lines` líneas.
+
+        Existe por `/api/error_log` (spec 012, research R-2): es el fichero de
+        log de Core entero, que crece hasta el siguiente reinicio y puede
+        ocupar cientos de MB. Leerlo con `resp.text()` lo cargaría completo en
+        memoria del add-on para quedarse con cien líneas. Aquí se lee en flujo
+        y solo se conservan las últimas (`deque(maxlen=lines)`); una línea
+        más larga que `max_line_bytes` se recorta y se dice en la propia línea.
+
+        No se pide un `Range`: no consta que el proxy del Supervisor lo
+        reenvíe, y un cuerpo comprimido al vuelo no da posiciones estables.
+
+        Un estado HTTP de error se lanza como `HAConnectionError(status=…)`
+        para que quien llama distinga el 404 («no hay fichero de log») de una
+        caída real. El cuerpo del error no se incluye en el mensaje: en esta
+        ruta puede ser el propio log.
+        """
+        if self._session is None:
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+        if lines < 1:
+            raise ValueError("lines must be >= 1")
+
+        _assert_safe_request_path(path)
+        url = f"{self._rest_base_url}{path}"
+        marca = " …[line truncated]"
+        cola: deque[str] = deque(maxlen=lines)
+
+        def guardar(crudo: bytes) -> None:
+            if crudo.endswith(b"\r"):
+                crudo = crudo[:-1]
+            recortada = len(crudo) > max_line_bytes
+            texto = crudo[:max_line_bytes].decode("utf-8", errors="replace")
+            if recortada:
+                # La redacción viene después (quien llama redacta cada
+                # línea) y no puede ver el final de un secreto que el corte
+                # dejó abierto: `"password": "hunter2` sin su comilla no lo
+                # reconoce. Se quita ese trozo aquí (spec 012, T035).
+                texto = quitar_secreto_abierto(texto) + marca
+            cola.append(texto)
+
+        async with self._session.get(url, timeout=ClientTimeout(total=30)) as resp:
+            if resp.status >= 400:
+                raise HAConnectionError(
+                    f"HA REST GET {path} failed {resp.status}",
+                    status=resp.status,
+                )
+            # Pendiente de la línea en curso. Solo guarda hasta
+            # `max_line_bytes + 1` bytes: con eso ya se sabe que hay que
+            # recortarla, y una línea de un giga no se acumula en memoria.
+            pendiente = bytearray()
+            desbordada = False
+            async for trozo in resp.content.iter_chunked(64 * 1024):
+                inicio = 0
+                while True:
+                    fin = trozo.find(b"\n", inicio)
+                    pedazo = trozo[inicio:] if fin < 0 else trozo[inicio:fin]
+                    if not desbordada:
+                        pendiente += pedazo
+                        if len(pendiente) > max_line_bytes:
+                            del pendiente[max_line_bytes + 1:]
+                            desbordada = True
+                    if fin < 0:
+                        break
+                    guardar(bytes(pendiente))
+                    pendiente.clear()
+                    desbordada = False
+                    inicio = fin + 1
+            if pendiente or desbordada:
+                guardar(bytes(pendiente))
+        return list(cola)
 
     # ── Supervisor REST API ───────────────────────────────────────────────────
 

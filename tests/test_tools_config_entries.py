@@ -439,6 +439,29 @@ class TestDeleteConfigEntry(unittest.IsolatedAsyncioTestCase):
         result = json.loads(raw)
         self.assertIn("error", result)
 
+    async def test_impacto_compara_el_entry_id_exacto(self) -> None:
+        """Extra del supervisor en la spec 033: el `entry_id` se comparaba por
+        SUBCADENA con `config_entry_id` (`"e1" in "e10"`), y la vista previa
+        contaba entidades de otra integración.
+
+        Control negativo, comprobado y restaurado: con la comparación por
+        subcadena de antes, este test cae (cuenta 3 en vez de 1).
+        """
+        entry = _make_entry("e1")
+        entities = [
+            {"entity_id": "light.kitchen", "config_entry_id": "e1"},
+            {"entity_id": "sensor.otra", "config_entry_id": "e10"},
+            {"entity_id": "sensor.otra2", "config_entry_id": "xe1x"},
+            # `config_entries` como texto (formato inesperado): no es una lista.
+            {"entity_id": "sensor.otra3", "config_entries": "e10"},
+        ]
+        client = self._make_client_with_responses(self.session, entry, entities, [])
+        mcp = DummyMCP()
+        ce_mod.register(mcp, client)
+        for tool in ("ha_delete_config_entry", "ha_disable_config_entry"):
+            preview = json.loads(await mcp.tools[tool]("e1"))["preview"]
+            self.assertEqual(preview["impact"]["entities"], 1, tool)
+
     async def test_preview_with_entities_in_config_entries_list(self) -> None:
         """Entity registry entries may use 'config_entries' list field."""
         entry = _make_entry("e1")

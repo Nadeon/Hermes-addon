@@ -382,15 +382,21 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
     # que cambie un tema a propósito actualiza aquí su huella y lo dice en su
     # CHANGELOG; un cambio accidental cae aquí.
     _HUELLAS_ANTES_DE_LA_013 = {
-        "automations": "cb414a2c5e0cad24",
+        # La 033 cambia `automations` (el token de una restringida ata
+        # `variables`; escenas temporales), `config_entries`
+        # (`ha_get_config_entry_options` da
+        # `not_supported`) y `helpers` (counters); su CHANGELOG lo dice.
+        "automations": "7792fa788da1e1cc",
         "backups": "c9a088b65d4f13c5",
-        "config_entries": "7c9723694f529f2f",
+        "config_entries": "afaf103b7388da10",
         "data": "c77e3e6782cc89a7",
-        "diagnostics": "66690c9177650ea7",
+        # La 012 cambia `diagnostics` (remite a `core_diagnostics`); su
+        # CHANGELOG lo dice.
+        "diagnostics": "f52ae3c906d8e56a",
         "events": "3765a76095ece40f",
         "filesystem": "b5902d6d0ff666c1",
         "generic_commands": "906066a916e93727",
-        "helpers": "685d974fff03f37b",
+        "helpers": "1c0d88c851dbbdd5",
         # La 018 cambia `lovelace` (guardado por vista) y `services`
         # (`ha_call_service_response` con token); su CHANGELOG lo dice.
         "lovelace": "38d00048b136b460",
@@ -630,6 +636,61 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
         self.assertIn("logbook/get_action_calls", texto)
         self.assertIn('"start_time": "2026-01-01T00:00:00+00:00"', texto)
         self.assertIn('"end_time": "2026-01-01T06:00:00+00:00"', texto)
+
+
+class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
+    """Spec 012 (FR-016, T014): el tema `core_diagnostics` existe con sus
+    alias, el índice lo lista, `diagnostics` remite a él y nombra TODAS las
+    tools registradas de la familia `core_diagnostics` (genérico: el tramo B
+    no tiene que tocar este test, solo el texto del tema).
+
+    Control negativo comprobado: quitar `ha_clear_system_log` del tema → cae
+    `test_nombra_cada_tool_de_la_familia` nombrándola.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        tema = _GUIDE["core_diagnostics"]
+        # `notifications` y `validation`: tramo B (T029).
+        for alias in ("core_diagnostics", "logs", "log", "LOGS", "notifications",
+                      "validation"):
+            self.assertEqual(await self.guide(alias), tema, alias)
+        for clave in ("duplicate_log_file", "NOTSET", "persistence", "error_log_unavailable",
+                      "not_validated", "response_too_large", "keys=", "dismiss_all",
+                      "config_entry_id"):
+            self.assertIn(clave, tema)
+
+    def test_debug_se_lee_en_el_log_de_core(self) -> None:
+        # T036 (principio V): el log del sistema solo guarda WARNING o más, así
+        # que la receta no puede mandar a buscar las líneas DEBUG en él.
+        # Control negativo (comprobado): con el paso 2 de antes («→ reproducir
+        # el fallo → `ha_list_system_log` o `ha_get_error_log`») cae este test.
+        tema = _GUIDE["core_diagnostics"]
+        self.assertIn("HA solo guarda aquí WARNING, ERROR y CRITICAL", tema)
+        self.assertIn("las líneas DEBUG e INFO NUNCA\nllegan al log del sistema", tema)
+        receta = tema[tema.index("Receta «¿por qué falla esta integración?»"):]
+        paso2 = receta[receta.index("\n2. "):receta.index("\n3. ")]
+        self.assertIn("log de Core: `sv_get_core_logs` o `ha_get_error_log`", paso2)
+        self.assertIn("NO en `ha_list_system_log`", paso2)
+        self.assertNotIn("→ `ha_list_system_log`", paso2)
+
+    async def test_indice_y_diagnostics(self) -> None:
+        self.assertIn("core_diagnostics", await self.guide())
+        self.assertIn('hermes_guide("core_diagnostics")', _GUIDE["diagnostics"])
+
+    def test_nombra_cada_tool_de_la_familia(self) -> None:
+        from tests.test_tools_registration import _do_register
+
+        completo = set(_do_register().tools)
+        sin = set(_do_register(["core_diagnostics"]).tools)
+        de_la_familia = sorted(completo - sin)
+        self.assertTrue(de_la_familia)
+        faltan = [n for n in de_la_familia if f"`{n}" not in _GUIDE["core_diagnostics"]]
+        self.assertEqual(faltan, [])
 
 
 if __name__ == "__main__":

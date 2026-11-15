@@ -339,6 +339,27 @@ def register_all_tools(
     if _activa("recorder"):
         from hermes.tools.recorder_status import register as register_recorder_status
         register_recorder_status(mcp, ha_client, response_max_bytes=response_max_bytes)
+    # Diagnóstico de Core (spec 012): logs y niveles de log, validación,
+    # diagnósticos de integraciones y notificaciones persistentes. Reciben
+    # `response_max_bytes` las que pueden devolver mucho: el log del sistema
+    # guarda hasta 50 grupos con trazas enteras, el de errores hasta 1000
+    # líneas y un diagnóstico de Z-Wave o ZHA ocupa varios MB.
+    if _activa("core_diagnostics"):
+        from hermes.tools.core_logs import register as register_core_logs
+        register_core_logs(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+        from hermes.tools.core_validation import register as register_core_validation
+        register_core_validation(mcp, ha_client)
+
+        from hermes.tools.integration_diagnostics import (
+            register as register_integration_diagnostics,
+        )
+        register_integration_diagnostics(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+        from hermes.tools.persistent_notifications import (
+            register as register_persistent_notifications,
+        )
+        register_persistent_notifications(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

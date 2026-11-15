@@ -56,11 +56,22 @@ async def _count_config_entry_dependents(
             {"type": "config/entity_registry/list"}
         )
         if isinstance(raw_ents, list):
+            # Comparación EXACTA (spec 033, extra del supervisor): con
+            # `entry_id in config_entry_id` se comparaba por subcadena, y una
+            # entidad de la entry "e10" contaba para la "e1". `config_entries`
+            # solo vale si es una lista: en un texto, `in` volvería a ser
+            # subcadena.
             entities_count = sum(
                 1
                 for e in raw_ents
-                if entry_id in (e.get("config_entry_id") or "")
-                or entry_id in (e.get("config_entries") or [])
+                if isinstance(e, dict)
+                and (
+                    e.get("config_entry_id") == entry_id
+                    or (
+                        isinstance(e.get("config_entries"), list)
+                        and entry_id in e["config_entries"]
+                    )
+                )
             )
     except HAConnectionError:
         pass

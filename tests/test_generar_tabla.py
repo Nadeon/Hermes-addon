@@ -135,27 +135,6 @@ class TestPrimeraGeneracion(_Base):
         self.assertEqual(self.t.SUPERVISOR[("POST", "/resolution/healthcheck")].reason,
                          "pendiente de tool dedicada (spec 022)")
 
-    def test_clase_a_via_dedicada_con_tool_en_el_mapa(self) -> None:
-        """Spec 029, T002 (FR-016; research R-7, mismo diseño que la 012): una
-        fila A de vía D cuya clave ya está en `_DEDICADAS_INICIALES` sale
-        `dedicated` con la familia de su tool desde la primera generación. Si
-        el generador siguiera aplicando antes la regla «pendiente», una tabla
-        regenerada desde cero desharía el paso a `dedicated` de cada
-        sub-feature. Control negativo comprobado: sin la consulta al mapa en
-        la rama de la clase A → cae (sale «pendiente de tool dedicada (spec
-        012)»)."""
-        with mock.patch.dict(gt._DEDICADAS_INICIALES, {"demo/via_d": "ha_read_ws_command"}):
-            self.salida.unlink()
-            self._generar()
-        e = self._tabla().CORE_WS["demo/via_d"]
-        self.assertEqual(
-            (e.category, e.reason, e.family, e.tool, e.cap),
-            ("dedicated", "cubierto por ha_read_ws_command", "generic_commands",
-             "ha_read_ws_command", "CAP-041"))
-        # Las demás filas A de vía D, sin clave en el mapa, siguen pendientes.
-        self.assertEqual(self._tabla().CORE_WS["demo/via_dt"].reason,
-                         "pendiente de tool dedicada (spec 021)")
-
     def test_clase_a_via_tabla_por_verbo_y_metodo(self) -> None:
         self.assertEqual(self.t.CORE_WS["demo/item/list"].category, "read")
         self.assertEqual(self.t.CORE_WS["demo/item/create"].category, "confirm")
@@ -190,6 +169,123 @@ class TestPrimeraGeneracion(_Base):
     def test_resultado_de_la_primera_vez(self) -> None:
         self.assertEqual(len(self.resultado.nuevas), 24)
         self.assertEqual(self.resultado.quitadas, [])
+
+
+class TestClaseAConToolDedicada(_Base):
+    """Un solo mecanismo para todas las sub-features (specs 012, 013 y 029;
+    research R-7): una fila A de vía D cuya clave ya tiene tool dedicada en
+    `_DEDICADAS_INICIALES` sale `dedicated`, con la familia de su tool, en la
+    primera generación, con el mismo constructor que una fila «cubierto»; y
+    una fila «cubierto» por una acción que ya tiene dedicada no se anuncia
+    como «(acción de HA)». Si el generador aplicara antes la regla
+    «pendiente», una tabla regenerada desde cero desharía el paso a
+    `dedicated` de cada sub-feature.
+
+    Control negativo (T018 g de la 012): quitar la consulta del mapa para la
+    clase A en `_clasificar` → caen `test_fila_a_de_via_d_en_el_mapa`
+    («pendiente de tool dedicada (spec 012)»),
+    `test_clase_a_via_dedicada_con_tool_en_el_mapa` y
+    `test_desde_cero_igual_que_la_tabla_real`.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        filas = [
+            ("system_log/list", "system_log", "homeassistant/components/system_log/__init__.py",
+             "no", "A", "Log del sistema y niveles de log", "CAP-041"),
+            ("logger/integration_log_level", "logger",
+             "homeassistant/components/logger/websocket_api.py",
+             "accion-generica", "cubierto", "logger.set_level", ""),
+        ]
+        with self.core.open("a", encoding="utf-8", newline="") as f:
+            for fila in filas:
+                f.write(chr(9).join(fila) + chr(10))
+        self._generar()
+        self.t = self._tabla()
+
+    def test_fila_a_de_via_d_en_el_mapa(self) -> None:
+        e = self.t.CORE_WS["system_log/list"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_list_system_log", "core_diagnostics",
+             "ha_list_system_log", "CAP-041"))
+        # La de vía D que no está en el mapa sigue pendiente.
+        self.assertEqual(self.t.CORE_WS["demo/via_d"].reason,
+                         "pendiente de tool dedicada (spec 012)")
+
+    def test_cubierto_por_accion_con_dedicada(self) -> None:
+        e = self.t.CORE_WS["logger/integration_log_level"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_set_log_level", "core_diagnostics",
+             "ha_set_log_level", None))
+        # La que sí cubre la acción genérica lo sigue diciendo.
+        self.assertIn("(acción de HA)", self.t.CORE_WS["calendar/event/create"].reason)
+
+    def test_clase_a_via_dedicada_con_tool_en_el_mapa(self) -> None:
+        """Spec 029, T002 (FR-016): con el mapa parcheado, la fila sale
+        `dedicated` con la familia de su tool aunque esta sea de otra familia
+        que la de la sub-feature (aquí, una genérica). Control negativo
+        comprobado: sin la consulta al mapa en la rama de la clase A → cae
+        (sale «pendiente de tool dedicada (spec 012)»)."""
+        with mock.patch.dict(gt._DEDICADAS_INICIALES, {"demo/via_d": "ha_read_ws_command"}):
+            self.salida.unlink()
+            self._generar()
+        e = self._tabla().CORE_WS["demo/via_d"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_read_ws_command", "generic_commands",
+             "ha_read_ws_command", "CAP-041"))
+        # Las demás filas A de vía D, sin clave en el mapa, siguen pendientes.
+        self.assertEqual(self._tabla().CORE_WS["demo/via_dt"].reason,
+                         "pendiente de tool dedicada (spec 021)")
+
+    def test_desde_cero_igual_que_la_tabla_real(self) -> None:
+        """Integración de la 012: con los inventarios reales, la generación
+        desde cero da la MISMA entrada que la tabla revisada en cada fila de
+        clase A que la tabla tiene como `dedicated` (las de la 012, la 013 y
+        la 029), y una fila A del mapa nunca sale de otra forma. Una
+        sub-feature que pase una fila A a `dedicated` sin añadirla al mapa (o
+        al revés) cae aquí nombrándola. Las filas «cubierto» no entran: varias
+        se revisaron a mano después de la primera generación.
+
+        Control negativo comprobado: quitar del mapa `system_log/list` (012),
+        `("GET", "/core/logs")` (013) o `manifest/get` (029) → cae nombrando
+        cada una."""
+        from hermes import command_table as real
+
+        inventario = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
+        self.salida.unlink(missing_ok=True)
+        gt.generar(inventario / "core-ws.tsv", inventario / "supervisor-rutas.tsv",
+                   self.salida, ha_core="2026.11.1", supervisor="2026.11.0")
+        cero = self._tabla()
+        clases = {
+            **{f["comando"]: f["clase"]
+               for f in gt._leer_tsv(inventario / "core-ws.tsv")},
+            **{(f["metodo"], f["ruta"]): f["clase"]
+               for f in gt._leer_tsv(inventario / "supervisor-rutas.tsv")},
+        }
+
+        def campos(e):
+            return (e.category, e.reason, e.family, e.tool, e.cap)
+
+        malas = []
+        n = 0
+        for nombre in ("CORE_WS", "SUPERVISOR"):
+            generada, revisada = getattr(cero, nombre), getattr(real, nombre)
+            for k, e in revisada.items():
+                if not clases[k].startswith("A"):
+                    continue
+                en_mapa = isinstance(gt._DEDICADAS_INICIALES.get(k), str)
+                if e.category != "dedicated" and not en_mapa:
+                    continue
+                n += 1
+                if campos(generada[k]) != campos(e):
+                    malas.append(f"{k}: desde cero {campos(generada[k])}, tabla {campos(e)}")
+        self.assertEqual(malas, [], "\n".join(malas))
+        # 9 de la 012 menos `logger/integration_log_level` (cubierto), 28 de la
+        # 013 y 9 de la 029: si baja, el test ha dejado de mirarlas.
+        self.assertGreaterEqual(n, 45)
 
 
 class TestRegeneracion(_Base):

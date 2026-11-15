@@ -418,9 +418,17 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
 
     def test_clase_a_de_via_dedicada_pendiente_de_su_spec(self) -> None:
         """Clase A de vía D/D+T/D+X: `deny` «pendiente de tool dedicada (spec
-        NNN)» con NNN de la matriz, `dedicated` cuando su tool existe, o
-        `read`/`confirm` si la clave está en `_POR_LA_TABLA` con su spec y su
-        porqué (research R-5 de la 013)."""
+        NNN)» con NNN de la matriz, `dedicated` hacia una tool de una familia
+        de la 1.2.0 cuando su sub-feature ya la ha hecho (specs 012 y 029,
+        research R-7), o `read`/`confirm` si la clave está en `_POR_LA_TABLA`
+        con su spec y su porqué (research R-5 de la 013). Que la tool exista y
+        su familia coincida lo comprueba `test_tool_existe_y_familia_coincide`.
+
+        Control negativo (T018 g de la 012), comprobado: pasar
+        `system_log/list` a `read` → cae este test nombrándola. Dejarla en
+        `deny` «pendiente (spec 012)» no lo hace caer (era el estado anterior
+        y sigue siendo válido aquí): eso lo vigila el test de la genérica
+        (`TestDedicadasDeLaSpec012` de test_tools_generic_commands.py)."""
         matriz = _matriz_008()
         malas = []
         for inventario, tabla in ((_CORE, ct.CORE_WS), (_SV, ct.SUPERVISOR)):

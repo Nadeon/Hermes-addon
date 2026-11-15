@@ -17,9 +17,9 @@ leyó en esos tags; las tools de lectura se probaron en una instalación de prue
 con HA 2026.11.1. De las 124 tools que modifican, las 100 `ha_*` se ejecutan
 en cada push en el CI contra HA Core 2026.11.1 real (banco de pruebas): las 47
 de helpers en la spec 010 y las 53 restantes en la 028 (ver «Banco de Core:
-helpers» y «Banco de Core: escrituras» más abajo). Funcionan 99 (dos de
-ellas con un hallazgo abierto con un argumento concreto);
-`ha_reload_counters` falla (ver más abajo). Las 24 `fs_*` y `sv_*` no
+helpers» y «Banco de Core: escrituras» más abajo). Se prueban 99 con su
+efecto; `ha_reload_counters` no modifica nada (HA no tiene `counter.reload`:
+responde `not_supported`, ver más abajo). Las 24 `fs_*` y `sv_*` no
 pasan por el banco, cada una con su motivo: las `fs_*` se ejecutan contra
 ficheros reales en la suite normal y las `sv_*` se verificaron leyendo el
 código de Hermes y el del Supervisor, con simuladores del Supervisor en la
@@ -123,6 +123,9 @@ desactivada, que es su valor por defecto. En la 1.0.12,
 | Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha. En 2026.11.0 el socket existe solo para Core (`SUPERVISOR_SOCKET` no se inyecta en las apps) y el aviso `deprecated_tcp_api_request` solo salta con el token de Core | Hermes usa solo TCP |
 | API `/v2` del Supervisor (`addons` → `apps`) | Sin fecha; hoy detrás de una opción de desarrollo y sin retirar la V1 | Ninguno hoy |
 | Alias `ha_hacs_*` | Hermes **1.3.0** | Se retiran; desde la 1.1.0 devuelven `_deprecated` |
+| `ha_reload_counters` | Hermes **1.3.0** | Se retira; desde la 1.2.0 responde `not_supported` con `_deprecated` (HA no tiene `counter.reload`; spec 033) |
+| `ha_get_config_entry_options` | Hermes **1.3.0** | Se retira; desde la 1.2.0 responde `not_supported` con `_deprecated` (HA no publica las opciones; la vía es el flujo de opciones; spec 033) |
+| Argumento `name` de `ha_create_scene_from_current` | Hermes **1.3.0** | Se retira; desde la 1.2.0 con valor responde `name_not_supported` (`scene.create` no admite nombre; spec 033) |
 | Acciones `hassio.*_update` | Ya no existen en Core 2026.11 | Ninguno: las de la denylist están muertas; actualizar va por `update.install` |
 | DCR (RFC 7591) en MCP | Deprecado en la revisión 2026-07-28; la spec garantiza al menos 12 meses | OAuth de Hermes |
 | Constante de versiones de protocolo admitidas del SDK `mcp` (sustituida por las de handshake y modernas) | Deprecada en 2.x | Puede romper con un futuro SDK 3.x |
@@ -397,6 +400,16 @@ un cliente contra la instalación real.
   pendiente tras instalar una integración. En la instalación real: la salud
   con `cloud` (hace falta la nube de Home Assistant) y
   `ha_validate_statistics` con estadísticas que tienen problemas reales.
+- [ ] (VM, después instalación real) **Diagnóstico de Core (spec 012), en
+  vivo**: lo que el banco de Core no tiene, porque sus 12 tools ya se
+  ejecutan ahí contra HA Core real (y las tres que modifican tienen su fila
+  «ok» en la matriz de pruebas). En la VM (HA OS): `ha_get_error_log`
+  responde `error_log_unavailable` con `duplicate_log_file` desactivado y da
+  líneas con la opción activada, y `ha_set_log_level` con `persistence`
+  `once` y `permanent` sobrevive a un reinicio como dice la vista previa. En
+  la instalación real: el camino feliz de `ha_get_device_diagnostics` con un
+  dispositivo de una integración con diagnóstico de dispositivo (Z-Wave, ZHA,
+  Matter, MQTT…); en el banco solo se prueba `diagnostics_not_supported`.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -416,7 +429,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | hecha: tabla, cuatro genéricas, familias y `tool_families_disabled`, tema `generic_commands` con `search`, extractor y generador; convergencia tras la revisión independiente cerrada (T044–T049); prueba de las genéricas en el banco de Core (T027) activada al integrarla con la 010 |
-| 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
+| 012 | Diagnóstico de Core | 040, 041, 042, 047 | hecha: familia `core_diagnostics` con 12 tools (logs, validación, diagnósticos de integraciones y notificaciones persistentes), 9 entradas de la tabla a `dedicated` y tema de la guía. En el banco, las 12 contra HA Core real (diagnóstico de entrada con `local_calendar`). Pendiente manual: el camino feliz de `ha_get_device_diagnostics`, que ninguna integración sin hardware ni nube ofrece (cubierto por unitarios) |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (VM de la 014, después instalación real) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
@@ -437,6 +450,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
+| 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | hecha: tramo 1 (el token de `ha_run_script` y `ha_trigger_automation` ata `variables`; inventario de argumentos atados) y tramo 2 (`ha_reload_counters` y `ha_get_config_entry_options` dicen `not_supported` y quedan deprecadas; `ha_wait_for_event` sin `ctx`; `ha_create_scene_from_current` con escena temporal, token para reemplazar y `name` rechazado; descripciones de escenas con `scenes.yaml`; `amount` y `ha_set_counter_value` validados); banco sin ningún `xfail` |
 
 #### Banco de Core: helpers (010)
 
@@ -447,8 +461,9 @@ efecto lo comprueba un lector que habla directamente con Core. El inventario
 está en `tests/banco/cobertura.py` y un test de la suite normal impide que una
 tool nueva de estos dominios entre sin probarse en el banco.
 
-Ejecutadas en el banco con su efecto comprobado (46; el job exige que cada
-una se haya llamado con éxito en un test que ha pasado):
+Ejecutadas en el banco con su efecto comprobado (46 probadas y 1 no
+ejecutable con motivo; el job exige que cada probada se haya llamado con éxito
+en un test que ha pasado):
 
 - `input_boolean`: `ha_create_or_update_input_boolean`, `ha_set_input_boolean`,
   `ha_toggle_input_boolean`, `ha_delete_input_boolean`.
@@ -475,17 +490,16 @@ una se haya llamado con éxito en un test que ha pasado):
 - `zone`: `ha_create_or_update_zone`, `ha_reload_zones`, `ha_delete_zone`.
 - `person`: `ha_create_person`, `ha_update_person`, `ha_delete_person`.
 
-No ejecutables en el banco: ninguna.
+No ejecutable en el banco (`NO_EJECUTABLES`, con su motivo):
 
-Se ejecuta en el banco pero falla (`FALLAN_EN_BANCO`; no cuenta como probada).
-Hallazgo pendiente de arreglo en la spec 033:
-
-- **`ha_reload_counters` no funciona.** HA Core 2026.11.1 no tiene el servicio
+- **`ha_reload_counters`.** HA Core 2026.11.1 no tiene el servicio
   `counter.reload` (la integración `counter` solo registra `increment`,
-  `decrement`, `reset` y `set_value`): Core responde 400 y la tool termina en
-  «Error executing tool». En el banco está como fallo esperado estricto
-  (`xfail`) que solo admite ese error y que se pondrá en rojo cuando deje de
-  fallar.
+  `decrement`, `reset` y `set_value`). Era el hallazgo de la 010 (Core
+  respondía 400); desde la spec 033 la tool responde `not_supported` sin
+  llamar a HA y está deprecada. No modifica nada que se pueda comprobar; su
+  test del banco es un canario que cae si un HA futuro añade la recarga.
+
+Ninguna falla en el banco (`FALLAN_EN_BANCO` vacía) ni queda ningún `xfail`.
 
 #### Banco de Core: escrituras (028)
 
@@ -493,8 +507,8 @@ En el mismo job, el resto de tools `ha_*` que modifican. El inventario está en
 `tests/banco/cobertura_escrituras.py` y un test de la suite normal
 (`tests/test_banco_cobertura_escrituras.py`) obliga a que las 126 tools que
 modifican (las 124 de la 1.1.2 y las 2 genéricas de la 011) estén probadas
-en el banco (010, 011 o 028), anotadas como hallazgo que
-falla (`ha_reload_counters`) o fuera de él con su motivo.
+en el banco (010, 011 o 028), no ejecutables con su motivo
+(`ha_reload_counters`, desde la 033) o fuera de él con su motivo.
 
 Ejecutadas en el banco (53; tramo A, 26):
 
@@ -556,18 +570,22 @@ directo y con token (script o automatización restringidos por llamar a la
 denylist). El job exige por ejecución las 53 (cada una llamada con éxito en
 un test que ha pasado), igual que las 46 de la 010.
 
-Hallazgos de la 028, pendientes de arreglo en la spec 033 (en el banco, fallo
-esperado estricto que solo admite ese error; las dos tools siguen contando
-como probadas porque su camino normal funciona):
+Hallazgos de la 028, arreglados en la spec 033 (en el banco ya no hay ningún
+fallo esperado; las dos tools siempre contaron como probadas porque su camino
+normal funciona):
 
-- `ha_create_scene_from_current` con `name` falla siempre: `scene.create` de
-  Core 2026.11.1 no admite ese campo y responde 400. Su descripción dice que
-  «HA decide» y que una colisión de `scene_id` da error; Core reemplaza la
-  escena (o, si es de configuración, solo avisa en el log).
-- **Seguridad, prioridad máxima:** el token de `ha_run_script` y
-  `ha_trigger_automation` con una entidad restringida no cubre `variables`:
-  se acepta una confirmación con variables distintas de las de la vista
-  previa.
+- **Arreglado en el tramo 2 de la 033:** `ha_create_scene_from_current` con
+  `name` fallaba siempre (`scene.create` de Core 2026.11.1 no admite ese
+  campo y responde 400), y su descripción decía que una colisión de
+  `scene_id` daba error cuando Core reemplaza la escena. Ahora `name` da
+  `name_not_supported` sin llamar a HA, reemplazar una temporal pide token y
+  una escena que no es temporal da `scene_exists`; el banco lo comprueba
+  contra HA real.
+- **Seguridad, arreglado en el tramo 1 de la 033:** el token de
+  `ha_run_script` y `ha_trigger_automation` con una entidad restringida no
+  cubría `variables` y se aceptaba una confirmación con variables distintas
+  de las de la vista previa. Ahora las ata y la vista previa las enseña; el
+  banco lo comprueba contra HA real sin `xfail`.
 
 #### Matriz de pruebas: tool → entorno → resultado (014)
 
@@ -578,7 +596,10 @@ con HA Core 2026.11.1 real; el resultado sale de los inventarios
 `tests/banco/cobertura*.py`), **VM** (Home Assistant OS con el Supervisor
 2026.11.0, según el procedimiento de [BANCO-SUPERVISOR.md](BANCO-SUPERVISOR.md);
 todas las `sv_*` y `fs_*` que modifican) e **instalación real**. Resultados:
-**ok**, **falla** (con la causa en la nota) y **pendiente**. Una tool del
+**ok**, **falla** (con la causa en la nota), **pendiente** y **no
+ejecutable** (solo en el banco de Core, para una tool de un
+`NO_EJECUTABLES*` y con el motivo en la nota: hoy, `ha_reload_counters`,
+que no modifica nada desde la 033). Una tool del
 banco con un hallazgo abierto (`HALLAZGOS_*` de los inventarios, con su
 `xfail` estricto) va a **falla** aunque su camino normal funcione. Un «ok» en la VM o
 en la instalación real lleva en la nota la versión de Hermes y la fecha. Los
@@ -608,6 +629,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_cancel_timer` | banco de Core | ok | |
 | `ha_cancel_wait` | banco de Core | ok | |
 | `ha_change_timer` | banco de Core | ok | |
+| `ha_clear_system_log` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
 | `ha_create_area` | banco de Core | ok | |
@@ -630,7 +652,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_create_or_update_timer` | banco de Core | ok | |
 | `ha_create_or_update_zone` | banco de Core | ok | |
 | `ha_create_person` | banco de Core | ok | |
-| `ha_create_scene_from_current` | banco de Core | falla | con `name` falla siempre: `scene.create` de Core 2026.11.1 no admite ese campo y responde 400; sin `name` funciona (spec 033) |
+| `ha_create_scene_from_current` | banco de Core | ok | |
 | `ha_cycle_input_select` | banco de Core | ok | |
 | `ha_decrement_counter` | banco de Core | ok | |
 | `ha_decrement_input_number` | banco de Core | ok | |
@@ -657,6 +679,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
 | `ha_disable_config_entry` | banco de Core | ok | |
+| `ha_dismiss_persistent_notification` | banco de Core | ok | |
 | `ha_enable_automation` | banco de Core | ok | |
 | `ha_enable_config_entry` | banco de Core | ok | |
 | `ha_finish_timer` | banco de Core | ok | |
@@ -668,7 +691,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_press_input_button` | banco de Core | ok | |
 | `ha_reload_automations` | banco de Core | ok | |
 | `ha_reload_config_entry` | banco de Core | ok | |
-| `ha_reload_counters` | banco de Core | falla | `counter.reload` no existe en Core 2026.11.1 (spec 033) |
+| `ha_reload_counters` | banco de Core | no ejecutable | `counter.reload` no existe en Core 2026.11.1: responde `not_supported` sin llamar a HA y está deprecada hasta la 1.3.0 (spec 033); su test del banco es un canario |
 | `ha_reload_scenes` | banco de Core | ok | |
 | `ha_reload_schedules` | banco de Core | ok | |
 | `ha_reload_scripts` | banco de Core | ok | |
@@ -678,7 +701,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_remove_device_from_config_entry` | banco de Core | ok | |
 | `ha_remove_entity_registry` | banco de Core | ok | |
 | `ha_reset_counter` | banco de Core | ok | |
-| `ha_run_script` | banco de Core | falla | seguridad: con una entidad restringida, el token no cubre `variables`; el camino normal funciona (spec 033) |
+| `ha_run_script` | banco de Core | ok | |
 | `ha_save_lovelace_dashboard` | banco de Core | ok | |
 | `ha_set_counter_value` | banco de Core | ok | |
 | `ha_set_input_boolean` | banco de Core | ok | |
@@ -687,11 +710,12 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_set_input_select` | banco de Core | ok | |
 | `ha_set_input_select_options` | banco de Core | ok | |
 | `ha_set_input_text` | banco de Core | ok | |
+| `ha_set_log_level` | banco de Core | ok | |
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
 | `ha_start_timer` | banco de Core | ok | |
 | `ha_toggle_input_boolean` | banco de Core | ok | |
-| `ha_trigger_automation` | banco de Core | ok | comparte el hallazgo de seguridad de `ha_run_script` (spec 033) |
+| `ha_trigger_automation` | banco de Core | ok | |
 | `ha_update_area` | banco de Core | ok | |
 | `ha_update_category` | banco de Core | ok | |
 | `ha_update_device` | banco de Core | ok | |

@@ -68,6 +68,16 @@ tag:
 automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
+# Spec 033 (T038): una escena de YAML SIN `id`. Por su estado no se distingue
+# de una temporal de `scene.create` (ni `id` en los atributos ni entrada en el
+# registro), pero Core no la reemplaza: avisa en el log y vuelve sin error.
+# `ha_create_scene_from_current` tiene que decir que no la reemplazó aunque se
+# pidan las mismas entidades. `zone.home` existe siempre en el banco; la escena
+# no se activa nunca.
+scene sin_id:
+  - name: banco_yaml_sin_id
+    entities:
+      zone.home: zoning
 
 # frontend: registra Lovelace (dashboards y recursos por WebSocket, en modo
 # almacenamiento) y arrastra `repairs`; lo necesitan las 7 tools de Lovelace.
@@ -121,3 +131,21 @@ network:
 # acciones, CAP-058), que lee lo que el recorder graba. Nada sale a internet.
 recorder:
 logbook:
+# ── Spec 012 (tramo A): logs de Core ────────────────────────────────────────
+#
+# system_log: registra `system_log/list` y las acciones `system_log.write` y
+# `system_log.clear`, que necesitan `ha_list_system_log` y
+# `ha_clear_system_log` (y el lector, para sembrar). Sin `default_config:` no
+# se carga sola. `logger:` (arriba) ya da `logger/log_info` y los comandos que
+# fijan niveles. Todo es local.
+system_log:
+
+# ── Spec 012 (tramo B): diagnósticos de integraciones ───────────────────────
+#
+# diagnostics: registra `diagnostics/list`, `diagnostics/get` y la descarga
+# `/api/diagnostics/…`, que necesitan `ha_list_diagnostics_handlers`,
+# `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`. Sin
+# `default_config:` no se carga sola. El test crea y borra una entrada de
+# `local_calendar` (sin red ni hardware) para tener un diagnóstico de entrada.
+# `persistent_notification` es de núcleo: no hace falta cargarla.
+diagnostics:

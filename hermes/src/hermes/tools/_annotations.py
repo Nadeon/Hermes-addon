@@ -76,6 +76,10 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # ningún prefijo de lectura la cubre, y `ha_validate_` no debe pasar a
     # serlo (una futura `validate` podría escribir).
     "ha_validate_statistics",
+    # Diagnóstico de Core (spec 012): validan y evalúan con los validadores de
+    # HA y no guardan nada. Su nombre no tiene prefijo de lectura.
+    "ha_validate_config",
+    "ha_test_condition",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -120,10 +124,14 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # escribió las consideró consecuentes. Si una herramienta se hace confirmar
     # y a la vez se anuncia inofensiva, el cliente la trata como inocua y solo
     # descubre lo contrario al llamarla. El invariante lo vigila un test.
+    # Excepción: `ha_reload_counters` ya no pide ni emite token desde la 033
+    # (Core no tiene `counter.reload`; responde `not_supported`), pero sigue
+    # aquí a propósito: FR-004 deja sus anotaciones sin cambios hasta que se
+    # retire en la 1.3.0.
     "ha_run_script",              # ejecuta lo que el script contenga
     "ha_trigger_automation",      # dispara sus acciones, sean cuales sean
     "ha_reload_automations",      # materializa lo que haya en el YAML
-    "ha_reload_counters",
+    "ha_reload_counters",         # sin token desde la 033; ver arriba
     "ha_reload_scenes",
     "ha_reload_schedules",
     "ha_reload_scripts",
@@ -151,6 +159,20 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # peor. Siempre piden confirmation_token.
     "ha_call_ws_command",
     "sv_call_api",
+    # Diagnóstico de Core (spec 012): piden token y ocultan rastro. Bajar un
+    # nivel de log o vaciar el log del sistema esconde lo que pasó; es la
+    # misma razón por la que `logger.set_level` y `system_log.clear` están en
+    # la denylist de `ha_call_service` («Ofuscación de rastros»).
+    "ha_set_log_level",
+    "ha_clear_system_log",
+    # Y descartar una notificación persistente borra un aviso de HA que no se
+    # recupera (`persistent_notification.dismiss` también está en la denylist).
+    "ha_dismiss_persistent_notification",
+    # Spec 033 (FR-006): `scene.create` reemplaza en silencio una escena
+    # temporal con el mismo id; la tool lo pide confirmar con token. Antes se
+    # anunciaba no destructiva (`----`, por el prefijo `ha_create_`) y su
+    # descripción decía que una colisión daba error, que no es lo que hace HA.
+    "ha_create_scene_from_current",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

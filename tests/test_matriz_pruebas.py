@@ -63,7 +63,14 @@ BANCO_DE_CORE = "banco de Core"
 VM = "VM"
 REAL = "instalación real"
 ENTORNOS = (BANCO_DE_CORE, VM, REAL)
-RESULTADOS = ("ok", "falla", "pendiente")
+# «no ejecutable» entra al integrar la 033: `ha_reload_counters` sigue
+# anunciándose como tool que modifica (FR-004 de la 033 deja sus anotaciones
+# hasta retirarla en la 1.3.0), pero responde `not_supported` sin llamar a HA
+# y no hay efecto que probar en ningún entorno. Solo vale para una tool de un
+# `NO_EJECUTABLES*` del banco, en `banco de Core` (donde corre su canario) y
+# con el motivo en la nota.
+NO_EJECUTABLE = "no ejecutable"
+RESULTADOS = ("ok", "falla", "pendiente", NO_EJECUTABLE)
 
 RE_TOOL = re.compile(r"^`([a-z][a-z0-9_]*)`$")
 RE_VERSION = re.compile(r"\b\d+\.\d+\.\d+\b")
@@ -344,8 +351,11 @@ class TestMatrizDePruebas(unittest.TestCase):
                 errores.append(f"{tool}: falla en {origen}, la fila tiene que decir banco de Core / falla")
         for tool, origen in sorted(inv.no_ejecutables.items()):
             f = fila(tool)
-            if f and f[0] == BANCO_DE_CORE:
-                errores.append(f"{tool}: no ejecutable según {origen}, el entorno no puede ser banco de Core")
+            if f and f[0] == BANCO_DE_CORE and f[1] != NO_EJECUTABLE:
+                errores.append(
+                    f"{tool}: no ejecutable según {origen}, la fila tiene que decir "
+                    "banco de Core / no ejecutable o probarse fuera del banco"
+                )
         for tool, origen in sorted(inv.fuera_del_banco.items()):
             f = fila(tool)
             if f and f[0] != VM:
@@ -354,6 +364,17 @@ class TestMatrizDePruebas(unittest.TestCase):
             set(inv.probadas) | set(inv.fallan) | set(inv.no_ejecutables) | set(inv.fuera_del_banco)
         )
         for tool, (entorno, resultado, _n) in sorted(matriz.items()):
+            # Control negativo (integración de la 033), comprobado: con
+            # `no ejecutable` en `ha_set_counter_value`, que está probada, este
+            # test cae nombrándola (y `test_ok_en_banco_solo_si_probada` no se
+            # entera, porque no dice «ok»).
+            if resultado == NO_EJECUTABLE and (
+                entorno != BANCO_DE_CORE or tool not in inv.no_ejecutables
+            ):
+                errores.append(
+                    f"{tool}: «no ejecutable» solo vale en banco de Core y para una tool "
+                    "de un NO_EJECUTABLES*"
+                )
             if (entorno, resultado) == (BANCO_DE_CORE, "falla") and not (
                 tool in inv.fallan or tool in inv.hallazgos
             ):
@@ -380,6 +401,8 @@ class TestMatrizDePruebas(unittest.TestCase):
         for tool, (entorno, resultado, nota) in sorted(_matriz().items()):
             if resultado == "falla" and not nota:
                 errores.append(f"{tool}: falla sin la causa en la nota")
+            if resultado == NO_EJECUTABLE and not nota:
+                errores.append(f"{tool}: no ejecutable sin el motivo en la nota")
             if resultado == "ok" and entorno in (VM, REAL):
                 if not (RE_VERSION.search(nota) and RE_FECHA.search(nota)):
                     errores.append(f"{tool}: ok en {entorno} sin versión de Hermes y fecha en la nota")

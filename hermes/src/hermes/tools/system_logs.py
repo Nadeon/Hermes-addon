@@ -51,7 +51,8 @@ from hermes.tools._logs import (
     validar_identifier,
     validar_plugin,
 )
-from hermes.tools.addons import _es_hermes, _ultimas_lineas_que_caben
+from hermes.tools._common import ultimas_lineas_que_caben
+from hermes.tools.addons import _es_hermes
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +124,7 @@ def register(
         was_redacted = redactado != raw
         logger.info(_EVENTO, tool=tool, route=plantilla, lines=lines,
                     bytes=len(raw), redacted=was_redacted, outcome="ok")
-        return _ultimas_lineas_que_caben(
+        return ultimas_lineas_que_caben(
             {
                 "source": source,
                 "route": plantilla,

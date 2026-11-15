@@ -6,9 +6,18 @@ bus una sola vez y el helper de almacenamiento sigue), `ha_finish_timer` por el
 evento `timer.finished` (el estado `idle` solo no lo distingue de cancelar) y
 `ha_change_timer` sobre un temporizador activo, con `remaining` menor.
 
-HALLAZGO: `ha_reload_counters` falla contra HA real (no existe `counter.reload`
-en Core 2026.11.1); va en `TestCounter.test_recarga` como `xfail` estricto que
-solo admite ese fallo, y en `FALLAN_EN_BANCO` (no cuenta como probada).
+`ha_reload_counters` (spec 033, FR-004): Core 2026.11.1 no tiene
+`counter.reload`, así que la tool responde `not_supported` sin llamar a HA.
+No modifica nada y no puede ser «probada»: está en `NO_EJECUTABLES` con su
+motivo. `TestCounter.test_recarga` es su canario (research R-2 de la 033):
+si un HA futuro añade `counter.reload`, cae y avisa de que la tool puede
+volver a hacer su trabajo. Antes era un `xfail` HALLAZGO (el 400 de Core).
+
+`amount` de increment/decrement y `ha_set_counter_value` (spec 033, FR-009 y
+extra del supervisor): `TestCounter.test_valores_que_ha_rechaza` comprueba
+contra HA real que un valor que no es múltiplo del `step`, o que sale de los
+límites, da `invalid_amount` / `invalid_value` y el contador no cambia (antes,
+el 500 genérico de Core), y que el camino válido sigue funcionando.
 
 Control negativo en el CI (T030, anotado en el commit del tramo B): con
 `ha_increment_counter` llamando a `counter.decrement`, `TestCounter` cae en rojo
@@ -23,13 +32,9 @@ import pytest
 
 from tests.banco.base_helpers import (
     BancoHelpers,
-    ServicioInexistente,
-    errores_de_tools,
-    es_servicio_inexistente,
     nombre_de_prueba,
-    sin_error,
 )
-from tests.banco.entorno import confirmar, llamar
+from tests.banco.entorno import rechazo
 
 pytestmark = pytest.mark.banco
 
@@ -71,44 +76,89 @@ class TestCounter(BancoHelpers):
 
             await s.borrar("ha_delete_counter", "counter", nombre)
 
-    # HALLAZGO del banco (tramo B), pendiente de arreglo en la spec 033: HA
-    # Core 2026.11.1 no tiene el servicio `counter.reload` (la integración
-    # `counter` solo registra increment, decrement, reset y set_value).
-    # `ha_reload_counters` llama a `counter.reload`, Core responde 400 y la
-    # tool falla. Por eso la tool está en `FALLAN_EN_BANCO` y no cuenta como
-    # probada.
-    #
-    # El `xfail` espera SOLO ese fallo (`ServicioInexistente`): la vista previa
-    # se comprueba en positivo, y el error de la confirmación solo se convierte
-    # en `ServicioInexistente` si la causa (registrada por el servidor MCP) es
-    # el 400 de Core a `/services/counter/reload` y el lector ve que Core no
-    # tiene ese servicio. Cualquier otro fallo (vista previa rota,
-    # lector que no llega, otro error) deja el test en rojo. Estricto: si la
-    # tool se arregla, pasa y el job se pone en rojo para quitar la marca y
-    # moverla a `PROBADAS_EN_BANCO`.
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ServicioInexistente,
-        reason="HA Core 2026.11.1 no tiene counter.reload: ha_reload_counters recibe 400 (spec 033)",
-    )
+    # Canario de `counter.reload` (spec 033, T029; research R-2). Core
+    # 2026.11.1 no lo tiene y la tool responde `not_supported` siempre, con o
+    # sin token, sin llamar a HA. El lector comprueba las dos cosas: que Core
+    # sigue sin el servicio (si lo añade, este test cae y avisa) y que la tool
+    # no ha llamado a ningún servicio (barrera: una llamada propia del lector
+    # vista en el bus; los eventos llegan en orden).
     async def test_recarga(self) -> None:
         tool = "ha_reload_counters"
         nombre = nombre_de_prueba("counter")
+        eid = f"counter.{nombre}"
         async with self.sesion() as s:
-            s.creados.append(("counter", nombre))
-            await s.lector.crear("counter", {"name": nombre, "initial": 1})
-            await s.esperar_estado(f"counter.{nombre}", lambda e: True, "creado por el lector")
-            vista = sin_error(tool, await llamar(s.cliente, tool))
-            if vista["preview"]["service"] != "counter.reload":
-                raise AssertionError(f"{tool}: vista previa inesperada {vista['preview']!r}")
             servicios = await s.lector.servicios()
-            with errores_de_tools() as errores:
-                try:
-                    sin_error(tool, await confirmar(s.cliente, tool, vista))
-                except AssertionError as exc:
-                    if es_servicio_inexistente(errores, servicios, "counter", "reload"):
-                        raise ServicioInexistente(str(exc)) from None
-                    raise
+            self.assertNotIn(
+                "reload", servicios.get("counter") or {},
+                "Core tiene ya counter.reload: ha_reload_counters puede volver a recargar "
+                "(spec 033, research R-2)",
+            )
+            creado = await s.lector.crear("counter", {"name": nombre, "initial": 1})
+            s.creados.append(("counter", creado["id"]))
+            await s.esperar_estado(eid, lambda e: e["state"] == "1", "creado por el lector")
+            async with s.lector.servicios_llamados() as vistos:
+                for args in ({}, {"confirmation_token": "00000000-0000-4000-8000-000000000000"}):
+                    respuesta = await rechazo(s.cliente, tool, **args)
+                    self.assertEqual(respuesta["error"], "not_supported", respuesta)
+                    self.assertIn("1.3.0", respuesta["_deprecated"])
+                    self.assertNotIn("confirmation_token", respuesta)
+                await s.lector.comando(
+                    {"type": "call_service", "domain": "counter", "service": "increment",
+                     "target": {"entity_id": eid}}
+                )
+                await s.lector.esperar(
+                    lambda: _devolver(vistos),
+                    lambda v: ("counter", "increment") in v,
+                    descripcion="barrera del lector (counter.increment) en el bus",
+                )
+            # Solo la barrera: ni `counter.reload` ni ninguna otra llamada de
+            # `counter` por parte de Hermes.
+            self.assertEqual([v for v in vistos if v[0] == "counter"], [("counter", "increment")])
+
+    # `amount` y `ha_set_counter_value` (spec 033, T025; extra del supervisor).
+    # HA solo acepta en `counter.set_value` un valor múltiplo del `step` y
+    # dentro de los límites; si no, Core responde 500 (research R-7). La tool
+    # lo comprueba antes y el contador no cambia. Como `set_value` es
+    # síncrono en el REST de Core, si Hermes lo hubiera llamado el estado ya
+    # habría cambiado (o la tool habría fallado) al volver la respuesta.
+    async def test_valores_que_ha_rechaza(self) -> None:
+        async with self.sesion() as s:
+            nombre = nombre_de_prueba("counter")
+            eid = f"counter.{nombre}"
+            creado = await s.lector.crear("counter", {"name": nombre, "initial": 5, "step": 3})
+            s.creados.append(("counter", creado["id"]))
+            await s.esperar_estado(eid, lambda e: e["state"] == "5", "initial 5, step 3")
+
+            r = await rechazo(s.cliente, "ha_increment_counter", entity_id=eid, amount=3)
+            self.assertEqual(
+                (r.get("error"), r.get("reason"), r.get("target")),
+                ("invalid_amount", "not_multiple_of_step", 8), r,
+            )
+            self.assertEqual((await s.lector.estado(eid))["state"], "5")
+            r = await rechazo(s.cliente, "ha_set_counter_value", entity_id=eid, value=7)
+            self.assertEqual(
+                (r.get("error"), r.get("reason")), ("invalid_value", "not_multiple_of_step"), r
+            )
+            self.assertEqual((await s.lector.estado(eid))["state"], "5")
+
+            # Camino válido: a 6 (múltiplo de 3) y `amount` 3 → 9.
+            await s.accion("ha_set_counter_value", entity_id=eid, value=6)
+            await s.esperar_estado(eid, lambda e: e["state"] == "6", "a 6")
+            await s.accion("ha_increment_counter", entity_id=eid, amount=3)
+            await s.esperar_estado(eid, lambda e: e["state"] == "9", "6 + 3")
+
+            nombre = nombre_de_prueba("counter")
+            eid = f"counter.{nombre}"
+            creado = await s.lector.crear(
+                "counter", {"name": nombre, "initial": 9, "step": 1, "maximum": 10}
+            )
+            s.creados.append(("counter", creado["id"]))
+            await s.esperar_estado(eid, lambda e: e["state"] == "9", "initial 9, máximo 10")
+            r = await rechazo(s.cliente, "ha_increment_counter", entity_id=eid, amount=5)
+            self.assertEqual((r.get("error"), r.get("reason")), ("invalid_amount", "out_of_range"), r)
+            r = await rechazo(s.cliente, "ha_set_counter_value", entity_id=eid, value=11)
+            self.assertEqual((r.get("error"), r.get("reason")), ("invalid_value", "out_of_range"), r)
+            self.assertEqual((await s.lector.estado(eid))["state"], "9")
 
 
 class TestTimer(BancoHelpers):

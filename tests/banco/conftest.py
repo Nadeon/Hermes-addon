@@ -9,8 +9,8 @@ se saltan con su motivo, como debe ser.
 
 Lo que se exige es la unión de las listas de todas las sub-features con tests
 en el banco (`cobertura_escrituras.TOOLS_EXIGIDAS_DEL_JOB` y `XFAIL_DEL_JOB`;
-la 010 aporta sus helpers, la 011 `PROBADAS_GENERICAS` y la 028
-`PROBADAS_028` y `XFAIL_PERMITIDOS_028`). Si una sub-feature
+la 010 aporta sus helpers, la 011 `PROBADAS_GENERICAS`, la 028
+`PROBADAS_028` y `XFAIL_PERMITIDOS_028`, y la 012 `PROBADAS_012`). Si una sub-feature
 no sumara su lista, sus tools no se exigirían por ejecución y sus `xfail`
 pondrían el job en rojo; lo vigila `tests/test_banco_cobertura_escrituras.py`.
 """

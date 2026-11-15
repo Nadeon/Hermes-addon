@@ -34,7 +34,10 @@ Primera generación (sin tabla previa), por fila (research R-4):
   ninguna tool lo expone; `deny` «sin revisar» si no está en el mapa;
 - clase B y D → `deny` con el motivo de la nota;
 - clase A con la clave en `_DEDICADAS_INICIALES` (su sub-feature ya creó la
-  tool) → `dedicated` con esa tool (spec 029, research R-7);
+  tool) → `dedicated` con esa tool, con el mismo constructor que «cubierto»
+  (specs 012, 013 y 029; research R-7). Toda sub-feature que pase una fila A
+  a `dedicated` la añade al mapa: `tests/test_generar_tabla.py` compara la
+  generación desde cero con la tabla real en todas esas filas;
 - clase A de una CAP de vía D, D+T o D+X → `deny` «pendiente de tool
   dedicada (spec NNN)» con la sub-feature de la matriz de la 008;
 - clase A de vía T → `read` o `confirm` por verbo y método, PROVISIONAL hasta
@@ -206,7 +209,6 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     # Acciones de HA.
     "calendar/event/create": "ha_call_service",
     "hassio/update/core": "ha_call_service",
-    "logger/integration_log_level": "ha_call_service",
     "media_player/browse_media": "ha_call_service_response",
     "media_player/search_media": "ha_call_service_response",
     "recorder/statistic_during_period": "ha_call_service_response",
@@ -306,6 +308,18 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "recorder/entity_options/get": "ha_get_recorder_info",
     "recorder/validate_statistics": "ha_validate_statistics",
     "recorder/get_statistics_metadata": "ha_get_statistics_metadata",
+    # Diagnóstico de Core (spec 012). `logger/integration_log_level` es de
+    # clase «cubierto» (por `logger.set_level`); las otras, de clase A con
+    # vía D: `_clasificar` también consulta este mapa para ellas.
+    "logger/integration_log_level": "ha_set_log_level",
+    "logger/log_info": "ha_get_log_levels",
+    "logger/log_level": "ha_set_log_level",
+    "system_log/list": "ha_list_system_log",
+    "validate_config": "ha_validate_config",
+    "test_condition": "ha_test_condition",
+    "diagnostics/list": "ha_list_diagnostics_handlers",
+    "diagnostics/get": "ha_list_diagnostics_handlers",
+    "persistent_notification/get": "ha_list_persistent_notifications",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
@@ -342,6 +356,28 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     ("GET", "/resolution/info"): "sv_get_resolution",
     ("DELETE", "/resolution/suggestion/{suggestion}"): "sv_dismiss_resolution_suggestion",
     ("DELETE", "/resolution/issue/{issue}"): "sv_dismiss_resolution_issue",
+    # 013: logs del sistema (CAP-081) y disco, host y OS (CAP-085), clase A de
+    # vía D, por el mismo mecanismo que las de la 012 y la 029.
+    **{("GET", f"/{origen}/logs{sufijo}"): tool
+       for origen, tool in (("core", "sv_get_core_logs"),
+                            ("supervisor", "sv_get_supervisor_logs"),
+                            ("dns", "sv_get_plugin_logs"),
+                            ("audio", "sv_get_plugin_logs"),
+                            ("multicast", "sv_get_plugin_logs"))
+       for sufijo in ("", "/latest", "/boots/{bootid}")},
+    ("GET", "/addons/{app}/logs/latest"): "sv_get_addon_logs",
+    ("GET", "/addons/{app}/logs/boots/{bootid}"): "sv_get_addon_logs",
+    ("GET", "/host/logs"): "sv_get_host_logs",
+    ("GET", "/host/logs/boots/{bootid}"): "sv_get_host_logs",
+    ("GET", "/host/logs/identifiers/{identifier}"): "sv_get_host_logs",
+    ("GET", "/host/logs/boots/{bootid}/identifiers/{identifier}"): "sv_get_host_logs",
+    ("GET", "/host/logs/identifiers"): "sv_list_host_log_identifiers",
+    ("GET", "/host/logs/boots"): "sv_list_boots",
+    ("GET", "/host/services"): "sv_list_host_services",
+    ("GET", "/host/disks/{disk}/usage"): "sv_get_disk_usage",
+    ("GET", "/os/info"): "sv_get_os_info",
+    ("GET", "/os/config/swap"): "sv_get_swap",
+    ("GET", "/os/datadisk/list"): "sv_list_datadisk_candidates",
 }
 
 # Colecciones de helpers: list/create/update/delete con el mismo patrón de
@@ -432,8 +468,16 @@ def _clasificar(
     if es_sv and texto.startswith(_PREFIJOS_PROXY_CORE):
         return deny(_MOTIVO_PROXY)
 
+    # Una fila cubierta por una tool dedicada, sea de clase «cubierto» o de
+    # clase A cuya sub-feature ya creó su tool (specs 012, 013, 016 y 029;
+    # research R-7): un solo constructor para las dos, para que una
+    # generación desde cero dé la misma tabla que la revisada a mano.
     def dedicada(destino: str) -> dict[str, object]:
-        de_accion = fila.get("cobertura") == "accion-generica"
+        # «(acción de HA)» solo si la cubre de verdad la acción genérica: una
+        # fila cubierta por una acción que ya tiene tool dedicada (spec 012,
+        # `logger/integration_log_level`) no se ejecuta como acción.
+        de_accion = (fila.get("cobertura") == "accion-generica"
+                     and destino.startswith("ha_call_service"))
         return {
             "category": "dedicated",
             "reason": f"cubierto por {destino}" + (" (acción de HA)" if de_accion else ""),
@@ -457,10 +501,9 @@ def _clasificar(
     if clase == "C":
         return deny("pendiente de revisión (spec 025)")
     if clase.startswith("A") and cap in MATRIZ:
-        # Una fila A cuya sub-feature ya creó su tool está en el mapa (spec
-        # 029, research R-7; mismo diseño que la 012): se consulta antes que
-        # la regla «pendiente», para que una generación desde cero dé la
-        # misma tabla que la revisada a mano.
+        # Una fila A cuya sub-feature ya creó su tool está en el mapa (specs
+        # 012 y 029, research R-7): se consulta antes que la regla
+        # «pendiente», con el mismo constructor que las de clase «cubierto».
         destino = _DEDICADAS_INICIALES.get(clave)
         if isinstance(destino, str):
             return dedicada(destino)

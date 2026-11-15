@@ -9,6 +9,8 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 ### Diagnóstico
 
+#### Diagnóstico del Supervisor (spec 013)
+
 - **Diagnóstico del Supervisor: los logs de todo el sistema, también de
   arranques anteriores.** Seis tools nuevas de solo lectura en la familia
   nueva `system_diagnostics` (desactivable con `tool_families_disabled`):
@@ -75,6 +77,84 @@ argumento existente cambia ni pasa a ser obligatorio.
   con un Supervisor simulado con la forma de las respuestas del 2026.11.0.
   Como solo leen, no tienen fila en la matriz de pruebas, que es de las tools
   que modifican.
+
+#### Diagnóstico de Core (spec 012)
+
+- **Familia nueva `core_diagnostics`** (desactivable con
+  `tool_families_disabled`), con 12 tools. Cinco de logs de Core:
+  - `ha_list_system_log`: el log del sistema (Ajustes > Sistema > Registros)
+    tal como lo agrupa Home Assistant, con `count`, primera y última vez
+    (ISO 8601) y origen; filtra por nivel y por integración (sus sub-loggers
+    incluidos). Mensajes y trazas, redactados y marcados como texto de
+    terceros; de cada traza, solo su última línea salvo
+    `include_tracebacks=true`. HA solo guarda ahí WARNING, ERROR y CRITICAL:
+    `level` acepta también DEBUG e INFO, que nunca devuelven nada, y entonces
+    la respuesta trae una `note` que remite al log de Core
+    (`sv_get_core_logs` o `ha_get_error_log`), igual que la guía.
+  - `ha_get_error_log(lines)`: las últimas líneas (1 a 1000) del fichero de
+    log de Core, leído en flujo sin cargarlo entero, con los secretos
+    redactados. Una línea de más de 4 KB se corta, y si el corte cae dentro de
+    un secreto (valor JSON, contraseña de URL o JWT) ese trozo se quita: nunca
+    sale un secreto a medias. En HA OS y Supervised ese fichero solo existe con la opción de
+    Core `duplicate_log_file`; sin él, `error_log_unavailable`, que remite a
+    leer el log de Core por el Supervisor (`sv_get_core_logs`).
+  - `ha_get_log_levels`: el nivel efectivo de cada integración.
+  - `ha_set_log_level`: fija el nivel de una integración o de un logger de
+    Python, con persistencia `none`, `once` o `permanent`; `NOTSET` lo quita.
+    En dos pasos: la vista previa da el nivel actual de la integración y lo
+    que hará la persistencia (con `NOTSET` no aplica; `none` borra también un
+    nivel guardado antes para ese objetivo, como hace Home Assistant).
+  - `ha_clear_system_log`: vacía el log del sistema, en dos pasos (no toca el
+    fichero de log ni el journal).
+- Dos de validación, que no guardan nada:
+  - `ha_validate_config`: valida disparadores, condiciones y acciones con los
+    validadores de Home Assistant, sueltos o desde una automatización o un
+    script entero (`trigger`/`triggers`, `condition`/`conditions`,
+    `action`/`actions`/`sequence`). Las demás claves salen en
+    `not_validated`: HA no las comprueba.
+  - `ha_test_condition`: evalúa una condición contra el estado actual, con
+    sus errores de plantilla si los hay.
+- Tres de diagnósticos de integraciones:
+  - `ha_list_diagnostics_handlers`: qué integraciones ofrecen diagnóstico de
+    entrada o de dispositivo.
+  - `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`: lo
+    mismo que «Descargar diagnóstico», comprobando antes que la entrada, el
+    dispositivo y el diagnóstico existen (sin descargar nada si no), con la
+    redacción de Hermes encima de la de la integración, sin la información del
+    sistema salvo que se pida, y filtrable por `keys`. Si no cabe,
+    `response_too_large` con el tamaño de cada clave, nunca JSON cortado. El
+    de dispositivo se pide a la integración dueña (`config_entry_id`).
+- Dos de notificaciones persistentes:
+  - `ha_list_persistent_notifications`: los avisos de la campana, el más
+    reciente primero, redactados y marcados como texto de terceros.
+  - `ha_dismiss_persistent_notification`: descarta uno, en dos pasos; al
+    confirmar vuelve a leer y, si ya no estaba, responde `already_dismissed`.
+- `ha_set_log_level`, `ha_clear_system_log` y
+  `ha_dismiss_persistent_notification` se anuncian destructivas: bajar un
+  nivel, vaciar un log o descartar un aviso oculta rastros, la misma razón por
+  la que sus acciones están en la denylist. `ha_validate_config` y
+  `ha_test_condition` se anuncian de solo lectura.
+- **`logger.set_default_level` entra en la denylist** de `ha_call_service`:
+  por ahí pide confirmación, igual que `logger.set_level`.
+- Tabla de comandos: nueve entradas pasan de `deny` a `dedicated`
+  (`system_log/list`, `logger/log_info`, `logger/log_level`,
+  `logger/integration_log_level`, `validate_config`, `test_condition`,
+  `diagnostics/list`, `diagnostics/get` y `persistent_notification/get`); las
+  genéricas responden `use_dedicated_tool` con su tool.
+- Tema nuevo de la guía, `hermes_guide("core_diagnostics")` (alias `logs`,
+  `log`, `notifications` y `validation`), con la receta «¿por qué falla esta
+  integración?»; el tema `diagnostics` remite a él.
+- `ha_list_system_log`, `ha_list_persistent_notifications` y
+  `ha_list_diagnostics_handlers` (y `ha_get_log_levels`, que también es una
+  lista) devuelven el sobre común de las listas de la 1.2.0: `count` es
+  cuántos `items` vienen y, si la lista se cortó, `_response_limit` dice
+  cuántos había.
+- Probadas contra HA Core real en el banco de pruebas: las 12, con las tres
+  que modifican comprobadas por el lector independiente. El diagnóstico de
+  entrada se prueba con una entrada de `local_calendar`; el de dispositivo,
+  solo en su camino `diagnostics_not_supported`: ninguna integración sin
+  hardware ni nube lo ofrece, así que su camino feliz queda en los unitarios
+  y como prueba manual pendiente.
 
 ### Integraciones
 
@@ -283,7 +363,8 @@ la lista de tools es la de la 1.1.2.
   no tiene el servicio `counter.reload`; Core responde 400. No cuenta como
   probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
   033, y en el banco como fallo esperado que solo admite ese error. Esta
-  sección no cambia la tool.
+  sección no cambia la tool. Arreglado en esta misma versión: ver «Arreglos
+  destapados por el banco (033)».
 - **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
   automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
   configuración guardada leída de HA; activar, desactivar, disparar,
@@ -312,13 +393,15 @@ la lista de tools es la de la 1.1.2.
   responde 400; la descripción de la tool dice que «HA decide». Tampoco es
   cierto que una colisión de `scene_id` dé error: Core reemplaza la escena.
   Sin `name` funciona. Pendiente de arreglo en la spec 033; en el banco, fallo
-  esperado que solo admite ese error.
+  esperado que solo admite ese error. Arreglado en esta misma versión: ver
+  «Arreglos destapados por el banco (033)».
 - **Hallazgo de seguridad: el token de `ha_run_script` y
   `ha_trigger_automation` no cubre `variables`.** Con un script o una
   automatización restringidos, se acepta una confirmación con variables
   distintas de las de la vista previa, y la vista previa no las enseña.
   Pendiente de arreglo en la spec 033 (prioridad máxima); en el banco, fallo
-  esperado que solo admite ese caso.
+  esperado que solo admite ese caso. Arreglado en esta misma versión: ver
+  «Arreglos destapados por el banco (033)».
 - Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
   y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
   onboarding, reglas de salto, comprobaciones del workflow, inventario de
@@ -403,6 +486,70 @@ la lista de tools es la de la 1.1.2.
   sale una línea `request_cancelled_on_shutdown`; cualquier otra excepción
   conserva su traza. Un `CancelledError` que llegue a `main()` se registra
   como `interrupted`, y la espera del servidor recoge su cancelación.
+
+#### Arreglos destapados por el banco (033)
+
+- **El token de un script o una automatización restringidos cubre
+  `variables`** (seguridad). Con una entidad restringida (sus acciones llaman
+  a servicios de la denylist), `ha_run_script` y `ha_trigger_automation` piden
+  confirmación, pero el token solo ataba la entidad y el servicio: se podía
+  pedir la vista previa con unas variables y confirmar con otras, y la vista
+  previa no las enseñaba. Ahora la vista previa trae `variables` y el token
+  las ata tal como llegan: confirmar con otras, sin ellas o con ellas tras una
+  vista previa sin ellas se rechaza sin llamar a HA. Un script o una
+  automatización no restringidos siguen en un paso. Un test de inventario
+  exige que cada argumento de cada tool con `confirmation_token` esté atado
+  al token o exento con un motivo escrito; el banco lo comprueba contra HA
+  real con las dos tools.
+- **`ha_reload_counters` dice que no puede recargar** (deprecada; se retira en
+  la 1.3.0). Home Assistant no tiene `counter.reload`: la tool pedía token y,
+  al confirmar, HA respondía 400. Ahora responde siempre `not_supported`, con
+  o sin token, sin llamar a HA: los counters de la UI o de Hermes se aplican
+  al guardar y los de YAML al reiniciar. En el banco es un canario que avisa
+  si un HA futuro añade la recarga.
+- **`ha_get_config_entry_options` dice que no puede leer las opciones**
+  (deprecada; se retira en la 1.3.0). Home Assistant no publica las opciones
+  de una config entry por su API, y la tool devolvía siempre `options: {}`.
+  Ahora responde `not_supported` con el dominio, el título y si la
+  integración tiene opciones, e indica la vía: abrir el flujo de opciones con
+  `ha_start_options_flow` (muchas integraciones enseñan los valores actuales)
+  y cerrarlo con `ha_abort_config_entry_flow`.
+- **`ha_wait_for_event` ya no pide `ctx`.** El contexto del SDK estaba mal
+  anotado y salía en el esquema como argumento obligatorio, sin ningún valor
+  con sentido; además, el aviso de progreso durante la espera no salía nunca.
+  Ahora el SDK lo inyecta y el aviso sale cada 15 s (si el cliente pidió
+  avisos de progreso). Un cliente que siga mandando `ctx` no recibe error.
+- **`ha_create_scene_from_current` hace lo que dice.** Crea una escena
+  TEMPORAL (se pierde al reiniciar HA o al recargar las escenas). Con `name`
+  respondía siempre el 400 de HA, porque `scene.create` no admite nombre:
+  ahora responde `name_not_supported` sin llamar a HA (el argumento queda
+  deprecado y se retira en la 1.3.0; para una escena con nombre,
+  `ha_create_or_update_scene`). Reemplazar otra escena temporal, que HA hace
+  en silencio, pide ahora `confirmation_token` con una vista previa de las
+  entidades actuales y las nuevas; sobre una escena que no es temporal
+  responde `scene_exists` (HA no la tocaría); una entidad que no existe da
+  `entity_not_found`; y después comprueba que la escena tiene esas entidades
+  y, si la reemplazaba, que HA la ha recreado de verdad (`scene_not_created`
+  si no; una escena de YAML sin `id` con las mismas entidades ya no pasa por
+  reemplazada). Pasa a anunciarse destructiva, y la respuesta
+  de éxito dice si reemplazó y conserva la de HA en `ha_response`.
+- **Las escenas editables están en `scenes.yaml`.** Las descripciones de
+  `ha_get_scene`, `ha_create_or_update_scene` y `ha_delete_scene` decían
+  `.storage/core.scene_*`, y la segunda, que veía las escenas de
+  `scene.create`, que no están en ningún fichero.
+- **`amount` de los counters y `ha_set_counter_value` no dan el 500 de HA.**
+  HA solo acepta valores múltiplos del `step` y dentro de los límites, y si
+  no, responde un 500 genérico. Ahora `ha_increment_counter` y
+  `ha_decrement_counter` con `amount` responden `invalid_amount`, y
+  `ha_set_counter_value` responde `invalid_value`, con el motivo
+  (`not_multiple_of_step` u `out_of_range`), el valor y los límites, sin
+  tocar el counter. Sin `amount`, todo sigue igual.
+- **La vista previa de deshabilitar o borrar una integración cuenta bien las
+  entidades.** Comparaba el `entry_id` por subcadena: una entidad de la entry
+  `e10` contaba para la `e1`. Ahora compara el id exacto.
+- El banco de pruebas queda sin ningún fallo esperado: los tres hallazgos
+  (el de la 010 y los dos de la 028) están arreglados y sus tests prueban el
+  comportamiento nuevo contra HA real.
 
 ## [1.1.2] — 2026-11-14
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 from typing import Any
 
@@ -311,3 +312,97 @@ class TestWaitForEvent(unittest.IsolatedAsyncioTestCase):
             filters={"data.new_state.state": "on"},
         )
         self.assertTrue(result["matched"])
+
+
+# ── Spec 033 (FR-005, T018): `ctx` es el `Context` del SDK, no un argumento ──
+
+
+class _ContextoDePrueba:
+    """Doble de `Context` con lo único que usa la tool: `report_progress`."""
+
+    def __init__(self) -> None:
+        self.avisos: list[dict[str, Any]] = []
+
+    async def report_progress(self, progress: float, total: float | None = None,
+                              message: str | None = None) -> None:
+        self.avisos.append({"progress": progress, "total": total, "message": message})
+
+
+class TestContextoDeLaEspera(unittest.IsolatedAsyncioTestCase):
+    """Antes `ctx` estaba anotado `Any`: el SDK no lo reconocía como su
+    `Context`, lo publicaba como argumento OBLIGATORIO y nunca lo inyectaba,
+    así que ningún cliente podía rellenarlo con sentido y el aviso de
+    progreso del keepalive no salía nunca (research R-3).
+
+    Control negativo (T020), comprobado y restaurado: volviendo a `ctx: Any`
+    cae `test_sin_ctx_por_el_servidor_real` (falta el argumento obligatorio);
+    en `tests/test_tools_registration.py` caen el del esquema y el de
+    `context_kwarg`.
+    """
+
+    def _servidor(self, fake: FakeHAClientForWait):
+        from mcp.server.mcpserver import MCPServer
+
+        mcp = MCPServer("prueba-espera")
+        wfe_mod.register(mcp, fake, wait_for_event_max_seconds=30)
+        return mcp
+
+    async def test_keepalive_avisa_por_el_contexto(self) -> None:
+        mcp = DummyMCP()
+        wfe_mod.register(mcp, FakeHAClientForWait(), wait_for_event_max_seconds=30)
+        ctx = _ContextoDePrueba()
+        original = wfe_mod._KEEPALIVE_INTERVAL
+        wfe_mod._KEEPALIVE_INTERVAL = 0.05
+        try:
+            resultado = await mcp.tools["ha_wait_for_event"](ctx, "state_changed", timeout_seconds=1)
+        finally:
+            wfe_mod._KEEPALIVE_INTERVAL = original
+        self.assertEqual(resultado["reason"], "timeout")
+        self.assertTrue(ctx.avisos, "el keepalive no llamó a report_progress")
+        self.assertEqual(ctx.avisos[0]["total"], 1)
+        self.assertIn("state_changed", ctx.avisos[0]["message"])
+
+    async def test_un_aviso_que_falla_no_corta_la_espera(self) -> None:
+        """El keepalive no se ejecutaba nunca antes de la 033; ahora sí, y un
+        fallo al avisar (sin petición detrás, transporte cerrado) no puede
+        convertir la espera en un error.
+
+        Control negativo, comprobado y restaurado: sin el `try` alrededor de
+        `report_progress`, este test cae con el `ValueError`.
+        """
+
+        class _ContextoRoto(_ContextoDePrueba):
+            async def report_progress(self, *args, **kwargs) -> None:
+                raise ValueError("Context is not available outside of a request")
+
+        mcp = DummyMCP()
+        wfe_mod.register(mcp, FakeHAClientForWait(), wait_for_event_max_seconds=30)
+        original = wfe_mod._KEEPALIVE_INTERVAL
+        wfe_mod._KEEPALIVE_INTERVAL = 0.05
+        try:
+            resultado = await mcp.tools["ha_wait_for_event"](
+                _ContextoRoto(), "state_changed", timeout_seconds=1
+            )
+        finally:
+            wfe_mod._KEEPALIVE_INTERVAL = original
+        self.assertEqual((resultado["matched"], resultado["reason"]), (False, "timeout"))
+
+    async def test_sin_ctx_por_el_servidor_real(self) -> None:
+        fake = FakeHAClientForWait()
+        evento = {"event_type": "banco_prueba", "data": {"x": 1}}
+        fake.preload(evento)
+        resultado = await self._servidor(fake).call_tool(
+            "ha_wait_for_event", {"event_type": "banco_prueba"}
+        )
+        self.assertFalse(resultado.is_error, resultado)
+        self.assertIs(json.loads(resultado.content[0].text)["matched"], True)
+
+    async def test_ctx_sobrante_se_ignora(self) -> None:
+        # Un cliente que siga mandando `ctx` (era obligatorio) no recibe error.
+        fake = FakeHAClientForWait()
+        fake.preload({"event_type": "banco_prueba", "data": {}})
+        resultado = await self._servidor(fake).call_tool(
+            "ha_wait_for_event", {"ctx": {}, "event_type": "banco_prueba"}
+        )
+        self.assertFalse(resultado.is_error, resultado)
+        self.assertIs(json.loads(resultado.content[0].text)["matched"], True)
