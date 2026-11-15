@@ -472,7 +472,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
 | 030 | Tienda de apps | 082, 093 | pendiente |
-| 031 | Backups de la integración y safety backups cifrados | 027, 057 | en curso (tramos 1 y 2: agentes, ajustes, crear y borrar) |
+| 031 | Backups de la integración y safety backups cifrados | 027, 057 | en curso (tramos 1 a 3: agentes, ajustes, crear, borrar y restaurar) |
 | 032 | Host y red del host | 086, 090 | pendiente |
 | 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | hecha: tramo 1 (el token de `ha_run_script` y `ha_trigger_automation` ata `variables`; inventario de argumentos atados) y tramo 2 (`ha_reload_counters` y `ha_get_config_entry_options` dicen `not_supported` y quedan deprecadas; `ha_wait_for_event` sin `ctx`; `ha_create_scene_from_current` con escena temporal, token para reemplazar y `name` rechazado; descripciones de escenas con `scenes.yaml`; `amount` y `ha_set_counter_value` validados); banco sin ningún `xfail` |
 
@@ -736,6 +736,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_remove_device_from_config_entry` | banco de Core | ok | |
 | `ha_remove_entity_registry` | banco de Core | ok | |
 | `ha_reset_counter` | banco de Core | ok | |
+| `ha_restore_backup` | VM | pendiente | spec 031; instantánea antes; en el banco de Core solo la vista previa, el token y la contraseña incorrecta |
 | `ha_run_script` | banco de Core | ok | |
 | `ha_save_lovelace_dashboard` | banco de Core | ok | |
 | `ha_set_counter_value` | banco de Core | ok | |

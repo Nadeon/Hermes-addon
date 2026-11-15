@@ -1071,6 +1071,24 @@ class TestTemaBackupIntegration(unittest.IsolatedAsyncioTestCase):
             with self.subTest(alias=alias):
                 self.assertEqual(await self.guide(alias), texto)
 
+    async def test_restaurar_del_tramo_3(self) -> None:
+        """Tramo 3 (T043): qué se sobrescribe, elegir ubicación, `password` y
+        la clave de HA, `restore_started` y cómo comprobarlo, que Core se
+        reinicia; alias `restore_backup` y `restore` (que no usaba ningún
+        tema). Control negativo, comprobado: sin el alias `restore` cae."""
+        texto = await self.guide("backup_integration")
+        for palabra in ("ha_restore_backup", "SOBRESCRIBE", "Core se reinicia",
+                        "agent_id_required", "also_in", "password_source",
+                        "backup_encryption_key", "backup_encryption_key_unavailable",
+                        "restore_started", "NO está confirmada", "ha_list_backups",
+                        "last_action_event", "password_incorrect", "not_in_backup",
+                        "sv_restore_backup_*", "anterior: pásala"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("restore_backup", "restore", "RESTORE"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
 
 if __name__ == "__main__":
     unittest.main()

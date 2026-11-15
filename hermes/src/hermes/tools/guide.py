@@ -150,7 +150,7 @@ para el detalle de un área. Temas disponibles:
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `updates`        — qué hay que actualizar, buscar actualizaciones, actualizar Core, OS y Supervisor y las entidades `update`
 - `backups`        — crear, restaurar y gestionar backups
-- `backup_integration` — backups de Home Assistant: agentes, ajustes (programación, retención), crear y borrar
+- `backup_integration` — backups de Home Assistant: agentes, ajustes (programación, retención), crear, borrar y restaurar
 - `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
@@ -768,10 +768,10 @@ ubicación. Los anteriores a 1.1.0 no se podan: bórralos con `sv_delete_backup`
 
 La integración `backup` de Home Assistant (HA 2025.1+) guarda sus backups en
 «agentes»: el local, los montajes de red del Supervisor y ubicaciones remotas
-como la nube. Estas tools leen y cambian sus ajustes, y crean y borran
-backups en cualquier agente. Las `sv_*` del tema `backups` trabajan solo con
-los backups del Supervisor (y los safety backups de Hermes); para listar los
-backups que ve HA, `ha_list_backups`.
+como la nube. Estas tools leen y cambian sus ajustes, y crean, borran y
+restauran backups en cualquier agente. Las `sv_*` del tema `backups`
+trabajan solo con los backups del Supervisor (y los safety backups de
+Hermes); para listar los backups que ve HA, `ha_list_backups`.
 
 - `ha_list_backup_agents()` — cada agente con `kind` (`local`, `mount` para un
   montaje de red del Supervisor, `remote` para el resto), `protected` (si HA
@@ -806,10 +806,34 @@ backups que ve HA, `ha_list_backups`.
   backup de Hermes. Si un agente no se puede leer, no hay token
   (`backup_locations_unreadable`). La respuesta dice `deleted_from` y
   `failed` (`result: partial` si falló en alguna).
+- `ha_restore_backup(backup_id, agent_id=…, restore_homeassistant=True,
+  restore_database=…, restore_addons=[…], restore_folders=[…], password=…)` —
+  restaura, en dos pasos. Lo restaurado se SOBRESCRIBE con su estado en la
+  fecha del backup (lo posterior se pierde) y Core se reinicia. Ubicación:
+  `agent_id`, o la local si el backup está en ella; si solo está en remotos,
+  `agent_id_required` con la lista (de un remoto, HA lo descarga antes).
+  `restore_database` por defecto es lo que trae el backup; con Supervisor
+  tiene que coincidir. Apps y carpetas tienen que estar en el backup
+  (`not_in_backup`) y necesitan el Supervisor. La vista previa trae el
+  backup, `location` (con `kind`, `protected` y `also_in`), `password_source`,
+  `overwrites`, `not_restored` y `warnings` (también si se restaura el propio
+  Hermes): enséñasela entera al usuario.
 
-En las tres, el token ata los argumentos y lo que enseñó la vista previa
-(agentes y cifrado; ajustes y retención; el backup y sus ubicaciones): si
-cambia antes de confirmar, `state_changed`.
+En las cuatro, el token ata los argumentos y lo que enseñó la vista previa
+(agentes y cifrado; ajustes y retención; el backup y sus ubicaciones; el
+backup en la ubicación elegida y de dónde sale la contraseña): si cambia
+antes de confirmar, `state_changed`.
+
+RESTAURAR: EL RESULTADO
+`backup/restore` no contesta hasta terminar. `result: completed` es que HA
+respondió que terminó. `status: restore_started` es que la orden salió pero
+HA no respondió (se estaba reiniciando): NO está confirmada; cuando HA
+vuelva, compruébalo con `ha_list_backups` (`state` vuelve a `idle`,
+`last_action_event` dice `completed` o `failed`) y, con Supervisor,
+`sv_list_pending_jobs`. No la repitas a ciegas. `password_incorrect`: la
+contraseña no vale (si era la clave de HA, el backup puede ser de una clave
+anterior: pásala en `password`); `backup_not_found`; `restore_failed` (con el
+mensaje de HA); `ha_unreachable`: la orden no salió y nada cambió.
 
 Si HA hace un backup antes de actualizar Core o una app (y cuántos guarda) NO
 se lee ni se cambia desde Hermes: el proxy del Supervisor no deja a las apps
@@ -830,14 +854,19 @@ LA CLAVE DE CIFRADO
 La clave que cifra los backups (la del kit de emergencia) NUNCA sale: solo
 `password_set`. `ha_create_backup` con `encrypt` cifra con ella (sin clave en
 HA, `no_encryption_key`; o pasa `encrypt=false`): no acepta contraseñas, y el
-backup se restaura desde la interfaz de HA con el kit. Tampoco se cambia aquí: `password` se rechaza en cualquier
-sitio; se cambia en la interfaz de HA (Ajustes → Sistema → Backups), que
-entrega el kit. `agents.<id>.protected: false` guarda esa copia SIN cifrar
-(con `secrets.yaml`): la vista previa lo avisa.
+backup se restaura con `ha_restore_backup` o desde la interfaz de HA con el
+kit. Para restaurar, `password_source` dice de dónde sale la contraseña,
+nunca su valor: `provided` (la pasas en `password`), `backup_encryption_key`
+(la clave de HA), `backup_encryption_key_unavailable` (cifrado y HA sin clave:
+fallará salvo que pases `password`) o `not_needed`. Las `sv_restore_backup_*`
+hacen lo mismo sin `password`. La clave tampoco se cambia aquí: `password`
+se rechaza en los ajustes; se cambia en la interfaz de HA (Ajustes → Sistema
+→ Backups), que entrega el kit. `agents.<id>.protected: false` guarda esa
+copia SIN cifrar (con `secrets.yaml`): la vista previa lo avisa.
 
 Errores: `invalid_argument` (con `field`), `unknown_agent` (con `available`),
-`not_found`, `ha_version_unsupported` (HA anterior a 2025.1),
-`backup_integration_unavailable`.
+`not_found`, `not_in_backup`, `agent_id_required`, `ha_version_unsupported`
+(HA anterior a 2025.1), `backup_integration_unavailable`.
 """,
     "lovelace": """\
 # Lovelace (dashboards y recursos)
@@ -1452,6 +1481,9 @@ _ALIASES: dict[str, str] = {
     # Tramo 2: crear y borrar.
     "create_backup": "backup_integration",
     "delete_backup": "backup_integration",
+    # Tramo 3: restaurar. `restore` no lo usaba ningún tema.
+    "restore_backup": "backup_integration",
+    "restore": "backup_integration",
     # Spec 019. `backup` sigue siendo `backups`, como en la 1.1.2.
     "cifs": "mounts",
     "nfs": "mounts",

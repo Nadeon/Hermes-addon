@@ -102,9 +102,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # `sv_update_core` del tramo 1, `sv_update_os` y `sv_update_supervisor`
         # del 2 y `ha_install_update` del 3), las 12 de la 016 (2 del tramo A,
         # 7 del B y 3 del C), las 7 de la 019 (5 de montajes y 2 de ajustes
-        # de backup) y 4 de la 031 (tramo 1: `ha_update_backup_config`;
-        # tramo 2: crear, crear con los ajustes automáticos y borrar).
-        self.assertEqual(len(reales), 157)
+        # de backup) y 5 de la 031 (tramo 1: `ha_update_backup_config`;
+        # tramo 2: crear, crear con los ajustes automáticos y borrar; tramo 3:
+        # restaurar, no ejecutable).
+        self.assertEqual(len(reales), 158)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
