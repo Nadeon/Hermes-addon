@@ -282,10 +282,10 @@ class TestListar(_Base):
     async def test_hermes_por_el_slug_exacto(self) -> None:
         """T048: el criterio de Hermes es el de `ha_install_update` (slug
         exacto de `/addons/self/info`), y una app `*_hermes` que no es Hermes
-        no se manda a `sv_update_addon`, que la rechazaría (D-13). Control
-        negativo (comprobado): volver a `_es_hermes(slug)` como único criterio
-        pone este test en rojo (la nota de la otra app dice «cannot update
-        itself»)."""
+        se manda a `sv_update_addon`, que desde el cierre de seguridad (D-13)
+        también compara con el slug exacto. Control negativo (comprobado):
+        volver a `_es_hermes(slug)` como único criterio pone este test en rojo
+        (la otra app sale con `update_with: null`)."""
         con_actualizaciones_de_todo(self.sv)
         self.sv.respuesta("GET", "/addons/self/info", {"slug": SLUG_HERMES})
         otra = "b9c8d7e6_hermes"
@@ -300,9 +300,8 @@ class TestListar(_Base):
         por_slug = {i["slug"]: i for i in r["items"] if i["type"] == "addon"}
         self.assertIsNone(por_slug[SLUG_HERMES]["update_with"])
         self.assertIn("cannot update itself", por_slug[SLUG_HERMES]["note"])
-        self.assertIsNone(por_slug[otra]["update_with"])
-        self.assertIn("sv_update_addon refuses", por_slug[otra]["note"])
-        self.assertNotIn("cannot update itself", por_slug[otra]["note"])
+        self.assertEqual(por_slug[otra]["update_with"], "sv_update_addon")
+        self.assertNotIn("note", por_slug[otra])
         self.assertEqual(por_slug[SLUG_APP]["update_with"], "sv_update_addon")
 
     async def test_hermes_con_slug_sin_sufijo(self) -> None:
@@ -313,8 +312,8 @@ class TestListar(_Base):
         por_slug = {i["slug"]: i for i in r["items"] if i["type"] == "addon"}
         self.assertIsNone(por_slug[SLUG_APP]["update_with"])
         self.assertIn("cannot update itself", por_slug[SLUG_APP]["note"])
-        self.assertIsNone(por_slug[SLUG_HERMES]["update_with"])
-        self.assertIn("sv_update_addon refuses", por_slug[SLUG_HERMES]["note"])
+        # Y la de sufijo `_hermes`, que aquí no es Hermes, es una app más.
+        self.assertEqual(por_slug[SLUG_HERMES]["update_with"], "sv_update_addon")
 
     async def test_sin_slug_propio_cae_al_sufijo(self) -> None:
         # Fail-closed: sin `/addons/self/info`, cualquier `*_hermes` puede ser

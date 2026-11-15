@@ -11,7 +11,8 @@ Lo que se exige es la unión de las listas de todas las sub-features con tests
 en el banco (`cobertura_escrituras.TOOLS_EXIGIDAS_DEL_JOB` y `XFAIL_DEL_JOB`;
 la 010 aporta sus helpers, la 011 `PROBADAS_GENERICAS`, la 028
 `PROBADAS_028` y `XFAIL_PERMITIDOS_028`, la 012 `PROBADAS_012` y la 017
-`PROBADAS_017`). Si una sub-feature
+`PROBADAS_017`; y, por la T031 de la 008, las lecturas nuevas de Core de
+`cobertura_lecturas.LECTURAS_EN_BANCO`). Si una sub-feature
 no sumara su lista, sus tools no se exigirían por ejecución y sus `xfail`
 pondrían el job en rojo; lo vigila `tests/test_banco_cobertura_escrituras.py`.
 """

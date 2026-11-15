@@ -56,7 +56,7 @@ from hermes.security import (
 from hermes.tools import ha_backup_settings as _s
 from hermes.tools import ha_backups as _hb
 from hermes.tools._common import requires_ready, tam_json
-from hermes.tools.addons import _es_hermes
+from hermes.tools.addons import es_hermes
 
 logger = structlog.get_logger(__name__)
 
@@ -135,6 +135,12 @@ def register(
     """Registra la tool de restaurar backups de HA."""
 
     ready = requires_ready(ha_client)
+    # D-13 (cierre de seguridad): Hermes por el slug EXACTO de
+    # `/addons/self/info`, con el sufijo `_hermes` de respaldo si no se puede
+    # leer. Import aquí: `system_updates` importa `addons`.
+    from hermes.tools.system_updates import lector_slug_propio
+
+    slug_propio = lector_slug_propio(ha_client)
 
     async def _ws(payload: dict[str, Any]) -> tuple[Any, dict[str, Any] | None]:
         try:
@@ -355,7 +361,7 @@ def register(
             if _s._kind(elegido) == "remote":
                 avisos.append("The backup is downloaded from a remote location before "
                               "restoring.")
-            if any(_es_hermes(a) for a in restore_addons or []):
+            if any([await es_hermes(a, slug_propio) for a in restore_addons or []]):
                 avisos.append("Hermes itself is replaced by the version in the backup; if "
                               "that version is broken, recovery needs manual intervention.")
             if fuente == CLAVE_HA_NO:

@@ -2268,7 +2268,9 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "supervisor": "dc38e81c61a06932",
         "system_diagnostics": "50509e336b5ca215",
         "system_status": "f6401ab7737759f6",
-        "updates": "bde22d629e7468f4",
+        # El remate del cierre de seguridad cambia `updates`: otra app
+        # `*_hermes` se remite a `sv_update_addon` (D-13); su CHANGELOG lo dice.
+        "updates": "8709b026d7f7152c",
         "workflows": "53b81454a6708b9a",
     }
 

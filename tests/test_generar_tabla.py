@@ -602,5 +602,65 @@ class TestMatriz(unittest.TestCase):
         self.assertEqual(faltan, [])
 
 
+
+class TestFilasClasificadasAMano(_Base):
+    """T034 de la 008 (FR-005, FR-098): la generación desde cero no es la
+    tabla de cierre. Las filas que se clasifican a mano salen «pendiente de
+    tool dedicada» o con el motivo provisional por verbo; la tabla revisada
+    no tiene ninguna. El recuento queda fijado: si crece, una fila nueva se ha
+    quedado sin pasar al mapa del generador (o a `CLASE_C`) y habría que
+    decidirlo a propósito.
+
+    Control negativo comprobado: quitar `system_log/list` de
+    `_DEDICADAS_INICIALES` → cae `test_recuento` (15 «pendiente» de Core, no
+    14)."""
+
+    def _desde_cero(self):
+        inventario = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
+        self.salida.unlink(missing_ok=True)
+        gt.generar(inventario / "core-ws.tsv", inventario / "supervisor-rutas.tsv",
+                   self.salida, ha_core="2026.11.1", supervisor="2026.11.0")
+        return self._tabla()
+
+    @staticmethod
+    def _a_mano(tabla, nombre: str) -> dict[str, list]:
+        entradas = getattr(tabla, nombre)
+        return {
+            "pendiente": sorted(map(str, (k for k, e in entradas.items()
+                                          if "pendiente de tool dedicada" in e.reason))),
+            "provisional": sorted(map(str, (k for k, e in entradas.items()
+                                            if gt.PROVISIONAL in e.reason))),
+        }
+
+    def test_recuento(self) -> None:
+        cero = self._desde_cero()
+        recuento = {
+            nombre: {tipo: len(claves) for tipo, claves in self._a_mano(cero, nombre).items()}
+            for nombre in ("CORE_WS", "SUPERVISOR")
+        }
+        self.assertEqual(recuento, {
+            "CORE_WS": {"pendiente": 14, "provisional": 53},
+            "SUPERVISOR": {"pendiente": 9, "provisional": 49},
+        })
+
+    def test_la_tabla_revisada_no_tiene_ninguna(self) -> None:
+        # Y cada una de esas filas está en la tabla revisada con otra entrada:
+        # la referencia es la tabla, no la generación desde cero.
+        from hermes import command_table as real
+
+        cero = self._desde_cero()
+        for nombre in ("CORE_WS", "SUPERVISOR"):
+            with self.subTest(tabla=nombre):
+                self.assertEqual(self._a_mano(real, nombre),
+                                 {"pendiente": [], "provisional": []})
+                generada, revisada = getattr(cero, nombre), getattr(real, nombre)
+                distintas = [
+                    k for k, e in generada.items()
+                    if ("pendiente de tool dedicada" in e.reason or gt.PROVISIONAL in e.reason)
+                    and revisada[k].reason == e.reason
+                ]
+                self.assertEqual(distintas, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -55,8 +55,9 @@ Hermes no se actualiza a sí mismo (D-1): en la lista, su app sale con
 es el slug EXACTO que da el Supervisor en `/addons/self/info`
 (`lector_slug_propio`, el mismo criterio que `ha_install_update`); si no se
 puede leer, se cae al sufijo `_hermes` (fail-closed). Una app `*_hermes` que no
-es Hermes tampoco tiene tool: `sv_update_addon` rechaza todos los slugs con ese
-sufijo (duda D-13), y la lista lo dice en vez de remitir a ella.
+es Hermes se remite a `sv_update_addon` como cualquier otra: desde el cierre
+de seguridad (D-13), `sv_update_addon` también compara con el slug exacto y
+solo rechaza todo `*_hermes` cuando no lo puede leer.
 
 OS (T047): si ya hay un job `os_manager_update` sin terminar (lanzado desde la
 interfaz o por otra llamada), la vista previa no da token
@@ -210,12 +211,14 @@ _NOTA_HERMES_SIN_SLUG = (
     "(its slug ends in _hermes) may be Hermes itself, which cannot update "
     "itself; sv_update_addon also refuses slugs ending in _hermes. Update it "
     "from the Home Assistant UI.")
-# D-13: `sv_update_addon` (009) rechaza CUALQUIER slug `*_hermes`. Remitir a
-# ella sería remitir a un rechazo seguro (principio V).
+# D-13: sin el slug propio, `sv_update_addon` (009) cae al sufijo y rechaza
+# CUALQUIER `*_hermes`. Remitir a ella sería remitir a un rechazo seguro
+# (principio V). Con el slug propio, otra app `*_hermes` va a `sv_update_addon`
+# como cualquiera: esta nota solo sale cuando no se pudo leer.
 NOTA_OTRO_HERMES = (
-    "sv_update_addon refuses every app whose slug ends in _hermes (it cannot "
-    "tell them from Hermes itself), so Hermes has no tool for this app: update "
-    "it from the Home Assistant UI.")
+    "While Hermes cannot read its own app slug, sv_update_addon also refuses "
+    "every app whose slug ends in _hermes (it cannot tell them from Hermes "
+    "itself): update this app from the Home Assistant UI.")
 
 
 # ── Funciones puras ───────────────────────────────────────────────────────────
@@ -745,13 +748,13 @@ def register(
                     # D-1: Hermes no se actualiza a sí mismo (009).
                     item["update_with"] = None
                     item["note"] = _NOTA_HERMES
-                elif slug and _es_hermes(slug):
+                elif slug and propio is None and _es_hermes(slug):
                     # Sin el slug propio, cualquier `*_hermes` puede ser Hermes
-                    # (fail-closed). Con él, es otra app que `sv_update_addon`
-                    # rechazaría igual (D-13): no se remite a ella.
+                    # (fail-closed), y `sv_update_addon` la rechazaría por el
+                    # sufijo. Con él, otra app `*_hermes` va a `sv_update_addon`
+                    # como cualquiera (D-13, cierre de seguridad).
                     item["update_with"] = None
-                    item["note"] = (_NOTA_HERMES_SIN_SLUG if propio is None
-                                    else NOTA_OTRO_HERMES)
+                    item["note"] = _NOTA_HERMES_SIN_SLUG
                 items.append(item)
         for p, (info, _m) in plugins.items():
             if info and info.get("update_available"):
@@ -790,9 +793,9 @@ def register(
         `slug` (apps and plugins), `installed_version`, `latest_version` and
         `update_with`: the tool that updates it (sv_update_core, sv_update_os,
         sv_update_supervisor, sv_update_addon), the table route for plugins,
-        or null with a `note` for Hermes itself and for any other app whose
-        slug ends in _hermes (sv_update_addon refuses those): update them
-        from the Home Assistant UI.
+        or null with a `note` for Hermes itself (update it from the Home
+        Assistant UI) and, only when Hermes cannot read its own app slug, for
+        any app whose slug ends in _hermes.
         Ordered as it is best to update: Supervisor, then Core, then OS (and
         reboot the host), then plugins and apps.
 

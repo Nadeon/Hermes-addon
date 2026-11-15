@@ -2097,6 +2097,13 @@ familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
   hasta probar `manager` en vivo. Un test nuevo comprueba que todas las rutas
   del Supervisor que usa Hermes caben en `manager` según el código del
   Supervisor 2026.11.0.
+- **Las lecturas nuevas de Core, también exigidas por ejecución.** Como las
+  escrituras, cada tool `ha_*` de solo lectura de una familia de la 1.2.0
+  tiene que haberse ejecutado con éxito en el job del banco, o estar en una
+  lista de no ejecutables con su motivo (hoy solo `ha_get_device_diagnostics`:
+  ninguna integración sin hardware ni nube ofrece diagnóstico de
+  dispositivo). Un test de la suite normal nombra la lectura nueva que no
+  esté en ninguna de las dos.
 
 ### Plataforma y deprecaciones
 
@@ -2215,6 +2222,12 @@ Revisión de seguridad de todo el programa, con las 359 tools ya integradas.
   `*_hermes`. Ahora usan el slug que da el Supervisor en `/addons/self/info`
   cuando se puede leer: otra app `<algo>_hermes` deja de bloquearse. Si no se
   puede leer, sigue el criterio del sufijo, que bloquea de más.
+  Lo mismo, desde el remate del cierre, el aviso de `sv_rebuild_addon`, el
+  de `ha_restore_backup` al restaurar apps, y `ha_list_updates`,
+  `ha_install_update` y `sv_list_available_updates`: otra app
+  `<algo>_hermes` se remite a `sv_update_addon` como cualquier app (antes
+  salía sin tool, con la nota de que `sv_update_addon` la rechazaría, que ya
+  no era verdad). La guía (`updates`) lo dice.
 - **El backup previo de `ha_marketplace_uninstall` se cifra como un safety
   backup.** Sigue `safety_backup_encryption`: la vista previa dice si irá
   cifrado y que restaurarlo necesita la clave del kit de emergencia; con

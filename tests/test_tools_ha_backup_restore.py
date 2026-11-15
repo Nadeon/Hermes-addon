@@ -314,6 +314,37 @@ class TestVistaPrevia(_Base):
         r = await self.restore(restore_addons=["core_mosquitto"])
         self.assertNotIn("Hermes itself", " ".join(r["preview"]["warnings"]))
 
+    async def test_aviso_por_el_slug_exacto(self) -> None:
+        """D-13 (cierre de seguridad, remate): con el slug propio de
+        `/addons/self/info`, otra app `<x>_hermes` no avisa de que se
+        restaura Hermes; sin poder leerlo, el sufijo avisa de más.
+
+        Control negativo comprobado: volver a `_es_hermes(a)` (solo el
+        sufijo) → cae el primer subtest (avisa por `e5f6a7b8_hermes`)."""
+        from hermes.ha import HAConnectionError
+
+        b = _backup()
+        b["addons"] += [{"slug": s, "name": "H", "version": "1.1.2"}
+                        for s in ("a1b2c3d4_hermes", "e5f6a7b8_hermes")]
+        for propio, otra_avisa in (("a1b2c3d4_hermes", False), (None, True)):
+            with self.subTest(propio=propio):
+                self.montar(_respuestas(**{"backup/details": {"backup": b,
+                                                              "agent_errors": {}}}))
+
+                async def sv_request(metodo: str, ruta: str, propio: Any = propio,
+                                     **_: Any) -> Any:
+                    self.assertEqual((metodo, ruta), ("GET", "/addons/self/info"))
+                    if propio is None:
+                        raise HAConnectionError("failed 503", status=503)
+                    return {"slug": propio}
+
+                self.ha.sv_request = sv_request
+                r = await self.restore(restore_addons=["e5f6a7b8_hermes"])
+                avisa = "Hermes itself" in " ".join(r["preview"]["warnings"])
+                self.assertEqual(avisa, otra_avisa)
+                r = await self.restore(restore_addons=["a1b2c3d4_hermes"])
+                self.assertIn("Hermes itself", " ".join(r["preview"]["warnings"]))
+
     async def test_vista_previa_que_no_cabe(self) -> None:
         b = _backup()
         b["addons"] = [{"slug": f"app_{i}", "name": "X" * 80, "version": "1.0.0"}
