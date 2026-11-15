@@ -22,6 +22,9 @@ Lo que importa del Supervisor real y se replica aquí:
   `uuid` y `filesystem` y no lo guarda.
 - `GET /backups` → `{backups: [...]}` con `location` y `locations` (lista de
   nombres; `None` es el disco local).
+- `GET /backups/info` → `{backups: [...], days_until_stale}`;
+  `POST /backups/options` solo admite `days_until_stale` (entero ≥ 1) y
+  `POST /backups/reload` relee y devuelve `true` (tramo 2).
 
 `sv_request` ya devuelve el campo `data` de la respuesta, como el cliente
 real; un error del Supervisor llega como `HAConnectionError`.
@@ -135,6 +138,7 @@ class SupervisorDeMontajes:
         self.por_defecto = por_defecto
         self.backups = backups_de_ejemplo() if backups is None else copy.deepcopy(backups)
         self.filtra = filtra
+        self.days_until_stale = 30
         self.estados: dict[str, str] = {}
         self.errores: dict[tuple[str, str], Exception] = {}
         self.formas: dict[tuple[str, str], Any] = {}
@@ -203,6 +207,16 @@ class SupervisorDeMontajes:
                     "mounts": [self.publico(m) for m in self.montajes]}
         if (metodo, ruta) == ("GET", "/backups"):
             return {"backups": self.backups}
+        if (metodo, ruta) == ("GET", "/backups/info"):
+            return {"backups": self.backups, "days_until_stale": self.days_until_stale}
+        if (metodo, ruta) == ("POST", "/backups/options"):
+            valor = cuerpo.get("days_until_stale")
+            if set(cuerpo) - {"days_until_stale"} or not isinstance(valor, int) or valor < 1:
+                raise HAConnectionError("Supervisor error: invalid options")
+            self.days_until_stale = valor
+            return {}
+        if (metodo, ruta) == ("POST", "/backups/reload"):
+            return True
         if (metodo, ruta) == ("POST", "/mounts"):
             if self.montaje(cuerpo["name"]):
                 raise HAConnectionError(

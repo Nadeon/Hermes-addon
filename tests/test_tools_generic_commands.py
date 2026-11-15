@@ -718,6 +718,21 @@ class TestSupervisorTablaReal(_Base):
         self.assertEqual(r["tool"], "sv_set_default_backup_mount")
         self.ha.sv_request.assert_not_awaited()
 
+    async def test_ajustes_de_backup_por_su_tool(self) -> None:
+        """Spec 019, tramo 2 (FR-015): las rutas de ajustes de backup
+        llevan a su tool dedicada sin llamar al Supervisor."""
+        r = await self.t["sv_read_api"]("/backups/info")
+        self.assertEqual((r["error"], r["tool"]),
+                         ("use_dedicated_tool", "sv_get_backup_settings"))
+        r = await self.t["sv_call_api"]("POST", "/backups/options",
+                                        {"days_until_stale": 7})
+        self.assertEqual((r["error"], r["tool"]),
+                         ("use_dedicated_tool", "sv_set_backup_settings"))
+        self.assertNotIn("confirmation_token", r)
+        r = await self.t["sv_call_api"]("POST", "/backups/reload", None)
+        self.assertEqual(r["tool"], "sv_reload_backups")
+        self.ha.sv_request.assert_not_awaited()
+
 
 # ── Registro ──────────────────────────────────────────────────────────────────
 

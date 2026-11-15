@@ -536,20 +536,27 @@ _MOUNTS_019: dict[tuple[str, str], str] = {
     ("POST", "/mounts/{mount}/reload"): "sv_reload_mount",
     ("POST", "/mounts/options"): "sv_set_default_backup_mount",
 }
+# Tramo 2: las tres de ajustes de backup (`/backups`), misma familia.
+_BACKUP_SETTINGS_019: dict[tuple[str, str], str] = {
+    ("GET", "/backups/info"): "sv_get_backup_settings",
+    ("POST", "/backups/options"): "sv_set_backup_settings",
+    ("POST", "/backups/reload"): "sv_reload_backups",
+}
 
 
 class TestMontajesDeLa019(unittest.TestCase):
-    """FR-015 de la 019: las rutas de `/mounts` pasan a `dedicated` con su
-    tool en el mismo cambio, familia `mounts` y CAP-083. Las tres de
-    `/backups` (ajustes) siguen pendientes del tramo 2.
+    """FR-015 de la 019: las 9 rutas de CAP-083 (6 de `/mounts` en el
+    tramo 1 y 3 de `/backups` en el 2) pasan a `dedicated` con su tool en el
+    mismo cambio, familia `mounts` y CAP-083; no queda ninguna «spec 019».
 
-    Control negativo (T016 i): dejar `POST /mounts` como `deny` → cae
+    Controles negativos: dejar `POST /mounts` como `deny` (T016 i) o
+    `POST /backups/options` como `deny` (T030 e) → cae
     `test_rutas_de_montajes_dedicadas` nombrándola.
     """
 
     def test_rutas_de_montajes_dedicadas(self) -> None:
         malas = []
-        for k, tool in _MOUNTS_019.items():
+        for k, tool in {**_MOUNTS_019, **_BACKUP_SETTINGS_019}.items():
             e = ct.SUPERVISOR[k]
             esperado = ("dedicated", tool, "mounts", "CAP-083", f"cubierto por {tool}")
             real = (e.category, e.tool, e.family, e.cap, e.reason)
@@ -563,10 +570,8 @@ class TestMontajesDeLa019(unittest.TestCase):
             if k[1].startswith("/mounts") and e.category != "dedicated")
         self.assertEqual(pendientes, [])
         quedan = sorted(str(k) for k, e in ct.SUPERVISOR.items()
-                        if e.reason == "pendiente de tool dedicada (spec 019)")
-        self.assertEqual(quedan, [str(k) for k in sorted([
-            ("GET", "/backups/info"), ("POST", "/backups/options"),
-            ("POST", "/backups/reload")])])
+                        if "spec 019" in e.reason)
+        self.assertEqual(quedan, [])
 
 
 if __name__ == "__main__":

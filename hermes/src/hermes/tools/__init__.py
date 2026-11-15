@@ -278,6 +278,9 @@ def register_all_tools(
     if _activa("mounts"):
         from hermes.tools.mounts import register as register_mounts
         register_mounts(mcp, ha_client)
+        # Tramo 2: los ajustes de backup del Supervisor, misma familia.
+        from hermes.tools.backup_settings import register as register_backup_settings
+        register_backup_settings(mcp, ha_client)
 
     # Centro de resolución del Supervisor (lee y descarta; nunca aplica
     # sugerencias) y backups de la integración `backup` de HA, que ven todas

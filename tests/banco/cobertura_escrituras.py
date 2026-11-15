@@ -8,7 +8,7 @@ suite normal (sin HA ni Docker):
         ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 0 + 1)
       ∪ cobertura.PROBADAS_GENERICAS ∪ cobertura.NO_EJECUTABLES_GENERICAS (011, 1 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
-      ∪ FUERA_DEL_BANCO                                              (29)
+      ∪ FUERA_DEL_BANCO                                              (31)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el
@@ -225,4 +225,8 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_delete_mount": _SV_MONTAJES,
     "sv_reload_mount": _SV_MONTAJES,
     "sv_set_default_backup_mount": _SV_MONTAJES,
+    # Spec 019, tramo 2 (ajustes de backup): el Supervisor simulado del banco
+    # no tiene backups ni montajes.
+    "sv_set_backup_settings": _SV_MONTAJES,
+    "sv_reload_backups": _SV_MONTAJES,
 }

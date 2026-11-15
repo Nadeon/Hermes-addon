@@ -151,8 +151,9 @@ class TestCatalogo(unittest.TestCase):
         familia = FAMILIAS["mounts"]
         self.assertEqual(familia.desde, "1.2.0")
         self.assertTrue(familia.desactivable)
-        self.assertEqual(familia.modulos, ("mounts",))
+        self.assertEqual(familia.modulos, ("mounts", "backup_settings"))
         self.assertEqual(familia_de_modulo("mounts"), "mounts")
+        self.assertEqual(familia_de_modulo("backup_settings"), "mounts")
 
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
