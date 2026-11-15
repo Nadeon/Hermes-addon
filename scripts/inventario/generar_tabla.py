@@ -221,7 +221,6 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny | _ConMatiz] = {
     "backup/config/info": "ha_get_backup_config",
     "backup/details": "ha_get_backup",
     "backup/info": "ha_list_backups",
-    "backup/restore": "sv_restore_backup_full",
     "backup/subscribe_events": _SUSCRIPCION_NO_USADA,
     "cloud/subscribe_events": _SUSCRIPCION_NO_USADA,
     # Acciones de HA.
