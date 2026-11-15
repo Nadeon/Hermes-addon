@@ -335,6 +335,45 @@ la lista de tools es la de la 1.1.2.
   también la auditoría y la red por la genérica. La configuración del banco
   carga `system_health:`, `network:`, `recorder:` y `logbook:`.
 
+### Backups de Home Assistant
+
+Spec 031 (en curso; tramo 1: agentes y ajustes). Familia nueva
+`backup_integration`, desactivable: con ella apagada (y las demás de la
+1.2.0), la lista de tools es la de la 1.1.2.
+
+- **`ha_list_backup_agents`** (solo lee): dónde puede guardar HA sus backups,
+  cada agente con `kind` (`local`, `mount` para un montaje de red del
+  Supervisor, `remote`), `protected` (si HA cifra la copia que guarda ahí),
+  su retención propia y si lo usan los backups automáticos. Lista con el
+  sobre común (`count`, `items`, `truncated`).
+- **`ha_update_backup_config`** (dos pasos): programación, retención,
+  agentes y contenido de los backups automáticos. Valida cada clave contra
+  el esquema de HA 2026.11.1 antes de llamar y rechaza `password` en
+  cualquier sitio sin repetir su valor: la clave de cifrado no sale ni se
+  cambia por Hermes. HA sustituye `schedule` y `retention` enteros, así que
+  Hermes los completa con los valores actuales de lo que no se pasa (un
+  `schedule` a medias ya no apaga los automáticos). La vista previa enseña lo
+  actual, lo resultante, lo que se manda, lo que cambia, los avisos (agente
+  sin cifrar, programación a `never`, agentes que no existen) y una
+  ESTIMACIÓN, con las reglas de HA, de los backups automáticos que la
+  retención borraría y cuándo. El token ata además la configuración leída y
+  esa estimación: si cambian antes de confirmar, `state_changed`.
+- **`ha_get_update_backup_settings`** y **`ha_set_update_backup_settings`**
+  (esta en dos pasos): si HA hace un backup antes de actualizar Core o una
+  app, y cuántos guarda de cada app (de 1 a 100; la vista previa avisa al
+  bajarlo). Solo con Supervisor: sin él, `supervisor_integration_unavailable`.
+- **Tabla de comandos**: `backup/agents/info`, `backup/config/update` y
+  `hassio/update/config/*` pasan de «pendiente de tool dedicada (spec 031)» a
+  sus tools; las genéricas los rechazan con `use_dedicated_tool`.
+- **Guía**: tema nuevo `backup_integration` (alias `backup_agents`,
+  `backup_config`, `backup_schedule`, `backup_retention`); `backup` sigue
+  llevando a `backups`.
+- **Banco de Core**: la configuración carga `backup:` (agente
+  `backup.local`); `ha_list_backup_agents` y `ha_update_backup_config` se
+  ejecutan contra HA real, con el efecto leído por el lector y la vista
+  previa sin cambiar nada. `ha_set_update_backup_settings` necesita el
+  Supervisor: matriz de pruebas, VM pendiente.
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de
