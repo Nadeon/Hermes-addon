@@ -38,9 +38,11 @@ from tests.fixtures.supervisor_host import (
     VERSION_A,
     VERSION_B,
     SupervisorDeHost,
+    core_state,
     corte,
     error_hostname_invalido,
     error_migracion,
+    os_info_sin_haos,
 )
 
 
@@ -275,6 +277,46 @@ class TestSwap(_Base):
         self.assertEqual(r["error"], "insufficient_disk")
         self.assertNotIn("confirmation_token", r)
 
+    async def test_margen_de_disco(self) -> None:
+        # T033: 20,5 GiB libres de 31,2: el margen es el 10 % (3,1 GiB), así
+        # que caben 17 GiB y no 18 ni 20 (antes, con `>` estricto, cabían
+        # 20). Control negativo: comparando con `libre` sin margen, caen los
+        # casos de 18G y 20G.
+        for valor, cabe in (("17G", True), ("18G", False), ("20G", False),
+                            ("20992M", False)):
+            with self.subTest(valor=valor):
+                r = await self.t["sv_set_swap"](swap_size=valor)
+                if cabe:
+                    self.assertIn("confirmation_token", r, r)
+                    self.assertEqual(r["preview"]["disk_reserve_gib"], 3.1)
+                else:
+                    self.assertEqual(r["error"], "insufficient_disk", r)
+                    self.assertIn("3.1 GiB", r["detail"])
+                    self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.sv.escrituras, [])
+
+    async def test_margen_minimo_de_un_gib(self) -> None:
+        # En un disco pequeño (8 GiB, 10 % = 0,8) manda el suelo de 1 GiB.
+        self.sv.host.update({"disk_free": 3.0, "disk_total": 8.0})
+        self.assertIn("confirmation_token", await self.t["sv_set_swap"](swap_size="2G"))
+        r = await self.t["sv_set_swap"](swap_size="2049M")
+        self.assertEqual(r["error"], "insufficient_disk", r)
+        self.assertIn("1.0 GiB", r["detail"])
+
+    async def test_margen_se_repite_al_confirmar(self) -> None:
+        vista = await self._vista("sv_set_swap", swap_size="17G")
+        self.sv.host["disk_free"] = 19.5
+        r = await self.t["sv_set_swap"](swap_size="17G",
+                                        confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["error"], "insufficient_disk", r)
+        self.assertEqual(self.sv.escrituras, [])
+
+    async def test_sin_disco_total_no_hay_token(self) -> None:
+        del self.sv.host["disk_total"]
+        r = await self.t["sv_set_swap"](swap_size="2G")
+        self.assertIn("unexpected", r["error"].lower())
+        self.assertNotIn("confirmation_token", r)
+
     async def test_cero_desactiva(self) -> None:
         vista = await self._vista("sv_set_swap", swap_size="0")
         self.assertIn("disables swap", vista["preview"]["warning"])
@@ -311,8 +353,9 @@ class TestRanura(_Base):
         self.assertIn("reboots immediately", p["warning"])
         self.assertIn("bad", p["slot_warning"])
         self.assertEqual(p["rollback"], 'sv_set_boot_slot("A")')
+        # Las ranuras y el estado de Core (la migración, T029).
         self.assertEqual([(c["metodo"], c["ruta"]) for c in self.sv.llamadas],
-                         [("GET", "/os/info")])
+                         [("GET", "/os/info"), ("GET", "/core/api/core/state")])
 
     async def test_confirmar_en_mayusculas(self) -> None:
         _, hecho = await self._confirmar("sv_set_boot_slot", boot_slot="b")
@@ -359,18 +402,91 @@ class TestRanura(_Base):
                 self.assertNotIn("confirmation_token", r)
 
     async def test_sin_haos(self) -> None:
-        self.sv.os = None
+        # T032: lo que contesta de verdad el Supervisor 2026.11.0 sin HAOS
+        # (`boot: null`, `boot_slots: {}`), no un 404. Control negativo:
+        # quitando la rama de `_leer_ranuras`, sale «Unexpected Supervisor
+        # response» y este test cae.
+        self.sv.os = os_info_sin_haos()
         r = await self.t["sv_set_boot_slot"](boot_slot="B")
-        self.assertEqual(r["error"], "not_supported")
+        self.assertEqual(r["error"], "not_supported", r)
+        self.assertIn("Home Assistant OS", r["hint"])
         self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.sv.escrituras, [])
 
     async def test_forma_inesperada(self) -> None:
-        for forma in ({"boot": "A"}, {"boot": None, "boot_slots": {}}, [], {}):
+        for forma in ({"boot": "A"}, {"boot": None, "boot_slots": {"A": {}}},
+                      {"boot": None}, [], {}):
             with self.subTest(forma=forma):
                 self.sv.formas[("GET", "/os/info")] = forma
                 r = await self.t["sv_set_boot_slot"](boot_slot="B")
                 self.assertIn("unexpected", r["error"].lower())
                 self.assertNotIn("confirmation_token", r)
+
+
+class TestRanuraYMigracion(_Base):
+    """T029: el Supervisor NO comprueba la migración de la base de datos de
+    Core al cambiar de ranura (`os/manager.py::set_boot_slot` reinicia
+    directamente), así que lo hace Hermes, con el criterio de
+    `get_api_state`, antes de dar token y otra vez antes de enviar.
+
+    Control negativo: quitando la llamada a `_sin_migracion`, caen
+    `test_migracion_offline_sin_token`, `test_migracion_que_empieza_tras_la_
+    vista` y `test_estado_ilegible_sin_token`.
+    """
+
+    async def test_migracion_offline_sin_token(self) -> None:
+        self.sv.core = core_state(migrando=True)
+        r = await self.t["sv_set_boot_slot"](boot_slot="B")
+        self.assertEqual(r["error"], "db_migration_in_progress", r)
+        self.assertIn("migrating its database", r["detail"])
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.sv.escrituras, [])
+
+    async def test_migracion_en_vivo_no_bloquea(self) -> None:
+        # Igual que el Supervisor: una migración en vivo no impide reiniciar.
+        self.sv.core = core_state(migrando=True, en_vivo=True)
+        await self._confirmar("sv_set_boot_slot", boot_slot="B")
+        self.assertEqual(len(self.sv.escrituras), 1)
+
+    async def test_core_antiguo_sin_recorder_state(self) -> None:
+        self.sv.core = {"state": "RUNNING"}
+        await self._vista("sv_set_boot_slot", boot_slot="B")
+
+    async def test_migracion_que_empieza_tras_la_vista(self) -> None:
+        vista = await self._vista("sv_set_boot_slot", boot_slot="B")
+        self.sv.core = core_state(migrando=True)
+        r = await self.t["sv_set_boot_slot"](
+            boot_slot="B", confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["error"], "db_migration_in_progress", r)
+        self.assertEqual(self.sv.escrituras, [])
+
+    async def test_estado_ilegible_sin_token(self) -> None:
+        # Fail-closed: sin saber si migra, no se reinicia.
+        casos = {
+            "corte": lambda sv: sv.errores.__setitem__(
+                ("GET", "/core/api/core/state"), corte()),
+            "lista": lambda sv: setattr(sv, "core", []),
+            "recorder_state raro": lambda sv: setattr(
+                sv, "core", {"state": "RUNNING", "recorder_state": "x"}),
+        }
+        for nombre, preparar in casos.items():
+            with self.subTest(caso=nombre):
+                self.sv = SupervisorDeHost()
+                self.mcp = DummyMCP()
+                register(self.mcp, self.sv)
+                preparar(self.sv)
+                r = await self.mcp.tools["sv_set_boot_slot"](boot_slot="B")
+                self.assertEqual(r["error"], "core_state_unknown", r)
+                self.assertNotIn("confirmation_token", r)
+                self.assertEqual(self.sv.escrituras, [])
+
+    async def test_apagar_no_lee_core(self) -> None:
+        # `sv_shutdown_host` no lo necesita: con `{}` lo comprueba el
+        # propio Supervisor (`_check_ha_offline_migration`).
+        self.sv.core = core_state(migrando=True)
+        await self._confirmar("sv_shutdown_host")
+        self.assertNotIn(("GET", "/core/api/core/state"),
+                         [(c["metodo"], c["ruta"]) for c in self.sv.llamadas])
 
 
 # ── T005: token atado, corte tras enviar y log ───────────────────────────────

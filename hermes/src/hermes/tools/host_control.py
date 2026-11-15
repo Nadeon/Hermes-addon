@@ -27,7 +27,20 @@ comprobar al confirmar (decisión del supervisor al validar la spec).
 
 `force` de apagar no se expone (research R-5): se salta la comprobación de una
 migración de la base de datos de Core en curso, y apagar a mitad puede
-corromperla. `sv_reboot_host` (1.1.2) tampoco lo expone.
+corromperla. `sv_reboot_host` (1.1.2) tampoco lo expone. Con el cuerpo `{}`
+el propio Supervisor hace esa comprobación (`_check_ha_offline_migration` en
+`api/host.py`), así que apagar no necesita repetirla (T029).
+
+La RANURA sí: `POST /os/boot-slot` (`os/manager.py::set_boot_slot`) marca la
+ranura y llama a `host.control.reboot()` directamente, sin esa comprobación.
+Por eso `sv_set_boot_slot` lee el estado de Core (`/api/core/state`, el mismo
+que lee el Supervisor) antes de dar token y otra vez antes de enviar, y con
+una migración que no es en vivo se niega (`db_migration_in_progress`). Si el
+estado no se puede leer, también se niega (fail-closed): el Supervisor deja
+seguir en ese caso, pero aquí no hay `force` ni forma de saber si migra.
+
+La swap no puede comerse el disco: tras crearla tienen que quedar libres al
+menos 1 GiB o el 10 % del disco, lo que sea mayor (`_MARGEN_*`, T033).
 
 Apagar y la ranura tumban el host: el Supervisor puede no llegar a contestar.
 Un corte DESPUÉS de enviar no es un fallo seguro ni un éxito, así que la
@@ -88,6 +101,12 @@ DETALLE_RANURA = "boot_slot must be 'A' or 'B'."
 _UNIDADES = {"": 1, "B": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3}
 
 _PISTA_OS = "Requires Home Assistant OS (swap needs OS 15 or newer)."
+
+# Lo que la swap tiene que dejar libre en el disco de datos (T033): Core, la
+# base de datos, los backups y las apps siguen escribiendo ahí. 1 GiB como
+# suelo para discos pequeños y el 10 % del total para los grandes.
+_MARGEN_MIN_GIB = 1.0
+_MARGEN_FRACCION = 0.10
 _PISTA_TOKEN = "Request a new preview and confirm with the token it returns."
 
 
@@ -345,12 +364,16 @@ def register(mcp: object, ha_client: HAClient) -> None:
             raise _forma("/os/config/swap")
         return {"swap_size": datos["swap_size"], "swappiness": datos["swappiness"]}
 
-    async def _disco_libre(tool: str) -> float:
+    async def _disco(tool: str) -> tuple[float, float]:
+        """`(disk_free, disk_total)` en GiB."""
         datos = await _leer(tool, "/host/info")
-        libre = datos.get("disk_free") if isinstance(datos, dict) else None
-        if isinstance(libre, bool) or not isinstance(libre, (int, float)):
-            raise _forma("/host/info")
-        return float(libre)
+        valores = []
+        for clave in ("disk_free", "disk_total"):
+            v = datos.get(clave) if isinstance(datos, dict) else None
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise _forma("/host/info")
+            valores.append(float(v))
+        return valores[0], valores[1]
 
     def _mismo_tamano(a: str, b: str) -> bool:
         # `1G` y `1024M` son la misma swap; lo que no se pueda leer, por texto.
@@ -367,8 +390,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """Change Home Assistant OS swap: swap_size (like '2G', '512M' or a
         number of bytes; '0' disables swap) and/or swappiness (0-200). Only
         what you pass is sent. Requires Home Assistant OS 15 or newer
-        (not_supported otherwise). A size larger than the free disk space is
-        refused (insufficient_disk); the same values as now, no_change. The
+        (not_supported otherwise). A size that would leave less than 1 GiB
+        or 10% of the disk free (whichever is larger) is refused
+        (insufficient_disk); the same values as now, no_change. The
         Supervisor raises a 'reboot required' issue: the change applies after
         sv_reboot_host.
 
@@ -389,7 +413,8 @@ def register(mcp: object, ha_client: HAClient) -> None:
                  if v is not None}
         try:
             actual = await _leer_swap(tool)
-            libre = await _disco_libre(tool)
+            libre, total = await _disco(tool)
+            margen = max(_MARGEN_MIN_GIB, round(total * _MARGEN_FRACCION, 1))
             cambios = {
                 k: {"from": actual[k], "to": v} for k, v in carga.items()
                 if not (_mismo_tamano(actual[k], v) if k == "swap_size" else actual[k] == v)
@@ -398,12 +423,18 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 raise _Rechazo({"error": "no_change",
                                 "detail": "The swap already has those values."}, "no_change")
             # Se repite al confirmar: el disco libre no entra en la huella.
-            if swap_size is not None and _bytes_de_swap(swap_size) > libre * 1024 ** 3:
+            # Se compara contra lo que queda libre MENOS el margen, sin
+            # descontar la swap actual: no se sabe si su fichero existe ya,
+            # y suponerlo sería optimista (fail-closed).
+            if (swap_size is not None
+                    and _bytes_de_swap(swap_size) > (libre - margen) * 1024 ** 3):
                 raise _Rechazo({
                     "error": "insufficient_disk",
-                    "detail": ("swap_size is larger than the free disk space "
-                               f"({libre} GiB); the swap file would fill the "
-                               "data disk that Home Assistant needs."),
+                    "detail": (f"swap_size must leave at least {margen} GiB free "
+                               "(1 GiB or 10% of the disk, whichever is larger) "
+                               f"and only {libre} GiB are free; the swap file "
+                               "would fill the data disk that Home Assistant "
+                               "needs."),
                 }, "insufficient_disk")
         except _Rechazo as r:
             _log(tool, "rejected", reason=r.motivo)
@@ -413,7 +444,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         if not confirmation_token:
             preview: dict[str, Any] = {
                 "action": "set_swap", "changes": cambios, "disk_free_gib": libre,
-                "reboot_required": True,
+                "disk_reserve_gib": margen, "reboot_required": True,
             }
             if swap_size is not None and _bytes_de_swap(swap_size) == 0:
                 preview["warning"] = ("swap_size 0 disables swap: with little "
@@ -446,10 +477,55 @@ def register(mcp: object, ha_client: HAClient) -> None:
         if not isinstance(datos, dict):
             raise _forma("/os/info")
         boot, ranuras = datos.get("boot"), datos.get("boot_slots")
+        if boot is None and isinstance(ranuras, dict) and not ranuras:
+            # Sin HAOS, `api/os.py::info` NO da 404: contesta `boot: null` y
+            # `boot_slots: {}` (no hay RAUC ni ranuras). Es «no soportado», no
+            # una respuesta rara (T032).
+            raise _Rechazo({"error": "not_supported",
+                            "detail": "This system has no Home Assistant OS boot slots.",
+                            "hint": _PISTA_OS}, "not_supported")
         if (not isinstance(boot, str) or not isinstance(ranuras, dict)
                 or not all(isinstance(v, dict) for v in ranuras.values())):
             raise _forma("/os/info")
         return {"boot": boot, "boot_slots": ranuras}
+
+    async def _sin_migracion() -> None:
+        """Rechaza si Core migra su base de datos fuera de línea (T029).
+
+        El mismo criterio que `get_api_state` del Supervisor:
+        `recorder_state.migration_in_progress` y no `migration_is_live`; un
+        Core sin `recorder_state` (anterior a 2024.8) no migra. A diferencia
+        del Supervisor, si el estado no se puede leer se rechaza: reiniciar a
+        mitad de una migración puede corromper la base de datos.
+        """
+        try:
+            estado = await ha_client._request_json("GET", "/core/state")  # noqa: SLF001
+        except (HAConnectionError, aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            raise _Rechazo({
+                "error": "core_state_unknown",
+                "detail": ("Cannot read Home Assistant's state to check that it "
+                           "is not migrating its database "
+                           f"({redact_secrets(str(exc))}); changing the boot slot "
+                           "reboots at once and could corrupt it. Try again when "
+                           "Home Assistant answers."),
+            }, "core_state_unknown") from None
+        recorder = estado.get("recorder_state", {}) if isinstance(estado, dict) else None
+        if not isinstance(recorder, dict):
+            raise _Rechazo({
+                "error": "core_state_unknown",
+                "detail": ("Unexpected answer from Home Assistant's /api/core/state; "
+                           "cannot tell whether it is migrating its database."),
+            }, "core_state_unknown")
+        if recorder.get("migration_in_progress") is True and \
+                recorder.get("migration_is_live") is not True:
+            raise _Rechazo({
+                "error": "db_migration_in_progress",
+                "detail": ("Home Assistant is migrating its database offline. "
+                           "Changing the boot slot reboots the machine at once "
+                           "and could corrupt the database; the Supervisor does "
+                           "not check this for boot slots. Wait until the "
+                           "migration finishes (ha_get_recorder_info)."),
+            }, "db_migration_in_progress")
 
     @mcp.tool()
     async def sv_set_boot_slot(boot_slot: str, confirmation_token: str | None = None) -> object:
@@ -460,7 +536,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
         minutes), and it keeps booting from it until changed back. Requires
         Home Assistant OS. The slot already booted is refused
         (already_booted); a missing slot or one without an OS version,
-        slot_unusable; a slot marked 'bad' is allowed with a warning.
+        slot_unusable; a slot marked 'bad' is allowed with a warning. While
+        Home Assistant migrates its database offline it is refused
+        (db_migration_in_progress), and also when that cannot be checked
+        (core_state_unknown), before the preview and again before sending.
 
         Two steps: the preview shows the current and the target slot with
         their versions and how to go back, and returns a confirmation_token;
@@ -487,6 +566,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 raise _Rechazo({"error": "slot_unusable",
                                 "detail": (f"Slot {boot_slot} has no OS version the "
                                            "Supervisor can boot.")}, "slot_unusable")
+            # Antes de dar token y otra vez antes de enviar (este código
+            # corre en las dos llamadas): la migración puede empezar en los
+            # 60 s del token.
+            await _sin_migracion()
         except _Rechazo as r:
             _log(tool, "rejected", reason=r.motivo)
             return r.respuesta

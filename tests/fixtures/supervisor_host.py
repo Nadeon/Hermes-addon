@@ -13,10 +13,15 @@ Lo que importa del Supervisor real y se replica aquí:
 - `GET /os/config/swap` → `{swap_size, swappiness}`; 404 sin HAOS ≥ 15.
   `POST /os/config/swap` admite solo las dos claves.
 - `GET /os/info` → `{version, boot, boot_slots: {A: {state, status,
-  version}, B: …}, …}`; 404 sin HAOS. `POST /os/boot-slot` marca la ranura y
-  reinicia en el acto.
+  version}, B: …}, …}`. Sin HAOS NO da 404 (`api/os.py::info` no lo
+  comprueba): contesta `boot: null` y `boot_slots: {}` (`os_info_sin_haos`).
+  `POST /os/boot-slot` marca la ranura y reinicia en el acto, SIN comprobar
+  la migración de la base de datos de Core (`os/manager.py::set_boot_slot`).
 - `POST /host/shutdown` comprueba la migración de la base de datos de Core
   (salvo `force`) y apaga.
+- Core: `GET /api/core/state` (por el proxy del Supervisor, `_request_json`
+  con la ruta `/core/state`) → `{state, recorder_state: {migration_in_progress,
+  migration_is_live}}`, lo mismo que lee el Supervisor (`get_api_state`).
 
 `sv_request` devuelve el campo `data`, como el cliente real; un error del
 Supervisor llega como `HAConnectionError` con `status`, y un corte de la
@@ -60,6 +65,21 @@ def os_info() -> dict[str, Any]:
     }
 
 
+def os_info_sin_haos() -> dict[str, Any]:
+    """Lo que devuelve `GET /os/info` del Supervisor 2026.11.0 sin Home
+    Assistant OS: sin RAUC (`boot` nulo) y sin ranuras."""
+    return {"version": None, "version_latest": None, "version_pending": None,
+            "update_available": False, "board": None, "boot": None,
+            "data_disk": None, "boot_slots": {}}
+
+
+def core_state(*, migrando: bool = False, en_vivo: bool = False) -> dict[str, Any]:
+    """`GET /api/core/state` de Core (con `recorder_state` desde 2024.8)."""
+    return {"state": "RUNNING",
+            "recorder_state": {"migration_in_progress": migrando,
+                               "migration_is_live": en_vivo}}
+
+
 def error_404(ruta: str) -> HAConnectionError:
     return HAConnectionError(
         f"Supervisor REST GET http://supervisor{ruta} failed 404: "
@@ -90,7 +110,10 @@ def corte() -> HAConnectionError:
 class SupervisorDeHost:
     """Supervisor simulado del host y del OS.
 
-    - `host`, `swap`, `os`: estado actual (`None` en `swap` u `os` → 404).
+    - `host`, `swap`, `os`: estado actual (`None` en `swap` → 404, como el
+      Supervisor real sin HAOS ≥ 15; sin HAOS, `os` es `os_info_sin_haos()`).
+    - `core`: lo que contesta Core en `/api/core/state`; `errores[("GET",
+      "/core/api/core/state")]` lo hace fallar.
     - `errores[(método, ruta)]`: excepción que lanza esa petición (la
       llamada queda registrada antes: para un POST, «enviado»).
     - `formas[(método, ruta)]`: respuesta cruda que sustituye a la normal.
@@ -100,7 +123,8 @@ class SupervisorDeHost:
     def __init__(self) -> None:
         self.host: dict[str, Any] = host_info()
         self.swap: dict[str, Any] | None = swap()
-        self.os: dict[str, Any] | None = os_info()
+        self.os: dict[str, Any] = os_info()
+        self.core: Any = core_state()
         self.errores: dict[tuple[str, str], Exception] = {}
         self.formas: dict[tuple[str, str], Any] = {}
         self.llamadas: list[dict[str, Any]] = []
@@ -108,6 +132,24 @@ class SupervisorDeHost:
     @property
     def escrituras(self) -> list[dict[str, Any]]:
         return [c for c in self.llamadas if c["metodo"] != "GET"]
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> Any:
+        """La API REST de Core por el proxy del Supervisor (`/core/api…`)."""
+        ruta = f"/core/api{path}"
+        clave = (method, ruta)
+        self.llamadas.append({"metodo": method, "ruta": ruta,
+                              "json_body": copy.deepcopy(json_body)})
+        if clave in self.errores:
+            raise self.errores[clave]
+        if clave == ("GET", "/core/api/core/state"):
+            return copy.deepcopy(self.core)
+        raise HAConnectionError(f"HA REST {method} {ruta} failed 404", status=404)
 
     async def sv_request(
         self,
@@ -131,8 +173,6 @@ class SupervisorDeHost:
                 raise error_404(sv_path)
             return copy.deepcopy(self.swap)
         if clave == ("GET", "/os/info"):
-            if self.os is None:
-                raise error_404(sv_path)
             return copy.deepcopy(self.os)
         if clave == ("POST", "/host/options"):
             self.host["hostname"] = (json_body or {})["hostname"]
@@ -222,6 +262,40 @@ def red_wlan0_unica_conectada() -> list[dict[str, Any]]:
     interfaces[0]["connected"] = False
     interfaces[1]["connected"] = True
     return interfaces
+
+
+def interfaz_eth1() -> dict[str, Any]:
+    """Una segunda tarjeta ethernet, secundaria y desconectada."""
+    return {"interface": "eth1", "type": "ethernet", "enabled": True,
+            "connected": False, "primary": False, "mac": "aa:bb:cc:dd:ee:02",
+            "ipv4": _ipv4(None, ready=False), "ipv6": _ipv6(), "wifi": None,
+            "vlan": None, "mdns": "default", "llmnr": "default"}
+
+
+# El UUID de una conexión de NetworkManager (inventado): lo que el Supervisor
+# devuelve como `vlan.parent` después de la primera actualización de la VLAN.
+UUID_MADRE = "0e5f3a9c-1b2d-4c6e-8f70-123456789abc"
+
+
+def red_vlan_principal(madre: str | None = "eth0") -> list[dict[str, Any]]:
+    """Home Assistant se alcanza por la VLAN `eth0.10` (la principal); `eth0`,
+    su madre, está conectada sin ser la principal; `eth1` y `wlan0` son
+    secundarias. `madre` es lo que el Supervisor da en `vlan.parent`: el
+    nombre, el UUID de la conexión o nada."""
+    eth0, vlan = interfaz_eth0(), interfaz_vlan10()
+    eth0["primary"], vlan["primary"] = False, True
+    vlan["vlan"] = None if madre is None else {"id": 10, "parent": madre}
+    return [eth0, interfaz_wlan0(), vlan, interfaz_eth1()]
+
+
+def red_vlan_sobre_vlan() -> list[dict[str, Any]]:
+    """La principal es `eth0.10.20`, una VLAN sobre la VLAN `eth0.10`."""
+    interfaces = red_vlan_principal()
+    interfaces[2]["primary"] = False
+    qinq = interfaz_vlan10()
+    qinq.update({"interface": "eth0.10.20", "primary": True,
+                 "vlan": {"id": 20, "parent": "eth0.10"}})
+    return [*interfaces, qinq]
 
 
 def error_que_repite_la_psk() -> HAConnectionError:
