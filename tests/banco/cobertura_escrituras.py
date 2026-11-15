@@ -49,7 +49,11 @@ from __future__ import annotations
 
 from tests.banco import cobertura
 from tests.banco.cobertura_012 import PROBADAS_012
-from tests.banco.cobertura_031 import LECTURAS_EN_BANCO_031, PROBADAS_031
+from tests.banco.cobertura_031 import (
+    LECTURAS_EN_BANCO_031,
+    PROBADAS_031,
+    XFAIL_PERMITIDOS_031,
+)
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -151,7 +155,11 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     # Spec 031: sus escrituras y la lectura de agentes (FR-022).
     | PROBADAS_031 | LECTURAS_EN_BANCO_031
 )
-XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
+XFAIL_DEL_JOB: dict[str, str] = {
+    **cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028,
+    # Spec 031: el HALLAZGO del proxy del Supervisor con `hassio/*`.
+    **XFAIL_PERMITIDOS_031,
+}
 
 # `ha_*` que no se pueden ejecutar en el banco → motivo concreto (qué falta:
 # hardware, internet, nube o Supervisor). Vacío: todas se ejecutan.

@@ -109,6 +109,18 @@ Cada tramo necesita el anterior integrado.
   actualizar Core o una app (FR-004 solo pedía el aviso de las copias).
 - `_comprobar_version` de `tools/ha_backups.py` pasa a ser la función de
   módulo `comprobar_version_backup` (mismo comportamiento) para no copiarla.
+- **HALLAZGO (CI del banco)**: `ha_get_update_backup_settings` y
+  `ha_set_update_backup_settings` no pueden funcionar desde un add-on. Hermes
+  habla con Core por el proxy WebSocket del Supervisor, que rechaza todo
+  `supervisor/*` y `hassio/*` de una app con «Unauthorized»
+  (`DENIED_WS_TYPE_PREFIXES` de `supervisor/api/proxy.py`, 2026.11.0; el
+  simulado del banco copia la regla). En el banco, la primera responde «HA WS
+  command failed: Unauthorized» en vez de `supervisor_integration_unavailable`:
+  `xfail` estricto con `DenegadoPorElProxy`, en `XFAIL_PERMITIDOS_031` y
+  `DENEGADAS_POR_EL_PROXY_031`. FR-004 suponía que el comando llegaba: duda
+  para el supervisor (quitar las dos tools, o dejarlas con un error claro y la
+  descripción y la guía corregidas). Mientras, su descripción y el tema de la
+  guía no lo dicen.
 - Banco: `ha_get_update_backup_settings` solo se prueba en su
   `supervisor_integration_unavailable`, que es un error y no cuenta como
   ejecución: no está en `LECTURAS_EN_BANCO_031`.

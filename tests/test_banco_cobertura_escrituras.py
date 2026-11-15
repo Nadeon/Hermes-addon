@@ -144,7 +144,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             | c031.PROBADAS_031 | c031.LECTURAS_EN_BANCO_031,
         )
         self.assertEqual(
-            c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}
+            c028.XFAIL_DEL_JOB,
+            {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028,
+             **c031.XFAIL_PERMITIDOS_031},
         )
         conftest = (RAIZ / "tests" / "banco" / "conftest.py").read_text(encoding="utf-8")
         self.assertIn("tools_exigidas=TOOLS_EXIGIDAS_DEL_JOB", conftest)
@@ -173,6 +175,28 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             self.assertIn("HALLAZGO", motivo, tool)
             self.assertIn("spec 033", motivo, tool)
         for nodeid in c028.XFAIL_PERMITIDOS_028:
+            ruta, clase, metodo = nodeid.split("::")
+            self.assertTrue((RAIZ / ruta).is_file(), nodeid)
+            modulo = importlib.import_module(ruta.removesuffix(".py").replace("/", "."))
+            prueba = getattr(getattr(modulo, clase), metodo)
+            marcas = [m for m in getattr(prueba, "pytestmark", []) if m.name == "xfail"]
+            self.assertEqual(len(marcas), 1, nodeid)
+            self.assertIs(marcas[0].kwargs.get("strict"), True, nodeid)
+            self.assertIn("HALLAZGO", marcas[0].kwargs.get("reason", ""), nodeid)
+            excepcion = marcas[0].kwargs.get("raises")
+            self.assertNotIn(excepcion, (None, AssertionError, Exception, BaseException), nodeid)
+
+    def test_hallazgo_de_la_031_con_su_xfail(self) -> None:
+        # El mismo contrato que los de la 028 para el HALLAZGO del proxy del
+        # Supervisor: cada xfail apunta a un test que existe, es estricto,
+        # espera una excepción concreta, dice HALLAZGO y documenta una tool de
+        # `DENEGADAS_POR_EL_PROXY_031`. Control negativo, comprobado: sin
+        # `strict=True` en la marca, cae.
+        self.assertLessEqual(set(c031.XFAIL_PERMITIDOS_031.values()),
+                             set(c031.DENEGADAS_POR_EL_PROXY_031))
+        for tool, motivo in c031.DENEGADAS_POR_EL_PROXY_031.items():
+            self.assertIn("HALLAZGO", motivo, tool)
+        for nodeid in c031.XFAIL_PERMITIDOS_031:
             ruta, clase, metodo = nodeid.split("::")
             self.assertTrue((RAIZ / ruta).is_file(), nodeid)
             modulo = importlib.import_module(ruta.removesuffix(".py").replace("/", "."))

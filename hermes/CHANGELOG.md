@@ -362,6 +362,9 @@ Spec 031 (en curso; tramo 1: agentes y ajustes). Familia nueva
   (esta en dos pasos): si HA hace un backup antes de actualizar Core o una
   app, y cuántos guarda de cada app (de 1 a 100; la vista previa avisa al
   bajarlo). Solo con Supervisor: sin él, `supervisor_integration_unavailable`.
+  HALLAZGO abierto: el proxy WebSocket del Supervisor rechaza todo `hassio/*`
+  que mande una app («Unauthorized»), así que desde Hermes estas dos no
+  llegan a HA; queda pendiente de decidir qué se hace con ellas.
 - **Tabla de comandos**: `backup/agents/info`, `backup/config/update` y
   `hassio/update/config/*` pasan de «pendiente de tool dedicada (spec 031)» a
   sus tools; las genéricas los rechazan con `use_dedicated_tool`.
