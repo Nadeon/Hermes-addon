@@ -274,6 +274,21 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Spec 022, tramo 2 (R-10): aplicar una sugerencia puede desinstalar una
     # app, borrar backups completos o reiniciar el host.
     "sv_apply_resolution_suggestion",
+    # Spec 021: cambia cómo HA interpreta las horas (zona horaria) y las
+    # unidades, y mueve `zone.home` (presencia). Siempre pide token.
+    "ha_update_core_config",
+    # Spec 021, tramo b: crear un usuario puede crear un administrador, y
+    # editarlo puede desactivarlo (deja de poder entrar) o darle o quitarle
+    # el grupo de administrador. Las dos piden token; `ha_delete_user` ya es
+    # destructiva por su prefijo.
+    "ha_create_user",
+    "ha_update_user",
+    # Spec 021, tramo c: los adaptadores cambian el descubrimiento; el HTTP
+    # reinicia HA y puede cortar el acceso (puerto, SSL, proxy); promover hace
+    # de la de prueba la configuración de recuperación. Las tres piden token.
+    "ha_update_network_config",
+    "ha_update_http_config",
+    "ha_promote_http_config",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -338,6 +353,14 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # Spec 022, tramo 2 (R-10): algunos fixups descargan imágenes o vuelven a
     # clonar un repositorio de la tienda.
     "sv_apply_resolution_suggestion",
+    # Spec 021 (CAP-055): exponer a `cloud.alexa` o `cloud.google_assistant`
+    # manda las entidades a Amazon o Google a través de Home Assistant Cloud.
+    # NO son destructivas (decisión D-4 del supervisor): exponer no destruye
+    # nada y ocultar ni siquiera pide token. Exponer sí lo pide: son la única
+    # excepción documentada al invariante «token ⇒ destructiva»
+    # (tests/test_tools_registration.py, `TOKEN_SOLO_AL_AMPLIAR`).
+    "ha_set_entity_exposure",
+    "ha_set_expose_new_entities",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

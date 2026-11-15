@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 322 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 334 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -188,6 +188,10 @@ usar, ni directamente ni a través de las tools genéricas.
 | `automation_assist` | 9 | Ayuda para escribir automatizaciones: triggers, condiciones y acciones de un dispositivo, qué abarca un target y qué admite, y esperar una vez a un trigger; solo lectura (nueva en 1.2.0) |
 | `system_control` | 7 | Arrancar, reconstruir y configurar Home Assistant Core; recargar, reiniciar, reparar y configurar el Supervisor (nueva en 1.2.0; todo con confirmación salvo recargar; las opciones van por listas cerradas: `image`, `port`, `ssl`, `refresh_token` y el `channel` del Supervisor no se cambian) |
 | `resolution_fixes` | 1 | Aplicar una sugerencia del centro de resolución del Supervisor (nueva en 1.2.0; siempre con confirmación y una vista previa que explica qué hace; se rechazan las que no tienen arreglo, las que tocan los discos de datos y las que apuntan al propio Hermes) |
+| `core_config` | 2 | Configuración general de Home Assistant: nombre, ubicación, unidades, zona horaria, moneda, país, idioma y URLs (nueva en 1.2.0) |
+| `assistant_exposure` | 3 | Qué entidades ven y controlan Assist, los agentes conversacionales y los asistentes de voz de la nube (nueva en 1.2.0) |
+| `users` | 4 | Usuarios de Home Assistant: listar, crear sin credenciales, editar y borrar; nunca contraseñas ni tokens (nueva en 1.2.0) |
+| `core_network` | 3 | Adaptadores de red y servidor HTTP de Home Assistant (puerto, SSL, proxy inverso); cambiar el HTTP reinicia Home Assistant (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -203,7 +207,8 @@ familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
 `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
 `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`,
-`energy`, `system_control` y `resolution_fixes`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`energy`, `system_control`, `resolution_fixes`, `core_config`,
+`assistant_exposure`, `users` y `core_network`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

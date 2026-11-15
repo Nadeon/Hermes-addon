@@ -763,16 +763,19 @@ class TestTemaSystemStatus(unittest.IsolatedAsyncioTestCase):
 
     async def test_red_urls_y_http(self) -> None:
         """Spec 029, T028 (FR-014): la llamada exacta por la genérica a
-        `network`, `network/url` y `http/config`, y que Hermes aún no tiene
-        tool para cambiarlos (la 021, CAP-069, actualizará este texto)."""
+        `network`, `network/url` y `http/config`. La 021 (tramo c, T046) ya
+        tiene tools para cambiar la red y el HTTP: el tema remite a
+        `core_network` y el alias `network` pasa a ese tema."""
         texto = _GUIDE["system_status"]
         for palabra in ('ha_read_ws_command(type="network")',
                         'ha_read_ws_command(type="network/url")',
                         'ha_read_ws_command(type="http/config")',
                         "internal", "external", "cloud", "stable", "pending",
-                        "NO tiene tool", "CAP-069"):
+                        "core_network", "ha_update_http_config"):
             self.assertIn(palabra, texto)
-        self.assertEqual(await self.guide("network"), texto)
+        self.assertNotIn("NO tiene tool", texto)
+        self.assertEqual(await self.guide("network"), _GUIDE["core_network"])
+        self.assertEqual(await self.guide("urls"), texto)
 
 
 class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
@@ -1200,6 +1203,143 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
             with self.subTest(tema=tema):
                 real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
                 self.assertEqual(real, huella)
+
+
+class TestTemasDeLa021TramoA(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T013 (FR-022): temas `core_config` y `assistant_exposure`
+    con sus tools, sus alias y su entrada en el índice y en el docstring de
+    `hermes_guide`. Las huellas de los temas de antes de la 013 no cambian
+    (`test_los_demas_temas_no_cambian`)."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_core_config(self) -> None:
+        texto = await self.guide("core_config")
+        self.assertIs(texto, _GUIDE["core_config"])
+        for palabra in ("ha_get_core_config", "ha_update_core_config", "DOS PASOS",
+                        "yaml_source", "update_units", "partial", "no_changes",
+                        'ha_read_ws_command(type="config/core/detect")',
+                        "sale a internet", "No guarda nada"):
+            self.assertIn(palabra, texto)
+        for alias in ("location", "units", "time_zone", "CORE_CONFIG"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_assistant_exposure(self) -> None:
+        texto = await self.guide("assistant_exposure")
+        self.assertIs(texto, _GUIDE["assistant_exposure"])
+        for palabra in ("ha_list_exposed_entities", "ha_set_entity_exposure",
+                        "ha_set_expose_new_entities", "conversation", "cloud.alexa",
+                        "cloud.google_assistant", "MCP Server", "Home Assistant Cloud",
+                        "sensitive", "sin token", "dos pasos"):
+            self.assertIn(palabra, texto)
+        for alias in ("exposure", "expose", "voice", "assist"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_y_docstring(self) -> None:
+        indice = await self.guide()
+        doc = self.mcp.tools["hermes_guide"].__doc__
+        for tema in ("core_config", "assistant_exposure"):
+            self.assertIn(f"`{tema}`", indice)
+            self.assertIn(tema, doc)
+
+    def test_system_status_remite_las_urls_a_core_config(self) -> None:
+        self.assertIn("ha_update_core_config", _GUIDE["system_status"])
+
+
+class TestTemaDeUsuarios(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T029 (FR-022): tema `users` con sus cuatro tools, que nada
+    maneja contraseñas ni tokens, que el usuario creado no entra sin
+    credenciales, las protecciones, que las sesiones no se listan y que todo
+    confirma; alias `user` y `accounts`; índice y docstring."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_users(self) -> None:
+        texto = await self.guide("users")
+        self.assertIs(texto, _GUIDE["users"])
+        for palabra in ("ha_list_users", "ha_create_user", "ha_update_user",
+                        "ha_delete_user", "contraseñas", "tokens", "SIN credenciales",
+                        "no puede iniciar sesión", "protected_user", "owner", "hermes",
+                        "system_generated", "last_admin", "preview_unavailable",
+                        "sesiones de los usuarios no se pueden listar", "dos pasos",
+                        "irreversible"):
+            self.assertIn(palabra, texto)
+        for alias in ("user", "accounts", "USERS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_y_docstring(self) -> None:
+        self.assertIn("`users`", await self.guide())
+        self.assertIn("users", self.mcp.tools["hermes_guide"].__doc__)
+
+
+class TestTemaDeRedYHttp(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T046 (FR-022): tema `core_network` con sus tres tools, la
+    prueba de 5 minutos, los avisos, el rechazo de `server_host`, el bloqueo
+    de reinicio y cómo leer; sección de analytics y labs en `core_config` con
+    las cuatro llamadas exactas; alias; índice y docstring."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_core_network(self) -> None:
+        texto = await self.guide("core_network")
+        self.assertIs(texto, _GUIDE["core_network"])
+        for palabra in ("ha_update_network_config", "ha_update_http_config",
+                        "ha_promote_http_config", "5 minutos", "REINICIA",
+                        'ha_read_ws_command(type="network")',
+                        'ha_read_ws_command(type="http/config")',
+                        "access_risk", "supervisor_lockout", "172.30.32.1",
+                        "restart_blocked", "sv_check_core_config",
+                        "nothing_to_promote", "discard_pending",
+                        "unsupported_by_ha_version", "dos pasos"):
+            self.assertIn(palabra, texto)
+        for codigo in ("port", "server_host", "ssl", "reverse_proxy", "ip_ban",
+                       "ssl_profile", "cors", "x_frame_options", "pending_replaced"):
+            self.assertIn(f"`{codigo}`", texto)
+        for alias in ("http", "ssl", "port", "proxy", "network", "CORE_NETWORK"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_convergencia_t058_t061(self) -> None:
+        """T058-T061: el porqué de D-3 dice la verdad en 2026.11 (socket Unix
+        del Supervisor; se cortan las apps que van a `homeassistant:8123`),
+        promover repite los avisos, la vuelta a la estable y los avisos de
+        red. Control negativo: con el texto viejo («dejaría fuera a Hermes y a
+        todas las apps») cae."""
+        texto = await self.guide("core_network")
+        for palabra in ("socket", "homeassistant:8123", "server_host_internal_only",
+                        "`trial: false`", "`no_ipv4`", "`default_adapter_excluded`",
+                        "repite los `warnings`"):
+            self.assertIn(palabra, texto)
+        self.assertNotIn("dejaría\n  fuera a Hermes", texto)
+        self.assertNotIn("fuera a Hermes y a todas las apps", texto.replace("\n  ", " "))
+
+    async def test_analytics_y_labs_en_core_config(self) -> None:
+        texto = _GUIDE["core_config"]
+        for palabra in ('ha_read_ws_command(type="analytics")',
+                        'ha_call_ws_command(type="analytics/preferences"',
+                        'ha_read_ws_command(type="labs/list")',
+                        'ha_call_ws_command(type="labs/update"',
+                        "mundo", "abierto"):
+            self.assertIn(palabra, texto)
+        for alias in ("analytics", "labs"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_y_docstring(self) -> None:
+        self.assertIn("`core_network`", await self.guide())
+        self.assertIn("core_network", self.mcp.tools["hermes_guide"].__doc__)
 
 
 if __name__ == "__main__":

@@ -468,7 +468,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | hecha; prueba en la VM pendiente: familia `mounts` con nueve tools (seis de montajes CIFS, NFS y disco local, con crear, editar, borrar y el por defecto con token atado también al estado; tres de ajustes de backup sin token), `location` opcional en `sv_create_backup_full` y `sv_create_backup_partial`, credenciales (también el usuario en los errores del Supervisor) que entran y nunca salen, las nueve rutas de CAP-083 a `dedicated` y el `action_hash` de los tokens con HMAC |
 | 020 | Estadísticas y energía | 050, 054 | hecha: cinco tools de mantenimiento de estadísticas en `recorder` (borrar, cambiar la unidad, editar los metadatos, ajustar sumas, importar) y la familia nueva `energy` (leer y guardar las preferencias del panel), todas las que escriben en dos pasos; `recorder/update_statistics_issues` `confirm` y cuatro lecturas de energía `read` por la tabla; las siete y las genéricas, contra HA Core real en el banco |
-| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
+| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | hecha: núcleo (`ha_get_core_config`, `ha_update_core_config`), exposición a asistentes (`ha_list_exposed_entities`, `ha_set_entity_exposure`, `ha_set_expose_new_entities`), usuarios (`ha_list_users`, `ha_create_user`, `ha_update_user`, `ha_delete_user`, con protecciones del propietario, el usuario de Hermes, los de sistema y el último administrador) y red y HTTP de Core (`ha_update_network_config`, `ha_update_http_config`, `ha_promote_http_config`, con la prueba de 5 minutos de HA y el rechazo de un `server_host` sin el Supervisor); `config/core/detect` y CAP-074 por la tabla. Todo probado en el banco de Core salvo la confirmación de las dos de HTTP (reinicia HA), pendiente en la VM |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | hecha: familia `system_control` con siete tools (arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor) y familia `resolution_fixes` con `sv_apply_resolution_suggestion` (vista previa que traduce el arreglo, rechazos y arreglos automáticos atados al token); 8 rutas a `dedicated`, estadísticas `read`, `/host/reload` y los chequeos del centro de resolución `confirm`; plugins, Docker, placas y hora probados por la tabla sin cambiarla; prueba en la VM pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
@@ -691,6 +691,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_create_or_update_zone` | banco de Core | ok | |
 | `ha_create_person` | banco de Core | ok | |
 | `ha_create_scene_from_current` | banco de Core | ok | |
+| `ha_create_user` | banco de Core | ok | |
 | `ha_cycle_input_select` | banco de Core | ok | |
 | `ha_decrement_counter` | banco de Core | ok | |
 | `ha_decrement_input_number` | banco de Core | ok | |
@@ -716,6 +717,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_script` | banco de Core | ok | |
 | `ha_delete_subentry` | banco de Core | ok | spec 016 |
 | `ha_delete_timer` | banco de Core | ok | |
+| `ha_delete_user` | banco de Core | ok | |
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
 | `ha_disable_config_entry` | banco de Core | ok | |
@@ -733,6 +735,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_install_update` | banco de Core | ok | spec 015; entidad `update` de plantilla del banco |
 | `ha_pause_timer` | banco de Core | ok | |
 | `ha_press_input_button` | banco de Core | ok | |
+| `ha_promote_http_config` | VM | pendiente | aplicarla reinicia HA: en el banco de Core solo la vista previa y el rechazo real (spec 021, research R-8) |
 | `ha_reload_automations` | banco de Core | ok | |
 | `ha_reload_config_entry` | banco de Core | ok | |
 | `ha_reload_counters` | banco de Core | no ejecutable | `counter.reload` no existe en Core 2026.11.1: responde `not_supported` sin llamar a HA y está deprecada hasta la 1.3.0 (spec 033); su test del banco es un canario |
@@ -749,6 +752,8 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_save_blueprint` | banco de Core | ok | |
 | `ha_save_lovelace_dashboard` | banco de Core | ok | |
 | `ha_set_counter_value` | banco de Core | ok | |
+| `ha_set_entity_exposure` | banco de Core | ok | |
+| `ha_set_expose_new_entities` | banco de Core | ok | |
 | `ha_set_input_boolean` | banco de Core | ok | |
 | `ha_set_input_datetime` | banco de Core | ok | |
 | `ha_set_input_number` | banco de Core | ok | |
@@ -767,16 +772,20 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_area` | banco de Core | ok | |
 | `ha_update_category` | banco de Core | ok | |
 | `ha_update_config_entry` | banco de Core | ok | spec 016 |
+| `ha_update_core_config` | banco de Core | ok | |
 | `ha_update_device` | banco de Core | ok | |
 | `ha_update_energy_prefs` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
+| `ha_update_http_config` | VM | pendiente | aplicarla reinicia HA: en el banco de Core solo la vista previa y el rechazo real (spec 021, research R-8) |
 | `ha_update_label` | banco de Core | ok | |
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
+| `ha_update_network_config` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
 | `ha_update_statistics_metadata` | banco de Core | ok | |
 | `ha_update_subentry` | banco de Core | ok | spec 016 |
+| `ha_update_user` | banco de Core | ok | |
 | `sv_add_store_repository` | VM | pendiente | repositorio de prueba |
 | `sv_apply_resolution_suggestion` | VM | pendiente | instantánea antes; sugerencia provocada |
 | `sv_call_api` | VM | pendiente | |

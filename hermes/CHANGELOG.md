@@ -734,7 +734,148 @@ Tramo D: esperar a un trigger y validar al guardar.
 
 ### Sistema
 
-_Pendiente: la añade la sub-feature que lo implemente._
+Configuración del sistema (spec 021): doce tools nuevas en cuatro familias
+que se pueden desactivar (`core_config`, `assistant_exposure`, `users` y
+`core_network`); las nueve que escriben confirman en dos pasos. Tramo a: el
+núcleo y la exposición a asistentes.
+
+- **`core_config`** (CAP-053):
+  - `ha_get_core_config`: la configuración general editable (nombre,
+    ubicación, unidades, zona horaria, moneda, país, idioma y URLs), de dónde
+    viene (`storage` o `yaml`) y la versión.
+  - `ha_update_core_config`: cambia solo los campos que se le pasan, en dos
+    pasos. La vista previa enseña el antes y el después de lo que cambia (lo
+    que ya estaba igual sale solo por nombre) y un aviso por grupo: zona
+    horaria, unidades y `update_units`, ubicación (`zone.home`), URLs,
+    país/moneda/idioma y, si la configuración está en `configuration.yaml`,
+    que el cambio no sobrevive a un reinicio. El token se ata a los
+    argumentos y a la configuración leída. La zona horaria se manda sola y
+    primero: una zona inválida no deja nada a medias, y si el resto falla la
+    respuesta es `partial` con lo aplicado y lo que no. El log y el fichero
+    del token no llevan valores (ni coordenadas, ni zona, ni URLs), y la
+    confirmación solo relee los campos pedidos.
+  - `config/core/detect` pasa a `read` en la tabla, de mundo abierto: HA
+    consulta un servicio externo de geolocalización por IP y no guarda nada.
+- **`assistant_exposure`** (CAP-055):
+  - `ha_list_exposed_entities`: las entidades expuestas a Assist
+    (`conversation`, también agentes de LLM y la integración MCP Server) y a
+    Alexa y Google a través de Home Assistant Cloud, con `expose_new` por
+    asistente y filtros por asistente y dominio.
+  - `ha_set_entity_exposure`: exponer (de 1 a 200 entidades, a 1–3
+    asistentes) pide confirmación, con una vista previa por asistente y las
+    entidades de dominios sensibles (cerraduras, alarmas, persianas,
+    válvulas). Ocultar se aplica a la primera, sin token: solo reduce lo
+    expuesto. Cada entidad tiene que existir (HA crearía una entrada
+    huérfana).
+  - `ha_set_expose_new_entities`: activarlo pide confirmación; desactivarlo
+    va sin token.
+  - Las dos que escriben se anuncian de mundo abierto y no destructivas.
+- Cinco comandos pasan a `dedicated` en la tabla (`config/core/update` y los
+  cuatro de `homeassistant/expose_*`): las genéricas los rechazan hacia su
+  tool. Temas `core_config` y `assistant_exposure` en `hermes_guide`; el tema
+  `system_status` remite las URLs a `ha_update_core_config`.
+- Banco de Core: las cinco, contra HA real, con el lector independiente, y el
+  banco queda como estaba.
+
+Tramo b: los usuarios, en su propia familia (que se puede desactivar).
+
+- **`users`** (CAP-056):
+  - `ha_list_users`: los usuarios con su papel (`is_owner`, `is_admin`,
+    `is_active`, grupos, `local_only`), el tipo de sus credenciales y nada
+    más, `is_hermes` (el usuario por el que entra Hermes; en un add-on, el de
+    sistema del Supervisor) y los administradores activos. Los de sistema,
+    solo con `include_system` (el de Hermes sale siempre).
+  - `ha_create_user`: crea un usuario SIN credenciales, en dos pasos. La
+    vista previa avisa de que no podrá iniciar sesión hasta que se le añadan
+    usuario y contraseña, y de que Hermes no ha comprobado que la interfaz
+    de Home Assistant permita añadírselos a un usuario ya creado.
+  - `ha_update_user` (nombre, activo, grupo y solo red local) y
+    `ha_delete_user`, en dos pasos, con el antes y el después, si da o quita
+    el grupo de administrador, si desactiva o restringe al usuario, los
+    administradores activos antes y después y, al borrar, las personas
+    vinculadas.
+  - Protecciones, en la vista previa y otra vez al confirmar, releyendo los
+    usuarios de HA antes de llamar a nada: el propietario, el usuario de
+    Hermes y los de sistema no se editan ni se borran (`protected_user`, con
+    todos los motivos en `reasons`), y nada deja la casa sin administrador
+    activo (`last_admin`). Si Hermes no puede saber con qué usuario entra, no
+    escribe (`preview_unavailable`).
+  - Ninguna acepta ni devuelve contraseñas, nombres de acceso nuevos ni
+    tokens: lo que devuelve HA se copia de una lista cerrada de campos. El log
+    solo lleva el nombre de la tool y el `user_id`.
+- Las sesiones de los usuarios no se pueden listar: `auth/refresh_tokens` solo
+  devuelve las del usuario de la propia conexión (el de Hermes). Pasa a
+  `deny` revisado en la tabla, con su motivo. Las contraseñas, los nombres de
+  acceso y las sesiones (`config/auth_provider/*`, `auth/*`) siguen denegados.
+- Los cuatro `config/auth/*` pasan a `dedicated`: las genéricas los rechazan
+  hacia su tool. Tema `users` en `hermes_guide`.
+- Banco de Core: el ciclo completo de un usuario creado por la tool (crear,
+  renombrar, dar y quitar el grupo de administrador, solo red local,
+  desactivar y borrar) y el rechazo sobre el propietario, comprobados por el
+  lector independiente; el banco queda como estaba.
+
+Tramo c: la red y el servidor HTTP de Core, en su propia familia (que se puede
+desactivar), y analytics y labs por la tabla.
+
+- **`core_network`** (CAP-069; no es la red del host, que es del Supervisor):
+  - `ha_update_network_config`: qué adaptadores usa HA para descubrir
+    dispositivos y qué direcciones anuncia (`[]` = automático), en dos pasos,
+    con los habilitados antes y después. Un adaptador que no existe da
+    `invalid_argument` con los disponibles. No cambia dónde escucha HA.
+  - `ha_update_http_config`: el servidor HTTP (puerto, `server_host`, SSL,
+    proxy inverso, bloqueo de IP, CORS, perfil SSL, `use_x_frame_options`).
+    Funde los cambios sobre la configuración con la que HA está funcionando
+    (estable, pendiente o por defecto), quita los metadatos y manda el
+    documento entero; `null` quita una clave y `discard_pending` tira una
+    pendiente. La vista previa enseña el documento resultante, el diff, el
+    aviso de reinicio y de la prueba de 5 minutos (HA vuelve sola a la
+    estable si nadie promueve la nueva), un aviso por riesgo y, si el cambio
+    puede dejar HA inaccesible (puerto, `server_host`, SSL, proxy, bloqueo de
+    IP, perfil SSL), `access_risk`. Respeta el bloqueo de reinicio de
+    `sv_restart_core` en la vista previa y al confirmar. La respuesta dice si
+    HA reinicia, que hay que promover en 5 minutos y que con
+    `configuration.yaml` inválida no reinicia.
+  - Un `server_host` sin `0.0.0.0` ni `172.30.32.1` se rechaza sin token
+    (`supervisor_lockout`), también al promover: las apps que conectan
+    directamente a `homeassistant:8123` llegan a Core desde la red interna
+    del Supervisor (172.30.32.0/23) por la pasarela `172.30.32.1`, en IPv4, y
+    se quedarían fuera. El Supervisor, y Hermes a través de él, hablan con
+    Core por un socket Unix desde Core 2026.4, que no depende de
+    `server_host`. `::` sola no vale, porque no acepta IPv4. Un `server_host`
+    con solo direcciones internas pasa el rechazo pero deja fuera a la red de
+    casa: aviso de acceso `server_host_internal_only`.
+  - Si los `changes` dejan el resultado igual que la estable, HA descarta la
+    pendiente y reinicia con la estable: la vista previa y la respuesta lo
+    dicen (`trial: false`, sin prueba ni nada que promover); si Hermes no lo
+    puede saber seguro, dan las dos posibilidades (`trial: null`).
+  - `ha_promote_http_config`: confirma la configuración de prueba, que pasa a
+    ser la de recuperación; solo con una pendiente sin error con la que HA ya
+    funcione (si no, `nothing_to_promote` con el motivo). Su vista previa
+    sirve de estado de la prueba (diff y `revert_at`) y repite los avisos y
+    el `access_risk` de aplicar, porque promover hace permanente una
+    configuración que puede haber dejado la casa fuera.
+  - `ha_update_network_config` avisa en la vista previa si los adaptadores
+    elegidos no tienen ninguna IPv4 o dejan fuera el adaptador por defecto
+    (`no_ipv4`, `default_adapter_excluded`): el descubrimiento se degrada.
+  - En un Home Assistant anterior a 2026.11, sin la configuración HTTP en
+    almacenamiento: `unsupported_by_ha_version`. El log no lleva puertos,
+    hosts, rutas de certificados, proxies ni nombres de adaptador.
+- Analytics y labs (CAP-074) siguen por las genéricas: `analytics` y
+  `labs/list` leen, `analytics/preferences` y `labs/update` confirman.
+  `analytics/preferences` pasa a ser de mundo abierto en la tabla (activar el
+  envío manda datos a los servidores de Home Assistant). El tema
+  `core_config` de la guía explica las cuatro llamadas.
+- Los tres comandos de CAP-069 pasan a `dedicated`: ya no queda ninguna
+  entrada «pendiente (spec 021)» en la tabla. Tema `core_network` en
+  `hermes_guide`; el alias `network` pasa de `system_status` a
+  `core_network`, y el tema `system_status` remite a él en vez de decir que
+  Hermes no tenía tool para cambiar la red y el HTTP.
+- Banco de Core: `ha_update_network_config` cambia y restaura los adaptadores,
+  comprobado por el lector; de las dos de HTTP, su vista previa sobre la
+  configuración real (el lector ve `http/config` igual) y sus rechazos reales
+  (`supervisor_lockout`, `nothing_to_promote`), porque confirmar reiniciaría
+  la HA del banco; su confirmación queda para la VM. Las cuatro de analytics y
+  labs, por las genéricas, sin activar ningún envío.
 
 ### Mejoras de tools existentes
 

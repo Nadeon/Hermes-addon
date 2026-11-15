@@ -31,7 +31,10 @@ CORE_WS: dict[str, E] = {
     # Escribe aunque el nombre no tenga verbo: `save_preferences` y `async_schedule`
     # (analytics/__init__.py de Core 2026.11.1). La clasificación por verbo lo daba
     # como `read`.
-    "analytics/preferences": E("confirm", "guarda qué datos de uso se envían a Home Assistant (analytics) y reprograma el envío", "generic_commands", cap="CAP-074"),
+    # Spec 021 (FR-016, research R-10): activar `base` u otra preferencia hace
+    # que HA mande datos de uso a los servidores de Home Assistant; la
+    # genérica de escritura no puede anunciar que no sale a internet.
+    "analytics/preferences": E("confirm", "guarda qué datos de uso se envían a Home Assistant (analytics) y reprograma el envío", "generic_commands", cap="CAP-074", open_world=True),
     "application_credentials/config": E("read", "dominios que admiten credenciales de aplicación OAuth y su configuración; solo lee", "generic_commands", cap="CAP-073"),
     "application_credentials/config_entry": E("read", "id de la credencial de aplicación que usa una integración; solo lee", "generic_commands", cap="CAP-073"),
     "application_credentials/create": E("deny", "introduce o cambia client_secret OAuth de terceros (clase D)", "generic_commands"),
@@ -64,7 +67,12 @@ CORE_WS: dict[str, E] = {
     "auth/depose_mfa": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     "auth/long_lived_access_token": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     "auth/refresh_token_set_expiry": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
-    "auth/refresh_tokens": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
+    # Spec 021 (research R-5, duda D-1): `websocket_refresh_tokens` recorre
+    # `connection.user.refresh_tokens`, es decir, solo las sesiones del usuario
+    # de la conexión, que con Hermes es el propio Hermes (el del Supervisor en
+    # un add-on). No hay comando para las de otro usuario: una tool de
+    # sesiones mentiría en su nombre. Queda `deny` revisado, no pendiente.
+    "auth/refresh_tokens": E("deny", "solo devuelve las sesiones del usuario de la propia conexión (el de Hermes), no las de otros usuarios; revisado en la spec 021", "generic_commands", cap="CAP-056"),
     "auth/setup_mfa": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     "auth/sign_path": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     # ha_get_automation lee por REST /api/config/automation/config/{id} y no da la
@@ -144,10 +152,10 @@ CORE_WS: dict[str, E] = {
     "config/area_registry/list": E("dedicated", "cubierto por ha_list_areas", "registries", tool="ha_list_areas"),
     "config/area_registry/reorder": E("confirm", "cambia el orden de las áreas", "generic_commands", cap="CAP-070"),
     "config/area_registry/update": E("dedicated", "cubierto por ha_update_area", "registries", tool="ha_update_area"),
-    "config/auth/create": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
-    "config/auth/delete": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
-    "config/auth/list": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
-    "config/auth/update": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
+    "config/auth/create": E("dedicated", "cubierto por ha_create_user", "users", tool="ha_create_user", cap="CAP-056"),
+    "config/auth/delete": E("dedicated", "cubierto por ha_delete_user", "users", tool="ha_delete_user", cap="CAP-056"),
+    "config/auth/list": E("dedicated", "cubierto por ha_list_users", "users", tool="ha_list_users", cap="CAP-056"),
+    "config/auth/update": E("dedicated", "cubierto por ha_update_user", "users", tool="ha_update_user", cap="CAP-056"),
     "config/auth_provider/homeassistant/admin_change_password": E("deny", "maneja contraseñas de usuarios (clase D)", "generic_commands"),
     "config/auth_provider/homeassistant/admin_change_username": E("deny", "maneja contraseñas de usuarios (clase D)", "generic_commands"),
     "config/auth_provider/homeassistant/change_password": E("deny", "maneja contraseñas de usuarios (clase D)", "generic_commands"),
@@ -157,8 +165,8 @@ CORE_WS: dict[str, E] = {
     "config/category_registry/delete": E("dedicated", "cubierto por ha_delete_category", "registries", tool="ha_delete_category"),
     "config/category_registry/list": E("dedicated", "cubierto por ha_list_categories", "registries", tool="ha_list_categories"),
     "config/category_registry/update": E("dedicated", "cubierto por ha_update_category", "registries", tool="ha_update_category"),
-    "config/core/detect": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-053"),
-    "config/core/update": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-053"),
+    "config/core/detect": E("read", "propone ubicación, unidades, zona horaria, moneda y país consultando un servicio externo de geolocalización por IP; no guarda nada", "generic_commands", cap="CAP-053", open_world=True),
+    "config/core/update": E("dedicated", "cubierto por ha_update_core_config", "core_config", tool="ha_update_core_config", cap="CAP-053"),
     "config/device_registry/list": E("dedicated", "cubierto por ha_list_devices", "registries", tool="ha_list_devices"),
     "config/device_registry/list_composite_splits": E("read", "dispositivos compuestos que HA dividió y los que los sustituyen; solo lee", "generic_commands", cap="CAP-070"),
     "config/device_registry/list_linked_devices": E("read", "dispositivos que comparten identificador o conexión con uno dado; solo lee", "generic_commands", cap="CAP-070"),
@@ -282,13 +290,13 @@ CORE_WS: dict[str, E] = {
     "history/history_during_period": E("dedicated", "cubierto por ha_get_history", "data", tool="ha_get_history"),
     "history/stream": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "history_stats/start_preview": E("deny", "vista previa en vivo del formulario de un helper en la UI (clase B)", "generic_commands"),
-    "homeassistant/expose_entity": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-055"),
-    "homeassistant/expose_entity/list": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-055"),
-    "homeassistant/expose_new_entities/get": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-055"),
-    "homeassistant/expose_new_entities/set": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-055"),
+    "homeassistant/expose_entity": E("dedicated", "cubierto por ha_set_entity_exposure", "assistant_exposure", tool="ha_set_entity_exposure", cap="CAP-055"),
+    "homeassistant/expose_entity/list": E("dedicated", "cubierto por ha_list_exposed_entities", "assistant_exposure", tool="ha_list_exposed_entities", cap="CAP-055"),
+    "homeassistant/expose_new_entities/get": E("dedicated", "cubierto por ha_list_exposed_entities", "assistant_exposure", tool="ha_list_exposed_entities", cap="CAP-055"),
+    "homeassistant/expose_new_entities/set": E("dedicated", "cubierto por ha_set_expose_new_entities", "assistant_exposure", tool="ha_set_expose_new_entities", cap="CAP-055"),
     "http/config": E("read", "configuración del servidor HTTP de Core (estable, pendiente y por defecto); solo lee", "generic_commands", cap="CAP-068"),
-    "http/config/configure": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-069"),
-    "http/config/promote": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-069"),
+    "http/config/configure": E("dedicated", "cubierto por ha_update_http_config", "core_network", tool="ha_update_http_config", cap="CAP-069"),
+    "http/config/promote": E("dedicated", "cubierto por ha_promote_http_config", "core_network", tool="ha_promote_http_config", cap="CAP-069"),
     # ImageUploadStorageCollectionWebsocket.ws_create_item lanza NotImplementedError
     # (image_upload/__init__.py de Core 2026.11.1).
     "image/create": E("deny", "subir una imagen va por REST multipart: por WebSocket HA responde NotImplementedError", "generic_commands", cap="CAP-072"),
@@ -479,7 +487,7 @@ CORE_WS: dict[str, E] = {
     "mqtt/device/debug_info": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-104"),
     "mqtt/subscribe": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-104"),
     "network": E("read", "adaptadores de red de HA y cuáles usa; solo lee", "generic_commands", cap="CAP-068"),
-    "network/configure": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-069"),
+    "network/configure": E("dedicated", "cubierto por ha_update_network_config", "core_network", tool="ha_update_network_config", cap="CAP-069"),
     "network/url": E("read", "URLs interna, externa y de la nube de HA; solo lee", "generic_commands", cap="CAP-068"),
     "notify/html5/appkey": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "number/device_class_convertible_units": E("deny", "ayudas de formulario de la UI (unidades convertibles) (clase B)", "generic_commands"),

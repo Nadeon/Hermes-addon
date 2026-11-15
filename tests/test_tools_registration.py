@@ -445,6 +445,16 @@ class TestDestructiveToolsAskBeforeActing:
     # sigue respondiendo a la primera: leer el tiempo no pide dos pasos.
     SIN_TOKEN_A_PROPOSITO: set[str] = set()
 
+    # Excepción inversa (spec 021, decisión D-4 del supervisor): piden token
+    # solo cuando AMPLÍAN lo que un asistente puede ver o controlar (exponer
+    # entidades, exponer las nuevas); ocultar se aplica a la primera porque
+    # solo reduce lo expuesto. Anunciarlas destructivas mentiría dos veces:
+    # exponer no destruye nada, y una destructiva promete no actuar a la
+    # primera, que ocultar sí hace. Su descripción dice cuándo piden token.
+    TOKEN_SOLO_AL_AMPLIAR: set[str] = {
+        "ha_set_entity_exposure", "ha_set_expose_new_entities",
+    }
+
     @staticmethod
     def _firmas() -> dict:
         import ast as _ast
@@ -484,7 +494,8 @@ class TestDestructiveToolsAskBeforeActing:
         firmas = self._firmas()
         incumplen = sorted(
             n for n, tiene in firmas.items()
-            if tiene and not classify(n).destructive_hint)
+            if tiene and not classify(n).destructive_hint
+            and n not in self.TOKEN_SOLO_AL_AMPLIAR)
         assert incumplen == [], (
             "piden confirmación pero se anuncian inofensivas: " + str(incumplen))
 
@@ -492,6 +503,21 @@ class TestDestructiveToolsAskBeforeActing:
         """Ya no queda ninguna (spec 018): si mañana aparece una, que haya
         que justificarla a mano."""
         assert len(self.SIN_TOKEN_A_PROPOSITO) == 0
+
+    def test_token_solo_al_ampliar_son_las_de_exposicion(self):
+        """La excepción inversa de la 021 es exactamente esta pareja, sigue
+        pidiendo token (al exponer), no es destructiva y su descripción dice
+        que ocultar va sin token."""
+        from hermes.tools._annotations import classify
+
+        firmas = self._firmas()
+        assert self.TOKEN_SOLO_AL_AMPLIAR == {
+            "ha_set_entity_exposure", "ha_set_expose_new_entities"}
+        tools = _real_registry()
+        for nombre in sorted(self.TOKEN_SOLO_AL_AMPLIAR):
+            assert firmas[nombre] is True, nombre
+            assert classify(nombre).destructive_hint is False, nombre
+            assert "without a token" in tools[nombre].description, nombre
 
 
 # ── title (spec 003, FR-040) e hints intactos (FR-043) ───────────────────────
@@ -927,6 +953,33 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # Spec 022, tramo 2 (R-10): aplicar sugerencias, familia
     # `resolution_fixes`: destructiva, no idempotente y de mundo abierto.
     "sv_apply_resolution_suggestion": ("-D-O", "Apply resolution suggestion (Supervisor)"),
+    # Spec 021, tramo a (contracts/tools.md con la decisión D-4 del
+    # supervisor): las de lectura por su prefijo; cambiar la configuración del
+    # núcleo pide token y va en `_DESTRUCTIVE_EXACT`. Las dos de exposición
+    # son de mundo abierto (la nube de Amazon y Google) y NO destructivas:
+    # exponer no destruye nada y ocultar no pide token (ver
+    # `TOKEN_SOLO_AL_AMPLIAR`). Control negativo (T018 g): quitar
+    # `ha_set_entity_exposure` de `_OPEN_WORLD` → cae
+    # `test_hints_y_titulos_de_las_nuevas` (sale `--I-`).
+    "ha_get_core_config": ("R-I-", "Get core config (Home Assistant)"),
+    "ha_update_core_config": ("-DI-", "Update core config (Home Assistant)"),
+    "ha_list_exposed_entities": ("R-I-", "List exposed entities (Home Assistant)"),
+    "ha_set_entity_exposure": ("--IO", "Set entity exposure (Home Assistant)"),
+    "ha_set_expose_new_entities": ("--IO", "Set expose new entities (Home Assistant)"),
+    # Spec 021, tramo b (T025): la lista por su prefijo; crear no es
+    # idempotente (prefijo `ha_create_`) y, como editar, va en
+    # `_DESTRUCTIVE_EXACT` (puede crear un administrador; editar puede
+    # desactivar o quitar el grupo de administrador); borrar es destructiva
+    # por su prefijo.
+    "ha_list_users": ("R-I-", "List users (Home Assistant)"),
+    "ha_create_user": ("-D--", "Create user (Home Assistant)"),
+    "ha_update_user": ("-DI-", "Update user (Home Assistant)"),
+    "ha_delete_user": ("-DI-", "Delete user (Home Assistant)"),
+    # Spec 021, tramo c (T042): las tres de red y HTTP en `_DESTRUCTIVE_EXACT`
+    # (reinicio y pérdida de acceso). Ninguna sale a internet.
+    "ha_update_network_config": ("-DI-", "Update network config (Home Assistant)"),
+    "ha_update_http_config": ("-DI-", "Update http config (Home Assistant)"),
+    "ha_promote_http_config": ("-DI-", "Promote http config (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -2359,6 +2412,141 @@ class TestResolutionAndHABackupsRegistration:
 
 
 # ── Recuento de tools en la documentación ────────────────────────────────────
+
+# ── Spec 021, tramo a: núcleo y exposición a asistentes (T007) ──────────────
+
+_CORE_CONFIG_021 = ("ha_get_core_config", "ha_update_core_config")
+_EXPOSICION_021 = ("ha_list_exposed_entities", "ha_set_entity_exposure",
+                   "ha_set_expose_new_entities")
+
+
+class TestConfiguracionDelSistemaTramoA:
+    """Las cinco tools del tramo a se registran bajo `core_config` y
+    `assistant_exposure`; las tres que escriben toman `confirmation_token`;
+    con las dos familias desactivadas no queda ninguna y el resto no cambia
+    (FR-017, FR-019, SC-001). Hints y títulos: `_HINTS_NUEVAS_1_2_0`."""
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _CORE_CONFIG_021 + _EXPOSICION_021 if n not in mcp.tools] == []
+
+    def test_las_que_escriben_toman_token(self):
+        tools = _real_registry()
+        for nombre in ("ha_update_core_config", "ha_set_entity_exposure",
+                       "ha_set_expose_new_entities"):
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" in props, nombre
+        for nombre in ("ha_get_core_config", "ha_list_exposed_entities"):
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" not in props, nombre
+
+    def test_cada_familia_quita_las_suyas(self):
+        todas = set(_do_register().tools)
+        sin_nucleo = set(_do_register(["core_config"]).tools)
+        sin_exposicion = set(_do_register(["assistant_exposure"]).tools)
+        assert todas - sin_nucleo == set(_CORE_CONFIG_021)
+        assert todas - sin_exposicion == set(_EXPOSICION_021)
+        sin_las_dos = set(_do_register(["core_config", "assistant_exposure"]).tools)
+        assert todas - sin_las_dos == set(_CORE_CONFIG_021 + _EXPOSICION_021)
+
+
+# ── Spec 021, tramo b: usuarios (T025) ──────────────────────────────────────
+
+_USUARIOS_021 = ("ha_list_users", "ha_create_user", "ha_update_user", "ha_delete_user")
+
+
+class TestUsuariosTramoB:
+    """Las cuatro tools de usuarios se registran bajo `users`; las tres que
+    escriben toman `confirmation_token` y ninguna un argumento de
+    credenciales; con `users` desactivada no queda ninguna y el resto no
+    cambia (FR-017, FR-019, SC-001). Hints y títulos: `_HINTS_NUEVAS_1_2_0`."""
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _USUARIOS_021 if n not in mcp.tools] == []
+
+    def test_las_que_escriben_toman_token(self):
+        tools = _real_registry()
+        for nombre in _USUARIOS_021:
+            props = tools[nombre].parameters.get("properties", {})
+            assert ("confirmation_token" in props) is (nombre != "ha_list_users"), nombre
+            raras = [p for p in props if p != "confirmation_token"
+                     and any(m in p for m in ("password", "secret", "token", "username"))]
+            assert raras == [], nombre
+
+    def test_la_familia_quita_las_suyas(self):
+        todas = set(_do_register().tools)
+        sin_usuarios = set(_do_register(["users"]).tools)
+        assert todas - sin_usuarios == set(_USUARIOS_021)
+
+
+# ── Spec 021, tramo c: red y HTTP (T042) y conjunto de la 021 (T052) ─────────
+
+_RED_021 = ("ha_update_network_config", "ha_update_http_config",
+            "ha_promote_http_config")
+_TODAS_021 = _CORE_CONFIG_021 + _EXPOSICION_021 + _USUARIOS_021 + _RED_021
+_LECTURAS_021 = ("ha_get_core_config", "ha_list_exposed_entities", "ha_list_users")
+_FAMILIAS_021 = ["core_config", "assistant_exposure", "users", "core_network"]
+_MODULOS_021 = ("core_config", "assistant_exposure", "users", "core_network")
+
+
+class TestRedYHttpTramoC:
+    """Las tres tools de red y HTTP se registran bajo `core_network` y toman
+    `confirmation_token`; con las cuatro familias de la 021 desactivadas, la
+    lista de tools es exactamente la de antes de la 021 (FR-017, FR-019,
+    SC-001). Hints y títulos: `_HINTS_NUEVAS_1_2_0`."""
+
+    def test_registradas_con_token(self):
+        tools = _real_registry()
+        for nombre in _RED_021:
+            assert "confirmation_token" in tools[nombre].parameters.get("properties", {})
+
+    def test_la_familia_quita_las_suyas(self):
+        todas = set(_do_register().tools)
+        assert todas - set(_do_register(["core_network"]).tools) == set(_RED_021)
+
+    def test_sin_las_familias_de_la_021_es_la_lista_de_antes(self):
+        todas = set(_do_register().tools)
+        sin_021 = set(_do_register(_FAMILIAS_021).tools)
+        assert todas - sin_021 == set(_TODAS_021)
+        assert len(_TODAS_021) == 12
+        assert not sin_021 & set(_TODAS_021)
+
+
+class TestConjuntoDeLa021:
+    """T052 (FR-019, SC-006): las nueve que escriben de la 021 toman
+    `confirmation_token` y son destructivas por nombre o prefijo, salvo las dos
+    de exposición (D-4: `TOKEN_SOLO_AL_AMPLIAR`, ocultar no pide token); y
+    ninguna de las doce tiene un argumento de credenciales (por AST, en los
+    cuatro módulos)."""
+
+    def test_las_que_escriben_toman_token_y_son_destructivas(self):
+        from hermes.tools._annotations import classify
+
+        tools = _real_registry()
+        escriben = [n for n in _TODAS_021 if n not in _LECTURAS_021]
+        assert len(escriben) == 9
+        for nombre in escriben:
+            assert "confirmation_token" in tools[nombre].parameters.get("properties", {})
+            if nombre in TestDestructiveToolsAskBeforeActing.TOKEN_SOLO_AL_AMPLIAR:
+                continue
+            assert classify(nombre).destructive_hint is True, nombre
+
+    def test_ningun_argumento_de_credenciales(self):
+        base = pathlib.Path(__file__).resolve().parent.parent / "hermes/src/hermes/tools"
+        vistas = set()
+        for modulo in _MODULOS_021:
+            arbol = ast.parse((base / f"{modulo}.py").read_text(encoding="utf-8"))
+            for nodo in ast.walk(arbol):
+                if isinstance(nodo, ast.AsyncFunctionDef) and nodo.name in _TODAS_021:
+                    vistas.add(nodo.name)
+                    for arg in nodo.args.args + nodo.args.kwonlyargs:
+                        if arg.arg == "confirmation_token":
+                            continue
+                        assert not any(m in arg.arg for m in (
+                            "password", "secret", "token", "username")), (nodo.name, arg.arg)
+        assert vistas == set(_TODAS_021)
+
 
 class TestToolCountInDocs:
     """El número de tools que anuncian los README y DOCS.md es el del registro

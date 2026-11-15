@@ -38,6 +38,7 @@ from tests.banco import cobertura, cobertura_012 as c012, cobertura_015 as c015
 from tests.banco import cobertura_016 as c016
 from tests.banco import cobertura_017 as c017
 from tests.banco import cobertura_020 as c020
+from tests.banco import cobertura_021 as c021
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -84,6 +85,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 020 (contrato de la 028): mantenimiento de estadísticas.
         "PROBADAS_020": set(c020.PROBADAS_020),
         "NO_EJECUTABLES_020": set(c020.NO_EJECUTABLES_020),
+        # Spec 021: sus escrituras, en su propio módulo.
+        "PROBADAS_021": set(c021.PROBADAS_021),
+        "NO_EJECUTABLES_021": set(c021.NO_EJECUTABLES_021),
     }
 
 
@@ -111,8 +115,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # y borrar blueprints del tramo A e importar del tramo B), y las 6 de la
         # 020 (5 de estadísticas de los tramos 1 y 2 y la de energía del 3), y
         # las 8 de la 022 (7 de control de Core y del Supervisor del tramo 1 y
-        # la de aplicar sugerencias del tramo 2).
-        self.assertEqual(len(reales), 175)
+        # la de aplicar sugerencias del tramo 2), y las 9 de la 021 (3 del
+        # tramo a, núcleo y exposición; 3 del b, usuarios; y 3 del c, red y
+        # HTTP).
+        self.assertEqual(len(reales), 184)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -140,6 +146,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
                 ("NO_EJECUTABLES_028", c028.NO_EJECUTABLES_028),
                 ("NO_EJECUTABLES_012", c012.NO_EJECUTABLES_012),
                 ("NO_EJECUTABLES_017", c017.NO_EJECUTABLES_017),
+                ("NO_EJECUTABLES_021", c021.NO_EJECUTABLES_021),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
                 ("NO_EJECUTABLES_016", c016.NO_EJECUTABLES_016),
                 ("NO_EJECUTABLES_015", c015.NO_EJECUTABLES_015),
@@ -170,7 +177,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
             | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
             | c016.PROBADAS_016 | c017.PROBADAS_017 | c020.PROBADAS_020
-            | c020.LECTURAS_020,
+            | c020.LECTURAS_020 | c021.PROBADAS_021 | c021.LECTURAS_021
+            | c021.VISTA_PREVIA_021,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}

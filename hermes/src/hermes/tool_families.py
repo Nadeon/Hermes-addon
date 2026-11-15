@@ -220,6 +220,32 @@ _CATALOGO: tuple[Familia, ...] = (
             "Apply Supervisor resolution suggestions after a preview that "
             "explains their effect.",
             "1.2.0", True, ("resolution_fixes",)),
+    # Spec 021 (research R-9): la configuración del sistema va en familias
+    # por área y por riesgo, para que quien quiera apagar lo de riesgo alto
+    # (usuarios, red y HTTP, en los tramos b y c) lo haga sin perder el resto.
+    # El tramo a trae dos: el núcleo y la exposición a asistentes (esta,
+    # aparte, porque puede mandar entidades a la nube de un tercero).
+    Familia("core_config",
+            "Core configuration: name, location, units, time zone, currency, "
+            "country, language and URLs.",
+            "1.2.0", True, ("core_config",)),
+    Familia("assistant_exposure",
+            "Which entities Assist, conversation agents and the cloud voice "
+            "assistants can see and control.",
+            "1.2.0", True, ("assistant_exposure",)),
+    # Tramo b: los usuarios, aparte y desactivables por su riesgo (crean,
+    # editan y borran cuentas de la casa). Nunca contraseñas ni tokens.
+    Familia("users",
+            "Home Assistant users: list, create without credentials, edit and "
+            "delete. Never passwords or tokens.",
+            "1.2.0", True, ("users",)),
+    # Tramo c: red y HTTP de Core, aparte por su riesgo (cambiar el HTTP
+    # reinicia HA y puede dejarla inaccesible). No es la red del host, que es
+    # del Supervisor (spec 032): solo lo que guarda Core.
+    Familia("core_network",
+            "Core network adapters and HTTP server configuration (port, SSL, "
+            "reverse proxy).",
+            "1.2.0", True, ("core_network",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

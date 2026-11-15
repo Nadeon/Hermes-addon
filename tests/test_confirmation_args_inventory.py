@@ -35,7 +35,7 @@ además con las tools que publican `confirmation_token` en un `MCPServer` real
 (`_real_registry()`), así que una tool con token registrada de otra forma
 (`mcp.add_tool`, un subpaquete) tampoco se escapa.
 
-Recuento: 86 tools. La auditoría de la spec (research R-1) contaba 79 sobre
+Recuento: 95 tools (86 hasta la 021). La auditoría de la spec (research R-1) contaba 79 sobre
 la punta de entonces; la 011 integró después `ha_call_ws_command` y
 `sv_call_api`, que atan todo lo que envían, y el tramo 2 de la 033 dio token
 a `ha_create_scene_from_current` (FR-006). Al integrar la 033 en la rama del
@@ -134,6 +134,28 @@ contexto y la referencia de la sugerencia, los backups a borrar con sus
 ubicaciones, los contenedores a reconstruir y los arreglos automáticos que el
 Supervisor aplicaría de paso (`also_auto_applied`). `sv_reload_supervisor`
 no pide token (FR-076 de la 008). Ningún hallazgo.
+
+Recuento: 127 desde la integración de la 021, que trae nueve tools con
+token, comprobadas en el código. `ha_update_core_config` ata sus doce campos
+(también los `None`: otra combinación es otra acción) y `update_units`, y en
+el `estado` los campos editables y la fuente leídos de HA.
+`ha_set_entity_exposure` ata `entity_ids` y `assistants` sin repetidos y
+ordenados, y `expose`, y en el `estado` la exposición actual de esas
+entidades en esos asistentes; `ha_set_expose_new_entities` ata `assistant`
+y `expose_new`, y en el `estado` el valor leído. Las dos solo piden token al
+exponer (`expose=true`, `expose_new=true`): ocultar se aplica a la primera,
+sin token (excepción `TOKEN_SOLO_AL_AMPLIAR` de
+tests/test_tools_registration.py). `ha_create_user` ata `name`, `group` y
+`local_only` (ninguna toma credenciales) y, en el `estado`, los usuarios con
+el mismo nombre; `ha_update_user` ata `user_id` y los cuatro campos (`None`
+los que no llegan) y `ha_delete_user`, `user_id`; las dos, en el `estado`,
+el usuario leído, quién es Hermes y el número de administradores activos,
+releídos al confirmar. `ha_update_network_config` ata `configured_adapters`
+y, en el `estado`, los adaptadores configurados, los habilitados y los
+disponibles; `ha_update_http_config`, `changes` entero y `discard_pending`;
+y `ha_promote_http_config` no tiene más argumento que el token. Las dos de
+HTTP atan en el `estado` las dos ranuras (estable y pendiente) y con cuál
+funciona HA. Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -305,6 +327,30 @@ INVENTARIO: dict[str, dict[str, str]] = {
         "device_consumption": A,
         "device_consumption_water": A,
     },
+    # ── configuración del sistema (spec 021, tramo a) ───────────────────
+    # Todo atado; `entity_ids` y `assistants` van sin repetidos y ordenados
+    # antes de atarlos. Ocultar (`expose=false`, `expose_new=false`) no pide
+    # token (decisión D-4): no hay nada que atar en ese camino.
+    "ha_update_core_config": {
+        "location_name": A, "latitude": A, "longitude": A, "elevation": A,
+        "radius": A, "unit_system": A, "time_zone": A, "currency": A,
+        "country": A, "language": A, "internal_url": A, "external_url": A,
+        "update_units": A,
+    },
+    "ha_set_entity_exposure": {"entity_ids": A, "assistants": A, "expose": A},
+    "ha_set_expose_new_entities": {"assistant": A, "expose_new": A},
+    # Usuarios (spec 021, tramo b): todo atado. Ninguna toma credenciales
+    # (FR-012): no hay contraseña ni nombre de acceso que atar ni guardar.
+    "ha_create_user": {"name": A, "group": A, "local_only": A},
+    "ha_update_user": {"user_id": A, "name": A, "is_active": A, "group": A,
+                       "local_only": A},
+    "ha_delete_user": {"user_id": A},
+    # Red y HTTP (spec 021, tramo c): todo atado. `changes` entero (el
+    # documento que se manda sale de fundirlo) y `discard_pending`; promover
+    # no tiene más argumento que el token.
+    "ha_update_network_config": {"configured_adapters": A},
+    "ha_update_http_config": {"changes": A, "discard_pending": A},
+    "ha_promote_http_config": {},
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     # Spec 030: instalar y actualizar atan además la `version_latest` de la
@@ -460,8 +506,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019 + las cuatro de la 015 + las tres de la 030
         # + las tres de la 017 + las seis de la 020
-        # + las seis del tramo 1 de la 022 y la del tramo 2.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 118)
+        # + las seis del tramo 1 de la 022 y la del tramo 2 + las nueve de la
+        # 021.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 127)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -481,7 +528,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 118)
+        self.assertEqual(len(publicadas), 127)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

@@ -475,6 +475,30 @@ def register_all_tools(
         from hermes.tools.resolution_fixes import register as register_resolution_fixes
         register_resolution_fixes(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Configuración del sistema (spec 021, tramo a): el núcleo (nombre,
+    # ubicación, unidades, zona horaria, URLs) y la exposición de entidades a
+    # los asistentes de voz. Dos familias para poder apagar la exposición,
+    # que puede mandar entidades a la nube de un tercero, sin perder el resto.
+    if _activa("core_config"):
+        from hermes.tools.core_config import register as register_core_config
+        register_core_config(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    if _activa("assistant_exposure"):
+        from hermes.tools.assistant_exposure import register as register_assistant_exposure
+        register_assistant_exposure(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # Usuarios (spec 021, tramo b): familia propia para poder apagar lo que
+    # crea, edita y borra cuentas sin perder el resto de la configuración.
+    if _activa("users"):
+        from hermes.tools.users import register as register_users
+        register_users(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # Red y HTTP de Core (spec 021, tramo c): familia propia, de riesgo alto
+    # (cambiar el HTTP reinicia HA y puede dejarla inaccesible).
+    if _activa("core_network"):
+        from hermes.tools.core_network import register as register_core_network
+        register_core_network(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

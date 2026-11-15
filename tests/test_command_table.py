@@ -356,6 +356,98 @@ class TestDedicadas(unittest.TestCase):
         pendientes = sorted(str(k) for k, e in _todas() if "(spec 017)" in e.reason)
         self.assertEqual(pendientes, [])
 
+    def test_dedicadas_de_la_021(self) -> None:
+        """Spec 021, tramo a (T002; FR-003, FR-018): los cinco comandos de
+        CAP-053 y CAP-055 son `dedicated` hacia su tool, con la forma que
+        escribe el generador y su clave en `_DEDICADAS_INICIALES`; y
+        `config/core/detect` es `read` de mundo abierto con su porqué en
+        `_POR_LA_TABLA`.
+        Control negativo (T018 f): `homeassistant/expose_entity` en `deny` →
+        cae."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        cinco = {
+            "config/core/update": ("ha_update_core_config", "core_config", "CAP-053"),
+            "homeassistant/expose_entity": (
+                "ha_set_entity_exposure", "assistant_exposure", "CAP-055"),
+            "homeassistant/expose_entity/list": (
+                "ha_list_exposed_entities", "assistant_exposure", "CAP-055"),
+            "homeassistant/expose_new_entities/get": (
+                "ha_list_exposed_entities", "assistant_exposure", "CAP-055"),
+            "homeassistant/expose_new_entities/set": (
+                "ha_set_expose_new_entities", "assistant_exposure", "CAP-055"),
+            # Tramo b (T027): los cuatro de CAP-056, familia `users`.
+            "config/auth/list": ("ha_list_users", "users", "CAP-056"),
+            "config/auth/create": ("ha_create_user", "users", "CAP-056"),
+            "config/auth/update": ("ha_update_user", "users", "CAP-056"),
+            "config/auth/delete": ("ha_delete_user", "users", "CAP-056"),
+            # Tramo c (T045): los tres de CAP-069, familia `core_network`.
+            "network/configure": ("ha_update_network_config", "core_network", "CAP-069"),
+            "http/config/configure": ("ha_update_http_config", "core_network", "CAP-069"),
+            "http/config/promote": ("ha_promote_http_config", "core_network", "CAP-069"),
+        }
+        self.assertEqual(len(cinco), 12)
+        for comando, (tool, familia, cap) in cinco.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", familia, tool, cap))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        e = ct.CORE_WS["config/core/detect"]
+        self.assertEqual((e.category, e.family, e.cap, e.open_world, e.tool),
+                         ("read", "generic_commands", "CAP-053", True, None))
+        self.assertIn("servicio externo", e.reason)
+        self.assertIn("no guarda nada", e.reason)
+        self.assertTrue(_POR_LA_TABLA["config/core/detect"].startswith("spec 021: "))
+        self.assertNotIn("config/core/detect", _DEDICADAS_INICIALES)
+        # Tramo c (T045, SC-002): ya no queda nada «pendiente (spec 021)» en
+        # ninguna de las dos tablas. Control negativo (T056 h):
+        # `http/config/promote` en `deny` pendiente → cae.
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 021)" in e.reason)
+        self.assertEqual(pendientes, [])
+
+    def test_cap_074_por_la_tabla(self) -> None:
+        """Spec 021, tramo c (T043; FR-016): las cuatro de analytics y labs
+        siguen por las genéricas con `cap="CAP-074"`; `analytics/preferences`
+        es de mundo abierto (activar el envío manda datos a los servidores de
+        Home Assistant). Control negativo (T056 g): sin `open_world` → cae."""
+        esperado = {
+            "analytics": ("read", False),
+            "labs/list": ("read", False),
+            "analytics/preferences": ("confirm", True),
+            "labs/update": ("confirm", False),
+        }
+        for comando, (categoria, sale) in esperado.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual((e.category, e.cap, e.open_world, e.family),
+                                 (categoria, "CAP-074", sale, "generic_commands"))
+
+    def test_credenciales_y_sesiones_siguen_deny(self) -> None:
+        """Spec 021, tramo b (T027; FR-012): `auth/refresh_tokens` queda `deny`
+        revisado (research R-5, en `_DENY_TRAS_REVISION`), y lo que maneja
+        contraseñas o revoca sesiones sigue `deny` de clase D (D-01 de la
+        008): ninguna tool de usuarios lo abre."""
+        e = ct.CORE_WS["auth/refresh_tokens"]
+        self.assertEqual((e.category, e.family, e.cap, e.tool),
+                         ("deny", "generic_commands", "CAP-056", None))
+        self.assertIn("propia conexión", e.reason)
+        self.assertNotIn("pendiente", e.reason)
+        self.assertTrue(_DENY_TRAS_REVISION["auth/refresh_tokens"].startswith("spec 021: "))
+        clase_d = [f"config/auth_provider/homeassistant/{c}" for c in (
+            "admin_change_password", "admin_change_username", "change_password",
+            "create", "delete")] + [
+            "auth/delete_refresh_token", "auth/refresh_token_set_expiry",
+            "auth/delete_all_refresh_tokens", "auth/long_lived_access_token"]
+        for comando in clase_d:
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(e.category, "deny")
+                self.assertIn("(clase D)", e.reason)
+        # `auth/current_user` lo usa Hermes por dentro; la genérica, no.
+        self.assertEqual(ct.CORE_WS["auth/current_user"].category, "deny")
+
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
         otras = sorted(str(k) for k, e in _todas()
@@ -370,6 +462,9 @@ class TestDedicadas(unittest.TestCase):
 _READ_QUE_SALEN: dict[str | tuple[str, str], str] = {
     "media_source/browse_media": "las fuentes remotas consultan su API al navegar",
     "media_source/search_media": "las fuentes remotas consultan su API al buscar",
+    # Spec 021 (FR-003, FR-071 de la 008): propone la configuración del
+    # núcleo consultando un servicio externo de geolocalización por IP.
+    "config/core/detect": "consulta un servicio externo de geolocalización por IP",
 }
 
 
@@ -516,6 +611,22 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
     ("POST", "/resolution/healthcheck"): (
         "spec 022: FR-077 de la 008 lo deja `confirm` en la tabla; puede "
         "aplicar los arreglos automáticos del Supervisor"),
+    "config/core/detect": (
+        "spec 021: FR-071 de la 008 la deja `read` en la tabla; consulta un "
+        "servicio externo de geolocalización y no guarda nada"),
+}
+
+
+# Spec 021 (T027, research R-5): claves de clase A de vía D que, tras leer el
+# código de HA, quedan `deny` con un motivo que NO es «pendiente»: no hay tool
+# dedicada posible. Clave → «spec NNN: porqué»; la spec tiene que ser una de
+# las de su CAP en la matriz, igual que `_POR_LA_TABLA`. Control negativo
+# (T035 f): sin la clave de `auth/refresh_tokens` caen el test de la clase A y
+# `test_credenciales_y_sesiones_siguen_deny`.
+_DENY_TRAS_REVISION: dict[tuple[str, str] | str, str] = {
+    "auth/refresh_tokens": (
+        "spec 021: solo da las sesiones del usuario de la conexión (el propio "
+        "Hermes), nunca las de otros usuarios; research R-5"),
 }
 
 
@@ -582,6 +693,13 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                     continue
                 if k in _POR_LA_TABLA and e.category in {"read", "confirm"}:
                     spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])
+                    if spec and spec.group(1) in subs:
+                        continue
+                # Spec 021 (T027): `deny` revisado, con un motivo que no es
+                # «pendiente» y la spec que lo revisó en el porqué.
+                if (k in _DENY_TRAS_REVISION and e.category == "deny"
+                        and "pendiente" not in e.reason):
+                    spec = re.match(r"spec (\d{3}): ", _DENY_TRAS_REVISION[k])
                     if spec and spec.group(1) in subs:
                         continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)

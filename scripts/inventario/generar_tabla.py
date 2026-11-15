@@ -397,6 +397,25 @@ _DEDICADAS_INICIALES: dict[
     # tabla, editadas a mano.
     "energy/get_prefs": "ha_get_energy_prefs",
     "energy/save_prefs": "ha_update_energy_prefs",
+    # 021 (tramo a): configuración del núcleo (CAP-053) y exposición a
+    # asistentes (CAP-055), clase A de vía D. `config/core/detect` no está:
+    # va `read` en la tabla (FR-071 de la 008), revisada a mano.
+    "config/core/update": "ha_update_core_config",
+    "homeassistant/expose_entity": "ha_set_entity_exposure",
+    "homeassistant/expose_entity/list": "ha_list_exposed_entities",
+    "homeassistant/expose_new_entities/get": "ha_list_exposed_entities",
+    "homeassistant/expose_new_entities/set": "ha_set_expose_new_entities",
+    # 021 (tramo b): usuarios (CAP-056). `auth/refresh_tokens` no está: queda
+    # `deny` revisado en la tabla (solo da las sesiones del propio Hermes;
+    # research R-5 de la 021), revisada a mano.
+    "config/auth/list": "ha_list_users",
+    "config/auth/create": "ha_create_user",
+    "config/auth/update": "ha_update_user",
+    "config/auth/delete": "ha_delete_user",
+    # 021 (tramo c): red y HTTP de Core (CAP-069).
+    "network/configure": "ha_update_network_config",
+    "http/config/configure": "ha_update_http_config",
+    "http/config/promote": "ha_promote_http_config",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

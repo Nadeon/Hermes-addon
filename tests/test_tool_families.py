@@ -329,6 +329,54 @@ class TestCatalogo(unittest.TestCase):
         self.assertNotIn("resolution_fixes", FAMILIAS["diagnostics"].modulos)
         self.assertEqual(validar_desactivadas(["resolution_fixes"]),
                          frozenset({"resolution_fixes"}))
+    def test_familias_de_la_021_tramo_a(self) -> None:
+        """Spec 021 (FR-017, T007): `core_config` y `assistant_exposure`,
+        nuevas de la 1.2.0, desactivables y con su módulo cada una (research
+        R-9: la exposición, aparte, porque puede mandar entidades a la nube
+        de un tercero)."""
+        esperadas = {
+            "core_config": ("core_config", "Core configuration: name, location, "
+                            "units, time zone, currency, country, language and URLs."),
+            "assistant_exposure": ("assistant_exposure", "Which entities Assist, "
+                                   "conversation agents and the cloud voice "
+                                   "assistants can see and control."),
+        }
+        for nombre, (modulo, descripcion) in esperadas.items():
+            with self.subTest(familia=nombre):
+                familia = FAMILIAS[nombre]
+                self.assertEqual(familia.desde, "1.2.0")
+                self.assertTrue(familia.desactivable)
+                self.assertEqual(familia.modulos, (modulo,))
+                self.assertEqual(familia.descripcion, descripcion)
+                self.assertEqual(familia_de_modulo(modulo), nombre)
+                self.assertEqual(validar_desactivadas([nombre]), frozenset({nombre}))
+
+    def test_familia_de_la_021_tramo_b(self) -> None:
+        """Spec 021 (FR-017, T025): `users`, nueva de la 1.2.0, desactivable
+        y con su módulo (research R-9: riesgo alto, aparte del resto)."""
+        familia = FAMILIAS["users"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("users",))
+        self.assertEqual(familia.descripcion,
+                         "Home Assistant users: list, create without credentials, "
+                         "edit and delete. Never passwords or tokens.")
+        self.assertEqual(familia_de_modulo("users"), "users")
+        self.assertEqual(validar_desactivadas(["users"]), frozenset({"users"}))
+
+    def test_familia_de_la_021_tramo_c(self) -> None:
+        """Spec 021 (FR-017, T042): `core_network`, nueva de la 1.2.0,
+        desactivable y con su módulo; no es la red del host (032)."""
+        familia = FAMILIAS["core_network"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("core_network",))
+        self.assertEqual(familia.descripcion,
+                         "Core network adapters and HTTP server configuration "
+                         "(port, SSL, reverse proxy).")
+        self.assertEqual(familia_de_modulo("core_network"), "core_network")
+        self.assertEqual(validar_desactivadas(["core_network"]),
+                         frozenset({"core_network"}))
 
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
