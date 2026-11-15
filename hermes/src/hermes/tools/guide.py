@@ -938,7 +938,11 @@ datos) nunca casa la huella: para antes esa app (`sv_stop_addon`).
 Las confirmaciones de una misma carpeta se hacen de una en una, y justo
 antes de tocar el disco la ruta se vuelve a resolver: si una carpeta del
 camino cambió entretanto (por ejemplo, ahora es un symlink),
-`path_changed` y no se toca nada.
+`path_changed` y no se toca nada. Si otra operación de Hermes retiene la
+carpeta más de 15 s (reconstruir una app local puede tardar minutos), la
+confirmación responde `folder_busy` SIN gastar el token ni tocar nada:
+repite la MISMA llamada con el mismo token en un momento (vive 60 s) o pide
+otra vista previa.
 
 SIN BACKUP
 Hermes NO hace backup antes de escribir, mover ni borrar aquí (a diferencia
@@ -964,14 +968,19 @@ APPS LOCALES INSTALADAS (solo addons)
   `sv_install_addon("local_<slug>")`. Su vista previa enseña los privilegios
   que pide la app (`privileges`, con `declared_in_folder`): revísalos con el
   usuario.
-- RECARGA LA TIENDA DESPUÉS DE TOCAR UNA APP LOCAL. El Supervisor instala y
-  reconstruye con SU copia del `config.*`, la de la última recarga de la
-  tienda, que puede no ser el fichero. Si el `config.*` o una carpeta de su
-  camino cambió después del inicio de la última recarga que lanzó Hermes
-  (o Hermes no ha recargado desde que arrancó), `sv_install_addon` y
-  `sv_rebuild_addon` responden `store_copy_stale` SIN token: llama a
-  `sv_reload_store()` y pide otra vista previa. También sin /addons, sin la
-  app en su índice, con dos `config.*` del mismo slug o con alguno ilegible.
+- RECARGA LA TIENDA DESPUÉS DE TOCAR /addons. El Supervisor instala,
+  actualiza y reconstruye con SU copia del `config.*`, la de la última
+  recarga de la tienda, que puede no ser el fichero. Si CUALQUIER cosa en
+  /addons (a cualquier profundidad) cambió después del inicio de la última
+  recarga que lanzó Hermes (o Hermes no ha recargado desde que arrancó),
+  `sv_install_addon`, `sv_update_addon` y `sv_rebuild_addon` de una app
+  local responden `store_copy_stale` SIN token: llama a `sv_reload_store()`
+  y pide otra vista previa. También sin /addons, si tiene más de 50 000
+  entradas o tarda más de 10 s en recorrerse, sin la app en su índice, con
+  dos `config.*` válidos del mismo slug o con alguno que Hermes no puede
+  leer (symlink, más de 1 MiB…). Un `config.*` que el Supervisor descarta
+  (sin `slug`, YAML roto, sin un campo obligatorio) no bloquea: sale en
+  `ignored_config_files` con su motivo.
 
 OTRAS REGLAS
 - Lista negra por NOMBRE de fichero, la misma de /config (secrets.yaml,
@@ -1021,15 +1030,18 @@ OTRAS REGLAS
   Revísalos con el usuario antes de confirmar. El token se ata también a
   ellos: si cambian antes de confirmar, `preview_outdated`. Si la ficha no
   se puede leer, `privileges: null` y `privileges_unavailable`.
-  `sv_rebuild_addon` hace lo mismo (`hermes_guide("app_store")`).
-- App local (`local_*`): el Supervisor instala (y reconstruye) con SU copia
-  del `config.*`, la de la última recarga de la tienda. Si el fichero o una
-  carpeta de su camino cambió después del inicio de la última recarga que
-  lanzó Hermes (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar
-  un repositorio), o Hermes no ha recargado desde que arrancó,
+  `sv_update_addon` hace lo mismo, con `installed` (lo actual) además de
+  `store` (lo que la actualización aplicará); `sv_rebuild_addon`, también
+  (`hermes_guide("app_store")`).
+- App local (`local_*`): el Supervisor instala, actualiza y reconstruye con
+  SU copia del `config.*`, la de la última recarga de la tienda. Si algo en
+  /addons cambió después del inicio de la última recarga que lanzó Hermes
+  (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar un
+  repositorio), o Hermes no ha recargado desde que arrancó,
   `store_copy_stale` sin token (también sin /addons o si la app no está en
   su índice): `sv_reload_store()` y otra vista previa. Se comprueba otra vez
-  al confirmar (`hermes_guide("folders")`).
+  al confirmar; si otra operación de Hermes retiene /addons más de 15 s,
+  `folder_busy` sin gastar el token (`hermes_guide("folders")`).
 - Tienda (repositorios, changelog, documentación, disponibilidad,
   reconstruir una app): `hermes_guide("app_store")`.
 - Escribir el código de una app local en /addons (familia `addons_share`):
@@ -2165,9 +2177,11 @@ REPOSITORIOS Y RECARGA
   vale para `local` (`not_supported`).
 - `sv_reload_store()` — actualiza TODOS los repositorios (`git pull`) y
   relee el catálogo: para que aparezcan apps o versiones nuevas. No instala
-  ni actualiza nada. Puede tardar. Hermes anota cuándo EMPEZÓ: instalar o
-  reconstruir una app local exige una recarga posterior al último cambio de
-  su `config.*` (si no, `store_copy_stale`).
+  ni actualiza nada. Puede tardar. Hermes anota cuándo EMPEZÓ: instalar,
+  actualizar o reconstruir una app local exige una recarga posterior al
+  último cambio en /addons (si no, `store_copy_stale`). Las recargas que
+  lanza Hermes (también `sv_check_for_updates` y añadir o quitar un
+  repositorio) van de una en una.
 Reparar arregla UN repositorio roto; recargar trae lo nuevo de todos. Ninguna
 de las dos pide token.
 
@@ -2217,11 +2231,12 @@ RECONSTRUIR UNA APP
   confirmar, `preview_outdated` y no se reconstruye nada. El código de una
   app local se edita con las tools de `hermes_guide("folders")`.
 - App local: la reconstrucción aplica la copia del Supervisor de la última
-  recarga, no el fichero. Si el `config.*` o una carpeta de su camino cambió
-  después del inicio de la última recarga que lanzó Hermes (o no ha lanzado
-  ninguna), `store_copy_stale` sin token: `sv_reload_store()` y otra vista
-  previa. Se comprueba también al confirmar, sin que ninguna escritura de
-  Hermes en /addons se cuele entre medias.
+  recarga, no el fichero. Si algo en /addons cambió después del inicio de
+  la última recarga que lanzó Hermes (o no ha lanzado ninguna),
+  `store_copy_stale` sin token: `sv_reload_store()` y otra vista previa. Se
+  comprueba también al confirmar, sin que ninguna escritura de Hermes en
+  /addons se cuele entre medias (`folder_busy`, sin gastar el token, si
+  otra la retiene más de 15 s).
 """,
     "blueprints": """\
 # Blueprints

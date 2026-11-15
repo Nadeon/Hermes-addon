@@ -265,6 +265,13 @@ recuento: `sv_install_addon` sigue atando `slug` y `sv_rebuild_addon`,
 `privileges` (el bloque de la vista previa sin notas ni motivos; al
 confirmar se vuelve a leer con las mismas rutas GET y, si cambió,
 `preview_outdated` sin enviar nada). Ningún hallazgo.
+
+La convergencia 2 de la 034 (T053) tampoco cambia argumentos ni recuento:
+`sv_update_addon` sigue atando `slug`, y su `estado` pasa de
+`{"version_latest"}` a `{"version_latest", "privileges"}` (el mismo bloque
+que reconstruir, con la ficha de la tienda, la app instalada y, para
+`local_*`, su `config.*`; al confirmar se vuelve a leer con las mismas rutas
+GET y, si cambió, `preview_outdated` sin enviar nada). Ningún hallazgo.
 """
 
 from __future__ import annotations

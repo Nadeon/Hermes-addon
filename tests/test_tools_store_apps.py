@@ -69,7 +69,7 @@ class _Base(unittest.IsolatedAsyncioTestCase):
         # comprobación de la copia de la tienda (convergencia T047 de la 034)
         # se prueba en `test_tools_privilegios.TestCopiaDeTienda`.
         p = mock.patch.object(store_apps_mod, "comprobar_copia_de_tienda",
-                              mock.AsyncMock(return_value=None))
+                              mock.AsyncMock(return_value=(None, None)))
         p.start()
         self.addCleanup(p.stop)
 

@@ -70,7 +70,7 @@ from hermes.tools._store import (
     es_integrado,
     estado_de_privilegios,
     ficha_de_tienda,
-    candado_de_app,
+    bajo_candado_de_app,
     comprobar_copia_de_tienda,
     leer_declarado,
     mensaje_del_supervisor,
@@ -397,6 +397,55 @@ def register(
         estado.update({"version_latest": ficha.get("version_latest"),
                        "privileges": estado_de_privilegios(bloque)})
         return None
+
+    async def _privilegios_de_actualizar(
+        slug: str, info: dict[str, Any] | None, motivo_info: str | None
+    ) -> dict[str, Any] | None:
+        """Bloque `privileges` de actualizar (convergencia 2 de la 034,
+        T053): lo que se aplicará (la ficha de la tienda, que el Supervisor
+        copia a la app al actualizar: `apps/app.py`, `update`), lo actual
+        (`info`, de `/addons/{slug}/info`) y, para `local_*`, lo que declara
+        su `config.*` en /addons. Las mismas fuentes que reconstruir; la
+        ficha de la tienda es una lectura nueva (GET, sin efecto)."""
+        motivos: dict[str, str] = {}
+        if motivo_info:
+            motivos["installed"] = motivo_info
+        try:
+            ficha = await ficha_de_tienda(ha_client, slug)
+            if ficha is None:
+                motivos["store"] = "The app is not in the store."
+        except HAConnectionError as exc:
+            ficha = None
+            motivos["store"] = redact_secrets(str(exc))
+        declarado, motivo_carpeta = await leer_declarado(slug)
+        if motivo_carpeta:
+            motivos["declared_in_folder"] = motivo_carpeta
+        return privilegios_de(store=ficha, installed=info, declared=declarado,
+                              motivos=motivos)
+
+    async def _leer_instalada(slug: str) -> tuple[dict[str, Any] | None, str | None]:
+        """`(info, motivo)` de `GET /addons/{slug}/info`: `info` es `None`
+        si no se pudo leer o no es un objeto, con su motivo."""
+        try:
+            info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
+        except HAConnectionError as exc:
+            return None, redact_secrets(str(exc))
+        if not isinstance(info, dict):
+            return None, "Unexpected response from the Supervisor."
+        return info, None
+
+    async def _estado_de_actualizar(slug: str) -> dict[str, Any]:
+        """Lo que ata el token de `sv_update_addon`, leído otra vez al
+        confirmar con las mismas lecturas GET de la vista previa: la
+        `version_latest` de la app (030) y, desde la convergencia 2 de la
+        034 (T053), el bloque `privileges`. Lo que no se puede leer cuenta
+        como `None`: si la vista previa sí lo leyó, no casa."""
+        info, motivo = await _leer_instalada(slug)
+        bloque = await _privilegios_de_actualizar(slug, info, motivo)
+        return {
+            "version_latest": info.get("version_latest") if info is not None else None,
+            "privileges": estado_de_privilegios(bloque),
+        }
 
     async def _estado_de_instalar(slug: str) -> dict[str, Any]:
         """Lo que ata el token de `sv_install_addon`, leído otra vez al
@@ -1010,15 +1059,20 @@ def register(
 
         App local (`local_*`): el Supervisor la instala con SU copia del
         `config.*`, la de la última recarga de la tienda, que puede no ser el
-        fichero de /addons. Si el `config.*` o una carpeta de su camino
-        cambió después del inicio de la última recarga que lanzó Hermes
-        (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar un
+        fichero de /addons. Si cualquier cosa en /addons (a cualquier
+        profundidad) cambió después del inicio de la última recarga que lanzó
+        Hermes (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar un
         repositorio), o Hermes no ha lanzado ninguna desde que arrancó, se
         rechaza SIN token con `store_copy_stale` (pista: `sv_reload_store`).
-        También sin /addons, sin la app en su índice, con dos `config.*` para
-        el mismo slug o con alguno ilegible. Se comprueba en la vista previa
+        También sin /addons, si es demasiado grande para comprobarlo a
+        tiempo, sin la app en su índice, con dos `config.*` válidos para el
+        mismo slug o con alguno que Hermes no puede leer. Un `config.*` que
+        el Supervisor descartaría (sin `slug`, inválido…) no bloquea: sale en
+        `ignored_config_files` con su motivo. Se comprueba en la vista previa
         y otra vez al confirmar, junto con la petición, sin que ninguna
-        escritura de Hermes en /addons se cuele entre medias.
+        escritura de Hermes en /addons se cuele entre medias; si otra
+        operación de Hermes retiene /addons más de 15 s, `folder_busy` sin
+        gastar el token.
 
         Operación larga — devuelve inmediatamente un job_id.
         Usa sv_get_job_status(job_id) para consultar el progreso.
@@ -1056,15 +1110,18 @@ def register(
                 return rechazo
             # Convergencia T047: para una app local, el Supervisor instala su
             # copia de la última recarga de la tienda, no el fichero.
-            if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+            desfase, ignorados = await comprobar_copia_de_tienda(slug)
+            if desfase is not None:
                 return desfase
+            if ignorados is not None:
+                preview["ignored_config_files"] = ignorados
             return await create_confirmation_token(
                 tool_name, args, preview=preview, estado=estado)
 
         # T047 y T048: la comprobación y la petición, bajo el candado de
-        # /addons (solo para `local_*`).
-        async with candado_de_app(slug):
-            return await _confirmar_instalar(slug, args, confirmation_token)
+        # /addons (solo para `local_*`; con tope de espera, T056).
+        return await bajo_candado_de_app(
+            slug, lambda: _confirmar_instalar(slug, args, confirmation_token))
 
     async def _confirmar_instalar(
         slug: str, args: dict[str, Any], confirmation_token: str
@@ -1077,7 +1134,8 @@ def register(
                   "without confirmation_token)."))
         if rechazo is not None:
             return rechazo
-        if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+        desfase, _ = await comprobar_copia_de_tienda(slug)
+        if desfase is not None:
             await complete_confirmation_token(
                 confirmation_token, success=False, error="store_copy_stale")
             return desfase
@@ -1180,16 +1238,6 @@ def register(
             await complete_confirmation_token(confirmation_token, success=False, error=str(exc))
             return {"error": str(exc)}
 
-    async def _version_de_la_app(slug: str) -> Any:
-        """`version_latest` de la app instalada (`/addons/{slug}/info`), o
-        `None` si no se puede leer. Es lo que ata el token de
-        `sv_update_addon`."""
-        try:
-            info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
-        except HAConnectionError:
-            return None
-        return info.get("version_latest") if isinstance(info, dict) else None
-
     @mcp.tool()
     async def sv_update_addon(
         slug: str,
@@ -1205,8 +1253,24 @@ def register(
         está en la tienda (`detached`), no lo dice: la vista previa lleva
         `in_store: false` y avisa de que el Supervisor rechazará actualizarla.
 
-        El token se ata a la `version_latest` de la vista previa: si la tienda
-        ofrece otra al confirmar, responde `preview_outdated` sin actualizar.
+        La vista previa enseña también los privilegios (`privileges`): lo que
+        se aplicará (`store`, la ficha de la tienda, que la actualización
+        copia a la app), lo actual (`installed`), para una app local
+        (`local_*`) lo que declara su `config.*` en /addons
+        (`declared_in_folder`) y cuáles son elevados (`elevated`). Si no se
+        pueden leer, `privileges: null` y `privileges_unavailable`.
+
+        El token se ata a la `version_latest` y a los `privileges` de la
+        vista previa: si cambian al confirmar, responde `preview_outdated`
+        sin actualizar.
+
+        App local (`local_*`): como al instalar, el Supervisor aplica SU
+        copia del `config.*`, la de la última recarga de la tienda. Si algo
+        en /addons cambió después del inicio de la última recarga que lanzó
+        Hermes, o no ha lanzado ninguna, `store_copy_stale` SIN token (pista:
+        `sv_reload_store`), en la vista previa y otra vez al confirmar, bajo
+        el candado de /addons (`folder_busy` si otra operación de Hermes lo
+        retiene más de 15 s, sin gastar el token).
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
@@ -1244,16 +1308,13 @@ def register(
         args: dict[str, Any] = {"slug": slug}
 
         if not confirmation_token:
-            try:
-                info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
-                if isinstance(info, dict):
-                    current = info.get("version")
-                    latest = info.get("version_latest")
-                    avail = info.get("update_available", False)
-                    detached = info.get("detached")
-                else:
-                    current = latest = avail = detached = None
-            except HAConnectionError:
+            info, motivo_info = await _leer_instalada(slug)
+            if info is not None:
+                current = info.get("version")
+                latest = info.get("version_latest")
+                avail = info.get("update_available", False)
+                detached = info.get("detached")
+            else:
                 current = latest = avail = detached = None
 
             # Convergencia de la 030 (T032): una app que ya no está en la
@@ -1306,14 +1367,45 @@ def register(
                 preview["available"] = None
                 preview["reason"] = redact_secrets(mensaje_del_supervisor(exc))
             preview.update(await _resumen_de_changelog(slug))
+            # Convergencia 2 de la 034 (T053): actualizar aplica la ficha de
+            # la tienda a la app (`apps/app.py`, `update`), privilegios
+            # incluidos, como instalar y reconstruir. La vista previa los
+            # enseña y el token se ata también a ellos.
+            bloque = await _privilegios_de_actualizar(slug, info, motivo_info)
+            _poner_privilegios(preview, bloque, motivo_info)
+            # Y, para una app local, la copia del Supervisor es la de la
+            # última recarga, no el fichero (T047).
+            desfase, ignorados = await comprobar_copia_de_tienda(slug)
+            if desfase is not None:
+                return desfase
+            if ignorados is not None:
+                preview["ignored_config_files"] = ignorados
             return await create_confirmation_token(
-                tool_name, args, preview=preview, estado={"version_latest": latest})
+                tool_name, args, preview=preview,
+                estado={"version_latest": latest,
+                        "privileges": estado_de_privilegios(bloque)})
 
+        # La comprobación y la petición, bajo el candado de /addons (solo
+        # para `local_*`; con tope de espera, T056).
+        return await bajo_candado_de_app(
+            slug, lambda: _confirmar_actualizar(slug, args, confirmation_token))
+
+    async def _confirmar_actualizar(
+        slug: str, args: dict[str, Any], confirmation_token: str
+    ) -> dict[str, Any]:
+        tool_name = "sv_update_addon"
         rechazo = await _token_con_version(
-            tool_name, args, confirmation_token,
-            {"version_latest": await _version_de_la_app(slug)})
+            tool_name, args, confirmation_token, await _estado_de_actualizar(slug),
+            hint=("The store version or the app's privileges changed since the "
+                  "preview. Nothing was done; request a new preview (call again "
+                  "without confirmation_token)."))
         if rechazo is not None:
             return rechazo
+        desfase, _ = await comprobar_copia_de_tienda(slug)
+        if desfase is not None:
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="store_copy_stale")
+            return desfase
 
         try:
             data = await ha_client.sv_request(

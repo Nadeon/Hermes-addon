@@ -423,10 +423,20 @@ class TestIndiceDeApps:
             "local_otra": {"dir": "anidada/dev/otra",
                            "config": "anidada/dev/otra/config.json"},
         }
-        assert indice.ilegibles == [
-            "grande/config.yaml", "numerico/config.yaml", "rota/config.yaml",
-            "sinslug/config.yml",
-        ]
+        # Convergencia 2 (T055): lo que el Supervisor descartaría seguro
+        # (YAML roto, sin slug, un slug que no es texto, o sin los campos
+        # obligatorios de su esquema) no es «ilegible»; solo lo que Hermes no
+        # lee (aquí, más de 1 MiB).
+        assert indice.ilegibles == ["grande/config.yaml"]
+        assert indice.no_legibles == {
+            "grande/config.yaml": "it is larger than 1 MiB, which Hermes does not read"}
+        assert indice.descartados == {
+            "anidada/dev/otra/config.json": "it has no 'version'",
+            "ejemplo/config.yaml": "it has no 'description'",
+            "numerico/config.yaml": "it has no 'name'",
+            "rota/config.yaml": "it is not valid YAML",
+            "sinslug/config.yml": "it has no 'version'",
+        }
         assert indice.app_de_carpeta("ejemplo") == "local_ejemplo"
         assert indice.app_de_carpeta("anidada/dev/otra") == "local_otra"
         assert indice.app_de_carpeta("anidada") is None

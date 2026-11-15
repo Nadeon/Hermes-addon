@@ -4,7 +4,7 @@
 
 Claude puede trabajar ahora con dos carpetas más, `/addons` (el código de las
 apps locales) y `/share` (la carpeta compartida entre apps), y la vista previa
-de instalar o reconstruir una app enseña los privilegios que pide. Es
+de instalar, actualizar o reconstruir una app enseña los privilegios que pide. Es
 compatible con la 1.2.0: ninguna tool cambia de nombre y ningún argumento
 existente cambia ni pasa a ser obligatorio (spec 034).
 
@@ -112,14 +112,14 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   con `SYS_ADMIN`, recargar y volver a escribirlo inocuo). Ahora Hermes
   anota la hora de inicio de cada recarga de la tienda que lanza él
   (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar un
-  repositorio) y, si el `config.*` de la app o una carpeta de su camino
-  cambió después del inicio de la última, o no ha lanzado ninguna desde que
-  arrancó, rechaza SIN token con `store_copy_stale` y la pista
-  `sv_reload_store`. También sin `/addons`, sin la app en su índice, con dos
-  `config.*` para el mismo slug o con alguno ilegible. Se comprueba en la
-  vista previa y otra vez al confirmar, junto con la petición, bajo el mismo
-  candado que las escrituras de Hermes en `/addons`. Las apps que no son
-  locales no cambian.
+  repositorio) y, si algo en `/addons` cambió después del inicio de la
+  última (ver «Convergencia 2»), o no ha lanzado ninguna desde que arrancó,
+  rechaza SIN token con `store_copy_stale` y la pista `sv_reload_store`.
+  También sin `/addons`, sin la app en su índice, con dos `config.*` válidos
+  para el mismo slug o con alguno que Hermes no puede leer. Se comprueba en
+  la vista previa y otra vez al confirmar, junto con la petición, bajo el
+  mismo candado que las escrituras de Hermes en `/addons`. Las apps que no
+  son locales no cambian.
 - `elevated` interpreta el `config.*` como el Supervisor (`vol.Boolean`):
   `host_dbus: 1` o `apparmor: 0` cuentan; un valor que el Supervisor no
   sabría interpretar sale como `<campo>:unparsed` y cuenta como elevado.
@@ -131,11 +131,65 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   en `/share`, por ejemplo), un socket o un dispositivo da
   `not_regular_file` sin bloquear nada.
 - Las confirmaciones que modifican una carpeta van de una en una y, justo
-  antes de tocar el disco, la ruta se vuelve a resolver (y, en Linux, se
-  opera relativa a la carpeta padre abierta sin seguir symlinks): si una
-  carpeta del camino cambió entretanto, `path_changed` y no se toca nada.
+  antes de tocar el disco, la ruta se vuelve a resolver: si una carpeta del
+  camino cambió entretanto, `path_changed` y no se toca nada. En Linux,
+  crear una carpeta, mover y borrar operan además relativos a la carpeta
+  padre abierta sin seguir symlinks; escribir un fichero, no: así solo se
+  crean las carpetas padre que falten, y el fichero se escribe por ruta
+  (con la escritura atómica de `/config`) después de revalidarla. En
+  Windows todo va por ruta tras la revalidación.
 - README y DOCS decían que no se toca una app local instalada; lo exacto es
   que no se borra ni se mueve (escribir dentro se admite, con aviso).
+
+### Convergencia 2
+
+- **`sv_update_addon` enseña los privilegios y, para una app local, exige
+  la copia al día.** Actualizar copia a la app la ficha de la tienda,
+  privilegios incluidos, igual que reconstruir. Su vista previa lleva ahora
+  el bloque `privileges` (para cualquier app: `store`, lo que se aplicará;
+  `installed`, lo actual; `elevated`; y para una app local,
+  `declared_in_folder`), y su token se ata a la versión y a ese bloque: si
+  cambian antes de confirmar, `preview_outdated` sin actualizar. Para una
+  app local, `store_copy_stale` como al instalar o reconstruir, en la vista
+  previa y al confirmar, bajo el candado de `/addons`. El esquema de entrada
+  no cambia.
+- **`store_copy_stale` mira todo `/addons`.** Antes solo miraba el
+  `config.*` de la app y las carpetas de su camino, y se podía saltar: dos
+  `config.*` con el mismo slug en la recarga (el Supervisor se queda con el
+  último que lee) y después borrar el que ganó, lo que solo cambia la fecha
+  de SU carpeta. Ahora Hermes hace lo mismo que el Supervisor para decidir
+  si relee las apps locales: si CUALQUIER fichero o carpeta de `/addons`, a
+  cualquier profundidad y con la raíz incluida, tiene una fecha posterior al
+  inicio de la última recarga que lanzó Hermes (con 2 s de margen), se
+  rechaza. Si `/addons` tiene más de 50 000 entradas o tarda más de 10 s en
+  recorrerse, también (no se supone nada). La respuesta dice qué cambió lo
+  último.
+- **Recargas de la tienda en serie.** `sv_reload_store`,
+  `sv_check_for_updates` y añadir o quitar un repositorio comparten un
+  candado: una recarga lanzada por Hermes no empieza hasta que termina la
+  anterior, y su hora de inicio se toma con el candado cogido y solo cuenta
+  si termina bien. Antes, una segunda recarga simultánea podía volver «bien»
+  sin releer nada mientras la primera seguía.
+- **Un `config.*` que el Supervisor descartaría no bloquea otras apps.**
+  Uno sin `slug` válido, que no es UTF-8, YAML o JSON válido, que no es un
+  mapa o al que le falta un campo obligatorio de su esquema (`name`,
+  `version`, `slug`, `description`, `arch`) no declara ninguna app: ya no
+  provoca `store_copy_stale` al instalar, actualizar o reconstruir otra, y
+  sale en la vista previa en `ignored_config_files` con su motivo real.
+  Solo lo que Hermes de verdad no puede leer (un symlink, algo que no es un
+  fichero regular, uno de más de 1 MiB, un error de lectura) sigue
+  bloqueando, y el motivo lo dice.
+- **Esperar el candado de una carpeta tiene un tope de 15 s.** Reconstruir
+  una app local retiene el candado de `/addons` mientras dura (hasta
+  300 s), y la confirmación que esperaba detrás encontraba su token
+  caducado (vive 60 s). Ahora, si la espera pasa de 15 s, la confirmación
+  responde `folder_busy` sin gastar el token y sin hacer nada: se puede
+  repetir la misma llamada mientras el token siga vigente. Vale para las
+  cuatro tools que modifican una carpeta y para confirmar instalar,
+  actualizar o reconstruir una app local.
+- La nota de `declared_in_folder` decía `token ***REDACTED***`: la redacción
+  de secretos tomaba la palabra que seguía a «token» por un secreto. Está
+  reescrita.
 
 ### Pruebas
 

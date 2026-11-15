@@ -502,11 +502,15 @@ class TestEstadoDelToken(_Instalar):
         self.assertEqual(self.sv.escrituras(), [])
 
     async def test_config_local_cambiado(self) -> None:
-        p = self.app_local("slug: ejemplo\nmap:\n  - ssl\n")
+        # Con los campos obligatorios del esquema del Supervisor: sin ellos,
+        # él descartaría el fichero (convergencia 2, T055).
+        cabecera = "name: E\nversion: '1'\ndescription: d\narch: [amd64]\n"
+        p = self.app_local(cabecera + "slug: ejemplo\nmap:\n  - ssl\n")
         self.tienda(_LOCAL, repository="local")
         self.sv.respuesta("POST", f"/store/addons/{_LOCAL}/install", {"job_id": "x"})
         prev = await self._confirmar(_LOCAL)
-        p.write_text("slug: ejemplo\nmap:\n  - ssl\n  - share:rw\n", encoding="utf-8")
+        p.write_text(cabecera + "slug: ejemplo\nmap:\n  - ssl\n  - share:rw\n",
+                     encoding="utf-8")
         r = await self.t["sv_install_addon"](
             _LOCAL, confirmation_token=prev["confirmation_token"])
         self.assertIs(r.get("preview_outdated"), True, r)
@@ -803,8 +807,12 @@ class TestCopiaDeTienda(_ConRaices):
                 if preparar == "dos":
                     self.app_local(carpeta="copia")
                 elif preparar == "ilegible":
-                    (self.addons / "rota").mkdir()
-                    (self.addons / "rota" / "config.yaml").write_bytes(b"\xff\xfe: [")
+                    # Uno que Hermes no lee (más de 1 MiB) y el Supervisor
+                    # quizá sí. Uno que el Supervisor descartaría (UTF-8
+                    # roto, sin slug) ya no bloquea: convergencia 2, T055.
+                    (self.addons / "grande").mkdir()
+                    (self.addons / "grande" / "config.yaml").write_bytes(
+                        b"slug: grande\n" + b"#" * (folders.TAM_MAX_CONFIG + 1))
                 if callable(preparar):
                     with preparar():
                         r = await self.t["sv_install_addon"](_LOCAL)

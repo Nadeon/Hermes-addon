@@ -26,11 +26,13 @@ POR QUÉ ASÍ
   fuera de la carpeta; el borrado recursivo no sigue ninguno y no entra en
   puntos de montaje (un NAS bajo `/share`): borrar o mover algo que los
   contiene se rechaza.
-- Las confirmaciones de una carpeta van de una en una (`folders.candado`)
-  y la operación final vuelve a resolver la ruta en su hilo, justo antes de
-  la llamada al sistema, y opera relativa al descriptor de la carpeta padre
-  donde el sistema lo da (convergencia T048). Solo se sobrescriben ficheros
-  regulares (T049).
+- Las confirmaciones de una carpeta van de una en una (`folders.candado`,
+  con un tope de espera: `folder_busy`, convergencia 2, T056) y la
+  operación final vuelve a resolver la ruta en su hilo, justo antes de la
+  llamada al sistema (convergencia T048). En Linux, crear una carpeta, mover
+  y borrar operan además relativos al descriptor de la carpeta padre; la
+  escritura de un fichero, no: solo crea así las carpetas padre y después
+  escribe por ruta (T054). Solo se sobrescriben ficheros regulares (T049).
 - No hay backup (research R-6): la vista previa lo dice (`backup: null`) y
   da la llamada exacta para hacerlo antes.
 
@@ -223,8 +225,17 @@ def _con_candado(fn: Any) -> Any:
         argumentos = firma.bind_partial(*args, **kwargs).arguments
         if not argumentos.get("confirmation_token"):
             return await fn(*args, **kwargs)
-        async with _folders.candado(argumentos.get("folder")):
-            return await fn(*args, **kwargs)
+        folder = argumentos.get("folder")
+        try:
+            # Convergencia 2 (T056): la espera tiene tope. Si se pasa,
+            # `folder_busy` ANTES de mirar el token: no se gasta y se puede
+            # repetir la misma llamada mientras siga vigente.
+            async with _folders.candado_con_tope(folder):
+                return await fn(*args, **kwargs)
+        except _folders.CarpetaOcupada as exc:
+            return _rechazo(fn.__name__, folder,
+                            argumentos.get("path", argumentos.get("src")),
+                            exc.respuesta())
     return envoltura
 
 

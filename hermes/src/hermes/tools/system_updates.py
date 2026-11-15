@@ -102,7 +102,7 @@ from hermes.security import (
 )
 from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista
 from hermes.tools._eco_supervisor import sin_eco_del_supervisor
-from hermes.tools._store import anotar_recarga_de_tienda
+from hermes.tools._store import anotar_recarga_de_tienda, candado_de_recarga
 from hermes.tools.addons import _es_hermes, _track_job
 
 logger = structlog.get_logger(__name__)
@@ -837,16 +837,20 @@ def register(
         # las actualizaciones de apps; y con el rol `manager` de la API v1 da
         # 403.
         # Convergencia T047: recarga también la tienda; se anota su inicio.
-        inicio = time.time()
-        try:
-            await ha_client.sv_request("POST", "/refresh_updates",
-                                       timeout_seconds=_ESPERA_REFRESH_S)
-        except _EXC_DE_LECTURA as exc:
-            logger.warning("system_updates_refresh_failed", tool="sv_check_for_updates",
-                           status=getattr(exc, "status", None),
-                           error_type=type(exc).__name__)
-            return _error("supervisor_error", _detalle(exc))
-        anotar_recarga_de_tienda(inicio)
+        # Convergencia 2 de la 034 (T052): bajo el candado común de las
+        # recargas de Hermes, con el inicio tomado ya con él cogido.
+        async with candado_de_recarga():
+            inicio = time.time()
+            try:
+                await ha_client.sv_request("POST", "/refresh_updates",
+                                           timeout_seconds=_ESPERA_REFRESH_S)
+            except _EXC_DE_LECTURA as exc:
+                logger.warning("system_updates_refresh_failed",
+                               tool="sv_check_for_updates",
+                               status=getattr(exc, "status", None),
+                               error_type=type(exc).__name__)
+                return _error("supervisor_error", _detalle(exc))
+            anotar_recarga_de_tienda(inicio)
         items, cabecera = await _listar()
         # El mismo sobre que `sv_list_available_updates`, con `refreshed` en
         # la cabecera (cuenta para el tope).

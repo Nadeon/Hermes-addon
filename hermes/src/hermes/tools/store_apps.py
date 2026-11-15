@@ -51,7 +51,7 @@ from hermes.tools._store import (
     disponibilidad,
     estado_de_privilegios,
     ficha_de_tienda,
-    candado_de_app,
+    bajo_candado_de_app,
     comprobar_copia_de_tienda,
     leer_declarado,
     privilegios_de,
@@ -402,15 +402,20 @@ def register(
 
         Local app (`local_*`): the rebuild applies the Supervisor's OWN copy
         of its config file, read at the last store reload, which may not be
-        the file in /addons. If the config file or a folder on its path
-        changed after the start of the last store reload launched by Hermes
+        the file in /addons. If anything in /addons (at any depth) changed
+        after the start of the last store reload launched by Hermes
         (sv_reload_store, sv_check_for_updates, adding or removing a
         repository), or Hermes has launched none since it started, it is
         rejected WITHOUT a token with `store_copy_stale` (hint:
-        sv_reload_store). Also without /addons, without the app in its index,
-        with two config files for the same slug or with an unreadable one.
-        Checked in the preview and again when confirming, together with the
-        request, with no Hermes write to /addons in between.
+        sv_reload_store). Also without /addons, if it is too large to check
+        in time, without the app in its index, with two valid config files
+        for the same slug or with one Hermes cannot read. A config file the
+        Supervisor would skip (no slug, invalid…) does not block: it is
+        listed in `ignored_config_files` with its reason. Checked in the
+        preview and again when confirming, together with the request, with
+        no Hermes write to /addons in between; if another Hermes operation
+        holds /addons for more than 15 s, `folder_busy` without using the
+        token.
 
         Args:
             slug: App slug.
@@ -472,17 +477,20 @@ def register(
             bloque = await _privilegios_de_reconstruir(slug, info, None)
             # Convergencia T047: para una app local, `rebuild` aplica la copia
             # de la última recarga de la tienda, no el fichero.
-            if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+            desfase, ignorados = await comprobar_copia_de_tienda(slug)
+            if desfase is not None:
                 return _rechazo(tool, desfase, slug=slug)
             preview["privileges"] = privilegios_para_mostrar(bloque)
+            if ignorados is not None:
+                preview["ignored_config_files"] = ignorados
             _log(tool, "preview", slug=slug)
             return await create_confirmation_token(
                 tool, args, preview=preview, estado=estado_de_privilegios(bloque))
 
         # T047 y T048: la comprobación y la petición, bajo el candado de
-        # /addons (solo para `local_*`).
-        async with candado_de_app(slug):
-            return await _confirmar_reconstruir(slug, force, args, confirmation_token)
+        # /addons (solo para `local_*`; con tope de espera, T056).
+        return await bajo_candado_de_app(
+            slug, lambda: _confirmar_reconstruir(slug, force, args, confirmation_token))
 
     async def _confirmar_reconstruir(
         slug: str, force: bool, args: dict[str, Any], confirmation_token: str
@@ -504,7 +512,8 @@ def register(
                              "again without confirmation_token)."),
                 }
             return _rechazo(tool, {"error": error_token}, slug=slug)
-        if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+        desfase, _ = await comprobar_copia_de_tienda(slug)
+        if desfase is not None:
             await complete_confirmation_token(
                 confirmation_token, success=False, error="store_copy_stale")
             return _rechazo(tool, desfase, slug=slug)

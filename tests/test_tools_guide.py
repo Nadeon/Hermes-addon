@@ -587,7 +587,8 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "events": "3765a76095ece40f",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
-        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # convergencia, T047, `store_copy_stale` para las apps locales; en la
+        # convergencia 2, `sv_update_addon` y `folder_busy`); su
         # CHANGELOG lo dice.
         "filesystem": "803cd5255be768b5",
         # La convergencia de la 025 (T047) cambia `generic_commands`: el rechazo
@@ -1139,9 +1140,10 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     _HUELLAS = {
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
-        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # convergencia, T047, `store_copy_stale` para las apps locales; en la
+        # convergencia 2, `sv_update_addon` y `folder_busy`); su
         # CHANGELOG lo dice.
-        "supervisor": "45800cac1e73bdf9",
+        "supervisor": "a867c2463cd18ca9",
         "marketplace": "f49c5f1c9d78b51b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
@@ -2151,15 +2153,17 @@ class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
         "generic_commands": "55325dfe9602e63b",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
-        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # convergencia, T047, `store_copy_stale` para las apps locales; en la
+        # convergencia 2, `sv_update_addon` y `folder_busy`); su
         # CHANGELOG lo dice.
-        "app_store": "63ddb8754e02d611",
+        "app_store": "bf5b084383013d93",
         "workflows": "53b81454a6708b9a",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
-        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # convergencia, T047, `store_copy_stale` para las apps locales; en la
+        # convergencia 2, `sv_update_addon` y `folder_busy`); su
         # CHANGELOG lo dice.
-        "supervisor": "45800cac1e73bdf9",
+        "supervisor": "a867c2463cd18ca9",
     }
 
     def setUp(self) -> None:
@@ -2256,9 +2260,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
     _HUELLAS = {
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
-        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # convergencia, T047, `store_copy_stale` para las apps locales; en la
+        # convergencia 2, `sv_update_addon` y `folder_busy`); su
         # CHANGELOG lo dice.
-        "app_store": "63ddb8754e02d611",
+        "app_store": "bf5b084383013d93",
         "automation_assist": "d360de0f7fd1deb5",
         "automations": "d27ee3c45bc13171",
         "backups": "3e685f47171224e7",
@@ -2273,7 +2278,8 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "events": "3765a76095ece40f",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
-        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # convergencia, T047, `store_copy_stale` para las apps locales; en la
+        # convergencia 2, `sv_update_addon` y `folder_busy`); su
         # CHANGELOG lo dice.
         "filesystem": "803cd5255be768b5",
         # La convergencia de la 025 (T047) añade a `generic_commands` el rechazo
@@ -2295,9 +2301,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "services": "e7b494a2e8ad587e",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
-        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # convergencia, T047, `store_copy_stale` para las apps locales; en la
+        # convergencia 2, `sv_update_addon` y `folder_busy`); su
         # CHANGELOG lo dice.
-        "supervisor": "45800cac1e73bdf9",
+        "supervisor": "a867c2463cd18ca9",
         "system_diagnostics": "50509e336b5ca215",
         "system_status": "f6401ab7737759f6",
         # El remate del cierre de seguridad cambia `updates`: otra app

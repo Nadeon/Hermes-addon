@@ -27,10 +27,12 @@ español.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fnmatch
 import hashlib
 import json
 import os
+import re
 import stat as _stat
 import shutil
 import time
@@ -310,6 +312,51 @@ def recorrer(carpeta: Path) -> list[Entrada]:
     return entradas
 
 
+def fecha_mas_reciente(carpeta: Path) -> tuple[float, str]:
+    """La fecha de modificación más reciente de `carpeta` (incluida) y de
+    TODO lo que hay debajo, a cualquier profundidad, y su ruta relativa
+    (`"."` si es la raíz). Convergencia 2 (T051).
+
+    Es lo que hace el Supervisor para decidir si relee las apps locales al
+    recargar la tienda (`utils.get_latest_mtime`, desde
+    `RepositoryLocal.update`): la raíz, los ficheros y las carpetas, con
+    carpetas ocultas y `rootfs` incluidas. Un fichero borrado o renombrado
+    no deja fecha propia, pero cambia la de su carpeta padre, que sí cuenta.
+    Los symlinks no se siguen para recorrer (como `rglob`); de un symlink
+    cuenta su propia fecha y, si se puede leer, la de su destino (el
+    Supervisor mira la del destino). Síncrono: quien llama lo manda a un
+    hilo. Topes: `MAX_ENTRADAS` y `MAX_SEGUNDOS`.
+
+    Raises:
+        ArbolDemasiadoGrande: si pasa de un tope (quien llama no supone nada).
+        OSError: si algo no se puede leer.
+    """
+    inicio = time.monotonic()
+    ultima, ruta = os.lstat(carpeta).st_mtime, "."
+    vistas = 0
+    pendientes: list[tuple[str, str]] = [(os.fspath(carpeta), "")]
+    while pendientes:
+        actual, prefijo = pendientes.pop()
+        _comprobar_tiempo(inicio)
+        with os.scandir(actual) as it:
+            for e in it:
+                st = e.stat(follow_symlinks=False)
+                fecha = st.st_mtime
+                if _stat.S_ISLNK(st.st_mode):
+                    with contextlib.suppress(OSError):
+                        fecha = max(fecha, os.stat(e.path).st_mtime)
+                elif _stat.S_ISDIR(st.st_mode):
+                    pendientes.append((e.path, prefijo + e.name + "/"))
+                if fecha > ultima:
+                    ultima, ruta = fecha, prefijo + e.name
+                vistas += 1
+                if vistas > MAX_ENTRADAS:
+                    raise ArbolDemasiadoGrande(
+                        f"More than {MAX_ENTRADAS} entries under the folder.")
+                _comprobar_tiempo(inicio)
+    return ultima, ruta
+
+
 def _sha256_de_fichero(p: Path) -> str:
     h = hashlib.sha256()
     with _fs._open_file_nofollow(p) as f:
@@ -467,11 +514,17 @@ def inspeccionar(p: Path) -> dict[str, Any]:
 #    T047): ninguna escritura de Hermes se cuela en medio de otra.
 # 2. Dentro del mismo hilo, sin ningún `await` entre medias, la ruta se
 #    vuelve a resolver y validar justo antes de la llamada al sistema
-#    (`revalidar`) y, donde el sistema lo da (Linux), se opera relativo al
-#    descriptor de la carpeta padre abierta componente a componente con
-#    `O_NOFOLLOW` (`abrir_padre`): ni siquiera un cambio externo en ese
-#    instante haría seguir un symlink intermedio. En Windows no hay
-#    `dir_fd`: queda la revalidación (camino probado por los tests).
+#    (`revalidar`). Además, donde el sistema lo da (Linux), crear una
+#    carpeta, mover y borrar operan relativos al descriptor de la carpeta
+#    padre abierta componente a componente con `O_NOFOLLOW` (`abrir_padre`):
+#    ni siquiera un cambio externo en ese instante haría seguir un symlink
+#    intermedio. Escribir un fichero NO: con el descriptor solo se crean las
+#    carpetas padre que falten; después se revalida y la escritura atómica
+#    (`safe_write_file`, la de /config) va por RUTA. Frente a Hermes la cubre
+#    el candado; frente a un cambio externo (Samba, otra app) en el hueco
+#    entre la revalidación y la escritura, no (convergencia 2, T054). En
+#    Windows no hay `dir_fd`: todo va por ruta tras la revalidación (camino
+#    probado por los tests).
 
 _CANDADOS: "_weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]]" = (
     _weakref.WeakKeyDictionary())
@@ -486,6 +539,58 @@ def candado(folder: object) -> asyncio.Lock:
         return asyncio.Lock()
     por_bucle = _CANDADOS.setdefault(asyncio.get_running_loop(), {})
     return por_bucle.setdefault(folder, asyncio.Lock())
+
+
+#: Lo más que una confirmación espera el candado de su carpeta (convergencia
+#: 2, T056). Reconstruir una app local lo retiene mientras dura la petición
+#: (hasta 300 s) y, sin tope, la confirmación que esperaba detrás encontraba
+#: su token caducado al cogerlo (vive `CONFIRMATION_TTL_SECONDS`, 60 s). Por
+#: qué 15 s: es la cuarta parte de la vida del token, así que, tras un
+#: `folder_busy`, al cliente aún le queda tiempo para repetir la MISMA
+#: confirmación con el mismo token (que no se gastó) al menos una vez más; y
+#: es mucho más que lo que tarda cualquier otra operación de Hermes en una
+#: carpeta (una escritura, un `mkdir`, un `rename`). Mutable para los tests.
+ESPERA_MAX_CANDADO_S = 15.0
+
+
+class CarpetaOcupada(CarpetaError):
+    """El candado de la carpeta no se consiguió a tiempo (T056)."""
+
+    codigo = "folder_busy"
+
+    def __init__(self, folder: str) -> None:
+        super().__init__(
+            f"Another Hermes operation on /{folder} has been running for more "
+            f"than {ESPERA_MAX_CANDADO_S:g} s (rebuilding a local app, for "
+            "example, can take minutes). Nothing was done and the "
+            "confirmation_token was not used: repeat the same call in a "
+            "moment, while the token is still valid, or request a new preview."
+        )
+        self.folder = folder
+
+    def respuesta(self, **extra: Any) -> dict[str, Any]:
+        return {"error": self.codigo, "folder": self.folder, "detail": self.detail,
+                **extra}
+
+
+@contextlib.asynccontextmanager
+async def candado_con_tope(folder: object) -> Any:
+    """`async with` sobre `candado(folder)` esperando como mucho
+    `ESPERA_MAX_CANDADO_S` (T056).
+
+    Raises:
+        CarpetaOcupada: si no se consigue a tiempo. Quien llama responde
+            `folder_busy` sin haber tocado el token ni nada más.
+    """
+    lock = candado(folder)
+    try:
+        await asyncio.wait_for(lock.acquire(), ESPERA_MAX_CANDADO_S)
+    except TimeoutError:
+        raise CarpetaOcupada(folder if isinstance(folder, str) else str(folder)) from None
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 class RutaCambiada(PathTraversalError):
@@ -591,23 +696,60 @@ def exigir_regular_o_ausente(p: Path) -> None:
 
 # ── Índice de apps locales (/addons) ──────────────────────────────────────────
 
+#: Lo que el esquema del Supervisor exige en un `config.*` (`apps/validate.py`,
+#: `_SCHEMA_APP_CONFIG`; `_migrate_app_config` exige antes un `name` no
+#: vacío): sin uno de estos campos, `StoreData._process_apps_config`
+#: (`store/data.py`) descarta el fichero y sigue con el siguiente.
+CAMPOS_OBLIGATORIOS_CONFIG: tuple[str, ...] = ("name", "version", "slug", "description", "arch")
+#: `RE_SLUG_FIELD` del Supervisor (`apps/validate.py`, con `RE_SLUG` de
+#: `apps/const.py`), aplicado como `vol.Match`: con `re.match`, así que `$`
+#: admite un salto de línea final, igual que allí.
+_RE_SLUG_CAMPO = re.compile(r"^" + r"[-_.A-Za-z0-9]+" + r"$")
+#: `SLUG_MAX_LENGTH` del Supervisor (`apps/const.py`): un `local_<slug>` más
+#: largo se descarta (`store/data.py`).
+SLUG_MAX = 60
+#: El cargador de YAML del Supervisor (`utils/yaml.py`): el de C si está.
+_CARGADOR_YAML = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+_MAYOR_QUE_EL_TOPE = "it is larger than 1 MiB, which Hermes does not read"
+
+
 @dataclass(frozen=True)
 class IndiceDeApps:
     """Qué carpetas de `/addons` son apps locales para el Supervisor.
 
     `configs`: cada `config.*` candidato (ruta relativa POSIX) con su slug
-    `local_<slug>`, o `None` si no se puede leer o no tiene `slug` (el
-    Supervisor tampoco lo carga).
+    `local_<slug>`, o `None` si no declara un `slug` de texto (o no se pudo
+    leer).
+
+    Convergencia 2 (T055): no es lo mismo un fichero que el Supervisor
+    DESCARTARÍA que uno que Hermes no sabe leer.
+    - `descartados`: los que el Supervisor salta seguro al recargar
+      (`store/data.py`, `_process_apps_config`), con el motivo: no es UTF-8,
+      YAML o JSON válido, no es un mapa, le falta un campo obligatorio, su
+      `slug` no casa con el del esquema o es demasiado largo. No declaran
+      ninguna app para él, así que no son otra copia de ninguna.
+    - `no_legibles`: los que Hermes no lee y el Supervisor quizá sí (un
+      symlink, que él seguiría; algo que no es un fichero regular; uno de más
+      de 1 MiB; un error de E/S; un JSON con BOM), con el motivo. Podrían
+      declarar cualquier app: fail-closed.
+    Un fichero que el Supervisor descartaría por otra regla de su esquema
+    (un `arch` que no existe, un `map` mal escrito…) no se reconoce aquí y
+    cuenta como app: fail-closed también.
     """
 
     configs: dict[str, str | None] = field(default_factory=dict)
+    descartados: dict[str, str] = field(default_factory=dict)
+    no_legibles: dict[str, str] = field(default_factory=dict)
 
     @property
     def apps(self) -> dict[str, dict[str, str]]:
-        """`local_<slug>` → `{"dir", "config"}` (el primero por orden de
-        ruta si dos ficheros declaran el mismo slug)."""
+        """`local_<slug>` → `{"dir", "config"}`. Si dos ficheros declaran el
+        mismo slug, primero los que el Supervisor no descartaría y, entre
+        ellos, el primero por orden de ruta."""
         out: dict[str, dict[str, str]] = {}
-        for config, slug in sorted(self.configs.items()):
+        orden = sorted(self.configs.items(),
+                       key=lambda kv: (kv[0] in self.descartados, kv[0]))
+        for config, slug in orden:
             if slug is not None and slug not in out:
                 carpeta = config.rpartition("/")[0] or "."
                 out[slug] = {"dir": carpeta, "config": config}
@@ -615,7 +757,14 @@ class IndiceDeApps:
 
     @property
     def ilegibles(self) -> list[str]:
-        return sorted(c for c, s in self.configs.items() if s is None)
+        """Los `config.*` que Hermes no ha podido leer (`no_legibles`)."""
+        return sorted(self.no_legibles)
+
+    def declarantes(self, slug: str) -> list[str]:
+        """Los `config.*` que declaran `slug` y que el Supervisor no
+        descartaría (los que pueden ser su copia)."""
+        return sorted(c for c, s in self.configs.items()
+                      if s == slug and c not in self.descartados)
 
     def app_de_carpeta(self, rel_dir: str) -> str | None:
         """Slug de la app cuya carpeta es `rel_dir`, o `None`."""
@@ -625,41 +774,75 @@ class IndiceDeApps:
         return None
 
 
-def _slug_local(p: Path) -> str | None:
-    """`local_<slug>` de un `config.*`, o `None` si el Supervisor no lo
-    cargaría como app (ilegible, mayor que el tope, sin `slug` de texto)."""
+def _analizar_config(p: Path) -> tuple[str | None, str | None, str | None]:
+    """`(local_<slug> o None, motivo de descarte o None, motivo de no
+    legible o None)` de un `config.*` (T055)."""
     try:
         st = os.lstat(p)
     except OSError:
-        return None
-    # Un symlink no se sigue: podría apuntar fuera de /addons.
-    if not _stat.S_ISREG(st.st_mode) or st.st_size > TAM_MAX_CONFIG:
-        return None
+        return None, None, "it could not be checked (I/O error)"
+    # Un symlink no se sigue: podría apuntar fuera de /addons. El Supervisor
+    # sí lo seguiría (`path.open`), así que no se sabe qué leería.
+    if _stat.S_ISLNK(st.st_mode):
+        return None, None, "it is a symlink, which Hermes does not follow"
+    if not _stat.S_ISREG(st.st_mode):
+        return None, None, "it is not a regular file"
+    if st.st_size > TAM_MAX_CONFIG:
+        return None, None, _MAYOR_QUE_EL_TOPE
     try:
-        texto = _fs.read_bytes(p, TAM_MAX_CONFIG + 1).decode("utf-8")
-    except Exception:  # noqa: BLE001 — cualquier fallo es «ilegible»
-        return None
-    return slug_de_texto(texto, p.suffix)
+        crudo = _fs.read_bytes(p, TAM_MAX_CONFIG + 1)
+    except Exception:  # noqa: BLE001 — cualquier fallo de E/S: no se sabe
+        return None, None, "it could not be read (I/O error)"
+    try:
+        texto = crudo.decode("utf-8")
+    except UnicodeDecodeError:
+        # El Supervisor tampoco: `read_yaml_file` captura
+        # `UnicodeDecodeError` y `orjson` rechaza el UTF-8 inválido.
+        return None, "it is not valid UTF-8", None
+    return _analizar_texto(texto, p.suffix)
+
+
+def _analizar_texto(texto: str, sufijo: str) -> tuple[str | None, str | None, str | None]:
+    """Como `_analizar_config`, sobre el texto ya leído."""
+    if len(texto.encode("utf-8", "surrogatepass")) > TAM_MAX_CONFIG:
+        return None, None, _MAYOR_QUE_EL_TOPE
+    try:
+        if sufijo == ".json":
+            datos = json.loads(texto)
+        else:
+            # `read_yaml_file`: `load(..., Loader=SafeLoader) or {}`.
+            datos = yaml.load(texto, Loader=_CARGADOR_YAML) or {}  # noqa: S506
+    except Exception:  # noqa: BLE001 — cualquier fallo de sintaxis
+        if sufijo == ".json" and texto.startswith("\ufeff"):
+            # `json` no admite el BOM; no está comprobado que `orjson`, el
+            # del Supervisor, tampoco: no se supone.
+            return None, None, "it is JSON with a byte order mark"
+        return None, ("it is not valid JSON" if sufijo == ".json"
+                      else "it is not valid YAML"), None
+    if not isinstance(datos, dict):
+        return None, "it is not a mapping", None
+    slug = datos.get("slug")
+    local = f"local_{slug}" if isinstance(slug, str) and slug.strip() else None
+    if not datos.get("name"):
+        return local, "it has no 'name'", None
+    for campo in CAMPOS_OBLIGATORIOS_CONFIG:
+        if campo not in datos:
+            return local, f"it has no '{campo}'", None
+    if not isinstance(slug, str) or not _RE_SLUG_CAMPO.match(slug):
+        return local, "its 'slug' is not valid", None
+    if len(f"local_{slug}") > SLUG_MAX:
+        return local, f"its app slug is longer than {SLUG_MAX} characters", None
+    return local, None, None
 
 
 def slug_de_texto(texto: str, sufijo: str) -> str | None:
     """`local_<slug>` que declara el texto de un `config.*`, o `None`.
 
-    Aparte de `_slug_local` para poder mirar también el contenido NUEVO que
-    se quiere escribir (FR-019: reescribir el `config.*` de una app
+    Aparte de `_analizar_config` para poder mirar también el contenido NUEVO
+    que se quiere escribir (FR-019: reescribir el `config.*` de una app
     instalada con otro `slug` la desligaría de su carpeta).
     """
-    if len(texto.encode("utf-8", "surrogatepass")) > TAM_MAX_CONFIG:
-        return None
-    try:
-        # Como `read_json_or_yaml_file` del Supervisor: JSON por sufijo.
-        datos = json.loads(texto) if sufijo == ".json" else yaml.safe_load(texto)
-    except Exception:  # noqa: BLE001 — cualquier fallo es «ilegible»
-        return None
-    slug = datos.get("slug") if isinstance(datos, dict) else None
-    if not isinstance(slug, str) or not slug.strip():
-        return None
-    return f"local_{slug}"
+    return _analizar_texto(texto, sufijo)[0]
 
 
 def indice_de_apps_locales(base: Path | None = None) -> IndiceDeApps:
@@ -676,6 +859,8 @@ def indice_de_apps_locales(base: Path | None = None) -> IndiceDeApps:
     """
     raiz_addons = raiz("addons") if base is None else base
     configs: dict[str, str | None] = {}
+    descartados: dict[str, str] = {}
+    no_legibles: dict[str, str] = {}
     for dirpath, dirnames, filenames in os.walk(raiz_addons, followlinks=False):
         dirnames[:] = sorted(
             d for d in dirnames if not d.startswith(".") and d != "rootfs"
@@ -687,8 +872,13 @@ def indice_de_apps_locales(base: Path | None = None) -> IndiceDeApps:
             if Path(nombre).suffix not in SUFIJOS_CONFIG:
                 continue
             rel = nombre if rel_dir == "." else rel_dir + "/" + nombre
-            configs[rel] = _slug_local(Path(dirpath) / nombre)
-    return IndiceDeApps(configs)
+            slug, descarte, no_legible = _analizar_config(Path(dirpath) / nombre)
+            configs[rel] = slug
+            if descarte is not None:
+                descartados[rel] = descarte
+            if no_legible is not None:
+                no_legibles[rel] = no_legible
+    return IndiceDeApps(configs, descartados, no_legibles)
 
 
 def es_config_candidato(rel: str) -> bool:
@@ -807,8 +997,9 @@ def evaluar_apps(
             return _rechazo_app(
                 "installed_check_inconclusive", rel,
                 "There are installed local apps whose config file is not found "
-                "under /addons, and this path contains a config file that "
-                "cannot be read: it could be theirs. Nothing was done.",
+                "under /addons, and this path contains a config file from "
+                "which Hermes gets no app (it cannot read it, or it is "
+                "invalid or has no slug): it could be theirs. Nothing was done.",
                 installed_without_folder=huerfanas, unreadable=ilegibles[:20],
             ), extra
     elif modo == "escribir" and es_config_candidato(rel):
