@@ -90,8 +90,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B) y 1 de la 031 (tramo 1: `ha_update_backup_config`).
-        self.assertEqual(len(reales), 130)
+        # del tramo B) y 4 de la 031 (tramo 1: `ha_update_backup_config`;
+        # tramo 2: crear, crear con los ajustes automáticos y borrar).
+        self.assertEqual(len(reales), 133)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()

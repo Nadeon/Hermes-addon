@@ -9,12 +9,20 @@ unión de `tests/test_banco_cobertura_escrituras.py`, y `PROBADAS_031` y
 Tramo 1 (agentes y ajustes), en `tests/banco/test_banco_backups_ajustes.py`:
 `ha_update_backup_config` modifica y se ejecuta; `ha_list_backup_agents` solo
 lee, pero se exige igual por ejecución (como las de la 029).
+
+Tramo 2 (crear y borrar), en `tests/banco/test_banco_backups_acciones.py`:
+`ha_create_backup`, `ha_create_automatic_backup` (con la retención borrando
+de verdad) y `ha_delete_backup` se ejecutan en el agente `backup.local`.
 """
 
 from __future__ import annotations
 
 PROBADAS_031: frozenset[str] = frozenset({
     "ha_update_backup_config",
+    # Tramo 2.
+    "ha_create_backup",
+    "ha_create_automatic_backup",
+    "ha_delete_backup",
 })
 
 # Lecturas que el job exige por ejecución; no entran en el invariante de
