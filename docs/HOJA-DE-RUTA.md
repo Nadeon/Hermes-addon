@@ -515,10 +515,68 @@ Supervisor) sin ninguna entrada «pendiente» ni «sin revisar», y la matriz de
 trazabilidad de `specs/008-cobertura-total/plan.md` completa y vigilada por
 `tests/test_trazabilidad_008.py`. Las desviaciones aceptadas (DA-01…DA-12)
 y los cambios de comportamiento de las tools de la 1.1.2 están en
-`specs/008-cobertura-total/spec.md`. Pendiente: la fase de convergencia de
-`specs/008-cobertura-total/tasks.md` (T031–T034), la documentación final, la
-fecha de la versión y el PR a `main` (T027–T029); fusionar y publicar los
-decide el mantenedor.
+`specs/008-cobertura-total/spec.md`. La fase de convergencia de
+`specs/008-cobertura-total/tasks.md` (T031–T034) está hecha. Pendiente: la
+documentación final, la fecha de la versión y el PR a `main` (T027–T029);
+fusionar y publicar los decide el mantenedor.
+
+#### Dudas abiertas para el mantenedor (1.2.0)
+
+Decisiones que el programa no toma por su cuenta (FR-098 de la spec 008). Las
+D-01…D-10 vienen de la spec 008 («Dudas para el final»); las demás, de las
+sub-features y del cierre. La D-13 (Hermes por su slug exacto) y la D-24 ya
+están resueltas.
+
+- **D-01** — Comandos de clase D que se podrían abrir con salvaguardas fuertes:
+  - `cloud/status` y `cloud/subscription`, la exposición vía la nube y `cloud/remote`;
+  - `auth/delete_refresh_token` y `refresh_token_set_expiry`;
+  - `execute_script`, y `assist_pipeline/run` solo con texto;
+  - `application_credentials/delete` y `admin_change_username`;
+  - el `stdin` de las apps, `/core/stop` y el `channel` del Supervisor.
+- **D-02** — Bajar a `hassio_role: manager` (hay que probarlo en vivo antes).
+- **D-03** — Si las familias de riesgo alto (usuarios, red de Core, red y control del host, cámaras, Marketplace…) deben venir desactivadas por defecto.
+- **D-04** — El coste de contexto de 359 tools en el cliente, y si conviene recortar la lista que se anuncia por defecto.
+- **D-05** — Ejecutar el banco de Core también contra HA 2024.10, la versión mínima soportada.
+- **D-06** — Llevar la VM de HAOS al CI con KVM, para probar las `sv_*` contra un Supervisor real.
+- **D-07** — Unificar la forma de las listas de las tools existentes con el sobre común de las nuevas.
+- **D-08** — Fijar la versión en que se retira `ha_remove_device_from_config_entry`.
+- **D-09** — Dar a `oauth_cimd_allowed_hosts` un valor por defecto restrictivo.
+- **D-10** — Adoptar la vía nativa de MCP para pedir la confirmación a mitad de una llamada.
+- **D-11** — Completar el paso `core_config` del onboarding del banco, que hoy choca con la regla de `iptables` que lo deja sin internet.
+- **D-12** — Qué hacer con la traza que sale en el log al apagar Hermes.
+- **D-14** — Dónde viven los inventarios de comandos y rutas para las versiones futuras de HA.
+- **D-15** — Quitar en la 1.3.0 el campo `error` de la respuesta que trae el token de confirmación.
+- **D-16** — Atar también al estado del dashboard el token del guardado completo, como el del guardado por vista.
+- **D-17** — Permitir añadir o borrar vistas con el guardado por vista.
+- **D-18** — Qué hacer con el `outputSchema` que el SDK infiere en `ping` y `hermes_guide`.
+- **D-19** — Hacer el inventario de la API `/v2` y del socket Unix del Supervisor cuando se publiquen para las apps.
+- **D-20** — Traducir al inglés las descripciones de tools que siguen en español.
+- **D-21** — Hacer un backup opcional antes de actualizar el OS (`sv_update_os` no lo hace).
+- **D-22** — `ha_validate_config` no detecta un `mode` inválido, porque la validación de HA no lo mira.
+- **D-23** — Revisar en cada versión de HA la lista cerrada de triggers de `ha_wait_for_trigger`.
+- **D-25** — Si `safety_backup_encryption: auto` es el valor por defecto adecuado.
+- **D-26** — Valorar publicar antes una 1.1.3 con algunos arreglos de seguridad de la 1.2.0.
+- **D-27** — Permitir `ha_create_user` con credenciales opcionales.
+- **D-28** — Una marca «cerrar tras el resultado» para las escrituras de integraciones que se suscriben al progreso.
+- **D-29** (026) — Marketplace: instalar, fijar versión, betas, añadir y detectar repositorios exigen el aviso de riesgos aceptado por el usuario que manda el comando, y el usuario de Hermes no puede aceptarlo. Además, por diseño de HA, las automatizaciones pueden instalar si alguna persona lo aceptó; hoy Hermes solo avisa.
+- **D-30** — Devolver el `webhook_id` en `ha_get_automation`, que hace falta para leer, modificar y guardar una automatización con trigger de webhook.
+- **Nota** — Un nombre de familia desconocido en `tool_families_disabled` impide arrancar: si se renombra una familia, hay que dejar un alias en `ALIAS` (`tool_families.py`).
+
+#### Pruebas en vivo pendientes tras publicar
+
+Lo que ni la suite ni el banco de Core pueden probar. Se hace tras publicar,
+en la VM de HAOS ([BANCO-SUPERVISOR.md](BANCO-SUPERVISOR.md)) o en una
+instalación real, y el resultado se anota en la matriz de la 014.
+
+- [ ] La VM de HAOS para las `sv_*` que modifican (la matriz de la 014).
+- [ ] `fs_write_file` con un documento grande.
+- [ ] `hassio_role: manager`.
+- [ ] CIMD con Claude Code.
+- [ ] Importar blueprints desde GitHub, gist y el foro.
+- [ ] Las tools del Marketplace con un catálogo real.
+- [ ] Restaurar backups.
+- [ ] Las tools de red y HTTP.
+- [ ] Las demás que la matriz de la 014 marque como pendientes.
 
 #### Banco de Core: helpers (010)
 
@@ -973,13 +1031,9 @@ spec 008.
   `ha_remove_device_from_config_entry` (D-08 de la spec 008).
 - Socket Unix del Supervisor y API `/v2`, cuando se publiquen para las apps
   (bloqueados; lo que hará falta, en el apartado siguiente).
-- Lo que el programa deja al mantenedor (spec 008, «Dudas para el final»):
-  candidatas de clase D con salvaguardas fuertes, bajar a
-  `hassio_role: manager`, familias de riesgo alto desactivadas por defecto,
-  tamaño de la lista de tools, el banco también contra HA 2024.10, la VM en el
-  CI con KVM, unificar la forma de las listas de las tools existentes, el valor
-  por defecto de `oauth_cimd_allowed_hosts` y la vía nativa de MCP para
-  confirmar.
+- Lo que el programa deja al mantenedor: la lista completa está en
+  «Dudas abiertas para el mantenedor (1.2.0)», en el apartado del programa de
+  cobertura total.
 
 #### Socket Unix y API `/v2` del Supervisor: qué hará falta
 
