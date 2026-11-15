@@ -47,14 +47,19 @@ Flujo común de las seis con token:
 ### `sv_set_swap(swap_size: str | None = None, swappiness: int | None = None, confirmation_token: str | None = None)`
 
 - Valida (FR-003). Lee `GET /os/config/swap` (404 → `not_supported` con la
-  pista de la 013) y `GET /host/info` (`disk_free`). Carga: solo las claves
+  pista de la 013) y `GET /host/info` (`disk_free`, `disk_total`). La swap
+  tiene que dejar libres al menos 1 GiB o el 10 % del disco, lo que sea mayor
+  (`insufficient_disk`, T033). Carga: solo las claves
   pasadas. Respuesta: `{"result": "ok", "swap": <releído>,
   "reboot_required": bool, "hint": "sv_get_resolution / sv_reboot_host"}`.
 
 ### `sv_set_boot_slot(boot_slot: str, confirmation_token: str | None = None)`
 
 - `boot_slot` en `{"A", "B"}` (se normaliza a mayúsculas antes del hash).
-  Lee `GET /os/info` (404 → `not_supported`). Carga `POST /os/boot-slot`
+  Lee `GET /os/info` (sin HAOS contesta `boot: null` y `boot_slots: {}` →
+  `not_supported`, T032) y el estado de Core (`GET /api/core/state`; con una
+  migración fuera de línea → `db_migration_in_progress`, ilegible →
+  `core_state_unknown`, también al confirmar, T029). Carga `POST /os/boot-slot`
   `{"boot_slot": "B"}`. Respuesta: `{"result": "ok", "note": "Rebooting into
   slot B …", "verify_with": "sv_get_os_info"}` u `outcome: "unknown"`.
 

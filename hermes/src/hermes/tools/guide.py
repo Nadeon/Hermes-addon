@@ -925,15 +925,20 @@ la respuesta es `state_changed` y hay que pedir otra vista previa.
   de funcionar.
 - `sv_set_swap(swap_size=, swappiness=)` (token) — Home Assistant OS 15 o
   posterior. `swap_size` como `2G` o `512M` (`0` desactiva la swap),
-  `swappiness` de 0 a 200; se envía solo lo que pases. Un tamaño mayor que el
-  disco libre se rechaza (`insufficient_disk`). El Supervisor abre un aviso
+  `swappiness` de 0 a 200; se envía solo lo que pases. Un tamaño que deje
+  libres menos de 1 GiB o del 10 % del disco (lo que sea mayor) se rechaza
+  (`insufficient_disk`). El Supervisor abre un aviso
   `reboot_required` (`sv_get_resolution`): se aplica tras `sv_reboot_host`.
 - `sv_set_boot_slot(boot_slot)` (token) — `A` o `B`, por ejemplo para volver
   al OS anterior tras una actualización que va mal. El equipo
   reinicia en el acto en el OS de esa ranura y sigue arrancando de ella.
   La vista previa enseña las dos ranuras con su versión y avisa si la de
   destino está marcada como mala. Para volver, `sv_set_boot_slot` con la
-  ranura de antes (la vista previa dice cuál).
+  ranura de antes (la vista previa dice cuál). El Supervisor NO comprueba
+  aquí si Home Assistant migra su base de datos, así que Hermes lo mira antes
+  de la vista previa y al confirmar: con una migración en curso se rechaza
+  (`db_migration_in_progress`), y también si no puede saberlo
+  (`core_state_unknown`). Sin Home Assistant OS, `not_supported`.
 
 Apagar y la ranura tumban el host: la respuesta puede no llegar. Si la
 conexión se corta después de enviar la orden, la respuesta es
@@ -959,7 +964,10 @@ es la principal y la conectividad) y
   y a Hermes), la única conectada, y cualquiera si no se sabe cuál es la
   principal se rechazan SIEMPRE (`primary_interface`,
   `only_connected_interface`, `primary_unknown`), también para un cambio
-  inocuo como `mdns`; `default` también (es la principal). Esas se cambian
+  inocuo como `mdns`; `default` también (es la principal). Si la principal es
+  una VLAN, también su tarjeta madre (`primary_interface_parent`); y si el
+  Supervisor no dice cuál es la madre por su nombre (suele dar el UUID de la
+  conexión), ninguna (`primary_dependency_unknown`). Esas se cambian
   desde la interfaz de Home Assistant, con acceso local. El Supervisor aplica
   el cambio en el acto y NO lo revierte.
 - `sv_create_vlan(interface, vlan_id, ipv4=, ipv6=, mdns=, llmnr=)` (token) —
@@ -970,11 +978,19 @@ Cada bloque que pasas se REEMPLAZA entero, no se funde con lo que hay:
 `ipv4`/`ipv6` llevan siempre `method` (`auto`, `static`, `disabled`);
 `static` exige `address` con prefijo (`["192.0.2.20/24"]`) y admite
 `gateway`; `auto` y `disabled` no admiten ni `address` ni `gateway`. `wifi`
-lleva siempre `mode`, `auth` (`open`, `wep`, `wpa-psk`) y `ssid`; la `psk` es
-obligatoria con `wep`/`wpa-psk` y no se admite con `open`. Un bloque
-incompleto se rechaza: el Supervisor lo rellenaría con valores por defecto
-(un `ipv4` sin `method` sería estático sin dirección; un `wifi` sin `auth`,
-una red abierta).
+(solo en una interfaz `wireless`) lleva siempre `mode`, `auth` (`open` o
+`wpa-psk`) y `ssid`; la `psk` es obligatoria con `wpa-psk` y no se admite con
+`open`. Un bloque incompleto se rechaza: el Supervisor lo rellenaría con
+valores por defecto (un `ipv4` sin `method` sería estático sin dirección; un
+`wifi` sin `auth`, una red abierta). También lo que el Supervisor aceptaría
+e ignoraría: `wifi` en una ethernet o una VLAN (`wifi_not_wireless`), DNS con
+`disabled`, `addr_gen_mode`/`ip6_privacy` sin `auto`, y `wep` (la clave
+acaba donde NetworkManager no la lee y la red no conecta).
+
+`enabled: false` BORRA la conexión guardada (la configuración IP y, en Wi-Fi,
+la red y su `psk`), no la pausa: va sola (con otros bloques se rechaza,
+porque el Supervisor los tiraría), la vista previa lo avisa, y volver a
+activarla exige pasar la configuración completa.
 
 La PSK no se devuelve nunca: la vista previa dice `"psk": "set"`, y no sale
 en respuestas, errores ni el log. Una puerta de enlace en una interfaz

@@ -206,10 +206,43 @@ El tramo 2 necesita el tramo 1 integrado.
 Revisión independiente del rango del tramo 1 y 2, comprobada contra el código
 del Supervisor 2026.11.0. Severidad entre corchetes.
 
-- [ ] T028 [ALTO] Guarda de acceso: rechazar también la madre de la interfaz principal cuando la principal es una VLAN (`primary_interface`). Hoy `_guarda` (`host_network.py`) solo compara el nombre y deja editar `eth0` cuando la principal es `eth0.10`. Con `enabled: false`, el Supervisor v1 borra el perfil de `eth0` (`apply_changes` → `_apply_delete`), y la VLAN guarda como madre el UUID de ese perfil (`dbus/network/setting/generate.py`), así que no vuelve a levantarse y se pierde el acceso. Como `vlan.parent` puede llegar como UUID, si no se resuelve a un nombre conocido, fail-closed: rechazar cualquier ethernet (o la `X` de un nombre `X.N`). Test con la principal en `eth0.10` y control negativo, por FR-007 (partial)
-- [ ] T029 [MEDIO] `sv_set_boot_slot`: el Supervisor reinicia sin comprobar la migración de la base de datos de Core. `os/manager.py::set_boot_slot` llama a `host.control.reboot()` directamente, y `_check_ha_offline_migration` solo está en `api/host.py` (reboot y shutdown). Antes de la vista previa y otra vez al confirmar, leer el estado de Core (`/api/core/state`, `recorder_state`). Si hay una migración que no es en vivo, rechazar sin token (`db_migration_in_progress`); si no se puede leer, avisar en la vista previa. Descripción, guía y CHANGELOG coherentes, por FR-004 y principio V (partial)
-- [ ] T030 [MEDIO] `sv_update_network_interface` con `enabled: false`: en la v1 BORRA el perfil guardado (`destructive_disable`), PSK y configuración IP incluidas, y descarta los demás bloques. Hoy la vista previa los enseña en `after` como si se aplicaran. Hay que rechazar `enabled: false` junto con otros bloques y, solo, avisar en la vista previa (y decirlo en la descripción y la guía) de que borra la conexión y de que volver a activarla exige la configuración completa, por FR-006 y principio V (contradicts)
-- [ ] T031 [BAJO] `_limpiar` (`host_network.py`): tapar también las formas escapadas de la PSK (`json.dumps(psk)[1:-1]`, con y sin `ensure_ascii`), no solo el literal. Si el texto del Supervisor la repitiera dentro de un JSON y la PSK lleva `"`, `\` o caracteres no ASCII, hoy sale tal cual. El 2026.11.0 no la repite en ningún camino de la v1: es defensa en profundidad. Test con una PSK que lleve comillas, por FR-010 (partial)
-- [ ] T032 [BAJO] `sv_set_boot_slot` y `sv_set_swap` sin HAOS: `GET /os/info` NO da 404 (`api/os.py::info` no lo comprueba); devuelve `boot: null` y `boot_slots: {}`, y Hermes contesta «Unexpected Supervisor response» en vez de `not_supported`. El fixture simula un 404 que el Supervisor real no da. Tratar `boot` nulo o sin ranuras como `not_supported` y ajustar el fixture, por FR-004 (partial)
-- [ ] T033 [BAJO] `insufficient_disk` admite una swap igual o casi igual al disco libre (`>` estricto), aunque el mensaje dice que se evita llenar el disco de datos. Exigir un margen (por ejemplo, dejar al menos 1 GiB o un porcentaje libres) o corregir el texto, por FR-003 (partial)
-- [ ] T034 [BAJO] Bloques que el Supervisor v1 acepta pero ignora, y la vista previa enseña como aplicados. (a) `wifi` en una interfaz que no es `wireless`: `generate.py` solo lo usa con WIRELESS; hay que rechazarlo con el `type` leído. (b) `nameservers` con `method: disabled`: `_get_ipv4_connection_settings` solo los escribe con auto o static; hay que rechazarlos. (c) `auth: wep`: el Supervisor escribe la clave en `psk` con `key-mgmt: none`, y NetworkManager usa `wep-key0` para WEP, así que la red no conecta. Hay que rechazar `wep` o decirlo en la descripción. Por FR-008 y principio V (partial)
+- [x] T028 [ALTO] Guarda de acceso: rechazar también la madre de la interfaz principal cuando la principal es una VLAN (`primary_interface`). Hoy `_guarda` (`host_network.py`) solo compara el nombre y deja editar `eth0` cuando la principal es `eth0.10`. Con `enabled: false`, el Supervisor v1 borra el perfil de `eth0` (`apply_changes` → `_apply_delete`), y la VLAN guarda como madre el UUID de ese perfil (`dbus/network/setting/generate.py`), así que no vuelve a levantarse y se pierde el acceso. Como `vlan.parent` puede llegar como UUID, si no se resuelve a un nombre conocido, fail-closed: rechazar cualquier ethernet (o la `X` de un nombre `X.N`). Test con la principal en `eth0.10` y control negativo, por FR-007 (partial)
+- [x] T029 [MEDIO] `sv_set_boot_slot`: el Supervisor reinicia sin comprobar la migración de la base de datos de Core. `os/manager.py::set_boot_slot` llama a `host.control.reboot()` directamente, y `_check_ha_offline_migration` solo está en `api/host.py` (reboot y shutdown). Antes de la vista previa y otra vez al confirmar, leer el estado de Core (`/api/core/state`, `recorder_state`). Si hay una migración que no es en vivo, rechazar sin token (`db_migration_in_progress`); si no se puede leer, avisar en la vista previa. Descripción, guía y CHANGELOG coherentes, por FR-004 y principio V (partial)
+- [x] T030 [MEDIO] `sv_update_network_interface` con `enabled: false`: en la v1 BORRA el perfil guardado (`destructive_disable`), PSK y configuración IP incluidas, y descarta los demás bloques. Hoy la vista previa los enseña en `after` como si se aplicaran. Hay que rechazar `enabled: false` junto con otros bloques y, solo, avisar en la vista previa (y decirlo en la descripción y la guía) de que borra la conexión y de que volver a activarla exige la configuración completa, por FR-006 y principio V (contradicts)
+- [x] T031 [BAJO] `_limpiar` (`host_network.py`): tapar también las formas escapadas de la PSK (`json.dumps(psk)[1:-1]`, con y sin `ensure_ascii`), no solo el literal. Si el texto del Supervisor la repitiera dentro de un JSON y la PSK lleva `"`, `\` o caracteres no ASCII, hoy sale tal cual. El 2026.11.0 no la repite en ningún camino de la v1: es defensa en profundidad. Test con una PSK que lleve comillas, por FR-010 (partial)
+- [x] T032 [BAJO] `sv_set_boot_slot` y `sv_set_swap` sin HAOS: `GET /os/info` NO da 404 (`api/os.py::info` no lo comprueba); devuelve `boot: null` y `boot_slots: {}`, y Hermes contesta «Unexpected Supervisor response» en vez de `not_supported`. El fixture simula un 404 que el Supervisor real no da. Tratar `boot` nulo o sin ranuras como `not_supported` y ajustar el fixture, por FR-004 (partial)
+- [x] T033 [BAJO] `insufficient_disk` admite una swap igual o casi igual al disco libre (`>` estricto), aunque el mensaje dice que se evita llenar el disco de datos. Exigir un margen (por ejemplo, dejar al menos 1 GiB o un porcentaje libres) o corregir el texto, por FR-003 (partial)
+- [x] T034 [BAJO] Bloques que el Supervisor v1 acepta pero ignora, y la vista previa enseña como aplicados. (a) `wifi` en una interfaz que no es `wireless`: `generate.py` solo lo usa con WIRELESS; hay que rechazarlo con el `type` leído. (b) `nameservers` con `method: disabled`: `_get_ipv4_connection_settings` solo los escribe con auto o static; hay que rechazarlos. (c) `auth: wep`: el Supervisor escribe la clave en `psk` con `key-mgmt: none`, y NetworkManager usa `wep-key0` para WEP, así que la red no conecta. Hay que rechazar `wep` o decirlo en la descripción. Por FR-008 y principio V (partial)
+
+**Hecho en la convergencia (decisiones del supervisor: todo, fail-closed).**
+Cada arreglo con su test, que reproduce el escenario de la revisión, y su
+control negativo (mutación aplicada, vista en rojo y restaurada):
+
+- **T028**: `_dependencias_de_la_principal` sigue `vlan.parent` (también
+  VLAN sobre VLAN) y `_guarda` rechaza la madre (`primary_interface_parent`).
+  Desviación sobre el texto de la tarea: si la madre no se resuelve a un
+  nombre (UUID de la conexión, ausente o desconocida), se rechaza CUALQUIER
+  interfaz (`primary_dependency_unknown`), sin adivinar por la forma `X.N`.
+  Puentes y *bonds* no existen en el modelo del Supervisor (`InterfaceType`
+  solo tiene ethernet, wireless y vlan; los demás tipos no se listan), así
+  que una principal de ese tipo deja sin `primary` y ya da `primary_unknown`.
+  Control: con `dependencias = set()` caen 4 tests (15 fallos con subtests).
+- **T029**: `_sin_migracion` lee `/api/core/state` (criterio de
+  `get_api_state`) antes del token y al confirmar. Desviación: si no se puede
+  leer, se RECHAZA (`core_state_unknown`) en vez de avisar. `sv_shutdown_host`
+  no lo necesita: con `{}` lo comprueba el Supervisor (test
+  `test_apagar_no_lee_core`). Control: sin la llamada caen 4 tests.
+- **T030**: `enabled: false` con otros bloques → `invalid_argument` (campo
+  `enabled`); solo, la vista previa lleva `deletes_saved_connection` y
+  `disable_warning`. Control: 2 tests (uno por cada parte).
+- **T031**: `_formas_de_la_psk` (literal, JSON con y sin `ensure_ascii`,
+  `repr` y un nivel de JSON dentro de JSON). Control: solo el literal → caen
+  los 4 casos escapados.
+- **T032**: `boot: null` con `boot_slots: {}` → `not_supported`; el fixture
+  devuelve esa forma (`os_info_sin_haos`) en vez del 404. La swap sigue con
+  404, que es lo que da el Supervisor real. Control: 1 test.
+- **T033**: margen `max(1 GiB, 10 % de disk_total)`, sin descontar la swap
+  actual (no se sabe si su fichero existe). Control: 3 tests.
+- **T034**: `wifi_not_wireless`; DNS con `disabled`; `addr_gen_mode` e
+  `ip6_privacy` sin `auto` (también ignorados, por el mismo motivo); `wep`
+  rechazado con su motivo. Control: cada una de las cuatro, en rojo.

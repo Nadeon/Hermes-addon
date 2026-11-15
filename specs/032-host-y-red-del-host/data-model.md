@@ -58,15 +58,15 @@ no cambian.
 | `ipv4` / `ipv6` | `method` | obligatorio: `auto`, `static`, `disabled` |
 | | `address` | lista de `IP/prefijo` de la familia; obligatoria (≥ 1) con `static`; prohibida con `auto`/`disabled` |
 | | `gateway` | IP de la familia; solo con `static` |
-| | `nameservers` | lista de IP de la familia (≤ 8) |
+| | `nameservers` | lista de IP de la familia (≤ 8); no con `disabled` (T034) |
 | | `route_metric` | entero ≥ 0 (no `bool`) |
-| `ipv6` | `addr_gen_mode` | `eui64`, `stable-privacy`, `default-or-eui64`, `default` |
-| | `ip6_privacy` | `disabled`, `enabled-prefer-public`, `enabled`, `default` |
-| `wifi` | `mode` | obligatorio: `infrastructure`, `mesh`, `adhoc`, `ap` |
-| | `auth` | obligatorio: `open`, `wep`, `wpa-psk` |
+| `ipv6` | `addr_gen_mode` | `eui64`, `stable-privacy`, `default-or-eui64`, `default`; solo con `auto` (T034) |
+| | `ip6_privacy` | `disabled`, `enabled-prefer-public`, `enabled`, `default`; solo con `auto` (T034) |
+| `wifi` | `mode` | obligatorio: `infrastructure`, `mesh`, `adhoc`, `ap`; el bloque, solo en una interfaz `wireless` (T034) |
+| | `auth` | obligatorio: `open`, `wpa-psk` (`wep` se rechaza: la red no llegaría a conectar, T034) |
 | | `ssid` | obligatorio, 1–32 bytes UTF-8, sin caracteres de control |
-| | `psk` | obligatoria con `wep`/`wpa-psk`, prohibida con `open`; sin caracteres de control, distinta del marcador de redacción; `wpa-psk` 8–63 caracteres o 64 hexadecimales |
-| — | `enabled` | booleano |
+| | `psk` | obligatoria con `wpa-psk`, prohibida con `open`; sin caracteres de control, distinta del marcador de redacción; `wpa-psk` 8–63 caracteres o 64 hexadecimales |
+| — | `enabled` | booleano; `false` borra el perfil guardado y va solo (T030) |
 | — | `mdns`, `llmnr` | `default`, `off`, `resolve`, `announce` |
 
 Claves desconocidas en cualquier bloque → `invalid_argument`. Los vocabularios
@@ -134,7 +134,9 @@ salen de `supervisor/host/const.py`.
 
 `invalid_argument` (con `field` y regla), `no_change`, `not_supported`,
 `insufficient_disk`, `already_booted`, `slot_unusable`, `primary_interface`,
-`only_connected_interface`, `primary_unknown`, `interface_not_found`,
+`only_connected_interface`, `primary_unknown`, `primary_interface_parent` y
+`primary_dependency_unknown` (T028), `wifi_not_wireless` (T034),
+`db_migration_in_progress` y `core_state_unknown` (T029), `interface_not_found`,
 `not_ethernet`, `vlan_exists`, `state_changed` (huella), errores del
 Supervisor redactados y `outcome: "unknown"` (R-10).
 

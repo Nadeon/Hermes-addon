@@ -366,12 +366,19 @@ _Pendiente: la añade la sub-feature que lo implemente._
     Assistant OS 15 o posterior; si no, `not_supported`), enviando solo lo
     que se pasa. La vista previa enseña el antes y el después, el disco libre
     y que hace falta reiniciar; con `0`, que desactiva la swap. Un tamaño
-    mayor que el disco libre, `insufficient_disk`.
+    que dejaría libres menos de 1 GiB o del 10 % del disco (lo que sea
+    mayor), `insufficient_disk`.
   - `sv_set_boot_slot` arranca en la otra ranura de Home Assistant OS (por
     ejemplo, para volver al OS anterior). La vista previa enseña las dos
     ranuras con su versión, avisa de que el equipo **reinicia en el acto** en
     ese OS, de si la ranura está marcada como mala, y cómo volver. La ranura
-    activa, `already_booted`; una sin versión, `slot_unusable`.
+    activa, `already_booted`; una sin versión, `slot_unusable`; sin Home
+    Assistant OS (el Supervisor contesta sin ranuras, no con un 404),
+    `not_supported`. El Supervisor **no** comprueba aquí si Home Assistant
+    migra su base de datos (al apagar sí), así que Hermes lee el estado de
+    Core antes de la vista previa y otra vez al confirmar: con una migración
+    fuera de línea, `db_migration_in_progress`; si no puede leerlo,
+    `core_state_unknown`. En los dos casos, sin token ni reinicio.
   - El token ata los argumentos (`boot_slot` normalizado a mayúsculas) y la
     huella del estado que describe la vista previa: si el hostname, la swap o
     las ranuras cambian antes de confirmar, no se ejecuta (`state_changed`).
@@ -412,8 +419,13 @@ _Pendiente: la añade la sub-feature que lo implemente._
     inesperada) se rechazan **siempre**, sin token y sin escribir nada,
     también para un cambio inocuo como `mdns` (`primary_interface`,
     `only_connected_interface`, `primary_unknown`); el nombre `default`
-    también. El mensaje dice que se cambie desde la interfaz de Home
-    Assistant con acceso local. La guarda se repite justo antes de enviar.
+    también. Si la principal es una VLAN, también la tarjeta que la lleva
+    (`primary_interface_parent`): desactivarla borra su conexión y la VLAN
+    no vuelve a levantarse. Si el Supervisor no dice cuál es esa tarjeta por
+    su nombre (suele dar el identificador de la conexión), no se edita
+    ninguna interfaz (`primary_dependency_unknown`). El mensaje dice que se
+    cambie desde la interfaz de Home Assistant con acceso local. La guarda se
+    repite justo antes de enviar.
   - **Bloques completos**: el Supervisor reemplaza cada bloque entero y
     rellena lo que falta (un `ipv4` sin `method` pasaría a estático sin
     dirección; un `wifi` sin `auth`, a red abierta). Hermes exige `method`
@@ -421,7 +433,17 @@ _Pendiente: la añade la sub-feature que lo implemente._
     llamar los bloques incompletos o contradictorios (una dirección con
     `auto`, una IP de la otra familia, una clave en una red abierta, una
     clave WPA de menos de 8 caracteres…), diciendo la regla y nunca el
-    valor.
+    valor. También lo que el Supervisor aceptaría y luego ignoraría, que la
+    vista previa daría por aplicado: un bloque `wifi` en una interfaz que no
+    es inalámbrica (`wifi_not_wireless`), DNS con `method: disabled`,
+    `addr_gen_mode` o `ip6_privacy` sin `auto`, y la autenticación `wep`
+    (el Supervisor guarda la clave donde NetworkManager no la lee y la red
+    no llega a conectar).
+  - **`enabled: false` borra la conexión guardada** (la configuración IP y,
+    en Wi-Fi, la red y su clave), no la pausa: tiene que ir sola (con otros
+    bloques se rechaza, porque el Supervisor los descartaría), la vista
+    previa lo avisa (`deletes_saved_connection`) y volver a activarla exige
+    la configuración completa.
   - `sv_create_vlan` crea `<interfaz>.<id>` (1–4094) sobre una tarjeta
     ethernet, también la principal (no la modifica). La vista previa avisa
     de que una puerta de enlace de la VLAN (fija o por DHCP) puede quedarse
@@ -429,8 +451,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
     ethernet o que no existe se rechazan sin token. No hay tool para
     borrarla.
   - **La clave Wi-Fi nunca sale**: ni en la vista previa, ni en la
-    respuesta, ni en los errores (aunque el texto del Supervisor la repita),
-    ni en el log, ni en el fichero del token (solo el HMAC de la acción).
+    respuesta, ni en los errores (aunque el texto del Supervisor la repita,
+    también escapada dentro de un JSON o de un `repr`), ni en el log, ni en el fichero del token (solo el HMAC de la acción).
     Una clave igual al marcador de redacción o con caracteres de control se
     rechaza.
   - El token ata todos los argumentos (la clave, por el HMAC) y la huella
