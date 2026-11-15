@@ -1,5 +1,5 @@
-"""Hermes — Tools MCP de mantenimiento del Marketplace (spec 026, tramo 1;
-CAP-075, FR-091 de la 008).
+"""Hermes — Tools MCP de mantenimiento del Marketplace (spec 026, tramos 1 y
+2; CAP-075, FR-091 de la 008).
 
 Familia `marketplace_manage` (1.2.0).
 
@@ -8,6 +8,7 @@ Tools:
   ha_marketplace_ignore_repository    — deja de avisar de un retirado (dos pasos)
   ha_marketplace_remove_repository    — quita un personalizado no instalado (dos pasos)
   ha_marketplace_refresh_repository   — HA vuelve a pedir su información a GitHub (dos pasos)
+  ha_marketplace_uninstall            — desinstala uno instalado, con backup antes (dos pasos)
 
 POR QUÉ
 -------
@@ -19,10 +20,15 @@ y gasta su límite. Todo lo que HA rechazaría y Hermes puede saber antes se
 rechaza sin token, y el token se ata a lo leído en la vista previa (`estado`
 de la 018): si cambia antes de confirmar, no se hace nada.
 
+Desinstalar (tramo 2) va en esta misma familia (decisión D-2 del
+supervisor): con una sola tool no merecía familia propia. Es la única que
+borra ficheros de /config, así que antes hace un backup parcial de la
+configuración sin la base de datos y, si falla, no envía nada a HA.
+
 Añadir repositorios, instalar, fijar versión y mostrar betas NO tienen tool:
 HA exige que el usuario de HA que manda el comando haya aceptado el aviso de
 riesgos del Marketplace, y el de Hermes (el del Supervisor) no puede
-aceptarlo (DESVIACIÓN DV-1 de la 026, duda D-29). Estas cuatro no lo exigen.
+aceptarlo (DESVIACIÓN DV-1 de la 026, duda D-29). Estas cinco no lo exigen.
 
 Los textos de terceros (`name`, `reason`, `link`, `removal_type`) salen
 recortados y marcados con `_third_party_text`, y toda la salida pasa por
@@ -44,17 +50,25 @@ from hermes.security import (
 from hermes.tools._common import requires_ready
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._marketplace_write import (
+    ESPERA_DESINSTALAR,
     SIN_BACKUP,
     ErrorMarketplace,
+    backup_previo,
     buscar_por_nombre,
+    carga_desinstalar,
     carga_ignorar,
     carga_quitar,
     carga_reconocer,
     carga_refrescar,
     criticos,
+    entradas_del_dominio,
     entrada_critica,
     entrada_retirada,
+    lo_que_puede_romper,
+    lo_que_quita,
+    nombre_backup,
     registrar,
+    reinicio_probable,
     repositorio_por_id,
     resumen,
     retirados,
@@ -85,7 +99,7 @@ def register(
     *,
     response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
-    """Registra las cuatro tools de mantenimiento del Marketplace.
+    """Registra las cinco tools de mantenimiento del Marketplace.
 
     `response_max_bytes` se acepta por uniformidad con el resto de
     `register`: ninguna devuelve listas que haya que recortar.
@@ -128,6 +142,7 @@ def register(
         sufijo: str,
         carga: dict[str, Any],
         categoria: Any,
+        espera: int | None = None,
     ) -> tuple[dict[str, Any] | None, Any]:
         """Resuelve el token con el estado releído y envía el comando.
         Devuelve `(error, resultado de HA)`; con error, nada más que hacer."""
@@ -135,7 +150,7 @@ def register(
         if not valido:
             return _rechazo(tool, {"error": error}, categoria), None
         try:
-            resultado = await ws_escritura(ha_client, sufijo, carga)
+            resultado = await ws_escritura(ha_client, sufijo, carga, espera)
         except ErrorMarketplace as exc:
             await complete_confirmation_token(
                 token, success=False, error=str(exc.payload.get("error")))
@@ -340,7 +355,7 @@ def register(
         """Remove a custom repository from the Marketplace (HACS before Home
         Assistant 2026.11) list. Only custom repositories (added by hand, not
         from the default catalogue) that are not installed: an installed one
-        must be uninstalled first in the Marketplace. Two steps: the first
+        must be uninstalled first (ha_marketplace_uninstall). Two steps: the first
         call returns a preview and a confirmation_token; repeat it with the
         token. Removes nothing from /config. Does not work with HACS 2.x.
 
@@ -382,7 +397,7 @@ def register(
                 "error": "repository_installed",
                 "detail": (
                     "Home Assistant refuses to remove an installed repository. "
-                    "Uninstall it first from the Marketplace UI."
+                    "Uninstall it first with ha_marketplace_uninstall."
                 ),
             }, categoria)
         estado = {
@@ -495,6 +510,193 @@ def register(
             result["hint"] = (
                 "Refreshed, but it could not be read back. Read it with "
                 "ha_marketplace_get_repository."
+            )
+        await complete_confirmation_token(confirmation_token, success=True, result={"result": "ok"})
+        registrar(tool, "ok", categoria)
+        return result
+
+    # ── Desinstalar (tramo 2) ──
+
+    @mcp.tool()
+    @ready
+    @_salida
+    async def ha_marketplace_uninstall(
+        repository_id: str,
+        backup: bool = True,
+        confirmation_token: str | None = None,
+    ) -> object:
+        """Uninstall a repository installed from the Marketplace (HACS before
+        Home Assistant 2026.11): Home Assistant deletes its files under
+        /config (a card also loses its Lovelace resource) and the Marketplace
+        update entity of the repository. An integration with config entries
+        (ignored ones too) is refused: delete them first with
+        ha_delete_config_entry. Two steps: the first call returns a preview
+        (what is removed, whether Core will need a restart, what may stop
+        working, the backup) and a confirmation_token; repeat it with the
+        same arguments and the token. With backup=true (default), Hermes
+        first asks the Supervisor for a partial backup of the Home Assistant
+        configuration without the database (not encrypted) and uninstalls
+        only if it finishes; if it fails, nothing is sent to Home Assistant.
+        Hermes does not restart Core (sv_restart_core). Does not work with
+        HACS 2.x (Home Assistant 2026.10 or older).
+
+        Args:
+            repository_id: Repository id from ha_marketplace_list_repositories.
+            backup: Make the partial backup first (default true).
+            confirmation_token: Token from the preview.
+
+        Returns:
+            Without token: {"confirmation_token", "preview"}, or an error:
+            repository_not_found, repository_not_installed, repository_in_use.
+            With token: {"result": "ok", "repository", "restart_required",
+            "backup"}, or backup_failed (nothing sent to Home Assistant).
+        """
+        tool = "ha_marketplace_uninstall"
+        try:
+            repository_id = validar_repository_id(repository_id)
+        except ArgumentoInvalido as exc:
+            return _rechazo(tool, exc.respuesta())
+        if not isinstance(backup, bool):
+            return _rechazo(tool, ArgumentoInvalido(
+                "backup", "backup must be true or false.").respuesta())
+        args = {"repository_id": repository_id, "backup": backup}
+
+        repo = await _repositorio(tool, repository_id)
+        if repo is None:
+            return _rechazo(tool, dict(_NO_ENCONTRADO))
+        categoria = repo.get("category")
+        if repo.get("installed") is not True:
+            return _rechazo(tool, {
+                "error": "repository_not_installed",
+                "detail": "That repository is not installed: there is nothing "
+                          "to uninstall.",
+            }, categoria)
+        domain = repo.get("domain")
+        if categoria == "integration" and isinstance(domain, str) and domain:
+            # HA lo rechaza igual (`repository_in_use`): sus entradas, también
+            # las ignoradas, ejecutan el código instalado. Se mira antes para
+            # no hacer un backup en balde ni dar un token que no sirve.
+            entradas = await _leer(tool, entradas_del_dominio(ha_client, domain))
+            if entradas:
+                return _rechazo(tool, {
+                    "error": "repository_in_use",
+                    "detail": (
+                        "This integration still has config entries (ignored "
+                        "ones count too): Home Assistant refuses to uninstall "
+                        "it while they exist."
+                    ),
+                    "config_entries": [
+                        {"entry_id": e.get("entry_id"), "source": e.get("source")}
+                        for e in entradas
+                    ],
+                    "hint": "Delete them first with ha_delete_config_entry, "
+                            "then ask for the preview again.",
+                }, categoria)
+        estado = {
+            "full_name": repo.get("full_name"),
+            "category": categoria,
+            "installed_version": repo.get("installed_version"),
+        }
+
+        if not confirmation_token:
+            if backup:
+                copia: dict[str, Any] = {
+                    "will_create": True,
+                    "kind": (
+                        "partial backup of the Home Assistant configuration, "
+                        "without the database, apps or folders"
+                    ),
+                    "name_pattern": "hermes_marketplace_uninstall_<UTC date and time>",
+                    "encrypted": False,
+                    "if_it_fails": (
+                        "nothing is sent to Home Assistant, the token is spent "
+                        "and the answer is backup_failed"
+                    ),
+                }
+            else:
+                copia = {
+                    "will_create": False,
+                    "reason": "backup=false",
+                    "warning": (
+                        "The Marketplace keeps no copy of what it uninstalls: "
+                        "without a backup the files cannot be brought back "
+                        "from one."
+                    ),
+                }
+            preview = {
+                "action": "uninstall",
+                "repository": {**resumen(repo), "domain": domain},
+                "removes": lo_que_quita(repo),
+                "restart": reinicio_probable(repo),
+                "may_break": lo_que_puede_romper(repo),
+                "effect": (
+                    "Home Assistant deletes the installed files of this "
+                    "repository and keeps it in the Marketplace list as not "
+                    "installed (it can be installed again from the Marketplace "
+                    "UI)."
+                ),
+                "backup": copia,
+                **terceros(repo.get("custom")),
+                "_third_party_text": texto_de_terceros(["repository.name", "removes.path"]),
+            }
+            registrar(tool, "preview", categoria)
+            return await create_confirmation_token(tool, args, preview=preview, estado=estado)
+
+        valido, error, _ = await resolve_confirmation_token(
+            confirmation_token, tool, args, estado=estado)
+        if not valido:
+            return _rechazo(tool, {"error": error}, categoria)
+
+        hecho_backup: dict[str, Any] = {"created": False}
+        if backup:
+            try:
+                hecho_backup = {"created": True, **await backup_previo(
+                    ha_client, nombre_backup("uninstall"))}
+            except ErrorMarketplace as exc:
+                # SC-005: sin backup terminado no se envía el comando de HA.
+                await complete_confirmation_token(
+                    confirmation_token, success=False, error="backup_failed")
+                registrar(tool, "error", categoria)
+                return {
+                    **exc.payload,
+                    "sent_to_home_assistant": False,
+                    "hint": (
+                        "Nothing was uninstalled. Check the backup with "
+                        "sv_get_job_status (job_id) or sv_list_backups, then ask "
+                        "for a new preview."
+                    ),
+                }
+
+        try:
+            await ws_escritura(ha_client, "repository/uninstall",
+                               carga_desinstalar(repository_id), ESPERA_DESINSTALAR)
+        except ErrorMarketplace as exc:
+            await complete_confirmation_token(
+                confirmation_token, success=False, error=str(exc.payload.get("error")))
+            registrar(tool, "error", categoria)
+            # El backup ya está hecho: que se sepa a qué volver.
+            return {**exc.payload, "backup": hecho_backup}
+
+        result: dict[str, Any] = {"result": "ok", "backup": hecho_backup}
+        try:
+            releido = await repositorio_por_id(ha_client, repository_id)
+        except ErrorMarketplace:
+            releido = None
+        if releido is not None:
+            result["repository"] = resumen(releido)
+            result["_third_party_text"] = texto_de_terceros(["repository.name"])
+            # HA marca `pending-restart` cuando crea el aviso de Repairs.
+            reiniciar = releido.get("status") == "pending-restart"
+            result["restart_required"] = reiniciar
+            if reiniciar:
+                result["next"] = ("Restart Core with sv_restart_core when it suits "
+                                  "you; Hermes does not restart it.")
+        else:
+            result["repository"] = None
+            result["restart_required"] = None
+            result["hint"] = (
+                "Uninstalled, but it could not be read back. Check it with "
+                "ha_marketplace_get_repository and Repairs (ha_list_repairs)."
             )
         await complete_confirmation_token(confirmation_token, success=True, result={"result": "ok"})
         registrar(tool, "ok", categoria)

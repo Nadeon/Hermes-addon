@@ -146,6 +146,12 @@ categoría leídos (ignorar, además, la entrada de retirados; quitar, además,
 `custom` e `installed`). Las que exigen el aviso de riesgos (añadir,
 instalar, fijar versión, betas) no existen (DESVIACIÓN DV-1 de la 026).
 Ninguna usa `allow_dangerous`. Ningún hallazgo.
+
+Recuento: 123 desde el tramo 2 de la 026, que trae `ha_marketplace_uninstall`
+(misma familia, decisión D-2), comprobada en el código: ata `repository_id`
+(normalizado a texto) y `backup` (bool estricto: quien previsualizó sin
+backup no confirma con él) y, en el `estado`, el `full_name`, la categoría y
+la versión instalada leídos. No usa `allow_dangerous`. Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -384,6 +390,8 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_marketplace_ignore_repository": {"repository_id": A},
     "ha_marketplace_remove_repository": {"repository_id": A},
     "ha_marketplace_refresh_repository": {"repository_id": A},
+    # Tramo 2: `backup` cambia lo que se hace al confirmar.
+    "ha_marketplace_uninstall": {"repository_id": A, "backup": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -480,8 +488,8 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # cuatro de montajes de la 019 + las cuatro de la 015 + las tres de la 030
         # + las tres de la 017 + las seis de la 020
         # + las seis del tramo 1 de la 022 y la del tramo 2
-        # + las cuatro del tramo 1 de la 026.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 122)
+        # + las cuatro del tramo 1 de la 026 y la del tramo 2.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 123)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -501,7 +509,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 122)
+        self.assertEqual(len(publicadas), 123)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

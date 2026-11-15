@@ -1,5 +1,5 @@
 """Funciones puras del módulo común de escritura del Marketplace (spec 026,
-tramo 1; FR-001, FR-002, FR-006).
+tramos 1 y 2; FR-001, FR-002, FR-006, FR-014, FR-017).
 
 Control negativo (T013 a): con la guarda de `_WRITE_SUFFIXES` quitada de
 `ws_escritura`, `test_guarda_de_escritura` cae (se envía `warning/accept`).
@@ -19,12 +19,14 @@ from tests.fixtures.marketplace_escritura import MarketplaceSimulado, error
 
 
 class TestListasCerradas(unittest.TestCase):
-    def test_escrituras_del_tramo_1(self) -> None:
-        # Solo las cuatro que no exigen el aviso de riesgos (DV-1). Ninguna
-        # de las prohibidas (clase D) ni de las que lo exigen.
+    def test_escrituras_de_los_dos_tramos(self) -> None:
+        # Solo las cinco que no exigen el aviso de riesgos (DV-1): las cuatro
+        # del tramo 1 y desinstalar (tramo 2). Ninguna de las prohibidas
+        # (clase D) ni de las que lo exigen.
         self.assertEqual(mw._WRITE_SUFFIXES, {
             "critical/acknowledge", "repository/ignore",
             "repositories/remove", "repository/refresh",
+            "repository/uninstall",
         })
         prohibidas = {"warning/accept", "github/connect", "repositories/add",
                       "repositories/detect", "repository/install",
@@ -84,6 +86,50 @@ class TestCargas(unittest.TestCase):
         self.assertEqual(mw.carga_ignorar("123456"), {"repository": "123456"})
         self.assertEqual(mw.carga_quitar("234567"), {"repository": "234567"})
         self.assertEqual(mw.carga_refrescar("345678"), {"repository": "345678"})
+        self.assertEqual(mw.carga_desinstalar("123456"), {"repository": "123456"})
+
+
+class TestDesinstalarComun(unittest.TestCase):
+    """Tramo 2 (FR-014, FR-017; research R-6, R-7)."""
+
+    def test_nombre_del_backup_sin_el_repositorio(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        cet = timezone(timedelta(hours=1))
+        self.assertEqual(
+            mw.nombre_backup("uninstall", datetime(2026, 11, 15, 13, 0, 5, tzinfo=cet)),
+            "hermes_marketplace_uninstall_20261115T120005Z")
+
+    def test_carga_del_backup(self) -> None:
+        # Sin apps, sin carpetas, sin la base de datos, esperando, sin
+        # `password` (no se cifra: nada que prometer sin la 031).
+        self.assertEqual(mw.carga_backup("n"), {
+            "name": "n", "homeassistant": True,
+            "homeassistant_exclude_database": True, "background": False})
+
+    def test_reinicio_por_categoria(self) -> None:
+        integ = {"category": "integration", "config_flow": True}
+        self.assertIsNone(mw.reinicio_probable(integ)["likely"])
+        self.assertIs(mw.reinicio_probable({**integ, "config_flow": False})["likely"], True)
+        for c in ("plugin", "theme", "template"):
+            with self.subTest(c=c):
+                self.assertIs(mw.reinicio_probable({"category": c})["likely"], False)
+
+    def test_lo_que_quita(self) -> None:
+        tarjeta = mw.lo_que_quita({"category": "plugin", "local_path": "/config/www/community/x"})
+        self.assertIs(tarjeta["lovelace_resource"], True)
+        self.assertEqual(tarjeta["path"], "/config/www/community/x")
+        tema = mw.lo_que_quita({"category": "theme", "local_path": None})
+        self.assertIs(tema["lovelace_resource"], False)
+        self.assertIsNone(tema["path"])
+        self.assertIn("themes", tema["files"])
+
+    def test_lo_que_puede_romper_no_finge_saberlo(self) -> None:
+        for c in ("integration", "plugin", "theme", "template"):
+            with self.subTest(c=c):
+                r = mw.lo_que_puede_romper({"category": c})
+                self.assertIs(r["listed_by_home_assistant"], False)
+                self.assertTrue(r["detail"])
 
 
 class TestValidacion(unittest.TestCase):

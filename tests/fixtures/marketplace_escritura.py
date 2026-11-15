@@ -17,6 +17,20 @@ Formas sacadas de `homeassistant/components/marketplace/` de HA Core
   (`critical.py`), sin decorador (nunca `not_loaded`).
 - Errores con el `code` de HA: `repository_not_found`, `repository_installed`,
   `github_rate_limited`, `not_loaded`, `unknown_command`.
+- Tramo 2: `repository/uninstall` como `marketplace_repository_uninstall` de
+  `websocket/repository.py` (`repository_not_found`,
+  `repository_not_installed`, `repository_in_use` si la integración tiene
+  entradas del `domain`, también ignoradas; al desinstalar, `installed`
+  falso, sin versión y `status` `pending-restart` si
+  `async_post_uninstall` de `repositories/integration.py` pide reiniciar:
+  cargada en esta ejecución o sin `config_flow`); `config_entries/get` con
+  `domain` como `config_entries_get` de `components/config` (todas las
+  entradas, también las ignoradas). Y `SupervisorSimulado`: `POST
+  /backups/new/partial` como `_do_backup_partial` de `supervisor/api/
+  backups.py` con `background: false` (`{"job_id", "slug"}`, o el
+  `APIError` «An error occurred while making backup, check job '…'», que
+  `HAClient.sv_request` convierte en `HAConnectionError("Supervisor error:
+  …")`).
 
 Datos ficticios: `ejemplo/*`, ids `"123456"`, `"234567"`, `"345678"`.
 """
@@ -116,6 +130,10 @@ class MarketplaceSimulado:
         self.retirados = retirados_base()
         self.criticos = criticos_base()
         self.ignorados: set[str] = set()
+        # Tramo 2: entradas de configuración por `domain` y dominios que esta
+        # ejecución de Core ya cargó (`_known_to_the_loader` de HA).
+        self.entradas: dict[str, list[dict[str, Any]]] = {}
+        self.cargadas: set[str] = set()
         self.errores: dict[str, Any] = {}
         self.enviados: list[dict[str, Any]] = []
 
@@ -125,7 +143,7 @@ class MarketplaceSimulado:
 
     def escrituras(self) -> list[dict[str, Any]]:
         lecturas = {"marketplace/repositories/list", "marketplace/repositories/removed",
-                    "marketplace/critical/list"}
+                    "marketplace/critical/list", "config_entries/get"}
         return [p for p in self.enviados if p["type"] not in lecturas]
 
     def repo(self, rid: str) -> dict[str, Any]:
@@ -147,6 +165,8 @@ class MarketplaceSimulado:
             "marketplace/repository/ignore": self._ignorar,
             "marketplace/repositories/remove": self._quitar,
             "marketplace/repository/refresh": self._refrescar,
+            "marketplace/repository/uninstall": self._desinstalar,
+            "config_entries/get": self._entradas,
         }.get(tipo)
         if manejador is None:
             raise error("unknown_command", "Unknown command.")
@@ -186,3 +206,64 @@ class MarketplaceSimulado:
 
     def _refrescar(self, p: dict[str, Any]) -> None:
         self._por_id(p["repository"])["available_version"] = "1.3.0"
+
+    def _entradas(self, p: dict[str, Any]) -> list[dict[str, Any]]:
+        return copy.deepcopy(self.entradas.get(p.get("domain"), []))
+
+    def _desinstalar(self, p: dict[str, Any]) -> None:
+        repo = self._por_id(p["repository"])
+        if not repo["installed"]:
+            raise error("repository_not_installed", "Repository is not installed")
+        dominio = repo.get("domain")
+        if repo["category"] == "integration" and dominio and self.entradas.get(dominio):
+            raise error("repository_in_use", "Repository is in use")
+        reiniciar = repo["category"] == "integration" and (
+            dominio in self.cargadas or not repo.get("config_flow"))
+        repo.update(installed=False, installed_version=None, new=False,
+                    status="pending-restart" if reiniciar else "default")
+
+
+JOB = "0123456789abcdef0123456789abcdef"
+SLUG = "a1b2c3d4"
+
+
+class SupervisorSimulado:
+    """`sv_request` simulado del Supervisor 2026.11.0 para el backup previo.
+
+    `modo`: `"ok"` (`{"job_id", "slug"}`), `"error"` (el `APIError` de
+    `_do_backup_partial`, ya convertido por `HAClient.sv_request`), `"lento"`
+    (`TimeoutError`: no terminó en la espera) o `"sin_slug"` (`{"job_id"}`,
+    como con `background: true`). `llamadas` apunta cada petición.
+    """
+
+    def __init__(self, ha: MarketplaceSimulado | None = None) -> None:
+        self.modo = "ok"
+        self.mensaje_error = (
+            f"Supervisor error: An error occurred while making backup, check job "
+            f"'{JOB}' or supervisor logs for details"
+        )
+        self.llamadas: list[dict[str, Any]] = []
+        # Para comprobar el orden: lo enviado a HA cuando llegó el backup.
+        self._ha = ha
+        self.enviados_a_ha_antes: list[str] | None = None
+
+    async def __call__(
+        self,
+        method: str,
+        sv_path: str,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        timeout_seconds: float = 60.0,
+    ) -> Any:
+        self.llamadas.append({"method": method, "path": sv_path,
+                              "json_body": copy.deepcopy(json_body),
+                              "timeout_seconds": timeout_seconds})
+        if self._ha is not None:
+            self.enviados_a_ha_antes = list(self._ha.tipos)
+        if self.modo == "error":
+            raise HAConnectionError(self.mensaje_error)
+        if self.modo == "lento":
+            raise TimeoutError()
+        if self.modo == "sin_slug":
+            return {"job_id": JOB}
+        return {"job_id": JOB, "slug": SLUG}

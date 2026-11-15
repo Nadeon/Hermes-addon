@@ -115,9 +115,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # y borrar blueprints del tramo A e importar del tramo B), y las 6 de la
         # 020 (5 de estadísticas de los tramos 1 y 2 y la de energía del 3), y
         # las 8 de la 022 (7 de control de Core y del Supervisor del tramo 1 y
-        # la de aplicar sugerencias del tramo 2), y las 4 del tramo 1 de la
-        # 026 (mantenimiento del Marketplace).
-        self.assertEqual(len(reales), 179)
+        # la de aplicar sugerencias del tramo 2), y las 5 de la 026 (las 4 de
+        # mantenimiento del Marketplace del tramo 1 y desinstalar del tramo 2).
+        self.assertEqual(len(reales), 180)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()

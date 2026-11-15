@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **326 tools**: turn on lights, write automations,
+external systems). It ships **327 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 326 tools
+## What it can do — 327 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -48,7 +48,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Diagnostics** | 8 | Repairs issues (list, with their title and description as the UI shows them, and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; applying one is the next row) |
 | **Resolution fixes** | 1 | Apply a Supervisor resolution suggestion after a preview that explains what it does (what it interrupts, whether it can be undone, which full backups it would delete, which automatic fixes the Supervisor applies on the way), always with confirmation. Suggestions with no fix, that Hermes cannot explain, that touch the data disks or that act on Hermes itself are refused. Family `resolution_fixes`, new in 1.2.0 |
 | **Marketplace (formerly HACS)** | 11 | Read-only: status, repositories, available updates, published versions, critical and removed repositories. Detects on every call whether Home Assistant has the built-in Marketplace (2026.11 or later) or HACS 2.x. Updates are installed through the `update` entity, with confirmation. The 4 `ha_hacs_*` tools remain as deprecated aliases until 1.3.0 |
-| **Marketplace maintenance** | 4 | Acknowledge a critical repository, ignore the removal of a repository taken off the catalogue, remove a custom repository that is not installed and refresh a repository from GitHub, each in two steps with a preview (installs nothing; the repository is third-party code nobody reviewed). Installing, pinning a version, showing betas and adding repositories are not possible: Home Assistant requires the Marketplace risk warning accepted by the Home Assistant user Hermes connects as (the Supervisor user), who cannot accept it, and Hermes never accepts it. Family `marketplace_manage`, new in 1.2.0 |
+| **Marketplace maintenance** | 5 | Acknowledge a critical repository, ignore the removal of a repository taken off the catalogue, remove a custom repository that is not installed, refresh a repository from GitHub and uninstall an installed one (after a partial backup of the configuration without the database; if the backup fails, nothing is uninstalled), each in two steps with a preview (installs nothing; the repository is third-party code nobody reviewed). Installing, pinning a version, showing betas and adding repositories are not possible: Home Assistant requires the Marketplace risk warning accepted by the Home Assistant user Hermes connects as (the Supervisor user), who cannot accept it, and Hermes never accepts it. Family `marketplace_manage`, new in 1.2.0 |
 | **Event waiting** | 3 | Wait for something to happen, with filters |
 | **Utilities** | 2 | `ping` and `hermes_guide` |
 | **System status** | 5 | Read only: the system health report (what Settings > System > Repairs > System information shows), whether Home Assistant or the host needs a restart, how long each integration took to set up, and integration manifests. Family `system_status`, new in 1.2.0 |

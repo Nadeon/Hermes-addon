@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 326 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 327 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -78,8 +78,12 @@ detalle de qué borra y qué no está en el README.
 En el Marketplace (HACS hasta HA 2026.10) Claude puede consultar
 repositorios, actualizaciones y versiones y, desde la 1.2.0 (familia
 `marketplace_manage`), reconocer avisos críticos, ignorar repositorios
-retirados, quitar repositorios personalizados no instalados y refrescar uno
-desde GitHub, siempre en dos pasos. No puede instalar, fijar versiones,
+retirados, quitar repositorios personalizados no instalados, refrescar uno
+desde GitHub y desinstalar uno instalado, siempre en dos pasos. Antes de
+desinstalar, Hermes hace un backup parcial de la configuración de Home
+Assistant sin la base de datos (sin cifrar); si el backup falla, no
+desinstala nada. Hermes no reinicia Home Assistant: si hace falta, Claude te
+lo dirá. No puede instalar, fijar versiones,
 mostrar betas ni añadir repositorios, y nunca acepta nada: Home Assistant
 exige que el aviso de riesgos del Marketplace lo haya aceptado el usuario de
 Home Assistant que lo pide, y Hermes se conecta con el usuario del Supervisor,
@@ -191,7 +195,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `blueprints` | 5 | Blueprints de automatizaciones, scripts y plantillas: listar, ver la sustitución con unas entradas, guardar, importar de una URL y borrar (nueva en 1.2.0) |
 | `automation_assist` | 9 | Ayuda para escribir automatizaciones: triggers, condiciones y acciones de un dispositivo, qué abarca un target y qué admite, y esperar una vez a un trigger; solo lectura (nueva en 1.2.0) |
 | `system_control` | 7 | Arrancar, reconstruir y configurar Home Assistant Core; recargar, reiniciar, reparar y configurar el Supervisor (nueva en 1.2.0; todo con confirmación salvo recargar; las opciones van por listas cerradas: `image`, `port`, `ssl`, `refresh_token` y el `channel` del Supervisor no se cambian) |
-| `marketplace_manage` | 4 | Mantenimiento del Marketplace: reconocer avisos críticos, ignorar retirados, quitar personalizados no instalados y refrescar desde GitHub (nueva en 1.2.0; siempre con confirmación; no instala nada) |
+| `marketplace_manage` | 5 | Mantenimiento del Marketplace: reconocer avisos críticos, ignorar retirados, quitar personalizados no instalados, refrescar desde GitHub y desinstalar, con un backup parcial antes (nueva en 1.2.0; siempre con confirmación; no instala nada) |
 | `resolution_fixes` | 1 | Aplicar una sugerencia del centro de resolución del Supervisor (nueva en 1.2.0; siempre con confirmación y una vista previa que explica qué hace; se rechazan las que no tienen arreglo, las que tocan los discos de datos y las que apuntan al propio Hermes) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:

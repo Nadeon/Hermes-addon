@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **326 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **327 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 326 herramientas
+## Qué puede hacer — 327 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -50,7 +50,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Diagnóstico** | 8 | Avisos de Reparaciones (listar, con su título y descripción como los enseña la interfaz, e ignorar), trazas de automatizaciones y scripts, qué está relacionado con un elemento y el centro de resolución del Supervisor (leer y descartar issues y sugerencias; aplicarlas, en la fila siguiente) |
 | **Arreglos del centro de resolución** | 1 | Aplicar una sugerencia del Supervisor tras una vista previa que explica qué hace (qué corta, si se puede deshacer, qué backups completos borraría, qué arreglos automáticos aplica el Supervisor de paso), siempre con confirmación. Se rechazan las que no tienen arreglo, las que Hermes no sabe explicar, las que tocan los discos de datos y las que apuntan al propio Hermes. Familia `resolution_fixes`, nueva en 1.2.0 |
 | **Marketplace (antes HACS)** | 11 | De solo lectura: estado, repositorios, actualizaciones disponibles, versiones publicadas y repositorios críticos o retirados. Detecta en cada llamada si Home Assistant trae el Marketplace integrado (2026.11 o posterior) o HACS 2.x. Las actualizaciones se instalan con la entidad `update`, con confirmación. Las 4 tools `ha_hacs_*` siguen como alias deprecados hasta 1.3.0 |
-| **Mantenimiento del Marketplace** | 4 | Reconocer un repositorio crítico, ignorar la retirada de un repositorio que salió del catálogo, quitar un repositorio personalizado que no está instalado y refrescar un repositorio desde GitHub, cada una en dos pasos con vista previa (no instala nada; el repositorio es código de terceros que nadie ha revisado). Instalar, fijar versión, mostrar betas y añadir repositorios no se puede: Home Assistant exige el aviso de riesgos del Marketplace aceptado por el usuario de Home Assistant con el que se conecta Hermes (el del Supervisor), que no puede aceptarlo, y Hermes nunca lo acepta. Familia `marketplace_manage`, nueva en 1.2.0 |
+| **Mantenimiento del Marketplace** | 5 | Reconocer un repositorio crítico, ignorar la retirada de un repositorio que salió del catálogo, quitar un repositorio personalizado que no está instalado, refrescar un repositorio desde GitHub y desinstalar uno instalado (tras un backup parcial de la configuración sin la base de datos; si el backup falla, no se desinstala nada), cada una en dos pasos con vista previa (no instala nada; el repositorio es código de terceros que nadie ha revisado). Instalar, fijar versión, mostrar betas y añadir repositorios no se puede: Home Assistant exige el aviso de riesgos del Marketplace aceptado por el usuario de Home Assistant con el que se conecta Hermes (el del Supervisor), que no puede aceptarlo, y Hermes nunca lo acepta. Familia `marketplace_manage`, nueva en 1.2.0 |
 | **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
 | **Estado del sistema** | 5 | De solo lectura: el informe de salud del sistema (lo que enseña Ajustes → Sistema → Reparaciones → Información del sistema), si Home Assistant o el host piden reinicio, cuánto tardó cada integración en arrancar y los manifiestos de las integraciones. Familia `system_status`, nueva en 1.2.0 |

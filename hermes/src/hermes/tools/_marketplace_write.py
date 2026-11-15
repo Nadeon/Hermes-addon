@@ -27,15 +27,26 @@ detectar y añadir repositorios (`marketplace_command(requires_accepted_warning=
 True)`). El usuario de Hermes es el del Supervisor: nadie puede aceptarlo en
 la interfaz por él y Hermes no lo acepta nunca. Esas operaciones no tienen
 tool (no se publican tools que no pueden funcionar) y sus comandos quedan en
-`deny` en la tabla. Los cuatro de esta lista NO exigen el aviso (comprobado en
+`deny` en la tabla. Los cinco de esta lista NO exigen el aviso (comprobado en
 `websocket/repository.py`, `websocket/repositories.py` y
 `websocket/critical.py` de HA Core 2026.11.1).
+
+DESINSTALAR (tramo 2)
+---------------------
+Es la única que borra ficheros de /config, así que antes pide al Supervisor
+un backup parcial de la configuración de HA sin la base de datos y solo si
+termina bien envía el comando (FR-014, FR-017 de la 026). El backup no se
+cifra: Hermes no manda contraseña (los safety backups cifrados de la 031 no
+están integrados en esta rama, y no se promete lo que no se hace).
 """
 
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Any
+
+import aiohttp
 
 import structlog
 
@@ -61,6 +72,8 @@ _WRITE_SUFFIXES = frozenset({
     "repository/ignore",
     "repositories/remove",
     "repository/refresh",
+    # Tramo 2: no exige el aviso (`marketplace_command()` sin argumentos).
+    "repository/uninstall",
 })
 
 # Lecturas de las vistas previas: las mismas que ya son `dedicated` hacia las
@@ -122,6 +135,177 @@ def carga_quitar(repository_id: str) -> dict[str, Any]:
 
 def carga_refrescar(repository_id: str) -> dict[str, Any]:
     return {"repository": repository_id}
+
+
+def carga_desinstalar(repository_id: str) -> dict[str, Any]:
+    return {"repository": repository_id}
+
+
+# ── Backup previo de desinstalar (FR-017, research R-6) ──────────────────────
+
+# La espera de `tools/addons.py` y `tools/backups.py` para operaciones largas.
+ESPERA_BACKUP = 300.0
+# El comando de HA puede preguntar antes a GitHub (si está conectado): más
+# margen que los 30 s por defecto del WebSocket.
+ESPERA_DESINSTALAR = 120
+_JOB_EN_ERROR_RE = re.compile(r"check job '([0-9a-f]{6,64})'")
+
+
+def nombre_backup(accion: str, ahora: datetime | None = None) -> str:
+    """`hermes_marketplace_<acción>_<AAAAMMDDTHHMMSSZ>` en UTC. Sin el
+    repositorio: los backups se listan en sitios que se comparten."""
+    momento = (ahora or datetime.now(UTC)).astimezone(UTC)
+    return f"hermes_marketplace_{accion}_{momento.strftime('%Y%m%dT%H%M%SZ')}"
+
+
+def carga_backup(nombre: str) -> dict[str, Any]:
+    """`POST /backups/new/partial`: solo la configuración de HA, sin apps,
+    sin carpetas y sin la base de datos (es lo que hace lento un backup y el
+    Marketplace no la toca), esperando a que termine. Sin `password`: no se
+    cifra."""
+    return {
+        "name": nombre,
+        "homeassistant": True,
+        "homeassistant_exclude_database": True,
+        "background": False,
+    }
+
+
+async def backup_previo(ha_client: HAClient, nombre: str) -> dict[str, Any]:
+    """Pide el backup y espera a que termine. Devuelve `{"slug", "name"}`
+    (y `job_id` si lo hay) o lanza `ErrorMarketplace` con `backup_failed`:
+    con un error, un plazo agotado o una respuesta sin `slug` no consta que
+    haya terminado, y quien llama NO envía el comando de HA."""
+    try:
+        datos = await ha_client.sv_request(
+            "POST", "/backups/new/partial",
+            json_body=carga_backup(nombre),
+            timeout_seconds=ESPERA_BACKUP,
+        )
+    except (HAConnectionError, TimeoutError, aiohttp.ClientError) as exc:
+        texto = str(exc) or type(exc).__name__
+        fallo: dict[str, Any] = {
+            "error": "backup_failed",
+            "detail": redactar_mensaje(texto),
+        }
+        # El Supervisor da el job en el texto del error («check job '…'»).
+        if (m := _JOB_EN_ERROR_RE.search(texto)) is not None:
+            fallo["job_id"] = m.group(1)
+        raise ErrorMarketplace(fallo) from exc
+    slug = datos.get("slug") if isinstance(datos, dict) else None
+    job_id = datos.get("job_id") if isinstance(datos, dict) else None
+    if not isinstance(slug, str) or not slug:
+        fallo = {
+            "error": "backup_failed",
+            "detail": "The Supervisor did not report a finished backup.",
+        }
+        if isinstance(job_id, str) and job_id:
+            fallo["job_id"] = job_id
+        raise ErrorMarketplace(fallo)
+    hecho: dict[str, Any] = {"slug": slug, "name": nombre}
+    if isinstance(job_id, str) and job_id:
+        hecho["job_id"] = job_id
+    return hecho
+
+
+# ── Reinicio y lo que se quita al desinstalar (research R-7) ─────────────────
+
+
+def reinicio_probable(repo: dict[str, Any]) -> dict[str, Any]:
+    """Si HA pedirá reiniciar Core tras desinstalar, con su regla
+    (`async_post_uninstall` de cada categoría en HA 2026.11.1). En una
+    integración, HA lo pide si esta ejecución ya la cargó o si no tiene
+    `config_flow` (solo YAML): lo segundo se sabe; lo primero no se ve desde
+    fuera, y entonces `likely` es `None` en vez de adivinar."""
+    despues = "restart Core with sv_restart_core; Hermes does not restart it"
+    categoria = repo.get("category")
+    if categoria == "integration":
+        if repo.get("config_flow") is not True:
+            return {
+                "likely": True,
+                "reason": (
+                    "It has no config flow (set up from YAML): its code keeps "
+                    "running until Core restarts, and Home Assistant asks for "
+                    "a restart in Repairs."
+                ),
+                "after": despues,
+            }
+        return {
+            "likely": None,
+            "reason": (
+                "Home Assistant asks for a restart (in Repairs) only if this "
+                "run of Core already loaded the integration, which Hermes "
+                "cannot see. restart_required in the answer says it."
+            ),
+            "after": despues,
+        }
+    if categoria == "plugin":
+        return {
+            "likely": False,
+            "reason": "Home Assistant removes the card's dashboard resource; "
+                      "browsers drop it when they reload.",
+        }
+    if categoria == "theme":
+        return {"likely": False,
+                "reason": "Home Assistant reloads the themes by itself."}
+    if categoria == "template":
+        return {"likely": False,
+                "reason": "Home Assistant reloads the custom templates by itself."}
+    return {"likely": None, "reason": "Unknown category."}
+
+
+_QUITA = {
+    "integration": "its folder under /config/custom_components",
+    "plugin": "its folder under /config/www/community and its Lovelace "
+              "(dashboard) resource",
+    "theme": "its theme file under /config/themes",
+    "template": "its template file under /config/custom_templates",
+}
+
+# HA no dice qué entidades, tarjetas o plantillas usan un repositorio: esto
+# es lo que se deduce de lo que hace cada categoría, y se presenta como tal.
+_PUEDE_ROMPER = {
+    "integration": (
+        "Its config entries are already gone (otherwise repository_in_use). "
+        "Anything still configured in YAML with this domain (platforms, "
+        "entities) fails to set up after the restart."
+    ),
+    "plugin": (
+        "Dashboard cards of this resource stop rendering (custom element "
+        "not found) once browsers reload."
+    ),
+    "theme": "Users and dashboards that select this theme fall back to the "
+             "default one.",
+    "template": "Templates that import macros from this file fail to render.",
+}
+
+
+def lo_que_quita(repo: dict[str, Any]) -> dict[str, Any]:
+    """Qué borra HA al desinstalar (`remove_local_directory` y
+    `async_post_uninstall` de cada categoría, y `async_remove_entity_device`
+    para todas)."""
+    categoria = repo.get("category")
+    ruta = repo.get("local_path")
+    quita: dict[str, Any] = {
+        "files": _QUITA.get(categoria, "the repository files under /config"),
+        # El nombre de la carpeta sale del repositorio (texto de terceros):
+        # recortado y marcado en la vista previa.
+        "path": _trim(ruta) if isinstance(ruta, str) else None,
+        "update_entity": "the Marketplace update entity and device of this repository",
+        "lovelace_resource": categoria == "plugin",
+    }
+    return quita
+
+
+def lo_que_puede_romper(repo: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "listed_by_home_assistant": False,
+        "note": (
+            "Home Assistant does not say which entities, cards or templates "
+            "use this repository; this is what its category implies."
+        ),
+        "detail": _PUEDE_ROMPER.get(repo.get("category")),
+    }
 
 
 # ── Validación (sin llamar a HA) ─────────────────────────────────────────────
@@ -192,7 +376,9 @@ def traducir(exc: Exception) -> dict[str, Any]:
                 "Nothing changed; try again later."
             ),
         }
-    if code in ("repository_not_found", "repository_installed"):
+    if code in ("repository_not_found", "repository_installed",
+                "repository_not_installed", "repository_in_use",
+                "repository_busy", "uninstall_failed"):
         return {"error": code, "detail": detalle}
     out: dict[str, Any] = {"error": "ha_error", "detail": detalle}
     if code:
@@ -200,9 +386,14 @@ def traducir(exc: Exception) -> dict[str, Any]:
     return out
 
 
-async def _ws(ha_client: HAClient, sufijo: str, carga: dict[str, Any]) -> Any:
+async def _ws(
+    ha_client: HAClient, sufijo: str, carga: dict[str, Any], espera: int | None = None
+) -> Any:
+    mensaje = {"type": f"marketplace/{sufijo}", **carga}
     try:
-        return await ha_client.ws_send({"type": f"marketplace/{sufijo}", **carga})
+        if espera is None:
+            return await ha_client.ws_send(mensaje)
+        return await ha_client.ws_send(mensaje, timeout_seconds=espera)
     except (HAConnectionError, TimeoutError) as exc:
         raise ErrorMarketplace(traducir(exc)) from exc
 
@@ -216,12 +407,29 @@ async def ws_lectura(
     return await _ws(ha_client, sufijo, carga or {})
 
 
-async def ws_escritura(ha_client: HAClient, sufijo: str, carga: dict[str, Any]) -> Any:
+async def ws_escritura(
+    ha_client: HAClient, sufijo: str, carga: dict[str, Any], espera: int | None = None
+) -> Any:
     if sufijo not in _WRITE_SUFFIXES:
         # Guarda de la lista cerrada (FR-001): un sufijo fuera de la lista no
         # se envía nunca, ni siquiera por error de programación.
         raise RuntimeError(f"marketplace write command not allowed: {sufijo}")
-    return await _ws(ha_client, sufijo, carga)
+    return await _ws(ha_client, sufijo, carga, espera)
+
+
+async def entradas_del_dominio(ha_client: HAClient, domain: str) -> list[dict[str, Any]]:
+    """Las entradas de configuración del `domain` (`config_entries/get`, que
+    devuelve también las ignoradas, como `async_entries` en el manejador de
+    desinstalar de HA). Es la única lectura fuera de `marketplace/*`
+    (FR-001). Si no se puede leer, error: no se adivina que no hay."""
+    try:
+        datos = await ha_client.ws_send({"type": "config_entries/get", "domain": domain})
+    except (HAConnectionError, TimeoutError) as exc:
+        raise ErrorMarketplace({
+            "error": "ha_error",
+            "detail": redactar_mensaje(str(exc) or type(exc).__name__),
+        }) from exc
+    return _lista(datos)
 
 
 def _lista(valor: Any) -> list[dict[str, Any]]:

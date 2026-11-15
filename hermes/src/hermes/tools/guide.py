@@ -167,7 +167,7 @@ para el detalle de un área. Temas disponibles:
 - `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
-- `marketplace_manage` — Marketplace: reconocer avisos críticos, ignorar retirados, quitar personalizados y refrescar
+- `marketplace_manage` — Marketplace: reconocer avisos críticos, ignorar retirados, quitar personalizados, refrescar y desinstalar
 - `security`       — confirmation tokens, denylist y límites
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
@@ -867,7 +867,7 @@ Los `ha_hacs_*` son alias deprecados de estas tools y se retiran en 1.3.0.
 # Mantenimiento del Marketplace (familia `marketplace_manage`)
 
 Escrituras del Marketplace de Core (antes HACS) que NO instalan nada: atender
-sus avisos y mantener su lista. Las cuatro van en DOS PASOS (vista previa +
+sus avisos, mantener su lista y desinstalar. Las cinco van en DOS PASOS (vista previa +
 `confirmation_token`) y solo hablan con `marketplace/*`: con HACS 2.x (HA ≤
 2026.10) responden `marketplace_write_unsupported` y no prueban `hacs/*`. El
 `repository_id` es el `id` de `ha_marketplace_list_repositories`
@@ -890,14 +890,32 @@ sus avisos y mantener su lista. Las cuatro van en DOS PASOS (vista previa +
   repositorio PERSONALIZADO (añadido a mano) que NO está instalado. Sin
   token: `not_custom_repository` (uno del catálogo por defecto volvería con
   la siguiente descarga del catálogo) o `repository_installed` (desinstálalo
-  antes desde la interfaz del Marketplace). No toca ficheros de /config.
+  antes con `ha_marketplace_uninstall`). No toca ficheros de /config.
 - `ha_marketplace_refresh_repository(repository_id)` — HA vuelve a pedir el
   repositorio a GitHub (gasta su límite de peticiones) y guarda lo que
   recibe (versiones, descripción). No instala ni actualiza nada. Si GitHub
   limita: `github_rate_limited`; basta con esperar.
+- `ha_marketplace_uninstall(repository_id, backup=true)` — desinstala uno
+  INSTALADO: HA borra sus ficheros de /config (una tarjeta pierde también su
+  recurso de Lovelace) y la entidad `update` del Marketplace de ese
+  repositorio; sigue en la lista como no instalado. Sin token:
+  `repository_not_installed` o `repository_in_use` (una integración con
+  entradas de configuración, también ignoradas: bórralas antes con
+  `ha_delete_config_entry`). La vista previa dice qué se quita (`removes`),
+  si habrá que reiniciar Core (`restart.likely`: `null` si depende de algo
+  que Hermes no ve) y qué puede dejar de funcionar (`may_break`: HA no dice
+  qué entidades o tarjetas lo usan, así que es lo que implica su categoría).
+  BACKUP: al confirmar, antes de enviar nada a HA, Hermes pide al Supervisor
+  un backup PARCIAL de la configuración de HA SIN la base de datos (sin
+  cifrar) y espera a que termine; si falla o no termina, responde
+  `backup_failed` (con `job_id` si lo hay), no se desinstala nada y el token
+  queda gastado. `backup=false` lo omite, y el Marketplace no guarda copia de
+  lo que desinstala. Hermes NO reinicia: si `restart_required` es true,
+  `sv_restart_core` cuando convenga.
 
-La vista previa dice el efecto, si se puede deshacer (`reversible`), que no
-hay backup (`backup.will_create: false`: no cambian ficheros) y que el
+La vista previa dice el efecto, si se puede deshacer (`reversible`), si hay
+backup (`backup.will_create`: solo al desinstalar, lo único que cambia
+ficheros) y que el
 repositorio es de terceros (`third_party: true`,
 `reviewed_by_home_assistant: false`; `in_default_catalog` dice si está en el
 catálogo por defecto o lo añadió alguien a mano). Si lo previsualizado cambia
@@ -1968,6 +1986,9 @@ _ALIASES: dict[str, str] = {
     "custom repository": "marketplace_manage",
     "repositorio personalizado": "marketplace_manage",
     "hacs install": "marketplace_manage",
+    "marketplace uninstall": "marketplace_manage",
+    "hacs uninstall": "marketplace_manage",
+    "desinstalar marketplace": "marketplace_manage",
     "confirmation": "security",
     "denylist": "security",
     "workflow": "workflows",

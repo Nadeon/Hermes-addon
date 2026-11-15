@@ -15,6 +15,13 @@ tiene: van a `NO_EJECUTABLES_026`. Su carga exacta sí se envía a HA real en
 el test de contrato del mismo fichero (HA la acepta y responde un error del
 manejador, nunca `invalid_format` ni `unknown_command`).
 
+Tramo 2 (misma familia, decisión D-2): `ha_marketplace_uninstall` necesita
+un repositorio INSTALADO desde el Marketplace, y sin catálogo no se puede
+instalar ninguno (ni Hermes puede: instalar exige el aviso de riesgos): va a
+`NO_EJECUTABLES_026`. Su carga se envía a HA real en el mismo test de
+contrato, y el backup previo, que es del Supervisor (simulado en el banco),
+se prueba con el Supervisor simulado de la suite normal.
+
 Añadir, instalar, fijar versión y mostrar betas no tienen tool (DESVIACIÓN
 DV-1 de la 026): HA exige el aviso de riesgos aceptado por el usuario de
 Hermes, que no puede aceptarlo.
@@ -41,4 +48,9 @@ NO_EJECUTABLES_026: dict[str, str] = {
     "ha_marketplace_ignore_repository": _SIN_CATALOGO,
     "ha_marketplace_remove_repository": _SIN_CATALOGO,
     "ha_marketplace_refresh_repository": _SIN_CATALOGO,
+    "ha_marketplace_uninstall": (
+        _SIN_CATALOGO + "; además, desinstalar necesita uno instalado desde el "
+        "Marketplace, y sin catálogo no se puede instalar ninguno (instalar exige "
+        "también el aviso de riesgos, que el usuario de Hermes no puede aceptar)"
+    ),
 }

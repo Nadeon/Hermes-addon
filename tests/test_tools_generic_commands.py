@@ -1285,6 +1285,9 @@ class TestMarketplaceDeLa026(unittest.IsolatedAsyncioTestCase):
          "ha_marketplace_remove_repository"),
         ("marketplace/repository/refresh", {"repository": "123456"},
          "ha_marketplace_refresh_repository"),
+        # Tramo 2 (T025): desinstalar, en la misma familia.
+        ("marketplace/repository/uninstall", {"repository": "123456"},
+         "ha_marketplace_uninstall"),
     )
 
     async def test_hacia_su_tool(self) -> None:

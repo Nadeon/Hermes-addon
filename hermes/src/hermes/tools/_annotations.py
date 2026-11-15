@@ -283,6 +283,9 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "ha_marketplace_ignore_repository",
     "ha_marketplace_remove_repository",
     "ha_marketplace_refresh_repository",
+    # Spec 026, tramo 2: desinstalar borra ficheros de /config (con backup
+    # antes).
+    "ha_marketplace_uninstall",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -301,6 +304,9 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     "ha_marketplace_list_releases",
     # Spec 026: refrescar hace que HA vuelva a pedir el repositorio a GitHub.
     "ha_marketplace_refresh_repository",
+    # Y desinstalar: con GitHub conectado, HA refresca el repositorio desde
+    # GitHub antes de borrarlo (`marketplace_repository_uninstall`).
+    "ha_marketplace_uninstall",
     # Genéricas de escritura (spec 011): algunas entradas `confirm` salen a
     # internet (actualizar un plugin, calendarios remotos).
     "ha_call_ws_command",

@@ -1,4 +1,5 @@
-"""Banco de Core: escritura en el Marketplace (spec 026, tramo 1, T014).
+"""Banco de Core: escritura en el Marketplace (spec 026, tramos 1 y 2; T014,
+T027).
 
 Contra HA Core 2026.11.1 real, con el lector independiente leyendo cada
 efecto directamente en Core por su propia WebSocket:
@@ -7,8 +8,8 @@ efecto directamente en Core por su propia WebSocket:
   Core que se carga siempre (`DEFAULT_INTEGRATIONS`), pero el banco no tiene
   internet y no descarga el catálogo. El lector comprueba que su lista de
   repositorios está vacía (o que la entrada no cargó): es el motivo de
-  `NO_EJECUTABLES_026` (ignorar, quitar y refrescar no tienen sobre qué
-  actuar).
+  `NO_EJECUTABLES_026` (ignorar, quitar, refrescar y desinstalar no tienen
+  sobre qué actuar).
 - **Reconocer un aviso crítico**: `ha_config/.storage/marketplace.critical`
   siembra `ejemplo/tarjeta-critica` sin reconocer. El lector lo ve sin
   reconocer; la vista previa de `ha_marketplace_acknowledge_critical` no
@@ -17,7 +18,7 @@ efecto directamente en Core por su propia WebSocket:
   está. Una segunda vista previa responde `already_acknowledged`, sin token.
 - **Contrato de las cargas**: el lector envía a HA la carga EXACTA que
   construye Hermes (`carga_*` de `tools/_marketplace_write.py`) para cada
-  comando de escritura del tramo, con un repositorio inexistente. HA tiene
+  comando de escritura de los dos tramos, con un repositorio inexistente. HA tiene
   que aceptarla (un error del manejador: `repository_not_found` o
   `not_loaded`), nunca `invalid_format` ni `unknown_command`: así una clave
   mal escrita se ve contra HA real y no solo contra el simulador.
@@ -117,8 +118,11 @@ class TestContratoDeCargas(BancoEscrituras):
             "repository/ignore": mw.carga_ignorar(inexistente),
             "repositories/remove": mw.carga_quitar(inexistente),
             "repository/refresh": mw.carga_refrescar(inexistente),
+            # Tramo 2: la carga de desinstalar. El backup previo no se pide:
+            # es del Supervisor, que en el banco es simulado.
+            "repository/uninstall": mw.carga_desinstalar(inexistente),
         }
-        # Las cuatro del tramo, ni una más ni una menos.
+        # Las cinco de los dos tramos, ni una más ni una menos.
         self.assertEqual(set(casos) | {"critical/acknowledge"}, set(mw._WRITE_SUFFIXES))
         async with self.sesion() as s:
             for sufijo, carga in casos.items():

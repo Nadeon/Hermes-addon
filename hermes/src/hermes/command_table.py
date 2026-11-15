@@ -445,7 +445,7 @@ CORE_WS: dict[str, E] = {
     "marketplace/repository/install": E("deny", "HA exige que el usuario que lo pide haya aceptado el aviso de riesgos del Marketplace; el usuario de Hermes no puede aceptarlo (duda D-29)", "generic_commands", cap="CAP-075"),
     "marketplace/repository/refresh": E("dedicated", "cubierto por ha_marketplace_refresh_repository", "marketplace_manage", tool="ha_marketplace_refresh_repository", cap="CAP-075"),
     "marketplace/repository/releases": E("dedicated", "cubierto por ha_marketplace_list_releases", "marketplace", tool="ha_marketplace_list_releases"),
-    "marketplace/repository/uninstall": E("deny", "pendiente de tool dedicada (spec 026)", "generic_commands", cap="CAP-075"),
+    "marketplace/repository/uninstall": E("dedicated", "cubierto por ha_marketplace_uninstall", "marketplace_manage", tool="ha_marketplace_uninstall", cap="CAP-075"),
     "marketplace/repository/version": E("deny", "HA exige que el usuario que lo pide haya aceptado el aviso de riesgos del Marketplace; el usuario de Hermes no puede aceptarlo (duda D-29)", "generic_commands", cap="CAP-075"),
     "marketplace/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "marketplace/warning/accept": E("deny", "login OAuth de GitHub / aceptar aviso de código de terceros: decisión humana (clase D)", "generic_commands"),

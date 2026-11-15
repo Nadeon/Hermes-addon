@@ -395,7 +395,7 @@ class TestCoberturaDeLa020(unittest.TestCase):
 
 
 class TestCoberturaDeLa026(unittest.TestCase):
-    """Spec 026, tramo 1 (T014; FR-023): `PROBADAS_026` y
+    """Spec 026, tramos 1 y 2 (T014, T027; FR-023): `PROBADAS_026` y
     `NO_EJECUTABLES_026` son EXACTAMENTE lo que registran `MODULOS_026`, que
     son los de la familia `marketplace_manage`; cada probada aparece en algún
     `tests/banco/test_banco_*.py` (que se ejecuta de verdad lo exige el job);

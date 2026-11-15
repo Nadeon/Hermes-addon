@@ -399,8 +399,13 @@ un cliente contra la instalación real.
   solo cubre el importador genérico (sin salida a internet).
 - [ ] (instalación real, con internet y el Marketplace configurado)
   **Mantenimiento del Marketplace (spec 026), en vivo**: ignorar un
-  repositorio retirado, quitar un personalizado no instalado y refrescar uno
-  (el banco no tiene catálogo), y reconocer un aviso crítico real.
+  repositorio retirado, quitar un personalizado no instalado, refrescar uno
+  y desinstalar uno de prueba (comprobar que el backup parcial sin base de
+  datos se crea antes y que, si falla, no se desinstala nada; el banco no
+  tiene catálogo ni Supervisor real), y reconocer un aviso crítico real.
+  Instalar, fijar versión, betas y añadir no tienen tool (DV-1, duda D-29):
+  revisar si una versión futura de HA deja aceptar el aviso al usuario de
+  una app.
 - [ ] (instalación real, tras publicar) **Pruebas en vivo de las tools nuevas
   de la 1.2.0**: las tools nuevas del programa en una instalación en uso,
   solo después de publicar; las destructivas, antes en la VM.
@@ -477,7 +482,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
-| 026 | Escritura en el Marketplace | 075 | en curso: tramo 1 hecho (familia `marketplace_manage` con `ha_marketplace_acknowledge_critical`, `ha_marketplace_ignore_repository`, `ha_marketplace_remove_repository` y `ha_marketplace_refresh_repository`, en dos pasos; reconocer probado en el banco de Core). Instalar, fijar versión, betas y añadir repositorios sin tool: HA exige el aviso de riesgos aceptado por el usuario de Hermes, que no puede aceptarlo (DV-1, duda D-29); sus comandos, `deny`. Tramo 2: desinstalar |
+| 026 | Escritura en el Marketplace | 075 | hecha: familia `marketplace_manage` con `ha_marketplace_acknowledge_critical`, `ha_marketplace_ignore_repository`, `ha_marketplace_remove_repository`, `ha_marketplace_refresh_repository` y `ha_marketplace_uninstall` (con backup parcial sin base de datos antes; en la misma familia por la D-2), en dos pasos; reconocer probado en el banco de Core, las otras cuatro no ejecutables allí (sin catálogo) con su carga comprobada contra HA real. Instalar, fijar versión, betas y añadir repositorios sin tool: HA exige el aviso de riesgos aceptado por el usuario de Hermes, que no puede aceptarlo (DV-1, desviación parcial de FR-091; duda D-29); sus comandos, `deny`. Prueba en vivo pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
@@ -739,6 +744,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_marketplace_ignore_repository` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet el Marketplace no descarga el catálogo y no hay repositorio sobre el que actuar; carga comprobada contra HA real en el test de contrato |
 | `ha_marketplace_refresh_repository` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet el Marketplace no descarga el catálogo y no hay repositorio sobre el que actuar; carga comprobada contra HA real en el test de contrato |
 | `ha_marketplace_remove_repository` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet el Marketplace no descarga el catálogo y no hay repositorio sobre el que actuar; carga comprobada contra HA real en el test de contrato |
+| `ha_marketplace_uninstall` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet no hay catálogo y no se puede instalar ningún repositorio que desinstalar; carga comprobada contra HA real en el test de contrato; el backup previo, con el Supervisor simulado |
 | `ha_pause_timer` | banco de Core | ok | |
 | `ha_press_input_button` | banco de Core | ok | |
 | `ha_reload_automations` | banco de Core | ok | |
@@ -871,8 +877,10 @@ programa:
 - **Cifrado de los safety backups** (031).
 - **Aplicar sugerencias del Supervisor** con confirmación y vista previa
   completa (022).
-- **Escritura en el Marketplace** (026), con confirmación, backup previo y
-  vista previa completa.
+- **Escritura en el Marketplace** (026, hecho en parte): reconocer críticos,
+  ignorar retirados, quitar personalizados, refrescar y desinstalar (con
+  backup previo), con confirmación y vista previa completa. Instalar, fijar
+  versión, betas y añadir no tienen tool (DV-1, duda D-29).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas

@@ -938,6 +938,10 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
         "-DI-", "Marketplace remove repository (Home Assistant)"),
     "ha_marketplace_refresh_repository": (
         "-DIO", "Marketplace refresh repository (Home Assistant)"),
+    # Spec 026, tramo 2: desinstalar, en la misma familia (decisión D-2):
+    # destructiva, idempotente (otra vez da `repository_not_installed`) y de
+    # mundo abierto (con GitHub conectado, HA lo refresca antes de borrar).
+    "ha_marketplace_uninstall": ("-DIO", "Marketplace uninstall (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -989,6 +993,7 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
     "marketplace_manage": {
         "ha_marketplace_acknowledge_critical", "ha_marketplace_ignore_repository",
         "ha_marketplace_remove_repository", "ha_marketplace_refresh_repository",
+        "ha_marketplace_uninstall",
     },
 }
 
@@ -1885,6 +1890,8 @@ class TestTiendaDeApps030:
 _MARKETPLACE_MANAGE_026 = (
     "ha_marketplace_acknowledge_critical", "ha_marketplace_ignore_repository",
     "ha_marketplace_remove_repository", "ha_marketplace_refresh_repository",
+    # Tramo 2 (decisión D-2: misma familia).
+    "ha_marketplace_uninstall",
 )
 
 
@@ -1918,6 +1925,7 @@ class TestMarketplaceManage026:
             "ha_marketplace_ignore_repository": {"repository_id", "confirmation_token"},
             "ha_marketplace_remove_repository": {"repository_id", "confirmation_token"},
             "ha_marketplace_refresh_repository": {"repository_id", "confirmation_token"},
+            "ha_marketplace_uninstall": {"repository_id", "backup", "confirmation_token"},
         }
 
     def test_prefijo_no_da_solo_lectura(self):
@@ -1934,6 +1942,17 @@ class TestMarketplaceManage026:
         for nombre in ("ha_marketplace_install", "ha_marketplace_set_version",
                        "ha_marketplace_set_beta", "ha_marketplace_add_repository"):
             assert nombre not in tools, nombre
+
+    def test_desinstalar_sin_familia_propia(self):
+        # Decisión D-2 del supervisor: `ha_marketplace_uninstall` va en
+        # `marketplace_manage`; la familia `marketplace_install` de la spec no
+        # existe (ni se acepta en `tool_families_disabled`).
+        from hermes.tool_families import FAMILIAS
+
+        assert "marketplace_install" not in FAMILIAS
+        assert "ha_marketplace_uninstall" not in set(_real_registry(["marketplace_manage"]))
+        props = _real_registry()["ha_marketplace_uninstall"].parameters["properties"]
+        assert props["backup"].get("default") is True
 
     def test_con_la_familia_apagada(self):
         from hermes.command_table import CORE_WS

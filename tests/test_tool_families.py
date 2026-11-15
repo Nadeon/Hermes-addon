@@ -342,6 +342,10 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(FAMILIAS["marketplace"].modulos, ("marketplace", "hacs"))
         self.assertEqual(validar_desactivadas(["marketplace_manage"]),
                          frozenset({"marketplace_manage"}))
+        # Tramo 2 (decisión D-2 del supervisor): desinstalar va aquí; no hay
+        # familia `marketplace_install` ni módulo propio.
+        self.assertNotIn("marketplace_install", FAMILIAS)
+        self.assertIn("uninstall", FAMILIAS["marketplace_manage"].descripcion)
 
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")

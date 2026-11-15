@@ -342,8 +342,9 @@ class TestClaseAConToolDedicada(_Base):
                                  (r.category, r.reason, r.family, r.tool, r.cap))
 
     def test_desde_cero_las_de_la_026(self) -> None:
-        """Spec 026, tramo 1 (T011): desde cero, las cuatro de mantenimiento
-        del Marketplace salen `dedicated` como en la tabla revisada, y las
+        """Spec 026, tramos 1 y 2 (T011, T025): desde cero, las cuatro de
+        mantenimiento del Marketplace y desinstalar salen `dedicated` como en
+        la tabla revisada, y las
         cinco que exigen el aviso de riesgos (DV-1), `deny` con su motivo
         (`_Deny` en una fila A) y no «pendiente de tool dedicada».
 
@@ -360,6 +361,7 @@ class TestClaseAConToolDedicada(_Base):
         cero = self._tabla()
         for k in ("marketplace/critical/acknowledge", "marketplace/repository/ignore",
                   "marketplace/repositories/remove", "marketplace/repository/refresh",
+                  "marketplace/repository/uninstall",
                   "marketplace/repositories/add", "marketplace/repositories/detect",
                   "marketplace/repository/install", "marketplace/repository/version",
                   "marketplace/repository/beta"):
@@ -369,6 +371,9 @@ class TestClaseAConToolDedicada(_Base):
                                  (r.category, r.reason, r.family, r.tool, r.cap))
         self.assertEqual(cero.CORE_WS["marketplace/repository/install"].reason,
                          gt.MOTIVO_AVISO_MARKETPLACE)
+        # Tramo 2: desde cero tampoco queda ninguna «spec 026».
+        self.assertEqual(
+            sorted(k for k, e in cero.CORE_WS.items() if "spec 026" in e.reason), [])
 
     def test_desde_cero_las_de_la_015_con_su_matiz(self) -> None:
         """Integración de la 015: las dos entradas cuya tool no usa esa misma

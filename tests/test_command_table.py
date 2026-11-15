@@ -1015,6 +1015,8 @@ _MARKETPLACE_026: dict[str, str] = {
     "marketplace/repository/ignore": "ha_marketplace_ignore_repository",
     "marketplace/repositories/remove": "ha_marketplace_remove_repository",
     "marketplace/repository/refresh": "ha_marketplace_refresh_repository",
+    # Tramo 2, en la misma familia (decisión D-2).
+    "marketplace/repository/uninstall": "ha_marketplace_uninstall",
 }
 # Las que exigen el aviso de riesgos aceptado por el usuario de Hermes (HA
 # 2026.11.1, `requires_accepted_warning=True`): sin tool, `deny`.
@@ -1026,16 +1028,17 @@ _AVISO_026 = frozenset({
 
 
 class TestEntradasDeLa026(unittest.TestCase):
-    """Spec 026, tramo 1 (T011; FR-019 tras la DV-1): las cuatro de
-    mantenimiento pasan a `dedicated` (familia `marketplace_manage`); las
-    cinco que exigen el aviso de riesgos quedan `deny` con su motivo; las de
-    clase B y D no cambian; solo `repository/uninstall` sigue «spec 026»
-    (tramo 2).
+    """Spec 026, tramos 1 y 2 (T011, T025; FR-019 tras la DV-1): las cuatro
+    de mantenimiento y desinstalar pasan a `dedicated` (familia
+    `marketplace_manage`, decisión D-2); las cinco que exigen el aviso de
+    riesgos quedan `deny` con su motivo; las de clase B y D no cambian; no
+    queda ninguna «spec 026».
 
-    Control negativo (T013 h): dejar `marketplace/repository/ignore` como
-    `deny` «pendiente» → cae `test_cuatro_dedicadas` nombrándola."""
+    Control negativo (T013 h, T028 g): dejar `marketplace/repository/ignore`
+    o `marketplace/repository/uninstall` como `deny` «pendiente» → cae
+    `test_cinco_dedicadas` nombrándola (y `test_ninguna_pendiente`)."""
 
-    def test_cuatro_dedicadas(self) -> None:
+    def test_cinco_dedicadas(self) -> None:
         malas = []
         for k, tool in _MARKETPLACE_026.items():
             e = ct.CORE_WS[k]
@@ -1065,12 +1068,12 @@ class TestEntradasDeLa026(unittest.TestCase):
                 self.assertEqual(ct.CORE_WS[k].category, "deny")
                 self.assertIn("(clase B)", ct.CORE_WS[k].reason)
 
-    def test_solo_queda_desinstalar_pendiente(self) -> None:
+    def test_ninguna_pendiente(self) -> None:
         pendientes = sorted(k for k, e in ct.CORE_WS.items() if "spec 026" in e.reason)
-        self.assertEqual(pendientes, ["marketplace/repository/uninstall"])
+        self.assertEqual(pendientes, [])
         texto = (_RAIZ / "hermes" / "src" / "hermes" / "command_table.py").read_text(
             encoding="utf-8")
-        self.assertEqual(texto.count("spec 026"), 1)
+        self.assertEqual(texto.count("spec 026"), 0)
 
 
 # Spec 022, tramo 1 (data-model, «Entradas de la tabla que cambian»).

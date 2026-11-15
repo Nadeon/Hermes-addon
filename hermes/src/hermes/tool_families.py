@@ -225,11 +225,13 @@ _CATALOGO: tuple[Familia, ...] = (
     # personalizados, refrescar). Familia propia y no `marketplace` (1.1.2,
     # que solo lee), para que apagar las de la 1.2.0 deje la lista de la
     # 1.1.2 y para que quien no quiera que un agente toque el Marketplace la
-    # apague sin perder la lectura.
+    # apague sin perder la lectura. Tramo 2 (decisión D-2 del supervisor):
+    # desinstalar va aquí también; con una sola tool no merecía familia
+    # propia (`marketplace_install` no existe).
     Familia("marketplace_manage",
-            "Marketplace catalogue and notices: acknowledge critical "
-            "repositories, ignore removed ones, remove custom ones and "
-            "refresh them.",
+            "Marketplace catalogue, notices and uninstalling: acknowledge "
+            "critical repositories, ignore removed ones, remove custom ones, "
+            "refresh them and uninstall installed ones (backup first).",
             "1.2.0", True, ("marketplace_manage",)),
 )
 

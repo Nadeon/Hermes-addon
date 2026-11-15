@@ -1252,6 +1252,23 @@ class TestTemaMarketplaceManage(unittest.IsolatedAsyncioTestCase):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, plano)
 
+    async def test_desinstalar(self) -> None:
+        # Tramo 2 (T026): el backup parcial sin base de datos y qué pasa si
+        # falla, el reinicio (Hermes no reinicia) y `repository_in_use`.
+        plano = " ".join(_GUIDE["marketplace_manage"].split())
+        for palabra in ("ha_marketplace_uninstall", "Las cinco", "repository_not_installed",
+                        "repository_in_use", "ha_delete_config_entry",
+                        "SIN la base de datos", "sin cifrar", "backup_failed",
+                        "no se desinstala nada", "backup=false", "restart_required",
+                        "Hermes NO reinicia", "sv_restart_core", "may_break",
+                        "desinstálalo antes con `ha_marketplace_uninstall`"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+        self.assertNotIn("Las cuatro", plano)
+        for alias in ("marketplace uninstall", "hacs uninstall", "desinstalar marketplace"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), _GUIDE["marketplace_manage"])
+
     async def test_las_tools_que_nombra_existen(self) -> None:
         import re
 

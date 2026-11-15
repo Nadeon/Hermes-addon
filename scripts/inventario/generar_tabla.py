@@ -543,6 +543,8 @@ _DEDICADAS_INICIALES: dict[
     "marketplace/repository/ignore": "ha_marketplace_ignore_repository",
     "marketplace/repositories/remove": "ha_marketplace_remove_repository",
     "marketplace/repository/refresh": "ha_marketplace_refresh_repository",
+    # Spec 026, tramo 2: desinstalar, en la misma familia (decisión D-2).
+    "marketplace/repository/uninstall": "ha_marketplace_uninstall",
     # Spec 026 (DV-1): las que exigen el aviso de riesgos, sin tool.
     "marketplace/repositories/add": _AVISO_MARKETPLACE,
     "marketplace/repositories/detect": _AVISO_MARKETPLACE,
