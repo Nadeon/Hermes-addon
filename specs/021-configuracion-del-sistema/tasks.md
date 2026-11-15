@@ -316,3 +316,14 @@ medio). El b añade los usuarios (P1, riesgo alto: va solo para que su
 revisión no se mezcle con nada). El c añade red y HTTP (P2, riesgo alto con
 salida de HA de la prueba de 5 minutos), cierra CAP-074 (P3) y la
 documentación. US6 se comprueba en los tres.
+
+---
+
+## Fase 4: Convergencia
+
+Revisión independiente del rango `c4a57bf..c9679b4`. Severidad entre corchetes.
+
+- [ ] T058 [MEDIO] La vista previa de `ha_promote_http_config` solo lleva el diff, `revert_at` y la nota de recuperación: no repite los avisos de acceso. Promover es el paso que hace permanente una configuración que puede haber dejado la casa fuera (p. ej. `server_host: ["172.30.32.1"]`, que pasa D-3 y deja sin acceso a la LAN): sin promover, HA vuelve sola a la estable en 5 minutos; promovida, pasa a ser también la de recuperación. Arreglo mínimo: en `core_network.py`, calcular los grupos del diff con `_GRUPO_HTTP` y añadir a la vista previa `warnings` (los mismos códigos de `_AVISOS_HTTP`) y `access_risk` cuando alguno sea de acceso, con un texto que diga que solo se promueve cuando el usuario haya comprobado que llega a HA; test con un pendiente de `server_host` y su control negativo per FR-015, FR-074 de la 008, principio V (partial)
+- [ ] T059 [BAJO] Con un pendiente en prueba, unos `changes` cuyo resultado es igual a la estable hacen que HA descarte el pendiente (`async_set_pending`: igual a `stable` → `None`) y reinicie con la estable; Hermes enseña el aviso de prueba de 5 minutos y responde `next` «promote it with ha_promote_http_config», que luego da `nothing_to_promote`. Arreglo mínimo: si el documento fundido (sin metadatos) es igual a `stable`, decirlo en la vista previa (vuelve a la estable, sin prueba) y en `next`; test per FR-014, principio V (partial)
+- [ ] T060 [BAJO] El porqué de D-3 (docstring de `core_network.py`, `_SIN_SUPERVISOR`, guía) dice que el Supervisor, y con él Hermes y todas las apps, llegan a Core por TCP en `172.30.32.1`. Con Core ≥ 2026.4 (`CORE_UNIX_SOCKET_MIN_VERSION` de `supervisor/homeassistant/api.py`) el Supervisor habla con Core por el socket Unix `SUPERVISOR_CORE_API_SOCKET`, que no depende de `server_host`; lo que sí corta un `server_host` sin `0.0.0.0` ni `172.30.32.1` son las apps que conectan directamente a `homeassistant:8123` desde la red `hassio`. El rechazo se mantiene (fail-closed); corregir el texto para que diga eso, sin afirmar que Hermes se quedaría fuera, per FR-014, FR-022, principio V (contradicts)
+- [ ] T061 [BAJO] La vista previa de `ha_update_network_config` solo da nombres de adaptadores: elegir solo adaptadores sin IPv4 o sin el `default` (p. ej. uno de Docker) degrada el descubrimiento y la detección de la IP de origen (`async_get_source_ip`) sin ningún aviso. Arreglo mínimo: aviso en la vista previa si los habilitados después no tienen ninguna IPv4 o no incluyen el adaptador `default` (los dos datos ya llegan en `network`); test per FR-013, FR-074 de la 008 (partial)
