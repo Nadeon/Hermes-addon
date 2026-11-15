@@ -129,8 +129,11 @@ _Pendiente: la añade la sub-feature que lo implemente._
   junto a cada token pasa de SHA-256 a HMAC-SHA256 con una clave aleatoria
   que solo vive en memoria y cambia en cada arranque. El hash de una acción
   con una contraseña (montajes CIFS, `fs_set_secret`, restaurar un backup
-  cifrado) ya no se puede atacar sin conexión leyendo `/data`. Nada visible
-  cambia: un token de antes de un reinicio ya se daba por perdido.
+  cifrado) ya no se puede atacar sin conexión leyendo `/data`. **Cambio de
+  comportamiento, intencionado:** en la 1.1.2 un token todavía vigente (menos
+  de 60 s) seguía valiendo después de reiniciar Hermes; ahora deja de valer,
+  porque la clave es otra. Se rechaza con «lost across restart» sin gastarlo,
+  y basta con pedir otra vista previa (falla cerrado).
 
 ### Sistema
 

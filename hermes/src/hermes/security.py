@@ -98,13 +98,16 @@ def _toca_barrer() -> bool:
 # hasta dar con el hash. Con HMAC-SHA256 y una clave aleatoria que solo vive
 # en la memoria de este proceso, el hash no sirve para eso sin la clave.
 #
-# La clave nunca se escribe en disco ni en el log. Cambia en cada arranque, y
-# no pasa nada: los tokens caducan a los 60 s y uno de antes del arranque ya
-# se trataba como perdido («lost across restart», ver `_ARRANQUE`). Nada más
-# depende del valor del hash entre arranques: la idempotencia y
-# `cached_result` van por el fichero del token, y los documentos guardados
-# (`stored_args`) también se comprueban con el hash del proceso que los
-# guardó.
+# La clave nunca se escribe en disco ni en el log, y cambia en cada arranque.
+# Eso CAMBIA el comportamiento respecto a la 1.1.2, y es a propósito: allí el
+# hash era determinista y el arranque solo barría los tokens caducados, así
+# que un token vigente (menos de 60 s) seguía valiendo después de reiniciar
+# Hermes. Ahora no: con la clave nueva no casa y se rechaza («lost across
+# restart», ver `_ARRANQUE`), sin gastarlo. Falla cerrado: lo peor que pasa
+# es que hay que pedir otra vista previa. Nada más depende del valor del
+# hash entre arranques: la idempotencia y `cached_result` van por el fichero
+# del token, y los documentos guardados (`stored_args`) también se comprueban
+# con el hash del proceso que los guardó.
 _CLAVE_HASH: bytes = secrets.token_bytes(32)
 
 # Momento del arranque de este proceso. Un token creado antes no puede casar
@@ -502,7 +505,12 @@ async def resolve_confirmation_token(
     # que se previsualizó.
     expected_hash = token_data.get("action_hash", "")
     actual_hash = compute_action_hash(tool_name, resueltos)
-    if not hmac.compare_digest(str(expected_hash), actual_hash):
+    # Se comparan bytes: `compare_digest` con dos `str` lanza `TypeError` si
+    # alguno no es ASCII, y el `action_hash` del fichero puede venir dañado o
+    # manipulado (está en /data). Con bytes, un hash así simplemente no casa
+    # y la respuesta es el error limpio de siempre (fail-closed, T034).
+    if not hmac.compare_digest(str(expected_hash).encode("utf-8"),
+                               actual_hash.encode("ascii")):
         # Un token de un arranque anterior se hizo con otra clave y no puede
         # casar con nada: decirlo así y no como si fuera otra acción.
         creado = token_data.get("created_at")

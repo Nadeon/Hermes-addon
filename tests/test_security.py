@@ -1024,3 +1024,29 @@ class TestHashConClave(unittest.IsolatedAsyncioTestCase):
             r2["confirmation_token"], self.TOOL, {"key": "k", "value": "otra"})
         self.assertFalse(ok)
         self.assertIn("does not match", error)
+
+    async def test_hash_danado_no_ascii_da_error_limpio(self) -> None:
+        """T034: un `action_hash` no ASCII en el fichero del token (dañado o
+        manipulado en /data) no puede lanzar `TypeError` desde
+        `compare_digest`: se rechaza con el error limpio y el token no se
+        gasta.
+
+        Control negativo comprobado: con `compare_digest(str(expected_hash),
+        actual_hash)` (dos `str`), este test cae con `TypeError: comparing
+        strings with non-ASCII characters is not supported`; restaurado,
+        verde."""
+        args = {"key": "k", "value": "1234"}
+        for danado in ("ñ" * 64, "é", "", 12345, None, ["x"]):
+            with self.subTest(danado=danado):
+                r = await security.create_confirmation_token(self.TOOL, args)
+                ruta = Path(self.temp_dir.name) / f"{r['confirmation_token']}.json"
+                datos = json.loads(ruta.read_text(encoding="utf-8"))
+                datos["action_hash"] = danado
+                ruta.write_text(json.dumps(datos, ensure_ascii=False),
+                                encoding="utf-8")
+                ok, error = await security.validate_confirmation_token(
+                    r["confirmation_token"], self.TOOL, args)
+                self.assertFalse(ok)
+                self.assertIn("does not match", error)
+                datos = json.loads(ruta.read_text(encoding="utf-8"))
+                self.assertEqual(datos["state"], "pending")
