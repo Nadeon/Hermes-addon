@@ -704,9 +704,9 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 159 y 87), `read` (37 y 29),
-  `confirm` (21 y 25) o `deny` (406 y 113, con su motivo); recuentos con las
-  sub-features integradas hasta la 024 (tramo 1). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 160 y 87), `read` (42 y 29),
+  `confirm` (21 y 25) o `deny` (400 y 113, con su motivo); recuentos con las
+  sub-features integradas hasta la 024. Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -937,7 +937,8 @@ de la 1.1.2.
 
 ### Menores de Core
 
-Spec 024 (tramo 1): cámaras e imágenes, y lo menor de Core por la tabla.
+Spec 024: cámaras e imágenes, restablecer un dashboard y lo menor de Core
+por la tabla.
 
 - **`ha_get_camera_snapshot` y `ha_get_image_entity`** (familia nueva
   `cameras`, activa por defecto y desactivable): la instantánea de una
@@ -982,6 +983,50 @@ Spec 024 (tramo 1): cámaras e imágenes, y lo menor de Core por la tabla.
   lector y la vista previa sin efecto. La configuración del banco carga
   `media_source:` e `image_upload:` y apunta `media_dirs` a su carpeta
   `media/`.
+- **`ha_reset_lovelace_dashboard_config`** (familia nueva `dashboard_reset`,
+  activa por defecto y desactivable; la familia `lovelace` de la 1.1.2 no
+  cambia): borra la configuración guardada de un dashboard en modo
+  almacenamiento (`lovelace/config/delete`) y lo devuelve a la vista
+  autogenerada. Siempre en dos pasos: la vista previa dice el título, el
+  modo, cuántas vistas y tarjetas se pierden, que es irreversible salvo con
+  un backup y cómo copiarlo antes con `ha_get_lovelace_dashboard`. El token
+  ata el dashboard y la configuración leída: si cambia antes de confirmar,
+  `dashboard_changed` y no se borra nada. El dashboard principal y el panel
+  por defecto se rechazan siempre, con y sin token
+  (`cannot_reset_default_dashboard`), y si no se puede leer el panel por
+  defecto no se borra nada (`default_panel_unknown`). Los de modo YAML dan
+  `yaml_mode_dashboard` y uno ya autogenerado, `nothing_to_reset`. Destructiva
+  e idempotente, de mundo cerrado. El log no lleva la configuración.
+  `lovelace/config/delete` pasa a `dedicated` hacia ella en la tabla.
+- **Cinco lecturas de la UI por la tabla** (antes `deny`), comprobado en el
+  código de Core que solo leen: `trace/contexts`, `frontend/get_themes`,
+  `webhook/list` (el `webhook_id` sale tapado: basta para disparar la
+  automatización desde fuera sin autenticarse), `vacuum/get_segments` (de
+  mundo abierto: alguna integración pide los segmentos al aspirador o a su
+  nube) y `radio_frequency/list`.
+- **Credenciales de aplicación**: el motivo de
+  `application_credentials/config_entry` ya no promete el id de la
+  credencial, que la redacción general tapa; el `client_secret` de
+  `application_credentials/list` sigue tapado y crear, cambiar o borrar
+  credenciales sigue denegado.
+- **Las 33 entradas** de cámaras, calendario y tareas, tags, medios,
+  registros (orden de áreas y plantas, ids automáticos y ajustes),
+  restablecer, lecturas de la UI, imágenes subidas y credenciales de
+  aplicación, fijadas por test; ninguna queda «pendiente (spec 024)».
+- **Guía**: el tema `lovelace` gana la sección «Restablecer un dashboard»
+  (alias `reset`, `restablecer`) y `core_minor` se completa con temas,
+  webhooks, contextos de trazas, segmentos, radiofrecuencia, orden y
+  ajustes de los registros y credenciales de aplicación (alias
+  `webhooks`, `themes`, `temas`).
+- **Banco de Core**: restablecer un dashboard creado en el test contra HA
+  Core 2026.11.1 real (vista previa sin efecto y `config_not_found` al
+  confirmar, comprobado por el lector; el principal, rechazado sin token),
+  y una ejecución por las genéricas de cada lectura de la UI (con una
+  automatización de disparador `webhook` y un aspirador de plantilla con
+  zonas), de los registros (el orden de las áreas, en dos pasos y
+  restaurado) y de las credenciales de aplicación. La configuración del
+  banco carga además `webhook:` y `application_credentials:`. Sin
+  hallazgos.
 
 ### Banco de pruebas
 

@@ -185,7 +185,13 @@ report about one of them will be closed with a pointer to this section:
     `generic_command` event per call with the payload keys, never values.
     Tests keep the table in step with the inventories of the HA source and
     forbid `read` for any command with a write verb or any route other than
-    `GET`.
+    `GET`. Some `read` entries hide fields that work as credentials: the
+    `webhook_id` of `webhook/list` (anyone who knows it can trigger the
+    automation without authenticating), the `client_secret` and the
+    credential id of the application credentials, and the `thumbnail` of
+    `media_source/browse_media` and `search_media` (some media sources sign
+    it with `authSig`, a temporary credential); `media_source/resolve_media`,
+    which returns a signed URL, is denied.
   - **App store repositories** (`sv_add_store_repository`): adding a
     repository to the Supervisor app store brings in third-party code that
     neither Home Assistant nor Hermes reviews, so it takes two steps. The
@@ -202,6 +208,13 @@ report about one of them will be closed with a pointer to this section:
     a built-in one, or one with installed apps, is refused without a token,
     and the token is bound to the repository and its installed apps read
     in the preview.
+  - **Resetting a dashboard** (`ha_reset_lovelace_dashboard_config`):
+    deletes the stored config of a dashboard, in two steps. The main
+    dashboard and the default panel are always refused, with or without a
+    token, and nothing is reset if the default panel cannot be read. The
+    token is bound to the dashboard and to the config read in the preview:
+    if it changes before the confirmation, nothing is reset. The log never
+    carries the dashboard config.
   - **Tool families** (`tool_families_disabled`): whole groups of tools can
     be left unregistered. An unknown family name, or `base`, stops the add-on
     from starting rather than silently leaving tools on.

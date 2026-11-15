@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **309 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **310 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 309 herramientas
+## Qué puede hacer — 310 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -59,6 +59,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Blueprints** | 5 | Listar los blueprints de automatizaciones, scripts y plantillas, ver la configuración que da un blueprint con unas entradas, guardar uno que escribas, importar uno de una URL (lo descarga Home Assistant; la vista previa enseña el YAML entero y solo se guarda si no ha cambiado) y borrar uno que nadie use (guardar, importar y borrar, con confirmación). Familia `blueprints`, nueva en 1.2.0 |
 | **Ayuda para automatizar** | 9 | Solo lectura: los triggers, condiciones y acciones de dispositivo que ofrece un dispositivo (listos para pegar en una automatización, con sus campos extra), qué abarca de verdad un target (entidades, dispositivos, áreas, plantas, etiquetas) y por qué, los nombres de los triggers, condiciones y acciones que le sirven, y esperar una vez a que salte un trigger (solo los que se sabe que solo escuchan). Familia `automation_assist`, nueva en 1.2.0 |
 | **Cámaras** | 2 | Solo lectura: lo que ve ahora una cámara y la imagen actual de una entidad `image`, devueltas como imagen al cliente (privacidad: una cámara puede enseñar el interior de tu casa). A Home Assistant se le pide la imagen de la cámara más pequeña (solo escala JPEG); una imagen de más de 2 MiB no se devuelve. Familia `cameras`, nueva en 1.2.0 |
+| **Restablecer dashboards** | 1 | Devuelve un dashboard de Lovelace al autogenerado borrando su configuración guardada, en dos pasos (la vista previa dice cuántas vistas y tarjetas se pierden; irreversible salvo con un backup). El dashboard principal y el panel por defecto están protegidos siempre. Familia `dashboard_reset`, nueva en 1.2.0 |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 
 Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y
@@ -70,8 +71,8 @@ lista de familias está en [DOCS.md](hermes/DOCS.md). `ping` y `hermes_guide`
 están siempre, y apagando las familias nuevas de la 1.2.0
 (`generic_commands`, `system_diagnostics`, `system_status`, `recorder`,
 `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`,
-`system_updates`, `app_store`, `blueprints`, `automation_assist` y `cameras`)
-tienes
+`system_updates`, `app_store`, `blueprints`, `automation_assist`, `cameras` y
+`dashboard_reset`) tienes
 exactamente la lista de herramientas de la 1.1.2.
 
 Las herramientas destructivas devuelven, en la primera llamada, una vista previa
@@ -470,7 +471,7 @@ completo está aquí abajo.
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist` y `cameras`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
+| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `cameras` y `dashboard_reset`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs que no sean de loopback (también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (p. ej. `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**: cada descarga sale de la IP de tu casa hacia un host que cualquiera puede elegir sin la contraseña. Pon solo los hosts que uses; ver `hermes/DOCS.md` |

@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 309 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 310 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -186,6 +186,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `blueprints` | 5 | Blueprints de automatizaciones, scripts y plantillas: listar, ver la sustitución con unas entradas, guardar, importar de una URL y borrar (nueva en 1.2.0) |
 | `automation_assist` | 9 | Ayuda para escribir automatizaciones: triggers, condiciones y acciones de un dispositivo, qué abarca un target y qué admite, y esperar una vez a un trigger; solo lectura (nueva en 1.2.0) |
 | `cameras` | 2 | Instantánea de una cámara e imagen de una entidad `image`, devueltas como imagen al cliente; solo lectura. Una cámara puede enseñar el interior de tu casa: desactívala si no quieres que Claude las vea (nueva en 1.2.0) |
+| `dashboard_reset` | 1 | Restablecer un dashboard de Lovelace al autogenerado (borra su configuración guardada), en dos pasos; el dashboard principal y el panel por defecto están protegidos (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -200,8 +201,8 @@ valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
 familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
 `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
-`mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist` y
-`cameras`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`,
+`cameras` y `dashboard_reset`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 
