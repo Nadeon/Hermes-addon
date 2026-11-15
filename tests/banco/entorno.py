@@ -316,11 +316,23 @@ def _decodificar_texto(texto: str) -> Any:
         return texto
 
 
+def _decodificar_bloque(bloque: Any) -> Any:
+    # Spec 024: las tools de `cameras` devuelven además un bloque de imagen.
+    # Se resume con su tipo y sus bytes decodificados (el test los compara con
+    # el fichero sembrado), sin arrastrar el base64 por los informes.
+    if getattr(bloque, "type", None) == "image":
+        import base64
+
+        datos = base64.b64decode(bloque.data)
+        return {"_image": bloque.mime_type, "_bytes": datos}
+    return _decodificar_texto(bloque.text)
+
+
 def _decodificar(resultado: Any) -> Any:
     # Una tool que devuelve una lista sale como un bloque por elemento (una
     # llamada a servicio devuelve los estados cambiados, a menudo ninguno): se
     # reconstruye la lista en vez de quedarse con el primer bloque.
-    bloques = [_decodificar_texto(c.text) for c in resultado.content]
+    bloques = [_decodificar_bloque(c) for c in resultado.content]
     if len(bloques) == 1:
         return bloques[0]
     return bloques

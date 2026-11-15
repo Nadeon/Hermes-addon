@@ -28,6 +28,12 @@ homeassistant:
   time_zone: Etc/UTC
   country: US
   currency: USD
+  # Spec 024 (tramo 1): la carpeta de medios locales es `media/` de esta
+  # misma configuración (con un JPEG gris borrable, versionado), para probar
+  # `media_source/browse_media` y `media_source/local_source/remove` sin
+  # depender de `/media` del contenedor.
+  media_dirs:
+    local: /config/media
 
 http:
 api:
@@ -209,3 +215,17 @@ template:
               entity_id: input_text.banco_update_backup
             data:
               value: "{{ 'si' if backup else 'no' }}"
+
+# ── Spec 024 (tramo 1): cámaras, imágenes y medios ──────────────────────────
+#
+# media_source: registra `media_source/browse_media`, `search_media` y
+# `local_source/remove` (con los `media_dirs` de arriba). image_upload:
+# registra `image/list|update|delete` y la subida `/api/image/upload`, que el
+# lector usa para sembrar una imagen (es el JPEG gris de
+# `www/hermes_banco/camara.jpg`). La cámara es una entrada de `local_file`
+# que el test crea por el flujo con ese mismo fichero (no tiene YAML), y la
+# imagen, `image.qr_code` de `kitchen_sink`. El calendario y las tareas son
+# entradas de `local_calendar` y `local_todo` creadas por el lector. Nada sale
+# a internet.
+media_source:
+image_upload:

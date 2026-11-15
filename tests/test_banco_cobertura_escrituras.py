@@ -37,6 +37,7 @@ from unittest.mock import MagicMock
 from tests.banco import cobertura, cobertura_012 as c012, cobertura_015 as c015
 from tests.banco import cobertura_016 as c016
 from tests.banco import cobertura_017 as c017
+from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -160,7 +161,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             c028.TOOLS_EXIGIDAS_DEL_JOB,
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
             | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
-            | c016.PROBADAS_016 | c017.PROBADAS_017,
+            | c016.PROBADAS_016 | c017.PROBADAS_017
+            # Spec 024: las dos de imagen leen, pero se exigen por ejecución.
+            | LECTURAS_EN_BANCO_024,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}

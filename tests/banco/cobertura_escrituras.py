@@ -51,6 +51,7 @@ from tests.banco import cobertura, cobertura_016
 from tests.banco.cobertura_012 import PROBADAS_012
 from tests.banco.cobertura_015 import PROBADAS_015
 from tests.banco.cobertura_017 import PROBADAS_017
+from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -154,6 +155,8 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     | cobertura_016.PROBADAS_016
     # Spec 017: guardar y borrar blueprints (tramo A) e importar (tramo B).
     | PROBADAS_017
+    # Spec 024, tramo 1: las dos de imagen; leen, pero se exigen por ejecución.
+    | LECTURAS_EN_BANCO_024
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 

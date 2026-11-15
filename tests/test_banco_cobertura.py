@@ -286,10 +286,14 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         # Desde la 029, también sus lecturas.
         from tests.banco.cobertura import PROBADAS_EN_BANCO_029
 
+        # Desde la 024, las dos de imagen.
+        from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024
+
         self.assertEqual(
             plugin.tools_exigidas,
             PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029
-            | PROBADAS_012 | PROBADAS_015 | PROBADAS_016 | PROBADAS_017,
+            | PROBADAS_012 | PROBADAS_015 | PROBADAS_016 | PROBADAS_017
+            | LECTURAS_EN_BANCO_024,
         )
 
 
@@ -341,3 +345,54 @@ class TestCoberturaDeLa029(unittest.TestCase):
             for p in sorted((RAIZ / "tests" / "banco").glob("test_banco_*.py")))
         faltan = sorted(t for t in PROBADAS_EN_BANCO_029 if f'"{t}"' not in textos)
         self.assertEqual(faltan, [], f"sin test en tests/banco/: {faltan}")
+
+
+class TestCoberturaDeLa024(unittest.TestCase):
+    """Spec 024, tramo 1 (FR-017, T011): las tools de `cameras` se ejecutan en
+    el banco. `LECTURAS_EN_BANCO_024` es EXACTAMENTE lo que registran los
+    módulos de `MODULOS_024`, cada nombre aparece en algún
+    `tests/banco/test_banco_*.py` y el job las exige por ejecución
+    (`test_el_job_exige_las_probadas`). Los JPEG del banco son los que genera
+    `tests/banco/imagen_de_prueba.py` (ninguna foto en el repositorio).
+
+    Control negativo (T013 g): sacar `ha_get_camera_snapshot` de
+    `LECTURAS_EN_BANCO_024` → cae `test_inventario_exacto` nombrándola."""
+
+    def test_inventario_exacto(self) -> None:
+        from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024, MODULOS_024
+
+        registradas: set[str] = set()
+        for modulo in MODULOS_024:
+            mod = importlib.import_module(f"hermes.tools.{modulo}")
+            dummy = _DummyMCP()
+            mod.register(dummy, MagicMock(), response_max_bytes=131_072)
+            registradas.update(dummy.nombres)
+        self.assertEqual(
+            set(LECTURAS_EN_BANCO_024), registradas,
+            f"sin probar en el banco: {sorted(registradas - LECTURAS_EN_BANCO_024)}; "
+            f"declaradas que no registra ningún módulo de la 024: "
+            f"{sorted(LECTURAS_EN_BANCO_024 - registradas)}")
+
+    def test_modulos_de_la_familia(self) -> None:
+        from hermes.tool_families import FAMILIAS
+        from tests.banco.cobertura_024 import MODULOS_024
+
+        self.assertEqual(set(MODULOS_024), set(FAMILIAS["cameras"].modulos))
+
+    def test_cada_una_en_un_fichero_del_banco(self) -> None:
+        from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024
+
+        textos = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((RAIZ / "tests" / "banco").glob("test_banco_*.py")))
+        faltan = sorted(t for t in LECTURAS_EN_BANCO_024 if f'"{t}"' not in textos)
+        self.assertEqual(faltan, [], f"sin test en tests/banco/: {faltan}")
+
+    def test_las_imagenes_del_banco_son_generadas(self) -> None:
+        from tests.banco.imagen_de_prueba import jpeg_gris
+
+        config = RAIZ / "tests" / "banco" / "ha_config"
+        for ruta in (config / "www" / "hermes_banco" / "camara.jpg",
+                     config / "media" / "banco_borrable.jpg"):
+            with self.subTest(ruta=ruta.name):
+                self.assertEqual(ruta.read_bytes(), jpeg_gris(16))
