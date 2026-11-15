@@ -3079,6 +3079,100 @@ class TestToolCountInDocs:
             assert numeros == {total}, f"{nombre}: {sorted(numeros)} != {total}"
 
 
+class TestFamiliasDocumentadasContraElRegistro:
+    """Cierre de robustez de la 1.2.0: el número de tools de cada familia en
+    la tabla de DOCS.md, la suma de la tabla de los README, la lista de
+    `tool_families_disabled` y la de «familias nuevas de la 1.2.0» de los
+    README salen del registro real, no de lo que alguien contó a mano. El
+    recuento total ya lo vigila `TestToolCountInDocs`; esto vigila el
+    desglose.
+
+    Control negativo comprobado: cambiar en DOCS.md el 2 de `cameras` por un
+    3 hace caer `test_cada_familia_con_su_numero_en_docs`, y quitar
+    `cameras` de la lista de la 1.2.0 del README, `test_listas_de_familias`.
+    """
+
+    @staticmethod
+    def _por_familia() -> dict[str, int]:
+        from hermes.tool_families import FAMILIAS
+
+        previous = os.environ.pop("HERMES_DEV", None)
+        try:
+            desactivables = [f for f, v in FAMILIAS.items() if v.desactivable]
+            solo_base = len(_do_register(desactivables).tools)
+            cuentas = {"base": solo_base}
+            for familia in desactivables:
+                resto = [f for f in desactivables if f != familia]
+                cuentas[familia] = len(_do_register(resto).tools) - solo_base
+        finally:
+            if previous is not None:
+                os.environ["HERMES_DEV"] = previous
+        return cuentas
+
+    @staticmethod
+    def _texto(*partes: str) -> str:
+        raiz = pathlib.Path(__file__).resolve().parents[1]
+        return raiz.joinpath(*partes).read_text(encoding="utf-8")
+
+    def test_cada_familia_con_su_numero_en_docs(self):
+        import re
+
+        cuentas = self._por_familia()
+        docs = self._texto("hermes", "DOCS.md")
+        filas = {m.group(1): int(m.group(2))
+                 for m in re.finditer(r"(?m)^\| `(\w+)` \| (\d+) \|", docs)}
+        assert filas == cuentas
+
+    def test_tablas_de_los_readme_suman_el_total(self):
+        import re
+
+        total = sum(self._por_familia().values())
+        for nombre in ("README.md", "README.es.md"):
+            texto = self._texto(nombre)
+            suma = sum(int(n) for n in re.findall(
+                r"(?m)^\| \*\*[^|]+\*\* \| (\d+) \|", texto))
+            assert suma == total, f"{nombre}: {suma} != {total}"
+
+    def test_recuento_del_catalogo_de_familias(self):
+        """El docstring de `tool_families` da el recuento real: el de una
+        instalación normal y el de `HERMES_DEV=1`, con `test_progress`."""
+        import hermes.tool_families as tf
+
+        total = sum(self._por_familia().values())
+        previous = os.environ.get("HERMES_DEV")
+        os.environ["HERMES_DEV"] = "1"
+        try:
+            con_dev = len(_do_register().tools)
+        finally:
+            if previous is None:
+                os.environ.pop("HERMES_DEV", None)
+            else:
+                os.environ["HERMES_DEV"] = previous
+        assert con_dev == total + 1
+        doc = " ".join(tf.__doc__.split())
+        assert f"de 216 tools a {total} " in doc
+        assert f"`test_progress`, {con_dev} en total" in doc
+
+    def test_listas_de_familias(self):
+        import re
+
+        from hermes.tool_families import FAMILIAS
+
+        desactivables = {f for f, v in FAMILIAS.items() if v.desactivable}
+        nuevas = {f for f, v in FAMILIAS.items() if v.desde == "1.2.0"}
+        for nombre, conector in (("README.md", "and"), ("README.es.md", "y")):
+            texto = self._texto(nombre)
+            fila = next(linea for linea in texto.splitlines()
+                        if linea.startswith("| `tool_families_disabled`"))
+            en_fila = set(re.findall(r"`(\w+)`", fila)) - {
+                "tool_families_disabled", "base", "ping", "hermes_guide"}
+            assert en_fila == desactivables, nombre
+            # La lista entre paréntesis que termina en «… de la 1.1.2».
+            m = re.search(r"\(\s*(`generic_commands`[^)]*)\)", texto)
+            assert m is not None, nombre
+            assert set(re.findall(r"`(\w+)`", m.group(1))) == nuevas, nombre
+
+
 class TestDocumentoOmitibleEnElEsquema:
     """Spec 007 (FR-006): en las cinco tools con documento grande, el
     documento deja de ser obligatorio en el esquema de entrada MCP (se puede

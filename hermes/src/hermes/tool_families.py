@@ -2,9 +2,11 @@
 
 POR QUÉ EXISTE ESTE MÓDULO
 --------------------------
-Con el programa de cobertura total, Hermes pasa de 216 tools a más de 300. Un
-cliente con poco contexto, o un usuario que no usa Lovelace ni el Marketplace,
-quiere poder apagar grupos enteros con una opción (`tool_families_disabled`).
+Con el programa de cobertura total, Hermes pasa de 216 tools a 359 (las de
+una instalación normal; con `HERMES_DEV=1` se registra además la auxiliar
+`test_progress`, 360 en total, y por eso los tests que activan esa variable
+cuentan una más que la documentación). Un cliente con poco contexto, o un
+usuario que no usa Lovelace ni el Marketplace, quiere poder apagar grupos enteros con una opción (`tool_families_disabled`).
 Una familia agrupa módulos de `hermes/tools/` por área —las mismas áreas que
 los temas de `hermes_guide`— para que el usuario entienda qué desactiva.
 
