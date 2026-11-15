@@ -343,7 +343,7 @@ Desviaciones del tramo 2 (anotadas al hacerlo):
   del mismo plan (3 tramos en vez de 2, y el total de tramos del programa).
 - [x] T044 Comprobar que README, README.es y DOCS no cambian (mismo número
   de tools; `TestToolCountInDocs` en verde).
-- [ ] T045 Suite completa: exactamente los 6 fallos conocidos; CI de Linux en
+- [x] T045 Suite completa: exactamente los 6 fallos conocidos; CI de Linux en
   verde (tests, banco, Semgrep, CodeQL).
 - [x] T046 Revisar el diff entero de la 025 (privacidad, rutas, modelos);
   commit(s) con los controles negativos de T035, T036 y T037; marcar T024
