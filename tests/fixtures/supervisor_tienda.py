@@ -73,6 +73,11 @@ class SupervisorSimulado:
         self.json: dict[tuple[str, str], Any] = {}
         self.textos: dict[str, Any] = {}
         self.llamadas: list[dict[str, Any]] = []
+        # Convergencia 3 de la 034 (T058): `store_copy_stale` y las recargas
+        # miran si hay una recarga de la tienda en curso. Por defecto, la
+        # lista de jobs vacía, con la forma de `GET /jobs/info` del
+        # Supervisor 2026.11.0 (`api/jobs.py`, `info`); un test la cambia.
+        self.json[("GET", "/jobs/info")] = {"ignore_conditions": [], "jobs": []}
 
     def respuesta(self, metodo: str, ruta: str, valor: Any) -> None:
         self.json[(metodo.upper(), ruta)] = valor

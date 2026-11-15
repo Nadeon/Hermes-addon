@@ -609,3 +609,156 @@ class TestEachBlacklistCarriesItsOwnWeight:
 
     def test_an_arbitrary_cert_file_is_blocked(self):
         assert self._bloqueado("integraciones/mi_certificado.pem")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Spec 034, T006 (FR-005, FR-007, FR-027): extracciones sin cambio en /config
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Casos de ruta: los mismos para `/config` y para cualquier otra raíz. El alias
+# se sustituye en cada caso (`{alias}`).
+_CASOS_DE_RUTA = [
+    "",
+    "   ",
+    "%2e%2e/%2e%2e/etc/passwd",
+    "../x",
+    "a/../../x",
+    "cafe\u0301.yaml",           # NFD
+    "{alias}/sub/x.yaml",
+    "{alias}",
+    "/etc/passwd",
+    "/otra/x",
+    "sub/" + "a" * 300,         # componente de 300 bytes
+    "/".join(["dir"] * 1300),   # ruta de más de 4096 bytes
+    "sub/x.yaml",
+    ".",
+    "  sub/x.yaml  ",
+]
+
+
+def _resultado(funcion, *args):
+    """("ok", ruta, None) o ("error", tipo, mensaje) de una normalización.
+
+    Siempre tres elementos, para que los dos casos se comparen igual."""
+    from hermes.fs import PathTraversalError as Error
+
+    try:
+        return ("ok", funcion(*args), None)
+    except Error as exc:
+        return ("error", type(exc).__name__, str(exc))
+
+
+class TestNormalizeInRoot:
+    """`normalize_in_root(ruta, raíz, alias)` es el cuerpo de `normalize_path`
+    con la raíz y el alias como parámetros. Con la raíz y el alias de
+    `/config` da EXACTAMENTE lo mismo (mismo resultado y mismo mensaje), y con
+    otra raíz hace lo mismo relativo a ella.
+
+    Control negativo comprobado: con `normalize_in_root` comparando con
+    `CONFIG_BASE` en vez de con `root`, caen `test_otra_raiz_mismas_reglas`
+    y los de rutas de `tests/test_folders.py`.
+    """
+
+    def test_igual_que_normalize_path_en_config(self, config_root: Path) -> None:
+        from hermes.fs import normalize_in_root
+
+        (config_root / "sub").mkdir()
+        for caso in _CASOS_DE_RUTA:
+            ruta = caso.replace("{alias}", "/config")
+            assert _resultado(normalize_path, ruta) == _resultado(
+                normalize_in_root, ruta, fs_module.CONFIG_BASE, "/config"
+            ), ruta
+
+    def test_otra_raiz_mismas_reglas(self, config_root: Path, tmp_path: Path) -> None:
+        from hermes.fs import normalize_in_root
+
+        otra = (tmp_path / "share").resolve()
+        (otra / "sub").mkdir(parents=True)
+        (config_root / "sub").mkdir()
+        for caso in _CASOS_DE_RUTA:
+            en_config = _resultado(normalize_path, caso.replace("{alias}", "/config"))
+            en_otra = _resultado(
+                normalize_in_root, caso.replace("{alias}", "/share"), otra, "/share")
+            assert en_config[0] == en_otra[0], caso
+            if en_config[0] == "ok":
+                assert (en_otra[1].relative_to(otra)
+                        == en_config[1].relative_to(config_root)), caso
+            else:
+                # El mismo mensaje con el alias de la otra raíz.
+                assert en_otra[2] == en_config[2].replace(
+                    "/config", "/share").replace(str(config_root), str(otra)), caso
+
+    def test_otra_raiz_no_acepta_config(self, tmp_path: Path) -> None:
+        from hermes.fs import normalize_in_root
+
+        otra = (tmp_path / "addons").resolve()
+        otra.mkdir()
+        for ruta in ("/config/x", "/share/x", "/homeassistant/x"):
+            with pytest.raises(PathTraversalError, match="outside /addons"):
+                normalize_in_root(ruta, otra, "/addons")
+        assert normalize_in_root("/addons/x/y", otra, "/addons") == otra / "x" / "y"
+        assert normalize_in_root("/addons", otra, "/addons") == otra
+
+    def test_mensajes_de_normalize_path_sin_cambios(self, config_root: Path) -> None:
+        """Los literales de la 1.2.0, copiados a mano: si el refactor cambia
+        un texto, el cliente lo notaría."""
+        casos = {
+            "": "Empty path is not allowed",
+            "/etc/passwd": "Absolute paths outside /config are forbidden: '/etc/passwd'",
+            "../x": "Path escapes /config boundary: '../x'",
+            "sub/" + "a" * 300: "Path component is too long (max 255 bytes): ",
+            "/".join(["dir"] * 1300): "Path is too long (max 4096 bytes): ",
+        }
+        for ruta, texto in casos.items():
+            with pytest.raises(PathTraversalError) as ctx:
+                normalize_path(ruta)
+            assert str(ctx.value).startswith(texto), (ruta, str(ctx.value))
+
+    def test_config_base_se_lee_en_cada_llamada(self, tmp_path: Path,
+                                               monkeypatch: pytest.MonkeyPatch) -> None:
+        # Los tests de /config parchean `CONFIG_BASE`: `normalize_path` no
+        # puede haberlo capturado al definirse.
+        a = (tmp_path / "a").resolve()
+        a.mkdir()
+        monkeypatch.setattr(fs_module, "CONFIG_BASE", a)
+        assert normalize_path("x") == a / "x"
+        b = (tmp_path / "b").resolve()
+        b.mkdir()
+        monkeypatch.setattr(fs_module, "CONFIG_BASE", b)
+        assert normalize_path("x") == b / "x"
+
+
+class TestBlacklistedName:
+    """`blacklisted_name(nombre)` son los pasos 1b (nombres) y 2 (patrones)
+    de `check_blacklisted`, que ahora la llama; para un fichero en la raíz de
+    `/config` sin regla de ruta ni de directorio, dan lo mismo.
+
+    Control negativo comprobado: con `blacklisted_name` ignorando los
+    patrones, caen `test_igual_que_check_blacklisted` (`x.pem`,
+    `mi_token.txt`, `home-assistant_v2.db`) y `TestListaNegra` de
+    `tests/test_tools_folders.py`.
+    """
+
+    NOMBRES = ["secrets.yaml", "secrets.yml", "x.pem", "mi_token.txt",
+               "home-assistant_v2.db", "ok.yaml", "known_devices.yaml",
+               "credentials.json", "a.key"]
+
+    def test_igual_que_check_blacklisted(self, config_root: Path) -> None:
+        from hermes.fs import blacklisted_name
+
+        for nombre in self.NOMBRES:
+            sub = config_root / "sub"
+            sub.mkdir(exist_ok=True)
+            # En un subdirectorio, para que no cuente la regla de ruta exacta.
+            assert blacklisted_name(nombre) == check_blacklisted(sub / nombre), nombre
+
+    def test_resultados(self) -> None:
+        from hermes.fs import blacklisted_name
+
+        assert blacklisted_name("ok.yaml") == (False, "")
+        assert blacklisted_name("secrets.yaml") == (True, "Contains potentially sensitive data")
+        assert blacklisted_name("x.pem") == (True, "Matches sensitive file pattern '*.pem'")
+        assert blacklisted_name("mi_token.txt")[0] is True
+        # Las reglas de directorio de /config no son de nombre.
+        assert blacklisted_name(".storage") == (False, "")
+        assert blacklisted_name("deps") == (False, "")

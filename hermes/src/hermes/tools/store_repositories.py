@@ -57,8 +57,12 @@ from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._store import (
     URLS_DE_CORE,
+    anotar_recarga_de_tienda,
+    candado_de_recarga,
     credenciales_de_url,
+    empezar_recarga_de_tienda,
     es_integrado,
+    recarga_valida_para_apps_locales,
     redactar_mensaje,
     slug_de_repositorio,
     tapar_credenciales,
@@ -423,21 +427,30 @@ def register(
         valid, error = await validate_confirmation_token(confirmation_token, tool, args)
         if not valid:
             return _rechazo(tool, {"error": error}, repository=slug)
-        try:
-            await ha_client.sv_request(
-                "POST", "/store/repositories",
-                json_body={"repository": url},
-                timeout_seconds=_LONG_OP_TIMEOUT,
-            )
-        except HAConnectionError as exc:
-            # Las credenciales de la URL, tapadas primero (así la URL sigue
-            # legible); después, sin el eco de la carga (cierre de seguridad).
-            mensaje = sin_eco_del_supervisor(redactar_mensaje(str(exc), url),
-                                             {"repository": url})
-            await complete_confirmation_token(confirmation_token, success=False, error=mensaje)
-            _log(tool, "error", repository=slug)
-            return {"error": mensaje}
-
+        # T047: añadir vuelve a leer todas las fichas. Convergencia 2
+        # (T052): bajo el candado común de las recargas, con el inicio
+        # tomado ya con él cogido y anotado solo si termina bien.
+        async with candado_de_recarga():
+            # Convergencia 3 (T057, T058): marca de /addons y jobs en curso.
+            recarga = await empezar_recarga_de_tienda(ha_client)
+            try:
+                await ha_client.sv_request(
+                    "POST", "/store/repositories",
+                    json_body={"repository": url},
+                    timeout_seconds=_LONG_OP_TIMEOUT,
+                )
+            except HAConnectionError as exc:
+                # Las credenciales de la URL, tapadas primero (así la URL
+                # sigue legible); después, sin el eco de la carga (cierre de
+                # seguridad).
+                mensaje = sin_eco_del_supervisor(redactar_mensaje(str(exc), url),
+                                                 {"repository": url})
+                await complete_confirmation_token(confirmation_token, success=False,
+                                                  error=mensaje)
+                _log(tool, "error", repository=slug)
+                return {"error": mensaje}
+            if await recarga_valida_para_apps_locales(ha_client, recarga):
+                anotar_recarga_de_tienda(recarga.inicio, recarga.marca_raiz_ns)
         result: dict[str, Any] = {"result": "ok"}
         try:
             repos = await _repositorios()
@@ -558,16 +571,24 @@ def register(
             confirmation_token, tool, args, estado=estado)
         if not valid:
             return _rechazo(tool, {"error": error_token}, repository=repository)
-        try:
-            await ha_client.sv_request(
-                "DELETE", f"/store/repositories/{repository}",
-                timeout_seconds=_LONG_OP_TIMEOUT,
-            )
-        except HAConnectionError as exc:
-            mensaje = _redactar(str(exc), [repo])
-            await complete_confirmation_token(confirmation_token, success=False, error=mensaje)
-            _log(tool, "error", repository=repository)
-            return {"error": mensaje}
+        # T047: quitar vuelve a leer todas las fichas; convergencia 2
+        # (T052): bajo el candado común de las recargas.
+        async with candado_de_recarga():
+            # Convergencia 3 (T057, T058): marca de /addons y jobs en curso.
+            recarga = await empezar_recarga_de_tienda(ha_client)
+            try:
+                await ha_client.sv_request(
+                    "DELETE", f"/store/repositories/{repository}",
+                    timeout_seconds=_LONG_OP_TIMEOUT,
+                )
+            except HAConnectionError as exc:
+                mensaje = _redactar(str(exc), [repo])
+                await complete_confirmation_token(confirmation_token, success=False,
+                                                  error=mensaje)
+                _log(tool, "error", repository=repository)
+                return {"error": mensaje}
+            if await recarga_valida_para_apps_locales(ha_client, recarga):
+                anotar_recarga_de_tienda(recarga.inicio, recarga.marca_raiz_ns)
         result = {"result": "ok", "repository": repository}
         await complete_confirmation_token(confirmation_token, success=True, result=result)
         _log(tool, "ok", repository=repository)
@@ -623,16 +644,39 @@ def register(
     async def sv_reload_store() -> object:
         """Reload the Supervisor app (add-on) store: updates every repository
         (git pull) and re-reads the app catalog, so new apps and new versions
-        appear. Installs and updates no app. It may take a while.
+        appear. Installs and updates no app. It may take a while. Just
+        before, Hermes sets a new modification date on the /addons folder
+        itself (no file is changed), so the Supervisor re-reads the local
+        apps even if an earlier reload failed halfway. If something in
+        /addons makes the Supervisor's own check of the folder fail (a path
+        too long for it, a broken symlink…), it answers without re-reading
+        them; Hermes then refuses to install, update or rebuild a local app
+        (store_copy_stale) until that is fixed.
 
         Returns:
             {"result": "ok", "hint"} or an error.
         """
         tool = "sv_reload_store"
-        try:
-            await ha_client.sv_request(
-                "POST", "/store/reload", timeout_seconds=_LONG_OP_TIMEOUT)
-        except HAConnectionError as exc:
+        # Convergencia T047: la hora de INICIO, antes de mandar la petición.
+        # Convergencia 2 (T052): con el candado común de las recargas cogido,
+        # para que no empiece hasta que termine otra recarga de Hermes.
+        async with candado_de_recarga():
+            # Convergencia 3: antes de recargar, Hermes cambia la fecha de la
+            # raíz de /addons para que el Supervisor relea las apps locales
+            # aunque la recarga anterior reventara después de guardar la
+            # fecha (T057), y mira si hay otra recarga en curso (T058). Solo
+            # se anota si la marca se puso y no había ni hay otra recarga.
+            recarga = await empezar_recarga_de_tienda(ha_client)
+            try:
+                await ha_client.sv_request(
+                    "POST", "/store/reload", timeout_seconds=_LONG_OP_TIMEOUT)
+            except HAConnectionError as exc:
+                fallo: HAConnectionError | None = exc
+            else:
+                fallo = None
+                if await recarga_valida_para_apps_locales(ha_client, recarga):
+                    anotar_recarga_de_tienda(recarga.inicio, recarga.marca_raiz_ns)
+        if fallo is not None:
             # El error puede nombrar cualquier repositorio (y su token suelto):
             # se leen para tapar sus credenciales. Si tampoco se pueden leer,
             # queda el tapado de toda URL del texto.
@@ -641,7 +685,7 @@ def register(
             except HAConnectionError:
                 repos = []
             _log(tool, "error")
-            return {"error": _redactar(str(exc), repos)}
+            return {"error": _redactar(str(fallo), repos)}
         _log(tool, "ok")
         return {
             "result": "ok",

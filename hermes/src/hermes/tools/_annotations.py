@@ -129,6 +129,15 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "fs_move_file",               # puede pisar el destino
     "fs_restore_file_backup",     # sobrescribe el estado actual
     "fs_set_secret",              # reescribe secrets.yaml
+    # Spec 034: /addons y /share. Escribir sobrescribe el fichero entero y
+    # mover cambia la ruta de algo que otra app (o el Supervisor, en
+    # /addons) puede estar usando; crear carpeta solo añade, pero pide token
+    # (D-5: todo lo que modifica va en dos pasos) y, por el invariante
+    # «pide token ⇔ destructiva», se anuncia así. Borrar ya lo cubre el
+    # prefijo `fs_delete_`.
+    "fs_write_file_in_folder",
+    "fs_create_dir_in_folder",
+    "fs_move_in_folder",
     "ha_save_lovelace_dashboard", # reemplaza la config completa del dashboard
     "sv_restart_core",
     "sv_reboot_host",

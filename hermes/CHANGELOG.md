@@ -1,5 +1,308 @@
 # Changelog
 
+## [1.2.1] — 2026-11-15
+
+Claude puede trabajar ahora con dos carpetas más, `/addons` (el código de las
+apps locales) y `/share` (la carpeta compartida entre apps), y la vista previa
+de instalar, actualizar o reconstruir una app enseña los privilegios que pide. Es
+compatible con la 1.2.0: ninguna tool cambia de nombre y ningún argumento
+existente cambia ni pasa a ser obligatorio (spec 034).
+
+### Carpetas /addons y /share
+
+- **Siete tools nuevas en la familia nueva `addons_share`** (activa por
+  defecto; se apaga con `tool_families_disabled`). De lectura:
+  `fs_list_dir_in_folder` (hasta 500 entradas y 3 niveles; los symlinks se
+  listan y no se siguen), `fs_stat_in_folder` (en `/addons`, si una carpeta
+  es una app local, su `local_<slug>` y si está instalada) y
+  `fs_read_file_in_folder` (texto por líneas, hasta 5000 por llamada, por
+  bloques y sin cargar más de lo que cabe en la respuesta; de un binario,
+  solo los metadatos). Las que
+  modifican, **siempre en dos pasos**: `fs_write_file_in_folder` (crea o
+  sobrescribe un fichero de texto con la misma escritura atómica de
+  `/config`; al confirmar basta con el token), `fs_create_dir_in_folder`,
+  `fs_move_in_folder` (dentro de la misma carpeta) y `fs_delete_in_folder`
+  (una carpeta con contenido solo con `recursive=true`; la vista previa
+  cuenta ficheros, carpetas y bytes, con una muestra de 20 rutas). Hermes
+  pasa de 359 a 366 tools; con `addons_share` apagada, la lista es la de la
+  1.2.0.
+- Todas reciben `folder` (`addons` o `share`) y una ruta relativa a esa
+  carpeta. Las rutas pasan la misma validación que en `/config`: `..`, un
+  symlink que sale de la carpeta o cualquier otra ruta absoluta se rechazan
+  (`traversal`). Borrar o mover un symlink actúa sobre el enlace, nunca sobre
+  su destino.
+- **El token se ata a lo que vio la vista previa**: además de los
+  argumentos, a una huella del objetivo (el SHA-256 del fichero, o la lista
+  de todo lo que hay dentro de la carpeta). Si algo cambia antes de
+  confirmar, la respuesta es `preview_outdated: true` y no se toca nada. Una
+  carpeta en la que otra app está escribiendo no casa nunca: hay que parar
+  antes esa app. Al confirmar se repiten todas las comprobaciones.
+- **No hay backup automático** antes de escribir, mover ni borrar en estas
+  carpetas. Cada vista previa lo dice (`backup: null`, que no se puede
+  deshacer desde Hermes salvo crear una carpeta) y trae la llamada exacta
+  para hacerlo antes: `sv_create_backup_partial(folders='["addons/local"]')`
+  o `sv_create_backup_partial(folders='["share"]')`.
+- **Apps locales instaladas protegidas**: borrar o mover la carpeta de una
+  app local instalada, su `config.*` o una carpeta que la contiene se
+  rechaza sin token (`installed_app`, con la pista de desinstalarla antes
+  con `sv_uninstall_addon`). Si el Supervisor no responde y la ruta contiene
+  un `config.*`, se rechaza (`installed_check_failed`) en vez de suponer; si
+  hay apps locales instaladas sin carpeta reconocible y la ruta contiene un
+  `config.*` ilegible, también (`installed_check_inconclusive`). Escribir
+  dentro de una app instalada se admite con el aviso `inside_installed_app`
+  (el cambio se aplica al reconstruirla); cambiar el `slug` de su
+  `config.*` se rechaza.
+- La raíz de cada carpeta no se borra ni se mueve (`root_protected`), ni un
+  punto de montaje de `/share` o una carpeta que lo contiene
+  (`mount_point`). Un árbol de más de 50 000 entradas o que tarda más de
+  10 s en recorrerse no se previsualiza (`too_large_to_preview`).
+- Toda vista previa que modifica `/addons` avisa de que es el código que el
+  Supervisor construye y ejecuta.
+- Los ficheros con nombre sensible de la lista negra de `/config`
+  (`secrets.yaml`, `*.key`, `*.pem`, `*token*`, `*.db`…) no se leen nunca y
+  los listados los marcan con `is_blacklisted`; se pueden escribir, mover o
+  borrar con token, y ninguna vista previa enseña contenido. El resto se
+  devuelve tal cual, sin redactar, igual que `fs_read_file` en `/config`.
+- El log anota cada llamada (`folder_action`) con la tool, la carpeta, la
+  ruta relativa y el resultado; nunca contenido ni huellas completas.
+- **Montaje nuevo**: Hermes monta `/addons` con escritura. Usa el tipo
+  `addons`, que el Supervisor da por heredado desde la 2026.07, así que **su
+  log avisa al arrancar Hermes de que usa el tipo heredado `addons`** en vez
+  de `local_apps`: es esperado. `local_apps` no se usa porque un Supervisor
+  anterior a la 2026.07 no lo conoce y rechazaría la app entera. Apagar la
+  familia quita las tools; el montaje sigue.
+- Guía: tema nuevo `folders` (alias `share`, `local_apps`, `carpetas`…); los
+  temas `filesystem`, `supervisor` y `app_store` remiten a él, y las
+  instrucciones del servidor dicen que `fs_` es también `/addons` y `/share`
+  solo con la familia activa.
+
+### Privilegios al instalar y reconstruir
+
+- **`sv_install_addon`**: la vista previa enseña los privilegios que pide la
+  app (`privileges`): los campos de privilegio de la ficha de la tienda
+  (`store`), cuáles son elevados (`elevated`: acceso completo al hardware,
+  la API de Docker, la red, el PID, el IPC, el UTS o el D-Bus del host,
+  módulos del kernel, udev, capacidades `privileged`, `devices`, un rol del
+  Supervisor `manager` o `admin`, AppArmor desactivado, un `map` con
+  escritura) y, para una app local, lo que declara ahora su `config.*` en
+  `/addons` (`declared_in_folder`; para una app local,
+  ver «Convergencia» más abajo). Si la ficha no se puede leer,
+  `privileges: null` y `privileges_unavailable`. El token se ata a la
+  versión de la tienda y a ese bloque: si cualquiera cambia antes de
+  confirmar, `preview_outdated` y no se instala nada.
+- **`sv_rebuild_addon`**: la vista previa enseña lo que se aplicará (la ficha
+  de la tienda, que la reconstrucción copia), lo actual de la app instalada,
+  `elevated` y, para una app local, `declared_in_folder`. **Su token se ata
+  ahora al estado** (antes, solo a los argumentos): si el bloque cambia
+  antes de confirmar, `preview_outdated` sin reconstruir nada y sin gastar
+  el token.
+- Los campos se eligen uno a uno (nunca la ficha en crudo, que trae texto
+  libre del autor y, en la instalada, las opciones), y el texto del autor
+  pasa por la redacción de secretos. El esquema de entrada de las dos no
+  cambia.
+- **Lo que la ficha de la tienda no da, dicho.** La ficha de una app de la
+  tienda no trae `privileged`, `devices`, `host_ipc`, `host_uts`,
+  `host_dbus`, `kernel_modules`, `udev`, `usb`, `uart`, `gpio`,
+  `devicetree`, `video`, `audio`, `realtime`, `map` ni `ports`, y para una
+  app que no es local Hermes no tiene otra fuente antes de instalarla: un
+  `elevated: []` se podía leer como «no pide nada». Ahora la vista previa
+  de `sv_install_addon` y de `sv_update_addon` de una app que no es local
+  los lista en `privileges.not_in_store_data`, con una nota que dice que
+  no se pueden conocer antes (al actualizar, los de la versión nueva;
+  `installed` enseña los actuales). Es fijo y no se ata al token; el
+  esquema de entrada no cambia. Para una app local se ven en
+  `declared_in_folder`.
+
+### Convergencia tras la revisión independiente
+
+- **Cambio de comportamiento de `sv_install_addon` y `sv_rebuild_addon` para
+  las apps locales (`local_*`).** El Supervisor instala y reconstruye con su
+  propia copia del `config.*`, la que leyó en la última recarga de la tienda,
+  y varios privilegios (`privileged`, `devices`, `host_dbus`,
+  `kernel_modules`, `udev`, `map`…) no salen en su ficha: la vista previa
+  podía enseñar los del fichero y el Supervisor aplicar otros (escribir uno
+  con `SYS_ADMIN`, recargar y volver a escribirlo inocuo). Ahora Hermes
+  anota la hora de inicio de cada recarga de la tienda que lanza él
+  (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar un
+  repositorio) y, si algo en `/addons` cambió después del inicio de la
+  última (ver «Convergencia 2»), o no ha lanzado ninguna desde que arrancó,
+  rechaza SIN token con `store_copy_stale` y la pista `sv_reload_store`.
+  También sin `/addons`, sin la app en su índice, con dos `config.*` válidos
+  para el mismo slug o con alguno que Hermes no puede leer. Se comprueba en
+  la vista previa y otra vez al confirmar, junto con la petición, bajo el
+  mismo candado que las escrituras de Hermes en `/addons`. Las apps que no
+  son locales no cambian.
+- `elevated` interpreta el `config.*` como el Supervisor (`vol.Boolean`):
+  `host_dbus: 1` o `apparmor: 0` cuentan; un valor que el Supervisor no
+  sabría interpretar sale como `<campo>:unparsed` y cuenta como elevado.
+- `fs_read_file_in_folder` lee por bloques y nunca guarda más de lo que cabe
+  en la respuesta, aunque el fichero sea una sola línea de varios GB: una
+  línea más larga que el tope sale cortada si es la primera de la página, y
+  `cut_lines` dice cuál, cuántos caracteres vuelven y su largo.
+- Solo se leen o sobrescriben ficheros regulares: un FIFO (el de Snapcast
+  en `/share`, por ejemplo), un socket o un dispositivo da
+  `not_regular_file` sin bloquear nada.
+- Las confirmaciones que modifican una carpeta van de una en una y, justo
+  antes de tocar el disco, la ruta se vuelve a resolver: si una carpeta del
+  camino cambió entretanto, `path_changed` y no se toca nada. En Linux,
+  crear una carpeta, mover y borrar operan además relativos a la carpeta
+  padre abierta sin seguir symlinks; escribir un fichero, no: así solo se
+  crean las carpetas padre que falten, y el fichero se escribe por ruta
+  (con la escritura atómica de `/config`) después de revalidarla. En
+  Windows todo va por ruta tras la revalidación.
+- README y DOCS decían que no se toca una app local instalada; lo exacto es
+  que no se borra ni se mueve (escribir dentro se admite, con aviso).
+
+### Convergencia 2
+
+- **`sv_update_addon` enseña los privilegios y, para una app local, exige
+  la copia al día.** Actualizar copia a la app la ficha de la tienda,
+  privilegios incluidos, igual que reconstruir. Su vista previa lleva ahora
+  el bloque `privileges` (para cualquier app: `store`, lo que se aplicará;
+  `installed`, lo actual; `elevated`; y para una app local,
+  `declared_in_folder`), y su token se ata a la versión y a ese bloque: si
+  cambian antes de confirmar, `preview_outdated` sin actualizar. Para una
+  app local, `store_copy_stale` como al instalar o reconstruir, en la vista
+  previa y al confirmar, bajo el candado de `/addons`. El esquema de entrada
+  no cambia.
+- **`store_copy_stale` mira todo `/addons`.** Antes solo miraba el
+  `config.*` de la app y las carpetas de su camino, y se podía saltar: dos
+  `config.*` con el mismo slug en la recarga (el Supervisor se queda con el
+  último que lee) y después borrar el que ganó, lo que solo cambia la fecha
+  de SU carpeta. Ahora Hermes hace lo mismo que el Supervisor para decidir
+  si relee las apps locales: si CUALQUIER fichero o carpeta de `/addons`, a
+  cualquier profundidad y con la raíz incluida, tiene una fecha posterior al
+  inicio de la última recarga que lanzó Hermes (con 2 s de margen), se
+  rechaza. Si `/addons` tiene más de 50 000 entradas o tarda más de 10 s en
+  recorrerse, también (no se supone nada). La respuesta dice qué cambió lo
+  último.
+- **Recargas de la tienda en serie.** `sv_reload_store`,
+  `sv_check_for_updates` y añadir o quitar un repositorio comparten un
+  candado: una recarga lanzada por Hermes no empieza hasta que Hermes ha
+  terminado de esperar la anterior, y su hora de inicio se toma con el
+  candado cogido y solo cuenta si termina bien. Antes, una segunda recarga
+  simultánea podía volver «bien» sin releer nada mientras la primera
+  seguía. Si Hermes deja de esperar (se cancela la llamada o vence el
+  tiempo), el Supervisor sigue con esa recarga: por eso, mientras el
+  Supervisor tenga una recarga de la tienda sin terminar en su lista de
+  jobs (`/jobs/info`: la que Hermes dejó de esperar o la que otro lanzó por
+  la API), instalar,
+  actualizar o reconstruir una app local da `store_copy_stale`, y una
+  recarga de Hermes que la encuentre al empezar o al terminar no cuenta. Si
+  la lista de jobs no responde, lo mismo.
+- **Cada recarga de Hermes obliga al Supervisor a releer las apps
+  locales.** El Supervisor solo las relee si la fecha más reciente de
+  `/addons` (la de la propia carpeta incluida) es distinta de la que guardó,
+  y la guarda antes de releer: si releer fallaba, la recarga daba error,
+  pero la siguiente volvía «bien» sin releer nada y Hermes la daba por
+  buena. Ahora, justo antes de cada recarga, Hermes cambia la fecha de la
+  propia carpeta `/addons` (no toca ningún fichero), así que el Supervisor
+  relee siempre, salvo que no pueda recorrer `/addons` (siguiente punto);
+  si releer falla, la recarga da error y no cuenta. Ese cambio de
+  Hermes no cuenta como «algo cambió en `/addons`»; cualquier cambio
+  posterior, sí. Sin `/addons` o si no se puede cambiar la fecha, la
+  recarga se hace igual, pero no cuenta para las apps locales.
+- **Un `config.*` que el Supervisor salta no bloquea otras apps.** Uno que
+  no es UTF-8, YAML o JSON válido, que no es un mapa o que no tiene `name`
+  no declara ninguna app: ya no provoca `store_copy_stale` al instalar,
+  actualizar o reconstruir otra, y sale en la vista previa en
+  `ignored_config_files` con su motivo real. Solo esos: está comprobado que
+  el Supervisor los salta sin tumbar la recarga. Uno con `name` al que le
+  falta otro campo obligatorio (`version`, `slug`, `description`, `arch`) o
+  con un slug que no vale o demasiado largo también lo rechaza el
+  Supervisor, pero antes recorre sus otros campos (`devices`, `map`,
+  `arch`, `machine`…) con código que, con un tipo inesperado (`devices: 5`,
+  `map:` vacío), lanza un error que no captura y tumba la recarga entera:
+  como Hermes no puede asegurar que solo lo salte, bloquea como los del
+  punto siguiente, con el motivo. Solo lo que
+  Hermes de verdad no puede leer (un symlink, algo que no es un fichero
+  regular, uno de más de 1 MiB, un error de lectura) sigue bloqueando, y el
+  motivo lo dice.
+- **Un `config.*` que tumba la recarga sí bloquea.** Un YAML que al leerlo
+  lanza algo que el Supervisor no captura (por ejemplo, una fecha
+  imposible como `2001-13-01`) no se salta: hace fallar toda recarga de la
+  tienda. Ya no sale en `ignored_config_files`: instalar, actualizar o
+  reconstruir una app local da `store_copy_stale` con su ruta y la
+  indicación de arreglarlo o quitarlo.
+- **Esperar el candado de una carpeta tiene un tope de 15 s.** Reconstruir
+  una app local retiene el candado de `/addons` mientras dura (hasta
+  300 s), y la confirmación que esperaba detrás encontraba su token
+  caducado (vive 60 s). Ahora, si la espera pasa de 15 s, la confirmación
+  responde `folder_busy` sin gastar el token y sin hacer nada: se puede
+  repetir la misma llamada mientras el token siga vigente. Vale para las
+  cuatro tools que modifican una carpeta y para confirmar instalar,
+  actualizar o reconstruir una app local.
+- La nota de `declared_in_folder` decía `token ***REDACTED***`: la redacción
+  de secretos tomaba la palabra que seguía a «token» por un secreto. Está
+  reescrita.
+- **`store_copy_stale` también cuando el Supervisor no puede recorrer
+  `/addons`.** Para decidir si relee las apps locales, el Supervisor mira la
+  fecha de todo lo que hay en `/addons`, y si eso falla (una ruta que para él
+  es demasiado larga: la ve como `/data/apps/local/…`, 9 bytes más que
+  Hermes; un symlink que pasa por un fichero…), su recarga responde bien
+  SIN releer, y Hermes la daba por buena. Ahora Hermes recorre `/addons`
+  como él y rechaza instalar, actualizar o reconstruir una app local ante
+  cualquier error o entrada que pueda hacer fallar ese recorrido: una ruta
+  que en el Supervisor pase de 3840 bytes (`PATH_MAX`, 4096, menos un
+  margen de 256 por si su prefijo cambia), un symlink roto, en bucle, que
+  pasa por un fichero o que apunta fuera de `/addons` (el Supervisor lo
+  resuelve en su propio sistema de ficheros), una carpeta que no se puede
+  listar o un error de permisos. Ninguno se ignora, y el motivo dice cuál
+  es y dónde. Además, en `/addons`, escribir, crear una carpeta o mover a
+  una ruta que pase de ese tope (al mover una carpeta, también lo que
+  cuelga de ella) se rechaza sin token: `path_too_long`. En `/share`, no.
+- **Riesgo residual: la recarga programada y quitar un repositorio no se
+  ven.** El Supervisor recarga la tienda por su cuenta cada 3 horas, y esa
+  no sale en `/jobs/info` (es un job interno, y la lista se salta los
+  internos y lo que cuelga de ellos); quitar un repositorio relee las
+  fichas sin ser un job. Queda una carrera estrecha: si una de esas lee
+  `/addons`, un cliente cambia un `config.*` justo después y, mientras ella
+  sigue (más de 2 s), Hermes lanza y termina su propia recarga, la de
+  Hermes se anota; cuando la otra termina, deja en el Supervisor la copia
+  vieja, e instalar, actualizar o reconstruir esa app local daría token.
+  Antes se decía que la programada también se veía: no era verdad.
+
+### Pruebas
+
+- Tests nuevos con ficheros reales en carpetas temporales y un Supervisor
+  simulado con respuestas de la forma de 2026.11.0: rutas, symlinks (en el
+  CI de Linux), huellas, cambios entre la vista previa y la confirmación,
+  apps instaladas, puntos de montaje, log y tope de respuesta; cada
+  protección, con su control negativo anotado.
+- Invariantes del programa al día: con `addons_share` apagada, las 359 de
+  la 1.2.0 con sus mismas anotaciones, y apagando además las de la 1.2.0,
+  las 216 de la 1.1.2; la instantánea de esquemas de la 1.1.2 no cambia; las
+  cuatro que modifican, fuera del banco de Core (no hablan con Core: 55
+  entradas) y con su fila «VM / pendiente» en la matriz de pruebas; el
+  inventario de argumentos atados pasa de 145 a 149 filas.
+- **Prueba en vivo pendiente**: las cuatro que modifican, borrar una app
+  local instalada, el aviso del montaje en el log del Supervisor y los
+  privilegios de una app local, primero en la VM de pruebas y después en
+  una instalación real (`docs/HOJA-DE-RUTA.md`, «Pruebas manuales
+  pendientes»). `HA_CORE_LAST_TESTED` sigue en 2026.11.1.
+
+### Desviaciones
+
+- Montaje del tipo heredado `addons`, no `local_apps` (ver arriba); pasar a
+  `local_apps` queda como duda para cuando suba el mínimo admitido del
+  Supervisor (D-31 de la hoja de ruta).
+- Sin backup automático, a diferencia de `/config`: `/share` puede ocupar
+  muchos GB (grabaciones, bases de datos de otras apps, un NAS montado), un
+  backup parcial por cada escritura llenaría el disco y bloquearía la
+  confirmación, y la copia por fichero de `/config` no sirve para un borrado
+  recursivo. La vista previa da la llamada para hacerlo a mano.
+- El contenido de los ficheros que no están en la lista negra sale sin
+  redactar, igual que en `/config` (D-32 de la hoja de ruta).
+- En la guía, `addons` sigue llevando al tema `supervisor`, como en la
+  1.1.2; el tema nuevo es `folders`. El índice de la guía lo nombra aunque la
+  familia esté apagada, como pasa con las demás familias; las instrucciones
+  del servidor, no.
+- Crear una carpeta sobre la raíz responde `already_exists`. Un symlink que
+  apunta a la raíz se puede borrar o mover como enlace.
+- En la API del Supervisor `apparmor` es texto (`disable`, `default` o
+  `profile`), no booleano: «AppArmor desactivado» es `false` en el
+  `config.*` o `disable` en la ficha.
+
 ## [1.2.0] — 2026-11-15
 
 Programa de cobertura total de Home Assistant 2026.11 (Core 2026.11.1,

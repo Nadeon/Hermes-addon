@@ -39,16 +39,23 @@ import structlog
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
+    ESTADO_CAMBIADO,
     complete_confirmation_token,
     create_confirmation_token,
     redact_secrets,
     redact_structure,
-    validate_confirmation_token,
+    resolve_confirmation_token,
 )
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._store import (
     disponibilidad,
+    estado_de_privilegios,
     ficha_de_tienda,
+    bajo_candado_de_app,
+    comprobar_copia_de_tienda,
+    leer_declarado,
+    privilegios_de,
+    privilegios_para_mostrar,
     texto_de_la_app,
     texto_de_terceros,
     trozo_de_texto,
@@ -324,6 +331,46 @@ def register(
             }, slug=slug), None
         return None, info
 
+    async def _privilegios_de_reconstruir(
+        slug: str, info: dict[str, Any] | None, motivo_info: str | None
+    ) -> dict[str, Any] | None:
+        """Bloque `privileges` de reconstruir (spec 034, FR-022): lo que se
+        aplicará (la ficha de la tienda, que el Supervisor copia a la app al
+        reconstruir: `apps/app.py`, `rebuild`), lo actual (`info`, de
+        `/addons/{slug}/info`) y, para `local_*`, lo que declara su `config.*`
+        en `/addons`. La ficha de la tienda es una lectura nueva (GET, sin
+        efecto)."""
+        motivos: dict[str, str] = {}
+        if motivo_info:
+            motivos["installed"] = motivo_info
+        try:
+            ficha = await ficha_de_tienda(ha_client, slug)
+            if ficha is None:
+                motivos["store"] = "The app is not in the store."
+        except HAConnectionError as exc:
+            ficha = None
+            motivos["store"] = redact_secrets(str(exc))
+        declarado, motivo_carpeta = await leer_declarado(slug)
+        if motivo_carpeta:
+            motivos["declared_in_folder"] = motivo_carpeta
+        return privilegios_de(store=ficha, installed=info, declared=declarado,
+                              motivos=motivos)
+
+    async def _estado_de_reconstruir(slug: str) -> Any:
+        """El bloque `privileges` leído otra vez al confirmar (FR-023), con
+        las mismas lecturas que la vista previa. Lo que no se puede leer
+        cuenta como `None`: si la vista previa sí lo leyó, no casa."""
+        motivo: str | None = None
+        try:
+            info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
+        except HAConnectionError as exc:
+            info, motivo = None, redact_secrets(str(exc))
+        if not isinstance(info, dict):
+            info = None
+            motivo = motivo or "Unexpected response from the Supervisor."
+        return estado_de_privilegios(
+            await _privilegios_de_reconstruir(slug, info, motivo))
+
     @mcp.tool()
     async def sv_rebuild_addon(
         slug: str,
@@ -344,6 +391,35 @@ def register(
         minutes. Rejected without a token if the app is not installed, is no
         longer in the store, or the store offers another version (update it
         first).
+
+        The preview shows the app's privileges (`privileges`): what will be
+        applied (`store`, the store's copy, which the rebuild applies), what
+        applies now (`installed`), for a local app (`local_*`) what its
+        config file in /addons declares (`declared_in_folder`, including
+        `map` and `ports`), and which ones are elevated (`elevated`). The
+        token is bound to them: if they change before confirming, the answer
+        is `preview_outdated` and nothing is rebuilt.
+
+        Local app (`local_*`): the rebuild applies the Supervisor's OWN copy
+        of its config file, read at the last store reload, which may not be
+        the file in /addons. If anything in /addons (at any depth) changed
+        after the start of the last store reload launched by Hermes
+        (sv_reload_store, sv_check_for_updates, adding or removing a
+        repository), or Hermes has launched none since it started, it is
+        rejected WITHOUT a token with `store_copy_stale` (hint:
+        sv_reload_store). Also without /addons, if it is too large to check
+        in time, without the app in its index, with two valid config files
+        for the same slug, with one Hermes cannot read, with one that makes
+        or can make every store reload fail in the Supervisor (one with a
+        `name` that its schema would reject; fix or remove it), or while the
+        Supervisor has a store reload still running (or its job list does
+        not answer). A config file the Supervisor surely skips (no `name`,
+        invalid YAML, not a mapping…) does not block: it is listed in
+        `ignored_config_files` with its reason. Checked in the
+        preview and again when confirming, together with the request, with
+        no Hermes write to /addons in between; if another Hermes operation
+        holds /addons for more than 15 s, `folder_busy` without using the
+        token.
 
         Args:
             slug: App slug.
@@ -400,12 +476,51 @@ def register(
                      if await es_hermes(slug, slug_propio) else None)
             if aviso:
                 preview["critical_warning"] = aviso
+            # Spec 034 (FR-022, FR-023): los privilegios, y el token atado a
+            # ellos.
+            bloque = await _privilegios_de_reconstruir(slug, info, None)
+            # Convergencia T047: para una app local, `rebuild` aplica la copia
+            # de la última recarga de la tienda, no el fichero.
+            desfase, ignorados = await comprobar_copia_de_tienda(slug, ha_client)
+            if desfase is not None:
+                return _rechazo(tool, desfase, slug=slug)
+            preview["privileges"] = privilegios_para_mostrar(bloque)
+            if ignorados is not None:
+                preview["ignored_config_files"] = ignorados
             _log(tool, "preview", slug=slug)
-            return await create_confirmation_token(tool, args, preview=preview)
+            return await create_confirmation_token(
+                tool, args, preview=preview, estado=estado_de_privilegios(bloque))
 
-        valid, error_token = await validate_confirmation_token(confirmation_token, tool, args)
+        # T047 y T048: la comprobación y la petición, bajo el candado de
+        # /addons (solo para `local_*`; con tope de espera, T056).
+        return await bajo_candado_de_app(
+            slug, lambda: _confirmar_reconstruir(slug, force, args, confirmation_token))
+
+    async def _confirmar_reconstruir(
+        slug: str, force: bool, args: dict[str, Any], confirmation_token: str
+    ) -> dict[str, Any]:
+        tool = "sv_rebuild_addon"
+        # Primero el token con su estado: un cambio en los privilegios es
+        # `preview_outdated` sin gastar el token (como en instalar).
+        valid, error_token, _ = await resolve_confirmation_token(
+            confirmation_token, tool, args, estado=await _estado_de_reconstruir(slug))
         if not valid:
+            if error_token == ESTADO_CAMBIADO:
+                _log(tool, "rejected:preview_outdated", slug=slug)
+                return {
+                    "error": error_token,
+                    "preview_outdated": True,
+                    "slug": slug,
+                    "hint": ("The app's privileges changed since the preview. "
+                             "Nothing was done; request a new preview (call "
+                             "again without confirmation_token)."),
+                }
             return _rechazo(tool, {"error": error_token}, slug=slug)
+        desfase, _ = await comprobar_copia_de_tienda(slug, ha_client)
+        if desfase is not None:
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="store_copy_stale")
+            return _rechazo(tool, desfase, slug=slug)
         try:
             # Sin `background`: la ruta no lo admite (`api/apps.py`, `rebuild`)
             # y espera a que la app vuelva a arrancar. De ahí la espera larga.

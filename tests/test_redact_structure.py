@@ -242,7 +242,10 @@ class TestToolsApplyRedaction(unittest.TestCase):
 
     def test_addon_info_is_redacted(self) -> None:
         src = self._src("hermes/src/hermes/tools/addons.py")
-        idx = src.index('f"/addons/{slug}/info"')
+        # La de `sv_get_addon` (la que devuelve la ficha): desde la
+        # convergencia 2 de la 034 hay un ayudante antes (`_leer_instalada`,
+        # que solo la usa para la vista previa de actualizar).
+        idx = src.index('f"/addons/{slug}/info"', src.index("async def sv_get_addon("))
         # La redacción debe aplicarse en las líneas siguientes al fetch.
         self.assertIn("redact_structure", src[idx:idx + 400])
 

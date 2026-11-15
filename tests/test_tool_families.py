@@ -102,7 +102,8 @@ class TestCatalogo(unittest.TestCase):
             self.assertEqual(clave, familia.nombre)
             self.assertRegex(familia.nombre, r"^[a-z][a-z0-9_]*$")
             self.assertTrue(familia.descripcion.strip(), familia.nombre)
-            self.assertIn(familia.desde, {"1.1.2", "1.2.0"}, familia.nombre)
+            # Spec 034 (R-10): la 1.2.1 estrena `addons_share`.
+            self.assertIn(familia.desde, {"1.1.2", "1.2.0", "1.2.1"}, familia.nombre)
 
     def test_base_contiene_ping_y_guide_y_es_la_unica_fija(self) -> None:
         self.assertIn("base", FAMILIAS)
@@ -482,6 +483,23 @@ class TestCatalogo(unittest.TestCase):
         # familia `marketplace_install` ni módulo propio.
         self.assertNotIn("marketplace_install", FAMILIAS)
         self.assertIn("uninstall", FAMILIAS["marketplace_manage"].descripcion)
+
+    def test_addons_share_es_de_la_1_2_1(self) -> None:
+        """Spec 034, T002 (FR-003, research R-3): familia nueva de la 1.2.1,
+        desactivable y activa por defecto, con los módulos de lectura y de
+        escritura de `/addons` y `/share`. Va aparte de `filesystem` (1.1.2)
+        para que, apagándola, la lista vuelva a ser la de la 1.2.0.
+        Control negativo comprobado: con `folders` en `filesystem` cae este
+        test (y el SC-005 de las de la 1.1.2)."""
+        familia = FAMILIAS["addons_share"]
+        self.assertEqual(familia.desde, "1.2.1")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("folders", "folders_write"))
+        self.assertEqual(familia_de_modulo("folders"), "addons_share")
+        self.assertEqual(familia_de_modulo("folders_write"), "addons_share")
+        self.assertEqual(FAMILIAS["filesystem"].modulos, ("filesystem", "filesystem_write"))
+        self.assertEqual(validar_desactivadas(["addons_share"]),
+                         frozenset({"addons_share"}))
 
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")

@@ -495,6 +495,30 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   - `sv_create_vlan`: crear una VLAN sobre la tarjeta principal, comprobar
     que aparece en `ha network info` y que la VM sigue accesible; borrarla
     desde la interfaz de HA (no hay tool para borrarla).
+- Carpetas `/addons` y `/share` (spec 034), en la tanda 1, con Hermes
+  instalado desde una versión que monta `addons` (en el log del Supervisor
+  sale el aviso del tipo de montaje heredado). En todas: la vista previa
+  dice `backup: null` y la llamada para hacer el backup parcial, en
+  `addons` lleva el aviso de que el Supervisor construye y ejecuta ese
+  código, y el log de Hermes no lleva ningún contenido.
+  - En una carpeta de prueba de `/share` (`/share/prueba-hermes`):
+    `fs_create_dir_in_folder` (con padres), `fs_write_file_in_folder`
+    (crear y sobrescribir; confirmar solo con la ruta y el token),
+    `fs_move_in_folder` (renombrar un fichero y una carpeta) y
+    `fs_delete_in_folder` (un fichero y la carpeta entera con
+    `recursive=true`: la vista previa da el recuento, el tamaño y la
+    muestra). Cambiar un fichero desde la consola entre la vista previa y la
+    confirmación: `preview_outdated` y nada cambia. Con un montaje de red
+    de uso `share` (el de la spec 019), borrar o mover su carpeta se rechaza
+    sin token (`mount_point`).
+  - En `/addons`, una app local de prueba (`config.yaml` con `slug` y un
+    `Dockerfile`, escritos con `fs_write_file_in_folder`): sin instalar, su
+    borrado da token; instalada (`sv_reload_store` y `sv_install_addon`),
+    borrar o mover su carpeta o su `config.yaml` se rechaza sin token
+    (`installed_app`, con la pista de `sv_uninstall_addon`) y escribir su
+    `Dockerfile` avisa de que se aplica al reconstruirla; tras
+    desinstalarla, el borrado da token y, al confirmar, la carpeta
+    desaparece.
 - `ha_restore_backup` (spec 031), en la tanda 3, con una instantánea antes:
   con la clave de cifrado de HA configurada (Ajustes → Sistema → Backups),
   un backup cifrado creado con `ha_create_backup` en `hassio.local`. La vista

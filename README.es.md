@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **359 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **366 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 359 herramientas
+## Qué puede hacer — 366 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -39,7 +39,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Integraciones** | 13 | Config entries y sus flujos de configuración, incluidos los de opciones |
 | **Ficheros de `/config`** | 11 | Leer, escribir, mover, borrar, buscar, gestionar `secrets.yaml` y restaurar copias |
 | **Lovelace** | 10 | Dashboards y recursos |
-| **Add-ons** | 12 | Listar, instalar, arrancar, parar, actualizar, leer logs (también de arranques anteriores) y estadísticas |
+| **Add-ons** | 12 | Listar, instalar, arrancar, parar, actualizar, leer logs (también de arranques anteriores) y estadísticas. Desde la 1.2.1, la vista previa de instalar enseña los privilegios que pide la app (y, de una app local, lo que declara su `config.yaml`); si cambian antes de confirmar, no se instala nada |
 | **Backups** | 13 | Completos y parciales, crear (también en un montaje de backup elegido) y restaurar. Además, de solo lectura, los backups de la integración `backup` de Home Assistant (HA 2025.1 o posterior) en todas sus ubicaciones (local, red, nube) y su configuración sin la contraseña de cifrado |
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
 | **Montajes** | 9 | Montajes de red del Supervisor (CIFS y NFS) y de discos locales para backups, medios y `share`: listar, crear, editar, borrar, volver a comprobar y elegir el montaje por defecto de los backups, siempre con vista previa. También los ajustes de backup del Supervisor (cuándo un backup cuenta como viejo) y releer los backups de todas las ubicaciones. Las credenciales CIFS entran pero nunca salen (ni en respuestas, vistas previas, errores ni logs) |
@@ -61,7 +61,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Diagnóstico de Core** | 12 | El log del sistema de Home Assistant (errores agrupados, y limpiarlo), el log de errores en bruto cuando HA escribe uno, los niveles de log (leerlos y subir una integración a DEBUG para depurarla), validar automatizaciones y scripts antes de guardarlos, probar una condición, los diagnósticos de integraciones y dispositivos, y las notificaciones persistentes (listarlas y descartarlas) |
 | **Flujos de integraciones** | 12 | Integraciones descubiertas (listar e ignorar), los dominios que se configuran por flujo, el título y las opciones de sistema de una integración (sondeo y entidades nuevas; desactivarlas pide confirmación), las subentries (añadir, reconfigurar, renombrar; borrar pide confirmación) y reconfigurar una integración (cada paso pide confirmación) |
 | **Flujos de reparación** | 4 | Un aviso de Reparaciones con sus datos internos (redactados) y su flujo de reparación: abrirlo, enviar cada paso (cada paso pide confirmación) o abortarlo |
-| **Tienda de apps** | 9 | Los repositorios de la tienda de apps del Supervisor: listarlos (con sus apps y cuáles están instaladas), añadir uno (código de terceros: en dos pasos, con la URL exacta en la vista previa y las credenciales de la URL tapadas), quitar uno (en dos pasos; se rechaza si es integrado o tiene apps instaladas), repararlo y recargar la tienda. El changelog y la documentación de la versión de la tienda de una app (texto de terceros, redactado, por trozos), si se puede instalar en este sistema y reconstruir una app instalada (en dos pasos). Instalar, actualizar y cambiar opciones comprueban antes: disponibilidad, changelog y validación de las opciones por el Supervisor. Familia `app_store`, nueva en 1.2.0 |
+| **Tienda de apps** | 9 | Los repositorios de la tienda de apps del Supervisor: listarlos (con sus apps y cuáles están instaladas), añadir uno (código de terceros: en dos pasos, con la URL exacta en la vista previa y las credenciales de la URL tapadas), quitar uno (en dos pasos; se rechaza si es integrado o tiene apps instaladas), repararlo y recargar la tienda. El changelog y la documentación de la versión de la tienda de una app (texto de terceros, redactado, por trozos), si se puede instalar en este sistema y reconstruir una app instalada (en dos pasos; desde la 1.2.1, la vista previa enseña los privilegios de la app y cualquier cambio antes de confirmar la cancela). Instalar, actualizar y cambiar opciones comprueban antes: disponibilidad, changelog y validación de las opciones por el Supervisor. Familia `app_store`, nueva en 1.2.0 |
 | **Blueprints** | 5 | Listar los blueprints de automatizaciones, scripts y plantillas, ver la configuración que da un blueprint con unas entradas, guardar uno que escribas, importar uno de una URL (lo descarga Home Assistant; la vista previa enseña el YAML entero y solo se guarda si no ha cambiado) y borrar uno que nadie use (guardar, importar y borrar, con confirmación). Familia `blueprints`, nueva en 1.2.0 |
 | **Ayuda para automatizar** | 9 | Solo lectura: los triggers, condiciones y acciones de dispositivo que ofrece un dispositivo (listos para pegar en una automatización, con sus campos extra), qué abarca de verdad un target (entidades, dispositivos, áreas, plantas, etiquetas) y por qué, los nombres de los triggers, condiciones y acciones que le sirven, y esperar una vez a que salte un trigger (solo los que se sabe que solo escuchan). Familia `automation_assist`, nueva en 1.2.0 |
 | **Configuración del núcleo** | 2 | Leer y cambiar la configuración general de Home Assistant (nombre, ubicación, unidades, zona horaria, moneda, país, idioma y URLs), con vista previa del antes y el después. Familia `core_config`, nueva en 1.2.0 |
@@ -72,6 +72,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Backups de Home Assistant** | 6 | Dónde puede guardar Home Assistant sus backups (local, almacenamiento de red, nube) con su cifrado y su retención; la programación, la retención y el contenido de los backups automáticos; y crear backups (a medida o con los ajustes automáticos, cifrados con la clave de Home Assistant) borrarlos de todas sus ubicaciones y restaurarlos desde cualquiera (con una vista previa completa de lo que se sobrescribe; un backup cifrado sin contraseña usa la clave de Home Assistant). Todo lo que cambia algo, en dos pasos y con una estimación de los backups que borraría la retención. La clave de cifrado nunca sale de Home Assistant ni se cambia aquí. Familia `backup_integration`, nueva en 1.2.0 |
 | **Cámaras** | 2 | Solo lectura: lo que ve ahora una cámara y la imagen actual de una entidad `image`, devueltas como imagen al cliente (privacidad: una cámara puede enseñar el interior de tu casa). A Home Assistant se le pide la imagen de la cámara más pequeña (solo escala JPEG); una imagen de más de 2 MiB no se devuelve. Familia `cameras`, nueva en 1.2.0 |
 | **Restablecer dashboards** | 1 | Devuelve un dashboard de Lovelace al autogenerado borrando su configuración guardada, en dos pasos (la vista previa dice cuántas vistas y tarjetas se pierden; irreversible salvo con un backup). El dashboard principal y el panel por defecto están protegidos siempre. Familia `dashboard_reset`, nueva en 1.2.0 |
+| **/addons y /share** | 7 | Listar, ver metadatos y leer ficheros de texto de `/addons` (el código de las apps locales) y `/share`, con las mismas comprobaciones de ruta que `/config` (sin `..` ni symlinks que salgan de la carpeta) y los mismos nombres bloqueados (`secrets.yaml`, claves, certificados, tokens, bases de datos); de la carpeta de una app local, su slug y si está instalada. Escribir ficheros, crear carpetas, mover y borrar, siempre en dos pasos, sin backup automático y sin borrar ni mover una app local instalada ni un punto de montaje (escribir dentro de una se admite, con aviso). Familia `addons_share`, nueva en 1.2.1 |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 
 Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y
@@ -87,8 +88,8 @@ están siempre, y apagando las familias nuevas de la 1.2.0
 `system_control`, `resolution_fixes`, `core_config`,
 `assistant_exposure`, `users`, `core_network`, `host_control`,
 `host_network`, `conversation`, `backup_integration`, `cameras`,
-`dashboard_reset` y `marketplace_manage`)
-tienes exactamente la lista de herramientas de la 1.1.2.
+`dashboard_reset` y `marketplace_manage`) y la nueva de la 1.2.1
+(`addons_share`) tienes exactamente la lista de herramientas de la 1.1.2.
 
 Las herramientas destructivas devuelven, en la primera llamada, una vista previa
 y un `confirmation_token`. No hacen nada hasta que se les vuelve a llamar con
@@ -486,7 +487,7 @@ completo está aquí abajo.
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes`, `core_config`, `assistant_exposure`, `users`, `core_network`, `host_control`, `host_network`, `conversation`, `backup_integration`, `cameras`, `dashboard_reset` y `marketplace_manage`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
+| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes`, `core_config`, `assistant_exposure`, `users`, `core_network`, `host_control`, `host_network`, `conversation`, `backup_integration`, `cameras`, `dashboard_reset`, `marketplace_manage` y `addons_share`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs que no sean de loopback (también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (p. ej. `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**: cada descarga sale de la IP de tu casa hacia un host que cualquiera puede elegir sin la contraseña. Pon solo los hosts que uses; ver `hermes/DOCS.md` |
@@ -552,6 +553,13 @@ Ver `config.yaml` para el schema completo con sus rangos válidos.
   emparejamiento, tokens o contraseñas se rechaza o sale tapado.
 - **Filesystem `/config`**: anti-traversal, blacklist de secretos, allowlist
   *default-deny* en `.storage/`, *managed paths*, backup antes de cada escritura.
+- **`/addons` y `/share`** (1.2.1): el mismo anti-traversal y los mismos
+  nombres bloqueados que en `/config`; todo cambio en dos pasos, atado a una
+  huella de lo que vio la vista previa; las apps locales instaladas, la raíz
+  de cada carpeta y los puntos de montaje no se borran ni se mueven; **sin
+  backup automático** (la vista previa da la llamada para hacer antes un
+  backup parcial). Instalar o reconstruir una app enseña los privilegios que
+  pide, y cualquier cambio antes de confirmar la cancela.
 - **Validación anti path-injection** de identificadores (slug, `entry_id`…)
   + guard central en el cliente HA.
 - **Cabeceras de seguridad** (`X-Content-Type-Options`, `X-Frame-Options`,

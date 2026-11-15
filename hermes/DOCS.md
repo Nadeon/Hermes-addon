@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 359 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 366 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -116,6 +116,56 @@ Home Assistant que lo pide, y Hermes se conecta con el usuario del Supervisor,
 que nadie puede usar en la interfaz. Hazlo desde la interfaz del Marketplace.
 Por la misma razón, actualizar con la entidad `update` suele fallar desde
 Hermes con ese motivo, y Claude te lo dirá.
+
+**Carpetas /addons y /share (1.2.1).** Además de `/config`, Claude puede
+trabajar con dos carpetas más (familia `addons_share`): `/addons`, donde
+viven las apps locales (cada carpeta con un `config.yaml` es una app
+`local_<slug>`), y `/share`, la carpeta compartida entre apps. Puede listar,
+ver metadatos y leer texto; y escribir ficheros, crear carpetas, mover y
+borrar, **siempre en dos pasos**. Las reglas:
+
+- Las rutas pasan las mismas comprobaciones que en `/config`: nada de `..` ni
+  de symlinks que salgan de la carpeta. Los ficheros con nombre sensible
+  (`secrets.yaml`, claves, certificados, tokens, bases de datos) no se leen
+  nunca; el resto se devuelve tal cual, sin redactar, como en `/config`.
+- **No hay backup automático.** La vista previa lo dice y trae la llamada
+  para hacer antes un backup parcial (`addons/local` o `share`). Lo que se
+  borra o se sobrescribe aquí no se recupera desde Hermes.
+- El token se ata a lo que vio la vista previa: si el fichero o la carpeta
+  cambian antes de confirmar, no se hace nada. Una carpeta en la que otra app
+  está escribiendo no se puede borrar sin parar antes esa app.
+- En `/addons`, toda vista previa recuerda que el Supervisor construye y
+  ejecuta lo que hay ahí. La carpeta de una app local **instalada** no se
+  borra ni se mueve: hay que desinstalarla antes. Escribir dentro sí se
+  puede; el cambio se aplica al reconstruir la app.
+- La raíz de cada carpeta y los puntos de montaje (un NAS montado en
+  `/share`) no se borran ni se mueven.
+- Instalar, actualizar o reconstruir una app (`sv_install_addon`,
+  `sv_update_addon`, `sv_rebuild_addon`) enseña en la vista previa los
+  privilegios que pide (acceso completo al hardware, a Docker o a la red del
+  host, AppArmor desactivado, carpetas con escritura…) y, para una app local,
+  lo que declara su `config.yaml`. Si cambian antes de confirmar, no se hace
+  nada.
+- **Recarga la tienda después de tocar `/addons`.** El Supervisor instala,
+  actualiza y reconstruye con su propia copia del `config.yaml`, la de la
+  última recarga de la tienda. Si algo en `/addons` cambió después de la
+  última recarga que lanzó Hermes, o Hermes no ha recargado desde que
+  arrancó, instalar, actualizar o reconstruir una app local se rechaza sin
+  token (`store_copy_stale`): pide a Claude que recargue la tienda
+  (`sv_reload_store`) y vuelva a empezar. Para que el Supervisor relea las
+  apps locales, Hermes cambia la fecha de la propia carpeta `/addons` justo
+  antes de cada recarga que lanza (no toca ningún fichero). Si un
+  `config.yaml` hace fallar la recarga entera (por ejemplo, una fecha
+  imposible), también se rechaza, con su ruta: arréglalo o quítalo.
+
+Para eso Hermes monta `/addons` **con escritura** desde la 1.2.1. Usa el tipo
+de montaje `addons`, que el Supervisor da por heredado desde la 2026.07: al
+arrancar Hermes, el log del Supervisor dice que usa el tipo heredado `addons`
+en vez de `local_apps`. Es esperado y no afecta a nada; Hermes no usa
+`local_apps` porque un Supervisor anterior a la 2026.07 no lo conoce y
+rechazaría la app entera. Si no quieres que Claude toque esas carpetas, desactiva la familia
+`addons_share` (ver «Familias de tools»): sus tools desaparecen, aunque el
+montaje sigue.
 
 ## Límites y Claude Code
 
@@ -234,6 +284,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `backup_integration` | 6 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear, borrar y restaurar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
 | `cameras` | 2 | Instantánea de una cámara e imagen de una entidad `image`, devueltas como imagen al cliente; solo lectura. Una cámara puede enseñar el interior de tu casa: desactívala si no quieres que Claude las vea (nueva en 1.2.0) |
 | `dashboard_reset` | 1 | Restablecer un dashboard de Lovelace al autogenerado (borra su configuración guardada), en dos pasos; el dashboard principal y el panel por defecto están protegidos (nueva en 1.2.0) |
+| `addons_share` | 7 | Ficheros de `/addons` (el código de las apps locales) y de `/share`: listar, ver metadatos y leer texto, con las mismas comprobaciones de ruta y los mismos nombres bloqueados que en `/config`; escribir, crear carpetas, mover y borrar, siempre en dos pasos, sin backup automático y sin borrar ni mover las apps locales instaladas ni los puntos de montaje (escribir dentro de una se admite, con aviso) (nueva en 1.2.1) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -252,7 +303,7 @@ familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 `energy`, `system_control`, `resolution_fixes`, `core_config`,
 `assistant_exposure`, `users`, `core_network`, `host_control`,
 `host_network`, `conversation`, `backup_integration`, `cameras`,
-`dashboard_reset` y `marketplace_manage`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`dashboard_reset` y `marketplace_manage`) y la de la 1.2.1 (`addons_share`) desactivadas, la lista de tools es exactamente la de la 1.1.2; apagando solo `addons_share`, la de la 1.2.0.
 
 ### Tools genéricas
 

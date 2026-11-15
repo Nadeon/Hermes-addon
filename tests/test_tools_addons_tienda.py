@@ -226,9 +226,11 @@ class TestActualizar(_Base):
         r = await self.t["sv_update_addon"](_SLUG, confirmation_token=prev["confirmation_token"])
         self.assertEqual(r["job_id"], "def456")
         # La misma petición que en la 1.1.2, precedida de la relectura de la
-        # versión atada al token (T031).
-        [info, post] = self.sv.llamadas[n:]
-        self.assertEqual((info["metodo"], info["ruta"]), ("GET", f"/addons/{_SLUG}/info"))
+        # versión atada al token (T031) y, desde la convergencia 2 de la 034
+        # (T053), de los privilegios (la ficha de la tienda): solo lecturas.
+        *lecturas, post = self.sv.llamadas[n:]
+        self.assertEqual([(c["metodo"], c["ruta"]) for c in lecturas],
+                         [("GET", f"/addons/{_SLUG}/info"), ("GET", f"/store/addons/{_SLUG}")])
         self.assertEqual((post["metodo"], post["ruta"], post["json"], post["timeout"]),
                          ("POST", f"/store/addons/{_SLUG}/update", {"background": True},
                           _LONG_OP_TIMEOUT))

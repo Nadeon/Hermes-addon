@@ -15,6 +15,9 @@ las pruebas en vivo de la 1.1.0 y la 1.1.2, lo que encontraron las de la
 lleva Hermes de 216 a 359 tools. Los recuentos de este apartado son los de la
 1.1.2; los de la 1.2.0 están en «Programa de cobertura total».
 
+**1.2.1, publicada el 2026-11-15:** las carpetas `/addons` y `/share` (spec 034)
+suben a 366 tools. Ver «Hecho en 1.2.1» en el plan por versiones.
+
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
 leyó en esos tags; las tools de lectura se probaron en una instalación de prueba
@@ -471,6 +474,38 @@ un cliente contra la instalación real.
   no hay filas en la matriz de pruebas; el banco de Core solo puede cargar
   `usb`.
 
+- [ ] (VM, después instalación real) **Carpetas /addons y /share (spec 034),
+  en vivo**: con Hermes instalado como app local, `fs_list_dir_in_folder` y
+  `fs_stat_in_folder` en `addons` (las apps locales, su `local_<slug>` y si
+  están instaladas); en una carpeta de prueba de `/share`, las cuatro que
+  modifican (`fs_create_dir_in_folder`, `fs_write_file_in_folder`,
+  `fs_move_in_folder` y `fs_delete_in_folder` con `recursive`), cada una en
+  dos pasos; el resultado, en la matriz de la 014. Nunca con las tools
+  conectadas a la instalación real del mantenedor hasta que pasen en la VM.
+- [ ] (VM) **Borrar una app local instalada (spec 034)**: borrar su carpeta
+  con `fs_delete_in_folder` se rechaza con `installed_app`; tras
+  `sv_uninstall_addon`, la vista previa da el recuento y al confirmar se
+  borra.
+- [ ] (VM) **Aviso del montaje heredado (spec 034)**: el log del Supervisor
+  avisa de que Hermes usa el tipo de montaje heredado `addons` (esperado) y
+  `/addons` queda montada con escritura.
+- [ ] (VM) **Privilegios al instalar una app local (spec 034)**:
+  `sv_install_addon` de una app local con `map` y `privileged` enseña
+  `privileges` con `declared_in_folder` y `elevated`; cambiar su
+  `config.yaml` antes de confirmar da `preview_outdated`.
+- [ ] (VM) **Actualizar una app local y `store_copy_stale` (convergencia 2
+  de la 034)**: subir la `version` de una app local instalada,
+  `sv_reload_store` y `sv_update_addon` enseña `privileges`; tocar
+  cualquier fichero de `/addons` antes de confirmar da `store_copy_stale`;
+  confirmar mientras se reconstruye otra app local da `folder_busy` a los
+  15 s sin gastar el token.
+- [ ] (VM) **Recarga que revienta (convergencia 3 de la 034)**: con un
+  `config.yaml` con `creada: 2001-13-01` en `/addons`, `sv_reload_store` da
+  error dos veces seguidas (Hermes cambia la fecha de `/addons` y el
+  Supervisor relee las dos), `sv_install_addon` de una app local responde
+  `store_copy_stale` con esa ruta, y tras quitarlo y recargar hay token;
+  con una recarga en curso en el Supervisor, `store_copy_stale`.
+
 ### Programa de cobertura total (spec 008) — 1.2.0
 
 Objetivo: que Hermes cubra todo lo que HA Core 2026.11.1 y el Supervisor
@@ -745,11 +780,15 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 <!-- matriz-pruebas:inicio -->
 | Tool | Entorno | Resultado | Nota |
 |---|---|---|---|
+| `fs_create_dir_in_folder` | VM | pendiente | spec 034 |
 | `fs_delete_file` | VM | pendiente | |
+| `fs_delete_in_folder` | VM | pendiente | spec 034 |
 | `fs_move_file` | VM | pendiente | |
+| `fs_move_in_folder` | VM | pendiente | spec 034 |
 | `fs_restore_file_backup` | VM | pendiente | |
 | `fs_set_secret` | VM | pendiente | |
 | `fs_write_file` | VM | pendiente | |
+| `fs_write_file_in_folder` | VM | pendiente | spec 034 |
 | `ha_abort_config_entry_flow` | banco de Core | ok | |
 | `ha_abort_repair_fix` | banco de Core | ok | spec 016 |
 | `ha_abort_subentry_flow` | banco de Core | ok | spec 016 |
@@ -1027,6 +1066,66 @@ frontend, que no aplican a un servidor MCP) y la clase D (peligroso o no
 automatizable), que la tabla deniega. La justificación por grupo está en la
 spec 008.
 
+### Hecho en 1.2.1 — carpetas /addons y /share (spec 034)
+
+Spec, plan y tareas en `specs/034-carpetas-addons-y-share/`. Hermes pasa de
+359 a 366 tools.
+
+- **Siete tools nuevas en la familia `addons_share`** (desactivable, activa
+  por defecto): `fs_list_dir_in_folder`, `fs_stat_in_folder` y
+  `fs_read_file_in_folder` (lectura) y `fs_write_file_in_folder`,
+  `fs_create_dir_in_folder`, `fs_move_in_folder` y `fs_delete_in_folder`
+  (siempre en dos pasos, con el token atado a una huella de lo que vio la
+  vista previa). Todas reciben `folder` (`addons` o `share`); las rutas pasan
+  la misma validación que en `/config`.
+- **Montaje `addons` con escritura**, del tipo heredado: el Supervisor
+  2026.11 lo avisa en su log; `local_apps` rompería las instalaciones con un
+  Supervisor anterior a 2026.07.
+- **Sin backup automático** en esas carpetas: la vista previa lo dice y da
+  la llamada del backup parcial.
+- **Protecciones**: no se borra ni se mueve una app local instalada, la raíz
+  de una carpeta ni un punto de montaje; el aviso de `/addons` en cada vista
+  previa; la lista negra por nombre de fichero de `/config`.
+- **Privilegios en `sv_install_addon`, `sv_update_addon` y
+  `sv_rebuild_addon`**: la vista previa enseña `privileges` (tienda,
+  instalada, lo que declara el `config.*` de una app local y cuáles son
+  elevados) y el token se ata a ese bloque; `sv_rebuild_addon` ata ahora su
+  token al estado. Para una app local, `store_copy_stale` si algo en
+  `/addons` cambió desde la última recarga de la tienda lanzada por Hermes
+  (las recargas de Hermes van en serie) y `folder_busy` si la espera del
+  candado de `/addons` pasa de 15 s.
+- Guía (tema `folders`), DOCS, SECURITY y los README al día. Las cuatro que
+  modifican tienen su fila «VM / pendiente» en la matriz de la 014 y están
+  fuera del banco de Core (no hablan con Core); la prueba en vivo, en
+  «Pruebas manuales pendientes».
+
+#### Riesgo residual conocido (1.2.1)
+
+- **La recarga programada del Supervisor y quitar un repositorio no se
+  ven.** La programada (cada 3 h, `tasks_reload_store`) es un job interno
+  y `/jobs/info` se salta los internos y lo que cuelga de ellos; quitar un
+  repositorio relee las fichas sin ser un job. Carrera estrecha: una de esas
+  lee `/addons`, un cliente cambia un `config.*` justo después y, mientras
+  ella sigue (más de 2 s), Hermes lanza y termina su propia recarga, que se
+  anota; al terminar la otra, el Supervisor se queda con la copia vieja y
+  `store_copy_stale` no salta. Cerrarla del todo pediría comprobar en
+  positivo que el Supervisor releyó (por ejemplo, con el evento
+  `store_reloaded` o con la fecha de la ficha de la app), sin probar.
+
+#### Dudas abiertas para el mantenedor (1.2.1)
+
+- **D-31** (034) — Pasar el montaje `addons` a `local_apps` (y la raíz a
+  `/local_apps`) cuando el mínimo admitido del Supervisor sea 2026.07 o
+  posterior: desaparece el aviso del tipo heredado. Hoy rompería las
+  instalaciones con un Supervisor anterior, que rechaza el manifiesto. La
+  raíz ya se puede cambiar con `HERMES_ADDONS_BASE`.
+- **D-32** (034) — La redacción en `/addons` y `/share` es por nombre de
+  fichero, igual que en `/config`: un fichero con nombre normal (un
+  `options.json`, un `.env` con otro nombre, el código de una app) se
+  devuelve tal cual, sin redactar. Decidir si conviene redactar también el
+  contenido (`redact_secrets`) al leer de estas carpetas, o algún nombre más
+  en la lista negra.
+
 ### 1.3.0 y posteriores
 
 - Retirar los alias `ha_hacs_*` (anunciado para la 1.3.0) y, como tarde en la
@@ -1037,6 +1136,9 @@ spec 008.
 - Lo que el programa deja al mantenedor: la lista completa está en
   «Dudas abiertas para el mantenedor (1.2.0)», en el apartado del programa de
   cobertura total.
+- Las dudas de la 1.2.1 (D-31 y D-32): pasar el montaje `addons` a
+  `local_apps` cuando suba el mínimo admitido del Supervisor, y la redacción
+  por nombre de fichero en `/addons` y `/share`.
 
 #### Socket Unix y API `/v2` del Supervisor: qué hará falta
 

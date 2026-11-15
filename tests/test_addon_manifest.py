@@ -284,19 +284,56 @@ if __name__ == "__main__":
 
 CHANGELOG = Path(__file__).resolve().parent.parent / "hermes" / "CHANGELOG.md"
 
-# Secciones de la entrada de la 1.2.0, en este orden (FR-012 de la 009, que
-# toma los bloques de la spec paraguas 008). Cada sub-feature del programa
-# escribe en la suya; si una falta o cambia de sitio, alguna se queda sin hueco.
-SECCIONES_1_2_0 = (
-    "### Diagnóstico",
-    "### Integraciones",
-    "### Automatización",
-    "### Supervisor",
-    "### Sistema",
-    "### Política y genéricas",
-    "### Banco de pruebas",
-    "### Correcciones",
+# Secciones de la entrada que se publica (la de `__version__`), en este orden.
+# Hasta la 1.2.0 eran las del programa de cobertura total (FR-012 de la 009,
+# los bloques de la spec paraguas 008). La 1.2.1 (spec 034, FR-034) abre otra
+# entrada con sus propias secciones: comprobar las de la 1.2.0 contra ella
+# fallaría siempre, y la 1.2.0 ya está publicada y no se toca.
+SECCIONES_1_2_1 = (
+    "### Carpetas /addons y /share",
+    "### Privilegios al instalar y reconstruir",
+    "### Pruebas",
 )
+
+
+class TestMontajes(unittest.TestCase):
+    """Spec 034, T003 (FR-001, D-1, D-3, research R-1): el `map:` del
+    manifiesto.
+
+    Hermes monta su configuración (`homeassistant_config`), `share` y, desde
+    la 1.2.1, `addons` (la fuente de las apps locales), los tres con
+    escritura, y ninguna otra carpeta. `addons` es el tipo heredado (el
+    Supervisor 2026.11 lo avisa en su log): `local_apps` no lo conoce un
+    Supervisor anterior a 2026.07, que rechazaría el manifiesto entero.
+
+    Control negativo comprobado: sin la entrada `addons` cae
+    `test_monta_addons_con_escritura`; con `local_apps` en su lugar caen
+    también `test_no_usa_local_apps` y `test_solo_las_carpetas_previstas`.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        manifiesto = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+        cls.montajes = {m["type"]: m for m in manifiesto["map"]}
+        cls.lista = manifiesto["map"]
+
+    def test_monta_addons_con_escritura(self) -> None:
+        self.assertIn("addons", self.montajes)
+        self.assertIs(self.montajes["addons"].get("read_only"), False)
+
+    def test_share_y_la_configuracion_como_antes(self) -> None:
+        self.assertIs(self.montajes["share"].get("read_only"), False)
+        self.assertIs(self.montajes["homeassistant_config"].get("read_only"), False)
+
+    def test_solo_las_carpetas_previstas(self) -> None:
+        # D-1: ni /ssl, ni /media, ni /backup, ni /addon_configs.
+        self.assertEqual(len(self.lista), len(self.montajes), "tipo repetido")
+        self.assertEqual(
+            set(self.montajes), {"homeassistant_config", "share", "addons"}
+        )
+
+    def test_no_usa_local_apps(self) -> None:
+        self.assertNotIn("local_apps", self.montajes)
 
 
 class TestEntradaDelChangelog(unittest.TestCase):
@@ -353,14 +390,14 @@ class TestEntradaDelChangelog(unittest.TestCase):
         )
 
     def test_la_entrada_tiene_las_secciones_del_programa(self) -> None:
-        # Las secciones son las del programa de cobertura total (1.2.0). La
-        # versión siguiente que abra otra entrada tendrá que revisar esta lista.
+        # Las secciones de la 1.2.1 (spec 034). La versión siguiente que abra
+        # otra entrada tendrá que revisar esta lista.
         entrada = self._entrada()
         cabeceras = re.findall(r"^### .*$", entrada, re.MULTILINE)
-        presentes = [c.strip() for c in cabeceras if c.strip() in SECCIONES_1_2_0]
+        presentes = [c.strip() for c in cabeceras if c.strip() in SECCIONES_1_2_1]
         self.assertEqual(
             presentes,
-            list(SECCIONES_1_2_0),
+            list(SECCIONES_1_2_1),
             "faltan secciones o no están en el orden del programa",
         )
 

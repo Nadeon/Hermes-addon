@@ -1045,6 +1045,25 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_marketplace_uninstall": ("-DIO", "Marketplace uninstall (Home Assistant)"),
 }
 
+# Tools nuevas de la 1.2.1 (spec 034, contracts/tools.md): código de hints y
+# título exactos. Las de lectura de /addons y /share solo leen ficheros: ni
+# destructivas ni de mundo abierto, e idempotentes. Diccionario aparte para
+# que `_HINTS_NUEVAS_1_2_0` siga diciendo lo que trajo la 1.2.0.
+_HINTS_NUEVAS_1_2_1: dict[str, tuple[str, str]] = {
+    "fs_list_dir_in_folder": ("R-I-", "List dir in folder (files)"),
+    "fs_stat_in_folder": ("R-I-", "Stat in folder (files)"),
+    "fs_read_file_in_folder": ("R-I-", "Read file in folder (files)"),
+    # Tramo 2: las cuatro que modifican piden token, así que se anuncian
+    # destructivas (invariante «pide token ⇔ destructiva»; crear carpeta
+    # también, como `sv_start_core` en la 022). Idempotentes: repetida, cada
+    # una deja el mismo estado o se rechaza sin efecto (`already_exists`,
+    # `not_found`, `destination_exists`). Ninguna sale a internet.
+    "fs_write_file_in_folder": ("-DI-", "Write file in folder (files)"),
+    "fs_create_dir_in_folder": ("-DI-", "Create dir in folder (files)"),
+    "fs_move_in_folder": ("-DI-", "Move in folder (files)"),
+    "fs_delete_in_folder": ("-DI-", "Delete in folder (files)"),
+}
+
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
 # La tabla de arriba sigue diciendo lo que prometía la 1.1.2.
 _HINTS_CAMBIADOS_A_PROPOSITO: dict[str, str] = {
@@ -1111,6 +1130,16 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "ha_marketplace_acknowledge_critical", "ha_marketplace_ignore_repository",
         "ha_marketplace_remove_repository", "ha_marketplace_refresh_repository",
         "ha_marketplace_uninstall",
+    },
+}
+
+# Tools de cada familia nueva de la 1.2.1 (spec 034): las tres de lectura
+# (tramo 1) y las cuatro que modifican (tramo 2).
+_TOOLS_DE_FAMILIA_1_2_1: dict[str, set[str]] = {
+    "addons_share": {
+        "fs_list_dir_in_folder", "fs_stat_in_folder", "fs_read_file_in_folder",
+        "fs_write_file_in_folder", "fs_create_dir_in_folder", "fs_move_in_folder",
+        "fs_delete_in_folder",
     },
 }
 
@@ -1234,7 +1263,8 @@ class TestToolTitles:
         tools = _real_registry()
         faltan = sorted(set(_HINTS_SNAPSHOT) - set(tools))
         assert faltan == [], f"tools de la 1.1.2 que ya no están: {faltan}"
-        sobran = sorted(set(tools) - set(_HINTS_SNAPSHOT) - set(_HINTS_NUEVAS_1_2_0))
+        sobran = sorted(set(tools) - set(_HINTS_SNAPSHOT) - set(_HINTS_NUEVAS_1_2_0)
+                        - set(_HINTS_NUEVAS_1_2_1))
         assert sobran == [], f"tools nuevas sin declarar: {sobran}"
         esperado = {**_HINTS_SNAPSHOT, **_HINTS_CAMBIADOS_A_PROPOSITO}
         cambiados = sorted(
@@ -1249,7 +1279,8 @@ class TestToolTitles:
     def test_hints_y_titulos_de_las_nuevas(self):
         """Contrato de la 011 (contracts/tools.md): hints y títulos exactos."""
         tools = _real_registry()
-        for nombre, (codigo, titulo) in _HINTS_NUEVAS_1_2_0.items():
+        for nombre, (codigo, titulo) in {**_HINTS_NUEVAS_1_2_0,
+                                         **_HINTS_NUEVAS_1_2_1}.items():
             assert nombre in tools, f"{nombre} no está registrada"
             assert _hint_code(tools[nombre].annotations) == codigo, nombre
             assert tools[nombre].title == titulo, (nombre, tools[nombre].title)
@@ -1433,13 +1464,15 @@ class TestRegistroPorFamilias:
             assert reducido <= completo, nombre
 
     def test_sc005_sin_las_de_la_1_2_0_queda_la_1_1_2(self):
-        """SC-005: con todas las familias `desde="1.2.0"` desactivadas, los
+        """SC-005: con todas las familias posteriores a la 1.1.2 desactivadas
+        (las de la 1.2.0 y, desde la spec 034, las de la 1.2.1), los
         nombres son EXACTAMENTE los 216 de la 1.1.2 (más `test_progress`,
         que solo existe con HERMES_DEV y ya estaba en la instantánea) y con
         los mismos hints."""
         from hermes.tool_families import FAMILIAS
 
-        nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
+        nuevas = [n for n, f in FAMILIAS.items() if f.desde != "1.1.2"]
+        assert "addons_share" in nuevas
         assert {"generic_commands", "system_diagnostics", "mounts",
                 "system_updates"} <= set(nuevas)
         tools = _real_registry(nuevas)
@@ -1458,11 +1491,36 @@ class TestRegistroPorFamilias:
         """Spec 016 (T009, FR-017): cada familia nueva de la 1.2.0 registra
         exactamente sus tools y, desactivada, ninguna (las demás siguen)."""
         completo = set(_do_register().tools)
-        for familia, tools in _TOOLS_DE_FAMILIA_1_2_0.items():
+        for familia, tools in {**_TOOLS_DE_FAMILIA_1_2_0,
+                               **_TOOLS_DE_FAMILIA_1_2_1}.items():
             assert tools <= completo, (familia, sorted(tools - completo))
             reducido = set(_do_register([familia]).tools)
             assert reducido.isdisjoint(tools), (familia, sorted(reducido & tools))
             assert completo - reducido == tools, familia
+
+    def test_sin_addons_share_quedan_las_359_de_la_1_2_0(self):
+        """Spec 034 (FR-003, FR-027, SC-004): con `addons_share` apagada, la
+        lista es EXACTAMENTE la de la 1.2.0 y con las mismas anotaciones.
+
+        `tests/fixtures/tools_1_2_0.json` ({nombre: código de hints}) se
+        generó del registro real de `main` en `37a25d4` (la 1.2.0 publicada,
+        antes de la 034), sin `HERMES_DEV`. No se regenera: es la referencia.
+        Control negativo comprobado: registrando `folders` fuera de
+        `_activa("addons_share")` cae este test (sobran las tres).
+        """
+        import json
+
+        ruta = pathlib.Path(__file__).resolve().parent / "fixtures" / "tools_1_2_0.json"
+        esperado = json.loads(ruta.read_text(encoding="utf-8"))
+        assert len(esperado) == 359
+        tools = _real_registry(["addons_share"])
+        tools.pop("test_progress", None)
+        assert set(tools) == set(esperado), (
+            f"sobran {sorted(set(tools) - set(esperado))}, "
+            f"faltan {sorted(set(esperado) - set(tools))}")
+        cambiados = sorted(n for n, h in esperado.items()
+                           if _hint_code(tools[n].annotations) != h)
+        assert cambiados == [], f"hints cambiados: {cambiados}"
 
     def test_por_defecto_la_1_1_2_entera(self):
         """Con la opción vacía, las 216 están y con los mismos hints."""
@@ -3049,6 +3107,96 @@ class TestConjuntoDeLa021:
                         assert not any(m in arg.arg for m in (
                             "password", "secret", "token", "username")), (nodo.name, arg.arg)
         assert vistas == set(_TODAS_021)
+
+
+_LECTURA_034 = ("fs_list_dir_in_folder", "fs_stat_in_folder", "fs_read_file_in_folder")
+_ARGUMENTOS_034 = {
+    "fs_list_dir_in_folder": (["folder", "max_depth", "path", "recursive"], ["folder"]),
+    "fs_stat_in_folder": (["folder", "path"], ["folder", "path"]),
+    "fs_read_file_in_folder": (["folder", "limit", "offset", "path"], ["folder", "path"]),
+}
+
+
+_ESCRITURA_034 = {
+    "fs_write_file_in_folder": (["confirmation_token", "content", "folder", "path"],
+                                ["folder", "path"]),
+    "fs_create_dir_in_folder": (["confirmation_token", "folder", "path"], ["folder", "path"]),
+    "fs_move_in_folder": (["confirmation_token", "dst", "folder", "src"],
+                          ["dst", "folder", "src"]),
+    "fs_delete_in_folder": (["confirmation_token", "folder", "path", "recursive"],
+                            ["folder", "path"]),
+}
+
+
+class TestFamiliaAddonsShare:
+    """Spec 034, T011 (FR-003, FR-024): las tres de lectura de /addons y
+    /share se registran por defecto, solo leen (sin `destructiveHint` ni
+    `openWorldHint`), son idempotentes, con los títulos y argumentos del
+    contrato, y desaparecen con la familia apagada.
+
+    Control negativo comprobado: registrándolas fuera de
+    `_activa("addons_share")` caen `test_ninguna_con_la_familia_apagada`,
+    `test_cada_register_dentro_de_su_familia` y el de las 359 de la 1.2.0.
+    """
+
+    def test_registradas_por_defecto_y_solo_leen(self):
+        tools = _real_registry()
+        for nombre in _LECTURA_034:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert not ann.destructive_hint, nombre
+            assert not ann.open_world_hint, nombre
+            assert ann.idempotent_hint is True, nombre
+            codigo, titulo = _HINTS_NUEVAS_1_2_1[nombre]
+            assert _hint_code(ann) == codigo, nombre
+            assert tools[nombre].title == titulo, nombre
+
+    def test_argumentos_del_contrato(self):
+        tools = _real_registry()
+        for nombre, (props, obligatorios) in _ARGUMENTOS_034.items():
+            esquema = tools[nombre].parameters
+            assert sorted(esquema.get("properties", {})) == props, nombre
+            assert sorted(esquema.get("required", [])) == obligatorios, nombre
+            # `folder` es texto libre validado a mano (`invalid_argument`),
+            # no un enumerado del SDK (contracts/tools.md).
+            assert esquema["properties"]["folder"].get("type") == "string", nombre
+            assert "confirmation_token" not in esquema.get("properties", {}), nombre
+
+    def test_ninguna_con_la_familia_apagada(self):
+        tools = _real_registry(["addons_share"])
+        assert not (set(_LECTURA_034) | set(_ESCRITURA_034)) & set(tools)
+        # Y la de /config siguen.
+        assert {"fs_list_dir", "fs_stat", "fs_read_file", "fs_write_file",
+                "fs_move_file", "fs_delete_file"} <= set(tools)
+
+    def test_las_que_modifican_piden_token_y_son_destructivas(self):
+        """Tramo 2 (T025, FR-011, FR-024): las cuatro que modifican se
+        registran por defecto, con `confirmation_token`, `destructiveHint`
+        (escribir, crear carpeta y mover por nombre exacto; borrar por el
+        prefijo `fs_delete_`), idempotentes y sin `openWorldHint`.
+
+        Control negativo comprobado: sacando `fs_move_in_folder` de
+        `_DESTRUCTIVE_EXACT` caen este test, `test_hints_y_titulos_de_las_nuevas`
+        y el invariante «pide token ⇔ destructiva»."""
+        tools = _real_registry()
+        for nombre, (props, obligatorios) in _ESCRITURA_034.items():
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is False, nombre
+            assert ann.destructive_hint is True, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert not ann.open_world_hint, nombre
+            codigo, titulo = _HINTS_NUEVAS_1_2_1[nombre]
+            assert _hint_code(ann) == codigo, nombre
+            assert tools[nombre].title == titulo, nombre
+            esquema = tools[nombre].parameters
+            assert sorted(esquema.get("properties", {})) == props, nombre
+            assert sorted(esquema.get("required", [])) == obligatorios, nombre
+            assert esquema["properties"]["folder"].get("type") == "string", nombre
+        # `content` es texto exactamente (el SDK no hace `json.loads`).
+        contenido = tools["fs_write_file_in_folder"].parameters["properties"]["content"]
+        assert contenido.get("type") == "string", contenido
 
 
 class TestToolCountInDocs:
