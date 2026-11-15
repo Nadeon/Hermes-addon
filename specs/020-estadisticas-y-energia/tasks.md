@@ -274,3 +274,15 @@ separado (uno o varios commits; el tramo no se cierra con la suite en rojo).
 MVP = tramo 1 (US1 y US2: borrar y arreglar unidades, lo más pedido y lo más
 arriesgado). El tramo 2 completa CAP-050 (US3, US4) y el 3 hace la energía
 (US5) y cierra la documentación. US6 se comprueba en los tres.
+
+## Fase 4: Convergencia
+
+Añadida por la revisión independiente y `speckit-converge` sobre la punta de la
+rama (258ea8f). Severidad entre corchetes. Cada arreglo con su test de
+regresión y su control negativo (principio VII). T052 no se reabre: la suite
+local da los 6 fallos conocidos y el CI de la punta (pytest 3.12 y 3.13 y el
+banco de Core) está en verde; solo falta marcarla.
+
+- [ ] T053 [MEDIO] La vista previa de `ha_adjust_statistics_sum` miente cuando `start_time` tiene segundos o microsegundos: HA ajusta la tabla horaria con `start_ts >= start_time.replace(minute=0)` (`adjust_statistics` en `recorder/statistics.py`), que conserva los segundos, así que con `10:30:15Z` la fila horaria de las 10:00 NO se ajusta (umbral 10:00:15); la vista previa lee esa fila y enseña `sum_at_start: {before: 100, after: 105}`, y la descripción y la guía dicen «every hourly row from its hour on» (comprobado con el doble de HA). Arreglo mínimo: rechazar con `invalid_argument` un `start_time` con segundos o microsegundos distintos de cero (o calcular la hora como HA y decir que esa fila no se toca); test con `10:30:15Z` per FR-004, FR-006, principio V (contradicts)
+- [ ] T054 [BAJO] Entrada hostil: un entero enorme (p. ej. `10**400`, válido en JSON) en una fila de `stats` de `ha_import_statistics` (y en `adjustment` si llega sin convertir) lanza `OverflowError` en `math.isfinite` (`_numero_finito`) y la tool revienta con una excepción en vez de `invalid_argument` (comprobado; no se escribe nada). Arreglo mínimo: en `_numero_finito`, capturar `OverflowError` y devolver `False`; test con `10**400` per FR-004, FR-005 (partial)
+- [ ] T055 [BAJO] `recorder/get_statistics_metadata` devuelve también las estadísticas que la integración «añadirá en el próximo periodo» aunque no estén en la base (`list_statistic_ids` consulta las plataformas, p. ej. todo sensor con `state_class`). Consecuencias: (a) tras borrar entera la estadística de un sensor vivo sigue saliendo en las listas y el recorder la recrea en la siguiente compilación, pero la vista previa y la guía dicen «They disappear from the statistics lists» / «desaparecen de las listas»; (b) en esa ventana (sensor nuevo sin compilar), `ha_change_statistics_unit`, `ha_update_statistics_metadata` y `ha_adjust_statistics_sum` dan token y `queued`/`updated` y HA no hace nada (sus trabajos de la cola miran la base). Arreglo mínimo: corregir el texto de la vista previa y de la guía de borrar («una estadística de una entidad que se graba vuelve a aparecer y se recompila desde ahora; las filas borradas no vuelven») y decirlo en las descripciones; (b) basta documentarlo per FR-006, FR-008, FR-020, principio V (partial)
