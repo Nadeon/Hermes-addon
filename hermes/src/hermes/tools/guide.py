@@ -874,6 +874,12 @@ los metadatos leídos del YAML, el tamaño y la huella SHA-256. Si la ruta está
 ocupada responde `already_exists`: elige otra o pasa `allow_override=true`.
 Al confirmar puedes omitir `yaml` (la vista previa lo guarda). HA reescribe el
 YAML al guardar (se pierden los comentarios).
+ETIQUETAS: solo se admite `!input`. Cualquier otra etiqueta YAML (`!secret`,
+`!env_var`, `!include`, `!include_dir_*`, `!!str`… en cualquier nivel, en
+claves o en listas) da `unsupported_yaml_tag` con la etiqueta y sin token:
+HA la resolvería al guardar y escribiría el valor resuelto (un secreto, un
+token, un fichero) en claro en `/config/blueprints/`. Escribe el valor que
+quieras sin etiqueta, o déjalo como entrada (`!input`).
 
 IMPORTAR DE UNA URL
 `ha_import_blueprint(url, path=None, allow_override=False)` (token). Lo
@@ -889,7 +895,10 @@ Sin token: `invalid_blueprint` (errores de validación de HA o dominio que no
 es `automation`, `script` ni `template`), `already_exists` (pasa otra `path`
 o `allow_override=true`; entonces HA recarga a quien lo use),
 `blueprint_too_large` (el YAML no cabe en la respuesta: no se puede confirmar
-lo que no se ha visto) e `import_failed` (HA no pudo descargarlo). Al
+lo que no se ha visto), `unsupported_yaml_tag` (el YAML descargado usa una
+etiqueta que no es `!input`, como `!secret`, `!env_var` o `!include`: HA la
+resolvería al guardar; se comprueba en la vista previa y otra vez al
+confirmar) e `import_failed` (HA no pudo descargarlo). Al
 confirmar (la MISMA llamada con el token), HA lo descarga otra vez y solo se
 guarda si es idéntico byte a byte al de la vista previa; si cambió (o cambió
 la ruta sugerida), `content_changed`: pide otra vista previa. HA añade

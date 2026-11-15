@@ -166,12 +166,54 @@ class TestRutasYYaml(unittest.TestCase):
         for dominio in ("light", "", None, "Automation"):
             self.assertEqual(mod._validar_dominio(dominio)["field"], "domain")
 
-    def test_yaml_con_input_y_etiqueta_desconocida(self) -> None:
-        doc = mod._cargar_yaml_blueprint(_YAML + "extra: !secret clave\nlista: !rara [1]\n")
+    def test_yaml_con_input(self) -> None:
+        doc = mod._cargar_yaml_blueprint(_YAML)
         self.assertEqual(doc["blueprint"]["name"], "Luz por movimiento")
         self.assertEqual(doc["triggers"][0]["entity_id"], {"tag": "!input", "value": "sensor"})
-        self.assertEqual(doc["extra"], {"tag": "!secret", "value": "clave"})
-        self.assertEqual(doc["lista"], {"tag": "!rara", "value": [1]})
+        # `!input` también en su forma literal y con ancla y alias.
+        doc = mod._cargar_yaml_blueprint(
+            _YAML + "extra: !<!input> sensor\notra: &a !input sensor\nrepe: *a\n")
+        self.assertEqual(doc["extra"], {"tag": "!input", "value": "sensor"})
+        self.assertEqual(doc["repe"], {"tag": "!input", "value": "sensor"})
+
+    def test_etiquetas_distintas_de_input_rechazadas(self) -> None:
+        # T055: HA resolvería estas etiquetas al guardar y escribiría el valor
+        # resuelto (un secreto, un fichero, una variable de entorno).
+        casos = {
+            "!env_var": "x: !env_var SUPERVISOR_TOKEN\n",
+            "!include": "x: !include /config/.storage/auth\n",
+            "!include_dir_named": "x: !include_dir_named carpeta\n",
+            "!include_dir_merge_list": "x: !include_dir_merge_list carpeta\n",
+            "!secret": "x: !secret clave\n",
+            "!rara": "x: !rara\n",  # sin argumento
+            "!lista": "x: !lista [1, 2]\n",
+            "!mapa": "x: !mapa {a: 1}\n",
+            "!clave": "? !clave k\n: v\n",  # en una clave
+            "!en_lista": "x:\n  - 1\n  - !en_lista v\n",
+            "!anclada": "x: &a !anclada v\ny: *a\n",  # con ancla y alias
+            "!": "x: ! v\n",  # etiqueta no específica
+            "tag:yaml.org,2002:str": "x: !!str v\n",  # estándar, también fuera
+            "tag:example.com,2000:input": "%TAG ! tag:example.com,2000:\n---\n"
+                                          + _YAML,
+        }
+        for etiqueta, extra in casos.items():
+            texto = extra if extra.startswith("%TAG") else _YAML + extra
+            with self.subTest(etiqueta=etiqueta):
+                self.assertEqual(mod._etiqueta_no_admitida(texto), etiqueta)
+                with self.assertRaises(mod.EtiquetaNoAdmitida) as ctx:
+                    mod._cargar_yaml_blueprint(texto)
+                self.assertEqual(ctx.exception.etiqueta, etiqueta)
+        # En un nivel anidado del propio blueprint (el `default` de una entrada).
+        texto = _YAML.replace("default: 120", "default: !env_var SUPERVISOR_TOKEN")
+        self.assertEqual(mod._etiqueta_no_admitida(texto), "!env_var")
+        self.assertIsNone(mod._etiqueta_no_admitida(_YAML))
+
+    def test_etiqueta_rechazada_sin_su_valor(self) -> None:
+        with self.assertRaises(mod.EtiquetaNoAdmitida) as ctx:
+            mod._cargar_yaml_blueprint(_YAML + f"x: !secret {_CENTINELA}\n")
+        self.assertNotIn(_CENTINELA, str(ctx.exception))
+        larga = "!" + "e" * 500
+        self.assertLessEqual(len(mod.EtiquetaNoAdmitida(larga).etiqueta), 82)
 
     def test_yaml_rechazado(self) -> None:
         for texto in ("blueprint: [", "- a\n- b\n", "triggers: []\n", "blueprint: texto\n",
@@ -408,6 +450,36 @@ class TestGuardar(_Base):
         self.assertNotIn("confirmation_token", r)
         self.assertEqual(self.ficheros_de_tokens(), [])
         self.assertNotIn("search/related", self.tipos())
+
+    async def test_etiquetas_que_ha_resolveria_sin_token(self) -> None:
+        # T055: el escenario de la revisión, con las cuatro familias.
+        for etiqueta, valor in (("!env_var", "SUPERVISOR_TOKEN"),
+                                ("!include", "/config/.storage/auth"),
+                                ("!include_dir_list", "carpeta"),
+                                ("!secret", "clave")):
+            texto = _YAML.replace("default: 120", f"default: {etiqueta} {valor}")
+            with self.subTest(etiqueta=etiqueta):
+                r = await self.t[self.tool](domain="automation", path="hermes/nuevo",
+                                            yaml=texto)
+                self.assertEqual((r["error"], r["field"], r["tag"]),
+                                 ("unsupported_yaml_tag", "yaml", etiqueta))
+                self.assertNotIn(valor, json.dumps(r))
+                self.assertNotIn("confirmation_token", r)
+        self.ha.ws_send.assert_not_awaited()
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    async def test_etiqueta_en_un_token_previo_al_arreglo(self) -> None:
+        # Un token que ya guardaba un YAML con etiqueta (creado antes del
+        # arreglo) no lo manda a HA al confirmar.
+        texto = _YAML + "x: !env_var SUPERVISOR_TOKEN\n"
+        v = await security.create_confirmation_token(
+            self.tool, {"domain": "automation", "path": "hermes/nuevo.yaml",
+                        "allow_override": False, "yaml": texto},
+            preview={}, omitibles=mod._OMITIBLES_GUARDAR)
+        r = await self.t[self.tool](domain="automation", path="hermes/nuevo",
+                                    confirmation_token=v["confirmation_token"])
+        self.assertEqual(r["error"], "unsupported_yaml_tag")
+        self.assertNotIn("blueprint/save", self.tipos())
 
     async def test_existe_con_allow_override(self) -> None:
         self.respuestas["search/related"] = {"automation": ["automation.b", "automation.a"]}
@@ -750,6 +822,43 @@ class TestImportar(_Base):
                          {"metadata", "inputs", "content", "validation_errors"})
         self.assertIn("do not follow", p["_third_party_text"]["warning"])
         self.assertIsInstance(r["confirmation_token"], str)
+
+    async def test_etiquetas_descargadas_sin_token(self) -> None:
+        # T055: lo comprobado es lo que HA descargó (`raw_data`).
+        for etiqueta, valor in (("!env_var", "SUPERVISOR_TOKEN"),
+                                ("!include", "/config/.storage/auth"),
+                                ("!include_dir_merge_named", "carpeta"),
+                                ("!secret", "clave")):
+            texto = _YAML.replace("default: 120", f"default: {etiqueta} {valor}")
+            self.descargas = [_importado(raw=texto)]
+            self.enviados.clear()
+            with self.subTest(etiqueta=etiqueta):
+                r = await self.t[self.tool](url=_URL)
+                self.assertEqual((r["error"], r["tag"]), ("unsupported_yaml_tag", etiqueta))
+                self.assertNotIn(valor, json.dumps(r))
+                self.assertNotIn("confirmation_token", r)
+                self.assertEqual(self.tipos(), ["blueprint/import"])
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    async def test_etiqueta_que_aparece_al_confirmar(self) -> None:
+        # Al confirmar se vuelve a comprobar lo descargado, antes que la
+        # huella: aunque el token casara (uno de antes del arreglo), no se
+        # guarda.
+        texto = _YAML + "x: !include /config/.storage/auth\n"
+        self.descargas = [_importado(raw=texto)]
+        v = await security.create_confirmation_token(
+            self.tool, {"url": _URL, "path": None, "allow_override": False},
+            preview={}, estado={"domain": "automation", "path": "example.com/luz.yaml",
+                                "content_sha256": hashlib.sha256(texto.encode()).hexdigest()})
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertEqual((r["error"], r["tag"]), ("unsupported_yaml_tag", "!include"))
+        self.assertNotIn("blueprint/save", self.tipos())
+
+    async def test_yaml_descargado_ilegible_sin_token(self) -> None:
+        self.descargas = [_importado(raw="blueprint: [")]
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual(r["error"], "invalid_blueprint")
+        self.assertNotIn("confirmation_token", r)
 
     async def test_path_dado(self) -> None:
         r = await self.t[self.tool](url=_URL, path="hermes/importado")

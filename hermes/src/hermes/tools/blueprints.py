@@ -30,6 +30,22 @@ HA lo rechaza («Blueprint in use»). La vista previa pregunta antes a
 alguien lo usa no da token: lo útil es saber quién (research R-3). Para
 `template` HA no expone quién lo usa: la vista previa lo dice.
 
+POR QUÉ SOLO SE ADMITE LA ETIQUETA `!input` (convergencia, T055)
+----------------------------------------------------------------
+HA lee el YAML de un blueprint con su cargador (`yaml_util.parse_yaml`, en
+`blueprint/save` y en todos los importadores), que RESUELVE `!env_var`,
+`!include`, `!include_dir_*` y `!secret`, y guarda el resultado ya resuelto.
+Un `default: !env_var SUPERVISOR_TOKEN` o un `!include .storage/auth`
+acabaría en claro en `/config/blueprints/`, y un blueprint de terceros podría
+mandarlo fuera con una de sus acciones. Por eso, al guardar y al importar
+(sobre lo que HA descargó, en la vista previa y otra vez al confirmar),
+cualquier etiqueta explícita que no sea `!input` (local o estándar, en
+valores, claves, listas o nodos con ancla) rechaza la operación sin token:
+`unsupported_yaml_tag`, nombrando la etiqueta y nunca su valor. Se detecta
+con los eventos del parser de PyYAML (cada nodo con etiqueta explícita la
+trae, también el que luego se reutiliza con un alias), no con una expresión
+regular; y el cargador solo sabe construir `!input`, como segunda barrera.
+
 QUÉ NO SALE NUNCA
 -----------------
 El log solo lleva dominios, rutas, tamaños, huellas, recuentos y códigos: ni
@@ -175,28 +191,84 @@ def _validar_ruta(path: Any) -> tuple[str | None, dict[str, Any] | None]:
 
 
 class _CargadorBlueprint(_yaml.SafeLoader):
-    """`SafeLoader` que acepta `!input` y cualquier otra etiqueta local.
+    """`SafeLoader` que solo sabe construir, además, la etiqueta `!input`.
 
-    Un blueprint usa `!input` (y puede llevar `!secret` o `!include`); el
-    `SafeLoader` normal falla con ellas. Aquí solo se lee para sacar los
-    metadatos de la vista previa, así que cada etiqueta local se toma como un
-    valor opaco: no se resuelve nada (ni secretos ni ficheros). Las etiquetas
-    de Python (`tag:yaml.org,2002:python/…`) siguen fallando, como en el
-    `SafeLoader`.
+    Cualquier otra etiqueta local (`!secret`, `!env_var`, `!include`…) falla
+    como en el `SafeLoader`: HA la resolvería al guardar (ver el docstring
+    del módulo). Antes de cargar, `_etiqueta_no_admitida` ya ha rechazado
+    toda etiqueta explícita distinta de `!input` con un error que la nombra;
+    esto es la segunda barrera.
     """
 
 
-def _etiqueta_opaca(loader: _yaml.SafeLoader, sufijo: str, nodo: _yaml.Node) -> Any:
+def _construir_input(loader: _yaml.SafeLoader, nodo: _yaml.Node) -> Any:
+    # Valor opaco: solo se lee para la vista previa, nada se resuelve.
     if isinstance(nodo, _yaml.ScalarNode):
         valor: Any = loader.construct_scalar(nodo)
     elif isinstance(nodo, _yaml.SequenceNode):
         valor = loader.construct_sequence(nodo)
     else:
         valor = loader.construct_mapping(nodo)  # type: ignore[arg-type]
-    return {"tag": f"!{sufijo}", "value": valor}
+    return {"tag": "!input", "value": valor}
 
 
-_CargadorBlueprint.add_multi_constructor("!", _etiqueta_opaca)
+_CargadorBlueprint.add_constructor("!input", _construir_input)
+
+# Longitud con la que se nombra una etiqueta rechazada: un `!<…>` literal lo
+# escribe quien manda el YAML y podría ser larguísimo.
+_ETIQUETA_MAX = 80
+
+
+class EtiquetaNoAdmitida(ValueError):
+    """El YAML lleva una etiqueta explícita que no es `!input`."""
+
+    def __init__(self, etiqueta: str) -> None:
+        nombre = etiqueta if len(etiqueta) <= _ETIQUETA_MAX else etiqueta[:_ETIQUETA_MAX] + "…"
+        self.etiqueta = redact_secrets(nombre)
+        super().__init__(
+            f"the YAML uses the tag {self.etiqueta!r}; only !input is allowed in a "
+            "blueprint (Home Assistant would resolve other tags such as !secret, "
+            "!env_var or !include and save the resolved value)"
+        )
+
+
+def _etiqueta_no_admitida(texto: str) -> str | None:
+    """La primera etiqueta explícita que no es `!input`, o None.
+
+    Recorre los eventos del parser: cada escalar, lista o mapa con etiqueta
+    explícita la trae ya resuelta (`!env_var`, `tag:yaml.org,2002:str` para
+    `!!str`, o lo que diga un `%TAG`), y uno sin etiqueta trae None. Eso
+    cubre claves, listas, niveles anidados y nodos con ancla (el alias que
+    los repite no lleva etiqueta propia). Lanza `yaml.YAMLError` si el texto
+    no se puede leer.
+    """
+    for evento in _yaml.parse(texto, Loader=_CargadorBlueprint):
+        etiqueta = getattr(evento, "tag", None)
+        if etiqueta is not None and etiqueta != "!input":
+            return str(etiqueta)
+    return None
+
+
+def _error_etiqueta(exc: EtiquetaNoAdmitida, field: str | None = None) -> dict[str, Any]:
+    respuesta: dict[str, Any] = {"error": "unsupported_yaml_tag", "tag": exc.etiqueta,
+                                 "detail": str(exc)}
+    if field:
+        respuesta["field"] = field
+    return respuesta
+
+
+def _comprobar_etiquetas(texto: str) -> None:
+    """`EtiquetaNoAdmitida` si hay una etiqueta que no es `!input`.
+
+    Un texto que el parser no puede leer no se resuelve aquí: lo dice el
+    cargador con su motivo (o, al importar, se rechaza aparte).
+    """
+    try:
+        etiqueta = _etiqueta_no_admitida(texto)
+    except _yaml.YAMLError:
+        return
+    if etiqueta is not None:
+        raise EtiquetaNoAdmitida(etiqueta)
 
 
 def _cargar_yaml_blueprint(texto: str) -> dict[str, Any]:
@@ -208,6 +280,7 @@ def _cargar_yaml_blueprint(texto: str) -> dict[str, Any]:
     """
     if len(texto.encode("utf-8")) > YAML_MAX_BYTES:
         raise ValueError(f"the YAML is larger than {YAML_MAX_BYTES} bytes")
+    _comprobar_etiquetas(texto)
     try:
         doc = _yaml.load(texto, Loader=_CargadorBlueprint)  # noqa: S506 — SafeLoader
     except _yaml.YAMLError as exc:
@@ -643,7 +716,10 @@ def register(
         re-serialises the YAML (comments are lost). If the path exists, it
         is refused with `already_exists` unless `allow_override=true`; then
         Home Assistant reloads the automations or scripts that use it. Use
-        this instead of fs_write_file for blueprints.
+        this instead of fs_write_file for blueprints. The only YAML tag
+        allowed is `!input`: any other (`!secret`, `!env_var`, `!include`,
+        `!include_dir_*`...), which Home Assistant would resolve and save
+        resolved, gives `unsupported_yaml_tag` with no token.
 
         Args:
             domain: "automation", "script" or "template"; must match
@@ -656,8 +732,8 @@ def register(
 
         Returns:
             Preview + token; {"result": "ok", ...}; or {"error": ...}
-            (invalid_argument, already_exists, preview_unavailable,
-            save_failed).
+            (invalid_argument, unsupported_yaml_tag, already_exists,
+            preview_unavailable, save_failed).
         """
         error = _validar_dominio(domain)
         if error:
@@ -679,6 +755,10 @@ def register(
                 return _invalid("yaml", "must be a string with the blueprint YAML")
             try:
                 documento = _cargar_yaml_blueprint(yaml)
+            except EtiquetaNoAdmitida as exc:
+                logger.info("ha_save_blueprint_error", domain=domain, path=ruta,
+                            code="unsupported_yaml_tag")
+                return _error_etiqueta(exc, "yaml")
             except ValueError as exc:
                 return _invalid("yaml", redact_secrets(str(exc)))
             dominio_yaml = documento["blueprint"].get("domain")
@@ -758,6 +838,17 @@ def register(
         # Se guarda lo previsualizado: el reenviado (idéntico, porque el hash
         # casa) o el que se guardó en la vista previa.
         texto = resueltos["yaml"]
+        try:
+            # Ya se comprobó en la vista previa; se repite por si el token se
+            # creó antes de este arreglo o el fichero del token cambió.
+            _comprobar_etiquetas(texto)
+        except EtiquetaNoAdmitida as exc:
+            respuesta_etiqueta = _error_etiqueta(exc, "yaml")
+            await complete_confirmation_token(confirmation_token, success=False,
+                                              error="unsupported_yaml_tag")
+            logger.warning("ha_save_blueprint_error", domain=domain, path=ruta,
+                           code="unsupported_yaml_tag")
+            return respuesta_etiqueta
         try:
             raw = await ha_client.ws_send({
                 "type": "blueprint/save", "domain": domain, "path": ruta,
@@ -924,8 +1015,12 @@ def register(
         only if the content is byte-for-byte the previewed one
         (`content_changed` otherwise). No token if the blueprint has
         validation errors or an unsupported domain (`invalid_blueprint`),
-        the path exists without allow_override (`already_exists`), or the
-        YAML does not fit in a response (`blueprint_too_large`).
+        the downloaded YAML uses a tag other than `!input`, such as
+        `!secret`, `!env_var` or `!include`, which Home Assistant would
+        resolve and save resolved (`unsupported_yaml_tag`, checked again on
+        confirming), the path exists without allow_override
+        (`already_exists`), or the YAML does not fit in a response
+        (`blueprint_too_large`).
 
         Args:
             url: http(s) URL of the blueprint.
@@ -938,8 +1033,8 @@ def register(
         Returns:
             Preview + token; {"result": "ok", ...}; or {"error": ...}
             (invalid_argument, import_failed, invalid_blueprint,
-            already_exists, blueprint_too_large, preview_unavailable,
-            content_changed, save_failed).
+            unsupported_yaml_tag, already_exists, blueprint_too_large,
+            preview_unavailable, content_changed, save_failed).
         """
         error = _validar_url(url)
         if error:
@@ -966,6 +1061,25 @@ def register(
             return _error_de_ha("import_failed", exc)
 
         texto: str = imp["raw_data"]
+        # Lo que HA descargó, en la vista previa y otra vez al confirmar
+        # (este código corre en las dos fases): con una etiqueta que no sea
+        # `!input`, HA la resolvería al guardar (T055). Un texto que el
+        # parser de Hermes no lee no se puede comprobar: tampoco se guarda.
+        try:
+            etiqueta = _etiqueta_no_admitida(texto)
+        except _yaml.YAMLError:
+            logger.info("ha_import_blueprint_error", importer=importador, phase=fase,
+                        code="invalid_blueprint", reason="unreadable_yaml")
+            return {
+                "error": "invalid_blueprint",
+                "validation_errors": [],
+                "detail": "Hermes could not read the downloaded YAML to check its "
+                          "tags, so it is not saved.",
+            }
+        if etiqueta is not None:
+            logger.info("ha_import_blueprint_error", importer=importador, phase=fase,
+                        code="unsupported_yaml_tag")
+            return _error_etiqueta(EtiquetaNoAdmitida(etiqueta))
         meta = imp["blueprint"]["metadata"]
         dominio = meta.get("domain")
         errores = imp.get("validation_errors")

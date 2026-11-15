@@ -343,7 +343,11 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   confirmar, HA vuelve a descargar y solo se guarda (`blueprint/save` con el
   YAML descargado y `source_url`) si la huella coincide. Sin token si: hay
   errores de validación o el dominio no es `automation`, `script` ni
-  `template` (`invalid_blueprint`), ya existe sin `allow_override` (`already_exists`), o
+  `template` (`invalid_blueprint`), el YAML descargado lleva una etiqueta que
+  no es `!input` (`unsupported_yaml_tag`, nombrando la etiqueta y no su
+  valor; se comprueba sobre `raw_data` en la vista previa y otra vez al
+  confirmar, porque HA resuelve `!secret`, `!env_var`, `!include`… al leer y
+  guarda el valor resuelto), ya existe sin `allow_override` (`already_exists`), o
   el YAML no cabe en la vista previa (`blueprint_too_large`). Anotada como de
   mundo abierto (FR-058, CAP-046).
 - **FR-003**: `ha_save_blueprint` guarda un blueprint escrito por el agente
@@ -353,8 +357,12 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   `!input`), el tamaño y la huella. `yaml` se puede omitir al confirmar (se
   guarda en la vista previa, como `config` en las automatizaciones). YAML que
   no se puede leer, sin clave `blueprint` o de otro dominio: `invalid_argument`
-  sin token; el resto lo valida HA al guardar y su error se devuelve redactado
-  (FR-058, CAP-046).
+  sin token. Con cualquier etiqueta explícita que no sea `!input` (local o
+  estándar, en cualquier nivel, clave o lista): `unsupported_yaml_tag` sin
+  token, nombrando la etiqueta y no su valor, porque HA la resolvería al
+  guardar y escribiría el valor (un secreto, el `SUPERVISOR_TOKEN`, un
+  fichero) en claro (convergencia, T055). El resto lo valida HA al guardar y
+  su error se devuelve redactado (FR-058, CAP-046).
 - **FR-004**: `ha_delete_blueprint` borra un blueprint (`domain`, `path`) en
   dos pasos con `blueprint/delete`. Antes de dar el token comprueba que existe
   (`not_found`) y quién lo usa con `search/related`

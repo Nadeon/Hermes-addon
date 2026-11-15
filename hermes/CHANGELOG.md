@@ -183,7 +183,11 @@ Familia nueva
   metadatos y entradas leídos del YAML (sin resolver `!input`), el tamaño y
   la huella SHA-256; no repite el YAML. Una ruta ocupada da `already_exists`
   sin token salvo con `allow_override=true`. `yaml` se puede omitir al
-  confirmar (spec 007).
+  confirmar (spec 007). Solo admite la etiqueta YAML `!input`: cualquier otra
+  (`!secret`, `!env_var`, `!include`, `!include_dir_*`, también las
+  estándar `!!…`, en cualquier nivel) da `unsupported_yaml_tag` sin token,
+  porque HA la resolvería al guardar y escribiría el valor en claro en
+  `/config/blueprints/` (convergencia).
 - `ha_delete_blueprint` (token): nunca da token para un blueprint en uso
   (`blueprint_in_use` con las automatizaciones o scripts que lo usan, según
   `search/related`, la misma fuente que usa HA para negarse); si no se puede
@@ -198,7 +202,9 @@ Familia nueva
   (se guarda el original). Al confirmar, HA lo descarga otra vez y solo se
   guarda si la huella y la ruta casan con la vista previa; si no,
   `content_changed` sin guardar. Sin token con errores de validación o un
-  dominio no admitido (`invalid_blueprint`), una ruta ocupada sin
+  dominio no admitido (`invalid_blueprint`), un YAML descargado con una
+  etiqueta que no es `!input` (`unsupported_yaml_tag`, comprobado en la
+  vista previa y otra vez al confirmar), una ruta ocupada sin
   `allow_override` (`already_exists`) o un YAML que no cabe en la respuesta
   (`blueprint_too_large`: no se recorta). Anotada como destructiva y de
   mundo abierto. El fichero del token no guarda el YAML y el log no lleva la
