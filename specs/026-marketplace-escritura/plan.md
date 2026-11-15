@@ -6,6 +6,28 @@ punta `f108af0`, 314 tools) · **Spec**: [spec.md](spec.md) · **Paraguas**:
 
 ## Resumen
 
+> **DESVIACIÓN DV-1 (spec.md, «Requisitos»)**: lo que sigue es el plan
+> original de nueve tools. Por decisión del supervisor, las cuatro que
+> exigen el aviso de riesgos aceptado por el usuario de Hermes
+> (`ha_marketplace_install`, `ha_marketplace_set_version`,
+> `ha_marketplace_set_beta`, `ha_marketplace_add_repository`) no se
+> construyen y sus cinco comandos (`install`, `version`, `beta`, `detect`,
+> `add`) quedan en `deny` con el motivo de la duda D-29. Quedan cinco tools:
+> el tramo 1 hace las cuatro de `marketplace_manage` (reconocer, ignorar,
+> quitar, refrescar) con el módulo común `tools/_marketplace_write.py`; el
+> tramo 2, solo `ha_marketplace_uninstall` con su backup previo. FR-018 no
+> aplica (los textos de lectura siguen siendo verdad). Donde el diseño de
+> abajo habla de las cuatro que exigen el aviso, de `comprobar_aviso`, de la
+> URL de GitHub o de `version_check`, ya no aplica.
+>
+> Desviaciones de implementación del tramo 1: las lecturas de las vistas
+> previas no usan `_list_catalog` de `tools/marketplace.py` (cae a HACS, y
+> la escritura no debe probar `hacs/*`): el módulo común lee por categorías
+> solo de `marketplace/*`, con su propia lista cerrada de lecturas
+> (`_READ_SUFFIXES`). En el generador de la tabla, una fila A con `_Deny` en
+> `_DEDICADAS_INICIALES` sale `deny` con su motivo (mismo mecanismo que la
+> 031 para `hassio/*`).
+
 Nueve tools nuevas, todas en dos pasos, en dos familias nuevas:
 `marketplace_manage` (añadir y quitar repositorios personalizados, refrescar,
 ignorar un retirado y reconocer un aviso crítico) y `marketplace_install`

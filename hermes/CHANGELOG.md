@@ -797,8 +797,9 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 124 y 72), `read` (36 y 29),
-  `confirm` (20 y 25) o `deny` (443 y 128, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 170 y 95 tras el tramo 1 de la
+  026), `read` (40 y 31), `confirm` (21 y 29) o `deny` (392 y 99, con su
+  motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -1169,6 +1170,64 @@ de la 1.1.2.
   Supervisor es un simulado): quedan en la matriz como `VM` / `pendiente` y
   en la tanda 2 del procedimiento de la VM. La prueba en vivo de toda la
   sub-feature queda pendiente (VM de la 014, después instalación real).
+
+### Escritura en el Marketplace
+
+Spec 026, tramo 1: atender los avisos del Marketplace de Core (antes HACS) y
+mantener su lista, en una familia nueva, `marketplace_manage`. Con la familia
+desactivada (y las demás de la 1.2.0), la lista de tools es la de la 1.1.2.
+
+- **Cuatro tools nuevas, familia `marketplace_manage`**, todas en **dos
+  pasos** y ninguna instala nada:
+  - `ha_marketplace_acknowledge_critical`: reconoce un repositorio crítico
+    (HA ya lo desinstaló al marcarlo) y quita su aviso de Repairs. Sin token
+    si no está en la lista de críticos (`not_critical`) o ya está reconocido
+    (`already_acknowledged`).
+  - `ha_marketplace_ignore_repository`: deja de avisar de un repositorio
+    retirado del catálogo y lo conserva. Solo uno retirado y no crítico (sin
+    token: `repository_not_removed`, `critical_repository`).
+  - `ha_marketplace_remove_repository`: quita de la lista un repositorio
+    personalizado que no está instalado (sin token: `not_custom_repository`,
+    `repository_installed`).
+  - `ha_marketplace_refresh_repository`: HA vuelve a pedir el repositorio a
+    GitHub; `github_rate_limited` explicado.
+- **Vistas previas**: el efecto, si se puede deshacer (reconocer e ignorar no
+  tienen comando que los deshaga), que no hay backup (no cambian ficheros de
+  `/config`) y que el repositorio es de terceros y nadie lo ha revisado
+  (`third_party`, `reviewed_by_home_assistant: false`,
+  `in_default_catalog`). El token se ata al repositorio y a lo leído en la
+  vista previa (la entrada crítica o retirada, el `full_name`, la categoría,
+  `custom` e `installed`): si cambia antes de confirmar, no se hace nada.
+  Los textos de terceros salen recortados y marcados (`_third_party_text`) y
+  la parte de usuario de cualquier URL, tapada.
+- **Solo `marketplace/*`**: con HACS 2.x (HA ≤ 2026.10) las cuatro responden
+  `marketplace_write_unsupported` sin probar `hacs/*`. Lista cerrada de
+  comandos de escritura con su guarda; nunca `warning/accept` ni
+  `github/connect`. El evento de log `marketplace_write` lleva la tool, el
+  resultado y la categoría, nunca repositorios, ids ni textos.
+- **Lo que Hermes no puede hacer (HALLAZGO)**: HA 2026.11.1 exige que el
+  usuario de HA que manda el comando haya aceptado el aviso de riesgos del
+  Marketplace para instalar, fijar versión, mostrar betas, detectar y añadir
+  repositorios. Hermes se conecta con el usuario del Supervisor, que nadie
+  puede usar en la interfaz, y nunca acepta el aviso: esas operaciones no
+  tienen tool (una tool que no puede funcionar no se publica) y sus cinco
+  comandos quedan `deny` en la tabla con ese motivo.
+- **Tabla de comandos**: `marketplace/critical/acknowledge`,
+  `repository/ignore`, `repositories/remove` y `repository/refresh` pasan a
+  `dedicated`; `repositories/add`, `repositories/detect`,
+  `repository/install`, `repository/version` y `repository/beta`, a `deny`
+  con el motivo del aviso de riesgos. Queda pendiente
+  `repository/uninstall` (tramo 2).
+- **Guía**: tema `marketplace_manage` (alias `marketplace write`,
+  `critical`, `custom repository`, `repositorio personalizado`, `hacs
+  install`), que el índice y las instrucciones del servidor nombran solo con
+  la familia activa.
+- **Pruebas**: con un HA simulado con la forma de 2026.11.1. En el banco de
+  Core, `ha_marketplace_acknowledge_critical` reconoce un aviso crítico
+  ficticio sembrado en el storage del banco y el lector ve el efecto; las
+  otras tres no se pueden ejecutar allí (sin internet no hay catálogo), así
+  que un test de contrato envía a HA real la carga exacta de cada comando y
+  comprueba que la acepta. Prueba en vivo pendiente.
 
 ### Banco de pruebas
 

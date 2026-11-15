@@ -4,7 +4,8 @@
 
 **Creada**: 2026-11-15
 
-**Estado**: Borrador
+**Estado**: En curso (tramo 1 hecho; alcance reducido por la DESVIACIÓN DV-1,
+ver «Requisitos»)
 
 **Programa**: cobertura total de HA 2026.11, spec paraguas
 [`specs/008-cobertura-total`](../008-cobertura-total/spec.md). Esta
@@ -82,7 +83,9 @@ en [research.md](research.md)):
   que son del mismo usuario que ejecutará): si no se cumple, no hay token y
   la respuesta lo explica sin rodeos. Las descripciones lo dicen. Desinstalar,
   quitar un repositorio, refrescar, ignorar y reconocer avisos críticos **no**
-  lo exigen y funcionan. Duda para el final D-1 (research R-2).
+  lo exigen y funcionan. Duda para el final D-1 (research R-2). **Resuelta
+  por el supervisor con la DESVIACIÓN DV-1** (ver «Requisitos»): las tools
+  que exigen el aviso no se publican.
 - P: ¿Cuántas tools y en qué familias? → R: **nueve** en **dos familias**,
   una por tramo: `marketplace_install` (instalar, desinstalar, fijar versión,
   mostrar betas: tocan el código instalado) y `marketplace_manage` (añadir y
@@ -330,6 +333,43 @@ descripciones y la guía.
   recortados y marcados en `_third_party_text`.
 
 ## Requisitos *(obligatorio)*
+
+> **DESVIACIÓN DV-1 (HALLAZGO de la spec, decisión del supervisor del
+> programa al validarla; desviación PARCIAL de FR-091 de la 008)**: HA Core
+> 2026.11.1 exige que el usuario de HA que manda el comando haya aceptado el
+> aviso de riesgos del Marketplace (`marketplace_command(
+> requires_accepted_warning=True)`, `warning_accepted(connection.user.id)` en
+> `base.py`) para `repository/install`, `repository/version`,
+> `repository/beta`, `repositories/detect` y `repositories/add`. El usuario de
+> Hermes es el del Supervisor: no puede aceptarlo en la interfaz, y Hermes
+> NUNCA lo acepta en nombre de una persona (clase D). Igual que en la 031
+> (DV-1), no se publican tools que no pueden funcionar: **no existen**
+> `ha_marketplace_install`, `ha_marketplace_set_version`,
+> `ha_marketplace_set_beta` ni `ha_marketplace_add_repository`, y esos cinco
+> comandos quedan en `deny` con el motivo «HA exige que el usuario que lo
+> pide haya aceptado el aviso de riesgos del Marketplace; el usuario de
+> Hermes no puede aceptarlo (duda D-29)», también en una generación de la
+> tabla desde cero (`_Deny` en una fila A de `_DEDICADAS_INICIALES`). La
+> duda D-1 queda resuelta así. Comprobado en `fuentes/core` que
+> `critical/acknowledge` (sin decorador), `repository/ignore`,
+> `repositories/remove`, `repository/refresh` y `repository/uninstall`
+> (`marketplace_command()` sin argumentos) **no** exigen el aviso.
+>
+> Consecuencias en esta spec: donde dice «nueve» tools son **cinco** (cuatro
+> en el tramo 1 y `ha_marketplace_uninstall` en el tramo 2); FR-003, FR-012,
+> FR-013, FR-015 y FR-016, el escenario 6 y 7 de la historia 1 y los
+> escenarios 1-6, 8 y 9 de la historia 2 **no aplican**; en FR-017 el backup
+> previo es solo de desinstalar; en FR-019, las cuatro entradas del tramo 1
+> pasan a `dedicated`, las cinco anteriores a `deny` con el motivo de arriba
+> y `repository/uninstall` a `dedicated` en el tramo 2; FR-018 no aplica
+> (los textos de lectura que dicen que Hermes no instala nada siguen siendo
+> verdad); en FR-022 el tema de la familia del tramo 1 explica lo que Hermes
+> no puede hacer y por qué; en FR-023 el contrato del banco cubre los
+> comandos de las tools que existen; SC-001, SC-003, SC-005 y SC-007 se leen
+> con esas cinco tools. Decisiones del supervisor al validar: todas
+> confirman en dos pasos y son destructivas por nombre exacto; el token se
+> ata al repositorio, a la categoría y a lo leído (`estado`); la vista previa
+> dice si el repositorio es de terceros y no está revisado.
 
 Cada FR traza a la 008: **FR-091 / CAP-075** salvo donde se dice otra cosa.
 

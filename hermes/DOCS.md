@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 322 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 326 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -75,13 +75,17 @@ sub-jobs (una app que no se pudo guardar) no cuenta entre los que se conservan
 y se borra el primero. Solo toca los que Hermes anotó al crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
 detalle de qué borra y qué no está en el README.
 
-El Marketplace (HACS hasta HA 2026.10) es de **solo lectura** para Hermes:
-Claude puede consultar repositorios, actualizaciones y versiones, pero no
-instalar ni aceptar nada ahí. Para actualizar algo usa su entidad `update`, que
-pide confirmación como cualquier otra acción. El aviso de riesgos del
-Marketplace lo tiene que aceptar una persona en la interfaz de Home Assistant,
-con el usuario con el que se conecta Hermes; si no está aceptado, la
-actualización falla y Claude te lo dirá.
+En el Marketplace (HACS hasta HA 2026.10) Claude puede consultar
+repositorios, actualizaciones y versiones y, desde la 1.2.0 (familia
+`marketplace_manage`), reconocer avisos críticos, ignorar repositorios
+retirados, quitar repositorios personalizados no instalados y refrescar uno
+desde GitHub, siempre en dos pasos. No puede instalar, fijar versiones,
+mostrar betas ni añadir repositorios, y nunca acepta nada: Home Assistant
+exige que el aviso de riesgos del Marketplace lo haya aceptado el usuario de
+Home Assistant que lo pide, y Hermes se conecta con el usuario del Supervisor,
+que nadie puede usar en la interfaz. Hazlo desde la interfaz del Marketplace.
+Por la misma razón, actualizar con la entidad `update` suele fallar desde
+Hermes con ese motivo, y Claude te lo dirá.
 
 ## Límites y Claude Code
 
@@ -187,6 +191,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `blueprints` | 5 | Blueprints de automatizaciones, scripts y plantillas: listar, ver la sustitución con unas entradas, guardar, importar de una URL y borrar (nueva en 1.2.0) |
 | `automation_assist` | 9 | Ayuda para escribir automatizaciones: triggers, condiciones y acciones de un dispositivo, qué abarca un target y qué admite, y esperar una vez a un trigger; solo lectura (nueva en 1.2.0) |
 | `system_control` | 7 | Arrancar, reconstruir y configurar Home Assistant Core; recargar, reiniciar, reparar y configurar el Supervisor (nueva en 1.2.0; todo con confirmación salvo recargar; las opciones van por listas cerradas: `image`, `port`, `ssl`, `refresh_token` y el `channel` del Supervisor no se cambian) |
+| `marketplace_manage` | 4 | Mantenimiento del Marketplace: reconocer avisos críticos, ignorar retirados, quitar personalizados no instalados y refrescar desde GitHub (nueva en 1.2.0; siempre con confirmación; no instala nada) |
 | `resolution_fixes` | 1 | Aplicar una sugerencia del centro de resolución del Supervisor (nueva en 1.2.0; siempre con confirmación y una vista previa que explica qué hace; se rechazan las que no tienen arreglo, las que tocan los discos de datos y las que apuntan al propio Hermes) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
@@ -203,7 +208,7 @@ familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
 `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
 `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`,
-`energy`, `system_control` y `resolution_fixes`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`energy`, `system_control`, `resolution_fixes` y `marketplace_manage`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

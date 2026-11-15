@@ -202,6 +202,19 @@ report about one of them will be closed with a pointer to this section:
     a built-in one, or one with installed apps, is refused without a token,
     and the token is bound to the repository and its installed apps read
     in the preview.
+  - **Marketplace maintenance** (`marketplace_manage`): acknowledging a
+    critical repository, ignoring a removed one, removing a custom one and
+    refreshing one all take two steps, and the token is bound to what the
+    preview read (the critical or removed entry, the repository name,
+    category, `custom` and `installed`). The preview states that the
+    repository is third-party code that neither Home Assistant nor Hermes
+    reviews. Only `marketplace/*` commands from a closed list are sent;
+    Hermes never accepts the Marketplace risk warning nor connects GitHub,
+    and it has no tool to install, pin versions, show betas or add
+    repositories: Home Assistant requires the risk warning accepted by the
+    user that sends the command, and Hermes connects as the Supervisor user.
+    The log records the tool, the outcome and the category, never
+    repository names, ids or third-party text.
   - **Tool families** (`tool_families_disabled`): whole groups of tools can
     be left unregistered. An unknown family name, or `base`, stops the add-on
     from starting rather than silently leaving tools on.

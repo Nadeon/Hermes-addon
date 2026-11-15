@@ -1,5 +1,12 @@
 # Modelo de datos: escritura en el Marketplace (026)
 
+> **DESVIACIÓN DV-1** (spec.md, «Requisitos»): `ha_marketplace_install`,
+> `ha_marketplace_set_version`, `ha_marketplace_set_beta` y
+> `ha_marketplace_add_repository` no existen (HA exige el aviso de riesgos
+> aceptado por el usuario de Hermes, que no puede aceptarlo); lo que aquí se
+> dice de ellas, de la URL de repositorio y de `marketplace/info` no aplica.
+> Sus comandos quedan en `deny` con el motivo de la duda D-29.
+
 Formas de lo que leen, envían y devuelven las nueve tools. Nombres de campos y
 errores en inglés (los ve el cliente); los ejemplos usan datos ficticios
 (`ejemplo/tarjeta`, id `"123456"`).

@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **322 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **326 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 322 herramientas
+## Qué puede hacer — 326 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -50,6 +50,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Diagnóstico** | 8 | Avisos de Reparaciones (listar, con su título y descripción como los enseña la interfaz, e ignorar), trazas de automatizaciones y scripts, qué está relacionado con un elemento y el centro de resolución del Supervisor (leer y descartar issues y sugerencias; aplicarlas, en la fila siguiente) |
 | **Arreglos del centro de resolución** | 1 | Aplicar una sugerencia del Supervisor tras una vista previa que explica qué hace (qué corta, si se puede deshacer, qué backups completos borraría, qué arreglos automáticos aplica el Supervisor de paso), siempre con confirmación. Se rechazan las que no tienen arreglo, las que Hermes no sabe explicar, las que tocan los discos de datos y las que apuntan al propio Hermes. Familia `resolution_fixes`, nueva en 1.2.0 |
 | **Marketplace (antes HACS)** | 11 | De solo lectura: estado, repositorios, actualizaciones disponibles, versiones publicadas y repositorios críticos o retirados. Detecta en cada llamada si Home Assistant trae el Marketplace integrado (2026.11 o posterior) o HACS 2.x. Las actualizaciones se instalan con la entidad `update`, con confirmación. Las 4 tools `ha_hacs_*` siguen como alias deprecados hasta 1.3.0 |
+| **Mantenimiento del Marketplace** | 4 | Reconocer un repositorio crítico, ignorar la retirada de un repositorio que salió del catálogo, quitar un repositorio personalizado que no está instalado y refrescar un repositorio desde GitHub, cada una en dos pasos con vista previa (no instala nada; el repositorio es código de terceros que nadie ha revisado). Instalar, fijar versión, mostrar betas y añadir repositorios no se puede: Home Assistant exige el aviso de riesgos del Marketplace aceptado por el usuario de Home Assistant con el que se conecta Hermes (el del Supervisor), que no puede aceptarlo, y Hermes nunca lo acepta. Familia `marketplace_manage`, nueva en 1.2.0 |
 | **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
 | **Estado del sistema** | 5 | De solo lectura: el informe de salud del sistema (lo que enseña Ajustes → Sistema → Reparaciones → Información del sistema), si Home Assistant o el host piden reinicio, cuánto tardó cada integración en arrancar y los manifiestos de las integraciones. Familia `system_status`, nueva en 1.2.0 |
@@ -73,7 +74,7 @@ están siempre, y apagando las familias nuevas de la 1.2.0
 (`generic_commands`, `system_diagnostics`, `system_status`, `recorder`,
 `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`,
 `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`,
-`system_control` y `resolution_fixes`)
+`system_control`, `resolution_fixes` y `marketplace_manage`)
 tienes exactamente la lista de herramientas de la 1.1.2.
 
 Las herramientas destructivas devuelven, en la primera llamada, una vista previa
@@ -472,7 +473,7 @@ completo está aquí abajo.
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control` y `resolution_fixes`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
+| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes` y `marketplace_manage`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs que no sean de loopback (también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (p. ej. `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**: cada descarga sale de la IP de tu casa hacia un host que cualquiera puede elegir sin la contraseña. Pon solo los hosts que uses; ver `hermes/DOCS.md` |
