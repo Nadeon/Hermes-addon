@@ -52,20 +52,20 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
 
 ### Preparación
 
-- [ ] T001 Comprobar que la rama sale de `feat/cobertura-total` con la 011
+- [x] T001 Comprobar que la rama sale de `feat/cobertura-total` con la 011
   entera (`806a764` o posterior) y tomar la línea base de la suite; si hay
   fallos distintos de los 6 conocidos, anotarlos antes de tocar nada.
 
 ### Redacción de valor entero (FR-008)
 
-- [ ] T002 [US2] Tests en `tests/test_tools_generic_commands_clase_c.py`,
+- [x] T002 [US2] Tests en `tests/test_tools_generic_commands_clase_c.py`,
   clase `TestRedaccionValorEntero` (con una tabla inyectada con
   `redact_extra=("k",)`): un objeto y una lista bajo `k` salen
   `***REDACTED***` enteros (ninguna clave interior en la respuesta); texto
   y número, tapados como hoy; cadena vacía y `None`, tal cual; una clave que
   no está en `redact_extra` se recorre como hoy;
   `logbook/get_action_calls` con su `code` sigue igual. Verlos en rojo.
-- [ ] T003 [US2] En `hermes/src/hermes/tools/generic_commands.py`,
+- [x] T003 [US2] En `hermes/src/hermes/tools/generic_commands.py`,
   `_redactar`: si `clave.lower()` está en `extra` y el valor es un `Mapping`
   o una lista, devolver `REDACTED_MARKER` antes de recorrerlo; comentario del
   porqué (H-1 de research.md). Actualizar el comentario del campo
@@ -75,7 +75,7 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
 
 ### Generador (FR-012)
 
-- [ ] T004 [US6] Tests en `tests/test_generar_tabla.py`: (a) con
+- [x] T004 [US6] Tests en `tests/test_generar_tabla.py`: (a) con
   `mock.patch.dict(gt.CLASE_C, {"demo/radio/reset": {...}})`, la fila C del
   fixture sale con la categoría, el motivo y las marcas del mapa; (b)
   `test_desde_cero_clase_c_igual_que_la_tabla`: generar desde cero con los
@@ -86,7 +86,7 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
   tabla real, y que el número de filas comparadas es el esperado (55 en este
   tramo). `test_clase_c` (fila fuera del mapa) sigue esperando «pendiente de
   revisión (spec 025)». Verlos en rojo.
-- [ ] T005 [US6] Crear `scripts/inventario/clase_c.py` (docstring con el
+- [x] T005 [US6] Crear `scripts/inventario/clase_c.py` (docstring con el
   porqué: research.md R-4; `CLASE_C: dict[str, dict[str, object]] = {}`) y,
   en `generar_tabla.py`, importarlo y cambiar la rama `if clase == "C"` de
   `_clasificar`: si la clave está en el mapa, `{**base, **CLASE_C[clave]}`;
@@ -95,7 +95,7 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
 
 ### Tests de la tabla y de la ejecución (FR-001, FR-007, FR-009, FR-011)
 
-- [ ] T006 [P] [US1] Crear `tests/test_command_table_clase_c.py` (docstring
+- [x] T006 [P] [US1] Crear `tests/test_command_table_clase_c.py` (docstring
   con los FR y la regla de cada test): `_ESPERADO` con las 55 entradas
   `zwave_js/*` de R-1 (comando → categoría y marcas: `one_shot`,
   `redact_extra`, `open_world`, `example` sí/no), `_REVISADAS =
@@ -106,7 +106,7 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
   entrada `hassio/*` ni `supervisor/*` de clase C en `read`/`confirm`) y
   `test_esperado_completo` (cada fila C del inventario de un prefijo revisado
   está en `_ESPERADO` y al revés). Verlos en rojo.
-- [ ] T007 [P] [US1] En `tests/test_tools_generic_commands_clase_c.py`,
+- [x] T007 [P] [US1] En `tests/test_tools_generic_commands_clase_c.py`,
   clase `TestZwave`: `zwave_js/network_status` y `get_config_parameters`
   llegan a `ws_send` con su carga; `subscribe_controller_statistics` y
   `subscribe_node_statistics` llegan a `ws_one_shot_subscription` y nunca a
@@ -119,7 +119,7 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
   con `command_denied` por las dos genéricas sin llamar a HA; centinela de
   `get_provisioning_entries` (un `dsk` centinela no aparece en la respuesta
   ni en el log capturado). Verlos en rojo.
-- [ ] T008 [US1] En `tests/test_command_table.py`: añadir a
+- [x] T008 [US1] En `tests/test_command_table.py`: añadir a
   `_EXCEPCIONES_VERBOS` `zwave_js/is_node_firmware_update_in_progress`,
   `zwave_js/is_any_ota_firmware_update_in_progress` y
   `zwave_js/get_node_firmware_update_capabilities` con su justificación;
@@ -130,29 +130,29 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
 
 ### Tabla y mapa (FR-001, FR-010, FR-014)
 
-- [ ] T009 [US1] En `hermes/src/hermes/command_table.py`, las 55 entradas
+- [x] T009 [US1] En `hermes/src/hermes/command_table.py`, las 55 entradas
   `zwave_js/*` con la categoría, el motivo y las marcas de R-1, una por
   línea (o bloque con `example`), en su sitio de orden; comentario encima de
   las tres excepciones de verbos, de `network_neighbors`, de
   `get_provisioning_entries` y de las dos `one_shot` (data-model.md). Las
   mismas 55 en `CLASE_C`, con los mismos textos.
-- [ ] T010 [US1] T006 y T007 en verde. Control negativo: pasar
+- [x] T010 [US1] T006 y T007 en verde. Control negativo: pasar
   `zwave_js/hard_reset_controller` a `confirm` → caen `test_clasificacion` y
   el rechazo de T007; quitar `redact_extra` de `get_provisioning_entries` →
   cae el centinela; quitar `one_shot` de `subscribe_node_statistics` → cae
   su test. Restaurar y anotarlo en el commit.
-- [ ] T011 [US1] T008 en verde, más `TestMundoAbierto`, `TestEstructura`
+- [x] T011 [US1] T008 en verde, más `TestMundoAbierto`, `TestEstructura`
   (`test_ejemplos`, `test_marcas`, `test_a_y_c_con_su_cap`) y los hints de
   `tests/test_tools_registration.py` sin cambios en las genéricas. Control
   negativo: quitar una excepción de verbos → cae `TestVerbos` nombrándola.
-- [ ] T012 [US6] T004 (b) en verde. Control negativo: quitar
+- [x] T012 [US6] T004 (b) en verde. Control negativo: quitar
   `zwave_js/node_status` de `CLASE_C` → cae el test de desde cero
   nombrándolo; cambiar su motivo en el mapa → cae igual. Restaurar y
   anotarlo.
 
 ### Guía (FR-013)
 
-- [ ] T013 [US5] En `tests/test_tools_guide.py`, clase
+- [x] T013 [US5] En `tests/test_tools_guide.py`, clase
   `TestTemasDeIntegraciones`: `zwave` y sus alias (`zwave_js`, `z-wave`,
   `z_wave`) devuelven el mismo texto; el tema tiene las secciones
   `POR LA GENÉRICA`, `RECHAZADO` y `OTRA VÍA`; nombra `ha_read_ws_command`,
@@ -160,7 +160,7 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
   cada comando `zwave_js/…` entre comillas invertidas de la sección
   disponible está en `read`/`confirm`, y de la rechazada, en `deny`; el
   índice nombra `zwave`. Verlos en rojo.
-- [ ] T014 [US5] En `hermes/src/hermes/tools/guide.py`: tema `zwave` con el
+- [x] T014 [US5] En `hermes/src/hermes/tools/guide.py`: tema `zwave` con el
   contenido de research.md R-7 (lecturas útiles con su carga, escrituras en
   dos pasos con `set_config_parameter` y `rebuild_node_routes`, rechazado por
   grupos, acciones `zwave_js.*` por `ha_call_service` y la UI para
@@ -172,12 +172,27 @@ El tramo 2 necesita el 1 integrado; el 3, el 2.
 
 ### Cierre del tramo 1
 
-- [ ] T015 Suite completa: exactamente los 6 fallos conocidos.
-- [ ] T016 [P] `hermes/CHANGELOG.md`: sección «Integraciones específicas» en
+Desviaciones del tramo 1 (anotadas al hacerlo):
+- T002–T003 ampliadas por la D-2 del supervisor: la redacción de valor
+  entero se aplica también a `redact_structure` y a las claves sensibles por
+  nombre (`security.tapar_entero`, usado por `redact_structure`, `_redactar`
+  de las genéricas y `_limpio` de `device_automation` y `system_status`), con
+  centinelas de la forma real de la clave de red de ZHA y de las claves
+  S0/S2 de Z-Wave en `tests/test_redact_structure.py`. Las S0/S2 no estaban
+  cubiertas por ningún marcador: se añaden (hallazgo del tramo).
+  `test_only_strings_are_redacted` y la lista de `test_nested_and_lists`
+  cambian de expectativa (números y listas bajo clave sensible, tapados).
+- T004 (b) va en la clase `TestClaseAConToolDedicada` de
+  `tests/test_generar_tabla.py`, junto al desde cero de la clase A.
+- T008: `test_clase_c_pendiente_de_la_025` importa `revisada` de
+  `tests/test_command_table_clase_c.py` para no duplicar `_REVISADAS`.
+
+- [x] T015 Suite completa: exactamente los 6 fallos conocidos.
+- [x] T016 [P] `hermes/CHANGELOG.md`: sección «Integraciones específicas» en
   `## [1.2.0]` (mecanismo de redacción, mapa del generador, Z-Wave JS con su
   recuento 18/13/24 y el tema `zwave`); `docs/HOJA-DE-RUTA.md`: la 025 «en
   curso (tramo 1 de 3)».
-- [ ] T017 Revisar el diff buscando datos personales, rutas `C:\…` e
+- [x] T017 Revisar el diff buscando datos personales, rutas `C:\…` e
   identificadores de modelos; commit(s) del tramo con los controles
   negativos de T003, T010, T011, T012 y T014 en el mensaje.
 

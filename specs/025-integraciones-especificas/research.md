@@ -442,8 +442,15 @@ entrada actual con `redact_extra` (`logbook/get_action_calls`, `code`) recibe
 escalares: no cambia. Test con control negativo (volver al recorrido → cae el
 centinela de `stack_specific`).
 
-**Fuera de alcance**: cambiar `redact_structure` (afecta a todas las tools;
-duda D-2 de spec.md).
+**Ampliación (D-2, decisión del supervisor al validar la spec)**: el mismo
+criterio se aplica a `redact_structure` (security.py) y a sus copias locales
+(`_limpio` de `device_automation` y `system_status`): si la clave es sensible
+por nombre, el valor ENTERO, sea texto, número, objeto o lista (`None`,
+booleanos y vacíos se conservan; `security.tapar_entero`). En el tramo 1 se
+vio además que las claves S0/S2 de Z-Wave (`s0_legacy_key`, `s2_*_key`,
+`lr_s2_*_key`, opciones de la app Z-Wave JS según `zwave_js/const.py`) no
+contenían ningún marcador: se añaden a `_SENSITIVE_KEY_MARKERS`. La suite
+entera no cambió ningún resultado de tools existentes con el arreglo.
 
 ## R-6 Entradas que tapan secretos y sus centinelas
 

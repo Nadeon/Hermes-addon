@@ -1170,6 +1170,54 @@ de la 1.1.2.
   en la tanda 2 del procedimiento de la VM. La prueba en vivo de toda la
   sub-feature queda pendiente (VM de la 014, después instalación real).
 
+### Integraciones específicas
+
+Spec 025: los comandos WebSocket de integraciones concretas (clase C:
+Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX, Insteon…) se clasifican uno a uno
+en la tabla de las genéricas, con el handler de HA leído. Sin tools nuevas: se
+usan con `ha_read_ws_command` y, en dos pasos, `ha_call_ws_command`. Se hace
+en tres tramos; este es el 1 (mecanismo y Z-Wave JS).
+
+- **Z-Wave JS** (55 comandos): 18 de lectura (estado de la red y de los
+  nodos, parámetros de configuración, avisos, capacidades; las estadísticas
+  del controlador y de un nodo, como lectura de un solo mensaje), 13 en dos
+  pasos (cambiar un parámetro, reconstruir rutas, refrescar valores, la tabla
+  de vecinos, que apaga la radio mientras dura, y actualizar la base de datos
+  de dispositivos) y 24 rechazados (inclusión y exclusión, S2, SmartStart y
+  DSK, nodos fallidos, reset y NVM del controlador, firmware,
+  `invoke_cc_api`, las suscripciones sin primer mensaje y
+  `refresh_node_info`, que deja una suscripción de progreso abierta).
+- **Tema `zwave` de `hermes_guide`** (alias `zwave_js`, `z-wave`, `z_wave`):
+  qué se lee, qué se cambia en dos pasos, qué se rechaza y por qué, y la otra
+  vía (las acciones `zwave_js.*` y la interfaz de HA).
+- **Generador de la tabla**: `scripts/inventario/clase_c.py` guarda la
+  clasificación revisada de la clase C, así que generar la tabla desde cero
+  da la misma que la revisada a mano (un test lo compara fila a fila).
+- Las tools dedicadas de Z-Wave que la spec 008 citaba como opcionales se
+  descartan: la genérica cubre lo mismo.
+
+Seguridad:
+
+- **Un valor bajo una clave sensible se tapa ENTERO, sea del tipo que sea.**
+  Antes, la redacción de las respuestas (`redact_structure` y las copias
+  locales de las genéricas y de dos tools) solo tapaba textos: un número
+  salía tal cual y un objeto se recorría, de modo que lo que llevaba dentro
+  bajo un nombre inocente salía en claro. La clave de red de ZHA viaja
+  justo así (`"network_key": {"key": "…", "tx_counter": …}`). Ahora, si la
+  clave es sensible, el valor entero (texto, número, objeto o lista) sale
+  como `***REDACTED***`; `null`, los booleanos y lo vacío se conservan. Un
+  número legítimo bajo una clave sensible (`token_expiry_seconds`) sale
+  también tapado, y una lista de secretos es un solo marcador. Lo mismo
+  para las claves extra de una entrada de la tabla (`redact_extra`).
+- **Las claves S0 y S2 de Z-Wave se reconocen como secretos.** La
+  integración las guarda en las opciones de la app Z-Wave JS como
+  `s0_legacy_key`, `s2_access_control_key`, `s2_authenticated_key`,
+  `s2_unauthenticated_key` y sus variantes `lr_s2_…`; ningún nombre
+  contenía un marcador conocido y `sv_get_addon_options` las devolvía en
+  claro.
+- `zwave_js/get_provisioning_entries` devuelve el DSK de cada nodo
+  preaprovisionado tapado (sus cinco primeros dígitos son el PIN de S2).
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de

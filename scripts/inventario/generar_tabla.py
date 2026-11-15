@@ -42,7 +42,9 @@ Primera generación (sin tabla previa), por fila (research R-4):
   dedicada (spec NNN)» con la sub-feature de la matriz de la 008;
 - clase A de vía T → `read` o `confirm` por verbo y método, PROVISIONAL hasta
   la revisión manual comando a comando (las suscripciones, `deny`);
-- clase C → `deny` «pendiente de revisión (spec 025)»;
+- clase C → la clasificación revisada de `scripts/inventario/clase_c.py`
+  (spec 025, research R-4); fuera del mapa, `deny` «pendiente de revisión
+  (spec 025)»;
 - `/core/api*` y `/homeassistant/api*` → `deny`, por encima de todo lo demás.
 
 Solo lee texto (TSV y la tabla previa, por AST) y el árbol de tools por AST:
@@ -68,8 +70,13 @@ _SALIDA = _RAIZ / "hermes" / "src" / "hermes" / "command_table.py"
 
 if str(_RAIZ / "hermes" / "src") not in sys.path:  # pragma: no cover - uso como script
     sys.path.insert(0, str(_RAIZ / "hermes" / "src"))
+# La raíz, para `scripts.inventario.clase_c` cuando se ejecuta como script.
+if str(_RAIZ) not in sys.path:  # pragma: no cover - uso como script
+    sys.path.insert(0, str(_RAIZ))
 
 from hermes.tool_families import familia_de_modulo  # noqa: E402
+
+from scripts.inventario.clase_c import CLASE_C  # noqa: E402
 
 HA_CORE_POR_DEFECTO = "2026.11.1"
 SUPERVISOR_POR_DEFECTO = "2026.11.0"
@@ -654,6 +661,10 @@ def _clasificar(
     if clase == "D":
         return deny(f"{nota or 'excluido por diseño'} (clase D)")
     if clase == "C":
+        # La clasificación revisada a mano de la 025 (research R-4): la que
+        # está en el mapa, tal cual; lo que no, `deny` hasta revisarlo.
+        if isinstance(clave, str) and clave in CLASE_C:
+            return {**base, **CLASE_C[clave]}
         return deny("pendiente de revisión (spec 025)")
     if clase.startswith("A") and cap in MATRIZ:
         # Una fila A cuya sub-feature ya creó su tool está en el mapa (specs

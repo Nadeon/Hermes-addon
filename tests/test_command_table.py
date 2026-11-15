@@ -51,7 +51,16 @@ VERBOS_ESCRITURA = frozenset({
 # Entradas `read` que contienen uno de esos verbos y aun así solo leen.
 # Clave (comando o (método, ruta)) → justificación. Cada una lleva además un
 # comentario en command_table.py. El test las enumera al fallar.
-_EXCEPCIONES_VERBOS: dict[str | tuple[str, str], str] = {}
+_EXCEPCIONES_VERBOS: dict[str | tuple[str, str], str] = {
+    # Spec 025 (FR-010): lecturas de Z-Wave JS con `update` en el nombre por
+    # «firmware update»; los tres handlers solo consultan el driver.
+    "zwave_js/is_node_firmware_update_in_progress":
+        "solo pregunta si un nodo se está actualizando; no actualiza nada",
+    "zwave_js/is_any_ota_firmware_update_in_progress":
+        "solo pregunta si algún nodo se está actualizando; no actualiza nada",
+    "zwave_js/get_node_firmware_update_capabilities":
+        "solo lee qué admite el nodo para actualizar firmware; no actualiza nada",
+}
 
 _CATEGORIAS = {"dedicated", "read", "confirm", "deny"}
 _PROXY_CORE = ("/core/api", "/homeassistant/api")
@@ -370,6 +379,9 @@ class TestDedicadas(unittest.TestCase):
 _READ_QUE_SALEN: dict[str | tuple[str, str], str] = {
     "media_source/browse_media": "las fuentes remotas consultan su API al navegar",
     "media_source/search_media": "las fuentes remotas consultan su API al buscar",
+    # Spec 025: pregunta al servicio de Z-Wave JS si hay base de datos de
+    # dispositivos nueva.
+    "zwave_js/check_for_config_updates": "consulta por internet la base de datos de Z-Wave JS",
 }
 
 
@@ -530,8 +542,15 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
             sum(1 for k in ct.SUPERVISOR if k[1].startswith(_PROXY_CORE)), 10)
 
     def test_clase_c_pendiente_de_la_025(self) -> None:
+        """Mientras dura la 025, la clase C de las integraciones aún no
+        revisadas sigue en `deny` «pendiente»; las revisadas (los prefijos de
+        `_REVISADAS` de test_command_table_clase_c.py) las vigila ese fichero.
+        El tramo 3 borra este test."""
+        from tests.test_command_table_clase_c import revisada
+
         malas = sorted(
             str(k) for k, f in _CORE.items() if f["clase"] == "C"
+            and not revisada(k)
             and (ct.CORE_WS[k].category, ct.CORE_WS[k].reason)
             != ("deny", "pendiente de revisión (spec 025)"))
         self.assertEqual(malas, [])

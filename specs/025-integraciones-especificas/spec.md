@@ -31,9 +31,8 @@ ejecutar nada. La clasificación comando a comando, con el handler leído y el
 motivo, está en [research.md](research.md), R-1.
 
 **Fuera de esta sub-feature**: tools dedicadas para Z-Wave o ZHA (la 008 las
-deja como posibles, «si se quiere», y no las asigna a ninguna sub-feature);
-cambiar la redacción global `redact_structure` (hallazgo H-1 de research.md,
-para otra sub-feature); cualquier comando de clase A, B o D; el Supervisor
+deja como posibles, «si se quiere», y no las asigna a ninguna sub-feature;
+DESCARTADAS por el supervisor al validar la spec, D-3); cualquier comando de clase A, B o D; el Supervisor
 (ningún comando de clase C es del Supervisor).
 
 ## Clarificaciones
@@ -69,7 +68,9 @@ Decididas con la 008 y el código de HA, sin preguntar (modo autónomo):
   solo tapa valores escalares bajo la clave; un objeto se recorre y su `key`
   interior sale en claro. Esta sub-feature cambia la redacción de las
   genéricas para que una clave de `redact_extra` tape su valor ENTERO, sea
-  del tipo que sea (FR-008). No cambia `redact_structure` (hallazgo H-1).
+  del tipo que sea (FR-008). Por decisión del supervisor (D-2), el mismo
+  criterio se aplica también a `redact_structure` y a todas las claves
+  sensibles por nombre (FR-008b).
 - P: ¿Cuántos tramos? → R: Tres: (1) mecanismo y Z-Wave JS (55); (2) ZHA,
   Matter, Thread y OTBR (50); (3) el resto (87) y el cierre. Partir el tramo
   (b) de la 008 en dos deja cada tramo por debajo de 90 entradas.
@@ -335,6 +336,15 @@ forma parte de estos requisitos.
   como hoy (la cadena vacía y `null` se conservan). La única entrada actual con
   `redact_extra` (`logbook/get_action_calls`, `code`) sigue igual (FR-019,
   FR-020 de la 008; principio II).
+- **FR-008b** (decisión D-2 del supervisor): `redact_structure` y las
+  redacciones locales que la copian (`_redactar` de las genéricas, `_limpio`
+  de `device_automation` y `system_status`) tapan ENTERO el valor de una
+  clave sensible por nombre, sea texto, número, objeto o lista; `None`, los
+  booleanos y lo vacío se conservan. Las claves S0/S2 de Z-Wave JS
+  (`s0_legacy_key`, `s2_access_control_key`, `s2_authenticated_key`,
+  `s2_unauthenticated_key` y las `lr_s2_…`) son marcadores sensibles. Test
+  con control negativo y centinelas con la forma real de la clave de red de
+  ZHA y de las claves de Z-Wave (FR-019, FR-020 de la 008; principio II).
 - **FR-009**: Cada entrada `read` o `confirm` nueva tiene un test de
   clasificación que la nombra; cada entrada que tapa un secreto, un test con
   valor centinela de extremo a extremo por la genérica (respuesta y log); cada
@@ -435,13 +445,12 @@ forma parte de estos requisitos.
 
 ## Dudas para el final
 
-- **D-1**: Varias escrituras útiles registran una suscripción de progreso
+- **D-1** (queda para el final, decisión del supervisor): Varias escrituras útiles registran una suscripción de progreso
   (`zwave_js/refresh_node_info`, `zha/devices/reconfigure`,
   `zha/devices/permit`) y quedan en `deny` porque la genérica no la cierra.
   ¿Merece la pena una marca nueva de la tabla («cerrar tras el resultado»)
   en otra sub-feature?
-- **D-2**: `redact_structure` tampoco tapa objetos bajo una clave sensible
-  (hallazgo H-1). Esta sub-feature solo lo arregla para `redact_extra` de las
-  genéricas. ¿Se abre una corrección global?
-- **D-3**: Las tools dedicadas de Z-Wave que CAP-100 menciona «si se quiere»
-  quedan fuera. ¿Se descartan o van a la hoja de ruta posterior a la 1.2.0?
+- **D-2** — RESUELTA por el supervisor: SÍ, se corrige `redact_structure`
+  globalmente en el tramo 1 (FR-008b).
+- **D-3** — RESUELTA por el supervisor: DESCARTADAS. La genérica cubre lo
+  mismo; no van a la hoja de ruta.

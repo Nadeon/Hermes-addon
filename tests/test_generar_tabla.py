@@ -153,6 +153,23 @@ class TestPrimeraGeneracion(_Base):
         self.assertEqual((e.category, e.reason, e.cap),
                          ("deny", "pendiente de revisión (spec 025)", "CAP-100"))
 
+    def test_clase_c_del_mapa_revisado(self) -> None:
+        """Spec 025 (R-4): una fila C que está en `CLASE_C` sale con la
+        categoría, el motivo y las marcas del mapa; la familia y la CAP, las
+        del inventario."""
+        revisada = {"category": "read", "reason": "estado de la radio; solo lee",
+                    "one_shot": True, "redact_extra": ("k",), "open_world": True,
+                    "example": {"entry_id": "<entry_id>"}}
+        with mock.patch.dict(gt.CLASE_C, {"demo/radio/reset": revisada}):
+            self.salida.unlink()
+            self._generar()
+            e = self._tabla().CORE_WS["demo/radio/reset"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.cap, e.one_shot, e.redact_extra,
+             e.open_world, e.example),
+            ("read", "estado de la radio; solo lee", "generic_commands", "CAP-100",
+             True, ("k",), True, {"entry_id": "<entry_id>"}))
+
     def test_proxy_de_core_siempre_deny(self) -> None:
         # Prevalece sobre «cubierto» y sobre la clase B.
         for clave in (("GET", "/core/api/{path}"), ("GET", "/homeassistant/api/stream")):
@@ -313,6 +330,43 @@ class TestClaseAConToolDedicada(_Base):
         # rutas (7 de repositorios y recarga, 8 de fichas, versiones,
         # validación y reconstrucción).
         self.assertGreaterEqual(n, 75)
+
+    def test_desde_cero_clase_c_igual_que_la_tabla(self) -> None:
+        """Spec 025 (FR-012, research R-4): con los inventarios reales, la
+        generación desde cero da, en cada fila de clase C de una integración
+        ya revisada (`_REVISADAS` de test_command_table_clase_c.py), la MISMA
+        entrada que la tabla: categoría, motivo, familia, tool, CAP y marcas.
+        Una entrada revisada en la tabla y no en `scripts/inventario/clase_c.py`
+        (o con otro texto) cae aquí nombrándola.
+
+        Control negativo comprobado (tramo 1): quitar `zwave_js/node_status`
+        de `CLASE_C` → cae nombrándola; cambiar su motivo en el mapa → cae
+        igual."""
+        from hermes import command_table as real
+        from tests.test_command_table_clase_c import revisada
+
+        inventario = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
+        self.salida.unlink(missing_ok=True)
+        gt.generar(inventario / "core-ws.tsv", inventario / "supervisor-rutas.tsv",
+                   self.salida, ha_core="2026.11.1", supervisor="2026.11.0")
+        cero = self._tabla()
+
+        def campos(e):
+            return (e.category, e.reason, e.family, e.tool, e.cap, e.one_shot,
+                    e.redact_extra, e.open_world, e.example)
+
+        malas, n = [], 0
+        for f in gt._leer_tsv(inventario / "core-ws.tsv"):
+            k = f["comando"]
+            if f["clase"] != "C" or not revisada(k):
+                continue
+            n += 1
+            if campos(cero.CORE_WS[k]) != campos(real.CORE_WS[k]):
+                malas.append(f"{k}: desde cero {campos(cero.CORE_WS[k])}, "
+                             f"tabla {campos(real.CORE_WS[k])}")
+        self.assertEqual(malas, [], "\n".join(malas))
+        # Tramo 1: las 55 de `zwave_js/`. Sube con cada tramo.
+        self.assertEqual(n, 55)
 
     def test_desde_cero_las_de_la_030_con_su_motivo(self) -> None:
         """Integración de la 030: las rutas cuyo motivo no sigue la forma

@@ -1202,6 +1202,84 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(real, huella)
 
 
+class TestTemasDeIntegraciones(unittest.IsolatedAsyncioTestCase):
+    """Spec 025 (FR-013, R-7): un tema por grupo de integraciones de la clase
+    C. Cada uno dice que va por las genéricas, tiene las secciones
+    `POR LA GENÉRICA`, `RECHAZADO` y `OTRA VÍA`, y NO miente frente a la
+    tabla: lo que presenta como disponible está en `read`/`confirm` y lo que
+    presenta como rechazado, en `deny` (principio V). Crece por tramos.
+
+    Control negativo comprobado (tramo 1): citar `zwave_js/add_node` en
+    `POR LA GENÉRICA` → cae `test_cruce_con_la_tabla`; quitar el alias
+    `z-wave` → cae `test_tema_y_alias`.
+    """
+
+    _TEMAS = {
+        "zwave": ("zwave_js/", ("zwave_js", "z-wave", "z_wave", "Z-Wave")),
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    @staticmethod
+    def _secciones(texto: str) -> dict[str, str]:
+        import re
+
+        trozos = re.split(r"^(POR LA GENÉRICA|RECHAZADO|OTRA VÍA).*$", texto, flags=re.M)
+        return {trozos[i]: trozos[i + 1] for i in range(1, len(trozos) - 1, 2)}
+
+    async def test_tema_y_alias(self) -> None:
+        for tema, (_, alias) in self._TEMAS.items():
+            texto = _GUIDE[tema]
+            for a in (tema, *alias):
+                with self.subTest(tema=tema, alias=a):
+                    self.assertEqual(await self.guide(a), texto)
+
+    async def test_secciones_y_vias(self) -> None:
+        for tema in self._TEMAS:
+            with self.subTest(tema=tema):
+                texto = _GUIDE[tema]
+                self.assertEqual(set(self._secciones(texto)),
+                                 {"POR LA GENÉRICA", "RECHAZADO", "OTRA VÍA"})
+                for palabra in ("ha_read_ws_command", "ha_call_ws_command",
+                                "generic_commands", "search="):
+                    self.assertIn(palabra, texto)
+
+    async def test_cruce_con_la_tabla(self) -> None:
+        import re
+
+        from hermes import command_table as ct
+
+        for tema, (prefijo, _) in self._TEMAS.items():
+            secciones = self._secciones(_GUIDE[tema])
+            patron = re.compile(re.escape(prefijo) + r"[a-z0-9_/\-]+")
+            disponibles = set(patron.findall(secciones["POR LA GENÉRICA"]))
+            rechazados = set(patron.findall(secciones["RECHAZADO"]))
+            self.assertTrue(disponibles and rechazados, tema)
+            for comando in sorted(disponibles):
+                with self.subTest(tema=tema, disponible=comando):
+                    self.assertIn(ct.CORE_WS[comando].category, ("read", "confirm"))
+            for comando in sorted(rechazados):
+                with self.subTest(tema=tema, rechazado=comando):
+                    self.assertEqual(ct.CORE_WS[comando].category, "deny")
+
+    async def test_el_indice_y_la_docstring_lo_nombran(self) -> None:
+        indice = await self.guide()
+        for tema in self._TEMAS:
+            with self.subTest(tema=tema):
+                self.assertIn(f"`{tema}`", indice)
+                self.assertIn(tema, self.guide.__doc__)
+
+    async def test_zwave_avisa_de_la_radio(self) -> None:
+        texto = _GUIDE["zwave"]
+        for palabra in ("network_neighbors", "radio", "zwave_js.set_config_parameter",
+                        "ha_call_service", "set_config_parameter", "rebuild_node_routes",
+                        "un solo mensaje"):
+            self.assertIn(palabra, texto)
+
+
 if __name__ == "__main__":
     unittest.main()
 

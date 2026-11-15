@@ -168,6 +168,7 @@ para el detalle de un área. Temas disponibles:
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
 - `recorder`       — estado del recorder, validación y mantenimiento de estadísticas y auditoría de acciones
 - `energy`         — preferencias del panel de energía (leer y guardar) y sus lecturas
+- `zwave`          — Z-Wave JS por las genéricas: qué se lee, qué se cambia en dos pasos y qué no
 - `app_store`      — tienda de apps del Supervisor: repositorios, recarga, changelog, documentación, disponibilidad y reconstrucción
 - `workflows`      — recetas paso a paso para tareas completas
 
@@ -1772,6 +1773,80 @@ LECTURAS POR LA GENÉRICA (solo leen; ninguna sale a internet)
   consumo de origen fósil por periodo (`5minute`, `hour`, `day` o `month`),
   calculado con las estadísticas de energía y la de intensidad de CO2.
 """,
+    "zwave": """\
+# Z-Wave JS por las genéricas
+
+No hay tools dedicadas de Z-Wave: todo va por `ha_read_ws_command` (lee) y
+`ha_call_ws_command` (cambia algo, siempre en dos pasos con
+`confirmation_token`). Si la familia `generic_commands` está desactivada en las
+opciones del add-on, nada de esto existe. Casi todos los comandos piden
+`entry_id` (la entrada de Z-Wave JS: `ha_list_config_entries`) o `device_id`
+(el dispositivo: `ha_list_devices`).
+
+POR LA GENÉRICA
+Lecturas (`ha_read_ws_command`):
+- `type="zwave_js/network_status", payload={"entry_id": "<entry_id>"}` —
+  cliente, controlador y nodos (sin claves de seguridad).
+- `type="zwave_js/node_status", payload={"device_id": "<device_id>"}` — si
+  el nodo está vivo, dormido o listo, y su seguridad.
+- `type="zwave_js/get_config_parameters", payload={"device_id": "<device_id>"}`
+  — parámetros de configuración del nodo con su valor y metadatos.
+- `type="zwave_js/subscribe_node_statistics", payload={"device_id":
+  "<device_id>"}` y `type="zwave_js/subscribe_controller_statistics",
+  payload={"entry_id": "<entry_id>"}` — estadísticas (RSSI, rutas, fallos):
+  un solo mensaje y la suscripción se cancela.
+- `zwave_js/node_alerts`, `zwave_js/node_metadata` y
+  `zwave_js/node_capabilities` (`device_id`) — avisos, instrucciones del
+  fabricante y clases de comando del nodo.
+- `zwave_js/get_provisioning_entries` (`entry_id`) — nodos preaprovisionados
+  por SmartStart; el `dsk` sale tapado.
+- `zwave_js/check_for_config_updates` (`entry_id`) — pregunta por internet si
+  hay base de datos de dispositivos nueva.
+Escrituras (`ha_call_ws_command`, dos pasos):
+- `type="zwave_js/set_config_parameter", payload={"device_id": "<device_id>",
+  "property": 3, "value": 1}` — cambia un parámetro (lee antes con
+  `get_config_parameters`).
+- `type="zwave_js/rebuild_node_routes", payload={"device_id": "<device_id>"}`
+  — reconstruye las rutas de un nodo; `zwave_js/begin_rebuilding_routes` y
+  `zwave_js/stop_rebuilding_routes`, las de toda la red.
+- `zwave_js/refresh_node_values` y `zwave_js/refresh_node_cc_values` — vuelve
+  a pedir valores al nodo.
+- `zwave_js/network_neighbors` (`entry_id`) — solo lee la tabla de vecinos,
+  pero APAGA la radio mientras recorre los nodos: por eso va en dos pasos. En
+  una red grande puede pasar del plazo de la genérica; Home Assistant vuelve
+  a encender la radio al terminar.
+- `zwave_js/install_config_update` (descarga la base de datos nueva),
+  `zwave_js/update_log_config`, `zwave_js/stop_inclusion` y
+  `zwave_js/stop_exclusion`.
+
+RECHAZADO (`command_denied`, sin llamar a Home Assistant)
+- Inclusión, exclusión y S2: `zwave_js/add_node`, `zwave_js/remove_node`,
+  `zwave_js/grant_security_classes`, `zwave_js/validate_dsk_and_enter_pin` y
+  `zwave_js/subscribe_new_devices` (eventos, pulsar un botón del dispositivo,
+  el PIN de S2).
+- SmartStart y DSK: `zwave_js/provision_smart_start_node` y
+  `zwave_js/parse_qr_code_string` (llevan o devuelven el DSK, con el PIN).
+- Lo que borra o reemplaza la red: `zwave_js/hard_reset_controller`,
+  `zwave_js/restore_nvm`, `zwave_js/remove_failed_node` y
+  `zwave_js/replace_failed_node`; también la copia `zwave_js/backup_nvm` (el
+  resultado llega en un evento).
+- Firmware: `zwave_js/abort_firmware_update`.
+- `zwave_js/invoke_cc_api` (cualquier método de cualquier clase de comando,
+  sin vista previa útil) y `zwave_js/refresh_node_info` (deja una suscripción
+  de progreso abierta).
+- Suscripciones sin primer mensaje con el estado: `zwave_js/subscribe_log_updates`,
+  `zwave_js/subscribe_node_status` y similares.
+
+OTRA VÍA
+- Por `ha_call_service`, las acciones de la integración:
+  `zwave_js.set_config_parameter`, `zwave_js.refresh_value` y `zwave_js.ping`.
+- Inclusión, exclusión, SmartStart, copia y restauración de la NVM y
+  firmware: desde la interfaz de Home Assistant (Ajustes → Dispositivos y
+  servicios → Z-Wave JS).
+
+El resto de los 55 comandos, con su categoría y su motivo:
+`hermes_guide("generic_commands", search="zwave_js")`.
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -1937,6 +2012,9 @@ _ALIASES: dict[str, str] = {
     "energy_prefs": "energy",
     "energy_dashboard": "energy",
     "energia": "energy",
+    "zwave_js": "zwave",
+    "z-wave": "zwave",
+    "z_wave": "zwave",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -2047,7 +2125,7 @@ def register(mcp: object) -> None:
                 system_control, system_diagnostics, updates, backups, lovelace,
                 marketplace, security,
                 generic_commands, system_status, recorder, energy, core_diagnostics,
-                app_store, blueprints, automation_assist, workflows. Acepta alias
+                app_store, blueprints, automation_assist, zwave, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,
