@@ -467,9 +467,9 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | hecha: familia `blueprints` con `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint`, `ha_delete_blueprint` e `ha_import_blueprint`; familia `automation_assist` con las tres listas de dispositivo, `ha_resolve_target`, `ha_explain_target`, las tres listas por target y `ha_wait_for_trigger` (solo lectura, lista cerrada de triggers); la vista previa de `ha_create_or_update_automation` y `_script` valida con HA y no da token si la rechazaría; 17 entradas a `dedicated` (`subscribe_trigger` reclasificado de B a A); todo probado en el banco de Core (guardar, importar desde `/local/` del banco, borrar, las lecturas, la espera de trigger y la validación al guardar). Pendiente manual: importar de GitHub, gist y foro |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | hecha; prueba en la VM pendiente: familia `mounts` con nueve tools (seis de montajes CIFS, NFS y disco local, con crear, editar, borrar y el por defecto con token atado también al estado; tres de ajustes de backup sin token), `location` opcional en `sv_create_backup_full` y `sv_create_backup_partial`, credenciales (también el usuario en los errores del Supervisor) que entran y nunca salen, las nueve rutas de CAP-083 a `dedicated` y el `action_hash` de los tokens con HMAC |
-| 020 | Estadísticas y energía | 050, 054 | pendiente |
+| 020 | Estadísticas y energía | 050, 054 | hecha: cinco tools de mantenimiento de estadísticas en `recorder` (borrar, cambiar la unidad, editar los metadatos, ajustar sumas, importar) y la familia nueva `energy` (leer y guardar las preferencias del panel), todas las que escriben en dos pasos; `recorder/update_statistics_issues` `confirm` y cuatro lecturas de energía `read` por la tabla; las siete y las genéricas, contra HA Core real en el banco |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
-| 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
+| 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | hecha: familia `system_control` con siete tools (arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor) y familia `resolution_fixes` con `sv_apply_resolution_suggestion` (vista previa que traduce el arreglo, rechazos y arreglos automáticos atados al token); 8 rutas a `dedicated`, estadísticas `read`, `/host/reload` y los chequeos del centro de resolución `confirm`; plugins, Docker, placas y hora probados por la tabla sin cambiarla; prueba en la VM pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
@@ -655,12 +655,15 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_abort_repair_fix` | banco de Core | ok | spec 016 |
 | `ha_abort_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_activate_scene` | banco de Core | ok | |
+| `ha_adjust_statistics_sum` | banco de Core | ok | |
 | `ha_call_service` | banco de Core | ok | |
 | `ha_call_service_response` | banco de Core | ok | |
 | `ha_call_ws_command` | banco de Core | ok | |
 | `ha_cancel_timer` | banco de Core | ok | |
 | `ha_cancel_wait` | banco de Core | ok | |
+| `ha_change_statistics_unit` | banco de Core | ok | |
 | `ha_change_timer` | banco de Core | ok | |
+| `ha_clear_statistics` | banco de Core | ok | |
 | `ha_clear_system_log` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
@@ -724,6 +727,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_ignore_discovery` | banco de Core | ok | spec 016 |
 | `ha_ignore_repair` | banco de Core | ok | |
 | `ha_import_blueprint` | banco de Core | ok | importador genérico desde `/local/` del banco; GitHub, gist y foro sin probar |
+| `ha_import_statistics` | banco de Core | ok | |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
 | `ha_install_update` | banco de Core | ok | spec 015; entidad `update` de plantilla del banco |
@@ -764,14 +768,17 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_category` | banco de Core | ok | |
 | `ha_update_config_entry` | banco de Core | ok | spec 016 |
 | `ha_update_device` | banco de Core | ok | |
+| `ha_update_energy_prefs` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
 | `ha_update_label` | banco de Core | ok | |
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
+| `ha_update_statistics_metadata` | banco de Core | ok | |
 | `ha_update_subentry` | banco de Core | ok | spec 016 |
 | `sv_add_store_repository` | VM | pendiente | repositorio de prueba |
+| `sv_apply_resolution_suggestion` | VM | pendiente | instantánea antes; sugerencia provocada |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_check_for_updates` | VM | pendiente | spec 015 |
@@ -787,19 +794,26 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
 | `sv_rebuild_addon` | VM | pendiente | app local de prueba |
+| `sv_rebuild_core` | VM | pendiente | instantánea antes |
 | `sv_reload_backups` | VM | pendiente | |
 | `sv_reload_mount` | VM | pendiente | |
 | `sv_reload_store` | VM | pendiente | |
+| `sv_reload_supervisor` | VM | pendiente | |
 | `sv_remove_store_repository` | VM | pendiente | repositorio de prueba |
 | `sv_repair_store_repository` | VM | pendiente | repositorio de prueba |
+| `sv_repair_supervisor` | VM | pendiente | instantánea antes |
 | `sv_restart_addon` | VM | pendiente | add-on de prueba |
 | `sv_restart_core` | VM | pendiente | instantánea antes |
+| `sv_restart_supervisor` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_full` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
 | `sv_set_addon_options` | VM | pendiente | add-on de prueba |
 | `sv_set_backup_settings` | VM | pendiente | |
+| `sv_set_core_options` | VM | pendiente | |
 | `sv_set_default_backup_mount` | VM | pendiente | |
+| `sv_set_supervisor_options` | VM | pendiente | |
 | `sv_start_addon` | VM | pendiente | add-on de prueba |
+| `sv_start_core` | VM | pendiente | instantánea antes; Core parado |
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |
 | `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
 | `sv_update_addon` | VM | pendiente | add-on de prueba |

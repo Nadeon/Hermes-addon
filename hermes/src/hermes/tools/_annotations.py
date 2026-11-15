@@ -242,6 +242,38 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Importar (spec 017, tramo B) guarda lo descargado igual que
     # `ha_save_blueprint`, y con `allow_override` sobrescribe y recarga.
     "ha_import_blueprint",
+    # Spec 020 (CAP-050): reescriben el histórico de estadísticas y solo un
+    # backup lo deshace (borrar filas o metadatos, convertir todos los
+    # valores, cambiar la unidad guardada). Ningún prefijo las clasifica:
+    # `ha_clear_`, `ha_change_` y `ha_update_` no son destructivos por nombre.
+    "ha_clear_statistics",
+    "ha_change_statistics_unit",
+    "ha_update_statistics_metadata",
+    # Spec 020, tramo 2: sumar a la suma de todas las filas desde una hora y
+    # sobrescribir filas importando. Tampoco `ha_adjust_` ni `ha_import_`
+    # son prefijos destructivos.
+    "ha_adjust_statistics_sum",
+    "ha_import_statistics",
+    # Spec 020, tramo 3 (CAP-054): cada lista que recibe reemplaza ENTERA la
+    # de HA, así que quita las fuentes o dispositivos que no se reenvían.
+    # `ha_update_` no es prefijo destructivo. Repetirla con las mismas listas
+    # deja el mismo estado (idempotente).
+    "ha_update_energy_prefs",
+    # Control de Core y del Supervisor (spec 022, research R-10). Reconstruir
+    # Core y reiniciar el Supervisor cortan el servicio; reparar borra
+    # imágenes y volúmenes sin usar; `boot=false` deja Home Assistant apagado
+    # tras reiniciar el host. Arrancar Core y las opciones del Supervisor no
+    # destruyen nada, pero piden token: invariante «pide token ⇔
+    # destructiva» (desviación de R-10, que las daba no destructivas).
+    "sv_start_core",
+    "sv_rebuild_core",
+    "sv_set_core_options",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
+    "sv_set_supervisor_options",
+    # Spec 022, tramo 2 (R-10): aplicar una sugerencia puede desinstalar una
+    # app, borrar backups completos o reiniciar el host.
+    "sv_apply_resolution_suggestion",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -299,6 +331,13 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # (foro, GitHub, gist o cualquier web). No abre el socket Hermes, pero la
     # descarga la provoca esta tool (mismo criterio que sv_install_addon).
     "ha_import_blueprint",
+    # Spec 022 (R-10): recargar el Supervisor vuelve a pedir las versiones
+    # disponibles a internet; repararlo descarga las imágenes que falten.
+    "sv_reload_supervisor",
+    "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): algunos fixups descargan imágenes o vuelven a
+    # clonar un repositorio de la tienda.
+    "sv_apply_resolution_suggestion",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -331,6 +370,18 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # avanzarlo un paso.
     "ha_start_repair_fix",
     "ha_continue_repair_fix",
+    # Spec 020: `adjustment` es un DELTA, como el de `ha_change_timer`.
+    # Confirmar dos ajustes iguales suma dos veces; el token de un solo uso
+    # evita el reintento con el mismo token, pero no una segunda vista previa.
+    "ha_adjust_statistics_sum",
+    # Spec 022 (R-10): repetirlas vuelve a cortar el servicio (reconstruir
+    # Core, reiniciar o reparar el Supervisor), no deja el mismo estado.
+    "sv_rebuild_core",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): aplicar dos veces no deja el mismo estado
+    # (otro backup completo, otro reinicio).
+    "sv_apply_resolution_suggestion",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

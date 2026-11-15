@@ -282,8 +282,8 @@ def register_all_tools(
         from hermes.tools.backup_settings import register as register_backup_settings
         register_backup_settings(mcp, ha_client)
 
-    # Centro de resolución del Supervisor (lee y descarta; nunca aplica
-    # sugerencias) y backups de la integración `backup` de HA, que ven todas
+    # Centro de resolución del Supervisor (lee y descarta; aplicar una
+    # sugerencia es de `resolution_fixes`, spec 022) y backups de la integración `backup` de HA, que ven todas
     # las ubicaciones y no solo las locales del Supervisor.
     if _activa("diagnostics"):
         from hermes.tools.resolution import register as register_resolution
@@ -352,11 +352,23 @@ def register_all_tools(
         register_system_status(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # El recorder y las estadísticas de largo plazo (spec 029, CAP-049):
-    # estado, validación y metadatos. Hoy solo lee; la 020 añadirá aquí el
-    # mantenimiento de estadísticas.
+    # estado, validación y metadatos; y el mantenimiento de estadísticas de
+    # la 020.
     if _activa("recorder"):
         from hermes.tools.recorder_status import register as register_recorder_status
         register_recorder_status(mcp, ha_client, response_max_bytes=response_max_bytes)
+        # Spec 020 (CAP-050): el mantenimiento de estadísticas, en la misma
+        # familia (quien la apaga apaga lectura y escritura del recorder).
+        from hermes.tools.statistics_maintenance import (
+            register as register_statistics_maintenance,
+        )
+        register_statistics_maintenance(mcp, ha_client, response_max_bytes=response_max_bytes)
+    # Preferencias del panel de energía (spec 020, CAP-054): leer y guardar,
+    # esta última con confirmación. Recibe el tope porque las preferencias
+    # son un documento que no se recorta (`response_too_large`).
+    if _activa("energy"):
+        from hermes.tools.energy import register as register_energy
+        register_energy(mcp, ha_client, response_max_bytes=response_max_bytes)
     # Diagnóstico de Core (spec 012): logs y niveles de log, validación,
     # diagnósticos de integraciones y notificaciones persistentes. Reciben
     # `response_max_bytes` las que pueden devolver mucho: el log del sistema
@@ -449,6 +461,19 @@ def register_all_tools(
             wait_for_event_max_seconds=wait_for_event_max_seconds,
             response_max_bytes=response_max_bytes,
         )
+
+    # Control de Core y del Supervisor (spec 022, CAP-084): arrancar,
+    # reconstruir y configurar Core; recargar, reiniciar, reparar y
+    # configurar el Supervisor. Todo lo que corta pide token.
+    if _activa("system_control"):
+        from hermes.tools.system_control import register as register_system_control
+        register_system_control(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # Aplicar sugerencias del centro de resolución (spec 022, tramo 2,
+    # CAP-087): con vista previa que traduce el efecto y token.
+    if _activa("resolution_fixes"):
+        from hermes.tools.resolution_fixes import register as register_resolution_fixes
+        register_resolution_fixes(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

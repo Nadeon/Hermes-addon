@@ -486,6 +486,99 @@ Tramo D: esperar a un trigger y validar al guardar.
   de 60 s) seguía valiendo después de reiniciar Hermes; ahora deja de valer,
   porque la clave es otra. Se rechaza con «lost across restart» sin gastarlo,
   y basta con pedir otra vista previa (falla cerrado).
+- **Control de Core y del Supervisor (022, tramo 1).** Familia nueva
+  `system_control` (desactivable con `tool_families_disabled`) con siete
+  tools. Todo lo que corta algo va en dos pasos y la vista previa dice qué se
+  corta, cuánto y qué le pasa a Hermes:
+  - `sv_start_core` arranca Core cuando está parado (Hermes sigue
+    funcionando con Core caído: sus `sv_*` hablan con el Supervisor). Con
+    Core en marcha responde `already_running` sin token, también al
+    confirmar. Las escrituras en `/config` sin validar se avisan, no
+    bloquean: arrancar es recuperar.
+  - `sv_rebuild_core` reconstruye el contenedor de Core (Home Assistant se
+    corta unos minutos); `safe_mode` arranca sin integraciones propias ni
+    YAML, y el token lo ata. Mismo bloqueo que `sv_restart_core` con
+    escrituras sin validar. Nunca manda `force`.
+  - `sv_set_core_options`: solo `boot`, `watchdog`,
+    `backups_exclude_database`, `duplicate_log_file`, `audio_input` y
+    `audio_output`, con el valor actual y el nuevo por clave y avisos
+    (`boot=false` deja Home Assistant apagado tras reiniciar el host;
+    `watchdog=false`; lo que se aplica en el próximo arranque). `image`,
+    `refresh_token`, `port` y `ssl` se rechazan (`not_allowed`) sin llamar.
+  - `sv_reload_supervisor` (sin token: no corta nada), `sv_restart_supervisor`
+    (la API del Supervisor y la conexión de Hermes con Core se cortan unos
+    30-90 s; Core y las apps siguen) y `sv_repair_supervisor` (borra
+    contenedores parados, imágenes, caché de builds y volúmenes sin usar, y
+    descarga lo que falte; minutos). Reiniciar y reparar se rechazan
+    (`jobs_in_progress`) si hay jobs del Supervisor sin terminar, o si no se
+    puede saber.
+  - `sv_set_supervisor_options`: solo `timezone` (también la del host),
+    `country`, `logging`, `auto_update` y `diagnostics`, validadas antes de
+    llamar, con avisos de `auto_update=false` (instalación no soportada y
+    actualizaciones de apps, Core, OS y plugins bloqueadas en cuanto salga un
+    Supervisor nuevo), `auto_update=true` (el Supervisor se actualiza y se
+    reinicia solo) y `diagnostics` (cambia también los del OS Agent;
+    `true` envía informes a un tercero). `channel` y las opciones de
+    desarrollo se rechazan.
+  - Si Hermes no puede saber si una operación terminó (tiempo vencido o
+    conexión cortada), responde `status: "started"` con la tool con la que
+    comprobarlo, nunca un «ok» ni un error inventados.
+  - Las opciones atan `options` y, como estado, los valores actuales: si
+    cambian antes de confirmar, no se ejecuta. Al log van los nombres de las
+    claves, nunca sus valores.
+  - Las siete rutas pasan de `deny` a `dedicated` en la tabla de comandos;
+    las estadísticas (`GET /core/stats`, `GET /supervisor/stats`) se leen por
+    `sv_read_api` y `POST /host/reload` va por `sv_call_api` con token.
+    `POST /core/stop` y el `channel` del Supervisor siguen cerrados por
+    cualquier vía.
+  - Anotaciones: las seis con token se anuncian destructivas; recargar y
+    reparar, de mundo abierto.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Aplicar sugerencias del Supervisor (022, tramo 2).** **Cambio de política
+  respecto a la 1.1.x**: hasta ahora Hermes no aplicaba nunca una sugerencia
+  del centro de resolución; desde esta versión lo hace
+  `sv_apply_resolution_suggestion`, en una familia nueva `resolution_fixes`
+  (desactivable), y solo así:
+  - La vista previa traduce el arreglo que el Supervisor 2026.11.0 tiene para
+    cada par tipo/contexto: qué hace, qué corta, cuánto tarda y si se puede
+    deshacer, los issues que arregla y datos concretos (los backups completos
+    que `clear_full_backup` borraría —todos menos los 2 más nuevos, nunca los
+    parciales—, los contenedores que se reconstruirían, la app afectada).
+  - `clear_full_backup` borra cada backup de TODAS sus ubicaciones (el host y
+    los montajes de red): la vista previa da las `locations` de cada uno y,
+    si alguna está fuera del host, lo avisa la primera, en mayúsculas. Sin
+    saber dónde está cada backup no hay token. `create_full_backup` avisa de
+    que las apps con backup en frío se paran durante la copia, y
+    `clear_port_config` dice la verdad: arranca la app si está parada y no
+    reinicia la que ya corre.
+  - Tras el arreglo, el Supervisor lanza su healthcheck: sus chequeos pueden
+    crear sugerencias nuevas y puede aplicar sus arreglos automáticos. La
+    vista previa lista los que hay ahora (`also_auto_applied`) y avisa de que
+    pueden salir otros. El token ata la sugerencia, esa lista, los backups
+    (con sus ubicaciones) y los contenedores: si algo cambia antes de
+    confirmar, se rechaza sin aplicar (`suggestion_changed`).
+  - Si la petición ni llega a salir (Hermes sin conexión con el Supervisor),
+    la respuesta es un error con `sent: false`, nunca `status: "started"`;
+    lo mismo en las tools de control de Core y del Supervisor.
+  - Se rechazan sin token, también al confirmar: las sugerencias sin arreglo
+    (`no_fixup`: el Supervisor respondería «ok» sin hacer nada), las que
+    Hermes no sabe traducir (`unknown_effect`), las de discos de datos
+    (`not_allowed`) y las que pararían, reconstruirían o desinstalarían al
+    propio Hermes, también por un arreglo automático (`targets_hermes`;
+    Hermes se reconoce por el slug exacto de `/addons/self/info`).
+  - `sv_get_resolution` y `sv_dismiss_resolution_suggestion` no cambian de
+    comportamiento; sus descripciones y la guía (`diagnostics`) ya no dicen
+    que Hermes nunca aplica sugerencias.
+  - Por la tabla: `POST /resolution/check/{check}/run` y `/options` y
+    `POST /resolution/healthcheck` pasan de `deny` a `confirm` (el
+    healthcheck avisa de que puede aplicar los arreglos automáticos). Las
+    rutas de plugins, Docker, placas y hora no cambian; ahora tienen tests
+    con el Supervisor simulado, y la contraseña de un registro Docker no sale
+    ni en la vista previa, ni en el log, ni en un error del Supervisor.
+  - La guía (`system_control`, alias `suggestions` y `fixups`) explica todo
+    esto y avisa de que `/dns/options` y `/docker/options` pueden dejar sin
+    red a las apps.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
 
 #### Actualizaciones del sistema
 
@@ -775,7 +868,7 @@ la lista de tools es la de la 1.1.2.
   `unsupported_by_ha_version`.
 - **Tres tools nuevas de solo lectura, familia `recorder`**: la familia del
   recorder y las estadísticas de largo plazo; el mantenimiento de
-  estadísticas (spec 020) se sumará a ella.
+  estadísticas (spec 020, «Estadísticas y energía») se suma a ella.
   - `ha_get_recorder_info`: si el recorder graba, su cola y si migra la base;
     con `entity_id` (que tiene que existir), si esa entidad se graba y quién
     lo desactivó.
@@ -805,6 +898,149 @@ la lista de tools es la de la 1.1.2.
 - **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
   también la auditoría y la red por la genérica. La configuración del banco
   carga `system_health:`, `network:`, `recorder:` y `logbook:`.
+
+### Estadísticas y energía
+
+Spec 020: siete tools nuevas (cinco de mantenimiento de estadísticas en la
+familia `recorder` y dos del panel de energía en la familia nueva `energy`)
+y seis comandos más por la tabla. Tramo 1: tres tools nuevas que ESCRIBEN en la base de
+estadísticas de largo plazo, en la familia `recorder` de la 029. Las tres en
+dos pasos (vista previa sin efecto y confirmación con token), y solo un
+backup que incluya la base de HA deshace lo que hacen.
+
+- **`ha_clear_statistics`**: borra de 1 a 100 estadísticas enteras (filas y
+  metadatos) o, con `start_time` y `end_time` (ISO 8601 con zona), las filas
+  que se solapan con ese periodo. La vista previa da los metadatos de cada
+  una y el periodo EFECTIVO por tabla, porque HA borra también la fila
+  horaria que empieza hasta una hora antes de `start_time` (y la de 5
+  minutos, hasta 5 minutos antes).
+- **`ha_change_statistics_unit`**: convierte todo el histórico de una
+  estadística a otra unidad de la misma clase (Wh → kWh). Antes del token
+  rechaza lo que HA aceptaría sin hacer nada: una estadística que no es del
+  recorder (`not_supported_for_source`), una unidad vieja que no es la
+  guardada (`unit_mismatch`, con la actual) o la misma unidad. HA lo aplica
+  desde la cola del recorder: la confirmación responde `queued: true` y dice
+  cómo comprobarlo.
+- **`ha_update_statistics_metadata`**: cambia la unidad y la clase guardadas
+  SIN convertir valores (para un aviso de «unidad cambiada» con los valores
+  ya bien). Envía siempre `unit_class`.
+- **Comunes**: un id que HA no conoce da `statistics_not_found` con la lista,
+  sin token. El token ata los argumentos normalizados (ids ordenados y sin
+  repetir, fechas en UTC) y los metadatos leídos en la vista previa: si
+  cambian antes de confirmar, `statistics_changed` y no se envía nada; si no
+  se pueden leer, no se ejecuta. Un `timeout` de HA da `ha_timeout` con el
+  aviso de que el trabajo puede seguir en la cola. Respuestas y errores
+  redactados; el log no lleva ids, unidades ni fechas.
+- **Familia `recorder`**: su descripción ya no dice «read only»; nombra el
+  mantenimiento. Quien la desactiva apaga también estas tres.
+- **Tabla de comandos**: `recorder/clear_statistics`,
+  `recorder/change_statistics_unit` y `recorder/update_statistics_metadata`
+  pasan de `deny` a `dedicated`; las genéricas los rechazan con
+  `use_dedicated_tool`.
+- **Guía**: el tema `recorder` explica el mantenimiento (dos pasos,
+  `queued`, convertir frente a solo cambiar la etiqueta, rango efectivo); la
+  frase «SOLO LECTURA» queda para el grupo de las tres lecturas.
+- **Banco de Core**: las tres se ejecutan contra HA Core real con
+  estadísticas que siembra el lector, que comprueba que la vista previa no
+  cambia nada y el efecto de cada confirmación.
+
+Tramo 2: dos tools más en la misma familia, también en dos pasos, y los
+avisos de Repairs de las estadísticas por la genérica de escritura.
+
+- **`ha_adjust_statistics_sum`**: suma una cantidad (en su unidad, que HA
+  convierte) a la suma de cada fila desde un instante, para arreglar un
+  salto o un reinicio de un contador. NO es idempotente: la vista previa lo
+  dice, se anuncia sin `idempotentHint` y el token, de un solo uso, ata la
+  cantidad, la estadística, el instante (en UTC) y la unidad. La vista
+  previa da la suma guardada en esa hora antes y, con la misma unidad,
+  después. Una estadística sin suma da `statistic_has_no_sum` sin token
+  (HA respondería «ok» sin hacer nada). Responde `queued: true`.
+- **`ha_import_statistics`**: importa de 1 a 5000 filas horarias (más da
+  `invalid_argument` con el límite) y crea o actualiza los metadatos. Antes
+  de llamar a HA valida lo que HA rechazaría o aceptaría a medias: las siete
+  claves de `metadata` (sin `has_mean`: manda `mean_type`), la fuente que
+  casa con el id, `start` con zona y en hora en punto en UTC, filas sin
+  repetir, números finitos y claves conocidas. La vista previa resume sin
+  volcar las filas: si la estadística existe, sus metadatos actuales y los
+  nuevos, el número de filas, la primera y la última hora y cuántas filas
+  existentes se sobrescriben (contadas si abarcan 31 días o menos), y avisa
+  si el id es de una entidad que el recorder sigue grabando. El token ata el
+  documento entero normalizado; `stats` se puede omitir al confirmar (lo
+  guarda el token, como en Lovelace) y, si llega, tiene que ser idéntico.
+  Responde `queued: true`.
+- **Avisos de Repairs**: `recorder/update_statistics_issues` pasa de `deny`
+  a `confirm` en la tabla: `ha_call_ws_command` lo envía en dos pasos y sin
+  carga, para recalcular los avisos tras arreglar una estadística.
+- **Tabla de comandos**: `recorder/adjust_sum_statistics` y
+  `recorder/import_statistics` pasan a `dedicated`.
+- **Guía**: el tema `recorder` nombra las cinco de mantenimiento, explica el
+  ajuste no idempotente, la importación y la genérica de los avisos.
+- **Banco de Core**: las dos se ejecutan contra HA Core real (ajustar +5 kWh
+  desde una hora; importar 6 filas y sobrescribir una), y también los avisos
+  por la genérica; el lector comprueba cada efecto con un sondeo acotado.
+
+Tramo 3: el panel de energía, en una familia nueva `energy` (desactivable con
+`tool_families_disabled`).
+
+- **`ha_get_energy_prefs`**: lee la configuración del panel de energía: las
+  fuentes (red, solar, batería, gas, agua, casa), los dispositivos eléctricos
+  y los de agua. `configured: false` y las tres listas vacías si nunca se
+  configuró. Solo lee. Unas preferencias que no caben en el tope de
+  respuesta dan `response_too_large`: un documento de configuración no se
+  recorta.
+- **`ha_update_energy_prefs`**: guarda en dos pasos. Como en HA, cada lista
+  que llega (`energy_sources`, `device_consumption`,
+  `device_consumption_water`) reemplaza ENTERA la suya y las que no llegan se
+  conservan; la descripción y la vista previa lo dicen. La vista previa lee
+  las preferencias actuales y da, por cada lista que cambia, cómo está y cómo
+  quedará (`current` y `new`), los elementos que entran, salen y cambian
+  (por su tipo y sus estadísticas), las listas que se conservan, un aviso
+  por cada lista de la que se quitan elementos y otro expreso si se quitan
+  todas las fuentes, y las estadísticas que el recorder no conoce (HA no lo
+  comprueba al guardar). El token ata el documento que se enviará y las
+  preferencias leídas: si alguien guarda el panel entre medias,
+  `energy_prefs_changed` y no se guarda nada; si no se pueden leer, no hay
+  token ni se ejecuta. Rechaza, sin llamar a HA, listas mal formadas y un
+  `***REDACTED***` reenviado desde una lectura. El esquema completo lo valida
+  HA (`invalid_format` → `ha_command_failed` redactado). Sin la integración,
+  `energy_not_loaded`. El log lleva solo recuentos por lista.
+- **Por la genérica de lectura** (`ha_read_ws_command`), sin tool nueva:
+  `energy/validate` (problemas de configuración del panel),
+  `energy/info` (sensores de coste y dominios con previsión solar),
+  `energy/solar_forecast` (la previsión que ya tienen las integraciones; no
+  la descarga) y `energy/fossil_energy_consumption` (consumo de origen fósil
+  calculado con estadísticas, con un ejemplo de carga en la tabla). Ninguna
+  sale a internet.
+- **Tabla de comandos**: `energy/get_prefs` y `energy/save_prefs` pasan a
+  `dedicated`; las cuatro lecturas, a `read`. Ya no queda ninguna entrada
+  pendiente de la 020.
+- **Guía**: tema nuevo `energy` (alias `energy_prefs`, `energy_dashboard`,
+  `energia`) con el ciclo leer → editar → guardar y la llamada exacta de las
+  cuatro lecturas.
+- **Banco de Core**: la configuración del banco carga `energy:`. Las dos se
+  ejecutan contra HA Core real con el lector independiente (vista previa sin
+  efecto, dispositivo guardado con las fuentes intactas, preferencias
+  cambiadas entre medias rechazadas, preferencias de antes restauradas al
+  final), y también las cuatro lecturas por la genérica.
+
+Convergencia tras la revisión independiente:
+
+- **`ha_adjust_statistics_sum` exige una hora en punto (en UTC)**: HA ajusta
+  la tabla horaria desde `start_time` con los minutos a cero pero conserva
+  los segundos, así que con `10:30:15` no tocaba la fila de las 10:00 que la
+  vista previa enseñaba como ajustada. Ahora otro instante da
+  `invalid_argument` sin token.
+- **Números enormes**: un entero que no cabe en un float (`10**400`) en
+  `stats` o en `adjustment` da `invalid_argument` en vez de una excepción.
+- **Borrar no hace desaparecer la estadística de un sensor vivo**: la vista
+  previa, la descripción y la guía dicen que el recorder la vuelve a
+  compilar desde ahora (lo borrado no vuelve).
+- **`not_validated: ["statistic_in_database"]`** en la vista previa y la
+  respuesta de cambiar la unidad, editar los metadatos y ajustar: HA lista
+  también las estadísticas que una integración añadirá en su próxima
+  compilación, con los mismos campos que las guardadas, y con ellas responde
+  «ok» sin hacer nada. Hermes no puede distinguirlas y no afirma que se
+  comprobó.
 
 ### Tienda de apps
 

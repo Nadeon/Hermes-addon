@@ -105,6 +105,35 @@ de la 1.1.2 sin cambiar sus argumentos: `ha_create_or_update_automation` y
 `ha_create_or_update_script` validan con HA en la vista previa (sin token si
 la configuración es inválida) y siguen atando su id y `config`. Ningún
 hallazgo.
+
+Recuento: 111 desde la integración de la 020, que trae seis tools con
+token, comprobadas en el código (`tools/statistics_maintenance.py` y
+`tools/energy.py`): `ha_clear_statistics` ata `statistic_ids` (ordenados y
+sin repetir), `start_time` y `end_time` (en UTC, `None` si no llegan);
+`ha_change_statistics_unit`, `statistic_id`, `old_unit` y `new_unit`;
+`ha_update_statistics_metadata`, `statistic_id`, `unit_of_measurement` y
+`unit_class`; `ha_adjust_statistics_sum`, la estadística, el instante en
+UTC, la cantidad y la unidad; e `ha_import_statistics`, `metadata`
+(normalizado) y `stats` (omitible al confirmar: se resuelve desde lo
+guardado en la vista previa, normalizado y el hash cubre el documento
+entero). Las cinco atan además los metadatos leídos en el `estado`.
+`ha_update_energy_prefs` ata las tres listas (`None` las que no llegan: el
+documento que se enviará entero) y, en el `estado`, las preferencias
+leídas. `ha_get_energy_prefs` es de solo lectura. Ningún hallazgo.
+
+Recuento: 118 desde la integración de la 022, que trae siete tools con
+token, comprobadas en el código (`tools/system_control.py` y
+`tools/resolution_fixes.py`): `sv_rebuild_core` ata `safe_mode`;
+`sv_set_core_options` y `sv_set_supervisor_options`, `options` normalizado
+(y, en el `estado`, los valores actuales de esas claves: si cambian antes de
+confirmar, el token no coincide); `sv_start_core`, `sv_restart_supervisor` y
+`sv_repair_supervisor` no tienen argumentos (su `estado` es el de Core o la
+lista vacía de jobs en curso). `sv_apply_resolution_suggestion` ata
+`suggestion_uuid` (normalizado, sin guiones) y, en el `estado`, el tipo, el
+contexto y la referencia de la sugerencia, los backups a borrar con sus
+ubicaciones, los contenedores a reconstruir y los arreglos automáticos que el
+Supervisor aplicaría de paso (`also_auto_applied`). `sv_reload_supervisor`
+no pide token (FR-076 de la 008). Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -249,6 +278,33 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_set_log_level": {"level": A, "integration": A, "module": A, "persistence": A},
     "ha_clear_system_log": {},
     "ha_dismiss_persistent_notification": {"notification_id": A},
+    # ── mantenimiento de estadísticas (spec 020) ────────────────────────
+    # Atados normalizados como se envían: ids ordenados y sin repetir, fechas
+    # en UTC. Además, el `estado` (metadatos leídos) ata el token.
+    "ha_clear_statistics": {"statistic_ids": A, "start_time": A, "end_time": A},
+    "ha_change_statistics_unit": {"statistic_id": A, "old_unit": A, "new_unit": A},
+    "ha_update_statistics_metadata": {
+        "statistic_id": A,
+        "unit_of_measurement": A,
+        "unit_class": A,
+    },
+    "ha_adjust_statistics_sum": {
+        "statistic_id": A,
+        "start_time": A,
+        "adjustment": A,
+        "adjustment_unit": A,
+    },
+    # `stats` omitible al confirmar (lo guarda el token) y normalizado:
+    # `start` en UTC, filas ordenadas. El hash cubre el documento entero.
+    "ha_import_statistics": {"metadata": A, "stats": A},
+    # ── panel de energía (spec 020, tramo 3) ────────────────────────────
+    # Las tres listas: la que no llega va como `None`, así que mandarla al
+    # confirmar también cambia la acción. Además ata el `estado`.
+    "ha_update_energy_prefs": {
+        "energy_sources": A,
+        "device_consumption": A,
+        "device_consumption_water": A,
+    },
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     # Spec 030: instalar y actualizar atan además la `version_latest` de la
@@ -298,6 +354,17 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_save_blueprint": {"domain": A, "path": A, "yaml": A, "allow_override": A},
     "ha_delete_blueprint": {"domain": A, "path": A},
     "ha_import_blueprint": {"url": A, "path": A, "allow_override": A},
+    # ── control de Core y del Supervisor (spec 022, tramo 1) ────────────
+    "sv_start_core": {},
+    "sv_rebuild_core": {"safe_mode": A},
+    "sv_set_core_options": {"options": A},
+    "sv_restart_supervisor": {},
+    "sv_repair_supervisor": {},
+    "sv_set_supervisor_options": {"options": A},
+    # ── aplicar sugerencias (spec 022, tramo 2) ─────────────────────────
+    # El uuid normalizado; la sugerencia, los backups a borrar, los
+    # contenedores y los arreglos automáticos van en el `estado`.
+    "sv_apply_resolution_suggestion": {"suggestion_uuid": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -391,8 +458,10 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
-        # cuatro de montajes de la 019.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 105)
+        # cuatro de montajes de la 019 + las cuatro de la 015 + las tres de la 030
+        # + las tres de la 017 + las seis de la 020
+        # + las seis del tramo 1 de la 022 y la del tramo 2.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 118)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -412,7 +481,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 105)
+        self.assertEqual(len(publicadas), 118)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

@@ -385,6 +385,18 @@ _DEDICADAS_INICIALES: dict[
     # clase B a A con CAP-038 en el inventario (research R-13); un solo
     # disparo, con lista cerrada de triggers.
     "subscribe_trigger": "ha_wait_for_trigger",
+    # 020: mantenimiento de estadísticas (CAP-050, clase A de vía D), por el
+    # mismo mecanismo que las de la 012 y la 029.
+    "recorder/clear_statistics": "ha_clear_statistics",
+    "recorder/change_statistics_unit": "ha_change_statistics_unit",
+    "recorder/update_statistics_metadata": "ha_update_statistics_metadata",
+    "recorder/adjust_sum_statistics": "ha_adjust_statistics_sum",
+    "recorder/import_statistics": "ha_import_statistics",
+    # 020, tramo 3: preferencias del panel de energía (CAP-054, familia
+    # `energy`). Las cuatro lecturas de energía no van aquí: son `read` por la
+    # tabla, editadas a mano.
+    "energy/get_prefs": "ha_get_energy_prefs",
+    "energy/save_prefs": "ha_update_energy_prefs",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
@@ -445,6 +457,19 @@ _DEDICADAS_INICIALES: dict[
     ("POST", "/os/update"): "sv_update_os",
     ("POST", "/supervisor/update"): "sv_update_supervisor",
     "update/release_notes": "ha_get_update_release_notes",
+    # 022: control de Core y del Supervisor (CAP-084), clase A de vía D+T,
+    # por el mismo mecanismo. Las estadísticas y `/host/reload` van por la
+    # tabla (`read`/`confirm`), revisadas a mano.
+    ("POST", "/core/start"): "sv_start_core",
+    ("POST", "/core/rebuild"): "sv_rebuild_core",
+    ("POST", "/core/options"): "sv_set_core_options",
+    ("POST", "/supervisor/reload"): "sv_reload_supervisor",
+    ("POST", "/supervisor/restart"): "sv_restart_supervisor",
+    ("POST", "/supervisor/repair"): "sv_repair_supervisor",
+    ("POST", "/supervisor/options"): "sv_set_supervisor_options",
+    # 022, tramo 2: aplicar sugerencias (CAP-087). Los chequeos y el
+    # healthcheck van por la tabla (`confirm`), revisados a mano.
+    ("POST", "/resolution/suggestion/{suggestion}"): "sv_apply_resolution_suggestion",
     # 013: logs del sistema (CAP-081) y disco, host y OS (CAP-085), clase A de
     # vía D, por el mismo mecanismo que las de la 012 y la 029.
     **{("GET", f"/{origen}/logs{sufijo}"): tool

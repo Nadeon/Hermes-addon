@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 307 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 322 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -177,7 +177,8 @@ usar, ni directamente ni a través de las tools genéricas.
 | `mounts` | 9 | Montajes de red (CIFS y NFS) y de discos locales del Supervisor para backups, medios y `share`, el montaje por defecto de los backups y los ajustes de backup del Supervisor (`days_until_stale`, releer backups) (nueva en 1.2.0; crear, editar, borrar y el montaje por defecto, con confirmación; las credenciales nunca se devuelven) |
 | `system_diagnostics` | 11 | Logs de Core, del Supervisor, de los plugins y del journal del host, también de arranques anteriores; servicios del host, uso de disco, Home Assistant OS y swap (nueva en 1.2.0, solo lectura) |
 | `system_status` | 5 | Salud del sistema, reinicio pendiente, tiempos de arranque y manifiestos de las integraciones; solo lectura (nueva en 1.2.0) |
-| `recorder` | 3 | Estado del recorder, validación y metadatos de las estadísticas de largo plazo; hoy solo lectura (nueva en 1.2.0). El mantenimiento de estadísticas se sumará a esta familia |
+| `recorder` | 8 | Estado del recorder, validación y metadatos de las estadísticas de largo plazo (lectura), y su mantenimiento con confirmación: borrar, convertir la unidad, corregir la unidad guardada, ajustar sumas e importar (nueva en 1.2.0) |
+| `energy` | 2 | Preferencias del panel de energía: leerlas y guardarlas con confirmación; cada lista que se pasa reemplaza la suya y las demás se conservan (nueva en 1.2.0) |
 | `core_diagnostics` | 12 | Log del sistema, log de errores y niveles de log, validación de configuración, diagnósticos de integraciones y notificaciones persistentes de Home Assistant (nueva en 1.2.0) |
 | `integration_flows` | 12 | Integraciones descubiertas, dominios configurables por flujo, título y opciones de sistema de una integración, subentries y reconfigure de una integración (nueva en 1.2.0) |
 | `repair_flows` | 4 | Un aviso de Repairs con sus datos internos y su flujo de reparación (nueva en 1.2.0) |
@@ -185,6 +186,8 @@ usar, ni directamente ni a través de las tools genéricas.
 | `app_store` | 9 | Tienda de apps del Supervisor: repositorios (listar, añadir y quitar en dos pasos, reparar y recargar la tienda), changelog y documentación de la versión de la tienda de una app, si se puede instalar en este sistema y reconstruir una app instalada (en dos pasos) (nueva en 1.2.0) |
 | `blueprints` | 5 | Blueprints de automatizaciones, scripts y plantillas: listar, ver la sustitución con unas entradas, guardar, importar de una URL y borrar (nueva en 1.2.0) |
 | `automation_assist` | 9 | Ayuda para escribir automatizaciones: triggers, condiciones y acciones de un dispositivo, qué abarca un target y qué admite, y esperar una vez a un trigger; solo lectura (nueva en 1.2.0) |
+| `system_control` | 7 | Arrancar, reconstruir y configurar Home Assistant Core; recargar, reiniciar, reparar y configurar el Supervisor (nueva en 1.2.0; todo con confirmación salvo recargar; las opciones van por listas cerradas: `image`, `port`, `ssl`, `refresh_token` y el `channel` del Supervisor no se cambian) |
+| `resolution_fixes` | 1 | Aplicar una sugerencia del centro de resolución del Supervisor (nueva en 1.2.0; siempre con confirmación y una vista previa que explica qué hace; se rechazan las que no tienen arreglo, las que tocan los discos de datos y las que apuntan al propio Hermes) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -199,8 +202,8 @@ valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
 familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
 `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
-`mounts`, `system_updates`, `app_store`, `blueprints` y `automation_assist`)
-desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`,
+`energy`, `system_control` y `resolution_fixes`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

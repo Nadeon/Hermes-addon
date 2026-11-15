@@ -104,14 +104,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "manifests (read only).",
             "1.2.0", True, ("system_status",)),
     # Spec 029 (CAP-049). La familia es la del recorder entero, no solo de
-    # estas lecturas: la 020 (CAP-050) añadirá aquí el mantenimiento de
-    # estadísticas, que escribe. Ese día la descripción deja de decir «read
-    # only» (principio V) y quien apague `recorder` apaga lo que lee y lo que
-    # escribe en la base de estadísticas.
+    # sus lecturas: la 020 (CAP-050) añade el mantenimiento de estadísticas
+    # (`statistics_maintenance`), que escribe con confirmación. Por eso la
+    # descripción ya no dice «read only» (principio V), y quien apague
+    # `recorder` apaga lo que lee y lo que escribe en la base de estadísticas.
     Familia("recorder",
-            "Recorder status and long-term statistics: validation and metadata "
-            "(read only).",
-            "1.2.0", True, ("recorder_status",)),
+            "Recorder status and long-term statistics: validation, metadata and "
+            "maintenance (clear, change units, fix metadata, adjust sums, import; "
+            "with confirmation).",
+            "1.2.0", True, ("recorder_status", "statistics_maintenance")),
     # Spec 012: una sola familia para el diagnóstico de Core y no una por
     # módulo (research R-9): es un área y un tema de la guía, y partirla
     # daría opciones que nadie pediría. No es `diagnostics` (1.1.2: Repairs,
@@ -194,6 +195,31 @@ _CATALOGO: tuple[Familia, ...] = (
             "actions, resolving a target and what can be done with it, and "
             "waiting once for a trigger (read only).",
             "1.2.0", True, ("device_automation", "targets", "wait_for_trigger")),
+    # Spec 020 (CAP-054): las preferencias del panel de energía. Familia
+    # propia y no `recorder`: el panel es de la integración `energy`, que
+    # puede no estar cargada aunque el recorder sí, y quien no usa el panel
+    # puede apagarla sin perder el mantenimiento de estadísticas.
+    Familia("energy",
+            "Energy dashboard preferences: read and save (with confirmation).",
+            "1.2.0", True, ("energy",)),
+    # Spec 022 (research R-1): arrancar, reconstruir y configurar Core, y
+    # recargar, reiniciar, reparar y configurar el Supervisor. Familia propia
+    # y no `supervisor` (1.1.2) para que apagar las de la 1.2.0 deje la lista
+    # de la 1.1.2 (FR-010 de la 008), y para que quien no quiera que un
+    # agente corte Core o el Supervisor la apague sin perder lo demás.
+    Familia("system_control",
+            "Start, rebuild and configure Home Assistant Core; reload, restart, "
+            "repair and configure the Supervisor.",
+            "1.2.0", True, ("system_control",)),
+    # Spec 022, tramo 2 (research R-1): aplicar sugerencias del centro de
+    # resolución. Familia propia y no `diagnostics` (1.1.2, que solo lee y
+    # descarta) ni `system_control`: quien no quiera que un agente aplique
+    # arreglos del Supervisor (algunos borran backups o reinician el host)
+    # la apaga sola, sin perder el resto.
+    Familia("resolution_fixes",
+            "Apply Supervisor resolution suggestions after a preview that "
+            "explains their effect.",
+            "1.2.0", True, ("resolution_fixes",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

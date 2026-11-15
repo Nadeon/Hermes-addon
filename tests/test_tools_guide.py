@@ -569,9 +569,11 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # recalculadas al integrarla sobre las de la 033, la 027 y la 012.
         "config_entries": "c5acb413e7fedf5a",
         "data": "c77e3e6782cc89a7",
-        # La 012 cambia `diagnostics` (remite a `core_diagnostics`); su
-        # CHANGELOG lo dice.
-        "diagnostics": "b0fdb0a20718d45d",
+        # La 012 cambia `diagnostics` (remite a `core_diagnostics`) y la 022
+        # (tramo 2) también: ya no dice que Hermes nunca aplica sugerencias,
+        # sino que lo hace `sv_apply_resolution_suggestion`; sus CHANGELOG lo
+        # dicen.
+        "diagnostics": "838ff4a3a3eeaddb",
         "events": "3765a76095ece40f",
         "filesystem": "b5902d6d0ff666c1",
         "generic_commands": "906066a916e93727",
@@ -796,6 +798,38 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
                         "ha_statistics_during_period"):
             self.assertIn(palabra, texto)
 
+    async def test_mantenimiento_de_la_020(self) -> None:
+        """Spec 020, T013 (FR-020): el tema suma las tres tools de
+        mantenimiento, los dos pasos, `queued`, la diferencia entre convertir
+        (cambiar la unidad) y no convertir (metadatos), que solo un backup lo
+        deshace y el rango efectivo al borrar. «SOLO LECTURA» queda solo para
+        el grupo de las tres lecturas, no para el tema entero."""
+        texto = await self.guide("recorder")
+        for palabra in ("ha_clear_statistics", "ha_change_statistics_unit",
+                        "ha_update_statistics_metadata", "dos pasos",
+                        "confirmation_token", "queued: true", "backup",
+                        "CONVIERTE", "sin convertir valores", "converts_values: false",
+                        "effective_range", "SE SOLAPAN", "not_supported_for_source",
+                        "unit_mismatch", "statistics_not_found", "statistics_changed"):
+            self.assertIn(palabra, texto)
+        self.assertNotIn("Tres tools de SOLO LECTURA: ninguna", texto)
+        self.assertIn("mantenimiento", await self.guide())
+
+    async def test_mantenimiento_del_tramo_2_de_la_020(self) -> None:
+        """Spec 020, T029 (FR-020): las cinco de mantenimiento; el ajuste no
+        es idempotente; la importación (horas en punto, `mean_type`, fuente,
+        `stats` omitible al confirmar) y la genérica para regenerar los avisos
+        de Repairs."""
+        texto = await self.guide("recorder")
+        for palabra in ("ha_adjust_statistics_sum", "ha_import_statistics",
+                        "NO es idempotente", "statistic_has_no_sum", "sum_at_start",
+                        "hora en punto", "mean_type", "source: recorder", "stats",
+                        "omit_on_confirm", "overwritten_rows", "5000",
+                        'ha_call_ws_command(type="recorder/update_statistics_issues")',
+                        "ha_statistics_during_period"):
+            self.assertIn(palabra, texto)
+        self.assertIn("Las cinco en dos pasos", texto)
+
     async def test_alias(self) -> None:
         texto = await self.guide("recorder")
         for alias in ("recorder_info", "statistics_validation", "action_calls",
@@ -815,6 +849,49 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
         self.assertIn("logbook/get_action_calls", texto)
         self.assertIn('"start_time": "2026-01-01T00:00:00+00:00"', texto)
         self.assertIn('"end_time": "2026-01-01T06:00:00+00:00"', texto)
+
+
+class TestTemaEnergy(unittest.IsolatedAsyncioTestCase):
+    """Spec 020, T045 (FR-020): el tema `energy` nombra las dos tools, la
+    semántica de reemplazo por lista, el ciclo leer → editar → guardar y las
+    cuatro lecturas con su llamada exacta; sus alias resuelven a él, el
+    índice lo menciona y la búsqueda en la tabla enseña el ejemplo de
+    consumo fósil."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_contenido(self) -> None:
+        texto = await self.guide("energy")
+        self.assertIs(texto, _GUIDE["energy"])
+        for palabra in ("ha_get_energy_prefs", "ha_update_energy_prefs",
+                        "REEMPLAZA ENTERA", "se conservan", "leer → editar → guardar",
+                        "confirmation_token", "current", "new", "kept", "warnings",
+                        "removes_all_sources", "unknown_statistic", "energy_prefs_changed",
+                        "configured: false", "energy_not_loaded", "invalid_format",
+                        'ha_read_ws_command(type="energy/validate")',
+                        'ha_read_ws_command(type="energy/info")',
+                        'ha_read_ws_command(type="energy/solar_forecast")',
+                        'ha_read_ws_command(type="energy/fossil_energy_consumption"',
+                        '"co2_statistic_id": "sensor.intensidad_co2"'):
+            self.assertIn(palabra, texto)
+
+    async def test_alias(self) -> None:
+        texto = await self.guide("energy")
+        for alias in ("energy_prefs", "energy_dashboard", "energia", "ENERGIA"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_el_indice_lo_menciona(self) -> None:
+        self.assertIn("`energy`", await self.guide())
+
+    async def test_la_busqueda_enseña_el_ejemplo(self) -> None:
+        texto = await self.guide("generic_commands", search="fossil")
+        self.assertIn("energy/fossil_energy_consumption", texto)
+        self.assertIn('"co2_statistic_id": "sensor.intensidad_co2"', texto)
+        self.assertIn('"period": "hour"', texto)
 
 
 class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
@@ -1030,9 +1107,10 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     # converge vuelve a cambiar (mensajes sin valores y versión atada al
     # token, T029-T031). Al integrar la 030 en la rama del programa, la
     # huella de `supervisor` es la del texto mezclado: «apps (add-ons)» y los
-    # jobs de la 027 y la remisión a `updates` de la 015, más lo de la 030.
+    # jobs de la 027 y la remisión a `updates` de la 015, más lo de la 030,
+    # y, desde la integración de la 022, su remisión a `system_control`.
     _HUELLAS = {
-        "supervisor": "59ff6dec570dcfbf",
+        "supervisor": "772c2ce8cbdfc3be",
         "marketplace": "f83ec233a87ad95b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
@@ -1182,6 +1260,118 @@ class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
         self.assertIn("`mounts`", await self.guide())
         self.assertIn("mounts", INSTRUCTIONS)
         self.assertNotIn("mounts", instrucciones(frozenset({"mounts"})))
+
+
+class TestTemaSystemControl(unittest.IsolatedAsyncioTestCase):
+    """Spec 022, FR-020 (tramo 1): tema `system_control` con las siete tools,
+    qué corta cada una y cuánto, las listas cerradas, los rechazos, lo que va
+    por la tabla y la receta «Core no arranca»; sus alias; el índice y las
+    instrucciones lo nombran solo con la familia activa; `supervisor` remite
+    a él.
+
+    Control negativo comprobado (T014): sin `jobs_in_progress` en el tema →
+    cae su subtest; sin la línea del índice → cae `test_indice_e_instrucciones`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("system_control")
+        self.assertIs(texto, _GUIDE["system_control"])
+        for palabra in ("sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+                        "sv_reload_supervisor", "sv_restart_supervisor",
+                        "sv_repair_supervisor", "sv_set_supervisor_options",
+                        # qué corta y cuánto
+                        "interrupts", "1-5 minutos", "30-90 s", "Minutos",
+                        # listas cerradas y rechazos
+                        "boot", "watchdog", "audio_input", "image", "refresh_token",
+                        "timezone", "country", "logging", "auto_update",
+                        "diagnostics", "channel", "not_allowed",
+                        "jobs_in_progress", "already_running", "blocked",
+                        "no_changes", "started", "verify_with",
+                        # por la tabla
+                        "/core/stats", "/supervisor/stats", "/host/reload",
+                        "/core/stop",
+                        # receta
+                        "Core no arranca", "sv_get_core_logs", "sv_check_core_config"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("core_control", "supervisor_control", "CORE_CONTROL"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `core` y `system` siguen llevando a `supervisor`, como en la 1.1.2.
+        self.assertEqual(await self.guide("core"), _GUIDE["supervisor"])
+        self.assertEqual(await self.guide("system"), _GUIDE["supervisor"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b", _GUIDE["system_control"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`system_control`", await self.guide())
+        self.assertIn("system_control", INSTRUCTIONS)
+        self.assertNotIn("system_control", instrucciones(frozenset({"system_control"})))
+
+    def test_supervisor_remite(self) -> None:
+        self.assertIn('hermes_guide("system_control")', _GUIDE["supervisor"])
+
+
+class TestTemaSystemControlTramo2(unittest.IsolatedAsyncioTestCase):
+    """Spec 022, FR-020 (tramo 2): el tema `system_control` añade aplicar
+    sugerencias (traducción, rechazos, arreglos automáticos), los chequeos y
+    el healthcheck por la tabla, plugins, Docker (con el aviso de la red),
+    placas y NTP; alias `suggestions` y `fixups`; `diagnostics` ya no dice que
+    Hermes nunca aplica una sugerencia y remite a la tool (FR-012); la tabla
+    de la genérica da los chequeos como `confirm`.
+
+    Control negativo: quitar `targets_hermes` del tema → cae su subtest;
+    devolver a `diagnostics` la frase «NUNCA aplica» → cae
+    `test_diagnostics_dice_la_verdad` (y su huella)."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("system_control")
+        for palabra in ("sv_apply_resolution_suggestion", "resolution_fixes",
+                        "effect", "reversible", "clear_full_backup",
+                        "also_auto_applied", "suggestion_changed", "no_fixup",
+                        "unknown_effect", "not_allowed", "adopt_data_disk",
+                        "targets_hermes", "/resolution/check/{check}/run",
+                        "/resolution/healthcheck", "/dns/options", "/docker/options",
+                        "sin red", "/docker/registries", "/os/boards/green",
+                        "/time/options", "observer"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("suggestions", "fixups", "FIXUPS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    def test_diagnostics_dice_la_verdad(self) -> None:
+        texto = _GUIDE["diagnostics"]
+        self.assertNotIn("NUNCA aplica", texto)
+        self.assertIn("sv_apply_resolution_suggestion", texto)
+
+    async def test_chequeos_confirm_en_la_tabla(self) -> None:
+        texto = await self.guide("generic_commands", search="resolution")
+        for ruta in ("/resolution/check/{check}/run", "/resolution/check/{check}/options",
+                     "/resolution/healthcheck"):
+            with self.subTest(ruta=ruta):
+                linea = next(l for l in texto.splitlines() if ruta in l)
+                self.assertIn("confirm", linea)
 
 
 class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):

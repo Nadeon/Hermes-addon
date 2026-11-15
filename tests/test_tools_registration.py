@@ -896,6 +896,37 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # Tramo D: la espera de trigger solo escucha (lista cerrada de triggers,
     # research R-8), en `_READ_ONLY_EXACT`.
     "ha_wait_for_trigger": ("R-I-", "Wait for trigger (Home Assistant)"),
+    # Spec 020, tramo 1 (CAP-050, familia `recorder`): reescriben histórico y
+    # piden token; van por nombre exacto en `_DESTRUCTIVE_EXACT`. Repetirlas
+    # deja el mismo estado (idempotentes).
+    "ha_clear_statistics": ("-DI-", "Clear statistics (Home Assistant)"),
+    "ha_change_statistics_unit": ("-DI-", "Change statistics unit (Home Assistant)"),
+    "ha_update_statistics_metadata": ("-DI-", "Update statistics metadata (Home Assistant)"),
+    # Spec 020, tramo 2: ajustar la suma suma otra vez si se repite (no
+    # idempotente, también en `_NON_IDEMPOTENT_EXACT`); importar las mismas
+    # filas deja el mismo estado.
+    "ha_adjust_statistics_sum": ("-D--", "Adjust statistics sum (Home Assistant)"),
+    "ha_import_statistics": ("-DI-", "Import statistics (Home Assistant)"),
+    # Spec 020, tramo 3 (CAP-054, familia `energy`): leer por prefijo; guardar
+    # reemplaza listas enteras (`_DESTRUCTIVE_EXACT`), con token, idempotente.
+    "ha_get_energy_prefs": ("R-I-", "Get energy prefs (Home Assistant)"),
+    "ha_update_energy_prefs": ("-DI-", "Update energy prefs (Home Assistant)"),
+    # Spec 022, tramo 1 (research R-10): control de Core y del Supervisor,
+    # familia `system_control`. Ninguna es de solo lectura. Las seis con
+    # token se anuncian destructivas (invariante «pide token ⇔ destructiva»;
+    # R-10 daba no destructivas `sv_start_core` y `sv_set_supervisor_options`:
+    # desviación anotada en tasks.md). Reconstruir, reiniciar y reparar no
+    # son idempotentes; recargar y reparar salen a internet.
+    "sv_start_core": ("-DI-", "Start core (Supervisor)"),
+    "sv_rebuild_core": ("-D--", "Rebuild core (Supervisor)"),
+    "sv_set_core_options": ("-DI-", "Set core options (Supervisor)"),
+    "sv_reload_supervisor": ("--IO", "Reload supervisor (Supervisor)"),
+    "sv_restart_supervisor": ("-D--", "Restart supervisor (Supervisor)"),
+    "sv_repair_supervisor": ("-D-O", "Repair supervisor (Supervisor)"),
+    "sv_set_supervisor_options": ("-DI-", "Set supervisor options (Supervisor)"),
+    # Spec 022, tramo 2 (R-10): aplicar sugerencias, familia
+    # `resolution_fixes`: destructiva, no idempotente y de mundo abierto.
+    "sv_apply_resolution_suggestion": ("-D-O", "Apply resolution suggestion (Supervisor)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -938,6 +969,12 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_get_addon_documentation", "sv_get_addon_availability",
         "sv_rebuild_addon",
     },
+    "system_control": {
+        "sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+        "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
+        "sv_set_supervisor_options",
+    },
+    "resolution_fixes": {"sv_apply_resolution_suggestion"},
 }
 
 # Las de la spec 019, tramo 1 (montajes, CAP-083).
@@ -1613,6 +1650,92 @@ class TestActualizaciones015:
         }
         assert tools["ha_install_update"].parameters["required"] == ["entity_id"]
         assert tools["ha_install_update"].parameters["properties"]["backup"].get("default") is False
+# ── Spec 022, tramo 1: control de Core y del Supervisor (FR-017, FR-018) ────
+
+_CONTROL_022 = (
+    "sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+    "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
+    "sv_set_supervisor_options",
+)
+
+
+class TestControl022:
+    """Las siete tools de `system_control` se registran por defecto, con los
+    argumentos del contrato y los hints de R-10 (salvo la desviación de las
+    dos con token no destructivas, ver `_HINTS_NUEVAS_1_2_0`); con la familia
+    apagada no existe ninguna y sus rutas siguen `dedicated`.
+
+    Control negativo (T014): quitar `sv_rebuild_core` de
+    `_NON_IDEMPOTENT_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` y
+    `test_hints_de_r10`."""
+
+    def test_registradas_y_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _CONTROL_022}
+        assert props == {
+            "sv_start_core": {"confirmation_token"},
+            "sv_rebuild_core": {"safe_mode", "confirmation_token"},
+            "sv_set_core_options": {"options", "confirmation_token"},
+            "sv_reload_supervisor": set(),
+            "sv_restart_supervisor": {"confirmation_token"},
+            "sv_repair_supervisor": {"confirmation_token"},
+            "sv_set_supervisor_options": {"options", "confirmation_token"},
+        }
+        assert tools["sv_set_core_options"].parameters["required"] == ["options"]
+        assert tools["sv_rebuild_core"].parameters.get("required", []) == []
+
+    def test_hints_de_r10(self):
+        tools = _real_registry()
+        anotaciones = {n: tools[n].annotations for n in _CONTROL_022}
+        assert [n for n, a in anotaciones.items() if a.read_only_hint] == []
+        assert {n for n, a in anotaciones.items() if not a.idempotent_hint} == {
+            "sv_rebuild_core", "sv_restart_supervisor", "sv_repair_supervisor"}
+        assert {n for n, a in anotaciones.items() if a.open_world_hint} == {
+            "sv_reload_supervisor", "sv_repair_supervisor"}
+        for nombre in ("sv_rebuild_core", "sv_set_core_options",
+                       "sv_restart_supervisor", "sv_repair_supervisor"):
+            assert anotaciones[nombre].destructive_hint is True, nombre
+        # Recargar no pide token y no es destructiva.
+        assert anotaciones["sv_reload_supervisor"].destructive_hint is False
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["system_control"])
+        assert [n for n in _CONTROL_022 if n in tools] == []
+        dedicadas = {e.tool for e in SUPERVISOR.values()
+                     if e.category == "dedicated" and e.family == "system_control"}
+        assert dedicadas == set(_CONTROL_022)
+        # Las de la 1.1.2 del mismo área siguen.
+        assert {"sv_restart_core", "sv_reboot_host", "sv_get_core_info"} <= set(tools)
+
+
+# ── Spec 022, tramo 2: aplicar sugerencias (FR-017, FR-018) ─────────────────
+
+
+class TestResolutionFixes022:
+    """`sv_apply_resolution_suggestion` se registra por defecto, con el
+    contrato y los hints de R-10; con `resolution_fixes` apagada no existe y
+    la ruta sigue `dedicated`; las de `diagnostics` (1.1.2) no cambian."""
+
+    def test_registrada_y_hints(self):
+        tools = _real_registry()
+        t = tools["sv_apply_resolution_suggestion"]
+        assert set(t.parameters["properties"]) == {"suggestion_uuid", "confirmation_token"}
+        assert t.parameters["required"] == ["suggestion_uuid"]
+        a = t.annotations
+        assert (a.read_only_hint, a.destructive_hint, a.idempotent_hint,
+                a.open_world_hint) == (False, True, False, True)
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["resolution_fixes"])
+        assert "sv_apply_resolution_suggestion" not in tools
+        assert {"sv_get_resolution", "sv_dismiss_resolution_suggestion",
+                "sv_dismiss_resolution_issue"} <= set(tools)
+        e = SUPERVISOR[("POST", "/resolution/suggestion/{suggestion}")]
+        assert (e.category, e.family) == ("dedicated", "resolution_fixes")
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
@@ -1670,14 +1793,18 @@ class TestRecorderRegistration:
             assert "confirmation_token" not in props, nombre
 
     def test_desactivada_no_registra_ninguna(self):
+        # Desde la 020 la familia también lleva el mantenimiento de
+        # estadísticas: apagarla quita las de la 029 y las de la 020.
         completo = set(_real_registry())
         sin = set(_real_registry(["recorder"]))
-        assert completo - sin == self._TRES
+        assert completo - sin == self._TRES | TestStatisticsMaintenanceRegistration._DE_LA_020
 
     def test_sin_las_dos_familias_es_la_lista_de_antes_de_la_029(self):
+        # Las de la 020 van en `recorder`, así que también se restan aquí.
         completo = set(_real_registry())
         sin = set(_real_registry(["system_status", "recorder"]))
-        assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
+        assert completo - sin == (self._TRES | TestSystemStatusRegistration._CINCO
+                                  | TestStatisticsMaintenanceRegistration._DE_LA_020)
         assert sin <= completo
 
 
@@ -1738,6 +1865,71 @@ class TestTiendaDeApps030:
         completo = set(_real_registry())
         sin = set(_real_registry(["app_store"]))
         assert completo - sin == set(_TIENDA_030)
+
+
+class TestStatisticsMaintenanceRegistration:
+    """Spec 020, T007 (FR-014, FR-016, SC-001): el mantenimiento de
+    estadísticas va en la familia `recorder`, con `confirmation_token`, y
+    desaparece con ella. Los hints están en `_HINTS_NUEVAS_1_2_0`."""
+
+    _DE_LA_020 = {"ha_clear_statistics", "ha_change_statistics_unit",
+                  "ha_update_statistics_metadata", "ha_adjust_statistics_sum",
+                  "ha_import_statistics"}
+
+    def test_registradas_y_con_token(self):
+        tools = _real_registry()
+        assert self._DE_LA_020 <= set(tools)
+        for nombre in self._DE_LA_020:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" in props, nombre
+            assert nombre in _HINTS_NUEVAS_1_2_0, nombre
+
+    def test_con_recorder_desactivada_no_queda_ninguna_de_la_familia(self):
+        sin = set(_real_registry(["recorder"]))
+        assert not (self._DE_LA_020 | TestRecorderRegistration._TRES) & sin
+
+    def test_ajustar_la_suma_no_es_idempotente(self):
+        # Tramo 2 (T025): repetir el ajuste suma dos veces; un cliente que
+        # reintente tras un timeout de red tiene que saberlo.
+        from hermes.tools._annotations import _NON_IDEMPOTENT_EXACT, classify
+        assert "ha_adjust_statistics_sum" in _NON_IDEMPOTENT_EXACT
+        assert classify("ha_adjust_statistics_sum").idempotent_hint is False
+        assert classify("ha_import_statistics").idempotent_hint is True
+
+
+class TestEnergyRegistration:
+    """Spec 020, T036 (FR-014, FR-016, SC-001): las dos de CAP-054 van en la
+    familia `energy`; solo la que guarda pide `confirmation_token`. Con
+    `energy` desactivada no aparece ninguna y el resto no cambia; con
+    `recorder` y `energy` desactivadas, la lista es la de antes de la 029
+    (sin `system_status`, que también es de la 029)."""
+
+    _DOS = {"ha_get_energy_prefs", "ha_update_energy_prefs"}
+
+    def test_registradas_y_token_solo_al_guardar(self):
+        tools = _real_registry()
+        assert self._DOS <= set(tools)
+        for nombre in self._DOS:
+            assert nombre in _HINTS_NUEVAS_1_2_0, nombre
+        props = tools["ha_update_energy_prefs"].parameters.get("properties", {})
+        assert "confirmation_token" in props
+        assert {"energy_sources", "device_consumption",
+                "device_consumption_water"} <= set(props)
+        props = tools["ha_get_energy_prefs"].parameters.get("properties", {})
+        assert "confirmation_token" not in props
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["energy"]))
+        assert completo - sin == self._DOS
+        assert sin <= completo
+
+    def test_sin_recorder_ni_energy_es_la_lista_de_antes_de_la_029(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status", "recorder", "energy"]))
+        assert completo - sin == (self._DOS | TestRecorderRegistration._TRES
+                                  | TestSystemStatusRegistration._CINCO
+                                  | TestStatisticsMaintenanceRegistration._DE_LA_020)
 
 
 class TestMarketplaceRegistration:

@@ -11,6 +11,7 @@ suite normal (sin HA ni Docker):
       ∪ FUERA_DEL_BANCO                                              (36)
       ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 3)
       ∪ cobertura_017.PROBADAS_017 ∪ cobertura_017.NO_EJECUTABLES_017  (017, 3)
+      ∪ cobertura_020.PROBADAS_020 ∪ cobertura_020.NO_EJECUTABLES_020  (020, 6)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el
@@ -51,6 +52,7 @@ from tests.banco import cobertura, cobertura_016
 from tests.banco.cobertura_012 import PROBADAS_012
 from tests.banco.cobertura_015 import PROBADAS_015
 from tests.banco.cobertura_017 import PROBADAS_017
+from tests.banco.cobertura_020 import LECTURAS_020, PROBADAS_020
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -154,6 +156,9 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     | cobertura_016.PROBADAS_016
     # Spec 017: guardar y borrar blueprints (tramo A) e importar (tramo B).
     | PROBADAS_017
+    | PROBADAS_020
+    # Spec 020, tramo 3: la lectura de energía también (FR-021).
+    | LECTURAS_020
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 
@@ -205,6 +210,12 @@ _SV_MONTAJES = (
     "la 014"
 )
 
+_SV_CONTROL = (
+    "controla Core o el Supervisor: el Supervisor del banco es un simulado que "
+    "solo reenvía a Core y no sobreviviría; se prueba con simuladores "
+    "(tests/fixtures/supervisor_control.py) y en la VM de la 014"
+)
+
 # Solo `fs_*` y `sv_*`: una `ha_*` que no se pueda ejecutar va a
 # `NO_EJECUTABLES_028` con su motivo, nunca aquí (lo vigila el invariante).
 FUERA_DEL_BANCO: dict[str, str] = {
@@ -248,4 +259,13 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_repair_store_repository": _SV_TIENDA,
     "sv_reload_store": _SV_TIENDA,
     "sv_rebuild_addon": _SV_APPS_TIENDA,
+    # Spec 022, tramo 1 (control de Core y del Supervisor).
+    **{t: _SV_CONTROL for t in (
+        "sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+        "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
+        "sv_set_supervisor_options",
+    )},
+    # Spec 022, tramo 2: aplicar sugerencias, que solo existen en el
+    # Supervisor real.
+    "sv_apply_resolution_suggestion": _SV_AVISOS,
 }
