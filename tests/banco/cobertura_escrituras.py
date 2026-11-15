@@ -8,7 +8,7 @@ suite normal (sin HA ni Docker):
         ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 1 + 0)
       ∪ cobertura.PROBADAS_GENERICAS ∪ cobertura.NO_EJECUTABLES_GENERICAS (011, 1 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
-      ∪ FUERA_DEL_BANCO                                              (24)
+      ∪ FUERA_DEL_BANCO                                              (31)
       ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 3)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
@@ -46,7 +46,7 @@ ninguno: los dos de la 028 están arreglados y sus tests ya no son `xfail`.
 
 from __future__ import annotations
 
-from tests.banco import cobertura
+from tests.banco import cobertura, cobertura_016
 from tests.banco.cobertura_012 import PROBADAS_012
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
@@ -140,12 +140,13 @@ XFAIL_PERMITIDOS_028: dict[str, str] = {}
 
 # Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
 # por ejecución y todos los `xfail` de hallazgos listados. Una sub-feature
-# nueva con tests en el banco suma aquí sus listas (la 012, `PROBADAS_012`).
+# nueva con tests en el banco suma aquí sus listas (la 012, `PROBADAS_012`; la 016, `PROBADAS_016`).
 TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | PROBADAS_028
     # Spec 029: lecturas, pero también se exigen por ejecución (FR-022).
     | cobertura.PROBADAS_EN_BANCO_029
     | PROBADAS_012
+    | cobertura_016.PROBADAS_016
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 
@@ -176,6 +177,13 @@ _SV_AVISOS = (
     "simuladores en la suite normal y en la VM de la 014"
 )
 
+_SV_MONTAJES = (
+    "montajes del Supervisor: necesitan un recurso CIFS o NFS (o un disco) y "
+    "el Supervisor real; se prueban con el Supervisor simulado de "
+    "tests/fixtures/supervisor_montajes.py en la suite normal y en la VM de "
+    "la 014"
+)
+
 # Solo `fs_*` y `sv_*`: una `ha_*` que no se pueda ejecutar va a
 # `NO_EJECUTABLES_028` con su motivo, nunca aquí (lo vigila el invariante).
 FUERA_DEL_BANCO: dict[str, str] = {
@@ -203,4 +211,15 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_reboot_host": _SV_REINICIOS,
     "sv_dismiss_resolution_issue": _SV_AVISOS,
     "sv_dismiss_resolution_suggestion": _SV_AVISOS,
+    # Spec 019 (montajes del Supervisor): ni el NAS ni el disco existen en el
+    # Supervisor simulado del banco, que solo reenvía a Core.
+    "sv_create_mount": _SV_MONTAJES,
+    "sv_update_mount": _SV_MONTAJES,
+    "sv_delete_mount": _SV_MONTAJES,
+    "sv_reload_mount": _SV_MONTAJES,
+    "sv_set_default_backup_mount": _SV_MONTAJES,
+    # Spec 019, tramo 2 (ajustes de backup): el Supervisor simulado del banco
+    # no tiene backups ni montajes.
+    "sv_set_backup_settings": _SV_MONTAJES,
+    "sv_reload_backups": _SV_MONTAJES,
 }

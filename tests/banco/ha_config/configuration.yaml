@@ -149,3 +149,16 @@ system_log:
 # `local_calendar` (sin red ni hardware) para tener un diagnóstico de entrada.
 # `persistent_notification` es de núcleo: no hace falta cargarla.
 diagnostics:
+
+# ── Spec 016: integraciones, flujos y Repairs ──────────────────────────────
+#
+# banco_flujos: es una integración de prueba PROPIA, en
+# custom_components/banco_flujos/ (research R-9 de la 016). Es configuración
+# del banco, no código de Hermes: nunca se empaqueta ni llega al add-on. Al
+# cargarse abre un flujo de descubrimiento con unique_id y crea dos avisos
+# reparables con textos traducibles; además se configura por el flujo `user`
+# (sin red), admite `reconfigure` y subentries con un sensor cada una. Es lo
+# que necesitan las tools de descubiertos, preferencias, subentries y
+# reparación: el banco no tiene red ni hardware que descubrir. Sin requisitos
+# ni salida a internet.
+banco_flujos:

@@ -284,8 +284,29 @@ class TestClaseAConToolDedicada(_Base):
                     malas.append(f"{k}: desde cero {campos(generada[k])}, tabla {campos(e)}")
         self.assertEqual(malas, [], "\n".join(malas))
         # 9 de la 012 menos `logger/integration_log_level` (cubierto), 28 de la
-        # 013 y 9 de la 029: si baja, el test ha dejado de mirarlas.
-        self.assertGreaterEqual(n, 45)
+        # 013, 9 de la 029 y, desde la integración de la 019, sus 9 rutas de
+        # CAP-083 (`/mounts` y `/backups/info|options|reload`), que entran en
+        # el mapa del generador: si baja, el test ha dejado de mirarlas.
+        self.assertGreaterEqual(n, 54)
+
+    def test_dedicada_con_la_familia_de_su_tool(self) -> None:
+        """Spec 016 (T010): la familia sale de la tool del mapa, aquí una de
+        `integration_flows`."""
+        mapa = dict(gt._DEDICADAS_INICIALES)
+        mapa["demo/via_d"] = "ha_update_config_entry"
+        original = gt._DEDICADAS_INICIALES
+        gt._DEDICADAS_INICIALES = mapa
+        try:
+            self.salida.unlink()
+            self._generar()
+        finally:
+            gt._DEDICADAS_INICIALES = original
+        e = self._tabla().CORE_WS["demo/via_d"]
+        self.assertEqual((e.category, e.tool, e.family, e.cap),
+                         ("dedicated", "ha_update_config_entry", "integration_flows", "CAP-041"))
+        self.assertEqual(e.reason, "cubierto por ha_update_config_entry")
+        # Las demás de vía D siguen pendientes.
+        self.assertEqual(self._tabla().CORE_WS["demo/via_dt"].category, "deny")
 
 
 class TestRegeneracion(_Base):

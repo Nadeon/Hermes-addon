@@ -265,6 +265,26 @@ them into account:
    isolates for it.
 5. **Single owner.** The authorization model assumes one owner. There are no
    roles, no per-tool scopes, and no separation between concurrent clients.
+6. **Reconfigure and re-authentication flows are recognised by what Hermes
+   can see.** Every step of an integration's reconfigure flow and of a
+   re-authentication (`reauth`) flow needs a preview and a
+   `confirmation_token`, because both can change the credentials of an
+   integration. Home Assistant does not say which kind of flow a `flow_id`
+   is when it is continued, so Hermes fails closed:
+   - a reconfigure is recognised only because Hermes opened it
+     (`ha_start_reconfigure_flow`) and keeps its `flow_id` in memory;
+   - a re-authentication is recognised because Home Assistant lists it, with
+     its source, among the flows in progress;
+   - `ha_continue_config_entry_flow` only continues a flow that
+     `ha_start_config_entry_flow` opened in the same Hermes session (also
+     kept in memory, for an hour since its last use) or that Home Assistant
+     lists among the flows in progress. Any other `flow_id` (a flow opened
+     before Hermes restarted or from the Home Assistant UI, or a reconfigure)
+     is refused without sending anything, and so is every flow while the
+     list of flows in progress cannot be read.
+
+   The cost: after Hermes restarts, a flow that was half-way has to be
+   started again.
 
 ## Deployment recommendations
 

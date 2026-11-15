@@ -221,14 +221,42 @@ class TestDispositivosSinCamposDeprecados(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(antes, despues)
         self.assertEqual(despues, [["ce_1"], ["ce_1"], ["ce_2"]])
 
+    # Único respaldo permitido, añadido al integrar la 016: la vista previa de
+    # `ha_delete_subentry` mira primero `config_entry_id`/`config_subentry_id`
+    # (el modelo de 2026.11.1) y solo si no casan lee
+    # `config_entries_subentries`, la única forma que tienen los dispositivos
+    # de un HA con subentries anterior a ese modelo. Cuando HA lo quite
+    # (2027.8) el campo no llega y la función decide con los nuevos; lo fija
+    # `test_subentry_de_un_dispositivo_sin_campos_deprecados`.
+    _RESPALDOS = {"config_entries_subentries": {"hermes/src/hermes/tools/config_subentries.py"}}
+
     def test_hermes_no_lee_los_campos_que_ha_retira(self) -> None:
         patron = re.compile(r"primary_config_entry|config_entries_subentries")
         usos = [
-            str(p.relative_to(_RAIZ))
+            f"{p.relative_to(_RAIZ).as_posix()}: {campo}"
             for p in _SRC.rglob("*.py")
-            if patron.search(p.read_text(encoding="utf-8"))
+            for campo in sorted(set(patron.findall(p.read_text(encoding="utf-8"))))
+            if p.relative_to(_RAIZ).as_posix() not in self._RESPALDOS.get(campo, set())
         ]
         self.assertEqual(usos, [])
+
+    def test_subentry_de_un_dispositivo_sin_campos_deprecados(self) -> None:
+        """Integración de la 016: con la forma de 2027.10 (sin
+        `config_entries_subentries`) la vista previa de `ha_delete_subentry`
+        sigue encontrando los dispositivos de la subentry, y con la forma
+        anterior al modelo de 2026.11 (solo el mapa) también.
+
+        Control negativo comprobado: quitar de `_del_subentry_dispositivo` la
+        comparación con `config_entry_id`/`config_subentry_id` → cae la forma
+        de 2027.10."""
+        from hermes.tools.config_subentries import _del_subentry_dispositivo
+
+        nuevo = {"id": "d1", "config_entry_id": "ce_1", "config_subentry_id": "sub_1"}
+        antiguo = {"id": "d2", "config_entries_subentries": {"ce_1": ["sub_1"]}}
+        ajeno = {"id": "d3", "config_entry_id": "ce_1", "config_subentry_id": "sub_2"}
+        self.assertTrue(_del_subentry_dispositivo(nuevo, "ce_1", "sub_1"))
+        self.assertTrue(_del_subentry_dispositivo(antiguo, "ce_1", "sub_1"))
+        self.assertFalse(_del_subentry_dispositivo(ajeno, "ce_1", "sub_1"))
 
 
 # Lo que deprecó la 033 (arreglos del banco), integrado con la 027: siguen

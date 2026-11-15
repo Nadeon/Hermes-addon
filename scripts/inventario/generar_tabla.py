@@ -264,6 +264,16 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "config_entries/disable": "ha_disable_config_entry",
     "config_entries/get": "ha_list_config_entries",
     "config_entries/get_single": "ha_get_config_entry",
+    # Spec 016 (tramo A, CAP-044): clase A de vía D con tool dedicada.
+    "config_entries/flow/progress": "ha_list_discovered_integrations",
+    "config_entries/ignore_flow": "ha_ignore_discovery",
+    "config_entries/update": "ha_update_config_entry",
+    # Spec 016 (tramo B, CAP-045).
+    "config_entries/subentries/delete": "ha_delete_subentry",
+    "config_entries/subentries/list": "ha_list_config_subentries",
+    "config_entries/subentries/update": "ha_update_subentry",
+    # Spec 016 (tramo C, CAP-048).
+    "repairs/get_issue_data": "ha_get_repair",
     # Datos.
     "history/history_during_period": "ha_get_history",
     "logbook/get_events": "ha_get_logbook",
@@ -356,6 +366,17 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     ("GET", "/resolution/info"): "sv_get_resolution",
     ("DELETE", "/resolution/suggestion/{suggestion}"): "sv_dismiss_resolution_suggestion",
     ("DELETE", "/resolution/issue/{issue}"): "sv_dismiss_resolution_issue",
+    # 019: montajes del Supervisor y ajustes de backup (CAP-083), clase A de
+    # vía D, por el mismo mecanismo que las de la 012 y la 029.
+    ("GET", "/mounts"): "sv_list_mounts",
+    ("POST", "/mounts"): "sv_create_mount",
+    ("PUT", "/mounts/{mount}"): "sv_update_mount",
+    ("DELETE", "/mounts/{mount}"): "sv_delete_mount",
+    ("POST", "/mounts/{mount}/reload"): "sv_reload_mount",
+    ("POST", "/mounts/options"): "sv_set_default_backup_mount",
+    ("GET", "/backups/info"): "sv_get_backup_settings",
+    ("POST", "/backups/options"): "sv_set_backup_settings",
+    ("POST", "/backups/reload"): "sv_reload_backups",
     # 013: logs del sistema (CAP-081) y disco, host y OS (CAP-085), clase A de
     # vía D, por el mismo mecanismo que las de la 012 y la 029.
     **{("GET", f"/{origen}/logs{sufijo}"): tool

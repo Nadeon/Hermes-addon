@@ -173,6 +173,33 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # anunciaba no destructiva (`----`, por el prefijo `ha_create_`) y su
     # descripción decía que una colisión daba error, que no es lo que hace HA.
     "ha_create_scene_from_current",
+    # Spec 016: puede pedir token. Desactivar el sondeo recarga la integración
+    # y deja sus entidades sin actualizar; desactivar las entidades nuevas hace
+    # que lo que se añada entre deshabilitado. Invariante «pide token ⇔
+    # destructiva». Idempotente: repetirla deja la entrada igual.
+    "ha_update_config_entry",
+    # Spec 016, tramo B (decisión del supervisor): cada paso pide token,
+    # porque cualquier envío puede terminar el reconfigure, cambiar
+    # credenciales o datos de conexión y recargar la integración.
+    "ha_continue_reconfigure_flow",
+    # Spec 016, tramo C: cada envío de un paso pide token, porque puede
+    # aplicar el arreglo de una integración, con efectos propios de cada una,
+    # y HA no dice antes qué paso es el último.
+    "ha_continue_repair_fix",
+    # Spec 016, tramo C (decisión del supervisor): la tool de la 1.1.2 pide
+    # token en cada paso de un flujo `reauth`, que cambia las credenciales de
+    # una entrada. Invariante «pide token ⇔ destructiva»: su hint cambia a
+    # propósito (ver `_HINTS_CAMBIADOS_A_PROPOSITO` en
+    # tests/test_tools_registration.py). Sigue idempotente, como en la 1.1.2.
+    "ha_continue_config_entry_flow",
+    # Montajes del Supervisor (spec 019). Piden token y su nombre no lo
+    # delata: crear uno de backup puede pasar a ser el destino de TODOS los
+    # backups (también los safety backups); editar desmonta y puede quitar
+    # las credenciales; el montaje por defecto decide a dónde van los backups.
+    # `sv_delete_mount` ya lo cubre el prefijo `sv_delete_`.
+    "sv_create_mount",
+    "sv_update_mount",
+    "sv_set_default_backup_mount",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -226,6 +253,17 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # creaciones y acciones que se acumulan; repetir no deja el mismo estado.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 016: cada llamada abre un flujo nuevo o avanza el flujo un paso;
+    # repetirla no deja el mismo estado. Las de la 1.1.2
+    # (`ha_start_config_entry_flow`, `ha_continue_*_flow`) no se tocan (D-4).
+    "ha_start_subentry_flow",
+    "ha_continue_subentry_flow",
+    "ha_start_reconfigure_flow",
+    "ha_continue_reconfigure_flow",
+    # Tramo C: abrir un flujo de reparación (algunos terminan al abrirse) y
+    # avanzarlo un paso.
+    "ha_start_repair_fix",
+    "ha_continue_repair_fix",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

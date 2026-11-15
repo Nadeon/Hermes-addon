@@ -273,6 +273,173 @@ def _entrada(category: str, **kw):
     return Entrada(category=category, **kw)
 
 
+def _tools_de_la_familia(familia: str) -> set[str]:
+    """Tools declaradas (AST) en los módulos de una familia."""
+    import ast
+    import pathlib
+
+    from hermes.tool_families import FAMILIAS
+
+    carpeta = pathlib.Path(__file__).resolve().parents[1] / "hermes" / "src" / "hermes" / "tools"
+    nombres: set[str] = set()
+    for modulo in FAMILIAS[familia].modulos:
+        arbol = ast.parse((carpeta / f"{modulo}.py").read_text(encoding="utf-8"))
+        for n in ast.walk(arbol):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "tool"
+                for d in n.decorator_list
+            ):
+                nombres.add(n.name)
+    return nombres
+
+
+def _tools_nombradas(texto: str) -> set[str]:
+    """Nombres concretos de tools en un texto (sin los patrones `ha_list_*`)."""
+    import re
+
+    return set(re.findall(r"(?<![\w])((?:ha|sv|fs)_[a-z0-9_]*[a-z0-9])(?![\w*/])", texto))
+
+
+class TestTemaIntegrationFlows(unittest.IsolatedAsyncioTestCase):
+    """Spec 016 (T011; FR-016, FR-020): tema de la familia `integration_flows`
+    y la sección de helpers por config entry.
+
+    `test_cada_tool_de_la_familia_nombrada` es genérico: el tramo B, que añade
+    `config_subentries` a la familia, no tiene que tocarlo (cae si una tool
+    suya no sale en el tema). Control negativo comprobado: quitar
+    `ha_ignore_discovery` del tema → cae nombrándola.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("integration_flows")
+        self.assertIs(texto, _GUIDE["integration_flows"])
+        for alias in ("discovery", "discovered", "DISCOVERY",
+                      "subentries", "subentry", "reconfigure"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        for palabra in ("ha_continue_config_entry_flow", "ignorable", "ha_delete_config_entry",
+                        "pref_disable_polling", "pref_disable_new_entities",
+                        "homeassistant.update_entity", "OAuth",
+                        "supported_subentry_types", "use_dedicated_tool",
+                        "reconfigure_successful"):
+            self.assertIn(palabra, texto)
+
+    def test_reconfigure_con_token_en_cada_paso(self) -> None:
+        # Decisión del supervisor (tramo B): el tema no puede dejar creer que
+        # un reconfigure se sigue con la tool general ni que va sin token.
+        texto = _GUIDE["integration_flows"]
+        self.assertIn("token en cada paso", _GUIDE["config_entries"])
+        self.assertIn("ha_continue_reconfigure_flow", _GUIDE["config_entries"])
+        self.assertIn("CADA paso", texto)
+        self.assertIn("rechaza estos flujos", texto)
+
+    def test_convergencia_t046_t048(self) -> None:
+        # T046: ignorar no es inocuo y solo vale para descubrimientos.
+        # T048: un flujo desconocido no se envía. Control negativo comprobado:
+        # con los textos de antes («no toca nada en marcha», «se envía como
+        # cualquier otro», «pasaría por … sin token») cae este test.
+        texto = _GUIDE["integration_flows"]
+        self.assertNotIn("no toca nada en marcha", texto)
+        self.assertIn("not_a_discovery", texto)
+        self.assertIn("unknown_flow", texto)
+        self.assertIn("unknown_flow", _GUIDE["config_entries"])
+        self.assertNotIn("se envía como cualquier otro", texto)
+        self.assertNotIn("token si se conociera", texto)
+
+    async def test_cada_tool_de_la_familia_nombrada(self) -> None:
+        tools = _tools_de_la_familia("integration_flows")
+        self.assertTrue(tools)
+        faltan = sorted(t for t in tools if t not in _GUIDE["integration_flows"])
+        self.assertEqual(faltan, [], f"tools de la familia sin nombrar en el tema: {faltan}")
+
+    async def test_el_indice_lo_lista(self) -> None:
+        self.assertIn("`integration_flows`", await self.guide())
+
+    def test_config_entries_remite_al_tema(self) -> None:
+        self.assertIn('hermes_guide("integration_flows")', _GUIDE["config_entries"])
+
+    def test_helpers_por_config_entry(self) -> None:
+        texto = _GUIDE["helpers"]
+        self.assertIn("HELPERS POR CONFIG ENTRY", texto)
+        for nombre in ('ha_list_config_flow_domains(type="helper")',
+                       'ha_start_config_entry_flow("template")',
+                       "ha_continue_config_entry_flow", "next_step_id",
+                       'ha_list_config_entries(type_filter="helper")',
+                       "ha_start_options_flow", "ha_continue_options_flow",
+                       "ha_delete_config_entry"):
+            self.assertIn(nombre, texto)
+        # Qué hacer con la familia desactivada.
+        self.assertIn("desactivada", texto)
+
+    def test_no_nombra_tools_que_no_existen(self) -> None:
+        from tests.test_tools_registration import _declared_tool_names
+
+        existentes = _declared_tool_names()
+        for tema in ("integration_flows", "helpers"):
+            with self.subTest(tema=tema):
+                inventadas = sorted(_tools_nombradas(_GUIDE[tema]) - existentes)
+                self.assertEqual(inventadas, [])
+
+
+class TestTemaRepairFlows(unittest.IsolatedAsyncioTestCase):
+    """Spec 016, tramo C (T041; FR-020): tema de la familia `repair_flows`,
+    remisión desde `diagnostics` y la reautenticación con token (decisión
+    del supervisor) en `integration_flows`."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("repair_flows")
+        self.assertIs(texto, _GUIDE["repair_flows"])
+        for alias in ("repair_fix", "fix", "FIX"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        for palabra in ("CADA paso", "finished_on_start", "flow_mismatch",
+                        "issue_still_present", "is_fixable",
+                        "arreglar un aviso de Repairs", "external"):
+            self.assertIn(palabra, texto)
+
+    async def test_cada_tool_de_la_familia_nombrada(self) -> None:
+        tools = _tools_de_la_familia("repair_flows")
+        self.assertEqual(len(tools), 4)
+        faltan = sorted(t for t in tools if t not in _GUIDE["repair_flows"])
+        self.assertEqual(faltan, [], f"tools de la familia sin nombrar en el tema: {faltan}")
+
+    async def test_el_indice_lo_lista(self) -> None:
+        self.assertIn("`repair_flows`", await self.guide())
+
+    def test_diagnostics_remite_y_menciona_los_textos(self) -> None:
+        texto = _GUIDE["diagnostics"]
+        self.assertIn('hermes_guide("repair_flows")', texto)
+        self.assertIn("`title`", texto)
+        self.assertIn("`description`", texto)
+
+    def test_reauth_con_token_y_limite_del_reconfigure(self) -> None:
+        texto = _GUIDE["integration_flows"]
+        self.assertIn("REAUTENTICACIÓN", texto)
+        self.assertIn('`source: "reauth"`', texto)
+        # T048: el límite del reconfigure tras reiniciar está cerrado; la
+        # guía dice que no se puede continuar por ninguna vía.
+        self.assertIn("Tras reiniciar Hermes no se reconoce un reconfigure", texto)
+        self.assertIn("reauth", _GUIDE["config_entries"])
+
+    def test_no_nombra_tools_que_no_existen(self) -> None:
+        from tests.test_tools_registration import _declared_tool_names
+
+        existentes = _declared_tool_names()
+        for tema in ("repair_flows", "diagnostics", "integration_flows", "config_entries"):
+            with self.subTest(tema=tema):
+                self.assertEqual(sorted(_tools_nombradas(_GUIDE[tema]) - existentes), [])
+
+
 class TestTemaGenericCommands(unittest.IsolatedAsyncioTestCase):
     """FR-022: el tema explica las genéricas y `search` consulta la tabla real.
 
@@ -387,18 +554,24 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # (`ha_get_config_entry_options` da
         # `not_supported`) y `helpers` (counters); su CHANGELOG lo dice.
         "automations": "7792fa788da1e1cc",
-        # La 027 cambia `backups` (`success` y `child_errors` de los jobs);
-        # su CHANGELOG lo dice.
-        "backups": "d0cfde463c856427",
-        "config_entries": "afaf103b7388da10",
+        # La 027 cambia `backups` (`success` y `child_errors` de los jobs) y la
+        # 019 (tramo 2) también (`location` en sv_create_backup_*); sus
+        # CHANGELOG lo dicen. Huella recalculada al integrar la 019.
+        "backups": "284e226b8aaf6fed",
+        # La 016 cambia `config_entries` (remite a `integration_flows`; el
+        # reconfigure va por su tool y el `reauth` pide token), `diagnostics`
+        # (textos de los avisos y remite a `repair_flows`) y `helpers`
+        # («Helpers por config entry», CAP-037); su CHANGELOG lo dice. Huellas
+        # recalculadas al integrarla sobre las de la 033, la 027 y la 012.
+        "config_entries": "c5acb413e7fedf5a",
         "data": "c77e3e6782cc89a7",
         # La 012 cambia `diagnostics` (remite a `core_diagnostics`); su
         # CHANGELOG lo dice.
-        "diagnostics": "f52ae3c906d8e56a",
+        "diagnostics": "b0fdb0a20718d45d",
         "events": "3765a76095ece40f",
         "filesystem": "b5902d6d0ff666c1",
         "generic_commands": "906066a916e93727",
-        "helpers": "1c0d88c851dbbdd5",
+        "helpers": "c99850e94eb5c996",
         # La 018 cambia `lovelace` (guardado por vista) y `services`
         # (`ha_call_service_response` con token); su CHANGELOG lo dice.
         "lovelace": "38d00048b136b460",
@@ -760,3 +933,90 @@ class TestGuiaApps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
+    """Spec 019, FR-018 (tramo 1): tema `mounts` con las seis tools de
+    montajes, el flujo de llevar los backups a un NAS, que las credenciales
+    no se devuelven y que editar sin ellas las quita; sus alias; el índice y
+    las instrucciones lo nombran solo con la familia activa. El tema
+    `backups` no cambia en este tramo (lo hace el tramo 2).
+
+    Control negativo comprobado: sin el tema, su línea del índice y su
+    hueco en las instrucciones caen los tres (3 failed, 45 passed).
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("mounts")
+        self.assertIs(texto, _GUIDE["mounts"])
+        for palabra in ("sv_list_mounts", "sv_create_mount", "sv_update_mount",
+                        "sv_delete_mount", "sv_reload_mount",
+                        "sv_set_default_backup_mount", "cifs", "nfs", "disk",
+                        "device", "uuid", "sv_get_resolution", "safety backup",
+                        "removed_if_present", "credentials"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        # Las frases que importan: no se devuelven y editar sin ellas las
+        # quita; el flujo del NAS.
+        for frase in ("nunca se devuelven", "las quita", "NAS"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, texto)
+        for alias in ("cifs", "nfs", "nas", "network_storage", "backup_settings",
+                      "NAS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `backup` sigue llevando a `backups`, como en la 1.1.2.
+        self.assertEqual(await self.guide("backup"), _GUIDE["backups"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b", _GUIDE["mounts"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`mounts`", await self.guide())
+        self.assertIn("mounts", INSTRUCTIONS)
+        self.assertNotIn("mounts", instrucciones(frozenset({"mounts"})))
+
+
+class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):
+    """Spec 019, FR-018 (tramo 2): el tema `mounts` nombra las tres tools de
+    ajustes de backup y `days_until_stale`; el tema `backups` explica
+    `location`, `.local` y que sin ella el backup va al montaje por defecto.
+
+    Control negativo comprobado: quitar `sv_reload_backups` del tema
+    `mounts` → 1 failed (su subtest); quitar «`.cloud_backup` no se admite»
+    de `backups` → 2 failed (su subtest y la huella del tema); restaurado,
+    verde.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_mounts_con_los_ajustes(self) -> None:
+        texto = await self.guide("mounts")
+        for palabra in ("sv_get_backup_settings", "sv_set_backup_settings",
+                        "sv_reload_backups", "days_until_stale", "location"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    async def test_backups_con_location(self) -> None:
+        texto = await self.guide("backups")
+        for palabra in ("location", ".local", "montaje por defecto",
+                        ".cloud_backup", "sv_create_backup_full"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)

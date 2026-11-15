@@ -286,7 +286,9 @@ Instantánea `antes-tanda-1`. Nada de esto reinicia ni para nada importante.
   introducido a propósito en un YAML; el resultado coincide con
   `ha core check`.
 - `sv_create_backup_full` y `sv_create_backup_partial`: el backup aparece en
-  `ha backups list` con el contenido pedido.
+  `ha backups list` con el contenido pedido; también con `location` (spec
+  019): `.local`, el montaje de backup de prueba y los dos en lista, y el
+  backup sale en esas ubicaciones.
 - `sv_create_safety_backup`: crea el backup con el prefijo de los safety
   backups; con `safety_backup_enabled`, la retención conserva los que diga
   `safety_backup_keep`.
@@ -346,6 +348,28 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   plantilla y la categoría, y la ejecución reinicia el plugin DNS
   (`ha dns info`); una ruta `deny`, una de Hermes (`local_hermes`) o el
   proxy de Core se rechazan sin llegar al Supervisor.
+- Montajes (spec 019). Hace falta un recurso CIFS con usuario y contraseña y
+  un export NFS de prueba en la red de la VM (por ejemplo, un contenedor
+  Samba o NFS en el equipo anfitrión), y un disco USB virtual para `disk`.
+  En todas: la vista previa no enseña el usuario ni la contraseña, el log de
+  Hermes no lleva ni las credenciales ni el servidor, y lo que dice la
+  vista previa casa con `ha mounts info` después.
+  - Tanda 1: `sv_create_mount` (CIFS con credenciales, CIFS sin ellas, NFS y
+    `disk`; el primero de uso `backup` pasa a ser el por defecto si no había
+    ninguno) y `sv_reload_mount` (parar el recurso, ver el estado `failed`,
+    volver a arrancarlo y recargar).
+  - Tanda 3, con instantánea antes: `sv_update_mount` (cambiar la versión
+    sin credenciales: la vista previa avisa de que se quitan y `ha mounts
+    info` lo confirma; volver a ponerlas), `sv_set_default_backup_mount`
+    (al montaje y de vuelta al disco local, con un safety backup después
+    para ver a dónde va) y `sv_delete_mount` sobre el montaje de backup con
+    un backup dentro (la vista previa lista ese backup y dice que solo está
+    ahí; después ya no sale en `sv_list_backups`).
+  - Ajustes de backup, en la tanda 1: `sv_set_backup_settings` (cambiar
+    `days_until_stale` y verlo en `ha backups info`; volver al valor
+    anterior) y `sv_reload_backups` (copiar a mano un backup al recurso de
+    backup y ver que, tras releer, sale en `sv_list_backups` y el recuento
+    sube).
 
 ## Probar hassio_role: manager
 

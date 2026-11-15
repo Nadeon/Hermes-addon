@@ -771,6 +771,37 @@ class TestSupervisorTablaReal(_Base):
         r = await self.t["sv_read_api"]("/core/api/config")
         self.assertEqual(r["rule"], "core_proxy")
 
+    async def test_montajes_por_su_tool(self) -> None:
+        """Spec 019 (FR-015): las rutas de montajes llevan a su tool
+        dedicada sin llamar al Supervisor; tampoco para un montaje `disk`,
+        que crea `sv_create_mount`."""
+        r = await self.t["sv_read_api"]("/mounts")
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "sv_list_mounts"))
+        r = await self.t["sv_call_api"](
+            "POST", "/mounts", {"name": "usb", "type": "disk", "usage": "share",
+                                "device": "/dev/sdb1"})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "sv_create_mount"))
+        self.assertNotIn("confirmation_token", r)
+        r = await self.t["sv_call_api"]("POST", "/mounts/options",
+                                        {"default_backup_mount": None})
+        self.assertEqual(r["tool"], "sv_set_default_backup_mount")
+        self.ha.sv_request.assert_not_awaited()
+
+    async def test_ajustes_de_backup_por_su_tool(self) -> None:
+        """Spec 019, tramo 2 (FR-015): las rutas de ajustes de backup
+        llevan a su tool dedicada sin llamar al Supervisor."""
+        r = await self.t["sv_read_api"]("/backups/info")
+        self.assertEqual((r["error"], r["tool"]),
+                         ("use_dedicated_tool", "sv_get_backup_settings"))
+        r = await self.t["sv_call_api"]("POST", "/backups/options",
+                                        {"days_until_stale": 7})
+        self.assertEqual((r["error"], r["tool"]),
+                         ("use_dedicated_tool", "sv_set_backup_settings"))
+        self.assertNotIn("confirmation_token", r)
+        r = await self.t["sv_call_api"]("POST", "/backups/reload", None)
+        self.assertEqual(r["tool"], "sv_reload_backups")
+        self.ha.sv_request.assert_not_awaited()
+
 
 # ── Registro ──────────────────────────────────────────────────────────────────
 
@@ -811,6 +842,69 @@ class TestFamiliasDesactivadasInyectadas(_Base):
         self.ha.sv_request.assert_not_awaited()
 
 
+class TestDedicadasDeLa016(_Base):
+    """Spec 016 (T010, FR-018): con la tabla real, los tres comandos del tramo
+    A van a su tool dedicada; nada llega a HA ni se emite token.
+
+    Control negativo (T016 g): dejar `config_entries/update` en `deny` →
+    cae `test_update_hacia_la_dedicada` (`command_denied`)."""
+
+    inyectadas = False
+
+    async def test_progreso_hacia_la_dedicada(self) -> None:
+        r = await self.t["ha_read_ws_command"]("config_entries/flow/progress")
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_list_discovered_integrations",
+                          "integration_flows", False))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_update_hacia_la_dedicada(self) -> None:
+        r = await self.t["ha_call_ws_command"](
+            "config_entries/update", {"entry_id": "entrada-1", "pref_disable_polling": True})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_update_config_entry"))
+        self.assertNotIn("confirmation_token", r)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_ignorar_hacia_la_dedicada(self) -> None:
+        r = await self.t["ha_call_ws_command"](
+            "config_entries/ignore_flow", {"flow_id": "flow-1", "title": "x"})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_ignore_discovery"))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_subentries_hacia_sus_dedicadas(self) -> None:
+        # Tramo B (T025): las tres de subentries; borrar no emite token aquí.
+        for tipo, tool in (("config_entries/subentries/delete", "ha_delete_subentry"),
+                           ("config_entries/subentries/update", "ha_update_subentry")):
+            r = await self.t["ha_call_ws_command"](
+                tipo, {"entry_id": "entrada-1", "subentry_id": "sub-1"})
+            self.assertEqual((r["error"], r["tool"], r["family"]),
+                             ("use_dedicated_tool", tool, "integration_flows"))
+            self.assertNotIn("confirmation_token", r)
+        r = await self.t["ha_read_ws_command"](
+            "config_entries/subentries/list", {"entry_id": "entrada-1"})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_list_config_subentries"))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_datos_internos_de_un_aviso_hacia_ha_get_repair(self) -> None:
+        # Tramo C (T040): los datos internos solo salen redactados y
+        # recortados por la dedicada. Control negativo: dejarlo en `deny` →
+        # este test en rojo (T044 g).
+        r = await self.t["ha_read_ws_command"](
+            "repairs/get_issue_data", {"domain": "banco_flujos", "issue_id": "aviso"})
+        self.assertEqual((r["error"], r["tool"], r["family"]),
+                         ("use_dedicated_tool", "ha_get_repair", "repair_flows"))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp = DummyMCP()
+        mod.register(mcp, self.ha, response_max_bytes=self.max_bytes,
+                     familias_desactivadas=frozenset({"integration_flows"}))
+        r = await mcp.tools["ha_read_ws_command"]("config_entries/flow/progress")
+        self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_list_discovered_integrations", True))
+        self.ha.ws_send.assert_not_awaited()
+
+
 def _registrar_todo(desactivadas: list[str]) -> tuple[DummyMCP, MagicMock]:
     """`register_all_tools` de verdad con un cliente simulado."""
     from hermes.tools import register_all_tools
@@ -847,6 +941,16 @@ class TestFamiliasDesdeElRegistro(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
                          ("ha_save_lovelace_dashboard", "lovelace", True))
         ha.ws_send.assert_not_awaited()
+
+    async def test_montajes_con_su_familia_apagada(self) -> None:
+        """Spec 019: con `mounts` apagada, la genérica tampoco llega a
+        `/mounts` (sigue `dedicated`, con `family_disabled`)."""
+        mcp, ha = _registrar_todo(["mounts"])
+        self.assertNotIn("sv_create_mount", mcp.tools)
+        r = await mcp.tools["sv_call_api"]("PUT", "/mounts/nas", {"name": "nas"})
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "sv_update_mount", "mounts", True))
+        ha.sv_request.assert_not_awaited()
 
     def test_sin_generic_commands_no_se_registran(self) -> None:
         mcp, _ = _registrar_todo(["generic_commands"])
