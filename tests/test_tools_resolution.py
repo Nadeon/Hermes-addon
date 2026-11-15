@@ -1,9 +1,12 @@
 """Tests de la resolución del Supervisor (spec 005, US6).
 
-`sv_get_resolution` lee; `sv_dismiss_resolution_*` descartan con token. Lo que
-NUNCA puede hacer Hermes es aplicar una sugerencia del Supervisor
-(`POST /resolution/suggestion/{uuid}`): algunas borran backups, reinician el
-host o resetean datos (FR-024).
+`sv_get_resolution` lee; `sv_dismiss_resolution_*` descartan con token. Hasta
+la 1.1.x Hermes nunca aplicaba una sugerencia del Supervisor
+(`POST /resolution/suggestion/{uuid}`, FR-024): algunas borran backups,
+reinician el host o resetean datos. Desde la 1.2.0 (FR-077 de la 008, spec
+022) las aplica, pero SOLO `sv_apply_resolution_suggestion`
+(`resolution_fixes.py`) y siempre con vista previa y token; lo vigila
+`TestSoloResolutionFixesAplica`.
 """
 
 from __future__ import annotations

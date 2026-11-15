@@ -51,10 +51,26 @@ class HAConnectionError(RuntimeError):
     el texto cambia entre versiones y comparar subcadenas confunde un recurso
     inexistente con un fallo real.
 
-    `sent=False` marca un error en el que la petición NO llegó a salir (el
-    cliente HTTP aún no existe): quien manda algo que cambia estado necesita
-    distinguirlo de un corte a mitad, en el que no sabe si se hizo. `None` es
-    «no se sabe» (spec 022, T032).
+    `sent` dice si la petición llegó a salir, porque quien manda algo que
+    cambia estado necesita distinguir «no se hizo nada» de un corte a mitad,
+    en el que no sabe si se hizo. Es UN solo atributo, con tres valores, para
+    todo el cliente (REST del Supervisor y de Core y WebSocket):
+
+    - `False`: seguro que NO salió (cliente HTTP sin inicializar, envío
+      fallido). Solo se pone a mano donde se sabe;
+    - `True`: salió y lo que falló fue esperar la respuesta (plazo agotado o
+      conexión caída con la petición pendiente);
+    - `None` (por defecto): no se sabe, o no aplica (una respuesta de error
+      de HA o del Supervisor, que ya lleva `status` o `code`).
+
+    El valor por defecto TIENE que seguir siendo `None`: las tools de la spec
+    022 (`system_control._no_enviada`) leen `sent is False` como «no se hizo
+    nada» y lo dicen al usuario, así que un `False` por defecto convertiría
+    cualquier error del Supervisor en esa afirmación falsa. Quien añada otra
+    señal de envío (la spec 031 marca `True` tras enviar por el WebSocket y
+    `False` si falla el envío) usa este mismo atributo con estos valores, sin
+    redefinirlo ni cambiar el defecto (spec 022, T032; lo vigila
+    `test_sent_por_defecto_es_desconocido`).
     """
 
     def __init__(

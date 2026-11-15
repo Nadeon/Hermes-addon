@@ -243,6 +243,21 @@ class TestOperacionesLargas(_Base):
             await cliente.sv_request("POST", "/core/start")
         self.assertIs(ctx.exception.sent, False)
 
+    async def test_sent_por_defecto_es_desconocido(self) -> None:
+        """El contrato de `HAConnectionError.sent` (docstring en `ha.py`):
+        por defecto `None`, «no se sabe». Un error del Supervisor sin `sent`
+        explícito (p. ej. un JSON inválido o un 500) NO puede responder
+        `sent: false` («no se hizo nada»). Vigila la unión con otra rama que
+        añada el mismo atributo con otro defecto (spec 031). Control negativo
+        comprobado: con `sent: bool | None = False` en `HAConnectionError`,
+        falla (y la respuesta diría `sent: false`)."""
+        self.assertIsNone(HAConnectionError("x").sent)
+        self.assertIsNone(HAConnectionError("x", status=500).sent)
+        self.sv.errores[("POST", "/supervisor/repair")] = HAConnectionError(
+            "Supervisor returned invalid JSON: ''")
+        _, r = await self._confirmar("sv_repair_supervisor")
+        self.assertNotIn("sent", r)
+
     async def test_restart_con_status_400_es_error(self) -> None:
         self.sv.errores[("POST", "/supervisor/restart")] = error_400(
             "/supervisor/restart", f"no token={CENTINELA_SV}")
