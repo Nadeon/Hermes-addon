@@ -286,8 +286,56 @@ class TestClaseAConToolDedicada(_Base):
                     malas.append(f"{k}: desde cero {campos(generada[k])}, tabla {campos(e)}")
         self.assertEqual(malas, [], "\n".join(malas))
         # 9 de la 012 menos `logger/integration_log_level` (cubierto), 28 de la
-        # 013 y 9 de la 029: si baja, el test ha dejado de mirarlas.
-        self.assertGreaterEqual(n, 45)
+        # 013, 9 de la 029 y, desde la integración de la 019, sus 9 rutas de
+        # CAP-083 (`/mounts` y `/backups/info|options|reload`), que entran en
+        # el mapa del generador: si baja, el test ha dejado de mirarlas. Desde
+        # la integración de la 015, también sus 6 filas A (`/available_updates`,
+        # `/reload_updates`, `/core/update`, `/os/update`, `/supervisor/update`
+        # y `update/release_notes`).
+        self.assertGreaterEqual(n, 60)
+
+    def test_desde_cero_las_de_la_015_con_su_matiz(self) -> None:
+        """Integración de la 015: las dos entradas cuya tool no usa esa misma
+        ruta o comando salen desde cero con el matiz de la tabla revisada.
+        `hassio/update/core` es «cubierto» (no entra en el test de arriba) y
+        `/reload_updates` es de clase A.
+
+        Control negativo comprobado: con `"hassio/update/core":
+        "ha_call_service"` en el mapa (lo de antes de la 015) cae este test;
+        quitar `("POST", "/os/update")` del mapa → cae el de arriba
+        nombrándola."""
+        from hermes import command_table as real
+
+        inventario = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
+        self.salida.unlink(missing_ok=True)
+        gt.generar(inventario / "core-ws.tsv", inventario / "supervisor-rutas.tsv",
+                   self.salida, ha_core="2026.11.1", supervisor="2026.11.0")
+        cero = self._tabla()
+        for nombre, k in (("CORE_WS", "hassio/update/core"),
+                          ("SUPERVISOR", ("POST", "/reload_updates"))):
+            with self.subTest(k=k):
+                g, r = getattr(cero, nombre)[k], getattr(real, nombre)[k]
+                self.assertEqual((g.category, g.reason, g.family, g.tool, g.cap),
+                                 (r.category, r.reason, r.family, r.tool, r.cap))
+
+    def test_dedicada_con_la_familia_de_su_tool(self) -> None:
+        """Spec 016 (T010): la familia sale de la tool del mapa, aquí una de
+        `integration_flows`."""
+        mapa = dict(gt._DEDICADAS_INICIALES)
+        mapa["demo/via_d"] = "ha_update_config_entry"
+        original = gt._DEDICADAS_INICIALES
+        gt._DEDICADAS_INICIALES = mapa
+        try:
+            self.salida.unlink()
+            self._generar()
+        finally:
+            gt._DEDICADAS_INICIALES = original
+        e = self._tabla().CORE_WS["demo/via_d"]
+        self.assertEqual((e.category, e.tool, e.family, e.cap),
+                         ("dedicated", "ha_update_config_entry", "integration_flows", "CAP-041"))
+        self.assertEqual(e.reason, "cubierto por ha_update_config_entry")
+        # Las demás de vía D siguen pendientes.
+        self.assertEqual(self._tabla().CORE_WS["demo/via_dt"].category, "deny")
 
 
 class TestRegeneracion(_Base):

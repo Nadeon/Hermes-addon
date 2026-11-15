@@ -66,6 +66,10 @@ SITIOS: dict[tuple[str, str], frozenset[str]] = {
     ("tools/persistent_notifications.py", "ha_dismiss_persistent_notification"): frozenset({
         "ha_dismiss_persistent_notification",
     }),
+    # Spec 015: `update.install` está en la denylist; `ha_install_update` la
+    # levanta en su helper anidado `_ejecutar`, tras validar su token (atado a
+    # las versiones). Lo detectó este test al integrar la 015 con la 018/012.
+    ("tools/update_entities.py", "_ejecutar"): frozenset({"ha_install_update"}),
 }
 
 _FUNCIONES = (ast.AsyncFunctionDef, ast.FunctionDef)

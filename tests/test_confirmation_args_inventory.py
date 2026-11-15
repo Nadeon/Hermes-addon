@@ -57,6 +57,41 @@ vista previa (agentes y cifrado; configuración y retención; el backup y todas
 sus ubicaciones) va aparte con `estado=`. La clave de cifrado de HA que manda
 `ha_create_backup` no es un argumento: se lee en la confirmación y no entra
 en el hash ni en el estado (que lleva solo `key_set`).
+
+Recuento: 91 desde la integración de la 016, que trae cinco tools con token,
+comprobadas en el código: `ha_update_config_entry` (ata los cuatro
+argumentos tal como llegan), `ha_delete_subentry`,
+`ha_continue_reconfigure_flow` y `ha_continue_repair_fix` (atan el flujo, el
+paso actual que leen de HA al previsualizar y al confirmar, y el `user_input`
+entero; la de Repairs, también el aviso), y `ha_continue_config_entry_flow`,
+de la 1.1.2, que gana `confirmation_token` solo para los flujos `reauth`
+(mismo esquema de atado que el reconfigure). Ningún hallazgo.
+
+Recuento: 95 desde la integración de la 019 (T033), que trae cuatro tools
+con token, comprobadas en el código: `sv_create_mount` y `sv_update_mount`
+atan sus 13 argumentos tal como llegan (credenciales incluidas; desde la
+019 el `action_hash` es un HMAC-SHA256 con una clave del proceso), y
+`sv_delete_mount` y `sv_set_default_backup_mount`, `name`. El estado que
+cambia la acción (el montaje actual, el por defecto y los backups
+afectados) va además en el `estado` del token. Las otras cinco de la 019
+no piden token. Ningún hallazgo.
+
+Recuento: 99 desde la integración de la 015, que trae cuatro tools con
+token, comprobadas en el código (`_args_atados` en `tools/system_updates.py`):
+`sv_update_core` ata `version` y `backup`; `sv_update_os`, `version`;
+`sv_update_supervisor` no tiene argumentos; y `ha_install_update` ata
+`entity_id`, `version` y `backup`. Las cuatro atan además la versión de
+origen y la de destino que resuelven al previsualizar (`_from_version` y
+`_to_version`), releídas antes de validar al confirmar: si cambiaron, el
+token no coincide y no se envía nada. Lo que se envía al confirmar sale de
+lo atado (la versión de destino explícita, salvo en el Supervisor, que va
+sin cuerpo por diseño de la 015, y en una entidad sin `specific_version`).
+`sv_check_for_updates` no pide token. `ha_call_service` con `update.install`
+sigue atando `domain`, `service` y `service_data` como en la 1.1.2. Ningún
+hallazgo.
+
+Recuento: 103 al traer la rama del programa a la 031 (antes del tramo 3):
+las 99 de la rama y las 4 de los tramos 1 y 2 de la 031 de arriba.
 """
 
 from __future__ import annotations
@@ -74,6 +109,11 @@ A = "atado"
 TOKEN = "exento: es el propio token; no puede formar parte de su hash"
 
 # Grupos para no repetir; el dict final se arma abajo.
+# Los 13 argumentos de `sv_create_mount` y `sv_update_mount` (spec 019).
+_CAMPOS_MONTAJE = (
+    "name", "type", "usage", "server", "share", "path", "port", "version",
+    "read_only", "username", "password", "device", "uuid",
+)
 _RECARGAS = (
     "ha_reload_automations",
     "ha_reload_counters",
@@ -172,6 +212,25 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_disable_config_entry": {"entry_id": A},
     "ha_delete_config_entry": {"entry_id": A},
     "ha_ignore_repair": {"domain": A, "issue_id": A, "ignore": A},
+    # ── integraciones: flujos y Repairs (spec 016) ──────────────────────
+    # Los cuatro tal como llegan; el comando solo envía lo que cambia
+    # respecto a la entrada, que se relee al confirmar.
+    "ha_update_config_entry": {
+        "entry_id": A,
+        "title": A,
+        "pref_disable_polling": A,
+        "pref_disable_new_entities": A,
+    },
+    "ha_delete_subentry": {"entry_id": A, "subentry_id": A},
+    # Atan además el `step_id` actual, que se lee de HA al previsualizar y
+    # al confirmar: si el paso cambió, el token no vale y no se envía nada.
+    "ha_continue_reconfigure_flow": {"flow_id": A, "user_input": A},
+    # `user_input` ausente se normaliza a `{}` antes de atarlo.
+    "ha_continue_repair_fix": {"domain": A, "issue_id": A, "flow_id": A, "user_input": A},
+    # De la 1.1.2: el token solo se pide en los flujos `reauth` (los demás
+    # se envían sin token, como antes) y ata el flujo, el paso y el
+    # `user_input` entero, como el reconfigure.
+    "ha_continue_config_entry_flow": {"flow_id": A, "user_input": A},
     # ── diagnóstico de Core (spec 012) ──────────────────────────────────
     # `level` va normalizado (en mayúsculas) antes de atarlo.
     "ha_set_log_level": {"level": A, "integration": A, "module": A, "persistence": A},
@@ -213,6 +272,25 @@ INVENTARIO: dict[str, dict[str, str]] = {
     },
     "sv_dismiss_resolution_issue": {"issue_uuid": A},
     "sv_dismiss_resolution_suggestion": {"suggestion_uuid": A},
+    # ── montajes del Supervisor (spec 019, T033) ────────────────────────
+    # Crear y editar atan los 13 argumentos tal como llegan, credenciales
+    # incluidas (el hash es HMAC con la clave del proceso, así que el
+    # fichero del token no sirve para probar contraseñas). Editar fusiona
+    # con el montaje actual, que va en el `estado` del token: si cambió
+    # entre la vista previa y la confirmación, no se envía nada.
+    **{t: {c: A for c in _CAMPOS_MONTAJE} for t in ("sv_create_mount", "sv_update_mount")},
+    # El montaje y el por defecto (y en el borrado, los backups afectados)
+    # van además en el `estado`.
+    "sv_delete_mount": {"name": A},
+    "sv_set_default_backup_mount": {"name": A},
+    # ── actualizaciones del sistema (spec 015) ──────────────────────────
+    # Las cuatro atan, además de sus argumentos, la versión de origen y la
+    # de destino resueltas (`_args_atados`: `_from_version`, `_to_version`),
+    # releídas antes de validar al confirmar.
+    "sv_update_core": {"version": A, "backup": A},
+    "sv_update_os": {"version": A},
+    "sv_update_supervisor": {},
+    "ha_install_update": {"entity_id": A, "version": A, "backup": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -305,10 +383,11 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
     def test_recuento(self) -> None:
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
-        # (018) + las tres de la 012 que confirman (86) + `ha_update_backup_config`
-        # (031, tramo 1) + crear, crear con los ajustes automáticos y borrar
-        # (031, tramo 2).
-        self.assertEqual(len(firmas_con_token(TOOLS)), 90)
+        # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
+        # cuatro de montajes de la 019 + las cuatro de la 015 (99) +
+        # `ha_update_backup_config` (031, tramo 1) + crear, crear con los
+        # ajustes automáticos y borrar (031, tramo 2).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 103)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -328,7 +407,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 90)
+        self.assertEqual(len(publicadas), 103)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

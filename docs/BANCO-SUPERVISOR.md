@@ -286,7 +286,9 @@ Instantánea `antes-tanda-1`. Nada de esto reinicia ni para nada importante.
   introducido a propósito en un YAML; el resultado coincide con
   `ha core check`.
 - `sv_create_backup_full` y `sv_create_backup_partial`: el backup aparece en
-  `ha backups list` con el contenido pedido.
+  `ha backups list` con el contenido pedido; también con `location` (spec
+  019): `.local`, el montaje de backup de prueba y los dos en lista, y el
+  backup sale en esas ubicaciones.
 - `sv_create_safety_backup`: crea el backup con el prefijo de los safety
   backups; con `safety_backup_enabled`, la retención conserva los que diga
   `safety_backup_keep`.
@@ -346,6 +348,57 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   plantilla y la categoría, y la ejecución reinicia el plugin DNS
   (`ha dns info`); una ruta `deny`, una de Hermes (`local_hermes`) o el
   proxy de Core se rechazan sin llegar al Supervisor.
+- Montajes (spec 019). Hace falta un recurso CIFS con usuario y contraseña y
+  un export NFS de prueba en la red de la VM (por ejemplo, un contenedor
+  Samba o NFS en el equipo anfitrión), y un disco USB virtual para `disk`.
+  En todas: la vista previa no enseña el usuario ni la contraseña, el log de
+  Hermes no lleva ni las credenciales ni el servidor, y lo que dice la
+  vista previa casa con `ha mounts info` después.
+  - Tanda 1: `sv_create_mount` (CIFS con credenciales, CIFS sin ellas, NFS y
+    `disk`; el primero de uso `backup` pasa a ser el por defecto si no había
+    ninguno) y `sv_reload_mount` (parar el recurso, ver el estado `failed`,
+    volver a arrancarlo y recargar).
+  - Tanda 3, con instantánea antes: `sv_update_mount` (cambiar la versión
+    sin credenciales: la vista previa avisa de que se quitan y `ha mounts
+    info` lo confirma; volver a ponerlas), `sv_set_default_backup_mount`
+    (al montaje y de vuelta al disco local, con un safety backup después
+    para ver a dónde va) y `sv_delete_mount` sobre el montaje de backup con
+    un backup dentro (la vista previa lista ese backup y dice que solo está
+    ahí; después ya no sale en `sv_list_backups`).
+  - Ajustes de backup, en la tanda 1: `sv_set_backup_settings` (cambiar
+    `days_until_stale` y verlo en `ha backups info`; volver al valor
+    anterior) y `sv_reload_backups` (copiar a mano un backup al recurso de
+    backup y ver que, tras releer, sale en `sv_list_backups` y el recuento
+    sube).
+- `sv_check_for_updates` (spec 015), en la tanda 1: la lista que devuelve
+  coincide con las actualizaciones que enseña la interfaz de Home Assistant
+  (Ajustes) y con `ha core info`, `ha supervisor info` y `ha os info`; la de
+  `sv_list_available_updates` no cambia salvo por lo nuevo que encuentre el
+  Supervisor.
+- `sv_update_core` (spec 015), en la tanda 3, con una instantánea antes y
+  una versión de Core anterior instalada (`ha core update --version
+  <anterior>`): la vista previa da las versiones, el backup `core_<versión>`
+  y la comprobación de la configuración; con un error de configuración
+  introducido a propósito, `update_blocked` sin token; tras un
+  `sv_check_for_updates` que cambie la última versión, la confirmación da
+  `preview_outdated`; confirmada, `sv_get_job_status` sigue el job, Core
+  vuelve en la versión pedida (`ha core info`) y el backup aparece en
+  `ha backups list`.
+- `sv_update_os` (spec 015), en la tanda 3, con una instantánea antes y un
+  OS anterior instalado (`ha os update --version <anterior>` y reinicio): la
+  vista previa da las versiones, dice que no reinicia nada al instalar y que
+  se aplica al reiniciar el host, y no hace backup; confirmada, devuelve el
+  job `os_manager_update` (o `status: started`), `ha os info` muestra la
+  versión en `version_pending` y aparece el aviso `reboot_required`; una
+  segunda vista previa a la misma versión da `reboot_pending` sin token;
+  tras `sv_reboot_host`, `ha os info` da la versión nueva.
+- `sv_update_supervisor` (spec 015), en la tanda 3, con una instantánea antes
+  y el canal `beta` o un Supervisor anterior: la vista previa da versiones y
+  canal y dice que se reinicia solo; confirmada, devuelve el job
+  `supervisor_update` (o `status: started`), las `sv_*` fallan alrededor de un
+  minuto, Core y las apps siguen arriba y `ha supervisor info` da la versión
+  nueva; en el log de Hermes, `system_update_finished` con
+  `connection_lost` u `ok`.
 
 ## Probar hassio_role: manager
 

@@ -186,6 +186,45 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # (`ha_delete_backup` ya lo es por el prefijo `ha_delete_`.)
     "ha_create_backup",
     "ha_create_automatic_backup",
+    # Spec 016: puede pedir token. Desactivar el sondeo recarga la integración
+    # y deja sus entidades sin actualizar; desactivar las entidades nuevas hace
+    # que lo que se añada entre deshabilitado. Invariante «pide token ⇔
+    # destructiva». Idempotente: repetirla deja la entrada igual.
+    "ha_update_config_entry",
+    # Spec 016, tramo B (decisión del supervisor): cada paso pide token,
+    # porque cualquier envío puede terminar el reconfigure, cambiar
+    # credenciales o datos de conexión y recargar la integración.
+    "ha_continue_reconfigure_flow",
+    # Spec 016, tramo C: cada envío de un paso pide token, porque puede
+    # aplicar el arreglo de una integración, con efectos propios de cada una,
+    # y HA no dice antes qué paso es el último.
+    "ha_continue_repair_fix",
+    # Spec 016, tramo C (decisión del supervisor): la tool de la 1.1.2 pide
+    # token en cada paso de un flujo `reauth`, que cambia las credenciales de
+    # una entrada. Invariante «pide token ⇔ destructiva»: su hint cambia a
+    # propósito (ver `_HINTS_CAMBIADOS_A_PROPOSITO` en
+    # tests/test_tools_registration.py). Sigue idempotente, como en la 1.1.2.
+    "ha_continue_config_entry_flow",
+    # Montajes del Supervisor (spec 019). Piden token y su nombre no lo
+    # delata: crear uno de backup puede pasar a ser el destino de TODOS los
+    # backups (también los safety backups); editar desmonta y puede quitar
+    # las credenciales; el montaje por defecto decide a dónde van los backups.
+    # `sv_delete_mount` ya lo cubre el prefijo `sv_delete_`.
+    "sv_create_mount",
+    "sv_update_mount",
+    "sv_set_default_backup_mount",
+    # Spec 015: actualizar Core lo para y lo arranca en otra versión; si la
+    # nueva no arranca, el Supervisor intenta volver atrás. Pide token y su
+    # nombre no lo delata.
+    "sv_update_core",
+    # Spec 015, tramo 2: actualizar el OS reescribe la ranura de arranque
+    # inactiva y se aplica al reiniciar el host; actualizar el Supervisor lo
+    # reinicia. Las dos piden token.
+    "sv_update_os", "sv_update_supervisor",
+    # Tramo 3: instalar una entidad `update` cambia el firmware de un
+    # dispositivo o la versión de una integración, sin vuelta atrás desde
+    # Hermes. Pide token y su nombre no lo delata.
+    "ha_install_update",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -224,6 +263,17 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     "ha_create_backup",
     "ha_create_automatic_backup",
     "ha_delete_backup",
+    # Spec 015 (contracts/tools.md): actualizar Core descarga la imagen nueva,
+    # y buscar actualizaciones descarga el registro de versiones y refresca los
+    # repositorios de la tienda. Quien sale es el Supervisor, pero lo provoca
+    # la tool (mismo criterio que sv_install_addon). `sv_check_for_updates` no
+    # es de solo lectura (su prefijo no lo es) ni destructiva: no pide token.
+    "sv_update_core", "sv_check_for_updates",
+    # Tramo 2: descargan el bundle del OS o la imagen del Supervisor.
+    "sv_update_os", "sv_update_supervisor",
+    # Tramo 3: la integración descarga el firmware o la versión nueva; y
+    # algunas piden las notas de versión a internet al leerlas.
+    "ha_install_update", "ha_get_update_release_notes",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -245,6 +295,17 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # creaciones y acciones que se acumulan; repetir no deja el mismo estado.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 016: cada llamada abre un flujo nuevo o avanza el flujo un paso;
+    # repetirla no deja el mismo estado. Las de la 1.1.2
+    # (`ha_start_config_entry_flow`, `ha_continue_*_flow`) no se tocan (D-4).
+    "ha_start_subentry_flow",
+    "ha_continue_subentry_flow",
+    "ha_start_reconfigure_flow",
+    "ha_continue_reconfigure_flow",
+    # Tramo C: abrir un flujo de reparación (algunos terminan al abrirse) y
+    # avanzarlo un paso.
+    "ha_start_repair_fix",
+    "ha_continue_repair_fix",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

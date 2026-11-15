@@ -130,6 +130,44 @@ _CATALOGO: tuple[Familia, ...] = (
             "Home Assistant backup integration: backup agents, automatic "
             "backup settings, and creating and deleting backups.",
             "1.2.0", True, ("ha_backup_settings", "ha_backup_actions")),
+    # Spec 016. Dos familias y no una (research R-8): quien no quiere que el
+    # agente aplique arreglos de Repairs (`repair_flows`, tramo C) puede
+    # quitarlos sin perder la gestión de integraciones, y al revés. No amplían
+    # `config_entries` ni `diagnostics` porque FR-010 de la 008 exige familias
+    # nuevas: desactivando las de la 1.2.0 tiene que quedar la lista de la
+    # 1.1.2. El tramo B añadió `config_subentries` (subentries y reconfigure).
+    Familia("integration_flows",
+            "Discovered integrations, config entry preferences, config "
+            "subentries and reconfigure flows.",
+            "1.2.0", True, ("integration_setup", "config_subentries")),
+    # Tramo C: los flujos de reparación. `ha_list_repairs` y
+    # `ha_ignore_repair` siguen en `diagnostics` (sus textos traducidos son un
+    # cambio de la 1.1.2, no tools nuevas).
+    Familia("repair_flows",
+            "Repairs issue details and fix flows.",
+            "1.2.0", True, ("repair_flows",)),
+    # Spec 019 (research R-1): montajes de red del Supervisor (CIFS, NFS y
+    # disco local) y sus ajustes de backup. Una capacidad, una familia: quien
+    # no tiene NAS ni discos externos la apaga entera. Va aparte de `backups`
+    # para que apagar las familias de la 1.2.0 deje la lista de la 1.1.2
+    # (FR-010 de la 008). `backup_settings` (tramo 2) va aquí y no en
+    # `backups`: sus ajustes son a dónde van los backups y cuándo envejecen,
+    # y `backups` es de la 1.1.2 y no puede ganar tools.
+    Familia("mounts",
+            "Supervisor network mounts (CIFS/NFS) and local disk mounts for "
+            "backups, media and share, and the Supervisor's backup settings.",
+            "1.2.0", True, ("mounts", "backup_settings")),
+    # Spec 015 (research R-1): actualizar Core, OS, Supervisor y las entidades
+    # `update` es un solo asunto para el usuario («mantener el sistema al
+    # día»), así que va en UNA familia: con dos, apagar una dejaría media
+    # funcionalidad sin que se entendiera por qué. Va aparte de `supervisor`
+    # y `services` (familias de la 1.1.2) para que apagar las de la 1.2.0
+    # deje la lista de la 1.1.2 (FR-010 de la 008). El tramo 3 añade el
+    # módulo `update_entities` (las entidades `update` de Core).
+    Familia("system_updates",
+            "Check for and install updates of Core, OS, Supervisor and "
+            "update entities.",
+            "1.2.0", True, ("system_updates", "update_entities")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

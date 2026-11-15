@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 256 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 289 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -36,7 +36,8 @@ Y una que conviene revisar:
 | `network_mode` | `tailscale` | `tailscale` si usas Funnel; `reverse_proxy` para cualquier otra cosa |
 
 El resto de opciones, con sus valores por defecto y qué hace cada una, están
-documentadas en el README.
+documentadas en el README. La página de configuración de la app enseña además
+el nombre y una descripción corta de cada opción, en inglés o en español.
 
 ## Conectar Claude
 
@@ -69,8 +70,9 @@ rechaza con `safety_backup_in_progress`.
 
 Con `safety_backup_enabled`, la opción `safety_backup_keep` (3 por defecto, 0
 la desactiva) conserva solo los safety backups automáticos más recientes y
-borra el resto tras cada uno correcto. Solo toca los que Hermes anotó al
-crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
+borra el resto tras cada uno correcto. Uno que terminó con errores en sus
+sub-jobs (una app que no se pudo guardar) no cuenta entre los que se conservan
+y se borra el primero. Solo toca los que Hermes anotó al crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
 detalle de qué borra y qué no está en el README.
 
 El Marketplace (HACS hasta HA 2026.10) es de **solo lectura** para Hermes:
@@ -88,7 +90,7 @@ Claude:
 
 | Opción | Defecto | Máximo efectivo | Qué es |
 |---|---|---|---|
-| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de cualquier tool. Por encima, se recorta la lista más larga y se indica con `truncated: true` (una lista sola, como la de `ha_get_states`, llega como `{truncated, count, total, items}`); el historial y las estadísticas se recortan por el final y los logs de un add-on devuelven sus últimas líneas. Una vista previa de confirmación nunca pierde su `confirmation_token`: sus campos grandes se resumen (`_omitted`) y se marca `preview_truncated: true`. Si no hay lista de primer nivel que recortar, la respuesta es el error `response_too_large`: una configuración que se guarda de vuelta (un script, una automatización, una vista de Lovelace) nunca sale recortada por dentro |
+| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de cualquier tool. Por encima, se recorta la lista más larga y se indica con `truncated: true` (una lista sola, como la de `ha_get_states`, llega como `{truncated, count, total, items}`); el historial y las estadísticas se recortan por el final y los logs de una app devuelven sus últimas líneas. Una vista previa de confirmación nunca pierde su `confirmation_token`: sus campos grandes se resumen (`_omitted`) y se marca `preview_truncated: true`. Si no hay lista de primer nivel que recortar, la respuesta es el error `response_too_large`: una configuración que se guarda de vuelta (un script, una automatización, una vista de Lovelace) nunca sale recortada por dentro |
 | `ha_ws_max_msg_size_bytes` | `16777216` (16 MiB) | `16777216` | Tamaño máximo de un mensaje de la WebSocket con Home Assistant. Un mensaje mayor cierra la conexión entera (fallan todas las llamadas en curso y Hermes reconecta) y lo anota en el log como `ha_ws_message_too_big`. Bájalo solo si la memoria del equipo es muy justa |
 | `wait_for_event_max_seconds` | `90` | `220` | Espera máxima que admite `ha_wait_for_event` |
 
@@ -172,10 +174,14 @@ usar, ni directamente ni a través de las tools genéricas.
 | `lovelace` | 10 | Dashboards y recursos de Lovelace |
 | `marketplace` | 11 | Marketplace y alias `ha_hacs_*` (solo lectura) |
 | `generic_commands` | 4 | Las tools genéricas (nueva en 1.2.0, ver abajo) |
+| `mounts` | 9 | Montajes de red (CIFS y NFS) y de discos locales del Supervisor para backups, medios y `share`, el montaje por defecto de los backups y los ajustes de backup del Supervisor (`days_until_stale`, releer backups) (nueva en 1.2.0; crear, editar, borrar y el montaje por defecto, con confirmación; las credenciales nunca se devuelven) |
 | `system_diagnostics` | 11 | Logs de Core, del Supervisor, de los plugins y del journal del host, también de arranques anteriores; servicios del host, uso de disco, Home Assistant OS y swap (nueva en 1.2.0, solo lectura) |
 | `system_status` | 5 | Salud del sistema, reinicio pendiente, tiempos de arranque y manifiestos de las integraciones; solo lectura (nueva en 1.2.0) |
 | `recorder` | 3 | Estado del recorder, validación y metadatos de las estadísticas de largo plazo; hoy solo lectura (nueva en 1.2.0). El mantenimiento de estadísticas se sumará a esta familia |
 | `core_diagnostics` | 12 | Log del sistema, log de errores y niveles de log, validación de configuración, diagnósticos de integraciones y notificaciones persistentes de Home Assistant (nueva en 1.2.0) |
+| `integration_flows` | 12 | Integraciones descubiertas, dominios configurables por flujo, título y opciones de sistema de una integración, subentries y reconfigure de una integración (nueva en 1.2.0) |
+| `repair_flows` | 4 | Un aviso de Repairs con sus datos internos y su flujo de reparación (nueva en 1.2.0) |
+| `system_updates` | 8 | Qué tiene actualización (Core, OS, Supervisor, apps y plugins), buscar actualizaciones, actualizar Core, el OS y el Supervisor con vista previa, y las entidades `update` de Core (listar, notas de versión e instalar) (nueva en 1.2.0) |
 | `backup_integration` | 5 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear y borrar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
@@ -190,8 +196,9 @@ Un nombre que no esté en la tabla, o `base`, impide arrancar: el log dice qué
 valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
 familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
-`recorder`, `core_diagnostics` y `backup_integration`) desactivadas, la lista
-de tools es exactamente la de la 1.1.2.
+`recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
+`mounts`, `system_updates` y `backup_integration`) desactivadas, la lista de tools es exactamente
+la de la 1.1.2.
 
 ### Tools genéricas
 

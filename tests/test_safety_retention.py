@@ -486,6 +486,70 @@ class TestApplyRetention(_ConAnotacion):
 # ── T050: enganches ───────────────────────────────────────────────────────────
 
 
+def _job_incompleto(referencia: str | None) -> dict[str, Any]:
+    """Job de un backup completo con una app que no se pudo guardar.
+
+    Forma del Supervisor 2026.11.0: el error se queda en el sub-job
+    `backup_store_apps` y el job del backup termina con `errors: []`.
+    """
+    return {"done": True, "errors": [], "reference": referencia,
+            "child_jobs": [{"name": "backup_store_apps", "done": True,
+                            "errors": [{"message": "Can't backup app"}]}]}
+
+
+class TestSafetyBackupIncompleto(_ConAnotacion):
+    """Spec 027, D-1: un error en un sub-job es un fallo, también aquí.
+
+    Un safety backup al que le falló una app se daba por bueno y contaba
+    como una de las `keep` copias: podía quedar una copia completa menos de
+    las prometidas. Ahora queda marcado `incomplete`: se poda (existe y ocupa
+    varios GB) pero no cuenta en las `keep`.
+
+    Controles negativos comprobados:
+    - sin mirar los sub-jobs en `_clasificar_job` → 4 en rojo (los de la
+      anotación y el del job pendiente);
+    - tratando las entradas `incomplete` como buenas en la poda → los 2 de
+      `apply_retention` en rojo.
+    """
+
+    async def test_confirm_from_job_lo_marca_incompleto(self) -> None:
+        await sr.record_launch("n1", "job1", origin="auto")
+        await sr.confirm_from_job("job1", _job_incompleto("aaaa0001"))
+        [e] = self._entradas()
+        self.assertEqual(e["slug"], "aaaa0001")
+        self.assertIs(e["incomplete"], True)
+
+    async def test_ya_confirmado_por_la_respuesta_sincrona_tambien(self) -> None:
+        await sr.record_launch("n1", "job1", origin="auto", slug="aaaa0001")
+        await sr.confirm_from_job("job1", _job_incompleto("aaaa0001"))
+        [e] = self._entradas()
+        self.assertIs(e["incomplete"], True)
+
+    async def test_sin_referencia_es_un_fallo_sin_backup(self) -> None:
+        await sr.record_launch("n1", "job1", origin="auto")
+        await sr.confirm_from_job("job1", _job_incompleto(None))
+        self.assertEqual(self._entradas(), [])
+
+    async def test_no_cuenta_en_keep_y_se_poda_primero(self) -> None:
+        entradas, backups = self._cinco()
+        entradas[4]["incomplete"] = True  # el más reciente salió incompleto
+        self._anotar(entradas)
+        sv = _Supervisor(backups)
+        resumen = await sr.apply_retention(sv, 3)
+        # Se conservan tres buenos (1, 2 y 3); se podan el incompleto y el 0.
+        self.assertEqual(sv.deletes, [_slug(4), _slug(0)])
+        self.assertEqual(sorted(resumen["kept"]),
+                         sorted(entradas[i]["name"] for i in (1, 2, 3)))
+
+    async def test_pendiente_con_sub_job_fallido_no_cuenta(self) -> None:
+        entradas, backups = self._cinco()
+        entradas[4].update(slug=None, confirmed_by=None, job_id="job4")
+        self._anotar(entradas)
+        sv = _Supervisor(backups, jobs={"job4": _job_incompleto(_slug(4))})
+        await sr.apply_retention(sv, 3)
+        self.assertEqual(sv.deletes, [_slug(4), _slug(0)])
+
+
 class TestEnganches(unittest.IsolatedAsyncioTestCase):
     """`maybe_trigger_safety_backup`, `sv_create_safety_backup` y `register_write`."""
 

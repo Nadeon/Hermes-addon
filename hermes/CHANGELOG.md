@@ -158,7 +158,134 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 ### Integraciones
 
-_Pendiente: la añade la sub-feature que lo implemente._
+#### Integraciones: flujos y Repairs (spec 016)
+
+- **Familia nueva `integration_flows`** (desactivable con
+  `tool_families_disabled`), con cuatro tools:
+  - `ha_list_discovered_integrations` — lo que Home Assistant ha descubierto y
+    espera configuración (también los flujos de reautenticación), con
+    `ignorable` y los datos del descubrimiento redactados. Un descubierto se
+    configura con `ha_continue_config_entry_flow`, como cualquier flujo.
+  - `ha_ignore_discovery` — lo ignora como el botón «Ignorar» de la interfaz:
+    Home Assistant crea una entrada `ignore` y deja de ofrecer ese
+    descubrimiento; se deshace borrando esa entrada con
+    `ha_delete_config_entry`. Sin confirmación. Solo flujos de
+    descubrimiento: un `reauth`, `reconfigure`, `user` o `import` se rechaza,
+    porque Home Assistant sustituiría por la ignorada la entrada real con el
+    mismo identificador y la borraría con sus dispositivos y entidades.
+  - `ha_list_config_flow_domains` — el catálogo de dominios que se configuran
+    por flujo (filtrable por `device`, `helper`, `hub` o `service`), incluidas
+    las integraciones personalizadas instaladas.
+  - `ha_update_config_entry` — título y opciones de sistema de una entrada.
+    Desactivar el sondeo o las entidades nuevas pide confirmación, con una
+    vista previa que dice si Home Assistant recarga la integración y qué deja
+    de actualizarse; renombrar y volver a activarlas, no. Solo envía lo que
+    cambia. El título sale redactado, en la vista previa y en la respuesta.
+- **`ha_list_configured_domains`**: su descripción ya no dice que no existe
+  la lista de dominios configurables; remite a `ha_list_config_flow_domains`.
+  Nombre, argumentos y anotaciones, sin cambios.
+- **Tabla de comandos**: `config_entries/flow/progress`,
+  `config_entries/ignore_flow` y `config_entries/update` pasan de `deny`
+  («pendiente») a `dedicated`; las genéricas remiten a su tool. El generador
+  de la tabla lo hace también en la primera generación.
+- **Guía**: tema nuevo `integration_flows` (alias `discovery` y
+  `discovered`) y, en `helpers`, cómo crear, listar, editar y borrar los
+  helpers que se crean por config entry (template, group…), con un ejemplo.
+- **Banco de Core**: integración de prueba propia `banco_flujos` (solo en
+  `tests/`, sin red) con un descubrimiento, avisos reparables, flujo
+  `reconfigure` y subentries; `ha_ignore_discovery` y
+  `ha_update_config_entry` se ejecutan contra Home Assistant real y el lector
+  independiente comprueba su efecto.
+- **Subentries** (tramo B), en la misma familia:
+  - `ha_list_config_subentries` — las subentries de una entrada y los tipos
+    que admite crear.
+  - `ha_start_subentry_flow`, `ha_continue_subentry_flow` y
+    `ha_abort_subentry_flow` — añadir una subentry o reconfigurarla por su
+    flujo, y cerrar un flujo a medias. Sin confirmación, como los flujos de
+    configuración y de opciones.
+  - `ha_update_subentry` — renombrarla. Sin confirmación.
+  - `ha_delete_subentry` — borrarla con confirmación: la vista previa enumera
+    las entidades y los dispositivos que Home Assistant borra con ella.
+- **Reconfigurar una integración** (tramo B): `ha_start_reconfigure_flow` abre
+  el flujo y `ha_continue_reconfigure_flow` envía cada paso con confirmación
+  (vista previa con los campos y los secretos tapados): cualquier paso puede
+  cambiar credenciales o datos de conexión, y Home Assistant recarga la
+  integración al terminar. Hermes recuerda los reconfigure que abre (en
+  memoria; tras una hora sin usarse caducan y los aborta al abrir o
+  continuar otro) y
+  `ha_continue_config_entry_flow` los rechaza y remite a la tool dedicada.
+  Ninguna otra vía de Hermes
+  abre un reconfigure: `ha_start_config_entry_flow` solo manda el dominio, no
+  hay comando WebSocket que abra flujos y el proxy REST de Core del
+  Supervisor está cerrado. Tras reiniciar Hermes, un reconfigure abierto antes
+  ya no se reconoce (Home Assistant no los lista) y no se puede continuar por
+  ninguna vía: hay que abrir otro.
+- Los flujos de subentry y de reconfigure devuelven tapados los valores
+  sugeridos de los campos de contraseña, y rechazan `***REDACTED***` en
+  `user_input` (se guardaría tal cual).
+- **Tabla de comandos**: `config_entries/subentries/list`, `…/update` y
+  `…/delete` pasan a `dedicated`.
+- **Guía**: el tema `integration_flows` explica subentries y reconfigure
+  (alias `subentries`, `subentry` y `reconfigure`).
+- **Banco de Core**: las siete tools nuevas que modifican se ejecutan contra
+  Home Assistant real; el reconfigure, con un campo de contraseña de nombre
+  inocente, y con el rechazo de `ha_continue_config_entry_flow`.
+- **Reautenticación con confirmación** (tramo C): los flujos `reauth` (los
+  que abre Home Assistant cuando las credenciales de una integración dejan de
+  valer) se siguen con `ha_continue_config_entry_flow`, pero ahora cada paso
+  pide confirmación, con una vista previa de los campos y los secretos
+  tapados, porque cambian credenciales. Hermes lo sabe porque Home Assistant
+  los lista entre los flujos en curso. Por eso esa tool gana el argumento
+  opcional `confirmation_token` y se anuncia destructiva.
+- **Cambio de comportamiento de `ha_continue_config_entry_flow`**: solo
+  continúa los flujos que abrió `ha_start_config_entry_flow` en la misma
+  sesión de Hermes (sin usar más de una hora; Hermes los recuerda en memoria)
+  y los que Home Assistant lista como descubiertos o de reautenticación.
+  Cualquier otro, por ejemplo un flujo abierto antes de reiniciar Hermes o
+  desde la interfaz de Home Assistant, o un reconfigure, se rechaza con
+  `unknown_flow` sin enviar nada, y también si Hermes no puede leer la lista
+  de flujos en curso: hay que abrirlo de nuevo. En la 1.1.2 se enviaba sin
+  confirmación. Abrir y continuar un flujo en la misma sesión sigue igual que
+  en la 1.1.2. Con el token y la anotación, son los tres cambios de una tool
+  de la 1.1.2 en esta sección; su esquema no cambia más. `SECURITY.md` lo
+  explica.
+- **Familia nueva `repair_flows`** (tramo C, desactivable), con cuatro tools:
+  - `ha_get_repair` — un aviso de Repairs con su texto entero y sus datos
+    internos, redactados (si no caben, sus claves y su tamaño).
+  - `ha_start_repair_fix` — abre el flujo de reparación de un aviso
+    reparable. Algunas integraciones lo terminan al abrirlo:
+    `finished_on_start` lo dice.
+  - `ha_continue_repair_fix` — envía cada paso con confirmación: Home
+    Assistant no dice antes qué paso aplica el arreglo. La vista previa tiene
+    el aviso, el texto del paso y los campos con los secretos tapados; al
+    terminar, la respuesta dice si el aviso sigue.
+  - `ha_abort_repair_fix` — cierra el flujo sin aplicar nada.
+- **Textos de los avisos**: `ha_list_repairs` trae `title` y `description` de
+  cada aviso como los enseña la interfaz, en el idioma de Home Assistant y con
+  los marcadores sustituidos (redactados); la vista previa de
+  `ha_ignore_repair`, el título. Sin argumentos nuevos. Si los textos no se
+  pueden leer, la lista sale igual con `translations_unavailable: true`.
+- **Tabla de comandos**: `repairs/get_issue_data` pasa a `dedicated` hacia
+  `ha_get_repair`. En total, la 016 pasa siete entradas a `dedicated`;
+  `frontend/get_translations` sigue `deny` para las genéricas (Hermes lo usa
+  por dentro).
+- **Guía**: tema nuevo `repair_flows` (alias `repair_fix` y `fix`) con la
+  receta «arreglar un aviso de Repairs»; `diagnostics` remite a él;
+  `integration_flows` explica la reautenticación.
+- **Banco de Core**: las tres de reparación que modifican, los textos de
+  `ha_list_repairs`, `ha_get_repair` y la reautenticación con confirmación se
+  ejecutan contra Home Assistant real. En total, la 016 añade 16 tools en dos
+  familias.
+- **Al integrarla con el resto del programa**: `ha_list_discovered_integrations`,
+  `ha_list_config_flow_domains` y `ha_list_config_subentries` devuelven el
+  sobre común de las listas de la 1.2.0 (`count` es cuántos `items` vienen;
+  si la respuesta se recorta, `_response_limit` dice cuántos había). El tema
+  `config_entries` de la guía remite a `integration_flows` y explica que el
+  reconfigure va por su tool y que el `reauth` pide token. La vista previa de
+  `ha_delete_subentry` reconoce los dispositivos de una subentry por
+  `config_entry_id` y `config_subentry_id`, y solo como respaldo para las
+  versiones de Home Assistant anteriores a ese modelo por
+  `config_entries_subentries`, que Home Assistant retira en la 2027.8.
 
 ### Automatización
 
@@ -166,7 +293,211 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Supervisor
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **Montajes de red y ajustes de backup (019).** Familia nueva `mounts`
+  (desactivable con `tool_families_disabled`) con nueve tools. Seis para los
+  montajes del Supervisor: `sv_list_mounts` (montajes, su estado y el montaje
+  por defecto de backups), `sv_create_mount` (CIFS, NFS o disco local),
+  `sv_update_mount` (funde lo que se pasa con lo actual), `sv_delete_mount`,
+  `sv_reload_mount` (vuelve a comprobar y rearma un montaje caído) y
+  `sv_set_default_backup_mount` (a dónde van los backups sin ubicación,
+  también los safety backups de Hermes). Crear, editar, borrar y el montaje
+  por defecto van en dos pasos; la vista previa dice si el montaje pasa a ser
+  (o deja de ser) el de por defecto, qué backups dejan de verse al borrarlo o
+  al cambiar su destino, y que el Supervisor lo monta al crearlo y no crea
+  nada si falla. El token ata también el estado que describe la vista
+  previa: si el montaje cambia antes de confirmar, no se ejecuta
+  (`mount_changed`). Las cuatro con token están en el inventario de
+  argumentos atados de la 033: crear y editar atan sus 13 argumentos, y
+  borrar y el montaje por defecto, `name`.
+  - **Credenciales**: el usuario y la contraseña de un CIFS entran, pero no
+    salen nunca: ni en respuestas, vistas previas, errores, el log de Hermes
+    ni el fichero del token. Tampoco cuando el texto de error del Supervisor
+    repite el usuario en una tool que no lo recibe (recargar, borrar, el
+    montaje por defecto, los ajustes de backup): se tapa por su forma
+    (`username=…`, también entre comillas y con espacios, `DOMINIO\usuario`,
+    `//usuario@servidor`), y la contraseña también cuando llega escapada en
+    el JSON o el `repr` del error. Como el Supervisor reemplaza la
+    configuración entera y no las devuelve, editar un CIFS sin `username` y
+    `password` las quita; la vista previa lo avisa (`removed_if_present`).
+  - Tres para los ajustes de backup del Supervisor, sin confirmación:
+    `sv_get_backup_settings` (`days_until_stale`, el montaje por defecto y
+    los montajes de backup con su estado), `sv_set_backup_settings`
+    (`days_until_stale`, entero de 1 a 3650; devuelve el anterior) y
+    `sv_reload_backups` (el Supervisor relee los backups de todas las
+    ubicaciones y dice cuántos ve).
+  - `sv_create_backup_full` y `sv_create_backup_partial` aceptan `location`
+    opcional: `.local`, un montaje de backup o una lista de ellos.
+    `.cloud_backup`, listas vacías o con repetidos y nombres inválidos se
+    rechazan sin llamar al Supervisor. Sin `location`, la petición y la
+    respuesta son las de la 1.1.2. Sus errores salen ahora redactados.
+  - Las nueve rutas de CAP-083 (`/mounts` y `/backups/info`,
+    `/backups/options`, `/backups/reload`) pasan de `deny` a `dedicated` en
+    la tabla de comandos; `sv_read_api` y `sv_call_api` remiten a su tool.
+  - Guía: tema nuevo `hermes_guide("mounts")` (alias `cifs`, `nfs`, `nas`,
+    `network_storage`, `backup_settings`), con los ajustes de backup; el
+    tema `backups` explica `location`.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Tokens de confirmación con HMAC (019).** El `action_hash` que se guarda
+  junto a cada token pasa de SHA-256 a HMAC-SHA256 con una clave aleatoria
+  que solo vive en memoria y cambia en cada arranque. El hash de una acción
+  con una contraseña (montajes CIFS, `fs_set_secret`, restaurar un backup
+  cifrado) ya no se puede atacar sin conexión leyendo `/data`. **Cambio de
+  comportamiento, intencionado:** en la 1.1.2 un token todavía vigente (menos
+  de 60 s) seguía valiendo después de reiniciar Hermes; ahora deja de valer,
+  porque la clave es otra. Se rechaza con «lost across restart» sin gastarlo,
+  y basta con pedir otra vista previa (falla cerrado).
+
+#### Actualizaciones del sistema
+
+- **Saber qué hay que actualizar y buscar actualizaciones.** Familia nueva
+  `system_updates` (desactivable con `tool_families_disabled`).
+  `sv_list_available_updates` (solo lee) lista lo que tiene actualización
+  —Home Assistant Core, OS, Supervisor, apps y plugins del Supervisor— con la
+  versión instalada, la disponible y la tool con que se actualiza
+  (`update_with`), en el orden en que conviene actualizar. La app de Hermes
+  sale con `update_with: null` y una nota: Hermes no se actualiza a sí mismo,
+  se actualiza desde la interfaz de Home Assistant. Si una lectura del
+  Supervisor falla, la lista lo dice (`partial`, `unavailable`) en vez de
+  parecer vacía. `sv_check_for_updates` pide al Supervisor que busque ya
+  (descarga el registro de versiones y refresca la tienda: sale a internet)
+  y devuelve la misma lista; no pide confirmación.
+- **Actualizar Core con una vista previa que no miente.** `sv_update_core`
+  (versión opcional, `backup` activado por defecto), en dos pasos. La vista
+  previa dice de qué versión a qué versión (y si es una bajada), el backup
+  parcial de Core que hace el Supervisor antes (nombre `core_<versión>`, sin
+  apps), qué se reinicia, la salud del sistema y el resultado de la
+  comprobación de la configuración de Core, que se hace en la vista previa
+  sin levantar el bloqueo de reinicio de `sv_restart_core`. Si el Supervisor
+  la rechazaría —sistema no saludable, Supervisor con actualización
+  pendiente, plugins desactualizados con su actualización automática
+  apagada, menos de 2 GB libres— o la configuración no es válida o no se pudo
+  comprobar, responde `update_blocked` con la vista previa y **sin** token;
+  lo de la configuración no se puede saltar. El token queda atado a los
+  argumentos y a las versiones de origen y destino: si cambian entre la
+  vista previa y la confirmación (por ejemplo, tras buscar actualizaciones),
+  la confirmación responde `preview_outdated` sin enviar nada. La ejecución
+  manda siempre la versión explícita y devuelve el `job_id`, que se sigue con
+  `sv_get_job_status`. Los errores del Supervisor y el detalle de la
+  comprobación pasan por la redacción de secretos; el log de Hermes anota
+  tool, componente y versiones (`system_update_started`), nunca el texto de
+  un error.
+- **Actualizar el OS y el Supervisor.** `sv_update_os` (versión opcional) y
+  `sv_update_supervisor` (sin argumentos), en dos pasos y con el token atado a
+  las versiones igual que en Core. La vista previa del OS dice claramente que
+  instalar no reinicia nada y que el OS nuevo solo se aplica al **reiniciar el
+  host** con `sv_reboot_host`, que reinicia todo, Hermes incluido; Hermes no
+  reinicia el host por su cuenta. Tampoco hace backup: la vista previa lo dice
+  y sugiere `sv_create_backup_full` antes. Sin Home Assistant OS responde
+  `not_haos`; con esa versión ya instalada y esperando el reinicio,
+  `update_blocked` (`reboot_pending`), igual que con el sistema no saludable o
+  el Supervisor pendiente. La del Supervisor dice que se reinicia solo, que
+  Core y las apps siguen funcionando y que las `sv_*` fallan alrededor de un
+  minuto; no admite versión ni backup. Como el Supervisor responde a estas dos
+  actualizaciones cuando terminan (minutos), Hermes lanza la petición en
+  segundo plano y busca el job unos segundos: devuelve el `job_id` o
+  `status: started` con la tool con que comprobar la versión. Que la conexión
+  se corte cuando el Supervisor se reinicia no es un error; el resultado final
+  queda en el log de Hermes (`system_update_finished` o
+  `system_update_failed`, con el error redactado).
+- **Notas de la versión**: Home Assistant no tiene en local las notas de Core
+  y Hermes no las descarga de internet, así que la vista previa lo dice y da
+  la `release_url` de la entidad `update` de Core (buscada por el registro de
+  entidades, no por su nombre). Es una desviación de la spec 008, que pedía
+  las notas recortadas. Tampoco las del Supervisor ni las del OS: de este, la
+  vista previa da el aviso de reinicio que da su entidad.
+- **Entidades `update` de Home Assistant** (firmware de dispositivos,
+  integraciones, HACS…), en el módulo nuevo `update_entities` de la misma
+  familia. `ha_list_updates` (solo lee) lista las que tienen actualización
+  (todas con `include_up_to_date`) con sus versiones, qué admiten (`supports`,
+  decodificado de `supported_features`), la integración y la tool con que se
+  instalan (`install_with`). `ha_get_update_release_notes` da las notas,
+  redactadas, recortadas al tope de respuesta y marcadas como texto de
+  terceros; si la entidad no las tiene, lo dice con el resumen y la URL.
+  `ha_install_update` instala en dos pasos: la vista previa dice de qué
+  versión a qué versión, las notas (1500 caracteres) o el resumen, el backup
+  (lo hace la integración, si lo admite) y, en firmware, que no se apague el
+  dispositivo. Lo que Home Assistant rechazaría (sin actualización, versión o
+  backup que la entidad no admite, instalación ya en curso, entidad sin
+  instalación) vuelve como error y **sin** token. El token queda atado a las
+  versiones igual que en Core, y si la instalación tarda más de 30 s la
+  respuesta es `status: running` (sigue en Home Assistant) en vez de un
+  error. Si la entidad no admite versión concreta, se instala sin `version`
+  (Core la rechazaría), con el token atado a la última leída justo antes.
+- **Un camino por cosa.** Las entidades de la integración del Supervisor
+  (Core, OS, Supervisor y apps), reconocidas por el registro de entidades y no
+  por su nombre, no se instalan con `ha_install_update`: responde
+  `use_dedicated_tool` con `sv_update_core`, `sv_update_os`,
+  `sv_update_supervisor` o `sv_update_addon` y los argumentos. **Hermes no se
+  actualiza a sí mismo**: su entidad responde `self_update_not_supported` sin
+  token, con cómo hacerlo (desde la interfaz de Home Assistant o con la
+  actualización automática del add-on). Para saber que es Hermes se compara
+  con el slug exacto que el Supervisor da para el propio add-on
+  (`/addons/self/info`), no con un sufijo; si no se puede leer, se rechaza
+  igual (`self_check_unavailable`). Ese mismo criterio vale ahora en
+  `sv_list_available_updates`. Una app de otro repositorio cuyo slug también
+  termina en `_hermes` no es Hermes, pero tampoco se manda a
+  `sv_update_addon`, que rechaza todos los slugs con ese sufijo: las tres
+  tools lo dicen (`update_with`/`install_with: null` con una nota;
+  `ha_install_update` responde `unsupported_entity`) y remiten a la interfaz
+  de Home Assistant.
+- **Cambio de comportamiento de `ha_call_service` con `update.install`**
+  (tool de la 1.1.2; el esquema no cambia). Por esa vía Hermes podía
+  actualizarse a sí mismo (Core llama al Supervisor como Core, así que ni la
+  protección propia del Supervisor salta) y Core se actualizaba sin la
+  comprobación de la configuración de `sv_update_core`. Ahora, solo para
+  `update.install`, y tanto en la vista previa como al confirmar: el objetivo
+  tiene que ser una lista explícita de `entity_id` (con `area_id`,
+  `device_id`, `label_id`, `floor_id`, `all` o sin objetivo responde
+  `use_dedicated_tool` hacia `ha_install_update`); cada entidad se resuelve
+  por el registro de entidades igual que en `ha_install_update`; la de Hermes
+  responde `self_update_not_supported` (y, si el slug propio no se puede
+  leer, cualquier app del Supervisor, `self_check_unavailable`); las de Core,
+  OS y Supervisor, `use_dedicated_tool` hacia `sv_update_core`,
+  `sv_update_os` o `sv_update_supervisor`. Todo sin token y sin llegar a Home
+  Assistant. Las demás entidades `update` (otras apps, firmware, HACS…)
+  siguen exactamente igual: token y la misma llamada, con la `hint` hacia
+  `ha_install_update` en la vista previa. `ha_call_service_response` no
+  cambia: ya rechazaba `update.install` (está en la denylist y esa tool no
+  tiene confirmación).
+- **Otra actualización del OS en marcha.** Si ya hay una actualización del OS
+  en curso (lanzada desde la interfaz o por otra llamada), la vista previa de
+  `sv_update_os` responde `update_in_progress` con su `job_id` y sin token. Y
+  la confirmación nunca toma como suyo un job que ya estaba en marcha antes
+  de su petición: si el Supervisor la rechaza, la respuesta lo dice
+  (`supervisor_error`) en vez de quedar solo en el log. Core y el Supervisor
+  no tienen esa carrera (Core devuelve su propio job o el error; el
+  Supervisor comparte la actualización que ya está en curso).
+- **Notas de versión de terceros que no pasan del tope.**
+  `ha_get_update_release_notes` recorta midiendo el tamaño real del texto en
+  la respuesta, con el escape JSON (comillas, barras, saltos de línea), así
+  que unas notas llenas de esos caracteres ya no se cambian por un error.
+- **Tabla de comandos**: `GET /available_updates`, `POST /refresh_updates`,
+  `POST /reload_updates`, `POST /core/update`, `hassio/update/core`,
+  `POST /os/update`, `POST /supervisor/update` y el comando de Core
+  `update/release_notes` pasan a `dedicated` hacia estas tools: las genéricas
+  remiten a ellas y nunca son una forma de actualizar sin la vista previa.
+  `/reload_updates` va a `sv_check_for_updates` aunque la tool use
+  `/refresh_updates`, que además recarga la tienda. No queda ninguna entrada
+  «pendiente (spec 015)».
+- **Guía**: tema nuevo `hermes_guide("updates")` (alias `update`, `upgrade`)
+  con el orden recomendado (Supervisor → Core → OS y reiniciar el host), los
+  bloqueos, el token atado a las versiones y qué hacer tras el reinicio del
+  Supervisor; el tema `supervisor` remite a él.
+- `sv_check_for_updates`, `sv_update_core`, `sv_update_os` y
+  `sv_update_supervisor` se prueban con un Supervisor
+  simulado con la forma de las respuestas del 2026.11.0; su prueba contra un
+  Supervisor real queda pendiente en la VM de la 014 (matriz de pruebas de la
+  hoja de ruta).
+  `ha_install_update` se ejecuta en el banco de Core contra una entidad
+  `update` de la integración `template` (vista previa sin efecto,
+  confirmación, versión concreta y backup, comprobados por el lector
+  independiente); su encaminamiento y el rechazo de Hermes, con simuladores
+  (en el banco no hay integración del Supervisor).
+- Ocho tools en la familia `system_updates`, que se apaga entera con
+  `tool_families_disabled`. Desviaciones de la spec 008: las notas de Core,
+  OS y Supervisor no se descargan (arriba), y hay una tool más de las
+  estimadas (`ha_list_updates`, porque `sv_list_available_updates` no ve las
+  entidades `update` de dispositivos e integraciones).
 
 ### Sistema
 
@@ -501,6 +832,77 @@ Spec 031 (en curso; tramos 1 y 2: agentes, ajustes, crear y borrar). Familia nue
   hasta probar `manager` en vivo. Un test nuevo comprueba que todas las rutas
   del Supervisor que usa Hermes caben en `manager` según el código del
   Supervisor 2026.11.0.
+
+### Plataforma y deprecaciones
+
+- **`sv_get_job_status` ya no da por bueno un job con sub-jobs fallidos.** El
+  Supervisor guarda el error de un sub-job en ese sub-job y no lo sube al job
+  padre: un backup completo con una app que no se pudo guardar terminaba con
+  `errors: []` y la tool daba `success: true`. Ahora devuelve también
+  `child_errors` (`{job, message}`, recortados y redactados, hasta 20 y 5
+  niveles; `child_errors_truncated: true` si hay más) y, con cualquiera de
+  ellos, `success: false`, igual que con cualquier error del propio job. Es un
+  arreglo, no un cambio de contrato: el campo `success` decía que todo había
+  ido bien cuando no. La descripción y la guía explican además que `done` es
+  `true` también cuando el job falla, que el Supervisor no distingue avisos
+  de errores fatales (cualquier entrada en `errors` da `success: false`) y
+  que, con errores, `reference` puede apuntar a un backup incompleto.
+- **`child_jobs` sale redactado.** `sv_get_job_status` devuelve el árbol de
+  sub-jobs entero, y antes iba en bruto: un secreto en el error de un sub-job
+  salía por ahí aunque `child_errors` lo tapara. Ahora pasa por la misma
+  redacción, igual que el error HTTP de la tool. Los mensajes de `errors` y
+  `child_errors` se redactan antes de recortarlos a 500 caracteres: un
+  secreto que cruzaba el corte salía a medias.
+- **Al guardar scripts y automatizaciones, cuenta la denylist extra.** La
+  clasificación de lo peligroso al guardar con `ha_create_or_update_script` o
+  `ha_create_or_update_automation` usaba solo la lista de serie; ahora usa
+  también `call_service_denylist_extra`, como `ha_call_service`. Y la
+  descripción de `call_service_auto_classify_dangerous` dice lo que hace: con
+  `false` solo se apagan la revisión del arranque y la de tras un `reload`;
+  lo que se guarda con Hermes se revisa siempre.
+- **El safety backup con sub-jobs fallidos ya no deja escribir.** El sondeo
+  del safety backup de las escrituras `fs_*` cuenta esos errores como fallo
+  (`safety_backup_job_failed` con el mensaje del sub-job): no se escribe sin
+  un backup válido. La retención (`safety_backup_keep`) aplica el mismo
+  criterio: ese backup incompleto se poda el primero y ya no cuenta como una
+  de las copias buenas que se conservan, así que no queda una copia completa
+  menos de las prometidas.
+- **Nada se retira en la 1.2.0.** Los alias `ha_hacs_*` siguen hasta la 1.3.0
+  y `ha_remove_device_from_config_entry` sigue registrada y deprecada, con
+  sus argumentos y anotaciones de siempre. Si Home Assistant retira su comando
+  (anunciado para la 2027.9), la tool responde `command_removed_in_ha` con
+  `replacement: "ha_remove_device"`, sin cambiar nada ni enviar otro comando.
+  Las deprecadas en esta versión (ver «Correcciones») también siguen
+  registradas hasta la 1.3.0 con sus argumentos: `ha_reload_counters` y
+  `ha_get_config_entry_options` responden `not_supported` con `_deprecated`, y
+  `ha_create_scene_from_current` conserva el argumento `name`, que con valor
+  responde `name_not_supported`. Hermes ya no depende de los campos de los dispositivos que HA retira en la
+  2027.8 y la 2027.10 (`config_entries`, `config_entries_subentries`,
+  `primary_config_entry`); hay tests con esa forma.
+- **Socket Unix y API `/v2` del Supervisor: se detectan, no se usan.** Al
+  arrancar, Hermes anota en el log (`supervisor_platform`) si el Supervisor le
+  ofrece `SUPERVISOR_SOCKET` o tiene activada la opción `supervisor_v2_api`, y
+  avisa de que sigue por TCP y por la V1, que el Supervisor mantiene. Si no
+  puede leerlo, lo dice (`api_v2_enabled: null`) y el arranque sigue. Lo que
+  hará falta para usarlos está en la hoja de ruta.
+- **Opciones traducidas y «apps».** La página de configuración enseña el
+  nombre y una descripción corta de cada opción, en inglés o en español
+  (`translations/en.yaml` y `es.yaml`). Como el Supervisor 2026.11, las
+  descripciones de las tools de apps, la guía y las instrucciones dicen «app
+  (add-on)»; los nombres de las tools (`sv_*_addon*`) y sus argumentos no
+  cambian.
+- **Guarda de deprecaciones del SDK MCP.** La suite falla si Hermes usa algo
+  que el SDK marque como deprecado (`MCPDeprecationWarning`, que no hereda de
+  `DeprecationWarning`, y los `DeprecationWarning` de `mcp` o de Hermes), y
+  fija qué tools declaran `outputSchema` (`ping` y `hermes_guide`). La
+  auto-clasificación de scripts peligrosos ya no usa `asyncio.ensure_future`,
+  que sin un bucle en marcha avisa en Python 3.13 y fallará en 3.14: lanza la
+  tarea en el bucle en marcha o la aplaza al arranque del servidor.
+- **Documentado en la hoja de ruta**: los hosts CIMD conocidos y cómo
+  averiguar otro (`oauth_cimd_allowed_hosts` sigue vacío por defecto), por qué
+  no se declara `outputSchema` y por qué la vía nativa de MCP para pedir
+  confirmación no sustituye a los dos pasos, y la tabla de deprecaciones al
+  día.
 
 ### Correcciones
 

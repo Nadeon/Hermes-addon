@@ -696,18 +696,29 @@ def _evaluar_job(job_data: Any) -> tuple[str, list[str]]:
     """Clasifica la respuesta de `GET /jobs/{uuid}`.
 
     El job no trae `state` ni `error`: trae `done` (True también si falló) y
-    `errors`. Éxito es SOLO `done is True` con `errors` vacío.
+    `errors`. Éxito es SOLO `done is True` sin errores en el job ni en sus
+    sub-jobs.
+
+    Los errores de los sub-jobs (`child_jobs`) no suben al job en el
+    Supervisor: un backup completo al que le faltaba una app terminaba con
+    `errors: []` y se daba por bueno. Se cuentan como fallo, y un recorrido
+    recortado también, para no escribir sin un backup válido (principio III;
+    spec 027, D-1).
 
     Returns:
         ("ok", []), ("fallo", mensajes), ("en_curso", []) o ("raro", []).
     """
-    from hermes.supervisor_jobs import job_errors as _job_errors
+    from hermes.supervisor_jobs import (
+        child_errors_as_text as _child_errors_as_text,
+        child_job_errors as _child_job_errors,
+        job_errors as _job_errors,
+    )
 
     if not isinstance(job_data, dict) or not isinstance(job_data.get("done"), bool):
         return "raro", []
     if not job_data["done"]:
         return "en_curso", []
-    errores = _job_errors(job_data)
+    errores = _job_errors(job_data) + _child_errors_as_text(*_child_job_errors(job_data))
     return ("fallo", errores) if errores else ("ok", [])
 
 

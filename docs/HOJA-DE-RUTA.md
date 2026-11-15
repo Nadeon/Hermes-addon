@@ -116,19 +116,20 @@ desactivada, que es su valor por defecto. En la 1.0.12,
 | Qué | Cuándo | Efecto en Hermes |
 |---|---|---|
 | Acción `home-assistant/builder@master` y `build.yaml` | Deprecados (aviso del 2026-04-02); retirada anunciada sin fecha | Ninguno: el flujo de publicación ya usa las actions nuevas y `build.yaml` se ha quitado (spec 002) |
-| Campos `config_entries` y `config_entries_subentries` del dispositivo | HA **2027.8** (`primary_config_entry`: **2027.10**) | Ninguno desde la 1.0.12: los recuentos de dispositivos por integración usan `config_entry_id` y solo recurren a `config_entries` como respaldo |
-| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry`, deprecada en la 1.0.12, se retira en la versión de Hermes que fije la spec 008 (como tarde, la última publicada antes de HA 2027.9); `ha_remove_device` usa `config/device_registry/remove` desde HA 2026.9 |
+| Campos `config_entries` y `config_entries_subentries` del dispositivo | HA **2027.8** (`primary_config_entry`: **2027.10**) | Ninguno desde la 1.0.12: los recuentos de dispositivos por integración usan `config_entry_id` y solo recurren a `config_entries` como respaldo. Desde la 1.2.0 un test fija la forma futura, sin esos campos, y que ningún fichero de Hermes lee `primary_config_entry` ni `config_entries_subentries` (`TestDispositivosSinCamposDeprecados` en `tests/test_deprecaciones.py`) |
+| Comando `config/device_registry/remove_config_entry` | HA **2027.9** | `ha_remove_device_from_config_entry`, deprecada en la 1.0.12, sigue en la 1.2.0 y se retira como tarde en la última versión de Hermes publicada antes de HA 2027.9 (D-08 de la spec 008). Desde la 1.2.0, si HA ya no tiene el comando, la tool devuelve `command_removed_in_ha` con `replacement: ha_remove_device`, sin probar otro comando (`TestComandoRetiradoEnHA` en `tests/test_tools_registry_device.py`). `ha_remove_device` usa `config/device_registry/remove` desde HA 2026.9 |
 | Comando `lovelace/resources` (alias de `lovelace/resources/list`) | Anunciado para 2025.1; sigue presente, puede desaparecer sin aviso | Ninguno desde la 1.0.12: `ha_list_lovelace_resources` usa `lovelace/resources/list` |
 | Campo `has_mean` de estadísticas | Plazo vencido; sigue presente | Solo documentación |
-| Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha. En 2026.11.0 el socket existe solo para Core (`SUPERVISOR_SOCKET` no se inyecta en las apps) y el aviso `deprecated_tcp_api_request` solo salta con el token de Core | Hermes usa solo TCP |
-| API `/v2` del Supervisor (`addons` → `apps`) | Sin fecha; hoy detrás de una opción de desarrollo y sin retirar la V1 | Ninguno hoy |
-| Alias `ha_hacs_*` | Hermes **1.3.0** | Se retiran; desde la 1.1.0 devuelven `_deprecated` |
+| Acceso TCP de las apps al Supervisor (`SUPERVISOR_TOKEN`) en favor de un socket Unix | Sin fecha. En 2026.11.0 el socket existe solo para Core (`SUPERVISOR_SOCKET` no se inyecta en las apps) y el aviso `deprecated_tcp_api_request` solo salta con el token de Core | Hermes usa solo TCP. Desde la 1.2.0 detecta `SUPERVISOR_SOCKET` al arrancar y lo anota en el log (`supervisor_platform` y el aviso `supervisor_unix_socket_offered`); sigue por TCP (`tests/test_supervisor_platform.py`). Qué hará falta para usarlo: «Socket Unix y API `/v2` del Supervisor», en «1.3.0 y posteriores» |
+| API `/v2` del Supervisor (`addons` → `apps`) | Sin fecha; hoy detrás de una opción de desarrollo y sin retirar la V1 | Ninguno hoy. Desde la 1.2.0 Hermes lee la opción `supervisor_v2_api` al arrancar y la anota (el aviso `supervisor_api_v2_enabled` si está activa); sigue con la V1, que no se retira al activarla (`tests/test_supervisor_platform.py`). Rutas y cambios de formato: «Socket Unix y API `/v2` del Supervisor», en «1.3.0 y posteriores» |
+| Alias `ha_hacs_*` | Hermes **1.3.0** | Se retiran; desde la 1.1.0 devuelven `_deprecated`. En la 1.2.0 siguen registrados con sus argumentos y anotaciones (`TestDeprecadasSiguen` en `tests/test_deprecaciones.py`) |
 | `ha_reload_counters` | Hermes **1.3.0** | Se retira; desde la 1.2.0 responde `not_supported` con `_deprecated` (HA no tiene `counter.reload`; spec 033) |
 | `ha_get_config_entry_options` | Hermes **1.3.0** | Se retira; desde la 1.2.0 responde `not_supported` con `_deprecated` (HA no publica las opciones; la vía es el flujo de opciones; spec 033) |
 | Argumento `name` de `ha_create_scene_from_current` | Hermes **1.3.0** | Se retira; desde la 1.2.0 con valor responde `name_not_supported` (`scene.create` no admite nombre; spec 033) |
 | Acciones `hassio.*_update` | Ya no existen en Core 2026.11 | Ninguno: las de la denylist están muertas; actualizar va por `update.install` |
 | DCR (RFC 7591) en MCP | Deprecado en la revisión 2026-07-28; la spec garantiza al menos 12 meses | OAuth de Hermes |
-| Constante de versiones de protocolo admitidas del SDK `mcp` (sustituida por las de handshake y modernas) | Deprecada en 2.x | Puede romper con un futuro SDK 3.x |
+| Constante de versiones de protocolo admitidas del SDK `mcp` (sustituida por las de handshake y modernas) | Deprecada en 2.x | Ninguno: el middleware usa las dos tuplas nuevas desde la spec 003. Desde la 1.2.0 la suite falla si Hermes usa algo que el SDK marque como deprecado (`MCPDeprecationWarning` o `DeprecationWarning`) o nombra esa constante, y comprueba que `requirements.txt` mantiene `mcp<3` (`tests/test_sdk_deprecaciones.py`) |
+| Alias de carpeta `homeassistant` en los backups parciales de las acciones `hassio.backup_partial` y `hassio.restore_partial` | HA **2026.12** | Ninguno: Hermes usa la API del Supervisor, y esas acciones van por la denylist con token |
 
 Pendiente de confirmar en la documentación oficial de Claude: los límites de
 ~150 000 caracteres por resultado y 240 s por llamada en claude.ai. La 1.1.0
@@ -271,6 +272,20 @@ principio IV se enmienda en el mismo cambio.
   documento en el host `claude.ai`; si solo usas Claude,
   `oauth_cimd_allowed_hosts: ["claude.ai"]` basta.
 
+**Hosts CIMD conocidos** (para `oauth_cimd_allowed_hosts`; spec 027):
+
+| Cliente | Host del documento | Comprobado |
+|---|---|---|
+| claude.ai | `claude.ai` | Sí, en una instalación real (1.1.0) |
+| Claude Code | `claude.ai` | Documentado; la prueba en vivo sigue pendiente |
+
+No se añade ningún host sin comprobarlo. Para averiguar el de otro cliente,
+conéctalo con la lista vacía y busca en el log el evento `oauth_cimd_document`,
+que lleva solo el host del `client_id`; con la lista ya puesta, el evento
+`oauth_cimd_rejected` con motivo `host_not_allowed` dice qué host falta. El
+valor por defecto sigue vacío en la 1.2.0 (`TestCimdPorDefecto` en
+`tests/test_deprecaciones.py`); restringirlo es D-09 de la spec 008.
+
 ### Pruebas manuales hechas en una instalación real (1.1.1)
 
 - [x] **Publicación con el CI nuevo** (spec 002): las etiquetas `v1.1.0` y
@@ -410,6 +425,15 @@ un cliente contra la instalación real.
   la instalación real: el camino feliz de `ha_get_device_diagnostics` con un
   dispositivo de una integración con diagnóstico de dispositivo (Z-Wave, ZHA,
   Matter, MQTT…); en el banco solo se prueba `diagnostics_not_supported`.
+- [ ] (instalación real, tras publicar) **Integraciones: flujos y Repairs
+  (spec 016), en vivo**: lo que la integración de prueba `banco_flujos` del
+  banco de Core no puede dar, porque las 12 tools que modifican ya se
+  ejecutan ahí contra HA Core real (con su fila «ok» en la matriz de
+  pruebas). Un descubrimiento real (listarlo e ignorarlo), las subentries de
+  una integración real, un flujo de reparación real del Supervisor y otro de
+  varios pasos, una reautenticación real con
+  `ha_continue_config_entry_flow` y los textos de los avisos con HA en un
+  idioma distinto del inglés.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -432,11 +456,11 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | hecha: familia `core_diagnostics` con 12 tools (logs, validación, diagnósticos de integraciones y notificaciones persistentes), 9 entradas de la tabla a `dedicated` y tema de la guía. En el banco, las 12 contra HA Core real (diagnóstico de entrada con `local_calendar`). Pendiente manual: el camino feliz de `ha_get_device_diagnostics`, que ninguna integración sin hardware ni nube ofrece (cubierto por unitarios) |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (VM de la 014, después instalación real) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
-| 015 | Actualizaciones del sistema | 064, 080 | pendiente |
-| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
+| 015 | Actualizaciones del sistema | 064, 080 | hecha: familia `system_updates` con 8 tools (`sv_list_available_updates`, `sv_check_for_updates`, `sv_update_core`, `sv_update_os`, `sv_update_supervisor`, `ha_list_updates`, `ha_get_update_release_notes`, `ha_install_update`), vista previa con bloqueos y token atado a las versiones, encaminamiento de las entidades del Supervisor a las `sv_*` y Hermes sin autoactualización; 8 entradas de la tabla a `dedicated`; tema `updates`; `ha_install_update` probada en el banco de Core; prueba real de las cuatro `sv_*` que modifican pendiente manual en la VM de la 014 |
+| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | hecha: familias `integration_flows` (descubiertos, dominios configurables, título y preferencias de una entrada, subentries y reconfigure con token en cada paso; la tool general de flujos rechaza los reconfigure y los flujos que no reconoce, y pide token en los `reauth`; ignorar, solo descubrimientos) y `repair_flows` (aviso con sus datos internos y flujo de reparación con token en cada paso); textos traducidos en `ha_list_repairs`; guía de helpers por config entry. Todo lo que modifica, probado en el banco de Core con la integración de prueba `banco_flujos`. Pendiente manual tras publicar: un descubrimiento real, subentries de una integración real, flujos de reparación reales (uno del Supervisor y uno de varios pasos), una reautenticación real y textos en un idioma distinto del inglés |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
-| 019 | Montajes y ajustes de backup | 083 | pendiente |
+| 019 | Montajes y ajustes de backup | 083 | hecha; prueba en la VM pendiente: familia `mounts` con nueve tools (seis de montajes CIFS, NFS y disco local, con crear, editar, borrar y el por defecto con token atado también al estado; tres de ajustes de backup sin token), `location` opcional en `sv_create_backup_full` y `sv_create_backup_partial`, credenciales (también el usuario en los errores del Supervisor) que entran y nunca salen, las nueve rutas de CAP-083 a `dedicated` y el `action_hash` de los tokens con HMAC |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
@@ -444,7 +468,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
-| 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
+| 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
 | 030 | Tienda de apps | 082, 093 | pendiente |
@@ -622,6 +646,8 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `fs_set_secret` | VM | pendiente | |
 | `fs_write_file` | VM | pendiente | |
 | `ha_abort_config_entry_flow` | banco de Core | ok | |
+| `ha_abort_repair_fix` | banco de Core | ok | spec 016 |
+| `ha_abort_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_activate_scene` | banco de Core | ok | |
 | `ha_call_service` | banco de Core | ok | |
 | `ha_call_service_response` | banco de Core | ok | |
@@ -632,6 +658,9 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_clear_system_log` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
+| `ha_continue_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_continue_repair_fix` | banco de Core | ok | spec 016 |
+| `ha_continue_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_create_area` | banco de Core | ok | |
 | `ha_create_automatic_backup` | banco de Core | ok | |
 | `ha_create_backup` | banco de Core | ok | |
@@ -678,6 +707,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_scene` | banco de Core | ok | |
 | `ha_delete_schedule` | banco de Core | ok | |
 | `ha_delete_script` | banco de Core | ok | |
+| `ha_delete_subentry` | banco de Core | ok | spec 016 |
 | `ha_delete_timer` | banco de Core | ok | |
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
@@ -687,9 +717,11 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_enable_config_entry` | banco de Core | ok | |
 | `ha_finish_timer` | banco de Core | ok | |
 | `ha_fire_event` | banco de Core | ok | |
+| `ha_ignore_discovery` | banco de Core | ok | spec 016 |
 | `ha_ignore_repair` | banco de Core | ok | |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
+| `ha_install_update` | banco de Core | ok | spec 015; entidad `update` de plantilla del banco |
 | `ha_pause_timer` | banco de Core | ok | |
 | `ha_press_input_button` | banco de Core | ok | |
 | `ha_reload_automations` | banco de Core | ok | |
@@ -716,12 +748,16 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_set_log_level` | banco de Core | ok | |
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
+| `ha_start_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_start_repair_fix` | banco de Core | ok | spec 016 |
+| `ha_start_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_start_timer` | banco de Core | ok | |
 | `ha_toggle_input_boolean` | banco de Core | ok | |
 | `ha_trigger_automation` | banco de Core | ok | |
 | `ha_update_area` | banco de Core | ok | |
 | `ha_update_backup_config` | banco de Core | ok | |
 | `ha_update_category` | banco de Core | ok | |
+| `ha_update_config_entry` | banco de Core | ok | spec 016 |
 | `ha_update_device` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
@@ -729,26 +765,38 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
+| `ha_update_subentry` | banco de Core | ok | spec 016 |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
+| `sv_check_for_updates` | VM | pendiente | spec 015 |
 | `sv_create_backup_full` | VM | pendiente | |
 | `sv_create_backup_partial` | VM | pendiente | |
+| `sv_create_mount` | VM | pendiente | recurso CIFS y NFS de prueba |
 | `sv_create_safety_backup` | VM | pendiente | |
 | `sv_delete_backup` | VM | pendiente | instantánea antes |
+| `sv_delete_mount` | VM | pendiente | instantánea antes |
 | `sv_dismiss_resolution_issue` | VM | pendiente | |
 | `sv_dismiss_resolution_suggestion` | VM | pendiente | |
 | `sv_get_job_status` | VM | pendiente | |
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_reload_backups` | VM | pendiente | |
+| `sv_reload_mount` | VM | pendiente | |
 | `sv_restart_addon` | VM | pendiente | add-on de prueba |
 | `sv_restart_core` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_full` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
 | `sv_set_addon_options` | VM | pendiente | add-on de prueba |
+| `sv_set_backup_settings` | VM | pendiente | |
+| `sv_set_default_backup_mount` | VM | pendiente | |
 | `sv_start_addon` | VM | pendiente | add-on de prueba |
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |
 | `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
 | `sv_update_addon` | VM | pendiente | add-on de prueba |
+| `sv_update_core` | VM | pendiente | spec 015; instantánea antes |
+| `sv_update_mount` | VM | pendiente | instantánea antes |
+| `sv_update_os` | VM | pendiente | spec 015; instantánea antes; reinicio del host después |
+| `sv_update_supervisor` | VM | pendiente | spec 015; instantánea antes |
 <!-- matriz-pruebas:fin -->
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
@@ -764,9 +812,11 @@ programa:
   rechazaba todo lo de la denylist sin aceptar `confirmation_token`, así que
   una acción peligrosa con respuesta (`conversation.process`) no podía
   devolverla ni confirmando. Desde la 1.2.0 se confirma en dos pasos.
-- **Actualizar Core, OS y Supervisor con vista previa útil** (015): versión
-  actual → destino, notas, backup y salud del sistema. Hoy solo con
-  `update.install` confirmando.
+- **Actualizar Core, OS y Supervisor con vista previa útil** (015).
+  Resuelto en 1.2.0: `sv_update_core`, `sv_update_os` y
+  `sv_update_supervisor` (versión actual → destino, backup, salud y bloqueos)
+  y `ha_install_update` para las entidades `update`; la prueba real de las
+  `sv_*`, pendiente en la VM de la 014.
 - **Banco de pruebas** (010, 028 y 014): HA Core en contenedor en el CI para
   ejecutar de verdad las escrituras de Core; para el Supervisor, una VM con
   HAOS cuyo procedimiento se documenta y que queda como prueba manual.
@@ -781,26 +831,45 @@ programa:
   (procedimiento en `docs/BANCO-SUPERVISOR.md`). Es un cambio de permisos: el
   Supervisor lo enseña al actualizar; el cambio de rol se decide al final, tras
   la prueba manual (D-02).
-- **Distinguir errores fatales de avisos en `sv_get_job_status`** (027): hasta
-  que el Supervisor dé una señal fiable, se documenta.
+- **Distinguir errores fatales de avisos en `sv_get_job_status`** (027,
+  hecho): el Supervisor 2026.11.0 no da gravedad, así que cualquier entrada en
+  `errors` da `success: false`, y la descripción y la guía lo dicen. Los
+  errores de los sub-jobs, que no suben al job, salen en `child_errors` y
+  también dan `success: false`; el sondeo del safety backup los cuenta igual.
 - **Cifrado de los safety backups** (031).
 - **Aplicar sugerencias del Supervisor** con confirmación y vista previa
   completa (022).
 - **Escritura en el Marketplace** (026), con confirmación, backup previo y
   vista previa completa.
-- **Flujos de reparación de Repairs y textos traducidos** (016).
-- **Subentries y reconfigure** (016). **Helpers por config entry**: ya se
-  pueden crear con los flujos; falta explicarlo en la guía (016).
-  **Triggers y condiciones por propósito; resolución de targets** (017).
+- **Triggers y condiciones por propósito; resolución de targets** (017).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas
   agregadas ya existen (`ha_statistics_during_period`).
 - **`outputSchema` y alternativas nativas de MCP a la confirmación** (027,
-  solo investigación).
-- **Terminología «apps» y traducciones de las opciones** (027).
-- **`oauth_cimd_allowed_hosts`** (027): se documentan los hosts CIMD conocidos;
-  el valor por defecto no cambia en la 1.2.0.
+  investigado; research R-6 de la spec 027, con el SDK `mcp` 2.3.0):
+  - `outputSchema`: hoy solo lo declaran `ping` y `hermes_guide` (el SDK lo
+    infiere de `-> str`), y un test lo fija. Daría al cliente una forma de
+    validar las respuestas, pero cada tool devolvería el JSON dos veces,
+    `tools/list` crecería y las respuestas de Hermes no tienen una forma única
+    (errores, vistas previas con token, listas recortadas): el esquema sería
+    una unión sin validación real. **Recomendación**: no declararlo en la
+    1.2.0; reconsiderarlo para las tools con el sobre común
+    `{count, items, truncated}`.
+  - Vía nativa para pedir datos a mitad de una llamada (`InputRequiredResult`
+    y la elicitación de MCP 2026-07-28): el cliente enseñaría la vista previa y
+    pediría el «sí» con su propia interfaz. No sustituye a los dos pasos:
+    depende de que el cliente lo implemente, y el token de Hermes ya está
+    atado a la tool y a los argumentos. **Recomendación**: segunda vía
+    opcional en una versión posterior, detrás de la capacidad del cliente y
+    con el mismo token por debajo (D-10 de la spec 008).
+- **Terminología «apps» y traducciones de las opciones** (027, hecho):
+  `translations/en.yaml` y `es.yaml` con las 31 opciones, y «app (add-on)» en
+  las descripciones de las tools de apps, en la guía y en las instrucciones;
+  los nombres de las tools no cambian.
+- **`oauth_cimd_allowed_hosts`** (027, hecho): hosts CIMD conocidos y cómo
+  averiguar otro, junto a la prueba de CIMD con claude.ai; el valor por
+  defecto no cambia en la 1.2.0.
 
 Queda fuera del programa la clase B (suscripciones, streaming e internos del
 frontend, que no aplican a un servidor MCP) y la clase D (peligroso o no
@@ -809,10 +878,11 @@ spec 008.
 
 ### 1.3.0 y posteriores
 
-- Retirar los alias `ha_hacs_*` (anunciado para la 1.3.0) y, como tarde antes
-  de HA 2027.9, `ha_remove_device_from_config_entry`.
+- Retirar los alias `ha_hacs_*` (anunciado para la 1.3.0) y, como tarde en la
+  última versión de Hermes publicada antes de HA 2027.9,
+  `ha_remove_device_from_config_entry` (D-08 de la spec 008).
 - Socket Unix del Supervisor y API `/v2`, cuando se publiquen para las apps
-  (bloqueados; la spec 027 deja escrito lo que hará falta).
+  (bloqueados; lo que hará falta, en el apartado siguiente).
 - Lo que el programa deja al mantenedor (spec 008, «Dudas para el final»):
   candidatas de clase D con salvaguardas fuertes, bajar a
   `hassio_role: manager`, familias de riesgo alto desactivadas por defecto,
@@ -820,6 +890,60 @@ spec 008.
   CI con KVM, unificar la forma de las listas de las tools existentes, el valor
   por defecto de `oauth_cimd_allowed_hosts` y la vía nativa de MCP para
   confirmar.
+
+#### Socket Unix y API `/v2` del Supervisor: qué hará falta
+
+Desde la 1.2.0 Hermes detecta los dos al arrancar y lo anota en el log, sin
+usarlos (`supervisor_platform`, con `transport`, `unix_socket_offered` y
+`api_v2_enabled`; los avisos `supervisor_unix_socket_offered` y
+`supervisor_api_v2_enabled`). Leído en el código del Supervisor 2026.11.0
+(research R-2 y R-3 de la spec 027).
+
+**Socket Unix.** Hoy solo lo tiene Core (`docker/homeassistant.py`); a las
+apps no se les inyecta `SUPERVISOR_SOCKET` (`docker/app.py`). En el socket no
+se lee ningún token: el socket identifica a quien llama. Cuando se publique
+para las apps:
+
+1. Conectar con `aiohttp.UnixConnector(path=SUPERVISOR_SOCKET)` y la URL base
+   `http://supervisor`, sin cabecera `Authorization` en esas peticiones. El
+   WebSocket de Core que usa Hermes (`/core/api/websocket`, por el proxy del
+   Supervisor) seguiría pidiendo el token en el mensaje `auth`.
+2. Volver a TCP si el socket no existe o no responde a `/supervisor/ping`, con
+   el mismo arranque de hoy.
+3. Revisar qué rutas permite el rol de una app por el socket
+   (`check_principal_access`, los mismos patrones que por TCP) y la redacción
+   de red del log (por el socket no hay IP).
+4. Tests con un servidor aiohttp en un socket Unix (solo Linux: omitidos en
+   Windows) o con un conector simulado.
+
+**API `/v2`.** La V1 se monta siempre en la raíz; la V2, en `/v2`, solo con la
+opción de desarrollo `supervisor_v2_api`, y activarla no quita la V1. En la V2
+las claves de error no se traducen a sus nombres antiguos y los roles tienen
+sus propios patrones (`_V2_PATTERNS`), con las mismas reglas. Rutas que usa
+Hermes:
+
+| Hermes (V1) | V2 | Cambio de formato en la V2 |
+|---|---|---|
+| `GET /supervisor/info` | `GET /v2/supervisor/info` | sin `addons` ni `wait_boot` |
+| `GET /info`, `GET /host/info`, `GET /core/info` | igual con `/v2` | `host/info` cambia de forma |
+| `GET /addons` | `GET /v2/apps` | lista de apps |
+| `GET /store/addons` | `GET /v2/store/apps` | lista de apps del catálogo |
+| `GET /addons/{slug}/info` | `GET /v2/apps/{app}/info` | solo apps instaladas; para el catálogo, `GET /v2/store/apps/{app}` |
+| `GET /addons/{slug}/stats` | `GET /v2/apps/{app}/stats` | cambia de forma |
+| `GET /addons/{slug}/logs` | `GET /v2/apps/{app}/logs` | mismo texto |
+| `POST /addons/{slug}/start`, `stop`, `restart`, `options`, `uninstall` | `POST /v2/apps/{app}/…` | — |
+| `POST /store/addons/{slug}/install`, `update` | `POST /v2/store/apps/{app}/…` | — |
+| `GET /backups`, `GET /backups/{slug}/info` | igual con `/v2` | la clave `apps` en vez de `addons` |
+| `POST /backups/new/full`, `partial`; `POST /backups/{slug}/restore/full`, `partial` | igual con `/v2` | `partial`: cuerpo con `apps` en vez de `addons` |
+| `DELETE /backups/{slug}` | igual con `/v2` | — |
+| `GET /jobs/{id}` | igual con `/v2` | — |
+| `GET /resolution/info`, `DELETE /resolution/{clase}/{uuid}` | igual con `/v2` | cambia de forma |
+| `POST /core/check`, `restart`; `POST /host/reboot` | igual con `/v2` | — |
+
+El test de deriva del inventario (`scripts/inventario/`) extrae **solo la V1**:
+avisará si una versión del Supervisor quita o cambia rutas de la V1, pero no ve
+las rutas nuevas de la V2. Un inventario de la V2 queda como duda D-4 de la
+spec 027 mientras la V2 sea una opción de desarrollo.
 
 ## Hermes frente a la integración oficial `mcp_server`
 

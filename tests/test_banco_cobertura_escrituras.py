@@ -34,8 +34,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tests.banco import cobertura, cobertura_012 as c012, cobertura_escrituras as c028
+from tests.banco import cobertura, cobertura_012 as c012, cobertura_015 as c015
+from tests.banco import cobertura_016 as c016
 from tests.banco import cobertura_031 as c031
+from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -69,6 +71,12 @@ def _listas() -> dict[str, set[str]]:
         # Spec 012 (contrato de la 028): sus escrituras, en su propio módulo.
         "PROBADAS_012": set(c012.PROBADAS_012),
         "NO_EJECUTABLES_012": set(c012.NO_EJECUTABLES_012),
+        # Spec 016: sus escrituras, en su propio módulo.
+        "PROBADAS_016": set(c016.PROBADAS_016),
+        "NO_EJECUTABLES_016": set(c016.NO_EJECUTABLES_016),
+        # Spec 015: sus escrituras, en su propio módulo.
+        "PROBADAS_015": set(c015.PROBADAS_015),
+        "NO_EJECUTABLES_015": set(c015.NO_EJECUTABLES_015),
         # Spec 031: agentes y ajustes de los backups de HA (tramo 1).
         "PROBADAS_031": set(c031.PROBADAS_031),
         "NO_EJECUTABLES_031": set(c031.NO_EJECUTABLES_031),
@@ -88,11 +96,15 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             f"clasificar: {sin_clasificar}; declaradas que no modifican o no existen: "
             f"{no_modifican}",
         )
-        # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las
+        # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011, las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B) y 4 de la 031 (tramo 1: `ha_update_backup_config`;
+        # del tramo B), las 5 de la 015 (`sv_check_for_updates` y
+        # `sv_update_core` del tramo 1, `sv_update_os` y `sv_update_supervisor`
+        # del 2 y `ha_install_update` del 3), las 12 de la 016 (2 del tramo A,
+        # 7 del B y 3 del C), las 7 de la 019 (5 de montajes y 2 de ajustes
+        # de backup) y 4 de la 031 (tramo 1: `ha_update_backup_config`;
         # tramo 2: crear, crear con los ajustes automáticos y borrar).
-        self.assertEqual(len(reales), 133)
+        self.assertEqual(len(reales), 157)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -121,6 +133,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
                 ("NO_EJECUTABLES_012", c012.NO_EJECUTABLES_012),
                 ("NO_EJECUTABLES_031", c031.NO_EJECUTABLES_031),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
+                ("NO_EJECUTABLES_016", c016.NO_EJECUTABLES_016),
+                ("NO_EJECUTABLES_015", c015.NO_EJECUTABLES_015),
             )
             for tool, motivo in lista.items()
             if not str(motivo).strip()
@@ -130,7 +144,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
     def test_recuento_028(self) -> None:
         total = len(c028.PROBADAS_028) + len(c028.NO_EJECUTABLES_028)
         self.assertEqual(total, 53, f"las listas de la 028 suman {total}, no 53")
-        self.assertEqual(len(c028.FUERA_DEL_BANCO), 24)
+        # 24 de la 1.1.2 y 7 de la 019 (5 de montajes y 2 de ajustes).
+        self.assertEqual(len(c028.FUERA_DEL_BANCO), 31)
 
     def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
         # El plugin del job (010) solo exige lo que le pasa el conftest. Si la
@@ -141,8 +156,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         self.assertEqual(
             c028.TOOLS_EXIGIDAS_DEL_JOB,
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
-            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012
-            | c031.PROBADAS_031 | c031.LECTURAS_EN_BANCO_031,
+            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
+            | c016.PROBADAS_016 | c031.PROBADAS_031 | c031.LECTURAS_EN_BANCO_031,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB,

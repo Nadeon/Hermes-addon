@@ -219,3 +219,42 @@ def test_ninguna_tool_conserva_el_tope_antiguo_por_defecto() -> None:
             "response_max_bytes"
         ].default
         assert defecto == RESPONSE_MAX_BYTES_DEFAULT, modulo.__name__
+
+
+# ── Plataforma del Supervisor (spec 027, FR-011) ──────────────
+
+
+def _llamadas_en_boot() -> tuple[dict[str, int], list[str]]:
+    """Línea de la primera llamada a cada función dentro de `_boot`, y las
+    funciones llamadas dentro de algún `try` de `_boot`."""
+    import ast
+    import textwrap
+
+    arbol = ast.parse(textwrap.dedent(inspect.getsource(main_mod._boot)))
+    lineas: dict[str, int] = {}
+    en_try: list[str] = []
+
+    def visitar(nodo: ast.AST, dentro_de_try: bool) -> None:
+        if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Name):
+            lineas.setdefault(nodo.func.id, nodo.lineno)
+            if dentro_de_try:
+                en_try.append(nodo.func.id)
+        for hijo in ast.iter_child_nodes(nodo):
+            visitar(hijo, dentro_de_try or isinstance(nodo, ast.Try))
+
+    visitar(arbol, False)
+    return lineas, en_try
+
+
+def test_boot_comprueba_la_plataforma_tras_conectar_y_antes_del_mcp() -> None:
+    """La detección va tras conectar con HA (necesita el cliente) y antes de
+    servir MCP, y fuera de cualquier `try` del arranque: la función nunca
+    lanza, y meterla en uno que llame a `sys.exit` podría abortar el
+    arranque por algo informativo.
+    Controles negativos comprobados: sin la llamada, con la llamada movida
+    tras `_build_mcp` y con la llamada dentro de un `try` → rojo."""
+    fuente = inspect.getsource(main_mod._boot)
+    assert "await comprobar_plataforma(ha_client, os.environ)" in fuente
+    lineas, en_try = _llamadas_en_boot()
+    assert lineas["_connect_ha_ws"] < lineas["comprobar_plataforma"] < lineas["_build_mcp"]
+    assert "comprobar_plataforma" not in en_try

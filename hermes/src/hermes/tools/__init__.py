@@ -273,6 +273,15 @@ def register_all_tools(
             safety_backup_window_minutes=safety_backup_window_minutes,
         )
 
+    # Spec 019: montajes de red y de disco del Supervisor (familia `mounts`,
+    # 1.2.0). Va después de `backups` porque es donde acaban los backups.
+    if _activa("mounts"):
+        from hermes.tools.mounts import register as register_mounts
+        register_mounts(mcp, ha_client)
+        # Tramo 2: los ajustes de backup del Supervisor, misma familia.
+        from hermes.tools.backup_settings import register as register_backup_settings
+        register_backup_settings(mcp, ha_client)
+
     # Centro de resolución del Supervisor (lee y descarta; nunca aplica
     # sugerencias) y backups de la integración `backup` de HA, que ven todas
     # las ubicaciones y no solo las locales del Supervisor.
@@ -360,6 +369,34 @@ def register_all_tools(
             register as register_persistent_notifications,
         )
         register_persistent_notifications(mcp, ha_client, response_max_bytes=response_max_bytes)
+    # Integraciones más allá de instalarlas (spec 016): descubiertos,
+    # dominios configurables y título y preferencias de una entrada.
+    if _activa("integration_flows"):
+        from hermes.tools.integration_setup import register as register_integration_setup
+        register_integration_setup(mcp, ha_client, response_max_bytes=response_max_bytes)
+        from hermes.tools.config_subentries import register as register_config_subentries
+        register_config_subentries(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # Flujos de reparación de Repairs (spec 016, tramo C): el aviso con sus
+    # datos internos y el arreglo con token en cada paso.
+    if _activa("repair_flows"):
+        from hermes.tools.repair_flows import register as register_repair_flows
+        register_repair_flows(mcp, ha_client, response_max_bytes=response_max_bytes)
+    # Actualizaciones del sistema (spec 015): listar, buscar y actualizar
+    # Core con una vista previa que dice versiones, backup, bloqueos y
+    # comprobación de configuración, y un token atado a las versiones.
+    # Recibe `response_max_bytes` para recortar la lista de actualizaciones
+    # (con muchas apps) en vez de que el guardián central la cambie por un
+    # error.
+    if _activa("system_updates"):
+        from hermes.tools.system_updates import register as register_system_updates
+        register_system_updates(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+        # Tramo 3: las entidades `update` de Core (firmware, integraciones,
+        # HACS…), con el encaminamiento de las de la integración `hassio` a
+        # las `sv_*` y el rechazo de la de Hermes.
+        from hermes.tools.update_entities import register as register_update_entities
+        register_update_entities(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Backups de la integración `backup` de HA (spec 031, CAP-057): agentes
     # y ajustes de los backups automáticos. `ha_list_backup_agents` recorta

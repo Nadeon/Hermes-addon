@@ -320,6 +320,10 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         self._cfg(["lovelace", "generic_commands", "lovelace"]).validate()
         # Spec 013: la familia de los logs del sistema también se desactiva.
         self._cfg(["system_diagnostics"]).validate()
+        # Spec 019: y la de montajes y ajustes de backup.
+        self._cfg(["mounts"]).validate()
+        # Spec 015 (FR-017): y la de las actualizaciones del sistema.
+        self._cfg(["system_updates"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:
