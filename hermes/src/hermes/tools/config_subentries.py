@@ -652,9 +652,15 @@ def register(
         if registro is None:
             return json.dumps({
                 "error": "not_a_reconfigure_flow", "flow_id": flow_id,
-                "hint": ("Not a reconfigure flow opened by ha_start_reconfigure_flow in this "
-                         "Hermes session. Other config flows continue with "
-                         "ha_continue_config_entry_flow."),
+                # T047: la pista no remite a ninguna tool que envíe un paso
+                # sin token. Un reconfigure abierto antes de reiniciar Hermes
+                # o desde la interfaz de HA no se puede continuar: se abre otro.
+                "hint": ("Hermes does not know this flow as a reconfigure flow opened by "
+                         "ha_start_reconfigure_flow in this Hermes session (for example, "
+                         "it was opened before Hermes restarted, or in the Home Assistant "
+                         "UI). It cannot be continued: start the reconfigure again with "
+                         "ha_start_reconfigure_flow(entry_id), and abort the old flow with "
+                         "ha_abort_config_entry_flow if it is still open."),
             })
         if _reconfigure.caducado(registro):
             await _reconfigure.barrer(ha_client)

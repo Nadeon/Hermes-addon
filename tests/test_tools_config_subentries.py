@@ -574,6 +574,12 @@ class TestContinueReconfigureValidacion(_Base):
         r = await self.llamar("ha_continue_reconfigure_flow", "otro-flujo", {"a": 1})
         self.assertEqual(r["error"], "not_a_reconfigure_flow")
         self.assertEqual(self.fake.rest, [])
+        # T047: la pista lleva a abrir otro reconfigure, nunca a la vía
+        # general, que lo enviaría sin token. Control negativo comprobado: con
+        # la pista anterior («Other config flows continue with
+        # ha_continue_config_entry_flow») cae este test.
+        self.assertNotIn("ha_continue_config_entry_flow", r["hint"])
+        self.assertIn("ha_start_reconfigure_flow", r["hint"])
 
 
 class TestContinueReconfigureVista(_ConReconfigure):
