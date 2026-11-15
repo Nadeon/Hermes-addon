@@ -20,6 +20,10 @@ Controles negativos (T030), comprobados:
   `test_ubicacion_nueva_es_state_changed` y
   `test_contenido_cambiado_es_state_changed`; sin enmascarar `failed` cae
   `test_borrado_parcial_enmascarado`.
+- (T065) sin `available_agents` en el estado de `ha_create_automatic_backup`
+  cae `test_agentes_disponibles_cambiados` (los dos subtests);
+- (T064) con el texto fijo «Home Assistant has no backup encryption key
+  configured» cae `test_sin_clave_dice_el_motivo`.
 """
 
 from __future__ import annotations
@@ -235,6 +239,35 @@ class TestCreateBackupValidacion(_Base):
         r = await self.t["ha_create_backup"](agent_ids=["hassio.local"], encrypt=False)
         self.assertIn("confirmation_token", r)
 
+    async def test_sin_clave_dice_el_motivo(self) -> None:
+        # T064: «no tiene clave» solo si es verdad.
+        casos = {
+            "no_key_configured": (_config_info(None), "has no backup encryption key"),
+            "ha_unreachable": (HAConnectionError("WebSocket no disponible"),
+                               "did not answer"),
+        }
+        for motivo, (respuesta, frase) in casos.items():
+            with self.subTest(motivo=motivo):
+                respuestas = _respuestas()
+                self.montar(respuestas)
+                # `_config` (la lista blanca) va antes que leer la clave: solo
+                # la lectura de la clave ve el fallo.
+                leer = mod.leer_clave_de_backups
+
+                async def leer_fallando(ha):
+                    ha.respuestas["backup/config/info"] = respuesta
+                    try:
+                        return await leer(ha)
+                    finally:
+                        ha.respuestas["backup/config/info"] = _config_info()
+
+                with patch.object(mod, "leer_clave_de_backups", leer_fallando):
+                    r = await self.t["ha_create_backup"](agent_ids=["hassio.local"])
+                self.assertEqual(r["reason"], motivo)
+                self.assertIn(frase, r["detail"])
+                if motivo != "no_key_configured":
+                    self.assertNotIn("has no backup encryption key", r["detail"])
+
 
 class TestCreateBackup(_Base):
     async def test_vista_previa(self) -> None:
@@ -425,6 +458,32 @@ class TestCreateAutomaticBackup(_Base):
                     confirmation_token=vista["confirmation_token"])
                 self.assertEqual(r["error"], "state_changed")
                 self.assertNotIn("backup/generate_with_automatic_settings", self.ha.tipos())
+
+    async def test_agentes_disponibles_cambiados(self) -> None:
+        # T065: la vista previa enseña en qué destinos se guarda y cuáles se
+        # saltan; si un agente de los ajustes desaparece (o vuelve) en los
+        # 60 s del token, la confirmación no hace nada.
+        for antes, despues in (
+            (("hassio.local", "cloud.cloud"), ("hassio.local",)),
+            (("hassio.local",), ("hassio.local", "cloud.cloud")),
+        ):
+            with self.subTest(antes=antes, despues=despues):
+                self.montar(_respuestas(**{"backup/agents/info": _agents_info(*antes)}))
+                vista = await self.t["ha_create_automatic_backup"]()
+                self.assertIn("confirmation_token", vista)
+                self.ha.respuestas["backup/agents/info"] = _agents_info(*despues)
+                r = await self.t["ha_create_automatic_backup"](
+                    confirmation_token=vista["confirmation_token"])
+                self.assertEqual(r["error"], "state_changed")
+                self.assertNotIn("backup/generate_with_automatic_settings", self.ha.tipos())
+        # Un agente que no está en los ajustes no cambia nada.
+        self.montar(_respuestas())
+        vista = await self.t["ha_create_automatic_backup"]()
+        self.ha.respuestas["backup/agents/info"] = _agents_info(
+            "hassio.local", "hassio.nas_backups", "cloud.cloud", "backup.local")
+        r = await self.t["ha_create_automatic_backup"](
+            confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["status"], "started")
 
 
 # ── T021: ha_delete_backup ──────────────────────────────────────────────────

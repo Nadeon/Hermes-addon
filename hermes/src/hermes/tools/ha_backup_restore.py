@@ -42,7 +42,7 @@ from typing import Any
 
 import structlog
 
-from hermes.backup_key import leer_clave_de_backups
+from hermes.backup_key import leer_clave_de_backups, por_que_sin_clave, sin_secretos
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.identifiers import InvalidIdentifier, validate_identifier
@@ -125,14 +125,6 @@ def _slug(addon: Any) -> str | None:
         s = addon.get("slug")
         return s if isinstance(s, str) else None
     return addon if isinstance(addon, str) else None
-
-
-def _tapar(texto: str, *secretos: str | None) -> str:
-    """Quita del texto la clave o la contraseña, por si un error las citara."""
-    for s in secretos:
-        if s:
-            texto = texto.replace(s, "***")
-    return texto
 
 
 def register(
@@ -367,9 +359,9 @@ def register(
                 avisos.append("Hermes itself is replaced by the version in the backup; if "
                               "that version is broken, recovery needs manual intervention.")
             if fuente == CLAVE_HA_NO:
-                avisos.append("The backup is encrypted and Home Assistant has no backup "
-                              "encryption key: the restore will fail unless you pass "
-                              "password.")
+                # Según el motivo (T064): «no tiene clave» solo si es verdad.
+                avisos.append(f"The backup is encrypted and {por_que_sin_clave(motivo)}: "
+                              f"the restore will fail unless you pass password.")
             if fuente == CLAVE_HA:
                 avisos.append("The backup is decrypted with Home Assistant's backup "
                               "encryption key (the emergency kit one); if the backup was "
@@ -433,7 +425,10 @@ def register(
         if secreto is not None:
             payload["password"] = secreto
         try:
-            await ha_client.ws_send(payload, timeout_seconds=_PLAZO_S)
+            # La llamada que lleva la contraseña o la clave pasa por el único
+            # punto que las tapa (T061): el error ya sale sin ellas.
+            await sin_secretos(ha_client.ws_send(payload, timeout_seconds=_PLAZO_S),
+                               password, clave)
         except HAConnectionError as exc:
             codigo = getattr(exc, "code", None)
             if codigo is None and getattr(exc, "sent", False):
@@ -450,9 +445,9 @@ def register(
                                                   result=resultado)
                 logger.warning(f"{tool}_started", agent=elegido)
                 return resultado
-            # Se tapan la contraseña y la clave ANTES de redactar, por si el
-            # error las citara: la redacción podría partirlas y dejar un trozo.
-            detalle = _hb._mascara_red(redact_secrets(_tapar(str(exc), password, clave)))
+            # `exc` ya viene sin la contraseña ni la clave (`sin_secretos`,
+            # antes de redactar: la redacción podría partirlas y dejar un trozo).
+            detalle = _hb._mascara_red(redact_secrets(str(exc)))
             if codigo == "password_incorrect":
                 error_tool = {"error": "password_incorrect",
                               "detail": "Home Assistant rejected the password."}

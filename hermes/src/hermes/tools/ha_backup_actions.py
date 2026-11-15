@@ -48,7 +48,13 @@ from typing import Any
 
 import structlog
 
-from hermes.backup_key import leer_clave_de_backups
+from hermes.backup_key import (
+    HA_INALCANZABLE,
+    SIN_CLAVE,
+    leer_clave_de_backups,
+    por_que_sin_clave,
+    sin_secretos,
+)
 from hermes.backup_retention_estimate import POR_COPIAS, estimar_retencion
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
@@ -282,10 +288,18 @@ def register(
             leida = await leer_clave_de_backups(ha_client)
             if leida.clave is None:
                 logger.warning(f"{tool}_error", code="no_encryption_key", reason=leida.motivo)
+                # El texto según el motivo (T064): si HA no respondió, no se
+                # sabe si tiene clave y no se puede decir que no la tiene.
+                if leida.motivo == SIN_CLAVE:
+                    consejo = ("set up automatic backups in the Home Assistant UI, which "
+                               "gives you the emergency kit")
+                elif leida.motivo == HA_INALCANZABLE:
+                    consejo = "retry when Home Assistant answers"
+                else:
+                    consejo = "check that the backup integration is loaded"
                 return {"error": "no_encryption_key", "reason": leida.motivo,
-                        "detail": "Home Assistant has no backup encryption key configured "
-                                  "(set up automatic backups in the Home Assistant UI, which "
-                                  "gives you the emergency kit), or pass encrypt=false."}
+                        "detail": f"{por_que_sin_clave(leida.motivo)} ({consejo}), or pass "
+                                  f"encrypt=false."}
             clave = leida.clave
 
         cifrado = {a: encrypt and _protegido(config, a) for a in agent_ids}
@@ -336,7 +350,10 @@ def register(
         if clave is not None:
             payload["password"] = clave
         try:
-            data = await ha_client.ws_send(payload)
+            # La llamada que lleva la clave pasa por el único punto que la
+            # tapa (T061): su error sale ya sin ella hacia la respuesta, el
+            # log y el fichero del token.
+            data = await sin_secretos(ha_client.ws_send(payload), clave)
         except HAConnectionError as exc:
             return await _fallo_ha(tool, confirmation_token, exc)
         finally:
@@ -367,8 +384,8 @@ def register(
             Preview + token; {"backup_job_id", "status": "started",
             "follow_with"}; or {"error": ...}
             ("automatic_backups_not_configured" without agents in the
-            settings; "state_changed" if the settings or the backups changed
-            since the preview).
+            settings; "state_changed" if the settings, the backups or the
+            available agents changed since the preview).
         """
         tool = "ha_create_automatic_backup"
         if (err := await _hb.comprobar_version_backup(ha_client)):
@@ -391,12 +408,17 @@ def register(
         estimacion = [e for e in estimar_retencion(config, backups, datetime.now(timezone.utc))
                       if e["when"] == POR_COPIAS]
         ids_borrar = [e["backup_id"] for e in estimacion]
-        estado = {"config": config, "would_delete": ids_borrar}
+        # Los agentes se leen en los DOS pasos (T065): la vista previa dice
+        # en qué destinos se guarda y cuáles se saltarán; si uno desaparece
+        # (o vuelve) en los 60 s del token, el backup no saldría donde se
+        # enseñó.
+        disponibles, err = await _agentes()
+        if err:
+            return err
+        estado = {"config": config, "would_delete": ids_borrar,
+                  "available_agents": [a for a in destinos if a in disponibles]}
 
         if not confirmation_token:
-            disponibles, err = await _agentes()
-            if err:
-                return err
             con_clave = bool(crear.get("password_set"))
             cifrado = {a: con_clave and _protegido(config, a) for a in destinos}
             avisos = [_aviso_sin_cifrar(a) for a in destinos

@@ -9,6 +9,13 @@ Con `password`, todo sigue como en la 1.1.2.
 Control negativo (T045 f), comprobado: sin mandar la clave en el POST de
 `sv_restore_backup_full` cae `test_protegido_sin_password_usa_la_clave`
 (subtest «full»).
+
+Controles negativos de la convergencia, comprobados:
+- (T063) con la clave añadida al `estado` del token cae
+  `test_la_clave_no_entra_en_el_token` (las dos tools);
+- (T064) con el aviso fijo «Home Assistant has no backup encryption key» cae
+  `test_aviso_segun_el_motivo`; sin `_sin_respuesta_de_ha` cae
+  `test_ha_sin_respuesta_al_confirmar` (responde `state_changed`).
 """
 
 from __future__ import annotations
@@ -204,6 +211,78 @@ class TestClaveDeHA(_Base):
             "abc123", confirmation_token=vista["confirmation_token"])
         self.assertEqual(r["error"], "state_changed")
         self.assertEqual(self.ha.posts, [])
+
+
+
+# ── T063 y T064 (convergencia de la revisión) ───────────────────────────────
+
+class TestConvergencia(_Base):
+    async def test_la_clave_no_entra_en_el_token(self) -> None:
+        for cual in _TOOLS:
+            with self.subTest(cual):
+                self.montar(_HA())
+                vistos: list[Any] = []
+                crear = backups_mod.create_confirmation_token
+                resolver = backups_mod.resolve_confirmation_token
+
+                async def espia_crear(tool, args, **kw):
+                    vistos.append((args, kw.get("estado")))
+                    return await crear(tool, args, **kw)
+
+                async def espia_resolver(token, tool, args, **kw):
+                    vistos.append((args, kw.get("estado")))
+                    return await resolver(token, tool, args, **kw)
+
+                with patch.object(backups_mod, "create_confirmation_token", espia_crear), \
+                        patch.object(backups_mod, "resolve_confirmation_token",
+                                     espia_resolver):
+                    _, r = await self.ciclo(cual)
+                self.assertEqual(r["job_id"], "job-r1")
+                self.assertEqual(len(vistos), 2)
+                self.assertTrue(all(e == {"password_source": "backup_encryption_key"}
+                                    for _, e in vistos))
+                self.assertNotIn(_CENTINELA, json.dumps(vistos, default=str))
+                self.assertNotIn(_CENTINELA, self.ficheros())
+
+    async def test_aviso_segun_el_motivo(self) -> None:
+        casos = {
+            "no_key_configured": (None, "has no backup encryption key"),
+            "ha_unreachable": (HAConnectionError("WebSocket no disponible"),
+                               "did not answer"),
+            "backup_integration_unavailable": (
+                HAConnectionError("HA WS command failed: Unknown command.",
+                                  code="unknown_command"),
+                "backup integration is not available"),
+        }
+        for motivo, (config, frase) in casos.items():
+            for cual, (nombre, args) in _TOOLS.items():
+                with self.subTest(motivo=motivo, tool=cual):
+                    ha = _HA(clave=None)
+                    if config is not None:
+                        ha.config = config
+                    self.montar(ha)
+                    p = (await self.t[nombre]("abc123", **args))["preview"]
+                    self.assertEqual(p["password_source_reason"], motivo)
+                    self.assertIn(frase, p["password_warning"])
+                    if motivo != "no_key_configured":
+                        self.assertNotIn("has no backup encryption key",
+                                         p["password_warning"])
+
+    async def test_ha_sin_respuesta_al_confirmar(self) -> None:
+        # El WebSocket cae solo al confirmar: es `ha_unreachable`, no un
+        # «estado cambiado»; nada se restaura y el token sigue valiendo.
+        for cual, (nombre, args) in _TOOLS.items():
+            with self.subTest(cual):
+                self.montar(_HA())
+                vista = await self.t[nombre]("abc123", **args)
+                token = vista["confirmation_token"]
+                self.ha.config = HAConnectionError("WebSocket no disponible")
+                r = await self.t[nombre]("abc123", confirmation_token=token, **args)
+                self.assertEqual(r["error"], "ha_unreachable")
+                self.assertEqual(self.ha.posts, [])
+                self.ha.config = {"config": {"create_backup": {"password": _CENTINELA}}}
+                r = await self.t[nombre]("abc123", confirmation_token=token, **args)
+                self.assertEqual(r["job_id"], "job-r1")
 
 
 if __name__ == "__main__":

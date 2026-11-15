@@ -18,6 +18,13 @@ el lock no cambian. Datos ficticios (`centinela-031`, `hassio.nas_backups`).
 Controles negativos (T059), comprobados con los recuentos en el commit del
 tramo: (a) `auto` sin mandar `password` con clave; (b) `required` que crea
 sin clave; (c) la clave escrita en `last_safety_backup.json`.
+
+Controles negativos de T062 (convergencia), comprobados: con
+`ventana_reutilizable` devolviendo siempre True caen los de
+`TestCifradoDeLaVentana` que piden no reutilizar (tool y automático); sin
+`**cifrado_ultimo` en las respuestas de reutilización cae
+`test_reutilizar_dice_encrypted`; sin la comprobación del pendiente cae
+`test_pendiente_sin_cifrar_no_cubre_con_required`.
 """
 
 from __future__ import annotations
@@ -226,6 +233,13 @@ class TestToolSafetyBackup(_Base):
                 self.assertNotIn("password", cuerpo)
                 self.assertIs(r["encrypted"], False)
                 self.assertEqual(r["encryption_skipped_reason"], motivo)
+                # T064: «configura los backups automáticos» solo si HA no
+                # tiene clave; si no se pudo leer, se dice eso.
+                if motivo == "no_key_configured":
+                    self.assertIn("automatic backups", r["warning"])
+                else:
+                    self.assertNotIn("automatic backups", r["warning"])
+                    self.assertIn("could not be read", r["warning"])
                 self.assertIn("NOT encrypted", r["warning"])
                 aviso = [l for l in logs if l["event"] == "safety_backup_unencrypted"]
                 self.assertEqual(len(aviso), 1)
@@ -282,13 +296,16 @@ class TestToolSafetyBackup(_Base):
         self.sin_centinela(logs, r)
 
     async def test_ventana_y_limite_duro_no_leen_la_clave(self) -> None:
+        # El último iba cifrado: cumple `required` y se reutiliza (T062).
         for hace, motivo in ((10, "hard_limit"), (5 * 60, "within_window")):
             with self.subTest(motivo=motivo):
-                backups_mod._save_safety_state({backups_mod._MARCA: self.reloj[0] - hace})
+                backups_mod._save_safety_state({backups_mod._MARCA: self.reloj[0] - hace,
+                                                "last_encrypted": True})
                 ha = _HA()
                 r = await self.tool(ha, "required")()
                 self.assertIs(r["reused"], True)
                 self.assertEqual(r["reason"], motivo)
+                self.assertIs(r["encrypted"], True)
                 self.assertFalse(ha.leyo_la_clave())
                 self.assertEqual(ha.posts, [])
 
@@ -395,9 +412,11 @@ class TestSafetyBackupAutomatico(_Base):
         self.sin_centinela(logs, r)
 
     async def test_ventana_y_limite_duro_no_leen_la_clave(self) -> None:
+        # El último iba cifrado: cumple `required` y cubre la escritura (T062).
         for hace in (10, 5 * 60):
             with self.subTest(hace=hace):
-                backups_mod._save_safety_state({backups_mod._MARCA: self.reloj[0] - hace})
+                backups_mod._save_safety_state({backups_mod._MARCA: self.reloj[0] - hace,
+                                                "last_encrypted": True})
                 ha = _HA()
                 self.assertIsNone(await self.automatico(ha, "required"))
                 self.assertFalse(ha.leyo_la_clave())
@@ -418,6 +437,140 @@ class TestSafetyBackupAutomatico(_Base):
 
         fuente = inspect.getsource(fw.register_write)
         self.assertEqual(fuente.count("encryption=safety_backup_encryption"), 5)
+
+
+# ── T062: la ventana solo vale si cumple el modo de cifrado actual ─────────
+
+class TestCifradoDeLaVentana(_Base):
+    """Un safety backup sin cifrar (hecho con `auto` sin clave o con `off`)
+    sobrevive en /data al reinicio que pasa la opción a `required`: dentro de
+    la ventana NO puede cubrir una escritura ni reutilizarse."""
+
+    def estado(self, hace: float, cifrado: bool | None) -> None:
+        ruta = self.base / "last_safety_backup.json"
+        ruta.unlink(missing_ok=True)
+        st: dict[str, Any] = {backups_mod._MARCA: self.reloj[0] - hace}
+        if cifrado is not None:
+            st["last_encrypted"] = cifrado
+        backups_mod._save_safety_state(st)
+
+    def leer_estado(self) -> dict[str, Any]:
+        return json.loads((self.base / "last_safety_backup.json").read_text(encoding="utf-8"))
+
+    async def test_reutilizar_dice_encrypted(self) -> None:
+        for modo, cifrado in (("auto", False), ("auto", True), ("off", False),
+                              ("required", True)):
+            for hace, motivo in ((10, "hard_limit"), (5 * 60, "within_window")):
+                with self.subTest(modo=modo, cifrado=cifrado, motivo=motivo):
+                    self.estado(hace, cifrado)
+                    ha = _HA()
+                    r = await self.tool(ha, modo)()
+                    self.assertIs(r["reused"], True)
+                    self.assertEqual(r["reason"], motivo)
+                    self.assertIs(r["encrypted"], cifrado)
+                    self.assertEqual(ha.posts, [])
+
+    async def test_tool_required_no_reutiliza_uno_sin_cifrar(self) -> None:
+        # Sin la marca (estado de antes de la 031) cuenta como sin cifrar.
+        for cifrado in (False, None):
+            with self.subTest(cifrado=cifrado):
+                self.estado(5 * 60, cifrado)
+                ha = _HA()
+                with patch.object(backups_mod, "_track_job", new=AsyncMock()):
+                    r = await self.tool(ha, "required")()
+                self.assertIs(r["reused"], False)
+                self.assertIs(r["encrypted"], True)
+                [(_, cuerpo)] = ha.posts
+                self.assertEqual(cuerpo["password"], _CENTINELA)
+                self.assertIs(self.leer_estado()["last_encrypted"], True)
+
+    async def test_tool_required_sin_clave_no_crea_ni_reutiliza(self) -> None:
+        self.estado(5 * 60, False)
+        ha = _HA(ws={"backup/config/info": _config_info(password=None)})
+        r = await self.tool(ha, "required")()
+        self.assertEqual(r["error"], "encryption_key_unavailable")
+        self.assertEqual(ha.posts, [])
+
+    async def test_tool_required_limite_duro_sin_cifrar(self) -> None:
+        self.estado(10, False)
+        ha = _HA()
+        r = await self.tool(ha, "required")()
+        self.assertEqual(r["error"], "safety_backup_rate_limited")
+        self.assertIs(r["encrypted"], False)
+        self.assertNotIn("reused", r)
+        self.assertEqual(ha.posts, [])
+
+    async def test_tool_auto_sin_clave_anota_sin_cifrar(self) -> None:
+        ha = _HA(ws={"backup/config/info": _config_info(password=None)})
+        with patch.object(backups_mod, "_track_job", new=AsyncMock()):
+            await self.tool(ha, "auto")()
+        self.assertIs(self.leer_estado()["last_encrypted"], False)
+
+    async def test_automatico_required_no_se_cubre_con_uno_sin_cifrar(self) -> None:
+        for cifrado in (False, None):
+            with self.subTest(cifrado=cifrado):
+                self.reloj[0] += 120
+                self.estado(5 * 60, cifrado)
+                ha = _HA(post={"slug": "deadbeef"})
+                self.assertIsNone(await self.automatico(ha, "required"))
+                [(_, cuerpo)] = ha.posts
+                self.assertEqual(cuerpo["password"], _CENTINELA)
+                self.assertIs(self.leer_estado()["last_encrypted"], True)
+
+    async def test_automatico_required_sin_clave_no_escribe(self) -> None:
+        self.estado(5 * 60, False)
+        ha = _HA(ws={"backup/config/info": _config_info(password=None)})
+        r = await self.automatico(ha, "required")
+        self.assertTrue(r["error"].startswith("encryption_key_unavailable"), r)
+        self.assertEqual(ha.posts, [])
+
+    async def test_automatico_required_limite_duro_sin_cifrar_no_escribe(self) -> None:
+        self.estado(10, False)
+        ha = _HA()
+        r = await self.automatico(ha, "required")
+        self.assertTrue(r["error"].startswith("safety_backup_rate_limited"), r)
+        self.assertEqual(ha.posts, [])
+        self.assertFalse(ha.leyo_la_clave())
+
+    async def test_automatico_auto_si_reutiliza_uno_sin_cifrar(self) -> None:
+        self.estado(5 * 60, False)
+        ha = _HA()
+        self.assertIsNone(await self.automatico(ha, "auto"))
+        self.assertEqual(ha.posts, [])
+
+    async def test_automatico_sondeo_anota_si_iba_cifrado(self) -> None:
+        ha = _HA(post={"job_id": "job1"}, jobs={"job1": {"done": True, "errors": []}})
+        self.assertIsNone(await self.automatico(ha, "auto"))
+        st = self.leer_estado()
+        self.assertIs(st["last_encrypted"], True)
+        self.assertNotIn("pending_encrypted", st)
+
+    async def test_pendiente_sin_cifrar_no_cubre_con_required(self) -> None:
+        # Un job lanzado sin cifrar quedó pendiente; al resolverse con la
+        # opción ya en `required`, no cubre la escritura.
+        lanzado = self.reloj[0] - 120
+        backups_mod._save_safety_state({
+            "pending_job_id": "job9", "pending_started_at": lanzado,
+            "pending_backup_name": "hermes-safety-x", "pending_encrypted": False,
+            "last_attempt_at": lanzado,
+        })
+        ha = _HA(jobs={"job9": {"done": True, "errors": []}})
+        r = await self.automatico(ha, "required")
+        self.assertTrue(r["error"].startswith("safety_backup_not_encrypted"), r)
+        st = self.leer_estado()
+        self.assertIs(st["last_encrypted"], False)
+        self.assertNotIn("pending_job_id", st)
+        # La siguiente escritura hace uno cifrado.
+        ha = _HA(post={"slug": "deadbeef"})
+        self.assertIsNone(await self.automatico(ha, "required"))
+        self.assertEqual(ha.posts[0][1]["password"], _CENTINELA)
+        # Con `auto`, el mismo pendiente sí cubre.
+        backups_mod._save_safety_state({
+            "pending_job_id": "job9", "pending_started_at": self.reloj[0] - 120,
+            "pending_backup_name": "hermes-safety-x", "pending_encrypted": False,
+        })
+        ha = _HA(jobs={"job9": {"done": True, "errors": []}})
+        self.assertIsNone(await self.automatico(ha, "auto"))
 
 
 # ── T051: transversal, el centinela fuera de todo ───────────────────────────

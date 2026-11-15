@@ -39,9 +39,14 @@ from hermes import safety_retention as _retencion
 from hermes.backup_key import (
     CIFRADO_NO,
     CLAVE_NO_DISPONIBLE,
+    HA_INALCANZABLE,
+    SIN_CLAVE,
     clave_para_safety_backup,
+    exige_cifrado,
     leer_clave_de_backups,
+    por_que_sin_clave,
     sin_clave_bloquea,
+    sin_secretos,
 )
 from hermes.supervisor_jobs import child_job_errors, job_errors, redact_child_jobs
 from hermes.ha import HAClient, HAConnectionError
@@ -205,9 +210,35 @@ AVISO_SAFETY_SIN_CIFRAR = (
 )
 
 
-def _tapar(texto: str, secreto: str | None) -> str:
-    """Quita la clave del texto de un error, por si el Supervisor la citara."""
-    return texto.replace(secreto, "***") if secreto else texto
+def aviso_safety_sin_cifrar(motivo: str | None) -> str:
+    """El aviso de un safety backup sin cifrar, según por qué (T064).
+
+    «Configura los backups automáticos» solo sirve si HA no tiene clave; si
+    no se pudo leer, la clave puede existir y el consejo engañaría."""
+    if motivo == SIN_CLAVE:
+        return AVISO_SAFETY_SIN_CIFRAR
+    return ("This safety backup is NOT encrypted: it holds secrets.yaml, "
+            "integration tokens and app data in clear. "
+            f"{por_que_sin_clave(motivo)}.")
+
+
+# Estado del último safety backup: si iba cifrado (T062). Una ventana solo
+# se reutiliza si el backup cumple el modo de cifrado ACTUAL: con `required`,
+# uno sin cifrar (hecho antes con `auto` sin clave o con `off`; el estado
+# vive en /data y sobrevive al reinicio que cambia la opción) no cubre la
+# escritura. Sin la marca (estado de antes de la 031) cuenta como sin cifrar,
+# que es lo que eran todos.
+_CIFRADO_ULTIMO = "last_encrypted"
+
+
+def ultimo_cifrado(state: dict[str, Any]) -> bool:
+    """¿El último safety backup del estado iba cifrado?"""
+    return state.get(_CIFRADO_ULTIMO) is True
+
+
+def ventana_reutilizable(state: dict[str, Any], modo: str) -> bool:
+    """¿El último safety backup vale para el modo de cifrado actual?"""
+    return ultimo_cifrado(state) or not exige_cifrado(modo)
 
 
 def register(
@@ -254,13 +285,27 @@ def register(
         preview["password_source"] = fuente
         if fuente == _FUENTE_CLAVE_NO:
             preview["password_source_reason"] = motivo
+            # Según el motivo (T064): «HA no tiene clave» solo si es verdad.
             preview["password_warning"] = (
-                "The backup is encrypted and Home Assistant has no backup "
-                "encryption key: the restore will fail unless you pass password."
+                f"The backup is encrypted and {por_que_sin_clave(motivo)}: the "
+                "restore will fail unless you pass password."
             )
 
-    def _error_restaurar(exc: HAConnectionError, fuente: str, clave: str | None) -> dict[str, Any]:
-        out: dict[str, Any] = {"error": _tapar(str(exc), clave)}
+    def _sin_respuesta_de_ha(fuente: str, motivo: str | None) -> dict[str, Any] | None:
+        """Al confirmar, la clave no se pudo leer porque HA no respondió (T064).
+
+        Es lo que pasó, no un «estado cambiado». No se restaura y el token no
+        se consume: se puede reintentar cuando HA responda."""
+        if fuente != _FUENTE_CLAVE_NO or motivo != HA_INALCANZABLE:
+            return None
+        return {"error": "ha_unreachable",
+                "detail": "Home Assistant did not answer, so its backup encryption "
+                          "key could not be read; nothing was restored. Retry with the "
+                          "same token while it is valid, or pass password."}
+
+    def _error_restaurar(exc: HAConnectionError, fuente: str) -> dict[str, Any]:
+        # `exc` ya viene sin la clave ni la contraseña (`sin_secretos`).
+        out: dict[str, Any] = {"error": str(exc)}
         # «Invalid password for backup» del Supervisor (2026.11.0).
         if fuente == _FUENTE_CLAVE and "invalid password" in str(exc).lower():
             out["hint"] = _PISTA_CLAVE_ANTERIOR
@@ -500,10 +545,16 @@ def register(
         automático correcto (el que se hace antes de escribir en /config) y
         solo toca safety backups que Hermes anotó y confirmó.
 
+        Con `required`, un safety backup reciente SIN cifrar no se
+        reutiliza: se hace uno nuevo cifrado (o `encryption_key_unavailable`
+        si no hay clave; `safety_backup_rate_limited` si el anterior es de
+        hace menos de 60 segundos).
+
         Returns:
-            Si reutiliza uno reciente: {"reused": true, "job_id"|"slug": ...}.
+            Si reutiliza uno reciente: {"reused": true, "encrypted": bool,
+            "job_id"|"slug": ...}.
             Si crea uno nuevo: {"job_id": "...", "status": "running",
-            "poll_with": "sv_get_job_status"}.
+            "poll_with": "sv_get_job_status", "encrypted": bool}.
         """
         # El mismo lock que el safety backup automático de `fs_write`: sin él,
         # la tool reescribía el estado entero mientras el camino automático
@@ -523,20 +574,38 @@ def register(
         last_ts = _leer_marca(state)
         last_job = state.get("last_job_id")
         last_slug = state.get("last_slug")
+        # La respuesta dice SIEMPRE `encrypted`, también al reutilizar (FR-013,
+        # T062); y solo se reutiliza un backup que cumpla el modo actual.
+        reutilizable = ventana_reutilizable(state, safety_backup_encryption)
+        cifrado_ultimo = {"encrypted": ultimo_cifrado(state)}
 
         # Límite duro: nunca <60s entre safety backups
         if now - last_ts < _SAFETY_BACKUP_MIN_INTERVAL_SECONDS:
+            if not reutilizable:
+                # `required` y el último va sin cifrar: no vale, y tampoco se
+                # puede hacer otro antes del minuto. Nada se da por cubierto.
+                return {
+                    "error": "safety_backup_rate_limited",
+                    "encrypted": False,
+                    "detail": (
+                        "safety_backup_encryption is 'required' and the last "
+                        "safety backup is not encrypted, but it was made less "
+                        f"than {_SAFETY_BACKUP_MIN_INTERVAL_SECONDS} s ago; retry "
+                        "later and an encrypted one will be made."
+                    ),
+                }
             return {
                 "reused": True,
                 "reason": "hard_limit",
                 "last_created_at": last_ts,
                 "job_id": last_job,
                 "slug": last_slug,
+                **cifrado_ultimo,
             }
 
         # Cooldown por ventana configurable
         window_seconds = safety_backup_window_minutes * 60
-        if now - last_ts < window_seconds:
+        if now - last_ts < window_seconds and reutilizable:
             return {
                 "reused": True,
                 "reason": "within_window",
@@ -544,6 +613,7 @@ def register(
                 "last_created_at": last_ts,
                 "job_id": last_job,
                 "slug": last_slug,
+                **cifrado_ultimo,
             }
 
         # La clave se lee DESPUÉS de la ventana y del límite duro (un backup
@@ -580,14 +650,16 @@ def register(
             cifrado["restore_note"] = NOTA_SAFETY_CIFRADO
         elif leida is not None:
             cifrado["encryption_skipped_reason"] = motivo
-            cifrado["warning"] = AVISO_SAFETY_SIN_CIFRAR
+            cifrado["warning"] = aviso_safety_sin_cifrar(motivo)
 
         try:
-            data = await ha_client.sv_request(
+            # Único punto que tapa la clave (T061): ni el error ni la
+            # respuesta del Supervisor la pueden sacar.
+            data = await sin_secretos(ha_client.sv_request(
                 "POST", "/backups/new/full",
                 json_body=cuerpo,
                 timeout_seconds=_LONG_OP_TIMEOUT,
-            )
+            ), clave)
             job_id = data.get("job_id") if isinstance(data, dict) else None
             slug = data.get("slug") if isinstance(data, dict) else None
 
@@ -596,6 +668,7 @@ def register(
                 "last_job_id": job_id,
                 "last_slug": slug,
                 "backup_name": backup_name,
+                _CIFRADO_ULTIMO: clave is not None,
             }
             _save_safety_state(new_state)
             # Se anota para la retención, pero aquí NO se poda: esta tool
@@ -625,8 +698,8 @@ def register(
             return {"reused": False, "result": "ok", "slug": slug,
                     "backup_name": backup_name, **cifrado}
         except HAConnectionError as exc:
-            # Por si el Supervisor citara la contraseña en su error.
-            return {"error": _tapar(str(exc), clave)}
+            # Ya sin la clave (`sin_secretos`).
+            return {"error": str(exc)}
 
     @mcp.tool()
     async def sv_delete_backup(
@@ -743,6 +816,8 @@ def register(
             return await create_confirmation_token(tool_name, args, preview=preview,
                                                    estado=estado)
 
+        if (sin_ha := _sin_respuesta_de_ha(fuente, motivo)):
+            return sin_ha
         valid, error, _ = await resolve_confirmation_token(
             confirmation_token, tool_name, args, estado=estado)
         if not valid:
@@ -756,11 +831,12 @@ def register(
         elif clave is not None:
             payload["password"] = clave
         try:
-            data = await ha_client.sv_request(
+            # Único punto que tapa la clave y la contraseña (T061).
+            data = await sin_secretos(ha_client.sv_request(
                 "POST", f"/backups/{slug}/restore/full",
                 json_body=payload,
                 timeout_seconds=_LONG_OP_TIMEOUT,
-            )
+            ), password, clave)
             job_id = data.get("job_id") if isinstance(data, dict) else None
             if job_id:
                 await _track_job(job_id, {"op": "restore_backup_full", "slug": slug})
@@ -776,7 +852,7 @@ def register(
                         password_source=fuente)
             return result
         except HAConnectionError as exc:
-            out = _error_restaurar(exc, fuente, clave)
+            out = _error_restaurar(exc, fuente)
             await complete_confirmation_token(confirmation_token, success=False,
                                               error=out["error"])
             return out
@@ -846,6 +922,8 @@ def register(
             return await create_confirmation_token(tool_name, args, preview=preview,
                                                    estado=estado)
 
+        if (sin_ha := _sin_respuesta_de_ha(fuente, motivo)):
+            return sin_ha
         valid, error, _ = await resolve_confirmation_token(
             confirmation_token, tool_name, args, estado=estado)
         if not valid:
@@ -879,11 +957,12 @@ def register(
                 return {"error": f"folders must be a JSON array: {exc}"}
 
         try:
-            data = await ha_client.sv_request(
+            # Único punto que tapa la clave y la contraseña (T061).
+            data = await sin_secretos(ha_client.sv_request(
                 "POST", f"/backups/{slug}/restore/partial",
                 json_body=payload,
                 timeout_seconds=_LONG_OP_TIMEOUT,
-            )
+            ), password, clave)
             job_id = data.get("job_id") if isinstance(data, dict) else None
             if job_id:
                 await _track_job(job_id, {"op": "restore_backup_partial", "slug": slug})
@@ -899,7 +978,7 @@ def register(
                         password_source=fuente)
             return result
         except HAConnectionError as exc:
-            out = _error_restaurar(exc, fuente, clave)
+            out = _error_restaurar(exc, fuente)
             await complete_confirmation_token(confirmation_token, success=False,
                                               error=out["error"])
             return out

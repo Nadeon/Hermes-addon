@@ -42,7 +42,9 @@ from hermes import safety_retention as _retencion
 from hermes.backup_key import (
     CLAVE_NO_DISPONIBLE,
     clave_para_safety_backup,
+    exige_cifrado,
     sin_clave_bloquea,
+    sin_secretos,
 )
 
 logger = structlog.get_logger(__name__)
@@ -669,7 +671,8 @@ def check_restart_allowed_sync() -> tuple[bool, str]:
 # Claves del job pendiente en el estado del safety backup (ver data-model.md de
 # la spec 001). `_MARCA` sigue siendo el último backup CORRECTO; lo lanzado y
 # aún sin resolver va aparte para no dar por bueno un backup que puede fallar.
-_PENDIENTE = ("pending_job_id", "pending_started_at", "pending_backup_name")
+_PENDIENTE = ("pending_job_id", "pending_started_at", "pending_backup_name",
+              "pending_encrypted")
 # Momento del último backup lanzado, haya salido bien o mal. Sobrevive a la
 # limpieza de las claves pendientes para que el límite duro de 60 s cuente
 # también desde un intento fallido y un fallo no encadene backups completos.
@@ -789,7 +792,8 @@ async def _tras_job(ha_client: Any, job_id: str, job_data: Any, *,
 
 
 async def _resolver_pendiente(
-    ha_client: Any, state: dict[str, Any], window_seconds: float, keep: int = 0
+    ha_client: Any, state: dict[str, Any], window_seconds: float, keep: int = 0,
+    encryption: str = "off",
 ) -> dict[str, Any] | None:
     """Resuelve el job de un safety backup que quedó pendiente.
 
@@ -802,7 +806,7 @@ async def _resolver_pendiente(
         None si el pendiente terminó bien (la escritura sigue), dict con
         "error" en cualquier otro caso.
     """
-    from hermes.tools.backups import _MARCA
+    from hermes.tools.backups import _CIFRADO_ULTIMO, _MARCA
 
     job_id = str(state.get("pending_job_id"))
     try:
@@ -849,15 +853,25 @@ async def _resolver_pendiente(
         # La marca es cuándo se LANZÓ, no ahora: el job puede llevar horas
         # terminado (el Supervisor conserva los jobs 24 h) y fecharlo «ahora»
         # daría por reciente un backup viejo. Es una cota conservadora.
+        cifrado = state.get("pending_encrypted") is True
         _limpiar_pendiente(state, {
             _MARCA: lanzado,
             "last_backup_name": state.get("pending_backup_name"),
             "job_id": job_id,
+            _CIFRADO_ULTIMO: cifrado,
         })
         # El backup salió bien aunque llegue tarde para esta escritura: se
         # confirma y se poda igual que en el sondeo normal.
         await _tras_job(ha_client, job_id, job_data, correcto=True, keep=keep,
                         nombre=state.get("pending_backup_name"))
+        if exige_cifrado(encryption) and not cifrado:
+            # Lanzado sin cifrar (antes de pasar la opción a `required`): no
+            # cubre esta escritura (T062). La siguiente hará uno cifrado.
+            return {"error": "safety_backup_not_encrypted: the pending safety "
+                             f"backup {job_id} finished, but it is not encrypted "
+                             "and safety_backup_encryption is 'required'; retry "
+                             "and an encrypted one will be taken",
+                    "job_id": job_id}
         if antiguedad > window_seconds:
             # Ya está fuera de la ventana: no cubre esta escritura. No se
             # lanza otro en la misma llamada (S-01); lo hará la siguiente.
@@ -938,11 +952,13 @@ async def _maybe_trigger_safety_backup(
 ) -> dict[str, Any] | None:
     """Cuerpo de `maybe_trigger_safety_backup`, ya con el lock tomado."""
     from hermes.tools.backups import (
+        _CIFRADO_ULTIMO,
         _SAFETY_BACKUP_MIN_INTERVAL_SECONDS,
         _MARCA,
         _leer_marca,
         _load_safety_state,
         _save_safety_state,
+        ventana_reutilizable,
     )
 
     state = _load_safety_state()
@@ -951,15 +967,28 @@ async def _maybe_trigger_safety_backup(
 
     # Un job pendiente de una escritura anterior se resuelve antes que nada.
     if state.get("pending_job_id"):
-        return await _resolver_pendiente(ha_client, state, window_seconds, keep)
+        return await _resolver_pendiente(ha_client, state, window_seconds, keep,
+                                         encryption=encryption)
 
     now = time.time()
     last_completed = _leer_marca(state)
 
     elapsed = now - last_completed
+    # El último backup solo cubre esta escritura si cumple el modo de cifrado
+    # ACTUAL (T062): con `required`, uno sin cifrar no vale aunque sea reciente.
+    reutilizable = ventana_reutilizable(state, encryption)
 
     # Barrera dura: nunca menos de 60s entre safety backups
     if elapsed < _SAFETY_BACKUP_MIN_INTERVAL_SECONDS:
+        if not reutilizable:
+            # Ni vale el último ni se puede hacer otro antes del minuto: la
+            # escritura no sigue sin el backup cifrado que exige el modo.
+            logger.warning("safety_backup_not_encrypted_rate_limited",
+                           elapsed=elapsed)
+            return {"error": "safety_backup_rate_limited: safety_backup_encryption "
+                             "is 'required' and the last safety backup is not "
+                             "encrypted, but it was made less than "
+                             f"{_SAFETY_BACKUP_MIN_INTERVAL_SECONDS} s ago; retry later"}
         logger.debug(
             "safety_backup_skipped_hard_limit",
             elapsed=elapsed,
@@ -968,7 +997,7 @@ async def _maybe_trigger_safety_backup(
         return None
 
     # Comprobar si ha pasado el window
-    if elapsed < window_seconds:
+    if elapsed < window_seconds and reutilizable:
         return None
 
     # La barrera dura cuenta también desde el último intento, aunque fallara:
@@ -1019,15 +1048,16 @@ async def _maybe_trigger_safety_backup(
     if clave is not None:
         cuerpo["password"] = clave
     try:
-        resp = await ha_client.sv_request(
+        # Único punto que tapa la clave (T061): el error y la respuesta del
+        # Supervisor ya salen sin ella hacia el log, el estado y la escritura.
+        resp = await sin_secretos(ha_client.sv_request(
             "POST",
             "/backups/new/full",
             json_body=cuerpo,
             timeout_seconds=30.0,
-        )
+        ), clave)
     except Exception as exc:  # noqa: BLE001
-        # Tapada por si el Supervisor citara la contraseña en su error.
-        texto = str(exc).replace(clave, "***") if clave else str(exc)
+        texto = str(exc)
         logger.error("safety_backup_trigger_failed", error=texto)
         return {"error": f"safety_backup_failed: {texto}"}
     # A partir de aquí solo hace falta saber SI iba cifrado; la clave y la
@@ -1045,6 +1075,7 @@ async def _maybe_trigger_safety_backup(
         _save_safety_state({
             _MARCA: time.time(),
             "last_backup_name": backup_name,
+            _CIFRADO_ULTIMO: cifrado,
         })
         await _anotar_lanzamiento(backup_name, None, slug=resp.get("slug"),
                                   encrypted=cifrado)
@@ -1067,6 +1098,7 @@ async def _maybe_trigger_safety_backup(
         "pending_job_id": job_id,
         "pending_started_at": lanzado,
         "pending_backup_name": backup_name,
+        "pending_encrypted": cifrado,
         _ULTIMO_INTENTO: lanzado,
     })
     pendiente = {"pending_job_id": job_id, "pending_started_at": lanzado}
@@ -1104,6 +1136,7 @@ async def _maybe_trigger_safety_backup(
                 _MARCA: time.time(),
                 "last_backup_name": backup_name,
                 "job_id": job_id,
+                _CIFRADO_ULTIMO: cifrado,
             })
             await _tras_job(ha_client, job_id, job_data, correcto=True, keep=keep,
                             nombre=backup_name)

@@ -16,6 +16,11 @@ Controles negativos (T045), comprobados:
   `test_sin_respuesta_tras_enviar_es_restore_started`;
 - (d) sin comprobar `not_in_backup` cae `test_no_esta_en_el_backup`;
 - (e) `password` en la vista previa cae `test_secretos_fuera_de_todo`.
+- (T063) con la clave añadida al `estado` del token cae
+  `test_la_clave_no_entra_en_el_token`: el fichero del token solo guarda
+  huellas HMAC, así que se espía lo que recibe `security`;
+- (T064) con el aviso fijo «Home Assistant has no backup encryption key» cae
+  `test_aviso_segun_el_motivo`.
 """
 
 from __future__ import annotations
@@ -481,6 +486,58 @@ class TestResultado(_Base):
         self.assertEqual(r["error"], "ha_unreachable")
         self.assertNotIn("status", r)
         self.assertEqual(self.estado_token()["state"], "failed")
+
+
+
+# ── T063 y T064 (convergencia de la revisión) ───────────────────────────────
+
+class TestConvergencia(_Base):
+    async def test_la_clave_no_entra_en_el_token(self) -> None:
+        # Ni en los argumentos ni en el estado que se atan al token, en los
+        # dos pasos (sin la 019, la huella en disco sería atacable).
+        vistos: list[Any] = []
+        crear, resolver = mod.create_confirmation_token, mod.resolve_confirmation_token
+
+        async def espia_crear(tool, args, **kw):
+            vistos.append((args, kw.get("estado")))
+            return await crear(tool, args, **kw)
+
+        async def espia_resolver(token, tool, args, **kw):
+            vistos.append((args, kw.get("estado")))
+            return await resolver(token, tool, args, **kw)
+
+        with patch.object(mod, "create_confirmation_token", espia_crear), \
+                patch.object(mod, "resolve_confirmation_token", espia_resolver):
+            r = await self.confirmar()
+        self.assertEqual(r, {"result": "completed"})
+        self.assertEqual(len(vistos), 2)
+        self.assertTrue(all(e["password_source"] == "backup_encryption_key"
+                            for _, e in vistos))
+        self.assertNotIn(_CENTINELA, json.dumps(vistos, default=str))
+        self.assertNotIn(_CENTINELA, self.ficheros())
+
+    async def test_aviso_segun_el_motivo(self) -> None:
+        # «No tiene clave» solo si es verdad; si HA no responde o la
+        # integración no está, se dice que no se pudo leer.
+        casos = {
+            "no_key_configured": (_config_info(None), "has no backup encryption key"),
+            "ha_unreachable": (HAConnectionError("WebSocket no disponible"),
+                               "did not answer"),
+            "backup_integration_unavailable": (
+                HAConnectionError("HA WS command failed: Unknown command.",
+                                  code="unknown_command"),
+                "backup integration is not available"),
+        }
+        for motivo, (respuesta, frase) in casos.items():
+            with self.subTest(motivo=motivo):
+                self.montar(_respuestas(**{"backup/config/info": respuesta}))
+                r = await self.restore()
+                avisos = " ".join(r["preview"]["warnings"])
+                self.assertEqual(r["preview"]["password_source_reason"], motivo)
+                self.assertIn(frase, avisos)
+                self.assertIn("unless you pass password", avisos)
+                if motivo != "no_key_configured":
+                    self.assertNotIn("has no backup encryption key", avisos)
 
 
 if __name__ == "__main__":
