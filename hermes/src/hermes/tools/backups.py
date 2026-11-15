@@ -47,7 +47,7 @@ from hermes.backup_key import (
     leer_clave_de_backups,
     por_que_sin_clave,
     sin_clave_bloquea,
-    sin_secretos,
+    resultado_redactado,
 )
 from hermes.supervisor_jobs import child_job_errors, job_errors, redact_child_jobs
 from hermes.ha import HAClient, HAConnectionError
@@ -59,7 +59,7 @@ from hermes.security import (
     resolve_confirmation_token,
     validate_confirmation_token,
 )
-from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
+from hermes.tools.addons import _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
 from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 from hermes.tools._validation import (
     InvalidIdentifier,
@@ -315,7 +315,7 @@ def register(
 
     def _error_restaurar(exc: Exception, fuente: str,
                          carga: dict[str, Any]) -> dict[str, Any]:
-        # `exc` ya viene sin la clave ni la contraseña (`sin_secretos`); el
+        # `exc` ya viene sin la clave ni la contraseña (`resultado_redactado`); el
         # eco del resto de la carga se quita igual que en todas las `sv_*`
         # (cierre de seguridad).
         out: dict[str, Any] = {"error": sin_eco_del_supervisor(str(exc), carga)}
@@ -671,7 +671,7 @@ def register(
         try:
             # Único punto que tapa la clave (T061): ni el error ni la
             # respuesta del Supervisor la pueden sacar.
-            data = await sin_secretos(ha_client.sv_request(
+            data = await resultado_redactado(ha_client.sv_request(
                 "POST", "/backups/new/full",
                 json_body=cuerpo,
                 timeout_seconds=_LONG_OP_TIMEOUT,
@@ -714,7 +714,7 @@ def register(
             return {"reused": False, "result": "ok", "slug": slug,
                     "backup_name": backup_name, **cifrado}
         except (HAConnectionError, aiohttp.ClientError) as exc:
-            # Ya sin la clave (`sin_secretos`), y sin el eco del resto de la
+            # Ya sin la clave (`resultado_redactado`), y sin el eco del resto de la
             # carga (cierre de seguridad). `aiohttp.ClientError`: el
             # Supervisor caído (conexión rechazada) no es `HAConnectionError`
             # y, sin capturarlo, salía el error genérico del SDK.
@@ -851,7 +851,7 @@ def register(
             payload["password"] = clave
         try:
             # Único punto que tapa la clave y la contraseña (T061).
-            data = await sin_secretos(ha_client.sv_request(
+            data = await resultado_redactado(ha_client.sv_request(
                 "POST", f"/backups/{slug}/restore/full",
                 json_body=payload,
                 timeout_seconds=_LONG_OP_TIMEOUT,
@@ -979,7 +979,7 @@ def register(
 
         try:
             # Único punto que tapa la clave y la contraseña (T061).
-            data = await sin_secretos(ha_client.sv_request(
+            data = await resultado_redactado(ha_client.sv_request(
                 "POST", f"/backups/{slug}/restore/partial",
                 json_body=payload,
                 timeout_seconds=_LONG_OP_TIMEOUT,

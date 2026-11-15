@@ -44,7 +44,7 @@ from hermes.backup_key import (
     clave_para_safety_backup,
     exige_cifrado,
     sin_clave_bloquea,
-    sin_secretos,
+    resultado_redactado,
 )
 
 logger = structlog.get_logger(__name__)
@@ -278,6 +278,7 @@ def _backup_sync(
             oldest.unlink(missing_ok=True)
             logger.info("fs_backup_rotated_per_path", removed=str(oldest))
         except OSError:
+            # Un backup viejo que no se deja borrar no impide la escritura; se vuelve a intentar en la siguiente rotación.
             pass
 
     # ── Rotación: limitar tamaño total ────────────────────────────────────
@@ -409,6 +410,7 @@ def safe_write_file(path: Path, content: str) -> None:
             finally:
                 os.close(dir_fd)
         except OSError:
+            # Sin fsync del directorio (no existe en todas las plataformas) el replace ya está hecho; solo se pierde la garantía ante un corte de luz.
             pass
     except BaseException:
         # Limpia fichero temporal si algo falla
@@ -1050,7 +1052,7 @@ async def _maybe_trigger_safety_backup(
     try:
         # Único punto que tapa la clave (T061): el error y la respuesta del
         # Supervisor ya salen sin ella hacia el log, el estado y la escritura.
-        resp = await sin_secretos(ha_client.sv_request(
+        resp = await resultado_redactado(ha_client.sv_request(
             "POST",
             "/backups/new/full",
             json_body=cuerpo,

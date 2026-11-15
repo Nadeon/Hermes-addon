@@ -443,7 +443,7 @@ Revisión independiente del rango de los cuatro tramos. Comprobado sin hallazgos
 
 ### Notas de la convergencia (T061–T066)
 
-- **T061**: el único punto es `backup_key.sin_secretos`, que envuelve la
+- **T061**: el único punto es `backup_key.resultado_redactado`, que envuelve la
   llamada que lleva la clave (`ha_create_backup`, `ha_restore_backup`,
   `sv_restore_backup_full`/`_partial`, `sv_create_safety_backup` y el safety
   backup automático): la excepción (misma clase, `status`, `code` y `sent`,

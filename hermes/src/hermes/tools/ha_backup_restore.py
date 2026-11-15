@@ -42,7 +42,7 @@ from typing import Any
 
 import structlog
 
-from hermes.backup_key import leer_clave_de_backups, por_que_sin_clave, sin_secretos
+from hermes.backup_key import leer_clave_de_backups, por_que_sin_clave, resultado_redactado
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.identifiers import InvalidIdentifier, validate_identifier
@@ -70,9 +70,14 @@ _MAX_PASSWORD = 1024
 # Lo que añade el sobre del token (token, caducidad) a la vista previa.
 _MARGEN_SOBRE = 256
 
-_COMPROBAR = [
+# La frase larga va aparte: partida en dos literales dentro de la lista, el
+# análisis estático no distingue una frase partida de una coma olvidada.
+_COMPROBAR_COPIAS = (
     "ha_list_backups: state returns to idle and last_action_event says completed "
-    "or failed (once Home Assistant is back)",
+    "or failed (once Home Assistant is back)"
+)
+_COMPROBAR = [
+    _COMPROBAR_COPIAS,
     "sv_list_pending_jobs (with the Supervisor)",
 ]
 
@@ -433,7 +438,7 @@ def register(
         try:
             # La llamada que lleva la contraseña o la clave pasa por el único
             # punto que las tapa (T061): el error ya sale sin ellas.
-            await sin_secretos(ha_client.ws_send(payload, timeout_seconds=_PLAZO_S),
+            await resultado_redactado(ha_client.ws_send(payload, timeout_seconds=_PLAZO_S),
                                password, clave)
         except HAConnectionError as exc:
             codigo = getattr(exc, "code", None)
@@ -456,7 +461,7 @@ def register(
                                                   result=resultado)
                 logger.warning(f"{tool}_started", agent=elegido)
                 return resultado
-            # `exc` ya viene sin la contraseña ni la clave (`sin_secretos`,
+            # `exc` ya viene sin la contraseña ni la clave (`resultado_redactado`,
             # antes de redactar: la redacción podría partirlas y dejar un trozo).
             detalle = _hb._mascara_red(redact_secrets(str(exc)))
             if codigo == "password_incorrect":

@@ -1,7 +1,7 @@
 """El Supervisor caído en una llamada que lleva la clave de backups
 (revisión final 1.2.0, BAJO-1).
 
-`backup_key.sin_secretos` relanza una copia tapada de la excepción. Con el
+`backup_key.resultado_redactado` relanza una copia tapada de la excepción. Con el
 Supervisor caído, la de verdad es un `aiohttp.ClientConnectorError`: su
 `__str__` lee `_conn_key`, y la copia rehecha con `type(exc)(*args)` (con el
 `ConnectionKey` convertido en tupla simple) reventaba con `AttributeError`.
@@ -85,7 +85,7 @@ async def _tapada(exc: BaseException) -> BaseException:
         raise exc
 
     try:
-        await bk.sin_secretos(falla(), _CLAVE)
+        await bk.resultado_redactado(falla(), _CLAVE)
     except BaseException as tapada:  # noqa: BLE001
         return tapada
     raise AssertionError("no lanzó")

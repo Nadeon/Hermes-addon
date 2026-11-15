@@ -1,7 +1,7 @@
 """La clave de los backups de HA no sale en ningún texto (spec 031, T061, FR-011).
 
 La clave solo viaja a HA o al Supervisor dentro de una carga, y lo único que
-puede devolverla es la respuesta a esa carga. `backup_key.sin_secretos` es el
+puede devolverla es la respuesta a esa carga. `backup_key.resultado_redactado` es el
 ÚNICO punto que la tapa: envuelve la llamada que la lleva, y la excepción y el
 resultado salen ya tapados hacia la respuesta de la tool, el log, el fichero
 del token y los ficheros de /data.
@@ -25,9 +25,9 @@ El mensaje que cita la clave SIN `password=` delante es el del escenario de la
 revisión: «cannot encrypt with key <clave>».
 
 Controles negativos, comprobados:
-- `sin_secretos` devolviendo la excepción original (sin tapar) → caen los seis
+- `resultado_redactado` devolviendo la excepción original (sin tapar) → caen los seis
   de `TestCadaCaminoConErroresReales` y los de `TestSinSecretos`;
-- `ha_create_backup` llamando a `ws_send` sin `sin_secretos` → cae
+- `ha_create_backup` llamando a `ws_send` sin `resultado_redactado` → cae
   `test_ha_create_backup` (la respuesta y el fichero del token llevan la clave);
 - sin las formas escapadas en `_formas` → caen `test_escapada_en_json` y
   `test_escapada_en_repr`; sin `_tapar_cortada` → cae `test_cortada`.
@@ -144,7 +144,7 @@ class TestSinSecretos(unittest.IsolatedAsyncioTestCase):
             raise original
 
         with self.assertRaises(HAConnectionError) as ctx:
-            await bk.sin_secretos(falla(), _CLAVE)
+            await bk.resultado_redactado(falla(), _CLAVE)
         exc = ctx.exception
         self.assertNotIn(_CLAVE, str(exc))
         self.assertTrue(str(exc).startswith("HA WS command failed: cannot encrypt"))
@@ -159,14 +159,14 @@ class TestSinSecretos(unittest.IsolatedAsyncioTestCase):
             raise TimeoutError(f"timeout sending {_CLAVE}")
 
         with self.assertRaises(TimeoutError) as ctx:
-            await bk.sin_secretos(falla(), _CLAVE)
+            await bk.resultado_redactado(falla(), _CLAVE)
         self.assertNotIn(_CLAVE, str(ctx.exception))
 
     async def test_resultado_tapado(self) -> None:
         async def ok() -> Any:
             return {"job_id": "j1", "echo": _CLAVE}
 
-        self.assertEqual(await bk.sin_secretos(ok(), _CLAVE),
+        self.assertEqual(await bk.resultado_redactado(ok(), _CLAVE),
                          {"job_id": "j1", "echo": "***"})
 
 

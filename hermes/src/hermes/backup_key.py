@@ -115,13 +115,13 @@ def por_que_sin_clave(motivo: str | None) -> str:
 # La clave solo viaja a HA o al Supervisor dentro de una carga. Lo único que
 # puede devolverla es la RESPUESTA a esa carga: el texto de un error (HA o el
 # Supervisor citando lo recibido) o, en teoría, los datos de vuelta. Por eso
-# el único punto es `sin_secretos`, que envuelve la llamada que lleva la
+# el único punto es `resultado_redactado`, que envuelve la llamada que lleva la
 # clave: la excepción y el resultado salen ya tapados, y todo lo que viene
 # después (respuesta de la tool, error, log, fichero del token, estado y
 # anotaciones de /data) solo puede ver el texto tapado. `ha_create_backup`,
 # `ha_restore_backup`, `sv_restore_backup_full`/`_partial` y los dos caminos
 # del safety backup (la tool y el automático de `fs_write`) mandan la clave
-# SOLO a través de `sin_secretos`; `test_backup_key_tapado.py` lo vigila.
+# SOLO a través de `resultado_redactado`; `test_backup_key_tapado.py` lo vigila.
 TAPADO = "***"
 # Un trozo final más corto que esto no se tapa: tres caracteres no revelan
 # una clave, y taparlos estropearía el final de cualquier texto que por
@@ -267,8 +267,13 @@ def _excepcion_tapada(exc: Exception, secretos: tuple[str, ...]) -> Exception:
     return RuntimeError(tapar_clave(original, *secretos))
 
 
-async def sin_secretos(llamada: Awaitable[_T], *secretos: str | None) -> _T:
+async def resultado_redactado(llamada: Awaitable[_T], *secretos: str | None) -> _T:
     """Espera la llamada que lleva la clave y devuelve su resultado tapado.
+
+    El nombre dice «redactado» a propósito: con la palabra «secretos» en el
+    nombre, el análisis estático tomaba lo que DEVUELVE (ya tapado, p. ej. el
+    id de un job) por un secreto y avisaba al guardarlo en un token o en el
+    registro de retención.
 
     Si falla, lanza una COPIA tapada de la excepción, y la lanza fuera del
     `except`: así no arrastra la original como `__context__`, y ni una traza

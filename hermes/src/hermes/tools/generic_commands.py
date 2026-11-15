@@ -39,7 +39,6 @@ principio, porque lo que importa de un log es el final.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -561,8 +560,14 @@ def register(
         body: dict[str, Any] | None, cabecera: dict[str, Any],
         log_campos: dict[str, Any],
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        # Una sola condición para pedir y para tratar el texto, y las dos
+        # variables con valor desde el principio: el análisis estático no
+        # puede casar dos `if` iguales y veía `texto`/`bruto` sin asignar.
+        es_texto = entrada.response == "text" and method == "GET"
+        texto = ""
+        bruto: Any = None
         try:
-            if entrada.response == "text" and method == "GET":
+            if es_texto:
                 texto = await ha_client.sv_request_text(path)
             elif body is None:
                 bruto = await ha_client.sv_request(method, path)
@@ -579,7 +584,7 @@ def register(
             if exc.status is not None:
                 error["status"] = exc.status
             return None, error
-        if entrada.response == "text" and method == "GET":
+        if es_texto:
             # La redacción de los logs: secretos y datos de red (FR-014).
             limpio = redact_network(redact_secrets(texto))
             return _ultimas_lineas(cabecera, limpio, response_max_bytes), None

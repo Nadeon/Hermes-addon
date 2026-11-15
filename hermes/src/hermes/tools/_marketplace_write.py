@@ -50,7 +50,7 @@ import aiohttp
 
 import structlog
 
-from hermes.backup_key import por_que_sin_clave, sin_secretos
+from hermes.backup_key import por_que_sin_clave, resultado_redactado
 from hermes.ha import HAClient, HAConnectionError
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._store import redactar_mensaje
@@ -202,10 +202,10 @@ async def backup_previo(
     "encrypted"}` (y `job_id` si lo hay) o lanza `ErrorMarketplace` con
     `backup_failed`: con un error, un plazo agotado o una respuesta sin
     `slug` no consta que haya terminado, y quien llama NO envía el comando
-    de HA. La clave va solo en la carga: `sin_secretos` la tapa en el error y
+    de HA. La clave va solo en la carga: `resultado_redactado` la tapa en el error y
     en la respuesta (T061 de la 031)."""
     try:
-        datos = await sin_secretos(ha_client.sv_request(
+        datos = await resultado_redactado(ha_client.sv_request(
             "POST", "/backups/new/partial",
             json_body=carga_backup(nombre, clave),
             timeout_seconds=ESPERA_BACKUP,

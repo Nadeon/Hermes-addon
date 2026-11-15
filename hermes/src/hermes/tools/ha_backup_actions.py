@@ -53,7 +53,7 @@ from hermes.backup_key import (
     SIN_CLAVE,
     leer_clave_de_backups,
     por_que_sin_clave,
-    sin_secretos,
+    resultado_redactado,
 )
 from hermes.backup_retention_estimate import POR_COPIAS, estimar_retencion
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
@@ -353,7 +353,7 @@ def register(
             # La llamada que lleva la clave pasa por el único punto que la
             # tapa (T061): su error sale ya sin ella hacia la respuesta, el
             # log y el fichero del token.
-            data = await sin_secretos(ha_client.ws_send(payload), clave)
+            data = await resultado_redactado(ha_client.ws_send(payload), clave)
         except HAConnectionError as exc:
             return await _fallo_ha(tool, confirmation_token, exc)
         finally:
