@@ -559,6 +559,99 @@ class TestEscrituraCoreTablaReal(_Base):
         self.ha.ws_send.assert_awaited_once_with({"type": "tag/create", **payload})
 
 
+class TestMenoresDeCoreDeLa024(_Base):
+    """Spec 024, tramo 1 (T009 y T012; FR-005, FR-009, FR-010), con la tabla
+    real: preferencias de cámara, miniaturas tapadas en la navegación de
+    medios, calendario y tareas en dos pasos, y lo denegado.
+
+    Controles negativos (T013): (e) sin `redact_extra=("thumbnail",)` en
+    `media_source/browse_media` → cae `test_browse_media_tapa_la_miniatura`;
+    (f) `camera/update_prefs` de vuelta a `deny` → caen
+    `test_update_prefs_en_dos_pasos` y `test_update_prefs_no_es_lectura`.
+    """
+
+    inyectadas = False
+
+    async def test_get_prefs_lee(self) -> None:
+        self.ha.ws_send.return_value = {"preload_stream": False, "orientation": 1}
+        r = await self.t["ha_read_ws_command"]("camera/get_prefs", {"entity_id": "camera.entrada"})
+        self.assertEqual(r["result"], {"preload_stream": False, "orientation": 1})
+        self.ha.ws_send.assert_awaited_once_with(
+            {"type": "camera/get_prefs", "entity_id": "camera.entrada"})
+
+    async def test_update_prefs_en_dos_pasos(self) -> None:
+        carga = {"entity_id": "camera.entrada", "preload_stream": True}
+        vista = await self.t["ha_call_ws_command"]("camera/update_prefs", carga)
+        self.assertIn("confirmation_token", vista)
+        self.assertEqual((vista["preview"]["category"], vista["preview"]["cap"]),
+                         ("confirm", "CAP-059"))
+        self.assertIn("internet", vista["preview"]["reason"])
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_send.return_value = {"preload_stream": True, "orientation": 1}
+        r = await self.t["ha_call_ws_command"](
+            "camera/update_prefs", carga, confirmation_token=vista["confirmation_token"])
+        self.assertTrue(r["executed"])
+        self.ha.ws_send.assert_awaited_once_with({"type": "camera/update_prefs", **carga})
+
+    async def test_update_prefs_no_es_lectura(self) -> None:
+        r = await self.t["ha_read_ws_command"](
+            "camera/update_prefs", {"entity_id": "camera.entrada", "preload_stream": True})
+        self.assertEqual((r["error"], r["use_tool"]), ("wrong_generic_tool", "ha_call_ws_command"))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_browse_media_tapa_la_miniatura(self) -> None:
+        # Research R-6: la fuente de motionEye firma la miniatura de cada
+        # vídeo con `async_sign_path` (authSig, 5 min). En dos niveles.
+        firmada = f"/api/motioneye/media/x/y.mp4?authSig={_CENTINELA}"
+        self.ha.ws_send.return_value = {
+            "title": "motionEye", "media_content_id": "media-source://motioneye",
+            "thumbnail": firmada, "can_expand": True,
+            "children": [{
+                "title": "Cámara", "media_content_id": "media-source://motioneye/x",
+                "thumbnail": firmada,
+                "children": [{"title": "vídeo", "thumbnail": firmada,
+                              "media_content_id": "media-source://motioneye/x/y"}],
+            }],
+        }
+        for comando, carga in (
+            ("media_source/browse_media", {"media_content_id": "media-source://motioneye"}),
+            ("media_source/search_media", {"search_query": "vídeo"}),
+        ):
+            with self.subTest(comando=comando):
+                r = await self.t["ha_read_ws_command"](comando, carga)
+                texto = json.dumps(r, ensure_ascii=False)
+                self.assertNotIn(_CENTINELA, texto)
+                self.assertNotIn("authSig", texto)
+                # Lo demás se sigue viendo: navegar sigue siendo útil.
+                self.assertIn("media-source://motioneye/x/y", texto)
+                self.assertEqual(r["result"]["thumbnail"], security.REDACTED_MARKER)
+
+    async def test_calendario_y_tareas_en_dos_pasos_de_mundo_abierto(self) -> None:
+        from hermes.command_table import CORE_WS
+
+        for comando, carga in (
+            ("calendar/event/delete", {"entity_id": "calendar.casa", "uid": "evento-ficticio"}),
+            ("todo/item/move", {"entity_id": "todo.compra", "uid": "tarea-ficticia"}),
+        ):
+            with self.subTest(comando=comando):
+                self.assertTrue(CORE_WS[comando].open_world)
+                vista = await self.t["ha_call_ws_command"](comando, carga)
+                self.assertIn("confirmation_token", vista)
+                self.assertIn("internet", vista["preview"]["reason"])
+                self.assertEqual(vista["preview"]["cap"], CORE_WS[comando].cap)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_lo_denegado(self) -> None:
+        for comando, palabra in (("image/create", "multipart"),
+                                 ("media_source/resolve_media", "authSig")):
+            for tool in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, tool=tool):
+                    r = await self.t[tool](comando, {"media_content_id": "media-source://x"})
+                    self.assertEqual(r["error"], "command_denied")
+                    self.assertIn(palabra, json.dumps(r, ensure_ascii=False))
+        self.ha.ws_send.assert_not_awaited()
+
+
 # ── Supervisor (T021) ────────────────────────────────────────────────────────
 
 _RUTAS_MALAS = (

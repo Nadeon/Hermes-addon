@@ -110,9 +110,9 @@ CORE_WS: dict[str, E] = {
     "calendar/event/update": E("confirm", "modifica un evento (o parte de una serie recurrente); si el calendario es remoto, el cambio sale a internet", "generic_commands", cap="CAP-065", open_world=True),
     "call_service": E("dedicated", "cubierto por ha_call_service", "services", tool="ha_call_service"),
     "camera/capabilities": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
-    "camera/get_prefs": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-059"),
+    "camera/get_prefs": E("read", "preferencias de stream de una cámara (precarga y orientación); solo lee", "generic_commands", cap="CAP-059", example={"entity_id": "camera.entrada"}),
     "camera/stream": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
-    "camera/update_prefs": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-059"),
+    "camera/update_prefs": E("confirm", "cambia la precarga del stream y la orientación de una cámara; precargar el stream de una cámara en la nube mantiene tráfico hacia internet", "generic_commands", cap="CAP-059", open_world=True, example={"entity_id": "camera.entrada", "orientation": 1}),
     "camera/webrtc/candidate": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
     "camera/webrtc/get_client_config": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
     "camera/webrtc/offer": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
@@ -465,13 +465,13 @@ CORE_WS: dict[str, E] = {
     # Con una fuente remota (radio_browser, google_photos, immich…) navegar y buscar
     # consultan APIs de internet: `read` de mundo abierto, y por eso
     # ha_read_ws_command se anuncia con openWorldHint (T047).
-    "media_source/browse_media": E("read", "navega por las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
+    "media_source/browse_media": E("read", "navega por las fuentes de medios (las remotas consultan internet); la miniatura (`thumbnail`) sale tapada porque alguna fuente la firma con authSig, una credencial temporal; solo lee", "generic_commands", cap="CAP-067", redact_extra=("thumbnail",), open_world=True),
     "media_source/local_source/remove": E("confirm", "borra del disco un fichero de medios locales (irreversible)", "generic_commands", cap="CAP-067"),
     # async_process_play_media_url firma la ruta con async_sign_path y `expires` es
     # libre (media_source/http.py de Core 2026.11.1). La 008 (FR-087) la daba como
     # lectura; se deniega por coherencia con auth/sign_path.
     "media_source/resolve_media": E("deny", "devuelve una URL firmada (authSig) con la caducidad que pida quien llama: es una credencial temporal, como auth/sign_path (clase D)", "generic_commands", cap="CAP-067"),
-    "media_source/search_media": E("read", "busca en las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
+    "media_source/search_media": E("read", "busca en las fuentes de medios (las remotas consultan internet); la miniatura (`thumbnail`) sale tapada porque alguna fuente la firma con authSig, una credencial temporal; solo lee", "generic_commands", cap="CAP-067", redact_extra=("thumbnail",), open_world=True),
     "mobile_app/push_notification_channel": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "mobile_app/push_notification_confirm": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "modbus/connections/list": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
