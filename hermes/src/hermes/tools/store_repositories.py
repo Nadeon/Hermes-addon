@@ -53,6 +53,7 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._store import (
     URLS_DE_CORE,
@@ -429,7 +430,10 @@ def register(
                 timeout_seconds=_LONG_OP_TIMEOUT,
             )
         except HAConnectionError as exc:
-            mensaje = redactar_mensaje(str(exc), url)
+            # Las credenciales de la URL, tapadas primero (así la URL sigue
+            # legible); después, sin el eco de la carga (cierre de seguridad).
+            mensaje = sin_eco_del_supervisor(redactar_mensaje(str(exc), url),
+                                             {"repository": url})
             await complete_confirmation_token(confirmation_token, success=False, error=mensaje)
             _log(tool, "error", repository=slug)
             return {"error": mensaje}

@@ -1598,6 +1598,13 @@ class TestLogsDeAddonPorArranque(unittest.IsolatedAsyncioTestCase):
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+def _sin_slug_propio(peticiones: list[Any]) -> list[Any]:
+    """Las peticiones menos `GET /addons/self/info`: desde el cierre de
+    seguridad de la 1.2.0 (D-13), Hermes lee su slug exacto para saber si un
+    `*_hermes` es él. Es una lectura; nada más puede salir."""
+    return [p for p in peticiones if tuple(p[:2]) != ("GET", "/addons/self/info")]
+
+
 class TestNoSeActualizaASiMismo(unittest.IsolatedAsyncioTestCase):
     """El Supervisor contesta 403 («can't update itself») a un add-on que pide
     su propia actualización. La 1.1.2 daba vista previa y token, y la
@@ -1633,7 +1640,8 @@ class TestNoSeActualizaASiMismo(unittest.IsolatedAsyncioTestCase):
                 self.client.peticiones.clear()
                 r = await self.tools["sv_update_addon"](slug)
                 self._es_el_rechazo(r)
-                self.assertEqual(self.client.peticiones, [])
+                # D-13 (cierre de seguridad): solo la lectura del slug propio.
+                self.assertEqual(_sin_slug_propio(self.client.peticiones), [])
 
     async def test_con_un_token_de_la_112_tambien(self) -> None:
         from hermes import security
@@ -1647,7 +1655,8 @@ class TestNoSeActualizaASiMismo(unittest.IsolatedAsyncioTestCase):
                 token = emitido["confirmation_token"]
                 r = await self.tools["sv_update_addon"](slug, confirmation_token=token)
                 self._es_el_rechazo(r)
-                self.assertEqual(self.client.peticiones, [])
+                # D-13 (cierre de seguridad): solo la lectura del slug propio.
+                self.assertEqual(_sin_slug_propio(self.client.peticiones), [])
                 fichero = security.CONFIRMATIONS_DIR / f"{token}.json"
                 self.assertEqual(
                     json.loads(fichero.read_text(encoding="utf-8"))["state"], "pending"

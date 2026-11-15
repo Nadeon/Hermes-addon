@@ -92,6 +92,7 @@ from hermes.security import (
     resolve_confirmation_token,
 )
 from hermes.tools._logs import ArgumentoInvalido
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 
 logger = structlog.get_logger(__name__)
 
@@ -684,7 +685,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
             await ha_client.sv_request("POST", ruta, json_body=carga)
         except (HAConnectionError, aiohttp.ClientError, asyncio.TimeoutError) as exc:
             if _es_respuesta_del_supervisor(exc):
-                texto = _limpiar(str(exc), psk)
+                texto = _limpiar(sin_eco_del_supervisor(str(exc), carga), psk)
                 await complete_confirmation_token(token, success=False, error=texto)
                 _log(tool, "error", interface=interfaz, changed=changed, reason="supervisor")
                 return {"error": texto}
@@ -693,7 +694,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     token, success=False, error="request not sent; nothing was done")
                 _log(tool, "error", interface=interfaz, changed=changed, reason="not_sent")
                 return {"error": "supervisor_request_failed", "sent": False,
-                        "detail": _limpiar(str(exc), psk),
+                        "detail": _limpiar(sin_eco_del_supervisor(str(exc), carga), psk),
                         "note": "The request never reached the Supervisor: nothing was done. Ask for a new preview when Hermes is connected."}
             await complete_confirmation_token(
                 token, success=False, error="connection lost after sending; outcome unknown")

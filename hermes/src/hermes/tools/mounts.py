@@ -64,6 +64,7 @@ from hermes.security import (
     resolve_confirmation_token,
 )
 from hermes.tools._common import sobre_de_lista
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 
 logger = structlog.get_logger(__name__)
 
@@ -388,12 +389,19 @@ def _tapar_valor(m: re.Match[str]) -> str:
     return f"{prefijo}{comilla}{REDACTED_MARKER}{comilla}"
 
 
-def _limpiar_error(texto: str, secretos: tuple[Any, ...]) -> str:
+def _limpiar_error(texto: str, secretos: tuple[Any, ...], *enviado: Any) -> str:
     """Quita los valores literales de las credenciales (en todas sus formas
     escapadas, las más largas antes, para no dejar trozos), el usuario por su
     forma y pasa por `redact_secrets` (FR-008). Todo error de las tools de
     montajes y de ajustes de backup pasa por aquí antes de responder o
-    guardarse en el token."""
+    guardarse en el token.
+
+    Al final, la limpieza común del eco del Supervisor (cierre de seguridad
+    de la 1.2.0): nada desde «Got» y ningún valor de `enviado` (el cuerpo
+    que se mandó). `SCHEMA_MOUNT_CONFIG` se valida con `api_validate` sin
+    `redact_values`, así que un 400 repite el valor con `repr()`. Va al
+    final porque acaba en `redact_secrets`, que partiría un valor JSON con
+    comillas escapadas antes de que lo tapen los patrones de aquí."""
     formas: set[str] = set()
     for s in secretos:
         if isinstance(s, str) and s:
@@ -405,7 +413,7 @@ def _limpiar_error(texto: str, secretos: tuple[Any, ...]) -> str:
     texto = _USUARIO_SUELTO.sub(_tapar_valor, texto)
     texto = _DOMINIO_USUARIO.sub(REDACTED_MARKER, texto)
     texto = _USUARIO_ARROBA.sub(f"{REDACTED_MARKER}@", texto)
-    return redact_secrets(texto)
+    return sin_eco_del_supervisor(texto, *enviado)
 
 
 def register(mcp: object, ha_client: HAClient) -> None:
@@ -559,7 +567,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         try:
             await ha_client.sv_request("POST", "/mounts", json_body=cuerpo)
         except HAConnectionError as exc:
-            texto = _limpiar_error(str(exc), secretos)
+            texto = _limpiar_error(str(exc), secretos, cuerpo)
             await complete_confirmation_token(confirmation_token, success=False, error=texto)
             logger.warning("sv_create_mount_error", **campos_log, error_kind="supervisor")
             return {"error": texto, "hint": _PISTA_RESOLUCION}
@@ -698,7 +706,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         try:
             await ha_client.sv_request("PUT", f"/mounts/{name}", json_body=cuerpo)
         except HAConnectionError as exc:
-            texto = _limpiar_error(str(exc), secretos)
+            texto = _limpiar_error(str(exc), secretos, cuerpo)
             await complete_confirmation_token(confirmation_token, success=False, error=texto)
             logger.warning("sv_update_mount_error", **campos_log, error_kind="supervisor")
             return {"error": texto, "hint": _PISTA_RESOLUCION}

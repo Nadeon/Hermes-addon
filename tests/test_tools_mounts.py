@@ -777,7 +777,11 @@ class TestRedaccionDeFormasEscapadas(unittest.TestCase):
                 for centinela in centinelas:
                     self.assertNotIn(centinela, limpio)
                 self.assertIn("Supervisor error", limpio)
-                self.assertIn(security.REDACTED_MARKER, limpio)
+                # Desde el cierre de seguridad de la 1.2.0, lo que va desde
+                # «Got» se quita entero (la limpieza común del eco del
+                # Supervisor) en vez de taparse valor a valor.
+                self.assertTrue(security.REDACTED_MARKER in limpio
+                                or "(values not shown)" in limpio, limpio)
 
     def test_el_json_sigue_siendo_json(self) -> None:
         """Se tapa el valor con las mismas comillas: el JSON sigue siendo
