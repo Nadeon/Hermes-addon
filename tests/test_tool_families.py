@@ -160,16 +160,21 @@ class TestCatalogo(unittest.TestCase):
     def test_recorder_es_de_la_1_2_0(self) -> None:
         """Spec 029, T020 (FR-015): familia nueva de la 1.2.0, desactivable,
         con el módulo de las tres tools de CAP-049. Es la del recorder entero:
-        la 020 añadirá aquí el mantenimiento de estadísticas."""
+        la 020 (T007, FR-014) añade el mantenimiento de estadísticas
+        (`statistics_maintenance`), y la descripción deja de decir «read only»
+        y nombra el mantenimiento (principio V)."""
         familia = FAMILIAS["recorder"]
         self.assertEqual(familia.desde, "1.2.0")
         self.assertTrue(familia.desactivable)
-        self.assertEqual(familia.modulos, ("recorder_status",))
+        self.assertEqual(familia.modulos, ("recorder_status", "statistics_maintenance"))
         self.assertEqual(
             familia.descripcion,
-            "Recorder status and long-term statistics: validation and metadata "
-            "(read only).")
+            "Recorder status and long-term statistics: validation, metadata and "
+            "maintenance (clear, change units, fix metadata, adjust sums, import; "
+            "with confirmation).")
+        self.assertNotIn("read only", familia.descripcion)
         self.assertEqual(familia_de_modulo("recorder_status"), "recorder")
+        self.assertEqual(familia_de_modulo("statistics_maintenance"), "recorder")
         # Las dos de estadísticas de la 1.1.2 siguen en `data` (FR-010 de la 008).
         self.assertEqual(familia_de_modulo("statistics"), "data")
     def test_core_diagnostics_de_la_1_2_0(self) -> None:

@@ -619,6 +619,23 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
                         "ha_statistics_during_period"):
             self.assertIn(palabra, texto)
 
+    async def test_mantenimiento_de_la_020(self) -> None:
+        """Spec 020, T013 (FR-020): el tema suma las tres tools de
+        mantenimiento, los dos pasos, `queued`, la diferencia entre convertir
+        (cambiar la unidad) y no convertir (metadatos), que solo un backup lo
+        deshace y el rango efectivo al borrar. «SOLO LECTURA» queda solo para
+        el grupo de las tres lecturas, no para el tema entero."""
+        texto = await self.guide("recorder")
+        for palabra in ("ha_clear_statistics", "ha_change_statistics_unit",
+                        "ha_update_statistics_metadata", "dos pasos",
+                        "confirmation_token", "queued: true", "backup",
+                        "CONVIERTE", "sin convertir valores", "converts_values: false",
+                        "effective_range", "SE SOLAPAN", "not_supported_for_source",
+                        "unit_mismatch", "statistics_not_found", "statistics_changed"):
+            self.assertIn(palabra, texto)
+        self.assertNotIn("Tres tools de SOLO LECTURA: ninguna", texto)
+        self.assertIn("mantenimiento", await self.guide())
+
     async def test_alias(self) -> None:
         texto = await self.guide("recorder")
         for alias in ("recorder_info", "statistics_validation", "action_calls",

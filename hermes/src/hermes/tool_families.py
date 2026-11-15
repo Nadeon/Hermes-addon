@@ -104,14 +104,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "manifests (read only).",
             "1.2.0", True, ("system_status",)),
     # Spec 029 (CAP-049). La familia es la del recorder entero, no solo de
-    # estas lecturas: la 020 (CAP-050) añadirá aquí el mantenimiento de
-    # estadísticas, que escribe. Ese día la descripción deja de decir «read
-    # only» (principio V) y quien apague `recorder` apaga lo que lee y lo que
-    # escribe en la base de estadísticas.
+    # sus lecturas: la 020 (CAP-050) añade el mantenimiento de estadísticas
+    # (`statistics_maintenance`), que escribe con confirmación. Por eso la
+    # descripción ya no dice «read only» (principio V), y quien apague
+    # `recorder` apaga lo que lee y lo que escribe en la base de estadísticas.
     Familia("recorder",
-            "Recorder status and long-term statistics: validation and metadata "
-            "(read only).",
-            "1.2.0", True, ("recorder_status",)),
+            "Recorder status and long-term statistics: validation, metadata and "
+            "maintenance (clear, change units, fix metadata, adjust sums, import; "
+            "with confirmation).",
+            "1.2.0", True, ("recorder_status", "statistics_maintenance")),
     # Spec 012: una sola familia para el diagnóstico de Core y no una por
     # módulo (research R-9): es un área y un tema de la guía, y partirla
     # daría opciones que nadie pediría. No es `diagnostics` (1.1.2: Repairs,

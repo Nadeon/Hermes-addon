@@ -35,7 +35,7 @@ además con las tools que publican `confirmation_token` en un `MCPServer` real
 (`_real_registry()`), así que una tool con token registrada de otra forma
 (`mcp.add_tool`, un subpaquete) tampoco se escapa.
 
-Recuento: 86 tools. La auditoría de la spec (research R-1) contaba 79 sobre
+Recuento: 89 tools (86 hasta la 020). La auditoría de la spec (research R-1) contaba 79 sobre
 la punta de entonces; la 011 integró después `ha_call_ws_command` y
 `sv_call_api`, que atan todo lo que envían, y el tramo 2 de la 033 dio token
 a `ha_create_scene_from_current` (FR-006). Al integrar la 033 en la rama del
@@ -45,6 +45,10 @@ código: `ha_call_service_response` con token (018), `view_index` y `view` de
 que confirman (`ha_set_log_level`, `ha_clear_system_log` y
 `ha_dismiss_persistent_notification`). Todas atan todo lo que cambia la
 acción; ningún hallazgo.
+
+La 020 (tramo 1) suma las tres primeras de mantenimiento de estadísticas
+(`ha_clear_statistics`, `ha_change_statistics_unit`,
+`ha_update_statistics_metadata`): 89. Atan todo, sin exentos.
 """
 
 from __future__ import annotations
@@ -165,6 +169,16 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_set_log_level": {"level": A, "integration": A, "module": A, "persistence": A},
     "ha_clear_system_log": {},
     "ha_dismiss_persistent_notification": {"notification_id": A},
+    # ── mantenimiento de estadísticas (spec 020) ────────────────────────
+    # Atados normalizados como se envían: ids ordenados y sin repetir, fechas
+    # en UTC. Además, el `estado` (metadatos leídos) ata el token.
+    "ha_clear_statistics": {"statistic_ids": A, "start_time": A, "end_time": A},
+    "ha_change_statistics_unit": {"statistic_id": A, "old_unit": A, "new_unit": A},
+    "ha_update_statistics_metadata": {
+        "statistic_id": A,
+        "unit_of_measurement": A,
+        "unit_class": A,
+    },
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     "sv_set_addon_options": {"slug": A, "options": A},
@@ -271,8 +285,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
     def test_recuento(self) -> None:
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
-        # (018) + las tres de la 012 que confirman.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 86)
+        # (018) + las tres de la 012 que confirman + las tres del tramo 1 de
+        # la 020 (estadísticas).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 89)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -292,7 +307,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 86)
+        self.assertEqual(len(publicadas), 89)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

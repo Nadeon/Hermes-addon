@@ -339,6 +339,12 @@ def register_all_tools(
     if _activa("recorder"):
         from hermes.tools.recorder_status import register as register_recorder_status
         register_recorder_status(mcp, ha_client, response_max_bytes=response_max_bytes)
+        # Spec 020 (CAP-050): el mantenimiento de estadísticas, en la misma
+        # familia (quien la apaga apaga lectura y escritura del recorder).
+        from hermes.tools.statistics_maintenance import (
+            register as register_statistics_maintenance,
+        )
+        register_statistics_maintenance(mcp, ha_client, response_max_bytes=response_max_bytes)
     # Diagnóstico de Core (spec 012): logs y niveles de log, validación,
     # diagnósticos de integraciones y notificaciones persistentes. Reciben
     # `response_max_bytes` las que pueden devolver mucho: el log del sistema

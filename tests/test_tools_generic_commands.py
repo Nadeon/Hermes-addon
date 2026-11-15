@@ -975,6 +975,46 @@ class TestDedicadasDeLa029Recorder(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+# Spec 020, tramo 1 (CAP-050): mantenimiento de estadísticas en `recorder`.
+_DEDICADAS_020_TRAMO_1 = {
+    "recorder/clear_statistics": "ha_clear_statistics",
+    "recorder/change_statistics_unit": "ha_change_statistics_unit",
+    "recorder/update_statistics_metadata": "ha_update_statistics_metadata",
+}
+
+
+class TestDedicadasDeLa020(unittest.IsolatedAsyncioTestCase):
+    """Spec 020, T011 (FR-015): las dos genéricas rechazan los comandos de
+    mantenimiento de estadísticas hacia su tool, sin llegar a HA; con
+    `recorder` desactivada, además `family_disabled: true`.
+
+    Control negativo (T019 g): dejar `recorder/clear_statistics` en `deny` →
+    cae `test_rechazo_hacia_su_tool` (`command_denied`)."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_020_TRAMO_1.items():
+            with self.subTest(comando=comando):
+                self.assertIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {"statistic_ids": ["sensor.x"]})
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, "recorder", False))
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", tool))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["recorder"])
+        for comando, tool in _DEDICADAS_020_TRAMO_1.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                for generica in ("ha_call_ws_command", "ha_read_ws_command"):
+                    r = await mcp.tools[generica](comando)
+                    self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                     ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+
 class TestDedicadasDelTramoBDeLa012(unittest.IsolatedAsyncioTestCase):
     """Spec 012, tramo B (FR-014, T028): validación, diagnósticos y
     notificaciones pasan a sus tools dedicadas; la genérica de lectura las

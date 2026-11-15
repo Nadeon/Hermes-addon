@@ -320,6 +320,11 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "diagnostics/list": "ha_list_diagnostics_handlers",
     "diagnostics/get": "ha_list_diagnostics_handlers",
     "persistent_notification/get": "ha_list_persistent_notifications",
+    # 020: mantenimiento de estadísticas (CAP-050, clase A de vía D), por el
+    # mismo mecanismo que las de la 012 y la 029.
+    "recorder/clear_statistics": "ha_clear_statistics",
+    "recorder/change_statistics_unit": "ha_change_statistics_unit",
+    "recorder/update_statistics_metadata": "ha_update_statistics_metadata",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

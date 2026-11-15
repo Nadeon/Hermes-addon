@@ -145,7 +145,7 @@ para el detalle de un área. Temas disponibles:
 - `security`       — confirmation tokens, denylist y límites
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
-- `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
+- `recorder`       — estado del recorder, validación y mantenimiento de estadísticas y auditoría de acciones
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -832,7 +832,7 @@ denegadas a la espera de su tool dedicada (CAP-069).
     "recorder": """\
 # Recorder y estadísticas (familia `recorder`)
 
-Tres tools de SOLO LECTURA: ninguna cambia nada ni pide token.
+LECTURA: tres tools de SOLO LECTURA; ninguna cambia nada ni pide token.
 
 - `ha_get_recorder_info(entity_id=None)` — si el recorder graba
   (`recording`, `thread_running`), su cola (`backlog`, `max_backlog`), si hay
@@ -850,8 +850,37 @@ Tres tools de SOLO LECTURA: ninguna cambia nada ni pide token.
 Para listar todas las estadísticas, `ha_list_statistic_ids`; para sus
 valores, `ha_statistics_during_period` (tema `data`).
 
-Sin la integración `recorder` cargada (va en `default_config`), las tres
-responden `recorder_not_loaded`.
+Sin la integración `recorder` cargada (va en `default_config`), todas las
+del tema responden `recorder_not_loaded`.
+
+MANTENIMIENTO DE ESTADÍSTICAS (escriben; dos pasos con token)
+Reescriben el histórico: solo restaurar un backup (el de HA incluye la base)
+lo deshace. Las tres en dos pasos: sin `confirmation_token` devuelven una
+vista previa y no cambian nada; repite la MISMA llamada con el token para
+ejecutar. Antes del token leen los metadatos y rechazan lo que HA aceptaría
+sin hacer nada (`statistics_not_found` con `missing`); si los metadatos
+cambian antes de confirmar, `statistics_changed` y nada se ejecuta.
+- `ha_clear_statistics(statistic_ids, start_time=None, end_time=None)` —
+  borra de 1 a 100 estadísticas. Sin rango, enteras (filas y metadatos:
+  desaparecen de las listas). Con rango (ISO 8601 con zona, los dos o
+  ninguno), las filas que SE SOLAPAN con él: la vista previa da
+  `effective_range`, que en la tabla horaria empieza una hora antes de
+  `start_time` y en la de 5 minutos, 5 minutos antes.
+- `ha_change_statistics_unit(statistic_id, old_unit, new_unit)` — CONVIERTE
+  todos los valores guardados (media, mínimo, máximo, estado y suma, de las
+  dos tablas) a otra unidad de la misma clase, p. ej. Wh → kWh. Solo
+  estadísticas con `source: recorder` (si no, `not_supported_for_source`) y
+  con `old_unit` igual a la guardada (si no, `unit_mismatch` con la actual).
+  HA lo aplica desde la cola del recorder: la confirmación responde
+  `queued: true`; comprueba con `ha_get_statistics_metadata` que
+  `statistics_unit_of_measurement` ya es la nueva.
+- `ha_update_statistics_metadata(statistic_id, unit_of_measurement,
+  unit_class)` — cambia la unidad y la clase GUARDADAS sin convertir valores
+  (`converts_values: false`): para arreglar un aviso de «unidad cambiada»
+  cuando los valores ya están en la unidad nueva. Si hay que convertirlos,
+  `ha_change_statistics_unit`.
+Diferencia clave: cambiar la unidad convierte los números; editar los
+metadatos solo cambia la etiqueta.
 
 AUDITORÍA DE LLAMADAS A ACCIONES (por la genérica de lectura)
 `ha_read_ws_command(type="logbook/get_action_calls",

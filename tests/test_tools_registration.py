@@ -789,6 +789,12 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
     "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
     "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
+    # Spec 020, tramo 1 (CAP-050, familia `recorder`): reescriben histórico y
+    # piden token; van por nombre exacto en `_DESTRUCTIVE_EXACT`. Repetirlas
+    # deja el mismo estado (idempotentes).
+    "ha_clear_statistics": ("-DI-", "Clear statistics (Home Assistant)"),
+    "ha_change_statistics_unit": ("-DI-", "Change statistics unit (Home Assistant)"),
+    "ha_update_statistics_metadata": ("-DI-", "Update statistics metadata (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1294,15 +1300,40 @@ class TestRecorderRegistration:
             assert "confirmation_token" not in props, nombre
 
     def test_desactivada_no_registra_ninguna(self):
+        # Desde la 020 la familia también lleva el mantenimiento de
+        # estadísticas: apagarla quita las de la 029 y las de la 020.
         completo = set(_real_registry())
         sin = set(_real_registry(["recorder"]))
-        assert completo - sin == self._TRES
+        assert completo - sin == self._TRES | TestStatisticsMaintenanceRegistration._DE_LA_020
 
     def test_sin_las_dos_familias_es_la_lista_de_antes_de_la_029(self):
+        # Las de la 020 van en `recorder`, así que también se restan aquí.
         completo = set(_real_registry())
         sin = set(_real_registry(["system_status", "recorder"]))
-        assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
+        assert completo - sin == (self._TRES | TestSystemStatusRegistration._CINCO
+                                  | TestStatisticsMaintenanceRegistration._DE_LA_020)
         assert sin <= completo
+
+
+class TestStatisticsMaintenanceRegistration:
+    """Spec 020, T007 (FR-014, FR-016, SC-001): el mantenimiento de
+    estadísticas va en la familia `recorder`, con `confirmation_token`, y
+    desaparece con ella. Los hints están en `_HINTS_NUEVAS_1_2_0`."""
+
+    _DE_LA_020 = {"ha_clear_statistics", "ha_change_statistics_unit",
+                  "ha_update_statistics_metadata"}
+
+    def test_registradas_y_con_token(self):
+        tools = _real_registry()
+        assert self._DE_LA_020 <= set(tools)
+        for nombre in self._DE_LA_020:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" in props, nombre
+            assert nombre in _HINTS_NUEVAS_1_2_0, nombre
+
+    def test_con_recorder_desactivada_no_queda_ninguna_de_la_familia(self):
+        sin = set(_real_registry(["recorder"]))
+        assert not (self._DE_LA_020 | TestRecorderRegistration._TRES) & sin
 
 
 class TestMarketplaceRegistration:

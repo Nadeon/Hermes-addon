@@ -173,6 +173,13 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # anunciaba no destructiva (`----`, por el prefijo `ha_create_`) y su
     # descripción decía que una colisión daba error, que no es lo que hace HA.
     "ha_create_scene_from_current",
+    # Spec 020 (CAP-050): reescriben el histórico de estadísticas y solo un
+    # backup lo deshace (borrar filas o metadatos, convertir todos los
+    # valores, cambiar la unidad guardada). Ningún prefijo las clasifica:
+    # `ha_clear_`, `ha_change_` y `ha_update_` no son destructivos por nombre.
+    "ha_clear_statistics",
+    "ha_change_statistics_unit",
+    "ha_update_statistics_metadata",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
