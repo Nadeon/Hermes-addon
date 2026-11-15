@@ -828,6 +828,15 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_list_exposed_entities": ("R-I-", "List exposed entities (Home Assistant)"),
     "ha_set_entity_exposure": ("--IO", "Set entity exposure (Home Assistant)"),
     "ha_set_expose_new_entities": ("--IO", "Set expose new entities (Home Assistant)"),
+    # Spec 021, tramo b (T025): la lista por su prefijo; crear no es
+    # idempotente (prefijo `ha_create_`) y, como editar, va en
+    # `_DESTRUCTIVE_EXACT` (puede crear un administrador; editar puede
+    # desactivar o quitar el grupo de administrador); borrar es destructiva
+    # por su prefijo.
+    "ha_list_users": ("R-I-", "List users (Home Assistant)"),
+    "ha_create_user": ("-D--", "Create user (Home Assistant)"),
+    "ha_update_user": ("-DI-", "Update user (Home Assistant)"),
+    "ha_delete_user": ("-DI-", "Delete user (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1647,6 +1656,36 @@ class TestConfiguracionDelSistemaTramoA:
         assert todas - sin_exposicion == set(_EXPOSICION_021)
         sin_las_dos = set(_do_register(["core_config", "assistant_exposure"]).tools)
         assert todas - sin_las_dos == set(_CORE_CONFIG_021 + _EXPOSICION_021)
+
+
+# ── Spec 021, tramo b: usuarios (T025) ──────────────────────────────────────
+
+_USUARIOS_021 = ("ha_list_users", "ha_create_user", "ha_update_user", "ha_delete_user")
+
+
+class TestUsuariosTramoB:
+    """Las cuatro tools de usuarios se registran bajo `users`; las tres que
+    escriben toman `confirmation_token` y ninguna un argumento de
+    credenciales; con `users` desactivada no queda ninguna y el resto no
+    cambia (FR-017, FR-019, SC-001). Hints y títulos: `_HINTS_NUEVAS_1_2_0`."""
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _USUARIOS_021 if n not in mcp.tools] == []
+
+    def test_las_que_escriben_toman_token(self):
+        tools = _real_registry()
+        for nombre in _USUARIOS_021:
+            props = tools[nombre].parameters.get("properties", {})
+            assert ("confirmation_token" in props) is (nombre != "ha_list_users"), nombre
+            raras = [p for p in props if p != "confirmation_token"
+                     and any(m in p for m in ("password", "secret", "token", "username"))]
+            assert raras == [], nombre
+
+    def test_la_familia_quita_las_suyas(self):
+        todas = set(_do_register().tools)
+        sin_usuarios = set(_do_register(["users"]).tools)
+        assert todas - sin_usuarios == set(_USUARIOS_021)
 
 
 class TestToolCountInDocs:

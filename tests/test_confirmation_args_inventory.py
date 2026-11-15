@@ -35,7 +35,7 @@ además con las tools que publican `confirmation_token` en un `MCPServer` real
 (`_real_registry()`), así que una tool con token registrada de otra forma
 (`mcp.add_tool`, un subpaquete) tampoco se escapa.
 
-Recuento: 89 tools (86 hasta la 021). La auditoría de la spec (research R-1) contaba 79 sobre
+Recuento: 92 tools (86 hasta la 021). La auditoría de la spec (research R-1) contaba 79 sobre
 la punta de entonces; la 011 integró después `ha_call_ws_command` y
 `sv_call_api`, que atan todo lo que envían, y el tramo 2 de la 033 dio token
 a `ha_create_scene_from_current` (FR-006). Al integrar la 033 en la rama del
@@ -47,7 +47,9 @@ que confirman (`ha_set_log_level`, `ha_clear_system_log` y
 acción; ningún hallazgo.
 
 La 021 (tramo a) suma tres: `ha_update_core_config`,
-`ha_set_entity_exposure` y `ha_set_expose_new_entities` (89 tools).
+`ha_set_entity_exposure` y `ha_set_expose_new_entities` (89 tools), y el
+tramo b otras tres: `ha_create_user`, `ha_update_user` y `ha_delete_user`
+(92 tools).
 """
 
 from __future__ import annotations
@@ -180,6 +182,12 @@ INVENTARIO: dict[str, dict[str, str]] = {
     },
     "ha_set_entity_exposure": {"entity_ids": A, "assistants": A, "expose": A},
     "ha_set_expose_new_entities": {"assistant": A, "expose_new": A},
+    # Usuarios (spec 021, tramo b): todo atado. Ninguna toma credenciales
+    # (FR-012): no hay contraseña ni nombre de acceso que atar ni guardar.
+    "ha_create_user": {"name": A, "group": A, "local_only": A},
+    "ha_update_user": {"user_id": A, "name": A, "is_active": A, "group": A,
+                       "local_only": A},
+    "ha_delete_user": {"user_id": A},
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     "sv_set_addon_options": {"slug": A, "options": A},
@@ -286,8 +294,8 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
     def test_recuento(self) -> None:
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
-        # (018) + las tres de la 012 que confirman.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 89)
+        # (018) + las tres de la 012 que confirman + las seis de la 021 (tramos a y b).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 92)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -307,7 +315,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 89)
+        self.assertEqual(len(publicadas), 92)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

@@ -301,6 +301,11 @@ class TestDedicadas(unittest.TestCase):
                 "ha_list_exposed_entities", "assistant_exposure", "CAP-055"),
             "homeassistant/expose_new_entities/set": (
                 "ha_set_expose_new_entities", "assistant_exposure", "CAP-055"),
+            # Tramo b (T027): los cuatro de CAP-056, familia `users`.
+            "config/auth/list": ("ha_list_users", "users", "CAP-056"),
+            "config/auth/create": ("ha_create_user", "users", "CAP-056"),
+            "config/auth/update": ("ha_update_user", "users", "CAP-056"),
+            "config/auth/delete": ("ha_delete_user", "users", "CAP-056"),
         }
         for comando, (tool, familia, cap) in cinco.items():
             with self.subTest(comando=comando):
@@ -316,6 +321,30 @@ class TestDedicadas(unittest.TestCase):
         self.assertIn("no guarda nada", e.reason)
         self.assertTrue(_POR_LA_TABLA["config/core/detect"].startswith("spec 021: "))
         self.assertNotIn("config/core/detect", _DEDICADAS_INICIALES)
+
+    def test_credenciales_y_sesiones_siguen_deny(self) -> None:
+        """Spec 021, tramo b (T027; FR-012): `auth/refresh_tokens` queda `deny`
+        revisado (research R-5, en `_DENY_TRAS_REVISION`), y lo que maneja
+        contraseñas o revoca sesiones sigue `deny` de clase D (D-01 de la
+        008): ninguna tool de usuarios lo abre."""
+        e = ct.CORE_WS["auth/refresh_tokens"]
+        self.assertEqual((e.category, e.family, e.cap, e.tool),
+                         ("deny", "generic_commands", "CAP-056", None))
+        self.assertIn("propia conexión", e.reason)
+        self.assertNotIn("pendiente", e.reason)
+        self.assertTrue(_DENY_TRAS_REVISION["auth/refresh_tokens"].startswith("spec 021: "))
+        clase_d = [f"config/auth_provider/homeassistant/{c}" for c in (
+            "admin_change_password", "admin_change_username", "change_password",
+            "create", "delete")] + [
+            "auth/delete_refresh_token", "auth/refresh_token_set_expiry",
+            "auth/delete_all_refresh_tokens", "auth/long_lived_access_token"]
+        for comando in clase_d:
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(e.category, "deny")
+                self.assertIn("(clase D)", e.reason)
+        # `auth/current_user` lo usa Hermes por dentro; la genérica, no.
+        self.assertEqual(ct.CORE_WS["auth/current_user"].category, "deny")
 
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
@@ -441,6 +470,19 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
 }
 
 
+# Spec 021 (T027, research R-5): claves de clase A de vía D que, tras leer el
+# código de HA, quedan `deny` con un motivo que NO es «pendiente»: no hay tool
+# dedicada posible. Clave → «spec NNN: porqué»; la spec tiene que ser una de
+# las de su CAP en la matriz, igual que `_POR_LA_TABLA`. Control negativo
+# (T035 f): sin la clave de `auth/refresh_tokens` caen el test de la clase A y
+# `test_credenciales_y_sesiones_siguen_deny`.
+_DENY_TRAS_REVISION: dict[tuple[str, str] | str, str] = {
+    "auth/refresh_tokens": (
+        "spec 021: solo da las sesiones del usuario de la conexión (el propio "
+        "Hermes), nunca las de otros usuarios; research R-5"),
+}
+
+
 class TestReglasDeLaClasificacionInicial(unittest.TestCase):
     def test_proxy_de_core_siempre_deny(self) -> None:
         abiertas = sorted(
@@ -496,6 +538,13 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                     continue
                 if k in _POR_LA_TABLA and e.category in {"read", "confirm"}:
                     spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])
+                    if spec and spec.group(1) in subs:
+                        continue
+                # Spec 021 (T027): `deny` revisado, con un motivo que no es
+                # «pendiente» y la spec que lo revisó en el porqué.
+                if (k in _DENY_TRAS_REVISION and e.category == "deny"
+                        and "pendiente" not in e.reason):
+                    spec = re.match(r"spec (\d{3}): ", _DENY_TRAS_REVISION[k])
                     if spec and spec.group(1) in subs:
                         continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)

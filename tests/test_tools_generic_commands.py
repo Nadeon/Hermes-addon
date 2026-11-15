@@ -1110,5 +1110,60 @@ class TestDedicadasDeLa021TramoA(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(valor, texto)
 
 
+# Spec 021, tramo b: comando → tool dedicada (familia `users`).
+_DEDICADAS_021_B = {
+    "config/auth/list": "ha_list_users",
+    "config/auth/create": "ha_create_user",
+    "config/auth/update": "ha_update_user",
+    "config/auth/delete": "ha_delete_user",
+}
+
+
+class TestDedicadasDeLa021TramoB(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T026 (FR-012, FR-018): con la tabla real, las genéricas
+    rechazan los cuatro `config/auth/*` hacia su tool sin llegar a HA; con
+    `users` desactivada, `family_disabled: true`. Las sesiones y el cambio de
+    contraseña siguen `deny`.
+
+    Control negativo (T035 f, en test_command_table.py): sin
+    `auth/refresh_tokens` en `_DENY_TRAS_REVISION` cae el test de la clase A."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_021_B.items():
+            with self.subTest(comando=comando):
+                self.assertIn(tool, mcp.tools)
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, "users", False))
+                r = await mcp.tools["ha_call_ws_command"](comando, {"user_id": "a" * 32})
+                self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", tool))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["users"])
+        for comando, tool in _DEDICADAS_021_B.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {})
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_sesiones_y_contrasenas_deny(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando in ("auth/refresh_tokens",
+                        "config/auth_provider/homeassistant/admin_change_password",
+                        "auth/current_user"):
+            with self.subTest(comando=comando):
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual(r["error"], "command_denied", r)
+                r = await mcp.tools["ha_call_ws_command"](
+                    comando, {"user_id": "a" * 32, "password": "centinela-021"})
+                self.assertEqual(r["error"], "command_denied", r)
+                self.assertNotIn("centinela-021", json.dumps(r))
+        ha.ws_send.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

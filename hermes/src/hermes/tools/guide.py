@@ -148,6 +148,7 @@ para el detalle de un área. Temas disponibles:
 - `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
 - `core_config`    — configuración general: nombre, ubicación, unidades, zona horaria, moneda, idioma y URLs
 - `assistant_exposure` — qué entidades ven y controlan Assist, los agentes y Alexa o Google
+- `users`          — usuarios de HA: listar, crear sin credenciales, editar y borrar
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -935,6 +936,52 @@ los de Home Assistant:
 Antes de exponer a la nube (`cloud.*`) o algo de `sensitive`, enseña la vista
 previa al usuario.
 """,
+    "users": """# Usuarios de Home Assistant (familia `users`)
+
+Las cuentas de la casa (Ajustes → Personas → Usuarios). NINGUNA tool acepta ni
+devuelve contraseñas, nombres de acceso nuevos ni tokens: de las credenciales
+solo sale el tipo (`credential_types`).
+
+- `ha_list_users(include_system=False)` — SOLO LECTURA: `id`, `name`,
+  `username`, `is_owner`, `is_active`, `is_admin` (el propietario, o activo y
+  en `system-admin`), `local_only`, `system_generated`, `group_ids`,
+  `credential_types` e `is_hermes` (el usuario por el que entra Hermes; en un
+  add-on, el de sistema del Supervisor). Cabecera `active_admins` (activos,
+  sin los de sistema) y `hermes_user_known`. Sin `include_system`, los de
+  sistema no salen, salvo el de Hermes.
+- `ha_create_user(name, group="system-users", local_only=False)` — crea un
+  usuario SIN credenciales: no puede iniciar sesión hasta que se le añadan
+  usuario y contraseña. Hermes no lo hace; la vista previa (`credentials`)
+  dice lo que eso significa en Home Assistant. Grupos: `system-admin`
+  (`grants_admin`), `system-users`, `system-read-only`. `same_name` avisa de
+  usuarios con el mismo nombre.
+- `ha_update_user(user_id, name=None, is_active=None, group=None,
+  local_only=None)` — solo lo que pases; `group` reemplaza sus grupos. La
+  vista previa dice el antes y el después, `grants_admin`, `removes_admin`,
+  `deactivates` (deja de poder entrar), `restricts_remote` (solo red local) y
+  `active_admins` antes y después. Sin cambios: `no_changes`.
+- `ha_delete_user(user_id)` — irreversible: borra sus credenciales y sus
+  sesiones; las personas vinculadas (`linked_persons`) se quedan sin usuario.
+
+Las tres que escriben CONFIRMAN en dos pasos. Enseña la vista previa al
+usuario antes de confirmar.
+
+PROTECCIONES (en la vista previa y otra vez al confirmar, releyendo HA)
+- `protected_user` con `reasons`: `owner` (el propietario), `hermes` (el
+  usuario de Hermes: tocarlo cortaría a Hermes), `system_generated` (los de
+  sistema). Ni se editan ni se borran.
+- `last_admin`: quitar el grupo de administrador, desactivar o borrar al
+  último administrador activo deja la casa sin administrador; no se hace.
+- `preview_unavailable`: si Hermes no puede leer los usuarios o saber con qué
+  usuario entra, no escribe nada.
+
+LO QUE NO HAY
+- Las sesiones de los usuarios no se pueden listar: Home Assistant solo da las
+  del usuario de la propia conexión (el de Hermes). `auth/refresh_tokens` está
+  denegada en la genérica.
+- Contraseñas, nombres de acceso, sesiones y MFA (`config/auth_provider/*`,
+  `auth/*`) están denegados: se gestionan desde la interfaz de Home Assistant.
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -1068,6 +1115,8 @@ _ALIASES: dict[str, str] = {
     "expose": "assistant_exposure",
     "voice": "assistant_exposure",
     "assist": "assistant_exposure",
+    "user": "users",
+    "accounts": "users",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -1176,7 +1225,8 @@ def register(mcp: object) -> None:
                 helpers, events, data, registries, diagnostics, config_entries,
                 filesystem, supervisor, system_diagnostics, backups, lovelace,
                 marketplace, security, generic_commands, system_status, recorder,
-                core_diagnostics, core_config, assistant_exposure, workflows.
+                core_diagnostics, core_config, assistant_exposure, users,
+                workflows.
                 Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists

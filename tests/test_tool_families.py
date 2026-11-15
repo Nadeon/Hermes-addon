@@ -212,6 +212,19 @@ class TestCatalogo(unittest.TestCase):
                 self.assertEqual(familia_de_modulo(modulo), nombre)
                 self.assertEqual(validar_desactivadas([nombre]), frozenset({nombre}))
 
+    def test_familia_de_la_021_tramo_b(self) -> None:
+        """Spec 021 (FR-017, T025): `users`, nueva de la 1.2.0, desactivable
+        y con su módulo (research R-9: riesgo alto, aparte del resto)."""
+        familia = FAMILIAS["users"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("users",))
+        self.assertEqual(familia.descripcion,
+                         "Home Assistant users: list, create without credentials, "
+                         "edit and delete. Never passwords or tokens.")
+        self.assertEqual(familia_de_modulo("users"), "users")
+        self.assertEqual(validar_desactivadas(["users"]), frozenset({"users"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

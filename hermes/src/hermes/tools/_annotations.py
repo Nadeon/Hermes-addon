@@ -176,6 +176,12 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Spec 021: cambia cómo HA interpreta las horas (zona horaria) y las
     # unidades, y mueve `zone.home` (presencia). Siempre pide token.
     "ha_update_core_config",
+    # Spec 021, tramo b: crear un usuario puede crear un administrador, y
+    # editarlo puede desactivarlo (deja de poder entrar) o darle o quitarle
+    # el grupo de administrador. Las dos piden token; `ha_delete_user` ya es
+    # destructiva por su prefijo.
+    "ha_create_user",
+    "ha_update_user",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

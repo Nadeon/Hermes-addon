@@ -328,6 +328,13 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "homeassistant/expose_entity/list": "ha_list_exposed_entities",
     "homeassistant/expose_new_entities/get": "ha_list_exposed_entities",
     "homeassistant/expose_new_entities/set": "ha_set_expose_new_entities",
+    # 021 (tramo b): usuarios (CAP-056). `auth/refresh_tokens` no está: queda
+    # `deny` revisado en la tabla (solo da las sesiones del propio Hermes;
+    # research R-5 de la 021), revisada a mano.
+    "config/auth/list": "ha_list_users",
+    "config/auth/create": "ha_create_user",
+    "config/auth/update": "ha_update_user",
+    "config/auth/delete": "ha_delete_user",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

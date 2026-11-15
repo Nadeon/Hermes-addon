@@ -804,5 +804,35 @@ class TestTemasDeLa021TramoA(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ha_update_core_config", _GUIDE["system_status"])
 
 
+class TestTemaDeUsuarios(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T029 (FR-022): tema `users` con sus cuatro tools, que nada
+    maneja contraseñas ni tokens, que el usuario creado no entra sin
+    credenciales, las protecciones, que las sesiones no se listan y que todo
+    confirma; alias `user` y `accounts`; índice y docstring."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_users(self) -> None:
+        texto = await self.guide("users")
+        self.assertIs(texto, _GUIDE["users"])
+        for palabra in ("ha_list_users", "ha_create_user", "ha_update_user",
+                        "ha_delete_user", "contraseñas", "tokens", "SIN credenciales",
+                        "no puede iniciar sesión", "protected_user", "owner", "hermes",
+                        "system_generated", "last_admin", "preview_unavailable",
+                        "sesiones de los usuarios no se pueden listar", "dos pasos",
+                        "irreversible"):
+            self.assertIn(palabra, texto)
+        for alias in ("user", "accounts", "USERS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_y_docstring(self) -> None:
+        self.assertIn("`users`", await self.guide())
+        self.assertIn("users", self.mcp.tools["hermes_guide"].__doc__)
+
+
 if __name__ == "__main__":
     unittest.main()

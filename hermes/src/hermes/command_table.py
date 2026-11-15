@@ -64,7 +64,12 @@ CORE_WS: dict[str, E] = {
     "auth/depose_mfa": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     "auth/long_lived_access_token": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     "auth/refresh_token_set_expiry": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
-    "auth/refresh_tokens": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
+    # Spec 021 (research R-5, duda D-1): `websocket_refresh_tokens` recorre
+    # `connection.user.refresh_tokens`, es decir, solo las sesiones del usuario
+    # de la conexión, que con Hermes es el propio Hermes (el del Supervisor en
+    # un add-on). No hay comando para las de otro usuario: una tool de
+    # sesiones mentiría en su nombre. Queda `deny` revisado, no pendiente.
+    "auth/refresh_tokens": E("deny", "solo devuelve las sesiones del usuario de la propia conexión (el de Hermes), no las de otros usuarios; revisado en la spec 021", "generic_commands", cap="CAP-056"),
     "auth/setup_mfa": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     "auth/sign_path": E("deny", "crea o revoca credenciales/MFA o firma rutas: no debe hacerlo un agente (clase D)", "generic_commands"),
     # ha_get_automation lee por REST /api/config/automation/config/{id} y no da la
@@ -144,10 +149,10 @@ CORE_WS: dict[str, E] = {
     "config/area_registry/list": E("dedicated", "cubierto por ha_list_areas", "registries", tool="ha_list_areas"),
     "config/area_registry/reorder": E("confirm", "cambia el orden de las áreas", "generic_commands", cap="CAP-070"),
     "config/area_registry/update": E("dedicated", "cubierto por ha_update_area", "registries", tool="ha_update_area"),
-    "config/auth/create": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
-    "config/auth/delete": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
-    "config/auth/list": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
-    "config/auth/update": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-056"),
+    "config/auth/create": E("dedicated", "cubierto por ha_create_user", "users", tool="ha_create_user", cap="CAP-056"),
+    "config/auth/delete": E("dedicated", "cubierto por ha_delete_user", "users", tool="ha_delete_user", cap="CAP-056"),
+    "config/auth/list": E("dedicated", "cubierto por ha_list_users", "users", tool="ha_list_users", cap="CAP-056"),
+    "config/auth/update": E("dedicated", "cubierto por ha_update_user", "users", tool="ha_update_user", cap="CAP-056"),
     "config/auth_provider/homeassistant/admin_change_password": E("deny", "maneja contraseñas de usuarios (clase D)", "generic_commands"),
     "config/auth_provider/homeassistant/admin_change_username": E("deny", "maneja contraseñas de usuarios (clase D)", "generic_commands"),
     "config/auth_provider/homeassistant/change_password": E("deny", "maneja contraseñas de usuarios (clase D)", "generic_commands"),

@@ -135,6 +135,12 @@ _CATALOGO: tuple[Familia, ...] = (
             "Which entities Assist, conversation agents and the cloud voice "
             "assistants can see and control.",
             "1.2.0", True, ("assistant_exposure",)),
+    # Tramo b: los usuarios, aparte y desactivables por su riesgo (crean,
+    # editan y borran cuentas de la casa). Nunca contraseñas ni tokens.
+    Familia("users",
+            "Home Assistant users: list, create without credentials, edit and "
+            "delete. Never passwords or tokens.",
+            "1.2.0", True, ("users",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}
