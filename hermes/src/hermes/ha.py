@@ -8,12 +8,13 @@ estado en tiempo real.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import deque
 import json
 import re
 import time
 from datetime import datetime
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import aiohttp
@@ -75,6 +76,8 @@ class HAConnectionError(RuntimeError):
     enviar, con este mismo atributo (spec 023, T020).
     `rest_get_image` (spec 024) marca `False` sin cliente HTTP y deja el
     defecto en sus respuestas de error (estado HTTP, imagen demasiado grande).
+    El plazo agotado de cualquier petición sale como `HATimeoutError`
+    (subclase de esta), con `None` en REST y `True` en el WebSocket.
     """
 
     def __init__(
@@ -88,6 +91,42 @@ class HAConnectionError(RuntimeError):
         self.status = status
         self.code = code
         self.sent = sent
+
+
+class HATimeoutError(HAConnectionError, TimeoutError):
+    """Plazo agotado esperando a Home Assistant o al Supervisor (cierre 1.2.0).
+
+    aiohttp avisa del plazo con `asyncio.TimeoutError` (o su subclase
+    `ServerTimeoutError`), que NO es un `HAConnectionError`: se escapaba de
+    las tools que solo capturan este, y salía como error genérico. Todo el
+    cliente (REST de Core, Supervisor y WebSocket) lo convierte en esta clase.
+
+    POR QUÉ hereda de las dos: varias tools distinguen el plazo agotado con
+    `except TimeoutError` o `isinstance(exc, TimeoutError)` («la instalación
+    sigue en Core», «no se sabe si se hizo») ANTES de su rama de
+    `HAConnectionError`. Si el plazo pasara a ser solo `HAConnectionError`,
+    esas ramas dejarían de verlo y lo tratarían como un error de verdad.
+
+    `sent` sigue el contrato de `HAConnectionError`: `None` si no se sabe
+    (REST: el plazo puede vencer conectando o esperando la respuesta) y
+    `True` si se sabe que la orden salió (WebSocket). Nunca `False`.
+    """
+
+
+@contextlib.contextmanager
+def _plazo_como_error(que: str, *, sent: bool | None = None) -> Iterator[None]:
+    """Convierte el plazo agotado de aiohttp en `HATimeoutError`.
+
+    Un `HAConnectionError` que salga de dentro (un estado HTTP de error, o un
+    `HATimeoutError` ya convertido) pasa tal cual. El mensaje lleva solo el
+    método y la ruta: nunca el cuerpo ni la URL completa.
+    """
+    try:
+        yield
+    except HAConnectionError:
+        raise
+    except TimeoutError as exc:
+        raise HATimeoutError(f"Timeout waiting for {que}", sent=sent) from exc
 
 
 class ImageTooLargeError(HAConnectionError):
@@ -830,7 +869,7 @@ class HAClient:
             return await asyncio.wait_for(future, timeout_seconds)
         except asyncio.TimeoutError as exc:
             # La orden ya salió: HA puede estar ejecutándola (spec 031).
-            raise HAConnectionError(
+            raise HATimeoutError(
                 f"Timeout waiting for HA WS response for command {payload.get('type')}",
                 sent=True,
             ) from exc
@@ -900,8 +939,10 @@ class HAClient:
             self._pending_ws_responses.pop(request_id, None)
             self._pending_ws_subscriptions.pop(request_id, None)
             await self._ws_unsubscribe(request_id)
-            raise HAConnectionError(
-                f"Timeout waiting for subscription confirmation: {payload.get('type')}"
+            # La suscripción ya salió (cierre 1.2.0: `HATimeoutError`).
+            raise HATimeoutError(
+                f"Timeout waiting for subscription confirmation: {payload.get('type')}",
+                sent=True,
             )
         except HAConnectionError:
             self._pending_ws_subscriptions.pop(request_id, None)
@@ -943,8 +984,9 @@ class HAClient:
             return event_data if isinstance(event_data, dict) else {}
         except asyncio.TimeoutError:
             self._pending_ws_subscriptions.pop(request_id, None)
-            raise HAConnectionError(
-                f"Timeout waiting for subscription event: {payload.get('type')}"
+            raise HATimeoutError(
+                f"Timeout waiting for subscription event: {payload.get('type')}",
+                sent=True,
             )
         finally:
             # Siempre cancelar la suscripción al salir (con o sin error)
@@ -1030,8 +1072,9 @@ class HAClient:
                 await asyncio.wait_for(
                     result_future, timeout=max(limite_confirmacion - loop.time(), 0))
             except asyncio.TimeoutError as exc:
-                raise HAConnectionError(
-                    f"Timeout waiting for subscription confirmation: {payload.get('type')}"
+                raise HATimeoutError(
+                    f"Timeout waiting for subscription confirmation: {payload.get('type')}",
+                    sent=True,
                 ) from exc
             if confirmacion_timeout_seconds is not None:
                 limite = loop.time() + timeout_seconds
@@ -1125,8 +1168,9 @@ class HAClient:
         except asyncio.TimeoutError as exc:
             self._pending_ws_responses.pop(sub_id, None)
             await self._ws_unsubscribe(sub_id)
-            raise HAConnectionError(
-                f"Timeout esperando confirmación de suscripción a {que}"
+            raise HATimeoutError(
+                f"Timeout esperando confirmación de suscripción a {que}",
+                sent=True,
             ) from exc
         except BaseException:
             self._pending_ws_responses.pop(sub_id, None)
@@ -1334,73 +1378,92 @@ class HAClient:
         _assert_safe_request_path(path)
         url = f"{self._rest_base_url}{path}"
 
-        async with self._session.request(
-            method,
-            url,
-            json=json_body,
-            timeout=ClientTimeout(total=30),
-        ) as resp:
-            text = await resp.text()
-            status = resp.status
+        with _plazo_como_error(f"HA REST {method} {path}"):
+            async with self._session.request(
+                method,
+                url,
+                json=json_body,
+                timeout=ClientTimeout(total=30),
+            ) as resp:
+                text = await resp.text()
+                status = resp.status
+        return self._config_response(
+            method, url, domain, config_id, text, status,
+            expect_ok=expect_ok, allow_missing=allow_missing,
+        )
 
-            if status == 404 and allow_missing:
+    def _config_response(
+        self,
+        method: str,
+        url: str,
+        domain: str,
+        config_id: str,
+        text: str,
+        status: int,
+        *,
+        expect_ok: bool,
+        allow_missing: bool,
+    ) -> dict[str, Any] | None:
+        """Interpreta la respuesta de `_config_request` (ya leída entera)."""
+
+        if status == 404 and allow_missing:
+            return None
+
+        if status == 400 and allow_missing and method == "DELETE":
+            # HA devuelve 400 "Resource not found" al borrar algo inexistente.
+            if "not found" in text.lower():
+                logger.info(
+                    "ha_config_delete_missing",
+                    domain=domain,
+                    config_id=config_id,
+                )
                 return None
 
-            if status == 400 and allow_missing and method == "DELETE":
-                # HA devuelve 400 "Resource not found" al borrar algo inexistente.
-                if "not found" in text.lower():
-                    logger.info(
-                        "ha_config_delete_missing",
-                        domain=domain,
-                        config_id=config_id,
-                    )
-                    return None
+        if status >= 400:
+            logger.warning(
+                "ha_config_request_http_error",
+                method=method,
+                domain=domain,
+                config_id=config_id,
+                status=status,
+                body=text[:500],
+            )
+            raise HAConnectionError(
+                f"HA REST {method} {url} failed {status}: {text}"
+            )
 
-            if status >= 400:
-                logger.warning(
-                    "ha_config_request_http_error",
+        parsed: dict[str, Any] | None
+        if not text:
+            parsed = {}
+        else:
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                logger.error(
+                    "ha_config_request_invalid_json",
                     method=method,
                     domain=domain,
                     config_id=config_id,
-                    status=status,
                     body=text[:500],
                 )
                 raise HAConnectionError(
-                    f"HA REST {method} {url} failed {status}: {text}"
+                    f"HA REST returned invalid JSON: {text!r}"
+                ) from exc
+
+        if expect_ok:
+            if not isinstance(parsed, dict) or parsed.get("result") != "ok":
+                logger.warning(
+                    "ha_config_request_unexpected_body",
+                    method=method,
+                    domain=domain,
+                    config_id=config_id,
+                    parsed=parsed,
+                )
+                raise HAConnectionError(
+                    f"HA REST {method} {url} unexpected response: {parsed!r}"
                 )
 
-            parsed: dict[str, Any] | None
-            if not text:
-                parsed = {}
-            else:
-                try:
-                    parsed = json.loads(text)
-                except json.JSONDecodeError as exc:
-                    logger.error(
-                        "ha_config_request_invalid_json",
-                        method=method,
-                        domain=domain,
-                        config_id=config_id,
-                        body=text[:500],
-                    )
-                    raise HAConnectionError(
-                        f"HA REST returned invalid JSON: {text!r}"
-                    ) from exc
-
-            if expect_ok:
-                if not isinstance(parsed, dict) or parsed.get("result") != "ok":
-                    logger.warning(
-                        "ha_config_request_unexpected_body",
-                        method=method,
-                        domain=domain,
-                        config_id=config_id,
-                        parsed=parsed,
-                    )
-                    raise HAConnectionError(
-                        f"HA REST {method} {url} unexpected response: {parsed!r}"
-                    )
-
-            return parsed
+        return parsed
 
     async def _request_json(
         self,
@@ -1415,14 +1478,15 @@ class HAClient:
 
         _assert_safe_request_path(path)
         url = f"{self._rest_base_url}{path}"
-        async with self._session.request(
-            method,
-            url,
-            params=params,
-            json=json_body,
-            timeout=ClientTimeout(total=30),
-        ) as resp:
-            return await self._parse_response(resp)
+        with _plazo_como_error(f"HA REST {method} {path}"):
+            async with self._session.request(
+                method,
+                url,
+                params=params,
+                json=json_body,
+                timeout=ClientTimeout(total=30),
+            ) as resp:
+                return await self._parse_response(resp)
 
     async def rest_get_text_tail(
         self,
@@ -1471,35 +1535,36 @@ class HAClient:
                 texto = quitar_secreto_abierto(texto) + marca
             cola.append(texto)
 
-        async with self._session.get(url, timeout=ClientTimeout(total=30)) as resp:
-            if resp.status >= 400:
-                raise HAConnectionError(
-                    f"HA REST GET {path} failed {resp.status}",
-                    status=resp.status,
-                )
-            # Pendiente de la línea en curso. Solo guarda hasta
-            # `max_line_bytes + 1` bytes: con eso ya se sabe que hay que
-            # recortarla, y una línea de un giga no se acumula en memoria.
-            pendiente = bytearray()
-            desbordada = False
-            async for trozo in resp.content.iter_chunked(64 * 1024):
-                inicio = 0
-                while True:
-                    fin = trozo.find(b"\n", inicio)
-                    pedazo = trozo[inicio:] if fin < 0 else trozo[inicio:fin]
-                    if not desbordada:
-                        pendiente += pedazo
-                        if len(pendiente) > max_line_bytes:
-                            del pendiente[max_line_bytes + 1:]
-                            desbordada = True
-                    if fin < 0:
-                        break
+        with _plazo_como_error(f"HA REST GET {path}"):
+            async with self._session.get(url, timeout=ClientTimeout(total=30)) as resp:
+                if resp.status >= 400:
+                    raise HAConnectionError(
+                        f"HA REST GET {path} failed {resp.status}",
+                        status=resp.status,
+                    )
+                # Pendiente de la línea en curso. Solo guarda hasta
+                # `max_line_bytes + 1` bytes: con eso ya se sabe que hay que
+                # recortarla, y una línea de un giga no se acumula en memoria.
+                pendiente = bytearray()
+                desbordada = False
+                async for trozo in resp.content.iter_chunked(64 * 1024):
+                    inicio = 0
+                    while True:
+                        fin = trozo.find(b"\n", inicio)
+                        pedazo = trozo[inicio:] if fin < 0 else trozo[inicio:fin]
+                        if not desbordada:
+                            pendiente += pedazo
+                            if len(pendiente) > max_line_bytes:
+                                del pendiente[max_line_bytes + 1:]
+                                desbordada = True
+                        if fin < 0:
+                            break
+                        guardar(bytes(pendiente))
+                        pendiente.clear()
+                        desbordada = False
+                        inicio = fin + 1
+                if pendiente or desbordada:
                     guardar(bytes(pendiente))
-                    pendiente.clear()
-                    desbordada = False
-                    inicio = fin + 1
-            if pendiente or desbordada:
-                guardar(bytes(pendiente))
         return list(cola)
 
     async def rest_get_image(
@@ -1537,23 +1602,24 @@ class HAClient:
             raise HAConnectionError(f"Unsafe request path (empty segment): {path!r}")
         url = f"{self._rest_base_url}{path}"
 
-        async with self._session.get(
-            url, params=params, timeout=ClientTimeout(total=30)
-        ) as resp:
-            if resp.status >= 400:
-                raise HAConnectionError(
-                    f"HA REST GET {path} failed {resp.status}",
-                    status=resp.status,
-                )
-            tipo = resp.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-            datos = bytearray()
-            async for trozo in resp.content.iter_chunked(64 * 1024):
-                datos += trozo
-                if len(datos) > max_bytes:
-                    # Salir del `async with` sin leer el resto libera la
-                    # conexión cerrándola: no se descarga lo que queda.
-                    resp.close()
-                    raise ImageTooLargeError(max_bytes)
+        with _plazo_como_error(f"HA REST GET {path}"):
+            async with self._session.get(
+                url, params=params, timeout=ClientTimeout(total=30)
+            ) as resp:
+                if resp.status >= 400:
+                    raise HAConnectionError(
+                        f"HA REST GET {path} failed {resp.status}",
+                        status=resp.status,
+                    )
+                tipo = resp.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                datos = bytearray()
+                async for trozo in resp.content.iter_chunked(64 * 1024):
+                    datos += trozo
+                    if len(datos) > max_bytes:
+                        # Salir del `async with` sin leer el resto libera la
+                        # conexión cerrándola: no se descarga lo que queda.
+                        resp.close()
+                        raise ImageTooLargeError(max_bytes)
         return tipo, bytes(datos)
 
     # ── Supervisor REST API ───────────────────────────────────────────────────
@@ -1580,14 +1646,15 @@ class HAClient:
 
         _assert_safe_request_path(sv_path)
         url = f"{self._supervisor_base_url}{sv_path}"
-        async with self._session.request(
-            method,
-            url,
-            params=params,
-            json=json_body,
-            timeout=ClientTimeout(total=timeout_seconds),
-        ) as resp:
-            return await self._parse_sv_response(resp)
+        with _plazo_como_error(f"Supervisor REST {method} {sv_path}"):
+            async with self._session.request(
+                method,
+                url,
+                params=params,
+                json=json_body,
+                timeout=ClientTimeout(total=timeout_seconds),
+            ) as resp:
+                return await self._parse_sv_response(resp)
 
     async def sv_request_text(
         self,
@@ -1601,18 +1668,19 @@ class HAClient:
 
         _assert_safe_request_path(sv_path)
         url = f"{self._supervisor_base_url}{sv_path}"
-        async with self._session.get(
-            url,
-            params=params,
-            timeout=ClientTimeout(total=timeout_seconds),
-        ) as resp:
-            text = await resp.text()
-            if resp.status >= 400:
-                raise HAConnectionError(
-                    f"Supervisor GET {sv_path} failed {resp.status}: {text}",
-                    status=resp.status,
-                )
-            return text
+        with _plazo_como_error(f"Supervisor GET {sv_path}"):
+            async with self._session.get(
+                url,
+                params=params,
+                timeout=ClientTimeout(total=timeout_seconds),
+            ) as resp:
+                text = await resp.text()
+                if resp.status >= 400:
+                    raise HAConnectionError(
+                        f"Supervisor GET {sv_path} failed {resp.status}: {text}",
+                        status=resp.status,
+                    )
+                return text
 
     async def _parse_sv_response(self, resp: ClientResponse) -> Any:
         """Parsea una respuesta JSON del Supervisor.

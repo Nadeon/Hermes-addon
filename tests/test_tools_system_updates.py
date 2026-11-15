@@ -36,7 +36,7 @@ import aiohttp
 from structlog.testing import capture_logs
 
 from hermes import fs_write, security
-from hermes.ha import HAConnectionError
+from hermes.ha import HAConnectionError, HATimeoutError
 from hermes.tools import addons as addons_mod
 from hermes.tools import system_updates as mod
 from tests.fixtures.supervisor_actualizaciones import (
@@ -558,6 +558,17 @@ class TestVistaPreviaCore(_Base):
         self.sv.respuesta("POST", "/core/check", HAConnectionError("caído", status=502))
         r = await self._bloqueada("config_check_failed")
         self.assertEqual(r["preview"]["config_check"]["result"], "unavailable")
+
+    # Cierre de robustez 1.2.0: el plazo agotado sale del cliente como
+    # `HATimeoutError` (`HAConnectionError` y `TimeoutError` a la vez, `sent`
+    # en `None`). Tiene que seguir leyéndose como plazo, no como error. Control
+    # negativo comprobado: sin `TimeoutError` en sus bases, falla.
+    async def test_configuracion_sin_respuesta_con_el_plazo_del_cliente(self) -> None:
+        # Sin la herencia de `TimeoutError`, el plazo caería en la rama de
+        # `HAConnectionError` sin estado y diría «configuración inválida».
+        self.sv.respuesta("POST", "/core/check", HATimeoutError("plazo"))
+        r = await self._bloqueada("config_check_failed")
+        self.assertEqual(r["preview"]["config_check"]["result"], "timeout")
 
     async def _sin_token(self, codigo: str, **kw: Any) -> dict[str, Any]:
         r = await self.vista_previa(**kw)

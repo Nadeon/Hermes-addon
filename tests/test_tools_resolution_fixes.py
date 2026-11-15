@@ -27,7 +27,7 @@ from unittest.mock import MagicMock
 import aiohttp
 from structlog.testing import capture_logs
 
-from hermes.ha import HAConnectionError
+from hermes.ha import HAConnectionError, HATimeoutError
 from hermes.tools.resolution_fixes import _FIXUPS, register
 from tests.fixtures.supervisor_control import (
     CENTINELA_SV,
@@ -200,6 +200,19 @@ class TestTraduccion(_Base):
     async def test_tiempo_vencido_es_started(self) -> None:
         self.poner(sugerencia(_U1, "create_full_backup", "system"))
         self.sv.errores[("POST", f"/resolution/suggestion/{_U1}")] = TimeoutError()
+        vista = await self.apply(_U1)
+        r = await self.apply(_U1, confirmation_token=vista["confirmation_token"])
+        self.assertEqual((r["status"], r["verify_with"]), ("started", "sv_get_resolution"))
+
+    # Cierre de robustez 1.2.0: el plazo agotado sale del cliente como
+    # `HATimeoutError` (`HAConnectionError` y `TimeoutError` a la vez, `sent`
+    # en `None`). Tiene que seguir leyéndose como plazo, no como error. Aquí
+    # también pasaría sin `TimeoutError` en sus bases (sin `status` ni `code`
+    # ya se lee como corte); el control negativo de esa herencia lo dan
+    # `sv_update_core` y `ha_install_update`.
+    async def test_tiempo_vencido_con_el_plazo_del_cliente(self) -> None:
+        self.poner(sugerencia(_U1, "create_full_backup", "system"))
+        self.sv.errores[("POST", f"/resolution/suggestion/{_U1}")] = HATimeoutError("p")
         vista = await self.apply(_U1)
         r = await self.apply(_U1, confirmation_token=vista["confirmation_token"])
         self.assertEqual((r["status"], r["verify_with"]), ("started", "sv_get_resolution"))

@@ -27,7 +27,7 @@ from unittest import mock
 from structlog.testing import capture_logs
 
 from hermes import security
-from hermes.ha import HAConnectionError
+from hermes.ha import HAConnectionError, HATimeoutError
 from hermes.tools import update_entities as mod
 from tests.fixtures.supervisor_actualizaciones import (
     CENTINELA_JWT,
@@ -392,6 +392,17 @@ class TestInstalar(_Base):
         r = await self.instalar(confirmation_token=r["confirmation_token"])
         self.assertEqual(r["status"], "running")
         self.assertIn("ha_list_updates", r["hint"])
+        self.assertNotIn("error", r)
+
+    # Cierre de robustez 1.2.0: el plazo agotado sale del cliente como
+    # `HATimeoutError` (`HAConnectionError` y `TimeoutError` a la vez, `sent`
+    # en `None`). Tiene que seguir leyéndose como plazo, no como error. Control
+    # negativo comprobado: sin `TimeoutError` en sus bases, falla.
+    async def test_espera_vencida_con_el_plazo_del_cliente(self) -> None:
+        r = await self.instalar()
+        self.sv.respuesta_servicio = HATimeoutError("plazo")
+        r = await self.instalar(confirmation_token=r["confirmation_token"])
+        self.assertEqual(r["status"], "running")
         self.assertNotIn("error", r)
 
     async def test_error_de_core(self) -> None:

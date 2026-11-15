@@ -34,7 +34,7 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from hermes.ha import HAConnectionError
+from hermes.ha import HAConnectionError, HATimeoutError
 
 _T = TypeVar("_T")
 
@@ -207,7 +207,10 @@ def _excepcion_tapada(exc: Exception, secretos: tuple[str, ...]) -> Exception:
     """La misma excepción (tipo, `status`, `code`, `sent`) con el texto tapado."""
     args = tuple(tapar_clave(a, *secretos) for a in exc.args)
     if isinstance(exc, HAConnectionError):
-        return HAConnectionError(*args, status=exc.status, code=exc.code, sent=exc.sent)
+        # El plazo agotado conserva su clase: las tools lo distinguen con
+        # `except TimeoutError` (cierre 1.2.0, `HATimeoutError`).
+        clase = HATimeoutError if isinstance(exc, HATimeoutError) else HAConnectionError
+        return clase(*args, status=exc.status, code=exc.code, sent=exc.sent)
     try:
         nueva = type(exc)(*args)
     except Exception:  # noqa: BLE001 — un tipo que no se deja copiar así
