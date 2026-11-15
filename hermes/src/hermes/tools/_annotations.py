@@ -80,6 +80,19 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # HA y no guardan nada. Su nombre no tiene prefijo de lectura.
     "ha_validate_config",
     "ha_test_condition",
+    # Blueprints (spec 017): HA sustituye las entradas y devuelve la
+    # configuración resultante sin guardar nada (`saved: false`).
+    "ha_preview_blueprint_substitution",
+    # Targets (spec 017, tramo C): `extract_from_target` y `explain_target`
+    # solo calculan qué abarca un target. Su nombre no tiene prefijo de
+    # lectura; las `ha_list_*_for_target` y `ha_list_device_*` ya lo tienen.
+    "ha_resolve_target",
+    "ha_explain_target",
+    # Espera de trigger (spec 017, tramo D): solo escucha. Es verdad porque
+    # solo admite triggers de una lista cerrada de los que se sabe que solo
+    # escuchan (research R-8); `webhook`, `conversation` o el `turn_on` de
+    # una tele, que hacen algo más mientras existen, se rechazan.
+    "ha_wait_for_trigger",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -220,6 +233,15 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Spec 030, tramo 2: reconstruir borra el contenedor y la imagen de la
     # app; si la construcción falla, la app queda sin poder arrancar.
     "sv_rebuild_addon",
+    # Blueprints (spec 017): guardar crea o sobrescribe un fichero de
+    # /config/blueprints y, al sobrescribir, HA recarga las automatizaciones
+    # o scripts que lo usan; pide token (invariante «pide token ⇔
+    # destructiva»). `ha_delete_blueprint` ya lo es por el prefijo
+    # `ha_delete_`: borra un fichero que solo vuelve con un backup.
+    "ha_save_blueprint",
+    # Importar (spec 017, tramo B) guarda lo descargado igual que
+    # `ha_save_blueprint`, y con `allow_override` sobrescribe y recarga.
+    "ha_import_blueprint",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -273,6 +295,10 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # app (con `force`). Leer el changelog, la documentación o la
     # disponibilidad no sale: el Supervisor lee su clon local.
     "sv_rebuild_addon",
+    # Spec 017, tramo B: HA descarga el blueprint de la URL que da el agente
+    # (foro, GitHub, gist o cualquier web). No abre el socket Hermes, pero la
+    # descarga la provoca esta tool (mismo criterio que sv_install_addon).
+    "ha_import_blueprint",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

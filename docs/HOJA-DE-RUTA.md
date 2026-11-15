@@ -391,6 +391,12 @@ un cliente contra la instalación real.
   que usa Hermes caben en `manager`, sin excepciones
   (`tests/test_rutas_supervisor_rol.py`). El rol del add-on publicado se
   decide con este resultado (D-02).
+- [ ] (VM o instalación real, con internet) **`ha_import_blueprint` con los
+  importadores que el banco no puede probar** (spec 017): una URL de GitHub
+  (`github.com/<repo>/blob/…` y `raw.githubusercontent.com`), un gist y un
+  tema del foro. Comprobar la vista previa (`importer`, ruta sugerida, YAML
+  entero y huella), la confirmación y el `source_url` guardado. El banco
+  solo cubre el importador genérico (sin salida a internet).
 - [ ] (instalación real, tras publicar) **Pruebas en vivo de las tools nuevas
   de la 1.2.0**: las tools nuevas del programa en una instalación en uso,
   solo después de publicar; las destructivas, antes en la VM.
@@ -458,7 +464,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | hecha: familia `system_updates` con 8 tools (`sv_list_available_updates`, `sv_check_for_updates`, `sv_update_core`, `sv_update_os`, `sv_update_supervisor`, `ha_list_updates`, `ha_get_update_release_notes`, `ha_install_update`), vista previa con bloqueos y token atado a las versiones, encaminamiento de las entidades del Supervisor a las `sv_*` y Hermes sin autoactualización; 8 entradas de la tabla a `dedicated`; tema `updates`; `ha_install_update` probada en el banco de Core; prueba real de las cuatro `sv_*` que modifican pendiente manual en la VM de la 014 |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | hecha: familias `integration_flows` (descubiertos, dominios configurables, título y preferencias de una entrada, subentries y reconfigure con token en cada paso; la tool general de flujos rechaza los reconfigure y los flujos que no reconoce, y pide token en los `reauth`; ignorar, solo descubrimientos) y `repair_flows` (aviso con sus datos internos y flujo de reparación con token en cada paso); textos traducidos en `ha_list_repairs`; guía de helpers por config entry. Todo lo que modifica, probado en el banco de Core con la integración de prueba `banco_flujos`. Pendiente manual tras publicar: un descubrimiento real, subentries de una integración real, flujos de reparación reales (uno del Supervisor y uno de varios pasos), una reautenticación real y textos en un idioma distinto del inglés |
-| 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
+| 017 | Automatización asistida | 038, 040, 046, 051, 052 | hecha: familia `blueprints` con `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint`, `ha_delete_blueprint` e `ha_import_blueprint`; familia `automation_assist` con las tres listas de dispositivo, `ha_resolve_target`, `ha_explain_target`, las tres listas por target y `ha_wait_for_trigger` (solo lectura, lista cerrada de triggers); la vista previa de `ha_create_or_update_automation` y `_script` valida con HA y no da token si la rechazaría; 17 entradas a `dedicated` (`subscribe_trigger` reclasificado de B a A); todo probado en el banco de Core (guardar, importar desde `/local/` del banco, borrar, las lecturas, la espera de trigger y la validación al guardar). Pendiente manual: importar de GitHub, gist y foro |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | hecha; prueba en la VM pendiente: familia `mounts` con nueve tools (seis de montajes CIFS, NFS y disco local, con crear, editar, borrar y el por defecto con token atado también al estado; tres de ajustes de backup sin token), `location` opcional en `sv_create_backup_full` y `sv_create_backup_partial`, credenciales (también el usuario en los errores del Supervisor) que entran y nunca salen, las nueve rutas de CAP-083 a `dedicated` y el `action_hash` de los tokens con HMAC |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
@@ -687,6 +693,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_decrement_input_number` | banco de Core | ok | |
 | `ha_delete_area` | banco de Core | ok | |
 | `ha_delete_automation` | banco de Core | ok | |
+| `ha_delete_blueprint` | banco de Core | ok | |
 | `ha_delete_category` | banco de Core | ok | |
 | `ha_delete_config_entry` | banco de Core | ok | |
 | `ha_delete_counter` | banco de Core | ok | |
@@ -716,6 +723,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_fire_event` | banco de Core | ok | |
 | `ha_ignore_discovery` | banco de Core | ok | spec 016 |
 | `ha_ignore_repair` | banco de Core | ok | |
+| `ha_import_blueprint` | banco de Core | ok | importador genérico desde `/local/` del banco; GitHub, gist y foro sin probar |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
 | `ha_install_update` | banco de Core | ok | spec 015; entidad `update` de plantilla del banco |
@@ -734,6 +742,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_remove_entity_registry` | banco de Core | ok | |
 | `ha_reset_counter` | banco de Core | ok | |
 | `ha_run_script` | banco de Core | ok | |
+| `ha_save_blueprint` | banco de Core | ok | |
 | `ha_save_lovelace_dashboard` | banco de Core | ok | |
 | `ha_set_counter_value` | banco de Core | ok | |
 | `ha_set_input_boolean` | banco de Core | ok | |
@@ -842,7 +851,6 @@ programa:
   completa (022).
 - **Escritura en el Marketplace** (026), con confirmación, backup previo y
   vista previa completa.
-- **Triggers y condiciones por propósito; resolución de targets** (017).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas

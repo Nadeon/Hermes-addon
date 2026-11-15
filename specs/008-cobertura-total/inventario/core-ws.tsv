@@ -469,7 +469,7 @@ subscribe_condition	websocket_api	homeassistant/components/websocket_api/command
 subscribe_entities	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
 subscribe_events	websocket_api	homeassistant/components/websocket_api/commands.py	si	cubierto	cliente WS de Hermes (ha_render_template, ha_fire_event, ha_wait_for_event, caché de estados)	
 subscribe_system_state	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Salud y estado del sistema (lectura puntual)	CAP-043
-subscribe_trigger	websocket_api	homeassistant/components/websocket_api/commands.py	no	B	suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales)	
+subscribe_trigger	websocket_api	homeassistant/components/websocket_api/commands.py	no	A	Esperar a un trigger (un solo disparo)	CAP-038
 supervisor/api	hassio	homeassistant/components/hassio/websocket_api.py	si-equivalente	cubierto	Hermes habla con el Supervisor por REST directo (sv_*)	
 supervisor/event	hassio	homeassistant/components/hassio/websocket_api.py	no	B	canal interno Supervisor→Core	
 supervisor/ingress/info	hassio	homeassistant/components/hassio/websocket_api.py	no	B	sesiones de ingress del navegador	

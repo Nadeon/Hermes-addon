@@ -281,6 +281,81 @@ class TestDedicadas(unittest.TestCase):
         pendientes = sorted(str(k) for k, e in _todas() if "(spec 029)" in e.reason)
         self.assertEqual(pendientes, [])
 
+    def test_dedicadas_de_la_017_tramo_a(self) -> None:
+        """Spec 017, T010 (FR-012): los cuatro comandos de blueprints del
+        tramo A son `dedicated` hacia su tool de `blueprints`, con la forma
+        que escribe el generador, y el mapa del generador los nombra. Tramo B
+        (T021): `blueprint/import` también, hacia `ha_import_blueprint`.
+        Control negativo (T016, 7): `blueprint/delete` de vuelta a `deny` →
+        cae aquí (y `test_desde_cero_igual_que_la_tabla_real` de test_generar_tabla)."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        cuatro = {
+            "blueprint/list": "ha_list_blueprints",
+            "blueprint/save": "ha_save_blueprint",
+            "blueprint/delete": "ha_delete_blueprint",
+            "blueprint/substitute": "ha_preview_blueprint_substitution",
+            "blueprint/import": "ha_import_blueprint",
+        }
+        for comando, tool in cuatro.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "blueprints", tool, "CAP-046"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+
+    def test_dedicada_de_la_017_tramo_d(self) -> None:
+        """Spec 017, T045 (FR-012, research R-13): `subscribe_trigger` pasa de
+        clase B a A (CAP-038) y es `dedicated` hacia `ha_wait_for_trigger`,
+        con la forma del generador y en su mapa.
+        Control negativo (T054, 8): la fila del inventario de vuelta a clase
+        B → cae `test_subscribe_trigger_es_clase_a` de test_generar_tabla;
+        la entrada de la tabla de vuelta a `deny` → cae este test (y tres
+        más de este fichero y el de las genéricas)."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        e = ct.CORE_WS["subscribe_trigger"]
+        self.assertEqual(
+            (e.category, e.reason, e.family, e.tool, e.cap),
+            ("dedicated", "cubierto por ha_wait_for_trigger", "automation_assist",
+             "ha_wait_for_trigger", "CAP-038"))
+        self.assertEqual(_DEDICADAS_INICIALES["subscribe_trigger"], "ha_wait_for_trigger")
+
+    def test_dedicadas_de_la_017_tramo_c(self) -> None:
+        """Spec 017, T032 (FR-012): los seis comandos de `device_automation/*`
+        (lista y capacidades van a la misma tool) y los cinco de targets son
+        `dedicated` hacia su tool de `automation_assist`, con la forma que
+        escribe el generador, y el mapa del generador los nombra.
+        Control negativo (T037, 4): `device_automation/trigger/capabilities`
+        de vuelta a `deny` → cae aquí (y
+        `test_desde_cero_igual_que_la_tabla_real` de test_generar_tabla)."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        once = {
+            "device_automation/trigger/list": ("ha_list_device_triggers", "CAP-051"),
+            "device_automation/trigger/capabilities": ("ha_list_device_triggers", "CAP-051"),
+            "device_automation/condition/list": ("ha_list_device_conditions", "CAP-051"),
+            "device_automation/condition/capabilities": ("ha_list_device_conditions", "CAP-051"),
+            "device_automation/action/list": ("ha_list_device_actions", "CAP-051"),
+            "device_automation/action/capabilities": ("ha_list_device_actions", "CAP-051"),
+            "extract_from_target": ("ha_resolve_target", "CAP-052"),
+            "explain_target": ("ha_explain_target", "CAP-052"),
+            "get_triggers_for_target": ("ha_list_triggers_for_target", "CAP-052"),
+            "get_conditions_for_target": ("ha_list_conditions_for_target", "CAP-052"),
+            "get_services_for_target": ("ha_list_actions_for_target", "CAP-052"),
+        }
+        for comando, (tool, cap) in once.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "automation_assist", tool, cap))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        # Ya no queda nada de la 017 «pendiente» (T053).
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 017)" in e.reason)
+        self.assertEqual(pendientes, [])
+
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
         otras = sorted(str(k) for k, e in _todas()

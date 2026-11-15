@@ -360,6 +360,31 @@ _DEDICADAS_INICIALES: dict[
     "diagnostics/list": "ha_list_diagnostics_handlers",
     "diagnostics/get": "ha_list_diagnostics_handlers",
     "persistent_notification/get": "ha_list_persistent_notifications",
+    # Blueprints (spec 017), clase A de vía D: las cuatro del tramo A e
+    # importar, del tramo B.
+    "blueprint/list": "ha_list_blueprints",
+    "blueprint/save": "ha_save_blueprint",
+    "blueprint/delete": "ha_delete_blueprint",
+    "blueprint/substitute": "ha_preview_blueprint_substitution",
+    "blueprint/import": "ha_import_blueprint",
+    # Ayuda para automatizar (spec 017, tramo C), clase A de vía D: lo que
+    # ofrece un dispositivo (lista y capacidades van a la misma tool) y los
+    # comandos de targets.
+    "device_automation/trigger/list": "ha_list_device_triggers",
+    "device_automation/trigger/capabilities": "ha_list_device_triggers",
+    "device_automation/condition/list": "ha_list_device_conditions",
+    "device_automation/condition/capabilities": "ha_list_device_conditions",
+    "device_automation/action/list": "ha_list_device_actions",
+    "device_automation/action/capabilities": "ha_list_device_actions",
+    "extract_from_target": "ha_resolve_target",
+    "explain_target": "ha_explain_target",
+    "get_triggers_for_target": "ha_list_triggers_for_target",
+    "get_conditions_for_target": "ha_list_conditions_for_target",
+    "get_services_for_target": "ha_list_actions_for_target",
+    # Espera de trigger (spec 017, tramo D): `subscribe_trigger` pasa de
+    # clase B a A con CAP-038 en el inventario (research R-13); un solo
+    # disparo, con lista cerrada de triggers.
+    "subscribe_trigger": "ha_wait_for_trigger",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
