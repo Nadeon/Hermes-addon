@@ -42,7 +42,10 @@ _ESQUEMAS_1_1_2 = pathlib.Path(__file__).resolve().parent / "fixtures" / "esquem
 # que la lista no envejezca.
 EXCEPCIONES_SOBRE: dict[str, str] = {}
 
-_PREFIJOS_DE_LISTA = ("ha_list_", "sv_list_")
+# Spec 034 (FR-030): también `fs_list_`, por `fs_list_dir_in_folder`. Las
+# `fs_list_*` de la 1.1.2 (`fs_list_dir`, `fs_list_file_backups`) no cuentan
+# como nuevas (están en la instantánea de esquemas) y conservan su forma.
+_PREFIJOS_DE_LISTA = ("ha_list_", "sv_list_", "fs_list_")
 
 
 # ── Constructor ───────────────────────────────────────────────────────────────
@@ -190,6 +193,21 @@ class TestTransversal:
         assert sobran == [], f"EXCEPCIONES_SOBRE nombra tools que no son nuevas: {sobran}"
         sin_motivo = sorted(n for n, m in EXCEPCIONES_SOBRE.items() if not m.strip())
         assert sin_motivo == [], f"EXCEPCIONES_SOBRE sin motivo: {sin_motivo}"
+
+    def test_cubre_las_fs_list_nuevas(self):
+        """Spec 034, T014 (FR-030): el transversal vigila
+        `fs_list_dir_in_folder` (nueva, con el sobre) y no las `fs_list_*` de
+        la 1.1.2. Control negativo comprobado: sin `fs_list_` en
+        `_PREFIJOS_DE_LISTA` cae este test; con `fs_list_dir_in_folder`
+        devolviendo la lista suelta, cae además
+        `test_las_listas_nuevas_usan_el_sobre`."""
+        nuevas = _tools_nuevas()
+        assert "fs_list_dir_in_folder" in nuevas
+        assert "fs_list_dir" not in nuevas
+        assert "fs_list_dir_in_folder".startswith(_PREFIJOS_DE_LISTA)
+        assert incumplen(_fuentes_reales(), {"fs_list_dir_in_folder"}) == []
+        # `fs_list_dir` (1.1.2) no usa el sobre: se señalaría si fuera nueva.
+        assert incumplen(_fuentes_reales(), {"fs_list_dir"}) == ["fs_list_dir"]
 
     def test_las_listas_de_la_1_1_2_no_se_vigilan(self):
         # `ha_list_areas` es de la 1.1.2 y conserva su forma (FR-015). Si

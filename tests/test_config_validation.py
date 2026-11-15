@@ -382,6 +382,8 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         self._cfg(["dashboard_reset"]).validate()
         # Spec 026: y la del mantenimiento del Marketplace.
         self._cfg(["marketplace_manage"]).validate()
+        # Spec 034 (FR-003): y la de las carpetas /addons y /share.
+        self._cfg(["addons_share"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

@@ -299,6 +299,46 @@ SECCIONES_1_2_0 = (
 )
 
 
+class TestMontajes(unittest.TestCase):
+    """Spec 034, T003 (FR-001, D-1, D-3, research R-1): el `map:` del
+    manifiesto.
+
+    Hermes monta su configuración (`homeassistant_config`), `share` y, desde
+    la 1.2.1, `addons` (la fuente de las apps locales), los tres con
+    escritura, y ninguna otra carpeta. `addons` es el tipo heredado (el
+    Supervisor 2026.11 lo avisa en su log): `local_apps` no lo conoce un
+    Supervisor anterior a 2026.07, que rechazaría el manifiesto entero.
+
+    Control negativo comprobado: sin la entrada `addons` cae
+    `test_monta_addons_con_escritura`; con `local_apps` en su lugar caen
+    también `test_no_usa_local_apps` y `test_solo_las_carpetas_previstas`.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        manifiesto = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+        cls.montajes = {m["type"]: m for m in manifiesto["map"]}
+        cls.lista = manifiesto["map"]
+
+    def test_monta_addons_con_escritura(self) -> None:
+        self.assertIn("addons", self.montajes)
+        self.assertIs(self.montajes["addons"].get("read_only"), False)
+
+    def test_share_y_la_configuracion_como_antes(self) -> None:
+        self.assertIs(self.montajes["share"].get("read_only"), False)
+        self.assertIs(self.montajes["homeassistant_config"].get("read_only"), False)
+
+    def test_solo_las_carpetas_previstas(self) -> None:
+        # D-1: ni /ssl, ni /media, ni /backup, ni /addon_configs.
+        self.assertEqual(len(self.lista), len(self.montajes), "tipo repetido")
+        self.assertEqual(
+            set(self.montajes), {"homeassistant_config", "share", "addons"}
+        )
+
+    def test_no_usa_local_apps(self) -> None:
+        self.assertNotIn("local_apps", self.montajes)
+
+
 class TestEntradaDelChangelog(unittest.TestCase):
     """FR-012 (009): la versión que se publica tiene su entrada en el CHANGELOG.
 

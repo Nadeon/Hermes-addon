@@ -262,6 +262,15 @@ def register_all_tools(
             safety_backup_encryption=safety_backup_encryption,
         )
 
+    # Ficheros de /addons (las apps locales) y /share (spec 034, 1.2.1).
+    # Familia propia, desactivable: las `fs_*` de /config no cambian. Lectura
+    # en `folders`; recibe `response_max_bytes` para recortar el listado y
+    # las líneas leídas, y el cliente del Supervisor para decir si la carpeta
+    # de una app local está instalada.
+    if _activa("addons_share"):
+        from hermes.tools.folders import register as register_folders
+        register_folders(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Supervisor — add-ons, supervisor/host/core, backups
     if _activa("supervisor"):
         from hermes.tools.addons import register as register_addons

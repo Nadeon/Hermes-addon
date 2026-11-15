@@ -91,6 +91,17 @@ map:
     read_only: false
   - type: share
     read_only: false
+  # Spec 034 (1.2.1): /addons, la carpeta de las apps locales, con escritura
+  # para las tools de la familia `addons_share` (y para borrar copias de
+  # desarrollo que ya no se usan). Es el tipo HEREDADO: el Supervisor 2026.11
+  # lo da por obsoleto desde 2026.07 y deja un aviso en su log («uses legacy
+  # map type 'addons'»), pero lo sigue montando en /addons con la misma fuente
+  # que `local_apps`. No se usa `local_apps` porque un Supervisor anterior a
+  # 2026.07 no lo conoce y rechazaría el manifiesto entero, y Hermes admite
+  # instalaciones desde Core 2024.10. Declarar los dos tampoco sirve: el
+  # Supervisor nuevo ignora el heredado y monta /local_apps.
+  - type: addons
+    read_only: false
 
 # ── Watchdog ───────────────────────────────────────────────────
 # El Supervisor hace GET desde la bridge hassio (172.30.32.x).

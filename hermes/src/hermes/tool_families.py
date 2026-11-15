@@ -2,9 +2,10 @@
 
 POR QUÉ EXISTE ESTE MÓDULO
 --------------------------
-Con el programa de cobertura total, Hermes pasa de 216 tools a 359 (las de
+Con el programa de cobertura total, Hermes pasa de 216 tools a 359 en la
+1.2.0, y con la familia `addons_share` de la 1.2.1, de 216 tools a 362 (las de
 una instalación normal; con `HERMES_DEV=1` se registra además la auxiliar
-`test_progress`, 360 en total, y por eso los tests que activan esa variable
+`test_progress`, 363 en total, y por eso los tests que activan esa variable
 cuentan una más que la documentación). Un cliente con poco contexto, o un
 usuario que no usa Lovelace ni el Marketplace, quiere poder apagar grupos enteros con una opción (`tool_families_disabled`).
 Una familia agrupa módulos de `hermes/tools/` por área —las mismas áreas que
@@ -18,7 +19,8 @@ cada entrada).
 Las familias de la 1.1.2 agrupan exactamente las 216 tools de esa versión; las
 tools nuevas del programa van en familias de la 1.2.0 (FR-010 de la 008), de
 modo que, desactivando todas las de la 1.2.0, la lista de tools vuelve a ser
-la de la 1.1.2.
+la de la 1.1.2. Las de la 1.2.1 (`addons_share`, spec 034) siguen la misma
+regla: apagándolas vuelve la lista de la 1.2.0.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ class Familia:
     nombre: str
     # En inglés: es lo que ve el usuario en DOCS.md y en el log de arranque.
     descripcion: str
-    # Versión en la que aparece la familia («1.1.2» o «1.2.0»).
+    # Versión en la que aparece la familia («1.1.2», «1.2.0» o «1.2.1»).
     desde: str
     desactivable: bool
     # Nombres de módulos de `hermes/tools/` (sin `.py`).
@@ -315,6 +317,17 @@ _CATALOGO: tuple[Familia, ...] = (
             "critical repositories, ignore removed ones, remove custom ones, "
             "refresh them and uninstall installed ones (backup first).",
             "1.2.0", True, ("marketplace_manage",)),
+    # Spec 034 (1.2.1, research R-3): ficheros de /addons (el código de las
+    # apps locales) y de /share. Familia propia y no `filesystem` (1.1.2,
+    # solo /config): las tools nuevas van en familias nuevas (FR-010 de la
+    # 008), así que, apagándola, la lista vuelve a ser la de la 1.2.0; y quien
+    # no quiera que un agente toque el código que el Supervisor construye y
+    # ejecuta, la apaga sola. Lectura en `folders`, escritura en
+    # `folders_write`.
+    Familia("addons_share",
+            "Read and write files under /addons (local apps) and /share; "
+            "every change in two steps, with no automatic backup.",
+            "1.2.1", True, ("folders", "folders_write")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

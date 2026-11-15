@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 359 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 362 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -234,6 +234,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `backup_integration` | 6 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear, borrar y restaurar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
 | `cameras` | 2 | Instantánea de una cámara e imagen de una entidad `image`, devueltas como imagen al cliente; solo lectura. Una cámara puede enseñar el interior de tu casa: desactívala si no quieres que Claude las vea (nueva en 1.2.0) |
 | `dashboard_reset` | 1 | Restablecer un dashboard de Lovelace al autogenerado (borra su configuración guardada), en dos pasos; el dashboard principal y el panel por defecto están protegidos (nueva en 1.2.0) |
+| `addons_share` | 3 | Ficheros de `/addons` (el código de las apps locales) y de `/share`: listar, ver metadatos y leer texto, con las mismas comprobaciones de ruta y los mismos nombres bloqueados que en `/config` (nueva en 1.2.1; por ahora solo lectura) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -252,7 +253,7 @@ familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 `energy`, `system_control`, `resolution_fixes`, `core_config`,
 `assistant_exposure`, `users`, `core_network`, `host_control`,
 `host_network`, `conversation`, `backup_integration`, `cameras`,
-`dashboard_reset` y `marketplace_manage`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`dashboard_reset` y `marketplace_manage`) y la de la 1.2.1 (`addons_share`) desactivadas, la lista de tools es exactamente la de la 1.1.2; apagando solo `addons_share`, la de la 1.2.0.
 
 ### Tools genéricas
 
