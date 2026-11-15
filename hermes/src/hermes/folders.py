@@ -32,7 +32,9 @@ import hashlib
 import json
 import os
 import stat as _stat
+import shutil
 import time
+import weakref as _weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -449,6 +451,140 @@ def inspeccionar(p: Path) -> dict[str, Any]:
         "recuento": _recuento_de_lista(lista),
         "size": None,
     }
+
+
+# ── Candado y operación final (convergencia T048 y T049) ──────────────────────
+#
+# La vista previa y la confirmación resuelven la ruta al principio; la
+# operación llega después de varios `await` (el token, la petición al
+# Supervisor, el recorrido de /addons). En ese hueco otra confirmación de
+# Hermes podía cambiar una carpeta intermedia por un symlink que apunta fuera
+# (mover un symlink se admite) y `rmtree`, `mkdir` o la escritura lo habrían
+# seguido. Dos defensas:
+#
+# 1. Un candado por carpeta, compartido por TODAS las confirmaciones que
+#    modifican esa carpeta (y por la de instalar o reconstruir una app local,
+#    T047): ninguna escritura de Hermes se cuela en medio de otra.
+# 2. Dentro del mismo hilo, sin ningún `await` entre medias, la ruta se
+#    vuelve a resolver y validar justo antes de la llamada al sistema
+#    (`revalidar`) y, donde el sistema lo da (Linux), se opera relativo al
+#    descriptor de la carpeta padre abierta componente a componente con
+#    `O_NOFOLLOW` (`abrir_padre`): ni siquiera un cambio externo en ese
+#    instante haría seguir un symlink intermedio. En Windows no hay
+#    `dir_fd`: queda la revalidación (camino probado por los tests).
+
+_CANDADOS: "_weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]]" = (
+    _weakref.WeakKeyDictionary())
+
+
+def candado(folder: object) -> asyncio.Lock:
+    """El candado de `folder` en el bucle actual (uno por bucle: un
+    `asyncio.Lock` no se puede compartir entre bucles, y los tests crean uno
+    por test). Una carpeta no válida recibe uno propio, que no comparte
+    nada (la llamada se rechazará de todos modos)."""
+    if not isinstance(folder, str) or folder not in CARPETAS:
+        return asyncio.Lock()
+    por_bucle = _CANDADOS.setdefault(asyncio.get_running_loop(), {})
+    return por_bucle.setdefault(folder, asyncio.Lock())
+
+
+class RutaCambiada(PathTraversalError):
+    """La ruta ya no resuelve a lo que se validó (T048)."""
+
+    codigo = "path_changed"
+
+    def respuesta(self) -> dict[str, Any]:
+        return {
+            "error": self.codigo,
+            "detail": ("The path changed while confirming (a folder on the way was "
+                       "moved or replaced, for example by a symlink). Nothing was "
+                       "done; request a new preview."),
+        }
+
+
+class NoRegular(OSError):
+    """El objetivo existe y no es un fichero regular (T049)."""
+
+    codigo = "not_regular_file"
+
+    def respuesta(self, rel: str) -> dict[str, Any]:
+        return {"error": self.codigo, "path": rel,
+                "detail": ("Not a regular file (a FIFO, socket or device): it is not "
+                           "read nor written, so nothing can block waiting on it.")}
+
+
+def revalidar(folder: str, rel: str, p: Path, *, seguir: bool) -> None:
+    """Vuelve a resolver `rel` y comprueba que da `p` y que su carpeta padre
+    sigue siendo un camino sin symlinks dentro de la raíz. Síncrono: se
+    llama en el mismo hilo que la operación, justo antes.
+
+    Raises:
+        RutaCambiada: si no.
+    """
+    try:
+        nueva = normalizar(folder, rel) if seguir else normalizar_sin_seguir(folder, rel)
+    except (PathTraversalError, CarpetaError) as exc:
+        raise RutaCambiada(str(exc)) from exc
+    if nueva != p or os.path.realpath(p.parent) != os.fspath(p.parent):
+        raise RutaCambiada(f"{rel!r} no longer resolves to the validated path")
+
+
+_O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+#: True donde se puede operar relativo a un descriptor de carpeta sin seguir
+#: symlinks (Linux). Mutable para los tests (que prueban los dos caminos).
+USAR_DIR_FD: bool = bool(
+    _O_DIRECTORY and _O_NOFOLLOW
+    and {os.open, os.mkdir, os.rename, os.unlink, os.rmdir} <= os.supports_dir_fd
+    and getattr(shutil.rmtree, "avoids_symlink_attacks", False)
+)
+
+
+def abrir_padre(base: Path, padre: Path, *, crear: bool = False) -> int:
+    """Descriptor de `padre` abierto desde `base` componente a componente con
+    `O_NOFOLLOW|O_DIRECTORY` (un symlink en el camino da error, no se sigue).
+    Con `crear`, crea las carpetas que falten (como `mkdir -p`). Solo con
+    `USAR_DIR_FD`. Quien llama cierra el descriptor.
+
+    Raises:
+        RutaCambiada: un componente es un symlink o no es una carpeta.
+    """
+    flags = os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW
+    fd = os.open(base, flags)
+    try:
+        for parte in padre.relative_to(base).parts:
+            if crear:
+                try:
+                    os.mkdir(parte, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            try:
+                nuevo = os.open(parte, flags, dir_fd=fd)
+            except (NotADirectoryError, OSError) as exc:
+                if isinstance(exc, FileNotFoundError):
+                    raise
+                raise RutaCambiada(f"{parte!r} is not a plain directory") from exc
+            os.close(fd)
+            fd = nuevo
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def exigir_regular_o_ausente(p: Path) -> None:
+    """T049: lo que se va a sobrescribir es un fichero regular (o no existe).
+
+    Raises:
+        NoRegular: si existe y es otra cosa (FIFO, socket, dispositivo…).
+    """
+    try:
+        modo = os.lstat(p).st_mode
+    except FileNotFoundError:
+        return
+    if not _stat.S_ISREG(modo):
+        raise NoRegular(f"{p.name!r} is not a regular file")
 
 
 # ── Índice de apps locales (/addons) ──────────────────────────────────────────

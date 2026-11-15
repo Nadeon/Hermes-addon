@@ -717,6 +717,9 @@ class TestBorrar:
                   PermissionError("denied"))
             onexc(os.rmdir, os.fspath(path), OSError("not empty"))
 
+        # Por ruta: el `rmtree` falso no sabe de `dir_fd` (T048); los dos
+        # caminos se prueban en `test_los_dos_caminos_*`.
+        monkeypatch.setattr(folders, "USAR_DIR_FD", False)
         monkeypatch.setattr(folders_write.shutil, "rmtree", rmtree_a_medias)
         c = _confirmar(t, "fs_delete_in_folder", folder, r, path="d", recursive=True)
         assert c.get("error") == "partial" and c["partial"] is True
@@ -1007,3 +1010,238 @@ def test_rmtree_del_modulo_es_el_de_shutil() -> None:
     # módulo tiene que usar `shutil` por su nombre (y no un `from shutil
     # import rmtree`), o el parche no llegaría.
     assert folders_write.shutil is shutil
+
+
+# ── Convergencia T048: candado y revalidación justo antes de operar ───────────
+
+
+@pytest.fixture(params=["dir_fd", "ruta"])
+def camino(request, monkeypatch) -> str:
+    """Los dos caminos de la operación final: relativa al descriptor de la
+    carpeta padre (donde el sistema lo da: Linux) y por ruta (Windows)."""
+    if request.param == "dir_fd" and not folders.USAR_DIR_FD:
+        pytest.skip("este sistema no da operaciones relativas a un descriptor")
+    monkeypatch.setattr(folders, "USAR_DIR_FD", request.param == "dir_fd")
+    return request.param
+
+
+@pytest.mark.parametrize("folder", CARPETAS)
+@pytest.mark.parametrize("tool", list(CASOS))
+def test_los_dos_caminos_hacen_lo_previsualizado(raices, folder, tool, camino) -> None:
+    base = raices[folder]
+    _arbol(base)
+    t = _tools()
+    r = _llamar(t, tool, folder=folder, **CASOS[tool])
+    c = _confirmar(t, tool, folder, r, **CASOS[tool])
+    assert c.get("result") == "ok", c
+    assert _efecto_hecho(tool, base)
+
+
+def test_los_dos_caminos_borran_carpeta_vacia_y_symlink(raices, camino, tmp_path) -> None:
+    base = raices["share"]
+    (base / "vacia").mkdir()
+    fuera = tmp_path / "fuera"
+    _escribir(fuera / "no.txt", "no\n")
+    t = _tools()
+    r = _llamar(t, "fs_delete_in_folder", folder="share", path="vacia")
+    assert _confirmar(t, "fs_delete_in_folder", "share", r, path="vacia")["result"] == "ok"
+    assert not (base / "vacia").exists()
+    _symlink(base / "enlace", fuera, dir=True)
+    r = _llamar(t, "fs_delete_in_folder", folder="share", path="enlace")
+    assert _confirmar(t, "fs_delete_in_folder", "share", r, path="enlace")["result"] == "ok"
+    assert not os.path.lexists(base / "enlace") and (fuera / "no.txt").exists()
+
+
+def _traza_de_tokens(monkeypatch) -> list[str]:
+    """Parchea la comprobación del token (lo primero de una confirmación)
+    para que tarde y deje traza de cuándo entra y sale cada carpeta."""
+    traza: list[str] = []
+    real = folders_write.resolve_confirmation_token
+
+    async def lento(token, tool, args, **kw):
+        traza.append("entra " + args["folder"])
+        await asyncio.sleep(0.05)
+        try:
+            return await real(token, tool, args, **kw)
+        finally:
+            traza.append("sale " + args["folder"])
+
+    monkeypatch.setattr(folders_write, "resolve_confirmation_token", lento)
+    return traza
+
+
+@pytest.mark.parametrize("folder", CARPETAS)
+def test_confirmaciones_de_una_carpeta_van_de_una_en_una(raices, folder, monkeypatch) -> None:
+    # Dos confirmaciones a la vez en la misma carpeta: la segunda no empieza
+    # hasta que la primera acaba (de la comprobación del token a la llamada
+    # al sistema).
+    # Control negativo comprobado: sin `@_con_candado` las trazas se
+    # entrelazan (entra, entra, sale, sale) y cae este test.
+    base = raices[folder]
+    _escribir(base / "a.txt", "a\n")
+    _escribir(base / "b.txt", "b\n")
+    t = _tools()
+    previas = {n: _llamar(t, "fs_delete_in_folder", folder=folder, path=n)
+               for n in ("a.txt", "b.txt")}
+    traza = _traza_de_tokens(monkeypatch)
+
+    async def dos() -> list[Any]:
+        return await asyncio.gather(*(
+            t["fs_delete_in_folder"](folder=folder, path=n,
+                                     confirmation_token=previas[n]["confirmation_token"])
+            for n in ("a.txt", "b.txt")))
+
+    r1, r2 = asyncio.run(dos())
+    assert r1["result"] == r2["result"] == "ok"
+    assert traza == ["entra " + folder, "sale " + folder] * 2
+
+
+def test_carpetas_distintas_no_se_esperan(raices, monkeypatch) -> None:
+    for b in raices.values():
+        _escribir(b / "a.txt", "a\n")
+    t = _tools()
+    previas = {f: _llamar(t, "fs_delete_in_folder", folder=f, path="a.txt")
+               for f in CARPETAS}
+    traza = _traza_de_tokens(monkeypatch)
+
+    async def dos() -> list[Any]:
+        return await asyncio.gather(*(
+            t["fs_delete_in_folder"](folder=f, path="a.txt",
+                                     confirmation_token=previas[f]["confirmation_token"])
+            for f in CARPETAS))
+
+    asyncio.run(dos())
+    assert traza[:2] == ["entra addons", "entra share"]
+
+
+@pytest.mark.parametrize("tool", list(CASOS))
+def test_la_ruta_que_ya_no_resuelve_igual_no_se_toca(raices, tool, monkeypatch, camino) -> None:
+    # T048, independiente del sistema operativo: si al revalidar (en el hilo,
+    # justo antes de la llamada al sistema) la ruta resuelve a otra cosa, no
+    # se hace nada y la respuesta es `path_changed`. Se simula que la
+    # resolución cambia DESPUÉS de las comprobaciones de la tool, en
+    # `revalidar`, que es lo que llama la operación final.
+    # Control negativo comprobado: sin `folders.revalidar` en las cuatro
+    # operaciones se hace la operación y caen las cuatro variantes.
+    base = raices["share"]
+    _arbol(base)
+    t = _tools()
+    r = _llamar(t, tool, folder="share", **CASOS[tool])
+    antes = _foto(base)
+    reales = {True: folders.normalizar, False: folders.normalizar_sin_seguir}
+    revalidar_real = folders.revalidar
+
+    def revalidar_con_cambio(folder, rel, p, *, seguir):
+        with monkeypatch.context() as m:
+            # Durante la revalidación, la ruta resuelve a otro sitio (como si
+            # una carpeta intermedia hubiera cambiado).
+            m.setattr(folders, "normalizar",
+                      lambda f, q: reales[True](f, q).parent / "otra")
+            m.setattr(folders, "normalizar_sin_seguir",
+                      lambda f, q: reales[False](f, q).parent / "otra")
+            return revalidar_real(folder, rel, p, seguir=seguir)
+
+    monkeypatch.setattr(folders, "revalidar", revalidar_con_cambio)
+    c = _confirmar(t, tool, "share", r, **CASOS[tool])
+    assert c.get("error") == "path_changed", c
+    assert _foto(base) == antes
+
+
+def test_carrera_con_symlink_intermedio_no_borra_fuera(raices, tmp_path, monkeypatch, camino) -> None:
+    # T048 de verdad (symlinks: en el CI de Linux): entre la validación y el
+    # borrado otra operación cambia una carpeta intermedia por un symlink
+    # que apunta fuera. El `rmtree` no lo sigue: `path_changed` y lo de
+    # fuera, intacto. Control negativo en el CI (rama desechable): sin
+    # revalidar y sin `dir_fd`, se borraba `fuera/y`.
+    base = raices["share"]
+    _escribir(base / "x" / "y" / "dentro.txt", "d\n")
+    fuera = tmp_path / "fuera"
+    _escribir(fuera / "y" / "valioso.txt", "v\n")
+    _symlink(tmp_path / "prueba_enlace", fuera, dir=True)
+    os.unlink(tmp_path / "prueba_enlace")
+    t = _tools()
+    r = _llamar(t, "fs_delete_in_folder", folder="share", path="x/y", recursive=True)
+    assert "confirmation_token" in r
+    real = folders_write.resolve_confirmation_token
+
+    async def con_cambio(token, tool, args, **kw):
+        os.rename(base / "x", base / "x_old")
+        os.symlink(fuera, base / "x", target_is_directory=True)
+        return await real(token, tool, args, **kw)
+
+    monkeypatch.setattr(folders_write, "resolve_confirmation_token", con_cambio)
+    c = _confirmar(t, "fs_delete_in_folder", "share", r, path="x/y", recursive=True)
+    assert (fuera / "y" / "valioso.txt").exists(), c
+    assert c.get("error") == "path_changed", c
+
+
+# ── Convergencia T049: solo se sobrescriben ficheros regulares ────────────────
+
+
+def _lstat_fifo(m, objetivo: pathlib.Path) -> None:
+    import stat as stat_mod
+
+    real = os.lstat
+
+    def falso(p, *a, **k):
+        st = real(p, *a, **k)
+        if pathlib.Path(p) == objetivo:
+            campos = list(st)
+            campos[0] = stat_mod.S_IFIFO | 0o644
+            return os.stat_result(campos)
+        return st
+
+    m.setattr(folders.os, "lstat", falso)
+
+
+@pytest.mark.parametrize("folder", CARPETAS)
+def test_escribir_sobre_algo_no_regular(raices, folder, monkeypatch) -> None:
+    # Independiente del sistema operativo: un `lstat` que dice FIFO →
+    # `not_regular_file` sin token en la vista previa y, si aparece entre la
+    # vista previa y la confirmación, al confirmar, sin escribir.
+    # Control negativo comprobado: sin `exigir_regular_o_ausente` en
+    # `comprobar` y en `escribir` caen las dos variantes.
+    base = raices[folder]
+    _escribir(base / "fifo", "x\n")
+    t = _tools()
+    r = _llamar(t, "fs_write_file_in_folder", folder=folder, path="fifo", content="y\n")
+    assert "confirmation_token" in r
+    huella_real = folders.huella
+    de_antes = huella_real(base / "fifo")
+    with monkeypatch.context() as m:
+        _lstat_fifo(m, base / "fifo")
+        sin = _llamar(t, "fs_write_file_in_folder", folder=folder, path="fifo", content="y\n")
+        assert sin["error"] == "not_regular_file" and "confirmation_token" not in sin
+        # Que aparezca DESPUÉS de calcular la huella del token (si no, la
+        # huella ya cambia y es `preview_outdated`, que también protege).
+        m.setattr(folders, "huella",
+                  lambda q: de_antes if q == base / "fifo" else huella_real(q))
+        escritos: list[Any] = []
+        m.setattr(folders_write, "safe_write_file", lambda *a: escritos.append(a))
+        c = _confirmar(t, "fs_write_file_in_folder", folder, r, path="fifo")
+        assert c["error"] == "not_regular_file" and escritos == []
+    assert _leido(base / "fifo") == b"x\n"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="sin FIFO en este sistema")
+def test_escribir_sobre_un_fifo_real_no_bloquea(raices) -> None:
+    # En Linux (CI): `safe_write_file` leía el original y se bloqueaba en un
+    # FIFO sin escritor. Si vuelve a bloquear, falla por tiempo y el
+    # `finally` desbloquea el hilo. Control negativo en el CI (rama
+    # desechable).
+    f = raices["share"] / "snapfifo"
+    os.mkfifo(f)
+    t = _tools()
+
+    async def escribir() -> Any:
+        return await asyncio.wait_for(t["fs_write_file_in_folder"](
+            folder="share", path="snapfifo", content="x\n"), 5)
+
+    try:
+        r = asyncio.run(escribir())
+    finally:
+        try:
+            os.close(os.open(f, os.O_WRONLY | os.O_NONBLOCK))
+        except OSError:
+            pass
+    assert r["error"] == "not_regular_file"

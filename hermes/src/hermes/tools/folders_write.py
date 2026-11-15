@@ -26,6 +26,11 @@ POR QUÉ ASÍ
   fuera de la carpeta; el borrado recursivo no sigue ninguno y no entra en
   puntos de montaje (un NAS bajo `/share`): borrar o mover algo que los
   contiene se rechaza.
+- Las confirmaciones de una carpeta van de una en una (`folders.candado`)
+  y la operación final vuelve a resolver la ruta en su hilo, justo antes de
+  la llamada al sistema, y opera relativa al descriptor de la carpeta padre
+  donde el sistema lo da (convergencia T048). Solo se sobrescriben ficheros
+  regulares (T049).
 - No hay backup (research R-6): la vista previa lo dice (`backup: null`) y
   da la llamada exacta para hacerlo antes.
 
@@ -37,7 +42,9 @@ rutas.
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
+import inspect
 import os
 import shutil
 from pathlib import Path
@@ -202,6 +209,56 @@ def _mount_point(rel: str) -> dict[str, Any]:
     }
 
 
+def _con_candado(fn: Any) -> Any:
+    """Las confirmaciones (con `confirmation_token`) de una carpeta van de una
+    en una bajo `folders.candado(folder)` (convergencia T048): de la
+    comprobación del token a la llamada al sistema, ninguna otra escritura de
+    Hermes en esa carpeta se cuela en medio. Las vistas previas no lo toman.
+    `functools.wraps` conserva el nombre, la firma y las anotaciones (el
+    esquema MCP no cambia)."""
+    firma = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    async def envoltura(*args: Any, **kwargs: Any) -> Any:
+        argumentos = firma.bind_partial(*args, **kwargs).arguments
+        if not argumentos.get("confirmation_token"):
+            return await fn(*args, **kwargs)
+        async with _folders.candado(argumentos.get("folder")):
+            return await fn(*args, **kwargs)
+    return envoltura
+
+
+def _en_padre(base: Path, p: Path, operar_fd: Any, operar_ruta: Any, *,
+              crear: bool = False) -> Any:
+    """La llamada al sistema final sobre `p` (T048): relativa al descriptor
+    de su carpeta padre, abierta desde la raíz sin seguir symlinks, donde el
+    sistema lo da (Linux); por ruta donde no (Windows), con la revalidación
+    previa como defensa. Se llama en el mismo hilo, justo después de
+    `folders.revalidar`. `crear` crea las carpetas padre que falten."""
+    if not _folders.USAR_DIR_FD:
+        if crear:
+            p.parent.mkdir(parents=True, exist_ok=True)
+        return operar_ruta(p)
+    fd = _folders.abrir_padre(base, p.parent, crear=crear)
+    try:
+        return operar_fd(p.name, fd)
+    finally:
+        os.close(fd)
+
+
+def _fallo_de_operacion(exc: Exception, rel: str) -> dict[str, Any]:
+    """La respuesta de un fallo en la operación final."""
+    if isinstance(exc, _folders.RutaCambiada):
+        return exc.respuesta()
+    if isinstance(exc, _folders.NoRegular):
+        return exc.respuesta(rel)
+    return {"error": "io_error", "detail": str(exc)}
+
+
+#: Lo que puede fallar en la operación final (`RutaCambiada` no es OSError).
+_FALLOS = (_folders.RutaCambiada, OSError)
+
+
 def _faltan_padres(base: Path, p: Path) -> tuple[list[Path], dict[str, Any] | None]:
     """Padres de `p` que no existen (de arriba abajo), o el rechazo si el
     más cercano que existe no es una carpeta."""
@@ -232,6 +289,7 @@ def register(
     # ── fs_write_file_in_folder ───────────────────────────────────────────────
 
     @mcp.tool()
+    @_con_candado
     async def fs_write_file_in_folder(
         folder: str,
         path: str,
@@ -266,8 +324,11 @@ def register(
             "new_sha256_12", "is_blacklisted", "backup": null, ...}}.
             Confirmed: {"result": "ok", "action", "folder", "path",
             "bytes_written"}. Errors: invalid_argument, folder_unavailable,
-            traversal, is_directory, not_a_directory, installed_app,
-            installed_check_failed, preview_outdated, io_error.
+            traversal, is_directory, not_a_directory, not_regular_file (a
+            FIFO, socket or device is never overwritten), installed_app,
+            installed_check_failed, preview_outdated, path_changed (a
+            folder on the way changed while confirming: nothing was done),
+            io_error.
         """
         tool = "fs_write_file_in_folder"
         p = _resolver(folder, path)
@@ -280,6 +341,10 @@ def register(
             if p.is_dir():
                 return {"error": "is_directory", "path": rel,
                         "hint": "fs_write_file_in_folder only writes files."}
+            try:
+                _folders.exigir_regular_o_ausente(p)
+            except _folders.NoRegular as exc:
+                return exc.respuesta(rel)
             return _faltan_padres(base, p)[1]
 
         if not confirmation_token and (error := comprobar()):
@@ -342,16 +407,21 @@ def register(
                                    contenido=content)
         if error:
             return await _fallo(tool, folder, rel, confirmation_token, error)
-        try:
-            def escribir() -> int:
-                p.parent.mkdir(parents=True, exist_ok=True)
-                safe_write_file(p, content)
-                return os.lstat(p).st_size
+        def escribir() -> int:
+            # T048 y T049: en este hilo y sin `await` hasta la escritura.
+            _folders.revalidar(folder, rel, p, seguir=True)
+            # Crea los padres que falten sin seguir symlinks (o por ruta).
+            _en_padre(base, p, lambda _n, _fd: None, lambda _p: None, crear=True)
+            _folders.revalidar(folder, rel, p, seguir=True)
+            _folders.exigir_regular_o_ausente(p)
+            safe_write_file(p, content)
+            return os.lstat(p).st_size
 
+        try:
             escritos = await asyncio.to_thread(escribir)
-        except OSError as exc:
+        except _FALLOS as exc:
             return await _fallo(tool, folder, rel, confirmation_token,
-                                {"error": "io_error", "detail": str(exc)})
+                                _fallo_de_operacion(exc, rel))
         respuesta = {"result": "ok", "action": "write", "folder": folder, "path": rel,
                      "bytes_written": escritos}
         await complete_confirmation_token(confirmation_token, success=True, result=respuesta)
@@ -361,6 +431,7 @@ def register(
     # ── fs_create_dir_in_folder ───────────────────────────────────────────────
 
     @mcp.tool()
+    @_con_candado
     async def fs_create_dir_in_folder(
         folder: str,
         path: str,
@@ -383,7 +454,7 @@ def register(
             null, "reversible": true, ...}}. Confirmed: {"result": "ok",
             "action", "folder", "path", "created"}. Errors: invalid_argument,
             folder_unavailable, traversal, already_exists, not_a_directory,
-            preview_outdated, io_error.
+            preview_outdated, path_changed, io_error.
         """
         tool = "fs_create_dir_in_folder"
         p = _resolver(folder, path)
@@ -427,11 +498,17 @@ def register(
         faltan, error = comprobar()
         if error:
             return await _fallo(tool, folder, rel, confirmation_token, error)
+        def crear() -> None:
+            # T048: revalidada en este hilo, justo antes de crear.
+            _folders.revalidar(folder, rel, p, seguir=True)
+            _en_padre(base, p, lambda nombre, fd: os.mkdir(nombre, dir_fd=fd),
+                      lambda q: q.mkdir(parents=True, exist_ok=False), crear=True)
+
         try:
-            await asyncio.to_thread(p.mkdir, parents=True, exist_ok=False)
-        except OSError as exc:
+            await asyncio.to_thread(crear)
+        except _FALLOS as exc:
             return await _fallo(tool, folder, rel, confirmation_token,
-                                {"error": "io_error", "detail": str(exc)})
+                                _fallo_de_operacion(exc, rel))
         respuesta = {
             "result": "ok", "action": "create_dir", "folder": folder, "path": rel,
             "created": [_folders.relativa(folder, f) for f in faltan] + [rel],
@@ -463,6 +540,7 @@ def register(
         return None
 
     @mcp.tool()
+    @_con_candado
     async def fs_move_in_folder(
         folder: str,
         src: str,
@@ -491,7 +569,7 @@ def register(
             "dst"}. Errors: the ones above plus invalid_argument,
             folder_unavailable, traversal, too_large_to_preview,
             installed_check_failed, installed_check_inconclusive,
-            preview_outdated, io_error.
+            preview_outdated, path_changed, io_error.
         """
         tool = "fs_move_in_folder"
         src_p = _sin_seguir(folder, src)
@@ -544,14 +622,34 @@ def register(
                                    otras=(rel_dst,))
         if error:
             return await _fallo(tool, folder, rel_src, confirmation_token, error)
-        try:
+        base = _folders.raiz(folder)
+
+        def mover() -> None:
+            # T048: las dos rutas, revalidadas en este hilo justo antes.
+            _folders.revalidar(folder, rel_src, src_p, seguir=False)
+            _folders.revalidar(folder, rel_dst, dst_p, seguir=False)
             # `rename` y no `shutil.move`: dentro de la misma carpeta es una
             # operación atómica y, si cruzara de sistema de ficheros (un NAS
             # bajo /share), falla en vez de copiar y borrar a medias.
-            await asyncio.to_thread(os.rename, src_p, dst_p)
-        except OSError as exc:
+            if not _folders.USAR_DIR_FD:
+                os.rename(src_p, dst_p)
+                return
+            fd_src = _folders.abrir_padre(base, src_p.parent)
+            try:
+                fd_dst = _folders.abrir_padre(base, dst_p.parent)
+                try:
+                    os.rename(src_p.name, dst_p.name, src_dir_fd=fd_src,
+                              dst_dir_fd=fd_dst)
+                finally:
+                    os.close(fd_dst)
+            finally:
+                os.close(fd_src)
+
+        try:
+            await asyncio.to_thread(mover)
+        except _FALLOS as exc:
             return await _fallo(tool, folder, rel_src, confirmation_token,
-                                {"error": "io_error", "detail": str(exc)})
+                                _fallo_de_operacion(exc, rel_src))
         respuesta = {"result": "ok", "action": "move", "folder": folder,
                      "src": rel_src, "dst": rel_dst}
         await complete_confirmation_token(confirmation_token, success=True, result=respuesta)
@@ -577,6 +675,7 @@ def register(
         return None
 
     @mcp.tool()
+    @_con_candado
     async def fs_delete_in_folder(
         folder: str,
         path: str,
@@ -611,7 +710,7 @@ def register(
             "remaining"}. Errors: the ones above plus invalid_argument,
             folder_unavailable, traversal, not_found, directory_not_empty,
             installed_check_failed, installed_check_inconclusive,
-            preview_outdated, io_error.
+            preview_outdated, path_changed, io_error.
         """
         tool = "fs_delete_in_folder"
         p = _sin_seguir(folder, path)
@@ -661,23 +760,33 @@ def register(
         if error:
             return await _fallo(tool, folder, rel, confirmation_token, error)
 
+        base = _folders.raiz(folder)
+
+        def en_su_sitio(operar_fd: Any, operar_ruta: Any) -> Any:
+            # T048: revalidada en este hilo, justo antes de la llamada.
+            _folders.revalidar(folder, rel, p, seguir=False)
+            return _en_padre(base, p, operar_fd, operar_ruta)
+
         if info["tipo"] != "dir":
             borrado = {"files": 0 if info["tipo"] == "symlink" else 1, "dirs": 0,
                        "symlinks": 1 if info["tipo"] == "symlink" else 0}
             try:
-                await asyncio.to_thread(_quitar_enlace_o_fichero, p)
-            except OSError as exc:
+                await asyncio.to_thread(
+                    en_su_sitio, lambda nombre, fd: os.unlink(nombre, dir_fd=fd),
+                    _quitar_enlace_o_fichero)
+            except _FALLOS as exc:
                 return await _fallo(tool, folder, rel, confirmation_token,
-                                    {"error": "io_error", "detail": str(exc)})
+                                    _fallo_de_operacion(exc, rel))
         elif not recursive:
             # Vacía (lo dice la huella, que no ha cambiado): `rmdir`, que
             # además falla si algo apareció dentro en este instante.
             borrado = {"files": 0, "dirs": 1, "symlinks": 0}
             try:
-                await asyncio.to_thread(os.rmdir, p)
-            except OSError as exc:
+                await asyncio.to_thread(
+                    en_su_sitio, lambda nombre, fd: os.rmdir(nombre, dir_fd=fd), os.rmdir)
+            except _FALLOS as exc:
                 return await _fallo(tool, folder, rel, confirmation_token,
-                                    {"error": "io_error", "detail": str(exc)})
+                                    _fallo_de_operacion(exc, rel))
         else:
             cuenta = info["recuento"]
             borrado = {"files": cuenta["files"], "dirs": cuenta["dirs"] + 1,
@@ -689,8 +798,16 @@ def register(
                 errores.append(f"{os.fspath(ruta)}: {exc}")
 
             # `shutil.rmtree` no sigue symlinks (en Linux usa la variante con
-            # descriptores, segura frente a un symlink que aparece a medias).
-            await asyncio.to_thread(shutil.rmtree, p, onexc=anotar)
+            # descriptores, segura frente a un symlink que aparece a medias);
+            # con `dir_fd`, tampoco uno que cambie una carpeta intermedia.
+            try:
+                await asyncio.to_thread(
+                    en_su_sitio,
+                    lambda nombre, fd: shutil.rmtree(nombre, dir_fd=fd, onexc=anotar),
+                    lambda q: shutil.rmtree(q, onexc=anotar))
+            except _FALLOS as exc:
+                return await _fallo(tool, folder, rel, confirmation_token,
+                                    _fallo_de_operacion(exc, rel))
             if os.path.lexists(p) or errores:
                 try:
                     queda = await asyncio.to_thread(_folders.recuento, p)
