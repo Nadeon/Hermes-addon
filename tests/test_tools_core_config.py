@@ -392,5 +392,42 @@ class TestZonaHorariaPrimero(_Base):
             {"type": "config/core/update", "time_zone": "Europe/Madrid"}])
 
 
+# ── URL con credenciales (revisión final 1.2.0, BAJO-2) ─────────────────────
+# Control negativo, comprobado: con `redact_structure` (solo por clave) en las
+# tres salidas, como antes, caen las tres de esta clase.
+
+_URL_CON_CLAVE = "https://usuario:centinela-021@homeassistant.tailXXXX.ts.net"
+_URL_TAPADA = "https://usuario:***@homeassistant.tailXXXX.ts.net"
+
+
+class TestUrlConCredenciales(_Base):
+    async def test_al_leer_sale_tapada(self) -> None:
+        # `get_config` de HA 2026.11.1 da las URLs tal cual las guarda.
+        self.config["external_url"] = _URL_CON_CLAVE
+        self.config["internal_url"] = "http://usuario:centinela-021@192.0.2.10:8123"
+        r = await self.t["ha_get_core_config"]()
+        self.assertEqual(r["external_url"], _URL_TAPADA)
+        self.assertEqual(r["internal_url"], "http://usuario:***@192.0.2.10:8123")
+        self.assertNotIn("centinela-021", json.dumps(r))
+
+    async def test_vista_previa_tapa_el_antes(self) -> None:
+        self.config["external_url"] = _URL_CON_CLAVE
+        vista = await self.t["ha_update_core_config"](external_url="")
+        cambio = vista["preview"]["changes"]["external_url"]
+        self.assertEqual(cambio, {"before": _URL_TAPADA, "after": None})
+        self.assertNotIn("centinela-021", json.dumps(vista) + self.ficheros_de_tokens())
+
+    async def test_confirmacion_tapa_lo_releido(self) -> None:
+        self.escrituras_esperadas = 1
+        vista = await self.t["ha_update_core_config"](external_url=_URL_CON_CLAVE)
+        self.assertEqual(vista["preview"]["changes"]["external_url"]["after"], _URL_TAPADA)
+        r = await self.t["ha_update_core_config"](
+            external_url=_URL_CON_CLAVE, confirmation_token=vista["confirmation_token"])
+        # A HA se le manda la de verdad; al cliente vuelve tapada.
+        self.assertEqual(self.updates()[0]["external_url"], _URL_CON_CLAVE)
+        self.assertEqual(r["config"]["external_url"], _URL_TAPADA)
+        self.assertNotIn("centinela-021", json.dumps(r) + self.ficheros_de_tokens())
+
+
 if __name__ == "__main__":
     unittest.main()
