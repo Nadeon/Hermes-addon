@@ -374,9 +374,12 @@ _Pendiente: la añade la sub-feature que lo implemente._
     puede saber.
   - `sv_set_supervisor_options`: solo `timezone` (también la del host),
     `country`, `logging`, `auto_update` y `diagnostics`, validadas antes de
-    llamar, con avisos de `auto_update=false` y `diagnostics=true`
-    (informes a un tercero). `channel` y las opciones de desarrollo se
-    rechazan.
+    llamar, con avisos de `auto_update=false` (instalación no soportada y
+    actualizaciones de apps, Core, OS y plugins bloqueadas en cuanto salga un
+    Supervisor nuevo), `auto_update=true` (el Supervisor se actualiza y se
+    reinicia solo) y `diagnostics` (cambia también los del OS Agent;
+    `true` envía informes a un tercero). `channel` y las opciones de
+    desarrollo se rechazan.
   - Si Hermes no puede saber si una operación terminó (tiempo vencido o
     conexión cortada), responde `status: "started"` con la tool con la que
     comprobarlo, nunca un «ok» ni un error inventados.
@@ -401,11 +404,22 @@ _Pendiente: la añade la sub-feature que lo implemente._
     deshacer, los issues que arregla y datos concretos (los backups completos
     que `clear_full_backup` borraría —todos menos los 2 más nuevos, nunca los
     parciales—, los contenedores que se reconstruirían, la app afectada).
-  - Tras el arreglo, el Supervisor lanza su healthcheck, que puede aplicar sus
-    arreglos automáticos: la vista previa los lista (`also_auto_applied`). El
-    token ata la sugerencia, esa lista, los backups y los contenedores: si
-    algo cambia antes de confirmar, se rechaza sin aplicar
-    (`suggestion_changed`).
+  - `clear_full_backup` borra cada backup de TODAS sus ubicaciones (el host y
+    los montajes de red): la vista previa da las `locations` de cada uno y,
+    si alguna está fuera del host, lo avisa la primera, en mayúsculas. Sin
+    saber dónde está cada backup no hay token. `create_full_backup` avisa de
+    que las apps con backup en frío se paran durante la copia, y
+    `clear_port_config` dice la verdad: arranca la app si está parada y no
+    reinicia la que ya corre.
+  - Tras el arreglo, el Supervisor lanza su healthcheck: sus chequeos pueden
+    crear sugerencias nuevas y puede aplicar sus arreglos automáticos. La
+    vista previa lista los que hay ahora (`also_auto_applied`) y avisa de que
+    pueden salir otros. El token ata la sugerencia, esa lista, los backups
+    (con sus ubicaciones) y los contenedores: si algo cambia antes de
+    confirmar, se rechaza sin aplicar (`suggestion_changed`).
+  - Si la petición ni llega a salir (Hermes sin conexión con el Supervisor),
+    la respuesta es un error con `sent: false`, nunca `status: "started"`;
+    lo mismo en las tools de control de Core y del Supervisor.
   - Se rechazan sin token, también al confirmar: las sugerencias sin arreglo
     (`no_fixup`: el Supervisor respondería «ok» sin hacer nada), las que
     Hermes no sabe traducir (`unknown_effect`), las de discos de datos

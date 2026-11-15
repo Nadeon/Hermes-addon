@@ -126,7 +126,7 @@ Tabla de traducción (fuente: `resolution/fixups/*.py` del Supervisor
 
 | `type` / `context` | `effect` | `interrupts` | `duration` | `reversible` | `allowed` |
 |---|---|---|---|---|---|
-| `clear_port_config` / `addon` | removes the conflicting port mapping from the app | the app restarts if running | seconds | yes | sí |
+| `clear_port_config` / `addon` | removes the conflicting port mapping and starts the app if it is stopped (a running app is not restarted and keeps the old mapping until its next restart) | nothing (a stopped app is started) | seconds | yes | sí |
 | `disable_boot` / `addon` | the app no longer starts at boot | nothing | — | yes | sí |
 | `execute_rebuild` / `addon` | rebuilds the app container | the app | minutes | yes | sí |
 | `execute_remove` / `addon` | uninstalls the app and deletes its data | the app, permanently | — | **no** | sí |
@@ -141,8 +141,8 @@ Tabla de traducción (fuente: `resolution/fixups/*.py` del Supervisor
 | `execute_reload` / `store` | reloads the store repository (internet) | nothing | seconds | yes | sí |
 | `execute_remove` / `store` | removes the store repository | nothing | — | no | sí |
 | `execute_reset` / `store` | clones the store repository again (internet) | nothing | seconds | yes | sí |
-| `clear_full_backup` / `system` | deletes all full backups except the 2 newest | nothing | — | **no** | sí |
-| `create_full_backup` / `system` | creates a full backup | nothing (uses disk) | minutes | yes | sí |
+| `clear_full_backup` / `system` | deletes all full backups except the 2 newest, each from ALL its locations | nothing | — | **no** | sí |
+| `create_full_backup` / `system` | creates a full backup | running apps with a cold backup mode, while each is copied; uses disk | minutes | yes | sí |
 | `enable_ntp` / `system` | starts the time sync service | nothing | — | yes | sí |
 | `execute_reboot` / `system` | reboots the host | everything, Hermes included | minutes | — | sí |
 | `execute_rebuild` / `system` | rebuilds every container with a Docker config issue | the rebuilt containers | minutes | yes | sí (salvo Hermes) |
@@ -164,7 +164,9 @@ Vista previa:
  "issues": [{"uuid", "type", "context", "reference"}],
  "effect": str, "interrupts": str, "duration": str | null, "reversible": bool | null,
  "details": {                    # solo si aplica
-   "backups_to_delete": [{"slug", "name", "date", "size"}],
+   "backups_to_delete": [{"slug", "name", "date", "size",
+                          "locations": [{"location", "kind", "where", "off_host"}]}],
+   "off_host_copies_deleted": bool,
    "containers_to_rebuild": [{"context", "reference"}],
    "app": {"slug", "name", "state"}
  },
@@ -176,12 +178,22 @@ Vista previa:
 `also_auto_applied`: el Supervisor, tras aplicar el fixup, lanza
 `healthcheck()`, que ejecuta `run_autofix()` (`resolution/module.py`): las
 demás sugerencias con `auto: true` pueden aplicarse también. La vista previa
-las lista y lo avisa; si alguna de ellas apunta a Hermes, `targets_hermes`.
+lista las que hay ahora y avisa de que no es la lista completa: el healthcheck
+ejecuta antes `check_system()`, que puede crear sugerencias automáticas nuevas
+(T033). Si alguna de las conocidas apunta a Hermes, `targets_hermes`.
+
+`clear_full_backup` (T031): `BackupManager.remove` sin `locations` borra cada
+backup de todas sus ubicaciones. Cada elemento de `backups_to_delete` lleva
+sus `locations` (de `/backups`: `None` → `local`; un nombre → montaje de red,
+`off_host: true`). Si alguno está fuera del host, el primer aviso lo dice en
+mayúsculas. Sin `locations` legible no hay token (fail-closed). `/backups` no
+enseña la carpeta `.cloud_backup` (subidas a Home Assistant Cloud), que el
+fixup sí cuenta y borra: la vista previa lo avisa siempre.
 
 `targets_hermes`: contexto `addon` con `_es_hermes(reference)`, o
 `execute_rebuild`/`system` con Hermes en `containers_to_rebuild`.
 Atados: `{"suggestion_uuid"}`; estado: `{"type", "context", "reference",
-"backups_to_delete": [slugs], "containers_to_rebuild": [...],
+"backups_to_delete": [[slug, [locations]]], "containers_to_rebuild": [...],
 "also_auto_applied": [uuids]}`. Al confirmar:
 releer y repetir los rechazos; estado distinto → `suggestion_changed`.
 Ejecución: `POST /resolution/suggestion/{uuid}` (timeout 900 s; vence →

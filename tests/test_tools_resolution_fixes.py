@@ -22,9 +22,12 @@ from __future__ import annotations
 import json
 import unittest
 from typing import Any
+from unittest.mock import MagicMock
 
+import aiohttp
 from structlog.testing import capture_logs
 
+from hermes.ha import HAConnectionError
 from hermes.tools.resolution_fixes import _FIXUPS, register
 from tests.fixtures.supervisor_control import (
     CENTINELA_SV,
@@ -131,7 +134,7 @@ class TestTraduccion(_Base):
         r = await self.apply(_U1)
         borrar = r["preview"]["details"]["backups_to_delete"]
         self.assertEqual([b["slug"] for b in borrar], ["b1", "b2"])
-        self.assertEqual(set(borrar[0]), {"slug", "name", "date", "size"})
+        self.assertEqual(set(borrar[0]), {"slug", "name", "date", "size", "locations"})
         self.assertIn("cannot be undone", _texto(r["preview"]["warnings"]))
 
     async def test_clear_full_backup_con_dos_no_borra_nada(self) -> None:
@@ -209,6 +212,129 @@ class TestTraduccion(_Base):
         r = await self.apply(_U1, confirmation_token=vista["confirmation_token"])
         self.assertEqual(r["error"], "supervisor_request_failed")
         self.assertNotIn(CENTINELA_SV, _texto(r))
+
+
+# ── Fase 3: convergencia (T030-T035) ─────────────────────────────────────────
+
+
+class TestConvergencia(_Base):
+    """Arreglos de la revisión independiente. Cada uno con su control
+    negativo, anotado en el docstring del test."""
+
+    async def test_clear_port_config_arranca_y_no_reinicia(self) -> None:
+        """T030: el fixup llama a `app.start()`, que arranca la app parada y
+        no reinicia la que ya corre. Control negativo: con el texto anterior
+        («the app restarts if it is running») falla."""
+        self.poner(sugerencia(_U1, "clear_port_config", "addon", "local_ejemplo"))
+        p = (await self.apply(_U1))["preview"]
+        self.assertIn("starts the app if it is stopped", p["effect"])
+        self.assertIn("not restarted", p["effect"])
+        self.assertIn("keeps the old mapping until its next restart", p["effect"])
+        self.assertNotIn("restart", p["interrupts"])
+        self.assertIn("stopped app is started", p["interrupts"])
+
+    async def test_clear_full_backup_todas_las_ubicaciones(self) -> None:
+        """T031: cada backup a borrar lleva TODAS sus ubicaciones y, si alguna
+        está fuera del host, el primer aviso lo dice. Control negativo: sin
+        `locations` en `backups_to_delete` (o sin el aviso) falla."""
+        self.sv.backups = [
+            backup("b1", "2026-11-01T00:00:00+00:00", ubicaciones=[None, "nas_backups"]),
+            backup("b2", "2026-11-02T00:00:00+00:00"),
+            backup("b3", "2026-11-03T00:00:00+00:00"),
+            backup("b4", "2026-11-04T00:00:00+00:00"),
+        ]
+        self.poner(sugerencia(_U1, "clear_full_backup", "system"))
+        r = await self.apply(_U1)
+        p = r["preview"]
+        borrar = p["details"]["backups_to_delete"]
+        self.assertEqual([b["slug"] for b in borrar], ["b1", "b2"])
+        self.assertEqual(
+            [(u["location"], u["kind"], u["off_host"]) for u in borrar[0]["locations"]],
+            [("local", "local", False), ("nas_backups", "network", True)])
+        self.assertEqual([u["location"] for u in borrar[1]["locations"]], ["local"])
+        self.assertIs(p["details"]["off_host_copies_deleted"], True)
+        self.assertTrue(p["warnings"][0].startswith("OFF-HOST COPIES"), p["warnings"])
+        self.assertIn("nas_backups", p["warnings"][0])
+        self.assertIn("ALL its locations", p["effect"])
+        # La carpeta `.cloud_backup` no sale en /backups: se avisa.
+        self.assertIn(".cloud_backup", _texto(p["warnings"]))
+
+    async def test_clear_full_backup_solo_local_sin_aviso_fuera(self) -> None:
+        self.sv.backups = [backup(f"b{i}", f"2026-11-0{i}T00:00:00+00:00")
+                           for i in range(1, 4)]
+        self.poner(sugerencia(_U1, "clear_full_backup", "system"))
+        p = (await self.apply(_U1))["preview"]
+        self.assertIs(p["details"]["off_host_copies_deleted"], False)
+        self.assertNotIn("OFF-HOST", _texto(p["warnings"]))
+
+    async def test_clear_full_backup_sin_ubicaciones_no_hay_token(self) -> None:
+        """T031, fail-closed: sin saber de dónde se borra un backup, no hay
+        token. Control negativo: aceptando cualquier `locations` falla."""
+        for malas in ([], "local", [None, 3], None):
+            with self.subTest(locations=malas):
+                self.setUp()
+                self.sv.backups = [backup(f"b{i}", f"2026-11-0{i}T00:00:00+00:00")
+                                   for i in range(1, 4)]
+                if malas is None:
+                    del self.sv.backups[0]["locations"]
+                else:
+                    self.sv.backups[0]["locations"] = malas
+                self.poner(sugerencia(_U1, "clear_full_backup", "system"))
+                r = await self.rechazo("supervisor_request_failed")
+                self.assertIn("where each backup", r["detail"])
+
+    async def test_clear_full_backup_ubicaciones_atadas_al_token(self) -> None:
+        """T031: si un backup a borrar gana una copia en el NAS entre la vista
+        previa y la confirmación, `suggestion_changed`. Control negativo:
+        atando solo los slugs, se aplica."""
+        self.sv.backups = [backup(f"b{i}", f"2026-11-0{i}T00:00:00+00:00")
+                           for i in range(1, 4)]
+        self.poner(sugerencia(_U1, "clear_full_backup", "system"))
+        vista = await self.apply(_U1)
+        self.sv.backups[0]["locations"] = [None, "nas_backups"]
+        r = await self.apply(_U1, confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["error"], "suggestion_changed")
+        self.assertEqual(self.posts(), [])
+
+    async def test_no_enviada_es_error_y_no_started(self) -> None:
+        """T032: con el cliente HTTP sin inicializar o sin poder conectar, la
+        petición no salió: error con `sent: false`, nunca `started`. Control
+        negativo: sin `_no_enviada` en `_es_corte`, sale `started`."""
+        conector = aiohttp.ClientConnectorError(MagicMock(), OSError(111, "refused"))
+        for nombre, exc in (
+                ("no_inicializado",
+                 HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)),
+                ("sin_conexion", conector)):
+            with self.subTest(caso=nombre):
+                self.setUp()
+                self.poner(sugerencia(_U1, "enable_ntp", "system"))
+                self.sv.errores[("POST", f"/resolution/suggestion/{_U1}")] = exc
+                vista = await self.apply(_U1)
+                r = await self.apply(_U1, confirmation_token=vista["confirmation_token"])
+                self.assertEqual(r["error"], "supervisor_request_failed")
+                self.assertIs(r["sent"], False)
+                self.assertNotIn("status", r)
+                self.assertIn("nothing was done", r["note"])
+
+    async def test_auto_aplicadas_no_es_lista_completa(self) -> None:
+        """T033: los chequeos del healthcheck pueden añadir sugerencias
+        automáticas nuevas; el aviso lo dice aunque hoy no haya ninguna.
+        Control negativo: con el aviso anterior (solo si hay lista) falla."""
+        self.poner(sugerencia(_U1, "enable_ntp", "system"))
+        p = (await self.apply(_U1))["preview"]
+        self.assertEqual(p["also_auto_applied"], [])
+        avisos = _texto(p["warnings"])
+        self.assertIn("known now", avisos)
+        self.assertIn("new ones the checks add", avisos)
+
+    async def test_create_full_backup_para_las_apps_en_frio(self) -> None:
+        """T035: `do_backup_full` para durante la copia las apps con backup en
+        frío. Control negativo: con «nothing (uses disk space)» falla."""
+        self.poner(sugerencia(_U1, "create_full_backup", "system"))
+        p = (await self.apply(_U1))["preview"]
+        self.assertIn("cold backup mode", p["interrupts"])
+        self.assertNotIn("nothing", p["interrupts"])
+        self.assertIn("cannot list them", _texto(p["warnings"]))
 
 
 class TestLog(_Base):

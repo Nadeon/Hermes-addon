@@ -28,9 +28,11 @@ token (fail-closed, principio III):
 
 Tras aplicar el fixup, el Supervisor lanza su `healthcheck()`, que ejecuta
 `run_autofix()` (`resolution/module.py`): las demás sugerencias con
-`auto: true` pueden aplicarse en la misma llamada. La vista previa las lista
-(`also_auto_applied`) y el token ata esa lista: si cambia antes de confirmar,
-se rechaza sin aplicar (`suggestion_changed`).
+`auto: true` pueden aplicarse en la misma llamada. La vista previa lista las
+que hay AHORA (`also_auto_applied`) y el token ata esa lista: si cambia antes
+de confirmar, se rechaza sin aplicar (`suggestion_changed`). No es la lista
+completa: el healthcheck ejecuta antes sus chequeos, que pueden crear
+sugerencias automáticas nuevas, y la vista previa lo dice.
 
 Al log van el tipo, el contexto y el resultado; nunca `reference` (un slug,
 una ruta o un nombre de la instalación) ni el texto de un error (principio II).
@@ -56,7 +58,7 @@ from hermes.security import (
     resolve_confirmation_token,
 )
 from hermes.tools._common import recortar_a_bytes
-from hermes.tools.system_control import _detalle, _es_corte
+from hermes.tools.system_control import _detalle, _error_sv, _es_corte
 
 logger = structlog.get_logger(__name__)
 
@@ -115,9 +117,14 @@ class _Fixup:
 # `supervisor/resolution/fixups/*.py`). Si una versión nueva del Supervisor
 # cambia lo que hace un fixup, esta tabla se revisa con ella.
 _FIXUPS: dict[tuple[str, str], _Fixup] = {
+    # `app_clear_port_config.py` guarda el puerto a `None` y llama a
+    # `app.start()`, que ARRANCA la app parada y no hace nada con la que ya
+    # corre (`App.start` en `apps/app.py`): no hay reinicio (T030).
     ("clear_port_config", "addon"): _Fixup(
-        "removes the conflicting port mapping from the app",
-        "the app restarts if it is running", "seconds", True),
+        "removes the conflicting port mapping from the app and starts the app "
+        "if it is stopped; a running app is not restarted and keeps the old "
+        "mapping until its next restart",
+        "nothing (a stopped app is started)", "seconds", True),
     ("disable_boot", "addon"): _Fixup(
         "the app no longer starts at boot", "nothing", None, True),
     ("execute_rebuild", "addon"): _Fixup(
@@ -150,8 +157,13 @@ _FIXUPS: dict[tuple[str, str], _Fixup] = {
         "clones the store repository again (internet)", "nothing", "seconds", True),
     ("clear_full_backup", "system"): _Fixup(
         "deletes all full backups except the 2 newest", "nothing", None, False),
+    # `do_backup_full` copia todas las apps; las de modo `backup: cold` se
+    # paran durante su copia y se vuelven a arrancar (`App.begin_backup` en
+    # `apps/app.py`). Hermes es `hot` (T035).
     ("create_full_backup", "system"): _Fixup(
-        "creates a full backup", "nothing (uses disk space)", "minutes", True),
+        "creates a full backup",
+        "running apps with a cold backup mode, while each is copied (then "
+        "they start again); it also uses disk space", "minutes", True),
     ("enable_ntp", "system"): _Fixup(
         "starts the time sync service", "nothing", None, True),
     ("execute_reboot", "system"): _Fixup(
@@ -164,6 +176,44 @@ _FIXUPS: dict[tuple[str, str], _Fixup] = {
     ("execute_restart", "system"): _Fixup(
         "restarts a systemd unit", "that unit", "seconds", True),
 }
+
+
+# Nombre con el que el Supervisor 2026.11.0 marca la carpeta de copias de
+# Home Assistant Cloud (`LOCATION_CLOUD_BACKUP` en `backups/const.py`).
+_UBICACION_NUBE = ".cloud_backup"
+
+
+def _ubicaciones(backup: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """Dónde está guardado un backup, según `locations` de `/backups`.
+
+    `clear_full_backup` borra cada backup de TODAS sus ubicaciones
+    (`BackupManager.remove` sin `locations`, T031): la vista previa tiene que
+    decir de cuáles. En `locations`, `None` es la carpeta local del host y
+    cualquier otro nombre es un montaje de red de backups (NAS), salvo
+    `.cloud_backup`, la carpeta del host para subir a Home Assistant Cloud
+    (que `/backups` no suele enseñar: ver el aviso de la vista previa). Una forma inesperada devuelve `None`: sin saber
+    de dónde se borra, no hay token (fail-closed).
+    """
+    lista = backup.get("locations")
+    if not isinstance(lista, list) or not lista:
+        return None
+    salida: list[dict[str, Any]] = []
+    for nombre in lista:
+        if nombre is None:
+            salida.append({"location": "local", "kind": "local",
+                           "where": "this host's backup folder", "off_host": False})
+        elif nombre == _UBICACION_NUBE:
+            # Carpeta del host (`core/backup` del Supervisor) donde Core deja la
+            # copia que sube a Home Assistant Cloud: está en este disco.
+            salida.append({"location": nombre, "kind": "cloud_upload_folder",
+                           "where": "this host's folder for Home Assistant Cloud "
+                                    "uploads", "off_host": False})
+        elif isinstance(nombre, str) and nombre:
+            salida.append({"location": nombre, "kind": "network",
+                           "where": "network storage (backup mount)", "off_host": True})
+        else:
+            return None
+    return salida
 
 
 def _escalar(valor: Any) -> Any:
@@ -315,17 +365,53 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
             completos = sorted(
                 (b for b in lista if isinstance(b, dict) and b.get("type") == "full"),
                 key=lambda b: str(b.get("date") or ""))
-            a_borrar = [{"slug": _escalar(b.get("slug")), "name": _escalar(b.get("name")),
-                         "date": _escalar(b.get("date")), "size": _escalar(b.get("size"))}
-                        for b in completos[:-_BACKUPS_COMPLETOS_MINIMOS]]
+            for b in completos[:-_BACKUPS_COMPLETOS_MINIMOS]:
+                ubicaciones = _ubicaciones(b)
+                if ubicaciones is None:
+                    raise _Rechazo(
+                        "supervisor_request_failed",
+                        detail="Hermes could not read where each backup to delete "
+                               "is stored (locations in /backups), and the "
+                               "Supervisor deletes each one from all of them: no "
+                               "preview without that.")
+                a_borrar.append({
+                    "slug": _escalar(b.get("slug")), "name": _escalar(b.get("name")),
+                    "date": _escalar(b.get("date")), "size": _escalar(b.get("size")),
+                    "locations": ubicaciones})
             detalles["backups_to_delete"] = a_borrar
+            detalles["off_host_copies_deleted"] = False
             if not a_borrar:
                 efecto = (f"deletes nothing: there are {len(completos)} full backups "
                           f"and the Supervisor keeps the {_BACKUPS_COMPLETOS_MINIMOS} "
-                          "newest")
+                          "newest (but see the warning about .cloud_backup)")
             else:
+                efecto = (f"{fixup.effect}, each one from ALL its locations (this "
+                          "host, network storage and the host folder for Home "
+                          "Assistant Cloud uploads)")
+                fuera = sorted({u["location"] for b in a_borrar
+                                for u in b["locations"] if u["off_host"]})
+                detalles["off_host_copies_deleted"] = bool(fuera)
+                if fuera:
+                    # Primero: es la copia «fuera de casa» la que el usuario
+                    # cree conservar.
+                    avisos.append(
+                        "OFF-HOST COPIES WILL BE DELETED TOO: these backups are "
+                        "also deleted from the network storage " + ", ".join(fuera)
+                        + ", not only from this host.")
                 avisos.append(f"{len(a_borrar)} full backup(s) will be deleted for "
-                              "good; partial backups are not touched.")
+                              "good from every location listed in "
+                              "backups_to_delete; partial backups are not touched.")
+            # `/backups` oculta la carpeta `.cloud_backup` (`Backup.locations`
+            # y `_list_backups` en el Supervisor 2026.11.0), pero el fixup la
+            # cuenta y la borra: Hermes no puede verla y lo dice.
+            avisos.append(
+                "The Supervisor also deletes any copy in its host folder for "
+                "Home Assistant Cloud uploads (.cloud_backup) and counts full "
+                "backups that only exist there; /backups does not show that "
+                "folder, so if there are any it may delete other or more "
+                "backups than listed. Copies already uploaded to Home "
+                "Assistant Cloud or other backup agents of Home Assistant are "
+                "not deleted by the Supervisor.")
         if contenedores:
             detalles["containers_to_rebuild"] = contenedores
         if contexto == "addon" and isinstance(referencia, str):
@@ -350,10 +436,22 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                           "Hermes go down for minutes; Hermes comes back by itself.")
         tambien = [{"uuid": _escalar(s.get("uuid")), "type": _escalar(s.get("type")),
                     "context": _escalar(s.get("context"))} for s in auto]
-        if tambien:
+        # El healthcheck ejecuta `check_system()` y `evaluate_system()` ANTES de
+        # `run_autofix()` (`resolution/module.py`): puede crear sugerencias
+        # automáticas nuevas y aplicarlas en la misma llamada. La lista es la de
+        # ahora, no la completa (T033).
+        avisos.append(
+            "After the fix the Supervisor runs its health check: its checks may "
+            "add new suggestions, and it may apply its automatic fixes, both the "
+            "ones known now (also_auto_applied, possibly empty) and new ones the "
+            "checks add. In Supervisor 2026.11.0 the automatic fixes are: "
+            "download a missing app image, rebuild a plugin, reload or reset a "
+            "store repository.")
+        if (tipo, contexto) == ("create_full_backup", "system"):
             avisos.append(
-                "After the fix the Supervisor runs its health check, which may "
-                "also apply its automatic fixes listed in also_auto_applied.")
+                "Running apps whose backup mode is cold are stopped while they are "
+                "copied and started again afterwards. The Supervisor API does not "
+                "say which apps use that mode, so Hermes cannot list them.")
 
         preview = {
             "action": "apply_resolution_suggestion",
@@ -377,7 +475,10 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         }
         estado = {
             "type": tipo, "context": contexto, "reference": referencia,
-            "backups_to_delete": [b["slug"] for b in a_borrar],
+            # El token ata cada backup CON sus ubicaciones: si un backup gana o
+            # pierde una copia (NAS, nube) antes de confirmar, se rechaza.
+            "backups_to_delete": [[b["slug"], [u["location"] for u in b["locations"]]]
+                                  for b in a_borrar],
             "containers_to_rebuild": contenedores,
             "also_auto_applied": [t["uuid"] for t in tambien],
         }
@@ -394,15 +495,18 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         Two steps: the first call returns a preview that explains what the
         fix does (effect, what it interrupts, duration, whether it can be
         undone, and concrete details such as the full backups it would
-        delete) and a confirmation_token; repeat with the same
+        delete, each with every location it is deleted from: this host and
+        network storage) and a confirmation_token; repeat with the same
         suggestion_uuid and the token to apply it. Some fixes delete data
         (an app with its data, old full backups) or reboot the host.
         Refused without a token: suggestions the Supervisor has no fix for
         (no_fixup), that Hermes cannot explain (unknown_effect), that touch
         the data disks (not_allowed) or that act on Hermes itself
-        (targets_hermes). After the fix the Supervisor may also apply its
-        automatic fixes; the preview lists them (also_auto_applied) and, if
-        anything changes before confirming, nothing is applied
+        (targets_hermes). After the fix the Supervisor runs its health check
+        and may also apply its automatic fixes: the preview lists the ones
+        known now (also_auto_applied), but the checks can add new ones. If
+        the suggestion, the backups to delete (or their locations) or that
+        list change before confirming, nothing is applied
         (suggestion_changed). Check the result with sv_get_resolution.
         """
         if not isinstance(suggestion_uuid, str) or not _UUID_RE.fullmatch(suggestion_uuid):
@@ -459,7 +563,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                            context=contexto, code="supervisor_request_failed",
                            status=getattr(exc, "status", None),
                            exc_type=type(exc).__name__)
-            return {"error": "supervisor_request_failed", "detail": _detalle(exc)}
+            return _error_sv(exc)
         resp = {"result": "ok", "effect": analisis["effect"],
                 "verify_with": "sv_get_resolution"}
         await complete_confirmation_token(confirmation_token, success=True, result=resp)

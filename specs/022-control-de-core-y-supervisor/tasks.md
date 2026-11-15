@@ -203,9 +203,25 @@ la VM de la 014.
 
 ## Fase 3: Convergencia
 
-- [ ] T030 MEDIO — Corregir la traducción de `clear_port_config`/`addon` en `_FIXUPS` de `hermes/src/hermes/tools/resolution_fixes.py`: el fixup del Supervisor 2026.11.0 (`app_clear_port_config.py`) quita el mapeo del puerto y llama a `app.start()`, que ARRANCA la app si estaba parada y no reinicia la que ya corre (el cambio de puerto no se aplica hasta su próximo reinicio); la vista previa dice «the app restarts if it is running». Test por subtest de `TestTraduccion` con control negativo per FR-009 (contradicts)
-- [ ] T031 MEDIO — En la vista previa de `clear_full_backup`/`system`, decir que cada backup se borra de TODAS sus ubicaciones (local, montajes de red y la carpeta de copias en la nube: `BackupManager.remove` sin `locations`) e incluir `locations` en cada elemento de `details.backups_to_delete` (y en el texto del efecto y la guía); test con un backup en dos ubicaciones per FR-009 (partial)
-- [ ] T032 BAJO — `_es_corte` (`hermes/src/hermes/tools/system_control.py`) trata como corte cualquier `HAConnectionError` sin `status` que no empiece por «Supervisor error:», también «Cliente HTTP de HA no inicializado.», cuando la petición ni salió: la respuesta dice `status: "started"` y «The request was sent». Distinguir ese caso (error sin token gastado o nota honesta) en `system_control` y `resolution_fixes`; test con control negativo per FR-008 (contradicts)
-- [ ] T033 BAJO — El aviso de `also_auto_applied` (`resolution_fixes.py`) y la guía dan la lista por completa, pero `healthcheck()` ejecuta antes `check_system()`, que puede crear sugerencias automáticas nuevas que el Supervisor aplica en la misma llamada; decir que la lista es la de ahora y que los chequeos pueden añadir otras per FR-009 (partial)
-- [ ] T034 BAJO — Completar los avisos de `sv_set_supervisor_options` (`_avisos_supervisor`) y su descripción: `auto_update=false` con un Supervisor más nuevo marca la instalación como no soportada (`supervisor_version`) y bloquea también OS, plugins y tienda; `auto_update=true` con versión nueva hace que el Supervisor se actualice y reinicie solo (Hermes pierde la conexión un rato); `diagnostics` cambia también los diagnósticos del OS Agent per FR-007 (partial)
-- [ ] T035 BAJO — `create_full_backup`/`system` dice `interrupts: "nothing (uses disk space)"`, pero `do_backup_full` para durante la copia las apps con `backup: cold`; decirlo en `interrupts` per FR-009 (partial)
+- [x] T030 MEDIO — Corregir la traducción de `clear_port_config`/`addon` en `_FIXUPS` de `hermes/src/hermes/tools/resolution_fixes.py`: el fixup del Supervisor 2026.11.0 (`app_clear_port_config.py`) quita el mapeo del puerto y llama a `app.start()`, que ARRANCA la app si estaba parada y no reinicia la que ya corre (el cambio de puerto no se aplica hasta su próximo reinicio); la vista previa dice «the app restarts if it is running». Test por subtest de `TestTraduccion` con control negativo per FR-009 (contradicts)
+- [x] T031 MEDIO — En la vista previa de `clear_full_backup`/`system`, decir que cada backup se borra de TODAS sus ubicaciones (local, montajes de red y la carpeta de copias en la nube: `BackupManager.remove` sin `locations`) e incluir `locations` en cada elemento de `details.backups_to_delete` (y en el texto del efecto y la guía); test con un backup en dos ubicaciones per FR-009 (partial)
+- [x] T032 BAJO — `_es_corte` (`hermes/src/hermes/tools/system_control.py`) trata como corte cualquier `HAConnectionError` sin `status` que no empiece por «Supervisor error:», también «Cliente HTTP de HA no inicializado.», cuando la petición ni salió: la respuesta dice `status: "started"` y «The request was sent». Distinguir ese caso (error sin token gastado o nota honesta) en `system_control` y `resolution_fixes`; test con control negativo per FR-008 (contradicts)
+- [x] T033 BAJO — El aviso de `also_auto_applied` (`resolution_fixes.py`) y la guía dan la lista por completa, pero `healthcheck()` ejecuta antes `check_system()`, que puede crear sugerencias automáticas nuevas que el Supervisor aplica en la misma llamada; decir que la lista es la de ahora y que los chequeos pueden añadir otras per FR-009 (partial)
+- [x] T034 BAJO — Completar los avisos de `sv_set_supervisor_options` (`_avisos_supervisor`) y su descripción: `auto_update=false` con un Supervisor más nuevo marca la instalación como no soportada (`supervisor_version`) y bloquea también OS, plugins y tienda; `auto_update=true` con versión nueva hace que el Supervisor se actualice y reinicie solo (Hermes pierde la conexión un rato); `diagnostics` cambia también los diagnósticos del OS Agent per FR-007 (partial)
+- [x] T035 BAJO — `create_full_backup`/`system` dice `interrupts: "nothing (uses disk space)"`, pero `do_backup_full` para durante la copia las apps con `backup: cold`; decirlo en `interrupts` per FR-009 (partial)
+
+Notas de la convergencia:
+
+- T031: `/backups` del Supervisor 2026.11.0 no enseña la carpeta
+  `.cloud_backup` (`Backup.locations` la omite si hay otra ubicación y
+  `_list_backups` omite los backups que solo están ahí), pero el fixup la
+  cuenta y la borra. Es una carpeta del host para las subidas a Home Assistant
+  Cloud, no una copia fuera de casa; las copias ya subidas a la nube no las
+  borra el Supervisor. La vista previa lo avisa siempre y marca como «fuera
+  del host» solo los montajes de red.
+- T032: `HAConnectionError` gana `sent` (`False` = la petición no salió); el
+  cliente lo pone en sus errores de «no inicializado». Además, una conexión
+  que no se establece (`aiohttp.ClientConnectorError`) tampoco es un corte.
+- T035: la API del Supervisor no expone el modo de backup de cada app
+  (`backup_mode` no sale en `/addons/{slug}/info`): la vista previa avisa sin
+  poder listarlas.

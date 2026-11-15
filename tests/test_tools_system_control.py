@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import unittest
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import aiohttp
 from structlog.testing import capture_logs
@@ -205,6 +205,43 @@ class TestOperacionesLargas(_Base):
             "Supervisor returned invalid JSON: ''")
         _, r = await self._confirmar("sv_restart_supervisor")
         self.assertEqual(r["status"], "started")
+
+    async def test_peticion_no_enviada_es_error(self) -> None:
+        """T032: si la petición ni salió (cliente HTTP sin inicializar o
+        conexión que no se establece), error con `sent: false`; nunca
+        `started` ni «the request was sent». Control negativo: sin
+        `_no_enviada` en `_es_corte`, sale `started`."""
+        no_init = HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
+        conector = aiohttp.ClientConnectorError(MagicMock(), OSError(111, "refused"))
+        casos = [
+            ("sv_start_core", "/core/start"),
+            ("sv_rebuild_core", "/core/rebuild"),
+            ("sv_repair_supervisor", "/supervisor/repair"),
+            ("sv_restart_supervisor", "/supervisor/restart"),
+        ]
+        for tool, ruta in casos:
+            for nombre, exc in (("no_inicializado", no_init), ("sin_conexion", conector)):
+                with self.subTest(tool=tool, caso=nombre):
+                    self.setUp()
+                    self.sv.core_corre = tool != "sv_start_core"
+                    self.sv.errores[("POST", ruta)] = exc
+                    _, r = await self._confirmar(tool)
+                    self.assertEqual(r.get("error"), "supervisor_request_failed", r)
+                    self.assertIs(r["sent"], False)
+                    self.assertNotIn("status", r)
+                    self.assertNotIn("was sent", _texto(r))
+
+    async def test_error_del_cliente_marca_no_enviada(self) -> None:
+        """T032: el `HAClient` real marca con `sent=False` el error de
+        cliente sin inicializar. Control negativo: sin `sent=False` en
+        `sv_request`, falla."""
+        from hermes.ha import HAClient
+
+        cliente = HAClient.__new__(HAClient)
+        cliente._session = None
+        with self.assertRaises(HAConnectionError) as ctx:
+            await cliente.sv_request("POST", "/core/start")
+        self.assertIs(ctx.exception.sent, False)
 
     async def test_restart_con_status_400_es_error(self) -> None:
         self.sv.errores[("POST", "/supervisor/restart")] = error_400(
@@ -437,7 +474,7 @@ class TestSetSupervisorOptions(_Base):
 
     async def test_avisos(self) -> None:
         casos = {
-            "auto_update": (False, "blocked until it is updated"),
+            "auto_update": (False, "are blocked"),
             "timezone": ("Europe/Madrid", "host time zone"),
             "diagnostics": (True, "third party"),
             "logging": ("debug", "verbose"),
@@ -446,6 +483,30 @@ class TestSetSupervisorOptions(_Base):
             with self.subTest(clave=clave):
                 vista = await self.t["sv_set_supervisor_options"](options={clave: valor})
                 self.assertIn(frase, _texto(vista["preview"]["warnings"]))
+
+    async def test_avisos_completos_de_la_convergencia(self) -> None:
+        """T034: los efectos que faltaban, leídos en el Supervisor 2026.11.0.
+        Control negativo: con los avisos anteriores fallan los tres casos."""
+        self.sv.supervisor_info.update(auto_update=True, update_available=True)
+        vista = await self.t["sv_set_supervisor_options"](options={"auto_update": False})
+        aviso = _texto(vista["preview"]["warnings"])
+        self.assertIn("marked unsupported", aviso)
+        self.assertIn("the OS and the plugins", aviso)
+        self.assertIn("reloading the store", aviso)
+        self.assertIn("one exists now", aviso)
+
+        self.sv.supervisor_info.update(auto_update=False)
+        vista = await self.t["sv_set_supervisor_options"](options={"auto_update": True})
+        aviso = _texto(vista["preview"]["warnings"])
+        self.assertIn("updates and restarts itself", aviso)
+        self.assertIn("Hermes loses its sv_* tools", aviso)
+
+        for valor in (True, False):
+            with self.subTest(diagnostics=valor):
+                self.sv.supervisor_info["diagnostics"] = not valor
+                vista = await self.t["sv_set_supervisor_options"](
+                    options={"diagnostics": valor})
+                self.assertIn("OS Agent", _texto(vista["preview"]["warnings"]))
 
     async def test_no_changes(self) -> None:
         r = await self.t["sv_set_supervisor_options"](options={"logging": "info"})

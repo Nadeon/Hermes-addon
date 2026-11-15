@@ -128,14 +128,41 @@ def _detalle(exc: BaseException) -> str:
     return redact_secrets(str(exc))[:_DETALLE_MAX]
 
 
+def _no_enviada(exc: BaseException) -> bool:
+    """True si la petición NO llegó a salir hacia el Supervisor.
+
+    El cliente HTTP sin inicializar (`HAConnectionError` con `sent=False`) o
+    una conexión que ni se estableció (`ClientConnectorError`: rechazada, sin
+    ruta, DNS) no pueden haber hecho nada en el Supervisor. Decir entonces
+    `status: "started"` y «the request was sent» sería mentir (spec 022,
+    T032; principio V).
+    """
+    return (getattr(exc, "sent", None) is False
+            or isinstance(exc, aiohttp.ClientConnectorError))
+
+
+def _error_sv(exc: BaseException) -> dict[str, Any]:
+    """Respuesta de error de una petición al Supervisor: redactada y, si no
+    llegó a salir, diciendo que no se hizo nada."""
+    resp: dict[str, Any] = {"error": "supervisor_request_failed", "detail": _detalle(exc)}
+    if _no_enviada(exc):
+        resp["sent"] = False
+        resp["note"] = ("The request never reached the Supervisor: nothing was "
+                        "done. Try again when Hermes is connected.")
+    return resp
+
+
 def _es_corte(exc: BaseException) -> bool:
     """True si Hermes no puede saber si el Supervisor hizo la operación.
 
     Un tiempo vencido o una conexión cortada antes de la respuesta (la del
     reinicio del Supervisor, que se lleva su propia API) no dicen nada del
     resultado. Un `HAConnectionError` con `status`, o con el `result: error`
-    del Supervisor, sí: es un error de verdad (research R-7 y R-12).
+    del Supervisor, sí: es un error de verdad (research R-7 y R-12). Y una
+    petición que ni salió (`_no_enviada`) tampoco es un corte: no se hizo.
     """
+    if _no_enviada(exc):
+        return False
     if isinstance(exc, (TimeoutError, aiohttp.ClientConnectionError)):
         return True
     if isinstance(exc, HAConnectionError):
@@ -230,7 +257,7 @@ def _valor_supervisor(clave: str, valor: Any) -> str | None:
     return f"logging must be one of: {', '.join(_SV_LOGGING)}."
 
 
-def _avisos_core(cambios: dict[str, Any]) -> list[str]:
+def _avisos_core(cambios: dict[str, Any], info: dict[str, Any]) -> list[str]:
     avisos: list[str] = []
     nuevo = {k: v["new"] for k, v in cambios.items()}
     if nuevo.get("boot") is False:
@@ -248,19 +275,39 @@ def _avisos_core(cambios: dict[str, Any]) -> list[str]:
     return avisos
 
 
-def _avisos_supervisor(cambios: dict[str, Any]) -> list[str]:
+def _avisos_supervisor(cambios: dict[str, Any], info: dict[str, Any]) -> list[str]:
+    """Avisos de `sv_set_supervisor_options`, leídos en el Supervisor 2026.11.0
+    (T034): `evaluations/supervisor_version.py`, la condición
+    `SUPERVISOR_UPDATED` de los jobs de OS, plugins y tienda,
+    `Supervisor.auto_update_supervisor` y `APISupervisor._options` (que también
+    llama a `dbus.agent.set_diagnostics`)."""
     avisos: list[str] = []
     nuevo = {k: v["new"] for k, v in cambios.items()}
+    hay_version_nueva = info.get("update_available") is True
     if nuevo.get("auto_update") is False:
-        avisos.append("auto_update=false: once a newer Supervisor exists, installing "
-                      "or updating apps and updating Core are blocked until it is "
-                      "updated.")
+        avisos.append(
+            "auto_update=false: once a newer Supervisor exists"
+            + (" (one exists now)" if hay_version_nueva else "")
+            + ", the installation is marked unsupported and, until the Supervisor "
+            "is updated, installing or updating apps, updating Core, updating "
+            "the OS and the plugins, reloading the store and adding store "
+            "repositories are blocked.")
+    if nuevo.get("auto_update") is True:
+        avisos.append(
+            "auto_update=true: whenever a newer Supervisor exists"
+            + (" (one exists now, so soon)" if hay_version_nueva else "")
+            + ", the Supervisor updates and restarts itself on its own; meanwhile "
+            "Hermes loses its sv_* tools and its connection to Core for about "
+            "30-90 seconds and then reconnects.")
     if "timezone" in nuevo:
         avisos.append("timezone: also changes the host time zone; Home Assistant's "
                       "own time zone is a Core setting.")
     if nuevo.get("diagnostics") is True:
         avisos.append("diagnostics=true: crash reports are sent to a third party "
-                      "(Sentry).")
+                      "(Sentry). It also turns on the OS Agent's diagnostics.")
+    if nuevo.get("diagnostics") is False:
+        avisos.append("diagnostics=false: also turns off the OS Agent's "
+                      "diagnostics, not only the Supervisor's.")
     if nuevo.get("logging") == "debug":
         avisos.append("logging=debug: very verbose Supervisor log.")
     return avisos
@@ -282,7 +329,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                        keys=keys or [], code="supervisor_request_failed",
                        status=getattr(exc, "status", None),
                        exc_type=type(exc).__name__)
-        return {"error": "supervisor_request_failed", "detail": _detalle(exc)}
+        return _error_sv(exc)
 
     def vista_previa_emitida(tool: str, ruta: str, keys: list[str] | None = None) -> None:
         logger.info("system_control_preview", tool=tool, route=ruta,
@@ -497,7 +544,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                 "changes": redact_structure(cambios),
                 "unchanged": sin_cambio,
                 "restart_needed": False,
-                "warnings": avisos(cambios),
+                "warnings": avisos(cambios, info),
             }
             vista_previa_emitida(tool, ruta, claves)
             return await create_confirmation_token(tool, args, preview=preview,
@@ -687,10 +734,14 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         diagnostics (true/false). channel and the developer options (debug,
         debug_block, detect_blocking_io, feature_flags) are refused
         (not_allowed). Two steps: the preview shows, per key, the current
-        and the new value and warns that auto_update=false blocks app and
-        Core updates once a newer Supervisor exists, and that
-        diagnostics=true sends crash reports to a third party. Nothing
-        restarts. Returns no_changes when every value is already set.
+        and the new value, with warnings: auto_update=false, once a newer
+        Supervisor exists, marks the installation unsupported and blocks
+        app, Core, OS and plugin updates and store reloads; auto_update=true
+        lets the Supervisor update and restart itself when a new version
+        exists (Hermes loses the sv_* tools for a while); diagnostics also
+        switches the OS Agent's diagnostics, and diagnostics=true sends
+        crash reports to a third party. Nothing restarts now. Returns
+        no_changes when every value is already set.
         """
         return await opciones(
             "sv_set_supervisor_options", "/supervisor/info", "/supervisor/options",

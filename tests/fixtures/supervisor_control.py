@@ -49,11 +49,18 @@ def issue(uuid: str, tipo: str, contexto: str, referencia: str | None = None) ->
             "reference": referencia, "reference_extra": None}
 
 
-def backup(slug: str, fecha: str, tipo: str = "full") -> dict[str, Any]:
-    """Un backup con la forma de `_list_backups` de `api/backups.py`."""
+def backup(slug: str, fecha: str, tipo: str = "full",
+           ubicaciones: list[str | None] | None = None) -> dict[str, Any]:
+    """Un backup con la forma de `_list_backups` de `api/backups.py`.
+
+    `ubicaciones` es su `locations`: `None` es la carpeta local y un nombre,
+    un montaje de red de backups (por defecto, solo local).
+    """
+    locs = [None] if ubicaciones is None else list(ubicaciones)
     return {"slug": slug, "name": f"Backup {slug}", "date": fecha, "type": tipo,
-            "size": 1.5, "size_bytes": 1_500_000, "location": None,
-            "locations": [None], "protected": False, "compressed": True,
+            "size": 1.5, "size_bytes": 1_500_000,
+            "location": locs[0] if locs else None, "locations": locs,
+            "protected": False, "compressed": True,
             "content": {"homeassistant": True, "apps": [], "folders": []}}
 
 # Error del Supervisor 2026.11.0 cuando Core no corre, como lo deja

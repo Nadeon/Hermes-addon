@@ -951,15 +951,20 @@ vista previa dice qué se corta (`interrupts.stops`), qué sigue en marcha
   (zona IANA; cambia también la del host, no la de Home Assistant), `country`
   (dos letras mayúsculas), `logging` (debug, info, warning, error, critical),
   `auto_update` y `diagnostics`. `channel` y las opciones de desarrollo →
-  `not_allowed`. OJO: `auto_update=false` bloquea instalar y actualizar apps
-  y actualizar Core en cuanto salga un Supervisor nuevo; `diagnostics=true`
-  envía informes de fallos a un tercero (Sentry).
+  `not_allowed`. OJO: `auto_update=false`, en cuanto salga un Supervisor
+  nuevo, deja la instalación como no soportada y bloquea instalar y
+  actualizar apps, actualizar Core, el OS y los plugins, y recargar la tienda;
+  `auto_update=true` hace que el Supervisor se actualice y se reinicie solo
+  cuando haya versión nueva (Hermes pierde las `sv_*` un rato);
+  `diagnostics` cambia también los diagnósticos del OS Agent, y
+  `diagnostics=true` envía informes de fallos a un tercero (Sentry).
 
 Las opciones devuelven `no_changes` si nada cambia, y el token ata también los
 valores actuales: si cambian antes de confirmar, no se ejecuta (pide otra
 vista previa). Si una operación larga no responde a tiempo (o se corta la
 conexión), la respuesta es `status: "started"` con `verify_with`: Hermes no
-sabe si terminó y no lo afirma.
+sabe si terminó y no lo afirma. Si la petición ni llegó a salir (Hermes sin
+conexión), es un error con `sent: false`: no se hizo nada.
 
 ## Por la tabla (genéricas)
 
@@ -995,8 +1000,17 @@ sabe si terminó y no lo afirma.
   `clear_full_backup` borraría —todos menos los 2 más nuevos, nunca los
   parciales—, los contenedores que reconstruiría, la app afectada). Algunas
   borran una app con sus datos o reinician el host: enséñaselo al usuario.
-- Tras el arreglo, el Supervisor lanza su healthcheck, que puede aplicar sus
-  arreglos automáticos: van en `also_auto_applied`. El token ata la
+- `clear_full_backup` borra cada backup de TODAS sus ubicaciones: el host y
+  los montajes de red (NAS). Cada backup de `details.backups_to_delete` lleva
+  sus `locations`, y si alguna está fuera del host el primer aviso lo dice en
+  mayúsculas (`off_host_copies_deleted`). El token ata los backups y sus
+  ubicaciones. Las copias ya subidas a Home Assistant Cloud no las borra el
+  Supervisor.
+- `create_full_backup` para durante la copia las apps con backup en frío
+  (`cold`) y luego las arranca; la API no dice cuáles son.
+- Tras el arreglo, el Supervisor lanza su healthcheck: sus chequeos pueden
+  crear sugerencias nuevas y puede aplicar sus arreglos automáticos.
+  `also_auto_applied` lista los que hay AHORA, no todos. El token ata la
   sugerencia y esa lista: si algo cambia antes de confirmar →
   `suggestion_changed`, sin aplicar nada (pide otra vista previa).
 - Rechazos sin token: `no_fixup` (el Supervisor no tiene arreglo: es un
