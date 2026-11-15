@@ -172,8 +172,9 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   simultánea podía volver «bien» sin releer nada mientras la primera
   seguía. Si Hermes deja de esperar (se cancela la llamada o vence el
   tiempo), el Supervisor sigue con esa recarga: por eso, mientras el
-  Supervisor tenga una recarga de la tienda sin terminar (la de su lista de
-  jobs, `/jobs/info`: también la programada o la que lance otro), instalar,
+  Supervisor tenga una recarga de la tienda sin terminar en su lista de
+  jobs (`/jobs/info`: la que Hermes dejó de esperar o la que otro lanzó por
+  la API), instalar,
   actualizar o reconstruir una app local da `store_copy_stale`, y una
   recarga de Hermes que la encuentre al empezar o al terminar no cuenta. Si
   la lista de jobs no responde, lo mismo.
@@ -231,6 +232,16 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   es y dónde. Además, en `/addons`, escribir, crear una carpeta o mover a
   una ruta que pase de ese tope (al mover una carpeta, también lo que
   cuelga de ella) se rechaza sin token: `path_too_long`. En `/share`, no.
+- **Riesgo residual: la recarga programada y quitar un repositorio no se
+  ven.** El Supervisor recarga la tienda por su cuenta cada 3 horas, y esa
+  no sale en `/jobs/info` (es un job interno, y la lista se salta los
+  internos y lo que cuelga de ellos); quitar un repositorio relee las
+  fichas sin ser un job. Queda una carrera estrecha: si una de esas lee
+  `/addons`, un cliente cambia un `config.*` justo después y, mientras ella
+  sigue (más de 2 s), Hermes lanza y termina su propia recarga, la de
+  Hermes se anota; cuando la otra termina, deja en el Supervisor la copia
+  vieja, e instalar, actualizar o reconstruir esa app local daría token.
+  Antes se decía que la programada también se veía: no era verdad.
 
 ### Pruebas
 

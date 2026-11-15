@@ -2156,8 +2156,9 @@ class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
         # convergencia, T047, `store_copy_stale` para las apps locales; en la
         # convergencia 2, `sv_update_addon` y `folder_busy`; en la
         # convergencia 3, la marca de /addons al recargar y las recargas en
-        # curso en el Supervisor); su CHANGELOG lo dice.
-        "app_store": "c5511438ed9a3b17",
+        # curso en el Supervisor; en la convergencia 4, que la recarga
+        # programada no se ve); su CHANGELOG lo dice.
+        "app_store": "ced132f47114a9f6",
         "workflows": "53b81454a6708b9a",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
@@ -2264,8 +2265,9 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         # convergencia, T047, `store_copy_stale` para las apps locales; en la
         # convergencia 2, `sv_update_addon` y `folder_busy`; en la
         # convergencia 3, la marca de /addons al recargar y las recargas en
-        # curso en el Supervisor); su CHANGELOG lo dice.
-        "app_store": "c5511438ed9a3b17",
+        # curso en el Supervisor; en la convergencia 4, que la recarga
+        # programada no se ve); su CHANGELOG lo dice.
+        "app_store": "ced132f47114a9f6",
         "automation_assist": "d360de0f7fd1deb5",
         "automations": "d27ee3c45bc13171",
         "backups": "3e685f47171224e7",

@@ -1099,6 +1099,19 @@ Spec, plan y tareas en `specs/034-carpetas-addons-y-share/`. Hermes pasa de
   fuera del banco de Core (no hablan con Core); la prueba en vivo, en
   «Pruebas manuales pendientes».
 
+#### Riesgo residual conocido (1.2.1)
+
+- **La recarga programada del Supervisor y quitar un repositorio no se
+  ven.** La programada (cada 3 h, `tasks_reload_store`) es un job interno
+  y `/jobs/info` se salta los internos y lo que cuelga de ellos; quitar un
+  repositorio relee las fichas sin ser un job. Carrera estrecha: una de esas
+  lee `/addons`, un cliente cambia un `config.*` justo después y, mientras
+  ella sigue (más de 2 s), Hermes lanza y termina su propia recarga, que se
+  anota; al terminar la otra, el Supervisor se queda con la copia vieja y
+  `store_copy_stale` no salta. Cerrarla del todo pediría comprobar en
+  positivo que el Supervisor releyó (por ejemplo, con el evento
+  `store_reloaded` o con la fecha de la ficha de la app), sin probar.
+
 #### Dudas abiertas para el mantenedor (1.2.1)
 
 - **D-31** (034) — Pasar el montaje `addons` a `local_apps` (y la raíz a

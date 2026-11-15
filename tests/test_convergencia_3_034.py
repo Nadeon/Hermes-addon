@@ -12,8 +12,8 @@ independiente.
   La marca de Hermes se reconoce por su valor exacto en ns y solo si es la de
   la última recarga anotada.
 - T058 (F2): con un job de recarga de la tienda sin terminar en `/jobs/info`
-  (`store_manager_reload`, también de hijo de `tasks_reload_store`),
-  `store_copy_stale` rechaza y una recarga de Hermes no se anota; si
+  (`store_manager_reload`; la recarga programada NO sale ahí: ver
+  `test_convergencia_4_034.TestLaProgramadaNoSeVe`), `store_copy_stale` rechaza y una recarga de Hermes no se anota; si
   `/jobs/info` no responde, tampoco (fail-closed).
 - T059 (F3): un `config.*` cuya lectura lanza una excepción que el
   Supervisor no captura (`read_yaml_file`, `utils/yaml.py`, solo captura
@@ -290,8 +290,10 @@ class TestRecargaEnCurso(_ConRecarga):
         for nombre, jobs in (
             ("de la API", [_job("store_manager_reload", False)]),
             ("sin arrancar", [_job("store_manager_reload", None)]),
-            ("la programada", [_job("tasks_reload_store", False,
-                                    [_job("store_manager_reload", False)])]),
+            # La recarga programada no está aquí: su forma real en
+            # `/jobs/info` es una lista vacía (convergencia 4, T061).
+            ("de hijo de otro job visible", [_job("backup_manager_full_backup", False,
+                                                   [_job("store_manager_reload", False)])]),
             ("añadir repositorio", [_job("store_manager_add_repository", False)]),
         ):
             with self.subTest(caso=nombre):

@@ -743,10 +743,15 @@ _ULTIMA_RECARGA: float | None = None
 #: como cambio; `None`: ninguno.
 _MARCA_RAIZ_NS: int | None = None
 #: Los jobs del Supervisor 2026.11.0 que releen las fichas de la tienda
-#: (`store/__init__.py`): `reload` (también la recarga programada,
-#: `tasks_reload_store`, que lo lleva de hijo), añadir un repositorio y
+#: (`store/__init__.py`): `reload`, añadir un repositorio y
 #: `update_repositories`. Mientras uno no ha terminado, su copia está a medias
-#: (convergencia 3, T058).
+#: (convergencia 3, T058). Solo se ven los que lanza una API (la de Hermes,
+#: cancelada o no, o la de otro cliente). NO se ven (convergencia 4, T061):
+#: la recarga programada, porque `tasks_reload_store` es `internal=True`
+#: (`misc/tasks.py`) y `APIJobs._list_jobs` (`api/jobs.py`) se salta los
+#: internos y no llega a sus hijos, que cuelgan de él; ni quitar un
+#: repositorio, que llama a `data.update()` sin ser un job. Riesgo residual,
+#: documentado en el CHANGELOG de la 1.2.1.
 JOBS_DE_RECARGA: frozenset[str] = frozenset({
     "store_manager_reload",
     "store_manager_add_repository",

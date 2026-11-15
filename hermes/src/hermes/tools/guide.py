@@ -2198,8 +2198,10 @@ REPOSITORIOS Y RECARGA
   fichero) para que el Supervisor relea las apps locales. Las recargas que
   lanza Hermes (también `sv_check_for_updates` y añadir o quitar un
   repositorio) esperan a que termine la anterior de Hermes; si el
-  Supervisor sigue con otra (una cancelada, la programada), la de Hermes no
-  cuenta para las apps locales.
+  Supervisor sigue con otra que sale en su lista de jobs (una que Hermes
+  dejó de esperar, una que otro lanzó por la API), la de Hermes no cuenta
+  para las apps locales. La recarga programada del Supervisor (cada 3 h) y
+  quitar un repositorio NO salen en esa lista: Hermes no las ve.
 Reparar arregla UN repositorio roto; recargar trae lo nuevo de todos. Ninguna
 de las dos pide token.
 

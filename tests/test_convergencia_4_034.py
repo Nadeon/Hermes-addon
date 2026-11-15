@@ -312,3 +312,94 @@ class TestHerramientasNoCreanRutasLargas(_ConRaices):
                             confirmation_token=r["confirmation_token"])
         self.assertEqual(c.get("error"), "path_too_long", c)
         self.assertFalse((self.addons / _CORTA).exists())
+
+
+# ── T061 (N2): la recarga programada no sale en /jobs/info ──────────────────
+
+
+def _lista_de_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`APIJobs._list_jobs` del Supervisor 2026.11.0 (`api/jobs.py`),
+    escrito aquí a mano sobre diccionarios: se salta los jobs internos ANTES
+    de agrupar por padre y recorre el árbol desde las raíces (`parent_id`
+    `None`), así que el hijo de un interno nunca se alcanza. Cada job de
+    entrada lleva `internal`, `parent_id` y lo de `_job`."""
+    por_padre: dict[str | None, list[dict[str, Any]]] = {}
+    for job in jobs:
+        if job["internal"]:
+            continue
+        por_padre.setdefault(job["parent_id"], []).append(job)
+    salida: list[dict[str, Any]] = []
+    cola = [(salida, job) for job in reversed(por_padre.get(None, []))]
+    while cola:
+        lista, job = cola.pop(0)
+        hijos: list[dict[str, Any]] = []
+        datos = {k: v for k, v in job.items() if k not in ("internal", "parent_id")}
+        datos["child_jobs"] = hijos
+        lista.append(datos)
+        cola.extend((hijos, h) for h in por_padre.get(job["uuid"], []))
+    return salida
+
+
+def _job_real(nombre: str, uuid: str, *, internal: bool = False,
+              parent_id: str | None = None) -> dict[str, Any]:
+    from tests.test_convergencia_3_034 import _job
+
+    datos = _job(nombre, False)
+    datos.pop("child_jobs")
+    datos.update(uuid=uuid, internal=internal, parent_id=parent_id)
+    return datos
+
+
+class TestLaProgramadaNoSeVe(_ConRecarga):
+    """La forma REAL de `/jobs/info` (convergencia 3 usaba una inventada:
+    un `tasks_reload_store` visible con su hijo). Documenta el riesgo
+    residual: con la programada en marcha, `/jobs/info` sale vacío y Hermes
+    no la ve.
+
+    Control negativo comprobado: con la frase de antes en la guía
+    (`(una cancelada, la programada)`) cae `test_nadie_dice_que_se_vea`."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.app_local()
+
+    async def test_forma_real(self) -> None:
+        r = await self.recargar()
+        self.assertEqual(r.get("result"), "ok", r)
+        programada = [
+            _job_real("tasks_reload_store", "a" * 32, internal=True),
+            _job_real("store_manager_reload", "b" * 32, parent_id="a" * 32),
+        ]
+        self.assertEqual(_lista_de_jobs(programada), [])
+        self.sv.respuesta("GET", "/jobs/info",
+                          {"ignore_conditions": [], "jobs": _lista_de_jobs(programada)})
+        r = await self.t["sv_install_addon"](_LOCAL)
+        # Riesgo residual: Hermes no la ve (CHANGELOG 1.2.1).
+        self.assertIn("confirmation_token", r, r)
+        # La que lanza una API sí sale, también de hija de un job visible.
+        por_api = [_job_real("store_manager_reload", "c" * 32)]
+        self.sv.respuesta("GET", "/jobs/info",
+                          {"ignore_conditions": [], "jobs": _lista_de_jobs(por_api)})
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertEqual(r.get("error"), "store_copy_stale", r)
+
+    def test_nadie_dice_que_se_vea(self) -> None:
+        from hermes.tools.guide import _GUIDE
+
+        raiz = Path(__file__).resolve().parent.parent
+        changelog = (raiz / "hermes" / "CHANGELOG.md").read_text(encoding="utf-8")
+        entrada = changelog.split("## [1.2.0]")[0]
+        codigo = (raiz / "hermes" / "src" / "hermes" / "tools" / "_store.py").read_text(
+            encoding="utf-8")
+        tareas = (raiz / "specs" / "034-carpetas-addons-y-share" / "tasks.md").read_text(
+            encoding="utf-8")
+        hoja = (raiz / "docs" / "HOJA-DE-RUTA.md").read_text(encoding="utf-8")
+        for texto in (_GUIDE["app_store"], entrada, codigo, tareas):
+            self.assertNotIn("la programada)", texto)
+            self.assertNotIn("también la programada", texto)
+            self.assertNotIn("también la recarga programada", texto)
+            self.assertNotIn("la programada lo lleva de hijo", texto)
+        self.assertIn("NO salen en esa lista", _GUIDE["app_store"])
+        self.assertIn("Riesgo residual: la recarga programada", entrada)
+        self.assertIn("La recarga programada del Supervisor y quitar un repositorio",
+                      hoja)
