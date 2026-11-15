@@ -187,30 +187,67 @@ paralelo con B si no se tocan a la vez los ficheros comunes); D necesita A
 
 ## Tramo C — dispositivo y targets (US2, US3, US6)
 
-- [ ] T026 [US6] Familia `automation_assist` (`desde="1.2.0"`, desactivable) con `("device_automation", "targets")`, tests primero en `tests/test_tool_families.py` (el tramo D añade `wait_for_trigger` y ajusta el test) (FR-011)
+- [x] T026 [US6] Familia `automation_assist` (`desde="1.2.0"`, desactivable) con `("device_automation", "targets")`, tests primero en `tests/test_tool_families.py` (el tramo D añade `wait_for_trigger` y ajusta el test) (FR-011)
 
 ### Tests (escritos antes de T029 y T030)
 
-- [ ] T027 [P] [US2] Tests en `tests/test_tools_device_automation.py`: para cada tipo, un `ws_send` `device_automation/<tipo>/list` con `device_id`; lista devuelta tal cual en el sobre con `device_id`; `include_capabilities=true` → una llamada `…/capabilities` por elemento con la clave correcta (`trigger`, `condition`, `action`) y `capabilities` en cada uno; capacidades de un elemento que fallan → `capabilities_error` redactado y el resto sigue; 60 elementos → 50 llamadas y `capabilities_truncated: true`; `not_found` de HA → `not_found`; `device_id` vacío → `invalid_argument` sin `ws_send`; respuesta que no es lista → error; recorte por tamaño (FR-006, FR-015, FR-016)
-- [ ] T028 [P] [US3] Tests en `tests/test_tools_targets.py`: `_validar_target` (claves admitidas, texto o lista de textos no vacíos, `exclude` con las mismas claves, al menos una clave fuera de `exclude`, clave desconocida → `invalid_argument` nombrándola, solo `exclude` → `invalid_argument`); `ha_resolve_target` envía `extract_from_target` con `target`, `expand_group` y `primary_entities_only` y devuelve la forma de data-model ordenada; `ha_explain_target` con `explain_target` y sus valores por defecto; las tres de lista envían su comando y devuelven el sobre con nombres ordenados; `unknown_command` → `ha_version_unsupported` con la versión; recorte por tamaño con recuentos (FR-007, FR-008, FR-016)
+- [x] T027 [P] [US2] Tests en `tests/test_tools_device_automation.py`: para cada tipo, un `ws_send` `device_automation/<tipo>/list` con `device_id`; lista devuelta tal cual en el sobre con `device_id`; `include_capabilities=true` → una llamada `…/capabilities` por elemento con la clave correcta (`trigger`, `condition`, `action`) y `capabilities` en cada uno; capacidades de un elemento que fallan → `capabilities_error` redactado y el resto sigue; 60 elementos → 50 llamadas y `capabilities_truncated: true`; `not_found` de HA → `not_found`; `device_id` vacío → `invalid_argument` sin `ws_send`; respuesta que no es lista → error; recorte por tamaño (FR-006, FR-015, FR-016)
+- [x] T028 [P] [US3] Tests en `tests/test_tools_targets.py`: `_validar_target` (claves admitidas, texto o lista de textos no vacíos, `exclude` con las mismas claves, al menos una clave fuera de `exclude`, clave desconocida → `invalid_argument` nombrándola, solo `exclude` → `invalid_argument`); `ha_resolve_target` envía `extract_from_target` con `target`, `expand_group` y `primary_entities_only` y devuelve la forma de data-model ordenada; `ha_explain_target` con `explain_target` y sus valores por defecto; las tres de lista envían su comando y devuelven el sobre con nombres ordenados; `unknown_command` → `ha_version_unsupported` con la versión; recorte por tamaño con recuentos (FR-007, FR-008, FR-016)
 
 ### Implementación
 
-- [ ] T029 [US2] `hermes/src/hermes/tools/device_automation.py` (research R-6): `_listar` común y las tres tools con `@ready` y docstrings que dicen que el elemento se pega tal cual en la automatización y qué son las capacidades. T027 en verde (FR-006)
-- [ ] T030 [US3] `hermes/src/hermes/tools/targets.py` (research R-7): `_validar_target` y las cinco tools; docstrings que dicen que las listas dan nombres sin sus opciones y cómo se escribe un trigger por propósito. T028 en verde (FR-007, FR-008)
-- [ ] T031 [US6] Registro y anotaciones: los dos módulos en `tools/__init__.py` dentro de `if _activa("automation_assist")` con `response_max_bytes`; `ha_resolve_target` y `ha_explain_target` en `_READ_ONLY_EXACT` con comentario. Tests en `tests/test_tools_registration.py`: las ocho de solo lectura, ninguna de mundo abierto; con `automation_assist` desactivada no aparece ninguna (FR-011, FR-013)
+- [x] T029 [US2] `hermes/src/hermes/tools/device_automation.py` (research R-6): `_listar` común y las tres tools con `@ready` y docstrings que dicen que el elemento se pega tal cual en la automatización y qué son las capacidades. T027 en verde (FR-006)
+- [x] T030 [US3] `hermes/src/hermes/tools/targets.py` (research R-7): `_validar_target` y las cinco tools; docstrings que dicen que las listas dan nombres sin sus opciones y cómo se escribe un trigger por propósito. T028 en verde (FR-007, FR-008)
+- [x] T031 [US6] Registro y anotaciones: los dos módulos en `tools/__init__.py` dentro de `if _activa("automation_assist")` con `response_max_bytes`; `ha_resolve_target` y `ha_explain_target` en `_READ_ONLY_EXACT` con comentario. Tests en `tests/test_tools_registration.py`: las ocho de solo lectura, ninguna de mundo abierto; con `automation_assist` desactivada no aparece ninguna (FR-011, FR-013)
 
 ### Tabla, guía y banco
 
-- [ ] T032 [US6] Tabla: tests de la genérica con `device_automation/trigger/list` y `get_services_for_target` → `use_dedicated_tool`; las 11 entradas en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py` (data-model); regenerar → sin diferencias, anotado en el commit (FR-012)
-- [ ] T033 [US6] Guía: tema `automation_assist` (alias `device_automation`, `targets`) con la receta «automatización para un dispositivo» y la de target → por propósito → validar; el test genérico de T011 cubre sus tools (FR-014)
-- [ ] T034 [US2] [US3] Banco (lectura): `tests/banco/test_banco_automatizacion_asistida.py`: el lector busca un dispositivo de `kitchen_sink` con entidades; `ha_list_device_triggers/conditions/actions` con `include_capabilities=true` devuelven listas y capacidades con la forma de data-model; `ha_resolve_target` y `ha_explain_target` con su `device_id` devuelven sus entidades; las tres de lista por target devuelven nombres no vacíos para una entidad `light` de `kitchen_sink` (si la hay; si no, una `switch`) (FR-017)
+- [x] T032 [US6] Tabla: tests de la genérica con `device_automation/trigger/list` y `get_services_for_target` → `use_dedicated_tool`; las 11 entradas en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py` (data-model); regenerar → sin diferencias, anotado en el commit (FR-012)
+- [x] T033 [US6] Guía: tema `automation_assist` (alias `device_automation`, `targets`) con la receta «automatización para un dispositivo» y la de target → por propósito → validar; el test genérico de T011 cubre sus tools (FR-014)
+- [x] T034 [US2] [US3] Banco (lectura): `tests/banco/test_banco_automatizacion_asistida.py`: el lector busca un dispositivo de `kitchen_sink` con entidades; `ha_list_device_triggers/conditions/actions` con `include_capabilities=true` devuelven listas y capacidades con la forma de data-model; `ha_resolve_target` y `ha_explain_target` con su `device_id` devuelven sus entidades; las tres de lista por target devuelven nombres no vacíos para una entidad `light` de `kitchen_sink` (si la hay; si no, una `switch`) (FR-017)
 
 ### Documentación y cierre del tramo
 
-- [ ] T035 CHANGELOG: las ocho tools y la familia; fila 017 → «en curso (tramos A–C)» (FR-019)
-- [ ] T036 [US6] No regresión: `ha_search_related` y los registros sin cambios; con todas las familias de la 1.2.0 desactivadas, la lista de la 1.1.2 (FR-018)
-- [ ] T037 Cierre del tramo C: suite completa; controles negativos anotados: (1) capacidades sin tope → T027 (60 elementos); (2) `_validar_target` que acepta claves desconocidas → T028; (3) `unknown_command` como error opaco → T028; (4) una entrada de `device_automation/*` sin `dedicated` → T032. Revisión del diff. Commit(s) del tramo (FR-020, SC-006)
+- [x] T035 CHANGELOG: las ocho tools y la familia; fila 017 → «en curso (tramos A–C)» (FR-019)
+- [x] T036 [US6] No regresión: `ha_search_related` y los registros sin cambios; con todas las familias de la 1.2.0 desactivadas, la lista de la 1.1.2 (FR-018)
+- [x] T037 Cierre del tramo C: suite completa; controles negativos anotados: (1) capacidades sin tope → T027 (60 elementos); (2) `_validar_target` que acepta claves desconocidas → T028; (3) `unknown_command` como error opaco → T028; (4) una entrada de `device_automation/*` sin `dedicated` → T032. Revisión del diff. Commit(s) del tramo (FR-020, SC-006)
+
+
+### Notas del tramo C (desviaciones y decisiones)
+
+- **Línea base** al empezar (punta `997bb08`): 2871 passed, 92 skipped, 6
+  failed (los 6 de Windows).
+- **Sobre común y test transversal de la 018**: el AST busca la llamada a
+  `sobre_de_lista` en la función de la tool; como las tres de dispositivo y
+  las tres de lista por target comparten un helper, cada tool le pasa una
+  lambda que llama a `sobre_de_lista` (comentado en los dos módulos).
+- **`_validar_target`** rechaza también un `exclude` vacío y un `exclude`
+  dentro de `exclude` (fail-closed: no excluye nada o HA no lo admite). Un
+  `invalid_format` de HA (p. ej. un `entity_id` mal formado, que Hermes no
+  valida) sale como `invalid_argument` en `target` con `ha_code`.
+- **Errores de HA** distintos de `not_found`, `unknown_command` e
+  `invalid_format`: `ha_command_failed` con `ha_code` y el detalle
+  redactado; respuesta con forma inesperada: `unexpected_response`.
+- **Resolver** añade `counts` (exactos) a la forma de data-model, para que
+  el recorte no pierda los totales de las tres listas.
+- **Elementos de dispositivo**: pasan por `redact_structure` +
+  `redact_secrets` (FR-015); a `…/capabilities` se manda el elemento
+  original de HA, no la copia redactada.
+- **Banco (T034)**: `kitchen_sink` no crea luces; se usa su primer
+  interruptor con dispositivo (triggers y condiciones por propósito
+  `switch.turned_on` y `switch.is_on`). Las ocho solo leen: no entran en
+  `PROBADAS_017` ni en lo que el job exige.
+- **Matriz de la 008**: queda para el cierre (tramo D), como dice T054.
+- Ninguna tool del tramo pide token: nada que añadir al inventario de
+  argumentos atados (033).
+- **Controles negativos (T037)**, vistos en rojo y restaurados: (1) tope de
+  capacidades a 1000 → `test_tope_de_cincuenta`; (2) `_validar_target` sin
+  la comprobación de clave → 6 fallos de `test_tools_targets.py`; (3)
+  `unknown_command` sin traducir → `test_version_no_soportada`; (4)
+  `device_automation/trigger/list` de vuelta a `deny` → 5 fallos (tabla,
+  genéricas, generación desde cero); además, `ha_resolve_target` fuera de
+  `_READ_ONLY_EXACT` → 2 fallos; sin el alias `targets` → test del tema;
+  `targets` dentro de `automations` → 3 fallos de familias (SC-005).
 
 ---
 

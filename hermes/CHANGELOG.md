@@ -163,7 +163,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
 ### Automatización
 
 **Automatización asistida (spec 017).** En curso: tramos A (blueprints que
-ya están en `/config/blueprints/` o que escribe el cliente) y B (importar).
+ya están en `/config/blueprints/` o que escribe el cliente), B (importar) y C
+(dispositivo y targets).
 Familia nueva
 `blueprints` (desactivable con `tool_families_disabled`):
 
@@ -212,6 +213,39 @@ Familia nueva
   internet: la HA del banco sirve un blueprint propio desde su carpeta
   `www` (`/local/`) y se importa desde `127.0.0.1` dentro del contenedor
   (importador genérico); GitHub, gist y foro quedan como prueba manual.
+
+Tramo C: familia nueva `automation_assist` (desactivable), ocho tools de
+solo lectura que ayudan a escribir automatizaciones:
+
+- `ha_list_device_triggers`, `ha_list_device_conditions` y
+  `ha_list_device_actions`: lo que ofrece un dispositivo, cada elemento tal
+  como se pega en una automatización. Con `include_capabilities=true`, los
+  campos extra de cada uno (`capabilities.extra_fields`), como mucho para
+  los 50 primeros (`capabilities_truncated` si hay más); si los de uno
+  fallan, ese elemento lleva `capabilities_error` y la lista sigue. Un
+  dispositivo que no existe da `not_found`.
+- `ha_resolve_target` y `ha_explain_target`: qué entidades, dispositivos y
+  áreas abarca un target (y qué ids no existen, en `missing`), y por qué
+  entra cada entidad y qué quita cada exclusión. Listas ordenadas;
+  `expand_group` y `primary_entities_only` con los valores por defecto de HA.
+- `ha_list_triggers_for_target`, `ha_list_conditions_for_target` y
+  `ha_list_actions_for_target`: los nombres, ordenados, de los triggers,
+  condiciones y acciones que sirven para alguna entidad del target,
+  incluidos los «por propósito» (`light.turned_on`). Solo nombres, sin sus
+  opciones. En un HA sin estos comandos, `ha_version_unsupported` con la
+  versión.
+- El target se valida antes de llegar a HA (claves `entity_id`,
+  `device_id`, `area_id`, `floor_id` y `label_id`, texto o lista de textos
+  no vacíos, `exclude` con las mismas claves y al menos una fuera de él):
+  una clave desconocida da `invalid_argument` nombrándola.
+- Tabla de comandos: los seis `device_automation/*` (lista y capacidades) y
+  `extract_from_target`, `explain_target`, `get_triggers_for_target`,
+  `get_conditions_for_target` y `get_services_for_target` pasan a
+  `dedicated`. Tema nuevo `automation_assist` de `hermes_guide` (alias
+  `device_automation` y `targets`) con las recetas «automatización para un
+  dispositivo» y «target → propósito → validar».
+- Banco de Core: las ocho contra un interruptor de `kitchen_sink`,
+  contrastadas con lo que lee el lector directamente de Core.
 
 ### Supervisor
 
