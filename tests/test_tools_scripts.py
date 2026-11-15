@@ -17,6 +17,14 @@ import hermes.tools.scripts as scripts_module
 from tests._ha_fixture import REST_BASE, make_ready_client
 
 
+async def _validate_config_valido(payload: dict, timeout_seconds: int = 30) -> dict:
+    """Spec 017 (T048): la vista previa valida con `validate_config`; estos
+    tests no van de eso, así que HA da por buena cada parte enviada. Los de
+    la validación están en `tests/test_tools_validacion_al_guardar.py`."""
+    assert payload["type"] == "validate_config", payload
+    return {k: {"valid": True, "error": None} for k in payload if k != "type"}
+
+
 class DummyMCP:
     def __init__(self) -> None:
         self.tools: dict[str, object] = {}
@@ -48,6 +56,8 @@ class TestToolsScripts(unittest.IsolatedAsyncioTestCase):
             }
         }
         self.ha_client = make_ready_client(self.session, self.cache)
+        # Spec 017 (T048): la vista previa valida (ver el helper).
+        self.ha_client.ws_send = _validate_config_valido
         self.mcp = DummyMCP()
         scripts_module.register(self.mcp, self.ha_client)
 
@@ -106,6 +116,8 @@ class TestToolsScripts(unittest.IsolatedAsyncioTestCase):
         self.assertIn("confirmation_token", result)
         self.assertEqual(result["preview"]["current"]["alias"], "Viejo")
         self.assertEqual(result["preview"]["new"]["alias"], "Nuevo")
+        # Spec 017 (T048): la vista previa dice qué se validó.
+        self.assertIn("validation", result["preview"])
 
     async def test_update_script_apply(self) -> None:
         new_config = {"alias": "Nuevo", "sequence": [{"service": "test"}]}

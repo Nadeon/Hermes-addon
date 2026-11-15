@@ -339,6 +339,33 @@ def _error_de_ha(codigo: str, exc: HAConnectionError) -> dict[str, Any]:
     return {"error": codigo, "ha_code": exc.code, "detail": redact_secrets(str(exc))}
 
 
+class SustitucionInesperada(Exception):
+    """`blueprint/substitute` no devolvió `substituted_config`."""
+
+
+async def sustituir(
+    ha_client: HAClient, dominio: str, ruta: str, entradas: dict[str, Any]
+) -> dict[str, Any]:
+    """La configuración que da el blueprint `ruta` con `entradas` (sin guardar).
+
+    Compartida (spec 017, tramo D, research R-9) por
+    `ha_preview_blueprint_substitution` y por la validación al guardar de
+    `ha_create_or_update_automation` y `_script`, que no dependen de que la
+    familia `blueprints` esté activa. La ruta se manda TAL CUAL: quien llama
+    decide si la normaliza. Deja pasar `HAConnectionError` (con el código de
+    HA) y lanza `SustitucionInesperada` si la respuesta no trae la
+    configuración. Devuelve la configuración SIN redactar: quien la enseñe
+    la redacta; quien la valide la necesita entera.
+    """
+    raw = await ha_client.ws_send({
+        "type": "blueprint/substitute", "domain": dominio,
+        "path": ruta, "input": entradas,
+    })
+    if not isinstance(raw, dict) or not isinstance(raw.get("substituted_config"), dict):
+        raise SustitucionInesperada("blueprint/substitute did not return substituted_config")
+    return raw["substituted_config"]
+
+
 # ── Importar (tramo B, research R-1) ──────────────────────────────────────────
 
 # Patrones copiados de HA 2026.11.1, `components/blueprint/importer.py`
@@ -562,24 +589,20 @@ def register(
         if not isinstance(inputs, dict):
             return _invalid("inputs", "must be an object (input name -> value)")
         try:
-            raw = await ha_client.ws_send({
-                "type": "blueprint/substitute", "domain": domain,
-                "path": ruta, "input": inputs,
-            })
+            sustituida = await sustituir(ha_client, domain, ruta, inputs)
         except HAConnectionError as exc:
             logger.warning("ha_preview_blueprint_substitution_error", domain=domain,
                            path=ruta, code=exc.code or "connection")
             return _error_de_ha("substitution_failed", exc)
-        if not isinstance(raw, dict) or not isinstance(raw.get("substituted_config"), dict):
+        except SustitucionInesperada as exc:
             logger.warning("ha_preview_blueprint_substitution_error", domain=domain,
                            path=ruta, code="unexpected_response")
-            return {"error": "unexpected_response",
-                    "detail": "blueprint/substitute did not return substituted_config"}
+            return {"error": "unexpected_response", "detail": str(exc)}
         # Una entrada puede ser una contraseña: el resultado sale redactado.
         respuesta = {
             "domain": domain,
             "path": ruta,
-            "substituted_config": redact_structure(raw["substituted_config"]),
+            "substituted_config": redact_structure(sustituida),
             "saved": False,
         }
         tam = tam_json(respuesta)
