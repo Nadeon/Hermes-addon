@@ -326,6 +326,8 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         self._cfg(["system_updates"]).validate()
         # Spec 030: la tienda de apps también.
         self._cfg(["app_store"]).validate()
+        # Spec 024 (FR-013): y la de cámaras e imágenes.
+        self._cfg(["cameras"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

@@ -284,6 +284,20 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["automation_assist"]),
                          frozenset({"automation_assist"}))
 
+    def test_cameras_de_la_1_2_0(self) -> None:
+        """Spec 024 (FR-013, T002): familia nueva de la 1.2.0, desactivable,
+        con exactamente el módulo `cameras` (research R-3): las dos tools que
+        devuelven imágenes van solas para que quien no quiera que el cliente
+        vea la cámara la apague sin perder nada más.
+        Control negativo comprobado: con `cameras` en la familia `services`
+        cae este test (y el SC-005 de las de la 1.1.2)."""
+        familia = FAMILIAS["cameras"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("cameras",))
+        self.assertEqual(familia_de_modulo("cameras"), "cameras")
+        self.assertEqual(validar_desactivadas(["cameras"]), frozenset({"cameras"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

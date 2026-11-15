@@ -83,7 +83,7 @@ reintentar. `done` es true también si falla: cualquier entrada en `errors` da
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
 events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
-backups@TEMA_MONTAJES@, lovelace, marketplace@TEMA_TIENDA@, security@TEMA_GENERICAS@) y
+backups@TEMA_MONTAJES@, lovelace@TEMA_CAMARAS@, marketplace@TEMA_TIENDA@, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
 """
@@ -122,6 +122,10 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     # Spec 030: el de la tienda de apps, igual.
     texto = texto.replace(
         "@TEMA_TIENDA@", ", app_store" if "app_store" not in desactivadas else "")
+    # Spec 024: el de las cámaras, igual (sin la familia no hay tools de
+    # imagen que anunciar).
+    texto = texto.replace(
+        "@TEMA_CAMARAS@", ", cameras" if "cameras" not in desactivadas else "")
     return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
 
 
@@ -157,12 +161,14 @@ para el detalle de un área. Temas disponibles:
 - `backups`        — crear, restaurar y gestionar backups
 - `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
 - `lovelace`       — dashboards y recursos del frontend
+- `cameras`        — instantánea de una cámara e imagen de una entidad `image` (devuelven la imagen)
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
 - `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
 - `app_store`      — tienda de apps del Supervisor: repositorios, recarga, changelog, documentación, disponibilidad y reconstrucción
+- `core_minor`     — lo menor de Core por las genéricas: calendario y tareas, tags, medios, imágenes subidas
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -1516,6 +1522,92 @@ Esas dos son de la familia `events`: si está apagada, la espera de trigger
 funciona igual pero no se puede listar ni cancelar desde otra llamada (acaba
 sola al disparar o al agotar el plazo).
 """,
+    "cameras": """\
+# Cámaras e imágenes
+
+Dos tools de solo lectura que devuelven la IMAGEN (un bloque de imagen MCP)
+y, aparte, sus metadatos (`entity_id`, `content_type`, `bytes`, `width`,
+`height` y `scaling`):
+
+- `ha_get_camera_snapshot(entity_id, max_width=640)` — lo que ve ahora una
+  entidad `camera.*`.
+- `ha_get_image_entity(entity_id)` — la imagen actual de una entidad
+  `image.*` (un código QR, la portada de algo, un mapa…).
+
+PRIVACIDAD
+Una cámara puede enseñar el interior de la casa, y la imagen se manda a este
+cliente MCP. Pide una instantánea solo cuando el usuario lo quiera. Ninguna
+de las dos devuelve el `access_token` de la entidad ni una URL firmada:
+Hermes pide la imagen con su propio token. Quien no quiera que el cliente vea
+las cámaras desactiva la familia `cameras` en las opciones del add-on.
+
+TAMAÑO
+- La cámara se pide a Home Assistant de unos `max_width` píxeles de ancho
+  (64 a 1920) y 9/16 de eso de alto. Home Assistant SOLO ESCALA JPEG (y solo
+  si tiene TurboJPEG): una cámara que dé PNG, o un factor que no cuadre,
+  llega más grande. `requested_max_width` dice lo que se pidió, no lo que
+  llegó; el tamaño real está en `width`/`height` (si la cabecera es PNG o
+  JPEG; si no, `null` y la imagen llega igual).
+- `ha_get_image_entity` no escala: Home Assistant sirve el original.
+- Tope fijo de 2 MiB: una imagen mayor NO se devuelve (`image_too_large`
+  con `max_bytes`); no hay imagen a medias. Con una cámara, prueba con un
+  `max_width` menor.
+- Las cámaras en la nube y algunas entidades `image` descargan la imagen de
+  internet al pedirla.
+
+ERRORES (sin imagen)
+`invalid_argument` (con `field`; el `entity_id` tiene que ser del dominio de
+la tool, en minúsculas), `not_found`, `camera_unavailable` (cámara apagada) o
+`image_unavailable`, `snapshot_failed` (con el `status` de Home Assistant;
+p. ej. una cámara que saca las fotos del stream y no lo tiene),
+`unsupported_content_type` (Home Assistant no devolvió una imagen),
+`image_too_large` y `ha_unavailable`.
+
+PREFERENCIAS DE STREAM (por la tabla)
+La precarga del stream y la orientación de una cámara van por las genéricas:
+`ha_read_ws_command("camera/get_prefs", {"entity_id": "camera.entrada"})` y
+`ha_call_ws_command("camera/update_prefs", {"entity_id": "camera.entrada",
+"orientation": 1})`, en dos pasos. Precargar el stream de una cámara en la
+nube mantiene tráfico hacia internet. La orientación (1 a 8, como en EXIF)
+solo se puede cambiar en cámaras creadas desde la interfaz. Vídeo, streams y
+WebRTC no están disponibles.
+""",
+    "core_minor": """\
+# Lo menor de Core por las genéricas
+
+Estas partes de Home Assistant no tienen tool dedicada: van por
+`ha_read_ws_command` (lecturas) y `ha_call_ws_command` (cambios, siempre en
+dos pasos). `hermes_guide("generic_commands", search="…")` da la categoría y
+el motivo de cada comando.
+
+CALENDARIO Y TAREAS
+- Crear eventos y tareas: las acciones `calendar.create_event` y
+  `todo.add_item` (`ha_call_service`).
+- `calendar/event/update` (`entity_id`, `uid` y `event` con los campos
+  nuevos) y `calendar/event/delete` (`entity_id` y `uid`), en una serie
+  también `recurrence_id` y `recurrence_range`, y `todo/item/move`
+  (`entity_id`, `uid` y `previous_uid`) piden confirmación. Si el calendario o
+  la lista es remoto (CalDAV, Google…), el cambio sale a internet.
+
+TAGS
+`tag/list` lee; `tag/create`, `tag/update` y `tag/delete` piden
+confirmación.
+
+MEDIOS
+- `media_source/browse_media` (`media_content_id`, p. ej.
+  `media-source://media_source`) y `media_source/search_media` leen; las
+  fuentes remotas consultan internet. La miniatura (`thumbnail`) de cada
+  elemento sale TAPADA: alguna fuente la firma con `authSig`, una credencial
+  temporal que da acceso al medio sin token.
+- `media_source/resolve_media` está DENEGADO: devuelve una URL firmada.
+- `media_source/local_source/remove` borra un fichero de los medios locales
+  del disco: es IRREVERSIBLE (pide confirmación).
+
+IMÁGENES SUBIDAS (`image_upload`)
+`image/list` lee; `image/update` y `image/delete` (borra la imagen y sus
+ficheros) piden confirmación. Subir una imagen NO se puede: va por REST
+multipart (`image/create` está denegado).
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -1673,6 +1765,15 @@ _ALIASES: dict[str, str] = {
     "documentation": "app_store",
     "rebuild": "app_store",
     "availability": "app_store",
+    # Spec 024.
+    "camera": "cameras",
+    "cámaras": "cameras",
+    "camaras": "cameras",
+    "snapshot": "cameras",
+    "image": "cameras",
+    "imagen": "cameras",
+    "minor": "core_minor",
+    "menores": "core_minor",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -1782,7 +1883,8 @@ def register(mcp: object) -> None:
                 integration_flows, repair_flows, filesystem, supervisor,
                 system_diagnostics, updates, backups, lovelace, marketplace, security,
                 generic_commands, system_status, recorder, core_diagnostics,
-                app_store, blueprints, automation_assist, workflows. Acepta alias
+                app_store, blueprints, automation_assist, cameras, core_minor,
+                workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,

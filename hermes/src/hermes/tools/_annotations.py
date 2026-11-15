@@ -299,6 +299,10 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # (foro, GitHub, gist o cualquier web). No abre el socket Hermes, pero la
     # descarga la provoca esta tool (mismo criterio que sv_install_addon).
     "ha_import_blueprint",
+    # Spec 024 (research R-2): una cámara en la nube (Nest, Ring…) o una
+    # entidad `image` que descarga de una URL salen a internet cuando se pide
+    # la imagen. Son de solo lectura, pero no pueden decir que no salen.
+    "ha_get_camera_snapshot", "ha_get_image_entity",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

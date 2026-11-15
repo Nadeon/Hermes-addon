@@ -63,6 +63,19 @@ class HAConnectionError(RuntimeError):
         self.code = code
 
 
+class ImageTooLargeError(HAConnectionError):
+    """La imagen que sirve Core pasa del tope de `rest_get_image` (spec 024).
+
+    Es subclase de `HAConnectionError` para que quien solo capture esa no
+    deje escapar el fallo, y lleva el tope para que la tool lo diga en su
+    error (`image_too_large` con `max_bytes`).
+    """
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(f"image larger than {max_bytes} bytes")
+        self.max_bytes = max_bytes
+
+
 # Sentinel para señalizar reconexión/cierre de WS a los waiter de eventos
 _WS_CLOSED_SENTINEL = object()
 
@@ -1442,6 +1455,60 @@ class HAClient:
             if pendiente or desbordada:
                 guardar(bytes(pendiente))
         return list(cola)
+
+    async def rest_get_image(
+        self,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        max_bytes: int,
+    ) -> tuple[str, bytes]:
+        """GET binario a la API de Core; devuelve `(content_type, bytes)`.
+
+        Existe por las instantáneas de cámara y las imágenes de las entidades
+        `image` (spec 024, research R-2). Core no les pone tope (una cámara
+        4K da varios MB) y Hermes no reduce imágenes: no añade Pillow. Por eso
+        se lee en flujo y, en cuanto el acumulado pasa de `max_bytes`, se deja
+        de leer —la conexión se cierra sin bajar el resto— y se lanza
+        `ImageTooLargeError`. Nunca se devuelve una imagen cortada: no se
+        podría decodificar y daría al cliente algo que parece válido.
+
+        `content_type` va sin parámetros y en minúsculas (`image/jpeg`): es
+        quien llama quien decide qué tipos acepta.
+
+        Un estado HTTP de error se lanza como `HAConnectionError(status=…)`
+        para que quien llama distinga 404 (no existe) y 503 (apagada) de un
+        fallo. El cuerpo no viaja en el mensaje: puede ser HTML con datos de
+        la instalación.
+        """
+        if self._session is None:
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+        _assert_safe_request_path(path)
+        # La comprobación central no mira segmentos vacíos; aquí no hay
+        # ninguna ruta legítima con `//` y quien llama interpola un
+        # `entity_id` que viene del cliente MCP.
+        if "//" in path:
+            raise HAConnectionError(f"Unsafe request path (empty segment): {path!r}")
+        url = f"{self._rest_base_url}{path}"
+
+        async with self._session.get(
+            url, params=params, timeout=ClientTimeout(total=30)
+        ) as resp:
+            if resp.status >= 400:
+                raise HAConnectionError(
+                    f"HA REST GET {path} failed {resp.status}",
+                    status=resp.status,
+                )
+            tipo = resp.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            datos = bytearray()
+            async for trozo in resp.content.iter_chunked(64 * 1024):
+                datos += trozo
+                if len(datos) > max_bytes:
+                    # Salir del `async with` sin leer el resto libera la
+                    # conexión cerrándola: no se descarga lo que queda.
+                    resp.close()
+                    raise ImageTooLargeError(max_bytes)
+        return tipo, bytes(datos)
 
     # ── Supervisor REST API ───────────────────────────────────────────────────
 

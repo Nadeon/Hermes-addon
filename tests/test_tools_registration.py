@@ -896,6 +896,12 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # Tramo D: la espera de trigger solo escucha (lista cerrada de triggers,
     # research R-8), en `_READ_ONLY_EXACT`.
     "ha_wait_for_trigger": ("R-I-", "Wait for trigger (Home Assistant)"),
+    # Spec 024, tramo 1 (contracts/tools.md): las dos de imagen solo leen
+    # (prefijo `ha_get_`) y son de mundo abierto (`_OPEN_WORLD`): una cámara
+    # en la nube o una entidad `image` que descarga de una URL salen a
+    # internet al pedir la imagen.
+    "ha_get_camera_snapshot": ("R-IO", "Get camera snapshot (Home Assistant)"),
+    "ha_get_image_entity": ("R-IO", "Get image entity (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -2099,6 +2105,61 @@ class TestEsperaDeTriggerRegistration:
         assert gestor.max_concurrent == 3
         assert trigger.call_args.kwargs["wait_for_event_max_seconds"] == 77
         assert trigger.call_args.kwargs["response_max_bytes"] == 54_321
+
+
+# ── Spec 024, tramo 1: cámaras e imágenes (T008) ─────────────────────────────
+
+_CAMERAS_024 = ("ha_get_camera_snapshot", "ha_get_image_entity")
+
+
+class TestCamerasRegistration:
+    """Las dos tools de imagen se registran bajo `cameras`, con los hints del
+    contrato (`_HINTS_NUEVAS_1_2_0`), sin `confirmation_token`; con la familia
+    desactivada no aparece ninguna y las de la 1.1.2 siguen igual.
+
+    Control negativo comprobado: quitar las dos de `_OPEN_WORLD` → caen
+    `test_solo_leen_y_salen_a_internet` y `test_hints_y_titulos_de_las_nuevas`.
+    """
+
+    def test_registradas_por_defecto(self):
+        mcp = _register_all()
+        assert [n for n in _CAMERAS_024 if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna(self):
+        mcp = _do_register(["cameras"])
+        assert [n for n in _CAMERAS_024 if n in mcp.tools] == []
+        assert "ha_get_state" in mcp.tools
+
+    def test_sin_confirmation_token(self):
+        registro = _real_registry()
+        for nombre in _CAMERAS_024:
+            assert "confirmation_token" not in registro[nombre].parameters["properties"], nombre
+
+    def test_esquemas(self):
+        registro = _real_registry()
+        assert sorted(registro["ha_get_camera_snapshot"].parameters["properties"]) == [
+            "entity_id", "max_width"]
+        assert registro["ha_get_camera_snapshot"].parameters.get("required") == ["entity_id"]
+        assert sorted(registro["ha_get_image_entity"].parameters["properties"]) == ["entity_id"]
+
+    def test_solo_leen_y_salen_a_internet(self):
+        from hermes.tools._annotations import classify
+
+        for nombre in _CAMERAS_024:
+            ann = classify(nombre)
+            assert ann.read_only_hint and not ann.destructive_hint, nombre
+            assert ann.open_world_hint, nombre
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.cameras.register") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────

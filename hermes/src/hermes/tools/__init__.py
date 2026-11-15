@@ -450,6 +450,14 @@ def register_all_tools(
             response_max_bytes=response_max_bytes,
         )
 
+    # Cámaras e imágenes (spec 024, CAP-059): la instantánea de una cámara y
+    # la imagen de una entidad `image`, como bloque de imagen MCP. Solo leen.
+    # Reciben `response_max_bytes` por uniformidad, pero su límite es el tope
+    # fijo de bytes de la imagen (el guardián central no toca las imágenes).
+    if _activa("cameras"):
+        from hermes.tools.cameras import register as register_cameras
+        register_cameras(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

@@ -194,6 +194,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "actions, resolving a target and what can be done with it, and "
             "waiting once for a trigger (read only).",
             "1.2.0", True, ("device_automation", "targets", "wait_for_trigger")),
+    # Spec 024 (research R-3): la instantánea de una cámara y la imagen de una
+    # entidad `image` van solas porque son las únicas tools que devuelven
+    # imágenes, y una cámara puede enseñar el interior de la casa: quien no
+    # quiera que el cliente MCP las vea apaga esta familia sin perder nada
+    # más. No van en `services` (1.1.2) por FR-010 de la 008. Activa por
+    # defecto: si debe venir apagada es la duda D-03 de la 008.
+    Familia("cameras",
+            "Camera snapshots and image entities (returns images).",
+            "1.2.0", True, ("cameras",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}
