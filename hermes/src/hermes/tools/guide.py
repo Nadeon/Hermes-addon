@@ -535,6 +535,8 @@ las apps y Hermes; el sistema no responde durante unos minutos). Avisa al
 usuario antes. No hace backup: si lo quieres, `sv_create_backup_full` antes.
 Bloquean: `unhealthy`, `supervisor_update_pending` y `reboot_pending` (esa
 versión ya está instalada y espera el reinicio: reinicia, no la repitas).
+Si ya hay otra actualización del OS en marcha, `update_in_progress` con su
+`job_id`, sin token: espera a que termine.
 
 ## Supervisor
 
@@ -554,7 +556,8 @@ que en Core.
 
 Hermes no se actualiza a sí mismo: en la lista sale con `update_with: null`;
 se actualiza desde la interfaz de Home Assistant. Las demás apps, con
-`sv_update_addon(slug)`. Los plugins los actualiza el Supervisor (o
+`sv_update_addon(slug)`, salvo las que tienen un slug acabado en `_hermes`
+(`sv_update_addon` las rechaza: `update_with: null` y una nota). Los plugins los actualiza el Supervisor (o
 `sv_call_api("POST", "/<plugin>/update")`).
 
 ## Entidades `update` (firmware, integraciones, HACS…)
@@ -588,9 +591,17 @@ argumentos. La de Hermes responde `self_update_not_supported` (Hermes se
 compara con el slug exacto que da el Supervisor; si no lo puede leer,
 `self_check_unavailable`, sin token).
 
-`ha_call_service("update", "install", …)` sigue funcionando como siempre (pide
-token), pero su vista previa no dice versiones: trae una `hint` que recomienda
-`ha_install_update`.
+Otra app cuyo slug también termina en `_hermes` no es Hermes, pero
+`sv_update_addon` la rechaza igual: sale con `install_with`/`update_with: null`
+(`unsupported_entity` en `ha_install_update`); se actualiza desde la interfaz.
+
+`ha_call_service("update", "install", …)` pide token y su vista previa no dice
+versiones (trae una `hint` hacia `ha_install_update`). Desde la 1.2.0 solo
+admite una lista explícita de `entity_id` (por área, dispositivo, etiqueta,
+planta o `all`: `use_dedicated_tool` hacia `ha_install_update`), rechaza la
+entidad de Hermes (`self_update_not_supported`) y remite las de Core, OS y
+Supervisor a sus `sv_*` (`use_dedicated_tool`), sin token. Las demás siguen
+igual.
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)

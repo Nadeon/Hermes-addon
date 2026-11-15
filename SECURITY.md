@@ -124,6 +124,16 @@ report about one of them will be closed with a pointer to this section:
     most 60 s after it expires; it is never written to the log.
   - Service denylist + recursive `service_data` sanitisation + automatic
     classification of dangerous scripts and automations.
+  - **`update.install` through `ha_call_service`** (1.2.0) is checked before
+    any token is issued or accepted: the target must be an explicit list of
+    `entity_id` (no area, device, label, floor or `all`), each entity is
+    resolved through the entity registry, Hermes' own update entity is
+    refused (`self_update_not_supported`; fail-closed when Hermes cannot read
+    its own app slug), and the Core, OS and Supervisor entities are sent to
+    `sv_update_core`, `sv_update_os` and `sv_update_supervisor`, which run
+    their own checks (configuration check for Core). Without this, Hermes
+    could update itself through Core, which calls the Supervisor as Core and
+    so skips the Supervisor's own self-update protection.
   - **Generic tools behind a fail-closed command table.**
     `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and
     `sv_read_api`/`sv_call_api` (Supervisor API routes) cover what no

@@ -172,9 +172,44 @@ _Pendiente: la añade la sub-feature que lo implemente._
   actualización automática del add-on). Para saber que es Hermes se compara
   con el slug exacto que el Supervisor da para el propio add-on
   (`/addons/self/info`), no con un sufijo; si no se puede leer, se rechaza
-  igual (`self_check_unavailable`). `ha_call_service("update", "install", …)`
-  sigue igual (pide token), pero su vista previa trae una `hint` hacia
-  `ha_install_update`.
+  igual (`self_check_unavailable`). Ese mismo criterio vale ahora en
+  `sv_list_available_updates`. Una app de otro repositorio cuyo slug también
+  termina en `_hermes` no es Hermes, pero tampoco se manda a
+  `sv_update_addon`, que rechaza todos los slugs con ese sufijo: las tres
+  tools lo dicen (`update_with`/`install_with: null` con una nota;
+  `ha_install_update` responde `unsupported_entity`) y remiten a la interfaz
+  de Home Assistant.
+- **Cambio de comportamiento de `ha_call_service` con `update.install`**
+  (tool de la 1.1.2; el esquema no cambia). Por esa vía Hermes podía
+  actualizarse a sí mismo (Core llama al Supervisor como Core, así que ni la
+  protección propia del Supervisor salta) y Core se actualizaba sin la
+  comprobación de la configuración de `sv_update_core`. Ahora, solo para
+  `update.install`, y tanto en la vista previa como al confirmar: el objetivo
+  tiene que ser una lista explícita de `entity_id` (con `area_id`,
+  `device_id`, `label_id`, `floor_id`, `all` o sin objetivo responde
+  `use_dedicated_tool` hacia `ha_install_update`); cada entidad se resuelve
+  por el registro de entidades igual que en `ha_install_update`; la de Hermes
+  responde `self_update_not_supported` (y, si el slug propio no se puede
+  leer, cualquier app del Supervisor, `self_check_unavailable`); las de Core,
+  OS y Supervisor, `use_dedicated_tool` hacia `sv_update_core`,
+  `sv_update_os` o `sv_update_supervisor`. Todo sin token y sin llegar a Home
+  Assistant. Las demás entidades `update` (otras apps, firmware, HACS…)
+  siguen exactamente igual: token y la misma llamada, con la `hint` hacia
+  `ha_install_update` en la vista previa. `ha_call_service_response` no
+  cambia: ya rechazaba `update.install` (está en la denylist y esa tool no
+  tiene confirmación).
+- **Otra actualización del OS en marcha.** Si ya hay una actualización del OS
+  en curso (lanzada desde la interfaz o por otra llamada), la vista previa de
+  `sv_update_os` responde `update_in_progress` con su `job_id` y sin token. Y
+  la confirmación nunca toma como suyo un job que ya estaba en marcha antes
+  de su petición: si el Supervisor la rechaza, la respuesta lo dice
+  (`supervisor_error`) en vez de quedar solo en el log. Core y el Supervisor
+  no tienen esa carrera (Core devuelve su propio job o el error; el
+  Supervisor comparte la actualización que ya está en curso).
+- **Notas de versión de terceros que no pasan del tope.**
+  `ha_get_update_release_notes` recorta midiendo el tamaño real del texto en
+  la respuesta, con el escape JSON (comillas, barras, saltos de línea), así
+  que unas notas llenas de esos caracteres ya no se cambian por un error.
 - **Tabla de comandos**: `GET /available_updates`, `POST /refresh_updates`,
   `POST /reload_updates`, `POST /core/update`, `hassio/update/core`,
   `POST /os/update`, `POST /supervisor/update` y el comando de Core

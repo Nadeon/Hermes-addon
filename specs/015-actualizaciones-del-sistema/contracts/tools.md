@@ -19,8 +19,9 @@ ha_list_updates(include_up_to_date: bool = False) -> object
 ha_get_update_release_notes(entity_id: str) -> object
 ha_install_update(entity_id: str, version: str | None = None, backup: bool = False, confirmation_token: str | None = None) -> object
 
-# Existente (familia services): solo cambia el contenido de una vista previa
-ha_call_service(...)   # domain="update", service="install": preview["hint"]
+# Existente (familia services): mismo esquema
+ha_call_service(...)   # domain="update", service="install": preview["hint"] y,
+                       # desde T051, los rechazos sin token de abajo
 ```
 
 `sv_update_core` tiene `backup=True` por defecto (el Supervisor hace un backup
@@ -93,8 +94,11 @@ Todas con `{"error": <código>, "detail": <texto en inglés>}` y, cuando ayuda,
 | `versions_unavailable` | no se pudo leer versión actual o de destino |
 | `entity_not_found` | `entity_id` sin estado |
 | `specific_version_not_supported`, `backup_not_supported`, `update_in_progress` | validaciones de `update.install` |
-| `use_dedicated_tool` | entidad de la plataforma `hassio` (FR-014) |
-| `self_update_not_supported` | entidad de la app Hermes |
+| `update_in_progress` | `sv_update_os`: ya hay un job `os_manager_update` sin terminar (T047); lleva `job_id` y `poll_with` |
+| `use_dedicated_tool` | entidad de la plataforma `hassio` (FR-014); en `ha_call_service` con `update.install`, también un objetivo que no es una lista explícita de `entity_id` (hacia `ha_install_update`, T051) |
+| `self_update_not_supported` | entidad de la app Hermes (también por `ha_call_service`, T051) |
+| `self_check_unavailable`, `registry_unavailable` | no se pudo leer el slug propio o el registro de entidades (fail-closed) |
+| `unsupported_entity` | entidad de `hassio` no reconocida, u otra app con slug `*_hermes` que `sv_update_addon` rechazaría (D-13, T048) |
 | error del token | el de `security.py`, más `preview_outdated: true` y `hint` en las cuatro que atan versiones |
 
 Los mensajes del Supervisor y de Core pasan por `redact_secrets` y se recortan a
