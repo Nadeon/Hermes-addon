@@ -215,19 +215,70 @@ separado. Cada uno necesita el anterior integrado en la rama.
 
 ### Preparación
 
-- [ ] T029 Línea base del tramo 3 con el tramo 2 integrado; localizar en `tests/test_tools_addons_tienda.py` y `tests/test_tools_store_apps.py` los simulados de confirmación de `sv_install_addon` y `sv_rebuild_addon` que tendrán que leer otra vez la ficha (R-7)
+- [x] T029 Línea base del tramo 3 con el tramo 2 integrado; localizar en `tests/test_tools_addons_tienda.py` y `tests/test_tools_store_apps.py` los simulados de confirmación de `sv_install_addon` y `sv_rebuild_addon` que tendrán que leer otra vez la ficha (R-7)
 
 ### Tests (escritos antes, en rojo)
 
-- [ ] T030 [P] [US4] Tests de la función pura en `tests/test_tools_privilegios.py` (`TestBloque`): con fichas de la forma de 2026.11.0 (todos los campos de `api/store.py` extendido, más `long_description` y otros que no son privilegios), `privilegios_de` elige exactamente los campos de R-7 (nunca `long_description`, `options` ni `schema`); con `/addons/{slug}/info` añade los suyos en `installed`; `elevated` según la regla fija (un caso por regla: `full_access`, `docker_api`, `host_network`, `host_pid`, `host_ipc`, `host_uts`, `host_dbus`, `kernel_modules`, `udev`, `privileged` no vacía, `devices` no vacía, `hassio_role` `manager`/`admin`, `apparmor: false`, `map` con escritura) y vacía para una app sin nada; `declared_in_folder` desde un `config.yaml` de app local con `map`, `privileged`, `devices` y `ports`, con la nota de la recarga; un centinela en `hassio_role` o en una ruta de `devices` sale redactado (FR-021, FR-022, FR-023)
-- [ ] T031 [P] [US4] Tests en `tests/test_tools_privilegios.py` (`TestInstalar`): la vista previa de `sv_install_addon` trae `privileges.store` de la ficha (sin llamadas nuevas al Supervisor) y, para `local_ejemplo` con `ejemplo/config.yaml` en la raíz temporal, `declared_in_folder`; app de la tienda no local → sin `declared_in_folder`; ficha ilegible → `privileges: null` y `privileges_unavailable`, y el token sale como hoy; los rechazos sin token de la 030 (`addon_not_found`, `already_installed`, `addon_not_available`) no cambian (FR-021)
-- [ ] T032 [P] [US4] Tests en `tests/test_tools_privilegios.py` (`TestEstadoDelToken`): `sv_install_addon` con la ficha cambiada entre vista previa y confirmación (`full_access` false → true) → `preview_outdated` (la pista nombra la versión o los privilegios) y sin `POST`; con el `config.yaml` local cambiado (`map` nuevo) → igual; con la versión cambiada → el rechazo de la 030 de siempre; sin cambios → la misma petición que en la 1.1.2 (FR-023)
-- [ ] T033 [P] [US4] Tests en `tests/test_tools_privilegios.py` (`TestReconstruir`): la vista previa de `sv_rebuild_addon` trae `store` (lo que se aplicará), `installed` (lo actual) y, para `local_*`, `declared_in_folder`; un cambio en cualquiera de ellos antes de confirmar → `preview_outdated` sin `POST /addons/{slug}/rebuild`; sin cambios, la misma petición de la 030; los rechazos sin token de la 030 no cambian (FR-022, FR-023)
+- [x] T030 [P] [US4] Tests de la función pura en `tests/test_tools_privilegios.py` (`TestBloque`): con fichas de la forma de 2026.11.0 (todos los campos de `api/store.py` extendido, más `long_description` y otros que no son privilegios), `privilegios_de` elige exactamente los campos de R-7 (nunca `long_description`, `options` ni `schema`); con `/addons/{slug}/info` añade los suyos en `installed`; `elevated` según la regla fija (un caso por regla: `full_access`, `docker_api`, `host_network`, `host_pid`, `host_ipc`, `host_uts`, `host_dbus`, `kernel_modules`, `udev`, `privileged` no vacía, `devices` no vacía, `hassio_role` `manager`/`admin`, `apparmor: false`, `map` con escritura) y vacía para una app sin nada; `declared_in_folder` desde un `config.yaml` de app local con `map`, `privileged`, `devices` y `ports`, con la nota de la recarga; un centinela en `hassio_role` o en una ruta de `devices` sale redactado (FR-021, FR-022, FR-023)
+- [x] T031 [P] [US4] Tests en `tests/test_tools_privilegios.py` (`TestInstalar`): la vista previa de `sv_install_addon` trae `privileges.store` de la ficha (sin llamadas nuevas al Supervisor) y, para `local_ejemplo` con `ejemplo/config.yaml` en la raíz temporal, `declared_in_folder`; app de la tienda no local → sin `declared_in_folder`; ficha ilegible → `privileges: null` y `privileges_unavailable`, y el token sale como hoy; los rechazos sin token de la 030 (`addon_not_found`, `already_installed`, `addon_not_available`) no cambian (FR-021)
+- [x] T032 [P] [US4] Tests en `tests/test_tools_privilegios.py` (`TestEstadoDelToken`): `sv_install_addon` con la ficha cambiada entre vista previa y confirmación (`full_access` false → true) → `preview_outdated` (la pista nombra la versión o los privilegios) y sin `POST`; con el `config.yaml` local cambiado (`map` nuevo) → igual; con la versión cambiada → el rechazo de la 030 de siempre; sin cambios → la misma petición que en la 1.1.2 (FR-023)
+- [x] T033 [P] [US4] Tests en `tests/test_tools_privilegios.py` (`TestReconstruir`): la vista previa de `sv_rebuild_addon` trae `store` (lo que se aplicará), `installed` (lo actual) y, para `local_*`, `declared_in_folder`; un cambio en cualquiera de ellos antes de confirmar → `preview_outdated` sin `POST /addons/{slug}/rebuild`; sin cambios, la misma petición de la 030; los rechazos sin token de la 030 no cambian (FR-022, FR-023)
 
 ### Implementación
 
-- [ ] T034 [US4] `hermes/src/hermes/tools/_store.py` (`privilegios_de`, `declarado_en_carpeta` con el índice de `hermes/folders.py`); `hermes/src/hermes/tools/addons.py` (`_vista_previa_de_instalar` añade `privileges`; `_token_con_version` ata `{"version_latest", "privileges"}` y relee la ficha y el `config.*` al confirmar; la pista del rechazo nombra las dos causas); `hermes/src/hermes/tools/store_apps.py` (vista previa con las tres fuentes; confirmación con `resolve_confirmation_token(…, estado=…)` y `preview_outdated`). Descripciones de las dos tools al día (enseñan los privilegios y se cancelan si cambian). Ajustar los simulados de confirmación de T029 sin cambiar aserciones de comportamiento. Los esquemas no cambian (`test_esquemas_de_la_1_1_2` en verde sin tocarlo); el inventario de la 033 tampoco (mismos argumentos; anotar en su docstring que el estado de las dos crece). T030–T033 en verde (FR-021…FR-023)
-- [ ] T035 Control negativo y cierre del tramo 3: (a) quitar `privileges` del estado de instalar → cae el de `full_access` cambiado; (b) lo mismo en reconstruir → cae su caso; (c) devolver la ficha entera en `store` → cae el de campos exactos; (d) no redactar los textos → cae el del centinela; (e) mirar `local_*` en `share` o no mirar el índice → cae `declared_in_folder`. Restaurar; suite completa (los 6 fallos y ninguno más), revisión del diff (principio VIII), commit con los recuentos
+- [x] T034 [US4] `hermes/src/hermes/tools/_store.py` (`privilegios_de`, `declarado_en_carpeta` con el índice de `hermes/folders.py`); `hermes/src/hermes/tools/addons.py` (`_vista_previa_de_instalar` añade `privileges`; `_token_con_version` ata `{"version_latest", "privileges"}` y relee la ficha y el `config.*` al confirmar; la pista del rechazo nombra las dos causas); `hermes/src/hermes/tools/store_apps.py` (vista previa con las tres fuentes; confirmación con `resolve_confirmation_token(…, estado=…)` y `preview_outdated`). Descripciones de las dos tools al día (enseñan los privilegios y se cancelan si cambian). Ajustar los simulados de confirmación de T029 sin cambiar aserciones de comportamiento. Los esquemas no cambian (`test_esquemas_de_la_1_1_2` en verde sin tocarlo); el inventario de la 033 tampoco (mismos argumentos; anotar en su docstring que el estado de las dos crece). T030–T033 en verde (FR-021…FR-023)
+- [x] T035 Control negativo y cierre del tramo 3: (a) quitar `privileges` del estado de instalar → cae el de `full_access` cambiado; (b) lo mismo en reconstruir → cae su caso; (c) devolver la ficha entera en `store` → cae el de campos exactos; (d) no redactar los textos → cae el del centinela; (e) mirar `local_*` en `share` o no mirar el índice → cae `declared_in_folder`. Restaurar; suite completa (los 6 fallos y ninguno más), revisión del diff (principio VIII), commit con los recuentos
+
+**Notas del tramo 3** (al cerrar):
+
+- T029: línea base en `1de9d6a` (punta del tramo 2): 5482 passed, 216
+  skipped, 6 failed (los 6 conocidos de Windows). Los simulados de
+  confirmación de `tests/test_tools_addons_tienda.py`,
+  `tests/test_tools_addons_convergencia_030.py` y
+  `tests/test_tools_store_apps.py` NO hubo que tocarlos: la ficha de la
+  tienda que relee instalar ya estaba en el simulado, y en reconstruir la
+  ficha que falta (404) cuenta como `store: null` en la vista previa y al
+  confirmar, que casan. Sin `/addons` montada (los tests no la parchean),
+  `declared_in_folder` es `null` las dos veces.
+- T030–T033: `tests/test_tools_privilegios.py` (32 tests). Las fichas
+  tienen la forma real de 2026.11.0 (`_generate_app_information` extendida
+  e `info_data`).
+- HALLAZGO menor (de diseño, ya resuelto en el código): en las dos rutas
+  del Supervisor `apparmor` es TEXTO (`disable`, `default`, `profile`,
+  `apps/model.py`), no booleano; solo en el `config.yaml` es booleano. La
+  regla «`apparmor: false`» de R-7 se aplica como `false` o `"disable"`.
+- T034, decisiones: el estado atado es el bloque entero salvo la nota de
+  `declared_in_folder` y `unavailable` (los motivos son textos de error que
+  pueden variar sin que cambie nada; que una fuente no se leyó sí se ata,
+  con su clave a `null`). Lo que se ENSEÑA va acotado (50 elementos por
+  lista o diccionario y 200 caracteres por texto, con `truncated: true`) por
+  el tope de respuesta; lo atado al token es el bloque entero.
+  `declared_in_folder` solo lleva los campos que el fichero declara (sin los
+  valores por defecto del Supervisor), con `map` normalizado como
+  `apps/validate.py` (`"share:rw"` → `{"type": "share", "read_only":
+  false}`); una entrada que el Supervisor descartaría sale como `unparsed` y
+  no cuenta como elevada. `_token_con_version` recibe el `estado` entero
+  (instalar: versión y privilegios; actualizar: solo la versión, igual que
+  antes) y la pista de instalar nombra las dos causas. En reconstruir, el
+  token se resuelve antes del `POST` con `resolve_confirmation_token` y
+  `estado`; un cambio es `preview_outdated` sin gastar el token. Los
+  esquemas no cambian (instantánea en verde sin tocarla); el inventario de
+  la 033 tampoco cambia de recuento (nota en su docstring).
+- T035, controles negativos (tests de `test_tools_privilegios.py` que caen):
+  (a) instalar sin `privileges` en el estado → 2
+  (`test_privilegios_cambiados_en_la_tienda`, `test_config_local_cambiado`);
+  (b) reconstruir sin estado → 3 (`test_cambia_la_tienda`,
+  `test_cambia_la_instalada`, `test_cambia_el_fichero`); (c) la ficha
+  entera en `store`/`installed` → 4 (`test_campos_exactos_de_la_tienda`,
+  `test_instalada_anade_los_suyos`, `test_vista_previa_con_la_tienda`,
+  `test_vista_previa_con_las_tres_fuentes`); (d) sin redactar los textos →
+  1 (`test_centinela_redactado`); (e1) mirar `share` en vez de `addons` → 8
+  (los de `declared_in_folder` de las cuatro clases); (e2) por nombre de
+  carpeta en vez del índice → 1
+  (`test_declarado_solo_desde_addons_y_por_el_indice`); (e3) sin exigir
+  `local_*` → `test_tienda_no_local_sin_declared` y los subtests de
+  `test_declarado_solo_para_local`. Restaurado: suite completa con 5514
+  passed, 216 skipped y solo los 6 fallos conocidos.
 
 ---
 
