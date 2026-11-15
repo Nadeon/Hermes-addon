@@ -19,7 +19,8 @@ Contra HA Core 2026.11.1 real, con la integración de prueba `banco_flujos`
   (nombre inocente, selector de contraseña) sale tapado.
 - `TestReauth` (tramo C, decisión del supervisor): reautenticación de una
   entrada por `ha_continue_config_entry_flow`, con token en cada paso; la
-  vista previa no cambia nada y tapa la clave.
+  vista previa no cambia nada y tapa la clave. Y (T046) `ha_ignore_discovery`
+  rechaza ignorar un `reauth` de una entrada con `unique_id`, que sigue ahí.
 
 Hermes hace; el lector independiente comprueba en Core y limpia lo suyo.
 
@@ -540,3 +541,75 @@ class TestReauth(BancoEscrituras):
                 descripcion=f"entrada {entry_id} recargada tras la reautenticación",
             )
             self.assertEqual((await _datos_de_la_entrada(s, entry_id))["clave"], nuevo["clave"])
+
+    async def test_no_se_puede_ignorar_un_reauth(self) -> None:
+        """T046 (convergencia, hallazgo ALTO): ignorar un `reauth` se rechaza.
+
+        Escenario real: una entrada CON `unique_id` (la de un descubrimiento
+        confirmado) pide reautenticación; el contexto del `reauth` lleva ese
+        `unique_id`. Si Hermes mandara `config_entries/ignore_flow`, HA crearía
+        una entrada `ignore` con él y BORRARÍA la entrada real. El lector
+        comprueba que la entrada sigue ahí, cargada, y que no hay ninguna
+        `ignore` nueva.
+        """
+        async with self.sesion() as s:
+            flujo_descubierto, _ = await _descubrimiento_propio(s)
+            unique_id = next(
+                f["context"]["unique_id"]
+                for f in await _descubiertos(s)
+                if f["flow_id"] == flujo_descubierto
+            )
+            estado, hecho = await s.lector.rest(
+                "POST", f"{_RUTA_FLUJOS}/{flujo_descubierto}", {}
+            )
+            self.assertEqual((estado, hecho["type"]), (200, "create_entry"), hecho)
+            entry_id = hecho["result"]["entry_id"]
+            _borrar_entrada(s, entry_id)
+            await s.lector.esperar(
+                lambda: _entrada(s, entry_id),
+                lambda e: e is not None and e["state"] == "loaded",
+                descripcion=f"entrada {entry_id} (descubierta) en estado loaded",
+            )
+            ignoradas_antes = [e["entry_id"] for e in await _entradas(s) if e["source"] == "ignore"]
+
+            await s.lector.comando(
+                {
+                    "type": "call_service",
+                    "domain": DOMINIO,
+                    "service": "pedir_reauth",
+                    "service_data": {"entry_id": entry_id},
+                }
+            )
+            flujos = await s.lector.esperar(
+                lambda: _reauth_en_curso(s, entry_id),
+                lambda fs: len(fs) == 1,
+                descripcion=f"reauth de la entrada {entry_id} en flow/progress",
+            )
+            flow_id = flujos[0]["flow_id"]
+
+            async def abortar() -> None:
+                await s.lector.rest("DELETE", f"{_RUTA_FLUJOS}/{flow_id}")
+
+            s.limpiezas.append(abortar)
+            # El escenario peligroso es real: el reauth lleva el unique_id de
+            # la entrada.
+            self.assertEqual(flujos[0]["context"].get("unique_id"), unique_id)
+
+            listado = await s.accion("ha_list_discovered_integrations", domain=DOMINIO)
+            item = next(i for i in listado["items"] if i["flow_id"] == flow_id)
+            self.assertFalse(item["ignorable"])
+
+            rechazo = await _rechazo(s, "ha_ignore_discovery", flow_id=flow_id)
+            self.assertEqual(
+                (rechazo.get("error"), rechazo.get("reason"), rechazo.get("source")),
+                ("cannot_ignore", "not_a_discovery", "reauth"),
+            )
+
+            # El lector: la entrada real sigue, cargada; ninguna `ignore`
+            # nueva; el reauth sigue abierto.
+            entrada = await _entrada(s, entry_id)
+            self.assertIsNotNone(entrada)
+            self.assertEqual(entrada["state"], "loaded")
+            ignoradas = [e["entry_id"] for e in await _entradas(s) if e["source"] == "ignore"]
+            self.assertEqual(sorted(ignoradas), sorted(ignoradas_antes))
+            self.assertEqual(len(await _reauth_en_curso(s, entry_id)), 1)

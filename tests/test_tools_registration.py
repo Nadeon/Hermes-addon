@@ -738,8 +738,11 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
     # Spec 016, tramo A (contracts/tools.md). Las dos de lectura, por prefijo.
-    # `ha_ignore_discovery` modifica sin destruir (se deshace borrando la
-    # entrada `ignore`) y es idempotente; `ha_update_config_entry` es
+    # `ha_ignore_discovery` modifica sin destruir y es idempotente: crea la
+    # entrada `ignore` y HA deja de ofrecer ese descubrimiento (se deshace
+    # borrando esa entrada). Desde T046 solo acepta flujos de descubrimiento;
+    # ignorar un `reauth` borraba la entrada real, y eso se rechaza en vez de
+    # anunciarse destructivo, porque no pide token; `ha_update_config_entry` es
     # destructiva por nombre exacto porque puede pedir token.
     "ha_list_discovered_integrations": ("R-I-", "List discovered integrations (Home Assistant)"),
     "ha_ignore_discovery": ("--I-", "Ignore discovery (Home Assistant)"),

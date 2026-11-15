@@ -384,9 +384,14 @@ DESCUBIERTOS (lo que HA ha encontrado solo y espera configuración)
   vista previa al usuario. Hermes lo sabe porque HA lista los `reauth` en los
   descubiertos; si un flujo no sale ahí, se envía como cualquier otro.
 - Ignorar uno: `ha_ignore_discovery(flow_id, title=…)`. Solo si
-  `ignorable: true` (HA necesita su unique ID). HA guarda una entrada con
-  `source: "ignore"` y no lo vuelve a ofrecer. Sin token: no toca nada en
-  marcha. Deshacer: borra esa entrada con `ha_delete_config_entry` y HA lo
+  `ignorable: true`: un flujo de DESCUBRIMIENTO (zeroconf, ssdp, dhcp,
+  bluetooth, descubrimiento de la integración…) con unique ID. HA aborta el
+  flujo y crea una entrada con `source: "ignore"` y ese unique ID, y deja de
+  ofrecer ese descubrimiento. Sin token. Los `reauth`, `reconfigure`, `user`,
+  `import` y los de origen desconocido se rechazan (`cannot_ignore`,
+  `reason: "not_a_discovery"`): HA sustituiría por la ignorada la entrada
+  real con ese unique ID, y la borraría con sus dispositivos y entidades.
+  Deshacer: borra la entrada ignorada con `ha_delete_config_entry` y HA lo
   vuelve a descubrir cuando la integración lo encuentre otra vez.
 
 DOMINIOS CONFIGURABLES

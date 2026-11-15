@@ -3,7 +3,8 @@
 
 - `ha_list_discovered_integrations` — lo que HA ha descubierto y espera a que
   alguien lo configure (`config_entries/flow/progress`).
-- `ha_ignore_discovery` — ignora un descubrimiento (`config_entries/ignore_flow`).
+- `ha_ignore_discovery` — ignora un descubrimiento (`config_entries/ignore_flow`);
+  solo flujos de descubrimiento, nunca un `reauth` ni un `import` (T046).
 - `ha_list_config_flow_domains` — los dominios que se configuran por flujo
   (`GET /api/config/config_entries/flow_handlers`).
 - `ha_update_config_entry` — título y preferencias de una entrada
@@ -82,11 +83,65 @@ def _error_titulo(title: Any) -> str | None:
     return None
 
 
-def _ignorable(contexto: dict[str, Any]) -> bool:
+# T046 (convergencia, hallazgo ALTO): orígenes que se pueden ignorar. Lista
+# PERMITIDA (fail-closed): un origen que no esté aquí, desconocido o ausente,
+# no se ignora. Es `DISCOVERY_SOURCES` de `homeassistant/config_entries.py`
+# (HA 2026.11.1) más `esphome` (descubrimiento de zwave_js a través de
+# ESPHome) y MENOS `import` y `system`, que no son descubrimientos que el
+# usuario vea en «Descubiertos» (YAML importado y entradas internas de HA).
+#
+# POR QUÉ: `config_entries/ignore_flow` crea una entrada `ignore` con el
+# `unique_id` del flujo, y `async_finish_flow` de HA, si ya existe una
+# entrada que no es `ignore` con ese `unique_id`, la DESCARGA, la BORRA y
+# limpia sus dispositivos y entidades (solo deja un aviso en el log). Un
+# `reauth` (y un `reconfigure`) lleva en su contexto el `unique_id` de la
+# entrada real: ignorarlo la borraría sin token.
+_ORIGENES_IGNORABLES = frozenset({
+    "bluetooth", "dhcp", "discovery", "esphome", "hardware", "hassio",
+    "homekit", "integration_discovery", "mqtt", "ssdp", "usb", "zeroconf",
+})
+
+
+def _motivo_no_ignorable(contexto: dict[str, Any]) -> str | None:
+    """Por qué HA no debe ignorar este flujo, o `None` si se puede.
+
+    El orden importa: primero el origen, para que un `reauth` se rechace por
+    serlo aunque no lleve `unique_id`.
+    """
+    origen = contexto.get("source")
+    if not isinstance(origen, str) or origen not in _ORIGENES_IGNORABLES:
+        return "not_a_discovery"
+    # Defensa en profundidad: un flujo atado a una entrada (HA pone su
+    # `entry_id` en el contexto de los `reauth` y `reconfigure`) nunca es un
+    # descubrimiento. Lo ideal sería comprobar si ya hay una entrada del
+    # dominio con ese `unique_id`, pero HA 2026.11.1 no lo expone por la API
+    # (`as_json_fragment` no lleva `unique_id`).
+    if contexto.get("entry_id") is not None:
+        return "tied_to_entry"
     # HA (`ignore_config_flow`) exige `unique_id` en el contexto: es la clave
     # con la que crea la entrada `ignore`. Uno nulo no identifica nada, así
     # que tampoco se ofrece.
-    return contexto.get("unique_id") is not None
+    if contexto.get("unique_id") is None:
+        return "no_unique_id"
+    return None
+
+
+def _ignorable(contexto: dict[str, Any]) -> bool:
+    return _motivo_no_ignorable(contexto) is None
+
+
+_DETALLE_NO_IGNORABLE = {
+    "not_a_discovery": (
+        "Only discovery flows (zeroconf, ssdp, dhcp, bluetooth, integration "
+        "discovery...) can be ignored. Ignoring a re-authentication, "
+        "reconfigure, user or import flow would make Home Assistant replace "
+        "the config entry with the same unique ID by an ignored one, deleting "
+        "it with its devices and entities."),
+    "tied_to_entry": (
+        "This flow belongs to an existing config entry; ignoring it would "
+        "replace that entry by an ignored one."),
+    "no_unique_id": "HA can only ignore a discovery that has a unique ID.",
+}
 
 
 def _descubierto(flujo: dict[str, Any]) -> dict[str, Any]:
@@ -163,8 +218,9 @@ def register(
         ha_continue_config_entry_flow(flow_id, {...}) (re-authentication
         flows, source "reauth", need a preview and a confirmation token on
         every step there, because they change credentials); to hide it, use
-        ha_ignore_discovery. `ignorable` says whether HA can ignore it (it
-        needs a unique ID). title_placeholders are redacted; the rest of the
+        ha_ignore_discovery. `ignorable` says whether it can be ignored: only
+        discovery flows with a unique ID (never re-authentication or import
+        flows). title_placeholders are redacted; the rest of the
         flow context is never returned.
 
         Args:
@@ -200,14 +256,18 @@ def register(
     async def ha_ignore_discovery(flow_id: str, title: str | None = None) -> object:
         """Ignore a discovered integration, as "Ignore" does in the HA UI.
 
-        HA aborts the discovery flow and stores an ignored config entry
-        (source "ignore") with the device's unique ID, so it is not offered
-        again. Reversible: delete that entry with ha_delete_config_entry; the
-        device is offered again when its integration discovers it again (at
-        once for those that track discovery keys, such as zeroconf or dhcp).
-        Only flows with "ignorable": true in
-        ha_list_discovered_integrations can be ignored. No confirmation token:
-        it does not touch anything that is running.
+        HA aborts the discovery flow and creates a config entry with source
+        "ignore" and the device's unique ID; from then on HA stops offering
+        that discovery. Only discovery flows (zeroconf, ssdp, dhcp, bluetooth,
+        integration discovery...) with "ignorable": true in
+        ha_list_discovered_integrations can be ignored. Re-authentication,
+        reconfigure, user, import and unknown flows are refused
+        (cannot_ignore, reason not_a_discovery): HA would replace the config
+        entry with the same unique ID by the ignored one, deleting it with its
+        devices and entities. To undo, delete the ignored entry with
+        ha_delete_config_entry; the device is offered again when its
+        integration discovers it again (at once for those that track
+        discovery keys, such as zeroconf or dhcp). No confirmation token.
 
         Args:
             flow_id: Flow id from ha_list_discovered_integrations.
@@ -216,7 +276,9 @@ def register(
 
         Returns:
             JSON {"result": "ok", flow_id, domain, title, undo_hint}, or
-            {"error": "not_found" | "cannot_ignore" | "invalid_argument" | ...}.
+            {"error": "not_found" | "cannot_ignore" | "invalid_argument" | ...}
+            (cannot_ignore carries reason: not_a_discovery, tied_to_entry or
+            no_unique_id).
         """
         try:
             validate_identifier(flow_id, field="flow_id")
@@ -241,11 +303,14 @@ def register(
             return json.dumps({"error": "not_found", "flow_id": flow_id})
         contexto = flujo.get("context") if isinstance(flujo.get("context"), dict) else {}
         dominio = flujo.get("handler")
-        if not _ignorable(contexto):
+        if (motivo := _motivo_no_ignorable(contexto)) is not None:
+            origen = contexto.get("source")
+            logger.warning("ha_ignore_discovery_refused", flow_id=flow_id, domain=dominio,
+                           reason=motivo)
             return json.dumps({
-                "error": "cannot_ignore", "reason": "no_unique_id", "flow_id": flow_id,
-                "domain": dominio,
-                "detail": "HA can only ignore a discovery that has a unique ID.",
+                "error": "cannot_ignore", "reason": motivo, "flow_id": flow_id,
+                "domain": dominio, "source": origen if isinstance(origen, str) else None,
+                "detail": _DETALLE_NO_IGNORABLE[motivo],
             })
 
         if title is None:

@@ -291,7 +291,7 @@ class TestIgnoreDiscovery(_Base):
         self.assertEqual(self.fake.tipos(), ["config_entries/flow/progress"])
 
     async def test_sin_unique_id_cannot_ignore(self) -> None:
-        self.fake.progress = [_flujo("flow-a", "banco_flujos", source="reauth", unique_id=None)]
+        self.fake.progress = [_flujo("flow-a", "banco_flujos", unique_id=None)]
         r = await self.llamar("ha_ignore_discovery", flow_id="flow-a")
         self.assertEqual((r["error"], r["reason"]), ("cannot_ignore", "no_unique_id"))
         self.assertEqual(self.fake.tipos(), ["config_entries/flow/progress"])
@@ -331,6 +331,81 @@ class TestIgnoreDiscovery(_Base):
             r = await self.llamar("ha_ignore_discovery", flow_id="flow-a")
         self.assertNotIn(_JWT, json.dumps(r))
         self.assertNotIn(_JWT, json.dumps(logs, default=str))
+
+
+class TestIgnorarSoloDescubrimientos(_Base):
+    """T046 (convergencia, hallazgo ALTO): solo se ignoran descubrimientos.
+
+    En HA 2026.11.1, `config_entries/ignore_flow` crea una entrada `ignore`
+    con el `unique_id` del flujo y `async_finish_flow` BORRA la entrada real
+    que tenga ese `unique_id` (con sus dispositivos y entidades). Un `reauth`
+    lleva en su contexto el `unique_id` de la entrada: ignorarlo la borraba
+    sin token. Lista PERMITIDA de orígenes (fail-closed).
+
+    Control negativo comprobado: con `_motivo_no_ignorable` mirando solo el
+    `unique_id` (el código de antes) caen los 4 tests de esta clase; con la
+    comprobación de `entry_id` quitada cae `test_flujo_atado_a_una_entrada`.
+    """
+
+    async def test_reauth_con_unique_id_rechazado_sin_ignore_flow(self) -> None:
+        self.fake.progress = [_flujo("flow-a", "banco_flujos", source="reauth",
+                                     unique_id="uid-de-la-entrada", entry_id="entrada-1")]
+        r = await self.llamar("ha_ignore_discovery", flow_id="flow-a")
+        self.assertEqual((r["error"], r["reason"], r["source"]),
+                         ("cannot_ignore", "not_a_discovery", "reauth"))
+        self.assertIn("deleting it", r["detail"])
+        self.assertEqual(self.fake.tipos(), ["config_entries/flow/progress"])
+        # Y la lista no lo ofrece como ignorable.
+        lista = await self.llamar("ha_list_discovered_integrations")
+        self.assertFalse(lista["items"][0]["ignorable"])
+
+    async def test_origenes_no_permitidos(self) -> None:
+        for origen in ("reauth", "reconfigure", "user", "import", "system", "ignore",
+                       "desconocido", "", None, ["zeroconf"], 1):
+            with self.subTest(origen=origen):
+                self.fake.ws.clear()
+                self.fake.progress = [_flujo("flow-a", "hue", source=origen)]
+                r = await self.llamar("ha_ignore_discovery", flow_id="flow-a")
+                self.assertEqual((r["error"], r["reason"]), ("cannot_ignore", "not_a_discovery"))
+                self.assertEqual(self.fake.tipos(), ["config_entries/flow/progress"])
+
+    async def test_sin_source_en_el_contexto(self) -> None:
+        flujo = _flujo("flow-a", "hue")
+        del flujo["context"]["source"]
+        self.fake.progress = [flujo]
+        r = await self.llamar("ha_ignore_discovery", flow_id="flow-a")
+        self.assertEqual((r["error"], r["reason"]), ("cannot_ignore", "not_a_discovery"))
+        self.assertEqual(self.fake.tipos(), ["config_entries/flow/progress"])
+
+    async def test_flujo_atado_a_una_entrada(self) -> None:
+        self.fake.progress = [_flujo("flow-a", "hue", entry_id="entrada-1")]
+        r = await self.llamar("ha_ignore_discovery", flow_id="flow-a")
+        self.assertEqual((r["error"], r["reason"]), ("cannot_ignore", "tied_to_entry"))
+        self.assertEqual(self.fake.tipos(), ["config_entries/flow/progress"])
+
+    async def test_origenes_de_descubrimiento_permitidos(self) -> None:
+        for origen in sorted(mod._ORIGENES_IGNORABLES):
+            with self.subTest(origen=origen):
+                self.fake.ws.clear()
+                self.fake.progress = [_flujo("flow-a", "hue", source=origen)]
+                r = await self.llamar("ha_ignore_discovery", flow_id="flow-a")
+                self.assertEqual(r["result"], "ok")
+                self.assertEqual(self.fake.tipos()[-1], "config_entries/ignore_flow")
+
+    def test_la_lista_es_la_de_ha_menos_import_y_system(self) -> None:
+        # DISCOVERY_SOURCES de homeassistant/config_entries.py (2026.11.1).
+        de_ha = {"bluetooth", "dhcp", "discovery", "hardware", "hassio", "homekit",
+                 "import", "integration_discovery", "mqtt", "ssdp", "system", "usb",
+                 "zeroconf"}
+        self.assertEqual(mod._ORIGENES_IGNORABLES,
+                         frozenset((de_ha - {"import", "system"}) | {"esphome"}))
+
+    def test_la_descripcion_no_dice_que_es_inocua(self) -> None:
+        doc = self.t["ha_ignore_discovery"].__doc__
+        self.assertNotIn("does not touch anything", doc)
+        self.assertIn("Re-authentication", doc)
+        self.assertIn('"ignore"', doc)
+        self.assertIn("stops offering", doc)
 
 
 # ── T006: ha_list_config_flow_domains ────────────────────────────────────────
