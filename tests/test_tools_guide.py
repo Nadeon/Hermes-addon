@@ -577,8 +577,10 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "generic_commands": "906066a916e93727",
         "helpers": "c99850e94eb5c996",
         # La 018 cambia `lovelace` (guardado por vista) y `services`
-        # (`ha_call_service_response` con token); su CHANGELOG lo dice.
-        "lovelace": "38d00048b136b460",
+        # (`ha_call_service_response` con token); su CHANGELOG lo dice. La
+        # 024 (tramo 2) le añade la sección «Restablecer un dashboard»
+        # (FR-016); su CHANGELOG lo dice. Huella recalculada.
+        "lovelace": "1da19d01a404f95b",
         "marketplace": "f83ec233a87ad95b",
         "registries": "42894b4111cb8c80",
         "security": "157ee929e7db08ae",
@@ -1320,8 +1322,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
     Control negativo comprobado: sin `@TEMA_CAMARAS@` en las instrucciones →
     cae `test_instrucciones_con_y_sin_la_familia`."""
 
-    # sha256 (16 hex) de cada tema antes de la 024: este tramo solo añade
-    # temas (y dos líneas al índice, que no está aquí).
+    # sha256 (16 hex) de cada tema antes de la 024: el tramo 1 solo añade
+    # temas (y dos líneas al índice, que no está aquí). El tramo 2 añade a
+    # `lovelace` la sección «Restablecer un dashboard» (FR-016, la única
+    # que cambia a propósito): huella recalculada.
     _HUELLAS = {
         "app_store": "f02491e7f0e6c93c",
         "automation_assist": "d360de0f7fd1deb5",
@@ -1337,7 +1341,7 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "generic_commands": "906066a916e93727",
         "helpers": "c99850e94eb5c996",
         "integration_flows": "5df1b039b66924d5",
-        "lovelace": "38d00048b136b460",
+        "lovelace": "1da19d01a404f95b",
         "marketplace": "f83ec233a87ad95b",
         "mounts": "df26cd22a86efe39",
         "recorder": "2899543acd9b8794",
@@ -1421,6 +1425,67 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
             with self.subTest(tema=tema):
                 real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
                 self.assertEqual(real, huella)
+
+
+class TestTemasDeLa024Tramo2(unittest.IsolatedAsyncioTestCase):
+    """Spec 024, tramo 2 (FR-016, FR-020, T025): la sección «Restablecer» del
+    tema `lovelace`, `core_minor` completo (CAP-070, 071 y 073) y sus alias;
+    la búsqueda en la tabla da `lovelace/config/delete` como `dedicated`.
+
+    Control negativo comprobado: sin la sección en `lovelace` → caen
+    `test_lovelace_restablecer` y las huellas de los temas."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_lovelace_restablecer(self) -> None:
+        tema = _GUIDE["lovelace"]
+        for alias in ("reset", "restablecer", "RESET"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), tema)
+        plano = " ".join(tema.split())
+        for clave in ("`ha_reset_lovelace_dashboard_config", "`dashboard_reset`",
+                      "IRREVERSIBLE", "autogenerada", "ha_get_lovelace_dashboard(url_path)",
+                      "cannot_reset_default_dashboard", "default_panel_unknown",
+                      "dashboard_changed", "yaml_mode_dashboard", "nothing_to_reset",
+                      "panel por defecto", "Con la familia desactivada"):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, plano)
+
+    async def test_core_minor_completo(self) -> None:
+        tema = _GUIDE["core_minor"]
+        for alias in ("webhooks", "themes", "temas"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), tema)
+        plano = " ".join(tema.split())
+        for clave in ("frontend/get_themes", "webhook/list", "`webhook_id` sale TAPADO",
+                      "trace/contexts", "vacuum/get_segments", "salir a internet",
+                      "radio_frequency/list", "config/area_registry/reorder",
+                      "config/floor_registry/reorder",
+                      "config/entity_registry/get_automatic_entity_ids",
+                      "config/entity_registry/settings/update",
+                      "config/device_registry/list_linked_devices",
+                      "application_credentials/list", "application_credentials/config_entry",
+                      "`client_secret` NUNCA sale", "Crear, cambiar y borrar credenciales NO se puede",
+                      "`ha_reset_lovelace_dashboard_config`"):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, plano)
+
+    async def test_busqueda_da_la_dedicada(self) -> None:
+        texto = await self.guide("generic_commands", search="lovelace/config/delete")
+        linea = next(l for l in texto.splitlines() if l.startswith("| `lovelace/config/delete`"))
+        self.assertIn("dedicated", linea)
+        self.assertIn("ha_reset_lovelace_dashboard_config", linea)
+
+    def test_nombra_la_tool_de_la_familia(self) -> None:
+        from tests.test_tools_registration import _do_register
+
+        de_la_familia = sorted(
+            set(_do_register().tools) - set(_do_register(["dashboard_reset"]).tools))
+        self.assertEqual(de_la_familia, ["ha_reset_lovelace_dashboard_config"])
+        self.assertIn(f"`{de_la_familia[0]}", _GUIDE["lovelace"])
 
 
 if __name__ == "__main__":

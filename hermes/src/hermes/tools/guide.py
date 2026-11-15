@@ -168,7 +168,7 @@ para el detalle de un área. Temas disponibles:
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
 - `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
 - `app_store`      — tienda de apps del Supervisor: repositorios, recarga, changelog, documentación, disponibilidad y reconstrucción
-- `core_minor`     — lo menor de Core por las genéricas: calendario y tareas, tags, medios, imágenes subidas
+- `core_minor`     — lo menor de Core por las genéricas: calendario y tareas, tags, medios, imágenes subidas, temas, webhooks, trazas, aspiradores, radiofrecuencia, orden de los registros y credenciales de aplicación
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -822,6 +822,21 @@ trae `omit_on_confirm`, confirma con `url_path`, `view_index` y el token, sin
 reenviar `view`; si no, reenvía todo. Si el dashboard cambia entre la vista
 previa y la confirmación, se rechaza con `dashboard_changed` sin guardar nada:
 pide otra vista previa. Solo sustituye vistas que existen (no añade ni borra).
+
+RESTABLECER UN DASHBOARD (familia `dashboard_reset`, nueva en 1.2.0)
+`ha_reset_lovelace_dashboard_config(url_path)` borra la configuración guardada
+de un dashboard en modo almacenamiento: el dashboard sigue existiendo, pero
+vuelve a la vista autogenerada de Home Assistant. Es IRREVERSIBLE salvo con un
+backup: copia antes la configuración con `ha_get_lovelace_dashboard(url_path)`
+(para restaurarla, guárdala con `ha_save_lovelace_dashboard`). Siempre en dos
+pasos: la vista previa dice cuántas vistas y tarjetas se pierden; si la
+configuración cambia antes de confirmar, se rechaza con `dashboard_changed`.
+El dashboard principal (`lovelace` o sin `url_path`) y el panel por defecto
+están protegidos siempre (`cannot_reset_default_dashboard`); si no se puede
+leer el panel por defecto, no se restablece nada (`default_panel_unknown`).
+Los de modo YAML no se pueden restablecer (`yaml_mode_dashboard`) y uno ya
+autogenerado da `nothing_to_reset`. Con la familia desactivada, la tool no
+existe.
 """,
     "marketplace": """\
 # Marketplace (antes HACS), de solo lectura
@@ -1607,6 +1622,44 @@ IMÁGENES SUBIDAS (`image_upload`)
 `image/list` lee; `image/update` y `image/delete` (borra la imagen y sus
 ficheros) piden confirmación. Subir una imagen NO se puede: va por REST
 multipart (`image/create` está denegado).
+
+TEMAS, WEBHOOKS, TRAZAS, ASPIRADORES Y RADIOFRECUENCIA (solo lectura)
+- `frontend/get_themes`: los temas del frontend y los temas claro y oscuro
+  por defecto.
+- `webhook/list`: los webhooks registrados (dominio, nombre, `local_only`,
+  métodos). El `webhook_id` sale TAPADO: basta para disparar la
+  automatización desde fuera sin autenticarse.
+- `trace/contexts` (`domain` e `item_id` opcionales, juntos): los contextos con
+  traza guardada, para enlazar una traza con lo que la disparó; la traza se
+  lee con `ha_get_trace`.
+- `vacuum/get_segments` (`entity_id`): las zonas que puede limpiar un
+  aspirador; algunas integraciones las piden al aspirador o a su nube, así
+  que puede salir a internet.
+- `radio_frequency/list`: transmisores y receptores de radiofrecuencia con sus
+  rangos y modulaciones.
+- Restablecer un dashboard NO va por aquí: `lovelace/config/delete` tiene tool
+  dedicada (`ha_reset_lovelace_dashboard_config`, ver `hermes_guide("lovelace")`).
+
+REGISTROS: ORDEN, IDS AUTOMÁTICOS Y AJUSTES
+- `config/area_registry/reorder` (`area_ids`, TODAS en el orden nuevo) y
+  `config/floor_registry/reorder` (`floor_ids`) cambian el orden en que la
+  interfaz enseña áreas y plantas; piden confirmación.
+- `config/entity_registry/get_automatic_entity_ids` (`entity_ids`) calcula el
+  `entity_id` que HA daría a cada entidad, sin cambiar nada.
+- `config/entity_registry/settings/get` lee y
+  `config/entity_registry/settings/update` (pide confirmación) cambia qué
+  partes del nombre forman los `entity_id` nuevos.
+- `config/device_registry/list_linked_devices` y
+  `config/device_registry/list_composite_splits` leen relaciones entre
+  dispositivos.
+
+CREDENCIALES DE APLICACIÓN (OAuth de terceros)
+`application_credentials/config` (dominios que las admiten),
+`application_credentials/list` y `application_credentials/config_entry`
+(`config_entry_id`: dice si una integración usa una) leen. El `client_secret`
+NUNCA sale (tapado), y el id de la credencial de `config_entry` tampoco.
+Crear, cambiar y borrar credenciales NO se puede (denegado: introduciría
+secretos de terceros).
 """,
     "workflows": """\
 # Flujos completos (recetas paso a paso)
@@ -1774,6 +1827,12 @@ _ALIASES: dict[str, str] = {
     "imagen": "cameras",
     "minor": "core_minor",
     "menores": "core_minor",
+    # Spec 024, tramo 2.
+    "reset": "lovelace",
+    "restablecer": "lovelace",
+    "webhooks": "core_minor",
+    "themes": "core_minor",
+    "temas": "core_minor",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
