@@ -529,6 +529,39 @@ class TestUpdateConfigEntryLectura(_Base):
         self.assertEqual(self.ficheros_de_tokens(), "")
 
 
+class TestUpdateConfigEntryTituloTapado(_Base):
+    """T049 (FR-021): el título sale redactado en la respuesta, como en la
+    vista previa. A HA se le manda tal cual.
+
+    Control negativo comprobado: sin `redactar_datos` sobre la entrada que
+    devuelve HA caen los 2 tests.
+    """
+
+    async def test_titulo_con_jwt_tapado_en_la_respuesta(self) -> None:
+        titulo = f"Puente {_JWT}"
+        with capture_logs() as logs:
+            r = await self.llamar("ha_update_config_entry", entry_id="entrada-1", title=titulo)
+        self.assertEqual(self.fake.ws[1]["title"], titulo)
+        self.assertEqual(r["result"], "ok")
+        self.assertNotIn(_JWT, json.dumps(r))
+        self.assertTrue(r["config_entry"]["title"].startswith("Puente "))
+        # Lo demás de la entrada sigue igual.
+        self.assertEqual((r["config_entry"]["entry_id"], r["config_entry"]["domain"]),
+                         ("entrada-1", "banco_flujos"))
+        self.assertNotIn(_JWT, json.dumps(logs, default=str))
+
+    async def test_titulo_con_jwt_tapado_tras_confirmar(self) -> None:
+        titulo = f"Puente {_JWT}"
+        vista = await self.llamar("ha_update_config_entry", entry_id="entrada-1",
+                                  title=titulo, pref_disable_polling=True)
+        self.assertNotIn(_JWT, json.dumps(vista))
+        r = await self.llamar("ha_update_config_entry", entry_id="entrada-1", title=titulo,
+                              pref_disable_polling=True,
+                              confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["result"], "ok")
+        self.assertNotIn(_JWT, json.dumps(r))
+
+
 class TestUpdateConfigEntrySinToken(_Base):
     async def test_solo_titulo(self) -> None:
         r = await self.llamar("ha_update_config_entry", entry_id="entrada-1", title="Nuevo")

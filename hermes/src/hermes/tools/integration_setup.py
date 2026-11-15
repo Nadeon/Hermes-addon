@@ -412,7 +412,8 @@ def register(
 
         Returns:
             {"result": "ok", "config_entry": {...}, "require_restart": bool,
-            "reloaded": bool}, {"result": "unchanged"}, a preview with
+            "reloaded": bool} (secrets in config_entry, such as a token in
+            the title, are redacted), {"result": "unchanged"}, a preview with
             confirmation_token, or {"error": ...}.
         """
         try:
@@ -546,6 +547,11 @@ def register(
             return json.dumps({"error": _error_ha(exc)})
 
         entrada = resp.get("config_entry") if isinstance(resp, dict) else None
+        # T049 (FR-021): el título lo escribe el usuario o la integración y
+        # puede llevar un secreto; sale redactado como en la vista previa (y
+        # los marcadores de un error, por clave y por patrón).
+        if isinstance(entrada, dict):
+            entrada = redactar_datos(entrada)
         require_restart = bool(resp.get("require_restart")) if isinstance(resp, dict) else False
         # La regla de `config_entry_update` en HA 2026.11.1: recarga si el
         # sondeo cambió (en cualquier sentido) y la entrada estaba cargada.
