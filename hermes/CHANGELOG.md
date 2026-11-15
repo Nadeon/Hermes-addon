@@ -668,9 +668,36 @@ la lista de tools es la de la 1.1.2.
 
 ### Backups de Home Assistant
 
-Spec 031 (en curso; tramos 1 a 3: agentes, ajustes, crear, borrar y restaurar). Familia nueva
-`backup_integration`, desactivable: con ella apagada (y las demás de la
-1.2.0), la lista de tools es la de la 1.1.2.
+Spec 031. Seis tools nuevas en la familia `backup_integration`, desactivable:
+con ella apagada (y las demás de la 1.2.0), la lista de tools es la de la
+1.1.2. Los safety backups pasan a salir cifrados (ver el primer punto).
+
+- **CAMBIO DE COMPORTAMIENTO frente a la 1.1.2: los safety backups salen
+  cifrados por defecto si Home Assistant tiene clave.** `sv_create_safety_backup`
+  y el safety backup automático (antes de escribir en `/config`) se cifran con
+  la clave de los backups de HA, la del kit de emergencia, que Hermes lee de
+  HA en cada backup y no guarda ni devuelve nunca (ni en la respuesta, ni en
+  `last_safety_backup.json`, `safety_backups.json` o `pending_jobs.json`, ni
+  en un token, ni en el log). Así se pueden restaurar desde la interfaz o la
+  CLI de HA aunque Hermes esté roto. Opción nueva **`safety_backup_encryption`**:
+  `auto` (por defecto; sin clave en HA, el backup sale sin cifrar y se dice),
+  `required` (sin clave no hay safety backup: la tool responde
+  `encryption_key_unavailable` y la escritura en `/config` no se hace) y `off`
+  (como en la 1.1.2). Un valor desconocido impide arrancar. La respuesta de
+  `sv_create_safety_backup` dice siempre `encrypted`; cifrado, con
+  `restore_note` (restaurar necesita la clave de HA o el kit de emergencia);
+  sin cifrar con `auto`, con `encryption_skipped_reason` (`no_key_configured`,
+  `backup_integration_unavailable` o `ha_unreachable`) y un aviso, y el log
+  avisa también en el automático. Para restaurarlo, `sv_restore_backup_full`
+  sin `password` usa la clave de HA. La retención (`safety_backup_keep`) sigue
+  podando los cifrados: la anotación guarda `encrypted: true` en los que
+  Hermes cifró, y solo esos se podan estando protegidos; un backup protegido
+  que no anotó así (tuyo, o de antes de la 1.2.0) sigue sin tocarse. La
+  ventana, el límite duro y el lock no cambian. **Desviación de FR-068 de la
+  spec 008** (que pedía una contraseña generada y guardada en `/data`): solo
+  Hermes podría abrir esos backups y la contraseña viajaría dentro del propio
+  backup que cifra; la clave de HA cumple su intención (cifrados, nunca
+  devuelta ni registrada, restaurables) también con Hermes roto.
 
 - **`ha_list_backup_agents`** (solo lee): dónde puede guardar HA sus backups,
   cada agente con `kind` (`local`, `mount` para un montaje de red del
@@ -763,7 +790,8 @@ Spec 031 (en curso; tramos 1 a 3: agentes, ajustes, crear, borrar y restaurar). 
   `backup_config`, `backup_schedule`, `backup_retention`, `create_backup`,
   `delete_backup`, `restore_backup`, `restore`), con crear, crear con los
   ajustes automáticos, borrar y restaurar (y cómo leer `restore_started`);
-  `backup` sigue llevando a `backups`.
+  `backup` sigue llevando a `backups`. El tema `backups` explica los safety
+  backups cifrados, la opción y cómo restaurarlos.
 - **Banco de Core**: la configuración carga `backup:` (agente
   `backup.local`); `ha_list_backup_agents`, `ha_update_backup_config`,
   `ha_create_backup` (cifrado y sin cifrar), `ha_create_automatic_backup`

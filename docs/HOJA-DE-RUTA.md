@@ -434,6 +434,15 @@ un cliente contra la instalación real.
   varios pasos, una reautenticación real con
   `ha_continue_config_entry_flow` y los textos de los avisos con HA en un
   idioma distinto del inglés.
+- [ ] (VM, después instalación real) **Backups de Home Assistant y safety
+  backups cifrados (spec 031), en vivo**: `ha_restore_backup` desde
+  `hassio.local` y desde un agente remoto (instantánea antes); un safety
+  backup cifrado con la clave de HA y su restauración con
+  `sv_restore_backup_full` sin `password` y desde la interfaz de HA con el kit
+  de emergencia; `safety_backup_encryption: required` con HA sin clave (la
+  escritura en `/config` no se hace); y la retención podando safety backups
+  cifrados reales. En la suite se prueban con un Supervisor y un HA
+  simulados, y en el banco de Core todo lo que no reinicia Core.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -472,7 +481,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
 | 030 | Tienda de apps | 082, 093 | pendiente |
-| 031 | Backups de la integración y safety backups cifrados | 027, 057 | en curso (tramos 1 a 3: agentes, ajustes, crear, borrar y restaurar) |
+| 031 | Backups de la integración y safety backups cifrados | 027, 057 | hecha: familia `backup_integration` con seis tools (agentes, ajustes con la estimación de la retención, crear, crear con los ajustes automáticos, borrar en todas las ubicaciones y restaurar desde cualquiera); `sv_restore_*` con la clave de HA; safety backups cifrados con la clave de HA y opción `safety_backup_encryption` (`auto` por defecto; desviación de FR-068 de la 008: la clave de HA y no una generada en `/data`); la retención poda los cifrados que Hermes anotó; tabla, guía y banco. DV-1: sin tools del backup previo a actualizar (el proxy del Supervisor rechaza `hassio/*` a las apps). En vivo, en las pruebas manuales pendientes |
 | 032 | Host y red del host | 086, 090 | pendiente |
 | 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | hecha: tramo 1 (el token de `ha_run_script` y `ha_trigger_automation` ata `variables`; inventario de argumentos atados) y tramo 2 (`ha_reload_counters` y `ha_get_config_entry_options` dicen `not_supported` y quedan deprecadas; `ha_wait_for_event` sin `ctx`; `ha_create_scene_from_current` con escena temporal, token para reemplazar y `name` rechazado; descripciones de escenas con `scenes.yaml`; `amount` y `ha_set_counter_value` validados); banco sin ningún `xfail` |
 
@@ -773,7 +782,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_create_backup_full` | VM | pendiente | |
 | `sv_create_backup_partial` | VM | pendiente | |
 | `sv_create_mount` | VM | pendiente | recurso CIFS y NFS de prueba |
-| `sv_create_safety_backup` | VM | pendiente | |
+| `sv_create_safety_backup` | VM | pendiente | spec 031: cifrado con la clave de HA (`safety_backup_encryption`); restaurarlo con `sv_restore_backup_full` sin `password` y desde la interfaz con el kit de emergencia |
 | `sv_delete_backup` | VM | pendiente | instantánea antes |
 | `sv_delete_mount` | VM | pendiente | instantánea antes |
 | `sv_dismiss_resolution_issue` | VM | pendiente | |
@@ -837,7 +846,6 @@ programa:
   `errors` da `success: false`, y la descripción y la guía lo dicen. Los
   errores de los sub-jobs, que no suben al job, salen en `child_errors` y
   también dan `success: false`; el sondeo del safety backup los cuenta igual.
-- **Cifrado de los safety backups** (031).
 - **Aplicar sugerencias del Supervisor** con confirmación y vista previa
   completa (022).
 - **Escritura en el Marketplace** (026), con confirmación, backup previo y
@@ -865,7 +873,7 @@ programa:
     opcional en una versión posterior, detrás de la capacidad del cliente y
     con el mismo token por debajo (D-10 de la spec 008).
 - **Terminología «apps» y traducciones de las opciones** (027, hecho):
-  `translations/en.yaml` y `es.yaml` con las 31 opciones, y «app (add-on)» en
+  `translations/en.yaml` y `es.yaml` con las opciones (32 desde la 031), y «app (add-on)» en
   las descripciones de las tools de apps, en la guía y en las instrucciones;
   los nombres de las tools no cambian.
 - **`oauth_cimd_allowed_hosts`** (027, hecho): hosts CIMD conocidos y cómo

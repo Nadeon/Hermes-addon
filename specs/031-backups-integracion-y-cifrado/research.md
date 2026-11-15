@@ -119,7 +119,10 @@ respeta en el siguiente backup).
 almacenamiento del add-on». Su intención —cifrados, la contraseña nunca
 devuelta ni registrada, y que la restauración siga funcionando— se cumple
 mejor con B; con A, «la restauración sigue funcionando» solo si Hermes
-funciona. Queda como **duda D-031-1** para el mantenedor.
+funciona. Era la **duda D-031-1**: **aceptada** por el supervisor del programa
+antes del tramo 4 (la desviación está en la fila CAP-027 de la matriz de la
+008). Si `auto` es el valor por defecto adecuado queda como duda D-25, para
+el final.
 
 ## R-4 — Sin clave: la opción `safety_backup_encryption`
 

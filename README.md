@@ -471,6 +471,7 @@ is below.
 | `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |
 | `safety_backup_enabled` | `false` | Automatic **full** HAOS backup before writing to `/config`. Off by default (it produces several GB). The per-file backup always happens. If the backup fails, or Hermes cannot tell whether it finished, the write is not made (`safety_backup_job_failed`, `safety_backup_state_unknown`) |
+| `safety_backup_encryption` | `auto` | Encryption of the safety backups (new in 1.2.0) with Home Assistant's backup encryption key, the one in its emergency kit: Hermes reads it from Home Assistant on every backup and never stores or returns it, and you can restore them from Home Assistant even if Hermes is broken. `auto`: encrypted if Home Assistant has a key, otherwise unencrypted and said so in the response and the log. `required`: without a key there is no safety backup (`encryption_key_unavailable`) and the write is not made. `off`: unencrypted, as in 1.1.2. Any other value stops the app from starting |
 | `mcp_max_requests_per_minute` | `120` | Global post-auth rate limit |
 | `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Pre-auth per-IP rate limit. Applies to the public surface (OAuth and discovery), and the same value caps per IP the requests to protected routes that carry a missing or invalid token. Valid requests are governed by `mcp_max_requests_per_minute` |
 | `response_max_bytes` | `131072` | Response cap for every tool (128 KiB); above it the answer is cut and flagged with `truncated: true`. Effective maximum `524288` (512 KiB): a larger saved value is clamped. Raise it up to that if your answers come back truncated |
@@ -479,7 +480,7 @@ is below.
 | `max_concurrent_requests` | `64` | Simultaneous requests the server accepts. Bounds the maximum in-flight memory (`max_concurrent_requests × max_request_body_bytes`). Claude fires bursts of ~24 calls, so 64 leaves headroom |
 | `wait_for_event_max_seconds` | `90` | Maximum timeout allowed for `ha_wait_for_event` (10–220; a saved value above 220 is clamped) |
 | `wait_for_event_max_concurrent` | `5` | Maximum simultaneous `ha_wait_for_event` calls (1–20) |
-| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. A safety backup that finished with errors in its sub-jobs (an app that could not be saved) is incomplete: it does not count among those kept and is deleted first. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected or partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
+| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. A safety backup that finished with errors in its sub-jobs (an app that could not be saved) is incomplete: it does not count among those kept and is deleted first. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected one (except those Hermes itself encrypted with Home Assistant's key, since 1.2.0), a partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
 | `safety_backup_window_minutes` | `30` | If Hermes made its own safety backup more recently than this, another one is skipped. Backups made by hand or by other tools do not count. While the backup runs, the write waits up to 5 minutes, and it is cancelled if the backup fails |
 | `file_backup_max_per_path` | `20` | Copies kept of each file before overwriting it |
 | `file_backup_max_total_mb` | `200` | Total cap for the per-file backup directory |
@@ -560,8 +561,11 @@ The rules all of this is written under: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.md)
 - **Supervisor suggestions are never applied.** `sv_get_resolution` shows them
   and they can be dismissed, but some delete backups or reboot the host: apply
   them yourself from the Home Assistant UI.
-- **Safety backups are not encrypted.** They are full HAOS backups without a
-  password. For an encrypted one, use `sv_create_backup_full` with `password`.
+- **Safety backups are only encrypted if Home Assistant has a backup
+  encryption key.** Since 1.2.0 they use Home Assistant's key (the one in its
+  emergency kit), which exists once the automatic backups are set up. Without
+  it, with the default `safety_backup_encryption: auto`, they are made without
+  a password and Hermes says so; set `required` to block writes instead.
 - **Safety backups made before 1.1.0 are not pruned.** Hermes did not record
   them, so retention cannot tell them apart from yours: delete them with
   `sv_delete_backup` if you no longer need them.

@@ -75,6 +75,27 @@ sub-jobs (una app que no se pudo guardar) no cuenta entre los que se conservan
 y se borra el primero. Solo toca los que Hermes anotó al crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
 detalle de qué borra y qué no está en el README.
 
+**Safety backups cifrados (1.2.0).** Los safety backups (los automáticos y
+los de `sv_create_safety_backup`) se cifran con la clave de los backups de Home
+Assistant, la que te da su **kit de emergencia** al configurar los backups
+automáticos. Hermes la lee de Home Assistant en cada backup y no la guarda en
+ningún sitio ni la devuelve nunca. Así puedes restaurar un safety backup desde
+la interfaz o la CLI de Home Assistant aunque Hermes esté roto; desde Claude,
+`sv_restore_backup_full` sin `password` usa esa clave. Lo controla la opción
+`safety_backup_encryption`:
+
+| Valor | Con clave en Home Assistant | Sin clave (backups automáticos sin configurar, HA anterior a 2025.1 o caído) |
+|---|---|---|
+| `auto` (por defecto) | cifrado | **sin cifrar**: la respuesta lo dice (`encrypted: false`, `encryption_skipped_reason`) y el log lo avisa (`safety_backup_unencrypted`) |
+| `required` | cifrado | no se hace el backup: `encryption_key_unavailable`, y la escritura en `/config` no se hace |
+| `off` | sin cifrar, como antes de la 1.2.0 | sin cifrar |
+
+Si cambias la clave en Home Assistant, los safety backups anteriores se abren
+con la clave anterior (como los backups de Home Assistant): guarda el kit de
+emergencia viejo o pásala como `password` al restaurar. La retención sigue
+podando los safety backups que Hermes cifró; uno protegido que no creó Hermes
+así no lo toca. Un valor que no sea uno de los tres impide arrancar.
+
 El Marketplace (HACS hasta HA 2026.10) es de **solo lectura** para Hermes:
 Claude puede consultar repositorios, actualizaciones y versiones, pero no
 instalar ni aceptar nada ahí. Para actualizar algo usa su entidad `update`, que
@@ -121,6 +142,7 @@ milisegundos) o con `timeout` en la entrada del servidor.
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (por ejemplo `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**. Ver el aviso de abajo |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs (salvo las de loopback, y también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `tool_families_disabled` | `[]` | Familias de tools que Hermes no registra, para que el cliente cargue menos tools en su contexto. Vacía, están todas. Ver «Familias de tools» |
+| `safety_backup_encryption` | `auto` | Cifrado de los safety backups con la clave de los backups de Home Assistant: `auto`, `required` u `off`. Ver «Safety backups cifrados» en «Qué esperar» |
 
 **Aviso sobre `oauth_cimd_allowed_hosts`.** Con CIMD, quien abre la página de
 autorización de Hermes elige la URL del documento del cliente, y no necesita la

@@ -102,7 +102,9 @@ en [research.md](research.md)):
   custodiar y que el usuario puede perder). Es una **desviación** del texto de
   FR-068 de la 008 («contraseña generada, guardada en el almacenamiento del
   add-on»), que cumple su intención (cifrados, nunca devuelta ni registrada,
-  restaurables) mejor que su mecanismo; queda como duda D-031-1. Research R-3.
+  restaurables) mejor que su mecanismo. Duda D-031-1, **aceptada** por el
+  supervisor del programa (tramo 4); la desviación queda anotada en la fila
+  CAP-027 de la matriz de la 008. Research R-3.
 - P: ¿Y si no hay clave de cifrado en HA (no se configuraron los backups
   automáticos, HA anterior a 2025.1 o HA caído)? → R: opción nueva del add-on
   **`safety_backup_encryption`**: `auto` (por defecto; cifra si hay clave y,

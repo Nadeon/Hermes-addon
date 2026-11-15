@@ -194,6 +194,17 @@ report about one of them will be closed with a pointer to this section:
     never writable, automatic backup before every write.
   - Identifier validation (slug, `entry_id`, …) before interpolating them into
     URLs, plus a central anti path-injection guard in the HA client.
+- **Home Assistant's backup encryption key** (1.2.0). Hermes reads it from
+  Home Assistant (`backup/config/info`) only when it is about to use it: to
+  encrypt a safety backup (`safety_backup_encryption`) or a backup made with
+  `ha_create_backup`, or to restore a protected backup without `password`. It
+  is sent to the Supervisor or to Home Assistant in that same call and then
+  dropped: it is never written to disk (safety backup state, retention
+  ledger, pending jobs, confirmation tokens), never kept in memory between
+  calls, never returned in a preview, answer or error (an error that quoted
+  it is masked) and never logged. Tests plant a sentinel key and check every
+  one of those outputs. Hermes never changes the key; that stays in the Home
+  Assistant UI, which hands out the emergency kit.
 - **Secret redaction** in all logs, both Hermes's own and those of other add-ons.
 - **Network redaction** in the log (`log_redact_network`, on by default): the
   configured `public_hostname`, the hosts of Home Assistant's `external_url`

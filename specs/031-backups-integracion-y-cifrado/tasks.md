@@ -333,29 +333,77 @@ Cada tramo necesita el anterior integrado.
 
 ### Preparación
 
-- [ ] T047 Línea base; anotar si la 027 está integrada (`hermes/translations/`)
+- [x] T047 Línea base; anotar si la 027 está integrada (`hermes/translations/`)
 
 ### Tests (antes del código)
 
-- [ ] T048 [P] [US5] Tests de la opción: `tests/test_addon_manifest.py` (schema `list(auto|required|off)?` y opción `auto`), `tests/test_run_sh_options.py` (`HERMES_SAFETY_BACKUP_ENCRYPTION`), `tests/test_config_validation.py` (valor desconocido → `ValueError` al arrancar; por defecto `auto`), `tests/test_main_wiring.py` (llega a las tools de backups y a `fs_write`); y, si la 027 está, el de traducciones (FR-012)
-- [ ] T049 [P] [US5] Tests en `tests/test_safety_backup_encryption.py` con `sv_request` y `ws_send` simulados, para `sv_create_safety_backup` y para `maybe_trigger_safety_backup`: `auto` con clave → POST `/backups/new/full` con `password` centinela y respuesta `encrypted: true`; `auto` sin clave (cada uno de los tres motivos) → POST sin `password`, `encrypted: false`, `encryption_skipped_reason` y aviso en el log sin valores; `required` sin clave → sin POST, `encryption_key_unavailable` (en el automático, la escritura devuelve ese error); `off` → POST como en la 1.1.2 sin leer la clave; el centinela no está en `last_safety_backup.json`, `safety_backups.json`, `pending_jobs.json`, el directorio de tokens ni el log; la ventana, el límite duro y el lock no cambian (FR-013, FR-011, SC-002)
-- [ ] T050 [P] [US5] Tests en `tests/test_safety_retention.py`: `record_launch(..., encrypted=True)` lo guarda; la poda borra un safety backup `protected: true` con `encrypted: true` como uno sin proteger; uno `protected: true` sin `encrypted` (o con `false`) sigue excluido con `protected`; anotaciones antiguas sin el campo se leen igual (FR-014)
-- [ ] T051 [P] [US5] Test transversal en `tests/test_safety_backup_encryption.py`: con la clave centinela en HA, una pasada por las seis tools de la familia (DV-1), `sv_create_safety_backup`, el safety backup automático y las `sv_restore_*` (simuladas) deja el centinela fuera de toda respuesta, vista previa, error, fichero bajo `HERMES_CONFIG_BASE` y log capturado (FR-011, FR-019, SC-002)
+- [x] T048 [P] [US5] Tests de la opción: `tests/test_addon_manifest.py` (schema `list(auto|required|off)?` y opción `auto`), `tests/test_run_sh_options.py` (`HERMES_SAFETY_BACKUP_ENCRYPTION`), `tests/test_config_validation.py` (valor desconocido → `ValueError` al arrancar; por defecto `auto`), `tests/test_main_wiring.py` (llega a las tools de backups y a `fs_write`); y, si la 027 está, el de traducciones (FR-012)
+- [x] T049 [P] [US5] Tests en `tests/test_safety_backup_encryption.py` con `sv_request` y `ws_send` simulados, para `sv_create_safety_backup` y para `maybe_trigger_safety_backup`: `auto` con clave → POST `/backups/new/full` con `password` centinela y respuesta `encrypted: true`; `auto` sin clave (cada uno de los tres motivos) → POST sin `password`, `encrypted: false`, `encryption_skipped_reason` y aviso en el log sin valores; `required` sin clave → sin POST, `encryption_key_unavailable` (en el automático, la escritura devuelve ese error); `off` → POST como en la 1.1.2 sin leer la clave; el centinela no está en `last_safety_backup.json`, `safety_backups.json`, `pending_jobs.json`, el directorio de tokens ni el log; la ventana, el límite duro y el lock no cambian (FR-013, FR-011, SC-002)
+- [x] T050 [P] [US5] Tests en `tests/test_safety_retention.py`: `record_launch(..., encrypted=True)` lo guarda; la poda borra un safety backup `protected: true` con `encrypted: true` como uno sin proteger; uno `protected: true` sin `encrypted` (o con `false`) sigue excluido con `protected`; anotaciones antiguas sin el campo se leen igual (FR-014)
+- [x] T051 [P] [US5] Test transversal en `tests/test_safety_backup_encryption.py`: con la clave centinela en HA, una pasada por las seis tools de la familia (DV-1), `sv_create_safety_backup`, el safety backup automático y las `sv_restore_*` (simuladas) deja el centinela fuera de toda respuesta, vista previa, error, fichero bajo `HERMES_CONFIG_BASE` y log capturado (FR-011, FR-019, SC-002)
 
 ### Implementación
 
-- [ ] T052 [US5] Opción `safety_backup_encryption`: `hermes/config.yaml` (schema con comentario del porqué y opción `auto`), `hermes/run.sh`, `hermes/src/hermes/config.py` (campo, validación y lectura de entorno), `hermes/src/hermes/__main__.py` y `tools/__init__.py` (cableado hasta `tools/backups.py` y `fs_write`); traducciones en `hermes/translations/en.yaml` y `es.yaml` si la 027 está (si no, anotarlo para quien integre la segunda). T048 en verde (FR-012)
-- [ ] T053 [US5] `tools/backups.py` (`_crear_safety_backup`) y `fs_write.py` (`_maybe_trigger_safety_backup`): `leer_clave_de_backups` según la opción, `password` en el POST, `encrypted` en la respuesta y en `record_launch`, aviso en el log con el motivo (sin valores); descripción de `sv_create_safety_backup` al día. T049 en verde (FR-013, FR-023)
-- [ ] T054 [US5] `hermes/src/hermes/safety_retention.py`: `record_launch(..., encrypted: bool = False)` y `_motivo_exclusion` según data-model sección 12, con comentario del porqué (research R-5). T050 en verde (FR-014)
+- [x] T052 [US5] Opción `safety_backup_encryption`: `hermes/config.yaml` (schema con comentario del porqué y opción `auto`), `hermes/run.sh`, `hermes/src/hermes/config.py` (campo, validación y lectura de entorno), `hermes/src/hermes/__main__.py` y `tools/__init__.py` (cableado hasta `tools/backups.py` y `fs_write`); traducciones en `hermes/translations/en.yaml` y `es.yaml` si la 027 está (si no, anotarlo para quien integre la segunda). T048 en verde (FR-012)
+- [x] T053 [US5] `tools/backups.py` (`_crear_safety_backup`) y `fs_write.py` (`_maybe_trigger_safety_backup`): `leer_clave_de_backups` según la opción, `password` en el POST, `encrypted` en la respuesta y en `record_launch`, aviso en el log con el motivo (sin valores); descripción de `sv_create_safety_backup` al día. T049 en verde (FR-013, FR-023)
+- [x] T054 [US5] `hermes/src/hermes/safety_retention.py`: `record_launch(..., encrypted: bool = False)` y `_motivo_exclusion` según data-model sección 12, con comentario del porqué (research R-5). T050 en verde (FR-014)
 
 ### Guía, documentación y cierre
 
-- [ ] T055 [US5] Tests y tema `backups` de `guide.py`: los safety backups van cifrados con la clave de HA según `safety_backup_encryption`; restaurarlos con `sv_restore_backup_full` sin `password` o desde la interfaz con el kit de emergencia; si se cambió la clave, la anterior; la retención los sigue podando (FR-021)
-- [ ] T056 Documentación final (FR-024): sección «Backups de Home Assistant» completa en `## [1.2.0]` de `hermes/CHANGELOG.md` (seis tools (DV-1), familia, tabla, safety backups cifrados y la opción, `sv_restore_*` con la clave, `last_action_event`); `hermes/DOCS.md` (opción `safety_backup_encryption` con sus tres valores, qué pasa al cambiar la clave en HA, y la familia); `README.md` y `README.es.md` sincronizados; `SECURITY.md` (la clave de HA: se lee, se usa y se descarta; nunca en disco ni en el log); `docs/HOJA-DE-RUTA.md`: 031 «hecha» en la tabla del programa, «Cifrado de los safety backups (031)» fuera de lo pendiente, y las pruebas en vivo de quickstart.md en los pendientes manuales
-- [ ] T057 [US6] Test en `tests/test_tools_registration.py`: con `tool_families_disabled: ["backup_integration"]` el registro es exactamente el de antes de la 031 (nombres, anotaciones y argumentos), y con la configuración por defecto las tools de la 1.1.2 no cambian salvo la descripción de `ha_list_backups`, `sv_create_safety_backup` y las `sv_restore_*` (FR-023, SC-006)
-- [ ] T058 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-027 (FR-068; `sv_create_safety_backup`, safety backup automático, `safety_retention`; `test_safety_backup_encryption.py`, `test_safety_retention.py`, `test_sv_restore_backup_key.py`) y CAP-057 (FR-067; las seis tools (DV-1); `test_tools_ha_backup_*.py`, `test_backup_retention_estimate.py`, `tests/banco/test_banco_backups_*.py`) (FR-024)
-- [ ] T059 Control negativo del tramo 4, anotando recuentos: (a) `auto` sin mandar `password` con clave → cae T049; (b) `required` que crea sin clave → cae; (c) escribir `password` en `last_safety_backup.json` → cae el centinela de T049/T051; (d) `_motivo_exclusion` sin la excepción de `encrypted` → cae T050; admitir `protected` sin `encrypted` → cae; (e) valor desconocido de la opción aceptado → cae T048. Restaurar y comprobar verde
-- [ ] T060 Cierre del tramo 4: suite completa (los 6 conocidos y ninguno más), CI en verde con el banco, revisión del diff (principio VIII), commit con los recuentos de T059
+- [x] T055 [US5] Tests y tema `backups` de `guide.py`: los safety backups van cifrados con la clave de HA según `safety_backup_encryption`; restaurarlos con `sv_restore_backup_full` sin `password` o desde la interfaz con el kit de emergencia; si se cambió la clave, la anterior; la retención los sigue podando (FR-021)
+- [x] T056 Documentación final (FR-024): sección «Backups de Home Assistant» completa en `## [1.2.0]` de `hermes/CHANGELOG.md` (seis tools (DV-1), familia, tabla, safety backups cifrados y la opción, `sv_restore_*` con la clave, `last_action_event`); `hermes/DOCS.md` (opción `safety_backup_encryption` con sus tres valores, qué pasa al cambiar la clave en HA, y la familia); `README.md` y `README.es.md` sincronizados; `SECURITY.md` (la clave de HA: se lee, se usa y se descarta; nunca en disco ni en el log); `docs/HOJA-DE-RUTA.md`: 031 «hecha» en la tabla del programa, «Cifrado de los safety backups (031)» fuera de lo pendiente, y las pruebas en vivo de quickstart.md en los pendientes manuales
+- [x] T057 [US6] Test en `tests/test_tools_registration.py`: con `tool_families_disabled: ["backup_integration"]` el registro es exactamente el de antes de la 031 (nombres, anotaciones y argumentos), y con la configuración por defecto las tools de la 1.1.2 no cambian salvo la descripción de `ha_list_backups`, `sv_create_safety_backup` y las `sv_restore_*` (FR-023, SC-006)
+- [x] T058 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-027 (FR-068; `sv_create_safety_backup`, safety backup automático, `safety_retention`; `test_safety_backup_encryption.py`, `test_safety_retention.py`, `test_sv_restore_backup_key.py`) y CAP-057 (FR-067; las seis tools (DV-1); `test_tools_ha_backup_*.py`, `test_backup_retention_estimate.py`, `tests/banco/test_banco_backups_*.py`) (FR-024)
+- [x] T059 Control negativo del tramo 4, anotando recuentos: (a) `auto` sin mandar `password` con clave → cae T049; (b) `required` que crea sin clave → cae; (c) escribir `password` en `last_safety_backup.json` → cae el centinela de T049/T051; (d) `_motivo_exclusion` sin la excepción de `encrypted` → cae T050; admitir `protected` sin `encrypted` → cae; (e) valor desconocido de la opción aceptado → cae T048. Restaurar y comprobar verde
+- [x] T060 Cierre del tramo 4: suite completa (los 6 conocidos y ninguno más), CI en verde con el banco, revisión del diff (principio VIII), commit con los recuentos de T059
+
+### Notas del tramo 4 (implementación)
+
+- **T047**: la 027 está integrada (`hermes/translations/en.yaml` y
+  `es.yaml`), así que la opción lleva su traducción y
+  `test_claves_iguales_que_el_esquema` pasa de 31 a 32 opciones (cambio
+  aditivo, justificado en el test). Línea base: 3567 passed, 120 skipped y
+  los 6 fallos conocidos de Windows.
+- **D-031-1 aceptada** por el supervisor del programa: clave de HA, nunca una
+  generada en `/data`. **D-25** (si `auto` es el valor por defecto adecuado)
+  queda para el final; se implementa como dice la spec.
+- **Desviación (valores por defecto de las funciones)**: `register` de
+  `tools/backups.py`, `register_write` y `maybe_trigger_safety_backup` tienen
+  `off` por defecto, no `auto`: son los de quien registra o llama a mano
+  (tests, herramientas), que no siempre tiene WebSocket de HA, y así las
+  llamadas existentes siguen siendo las de la 1.1.2. El arranque pasa siempre
+  la opción, que por defecto es `auto` (`config.py`, `config.yaml` y
+  `run.sh`; lo comprueban `test_main_wiring` y `test_addon_manifest`).
+- **Añadidos**: `backup_key.clave_para_safety_backup` (con `off` no lee nada;
+  una excepción inesperada al leer cuenta como «integración no disponible»,
+  fail-closed) y `sin_clave_bloquea` (un valor desconocido se trata como
+  `required`). La respuesta cifrada lleva `restore_note` (restaurar necesita
+  la clave de HA o el kit de emergencia; si la clave cambia, la anterior) y
+  la sin cifrar con `auto` lleva `warning` además de
+  `encryption_skipped_reason`. `required` sin clave no toca el estado del
+  safety backup ni cuenta como intento para el límite de 60 s. Los errores
+  del POST salen con la clave tapada, y en el automático la clave y la carga
+  se sueltan tras el POST. La anotación guarda `encrypted` solo si es
+  `true`: las entradas sin cifrar son idénticas a las de antes. El sondeo
+  sigue contando como fallo los errores de los sub-jobs (027).
+- **T057**: no hay instantánea del registro de antes de la 031; el test
+  compara cada tool con la familia apagada con la del registro por defecto
+  (argumentos, anotaciones, título y descripción) y la diferencia es
+  exactamente las seis. Los argumentos de la 1.1.2 los sigue vigilando
+  `test_esquemas_de_la_1_1_2` (la 031 no cambia ninguno).
+- **T059** (recuentos, sobre `test_safety_backup_encryption.py`,
+  `test_safety_retention.py` y `test_config_validation.py`): (a) `auto` sin
+  mandar `password` en los dos caminos caen 4; (b) `required` que crea sin
+  clave caen 7 (con subtests); (c) la clave en `last_safety_backup.json` caen
+  2; (d) sin la excepción de `encrypted` caen 3; admitir `protected` sin
+  `encrypted` caen 6 (con subtests); (e) un valor desconocido aceptado caen 4
+  subtests; además, sin el párrafo del cifrado en el tema `backups` cae su
+  test y la huella del tema. Restaurado y en verde.
+- No toca el banco: el tramo no añade tools de Core y las `sv_*` se prueban
+  con el Supervisor simulado (`sv_create_safety_backup`, fila de la matriz de
+  la 014 en «VM / pendiente» con la nota del cifrado).
+- Recuentos: sin tools nuevas en el tramo; familia `backup_integration`, 6;
+  total, 290; opciones del add-on, 32.
 
 ---
 
