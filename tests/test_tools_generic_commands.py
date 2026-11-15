@@ -378,7 +378,9 @@ class TestLecturaCoreTablaReal(_Base):
     async def test_reales_rechazadas(self) -> None:
         casos = {
             "lovelace/config/save": "use_dedicated_tool",
-            "backup/restore": "command_denied",
+            # `backup/restore` era el ejemplo hasta que la 031 (tramo 3) le dio
+            # tool dedicada; `backup/start` es una señal interna (clase B).
+            "backup/start": "command_denied",
             "tag/create": "wrong_generic_tool",
             "comando/que/no/existe": "command_not_classified",
         }
@@ -1697,6 +1699,79 @@ class TestAssistPorLaTabla(_Base):
                     self.assertEqual(r["error"], "command_denied")
         self.ha.ws_send.assert_not_awaited()
         self.ha.ws_one_shot_subscription.assert_not_awaited()
+
+
+# Spec 031, tramo 1 (CAP-057): agentes y ajustes de los backups de HA.
+_DEDICADAS_031_TRAMO_1 = {
+    "backup/agents/info": "ha_list_backup_agents",
+    "backup/config/update": "ha_update_backup_config",
+}
+# Tramo 2 (T026): crear y borrar. Antes eran `deny` y la de los ajustes
+# automáticos remitía a `ha_call_service`; ahora van a su tool.
+_DEDICADAS_031_TRAMO_2 = {
+    "backup/generate": "ha_create_backup",
+    "backup/generate_with_automatic_settings": "ha_create_automatic_backup",
+    "backup/delete": "ha_delete_backup",
+    # Tramo 3 (T041): restaurar.
+    "backup/restore": "ha_restore_backup",
+}
+# Los ajustes del backup previo a actualizar no tienen tool: el proxy
+# WebSocket del Supervisor rechaza `hassio/*` a las apps (HALLAZGO de la 031).
+_DENEGADAS_031_TRAMO_1 = ("hassio/update/config/info", "hassio/update/config/update")
+
+
+class TestDedicadasDeLa031(unittest.IsolatedAsyncioTestCase):
+    """Spec 031, T010 (FR-017): con la tabla real, las dos genéricas rechazan
+    los dos comandos con tool del tramo 1 hacia su tool de
+    `backup_integration`, sin llegar a HA; con la familia desactivada, además
+    `family_disabled: true`. Los dos de `hassio/update/config/*` se rechazan
+    con `command_denied` (el proxy del Supervisor no los deja pasar).
+
+    Control negativo (T015 d), comprobado: dejar `backup/config/update` en
+    `deny` → caen los dos tests de esta clase (`command_denied`) y
+    `test_dedicadas_de_la_031` de test_command_table.
+
+    Tramo 2 (T026): lo mismo con los tres comandos de crear y borrar, y el
+    motivo ya no remite a `ha_call_service`. Control negativo (T030 g),
+    comprobado: `backup/delete` en `deny` → caen `test_rechazo_hacia_su_tool`,
+    `test_con_la_familia_desactivada` y `test_dedicadas_de_la_031`.
+
+    Tramo 3 (T041): `backup/restore` hacia `ha_restore_backup`. Control
+    negativo (T045 g), comprobado: `backup/restore` en `deny` → caen los dos
+    tests de rechazo y `test_dedicadas_de_la_031`.
+    """
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in {**_DEDICADAS_031_TRAMO_1, **_DEDICADAS_031_TRAMO_2}.items():
+            for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, generica=generica):
+                    r = await mcp.tools[generica](comando, {})
+                    self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                     ("use_dedicated_tool", tool, "backup_integration", False))
+                    self.assertIn(tool, mcp.tools)
+                    self.assertNotIn("ha_call_service", json.dumps(r))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["backup_integration"])
+        for comando, tool in {**_DEDICADAS_031_TRAMO_1, **_DEDICADAS_031_TRAMO_2}.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {})
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_hassio_update_config_denegados(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando in _DENEGADAS_031_TRAMO_1:
+            for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, generica=generica):
+                    r = await mcp.tools[generica](comando, {})
+                    self.assertEqual(r["error"], "command_denied")
+                    self.assertIn("DENIED_WS_TYPE_PREFIXES", json.dumps(r))
+        ha.ws_send.assert_not_awaited()
 
 
 class TestRegistro(unittest.TestCase):

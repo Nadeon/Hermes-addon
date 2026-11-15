@@ -291,6 +291,8 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         # Desde la 021, sus escrituras y sus lecturas, y la vista previa de
         # `ha_update_http_config` (tramo c: no se confirma en el banco).
         from tests.banco.cobertura_021 import LECTURAS_021, PROBADAS_021, VISTA_PREVIA_021
+        # Desde la 031, sus escrituras y la lectura de agentes.
+        from tests.banco.cobertura_031 import LECTURAS_EN_BANCO_031, PROBADAS_031
 
         self.assertEqual(
             plugin.tools_exigidas,
@@ -299,7 +301,9 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
             | PROBADAS_020 | LECTURAS_020 | PROBADAS_021 | LECTURAS_021
             | VISTA_PREVIA_021
             # Spec 023: su escritura y sus tres lecturas.
-            | PROBADAS_023 | LECTURAS_023,
+            | PROBADAS_023 | LECTURAS_023
+            # Spec 031: sus escrituras y la lectura de agentes.
+            | PROBADAS_031 | LECTURAS_EN_BANCO_031,
         )
 
 

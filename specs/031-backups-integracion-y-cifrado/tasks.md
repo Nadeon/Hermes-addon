@@ -1,0 +1,473 @@
+---
+description: "Tareas de la sub-feature 031 — backups de la integración backup y safety backups cifrados (Hermes 1.2.0)"
+---
+
+# Tareas: backups de la integración `backup` y safety backups cifrados (031)
+
+**Entrada**: `specs/031-backups-integracion-y-cifrado/` (spec.md, plan.md,
+research.md, data-model.md, contracts/tools.md, quickstart.md) y la paraguas
+`specs/008-cobertura-total/`.
+
+**Tests**: obligatorios, escritos ANTES del código que prueban (TDD: se ven en
+rojo y luego en verde) y con control negativo anotado (principio VII). Estilo
+de los existentes: `unittest.IsolatedAsyncioTestCase`, `DummyMCP` o
+`_RecordingMCP`, `AsyncMock` de `ws_send` y `sv_request`,
+`structlog.testing.capture_logs`. Datos ficticios (`hassio.local`,
+`hassio.nas_backups`, `cloud.cloud`, `core_mosquitto`, `192.0.2.10`,
+`homeassistant.tailXXXX.ts.net`, `centinela-031`). Nada de la instalación real
+ni de las tools MCP de Hermes.
+
+**Suite** (desde la raíz del worktree, en Git Bash):
+`export MSYS_NO_PATHCONV=1; HERMES_CONFIG_BASE="$(cygpath -w <carpeta propia>)" python -m pytest -q -p no:cacheprovider`.
+Línea base en Windows al especificar (2026-11-15, punta `8a101b7`): 2642
+passed, 78 skipped, 6 failed (los 6 conocidos). Cada tramo termina con
+exactamente esos 6 fallos en local; la referencia es el CI de Linux.
+
+## Formato: `[ID] [P?] [Historia] Descripción`
+
+Historias de spec.md: US1 configurar los backups automáticos, US2 crear, US3
+restaurar, US4 borrar, US5 safety backups cifrados, US6 nada se rompe.
+
+## Tramos de implementación
+
+Cada tramo lo hace un agente nuevo, deja la suite en verde y se commitea por
+separado (uno o varios commits; el tramo no se cierra con la suite en rojo).
+La 008 preveía dos tramos; son cuatro (research R-15, duda D-031-2).
+
+| Tramo | Tareas | Cubre |
+|---|---|---|
+| **1** — Agentes y ajustes | **T001–T016** | Familia `backup_integration` (módulo `ha_backup_settings`); `ha_list_backup_agents`, `ha_update_backup_config`, `ha_get_update_backup_settings`, `ha_set_update_backup_settings`; estimación de retención; 4 entradas a `dedicated`; tema de la guía; `backup:` en el banco e inventario `cobertura_031.py`; documentación parcial |
+| **2** — Crear y borrar | **T017–T031** | `backup_key.py`; `ha_create_backup`, `ha_create_automatic_backup`, `ha_delete_backup` (módulo `ha_backup_actions`); `last_action_event` en `ha_list_backups`; 3 entradas a `dedicated` y sus filas del inventario; banco con la retención real |
+| **3** — Restaurar | **T032–T046** | `HAConnectionError.sent`; `ha_restore_backup` (módulo `ha_backup_restore`); `sv_restore_backup_*` con la clave de HA; `backup/restore` a `dedicated`; banco de la vista previa y la contraseña incorrecta. Necesita la 019 (HMAC) |
+| **4** — Safety backups cifrados y cierre | **T047–T060** | Opción `safety_backup_encryption`; safety backups (tool y automático) cifrados; retención de los cifrados; tema `backups`; documentación final y matriz de la 008 |
+
+Cada tramo necesita el anterior integrado.
+
+---
+
+## Tramo 1 — Agentes y ajustes (US1, US6)
+
+### Preparación
+
+- [x] T001 Comprobar la base: la rama contiene la 018 (`estado=` en `create_confirmation_token`/`resolve_confirmation_token` de `hermes/src/hermes/security.py`) y el mecanismo de la clase A de la 029 en `scripts/inventario/generar_tabla.py` (`_clasificar` consulta `_DEDICADAS_INICIALES` antes de la regla «pendiente»); si falta algo, parar y avisar. Anotar si la 019 y la 027 están integradas (deciden T032 y T050). Línea base de la suite, anotada en el commit del tramo
+
+### Tests (antes del código)
+
+- [x] T002 [P] [US1] Tests en `tests/test_backup_retention_estimate.py` para `estimar_retencion` (data-model sección 4): solo backups con `with_automatic_settings`; global por copias (`copies=3` con cinco automáticos → los tres más antiguos con `after_next_automatic_backup`); global por días (con `ahora` fijo, los anteriores a `days` con `within_24h`); los dos a `None` → nada; retención por agente que sustituye a la global en ese agente (y `days=None` en el agente → ese agente no borra por días); un backup que sale por las dos reglas va una vez con `within_24h`; fechas ilegibles → no se estiman (fail-closed: no aparecen); orden por fecha. Casos copiados de las reglas de `backup/config.py` de HA 2026.11.1 con referencia en el docstring (FR-003)
+- [x] T003 [P] [US1] Tests en `tests/test_tools_ha_backup_settings.py`, `ha_list_backup_agents` con `ws_send` simulado (`backup/agents/info` y `backup/config/info`): `kind` de `backup.local`, `hassio.local`, `hassio.nas_backups` y `cloud.cloud`; `protected`/`retention` de la configuración y por defecto (`true`, `null`) si el agente no tiene entrada; `used_by_automatic_backups`; la contraseña centinela de `backup/config/info` no está en la respuesta ni en el log; HA < 2025.1 → `ha_version_unsupported`; `unknown_command` → `backup_integration_unavailable`; recorte con `truncated` (FR-001, FR-019, FR-020)
+- [x] T004 [P] [US1] Tests en `tests/test_tools_ha_backup_settings.py`, `ha_update_backup_config`: sin argumentos → `invalid_argument`; clave desconocida en cualquier nivel → `invalid_argument` con su nombre; `create_backup.password` (y `password` en `agents.<id>`) → `invalid_argument` sin el valor en la respuesta ni el log y sin llamar a HA; `days` repetido, `recurrence` desconocida, `time` sin forma, `copies: 0`, `include_all_addons` con `include_addons` → `invalid_argument`; la vista previa (sin token) no llama a `backup/config/update`, trae `current` y `resulting` sin contraseña y con `password_set`, `changed` correcto con la fusión de data-model sección 3 (`schedule: {"time": "04:30"}` manda el `schedule` completo con la `recurrence` y los `days` actuales, no `never`; `retention: {"copies": 3}` conserva `days`; un `null` explícito se manda; `create_backup` fundido; agentes por separado), los avisos de data-model sección 3 y `retention_effect` con `estimate: true`; con token, `backup/config/update` recibe exactamente lo pasado; configuración cambiada entre vista previa y confirmación (otro `retention`) → `state_changed` sin llamar a `update`; error de HA → redactado y token fallido (FR-002, FR-003, FR-019, FR-020)
+- [x] T005 [P] [US1] Tests en `tests/test_tools_ha_backup_settings.py`, `ha_get_update_backup_settings` (tres campos; `unknown_command` → `supervisor_integration_unavailable`) y `ha_set_update_backup_settings` (al menos uno; `add_on_backup_retain_copies` 0 o 101 → `invalid_argument`; vista previa con `current`, `resulting`, `changed` y el aviso al bajar las copias; con token, `hassio/update/config/update` con lo pasado; estado cambiado → `state_changed`) (FR-004)
+- [x] T006 [P] [US6] Tests en `tests/test_tool_families.py` (familia `backup_integration`, `desde="1.2.0"`, desactivable, con el módulo `ha_backup_settings`) y en `tests/test_tools_registration.py` (las cuatro en `_HINTS_NUEVAS_1_2_0`: `ha_list_backup_agents` y `ha_get_update_backup_settings` `R-I-`, `ha_update_backup_config` y `ha_set_update_backup_settings` `-DI-`, con sus títulos; las dos que modifican toman `confirmation_token`; con la familia desactivada no se registra ninguna y el resto no cambia) (FR-016, FR-018)
+
+### Implementación
+
+- [x] T007 [US1] `hermes/src/hermes/backup_retention_estimate.py` con `estimar_retencion` (función pura, comentarios del porqué y de qué regla de HA reproduce cada rama). T002 en verde (FR-003)
+- [x] T008 [US1] `hermes/src/hermes/tools/ha_backup_settings.py` con las cuatro tools de contracts/tools.md: `register(mcp, ha_client, *, response_max_bytes)`, `@ready`, comprobación de versión y `_saneado`/`_config_permitida` de `tools/ha_backups.py` (reutilizadas, no copiadas), validación antes de llamar, vistas previas de data-model secciones 1, 3 y 5 con `estado=`, log con recuentos y sin valores. T003–T005 en verde (FR-001, FR-002, FR-004, FR-019, FR-020)
+- [x] T009 [US6] `hermes/src/hermes/tool_families.py` (familia `backup_integration` con `ha_backup_settings`), `hermes/src/hermes/tools/__init__.py` (registro bajo `if _activa("backup_integration")`) y `hermes/src/hermes/tools/_annotations.py` (`ha_update_backup_config` y `ha_set_update_backup_settings` en `_DESTRUCTIVE_EXACT` con el porqué: la retención borra backups; los ajustes previos deciden si hay copia antes de actualizar). T006 en verde (FR-016, FR-018, FR-023)
+
+### Tabla
+
+- [x] T010 [P] [US6] Tests en `tests/test_tools_generic_commands.py`: `ha_read_ws_command`/`ha_call_ws_command` con `backup/agents/info`, `backup/config/update`, `hassio/update/config/info` y `hassio/update/config/update` → `use_dedicated_tool` con su tool y sin `ws_send`; con `backup_integration` desactivada → `family_disabled: true` (FR-017)
+- [x] T011 [US6] `hermes/src/hermes/command_table.py`: las cuatro entradas de data-model sección 13 (con `cap="CAP-057"`); sus claves en `_DEDICADAS_INICIALES` de `scripts/inventario/generar_tabla.py` (bloque comentado «031»); regenerar sobre la tabla editada (0 nuevas, 0 quitadas, idéntica byte a byte) y desde cero en un temporal (las cuatro salen iguales); anotarlo en el commit. Test nuevo `test_dedicadas_de_la_031` en `tests/test_command_table.py` (forma exacta y clave en el mapa). T010 en verde (FR-017)
+
+### Guía
+
+- [x] T012 [US1] Tests en `tests/test_tools_guide.py` (tema `backup_integration` con contenido; nombra las cuatro tools; alias `backup_agents`, `backup_config`, `backup_schedule`, `backup_retention` resuelven a él; el índice lo menciona; `backup` sigue llevando a `backups`; los temas de la 1.1.2 no cambian) y después el tema en `hermes/src/hermes/tools/guide.py` (en español: cuándo estas y cuándo las `sv_*`, la retención y su estimación, que la clave de cifrado no sale ni se cambia aquí) (FR-021)
+
+### Banco de Core
+
+- [x] T013 [US1] `tests/banco/ha_config/configuration.yaml`: `backup:` con comentario del porqué (agente `backup.local`, `/config/backups` del temporal, sin internet); `tests/banco/test_banco_backups_ajustes.py` (marcador `banco`, base de la 028): `ha_list_backup_agents` incluye `backup.local` con `kind: local`; `ha_update_backup_config` cambia `schedule` (`daily`, `04:30`) y `retention` (`copies: 2`) y el lector lo lee con `backup/config/info`; la vista previa no cambia nada (lector antes y después); `ha_get_update_backup_settings` → `supervisor_integration_unavailable`; rechazo de `ha_call_ws_command("backup/config/update")`. Limpieza: el lector deja la configuración como estaba (FR-022)
+- [x] T014 [US6] `tests/banco/cobertura_031.py` con `PROBADAS_031` (`ha_update_backup_config`; solo las que modifican), `LECTURAS_EN_BANCO_031` (`ha_list_backup_agents`; como `PROBADAS_EN_BANCO_029`, va solo a `TOOLS_EXIGIDAS_DEL_JOB`) y `NO_EJECUTABLES_031` (`ha_set_update_backup_settings`: «necesita la integración hassio, que solo carga con Supervisor; el banco es Core sin Supervisor; VM de la 014»); sumar `PROBADAS_031` y `NO_EJECUTABLES_031` a la unión del invariante de `tests/test_banco_cobertura_escrituras.py`, y `PROBADAS_031` y `LECTURAS_EN_BANCO_031` a `TOOLS_EXIGIDAS_DEL_JOB` de `tests/banco/cobertura_escrituras.py` (y a los tests que fijan esa unión); filas de las dos que modifican en la matriz de pruebas de `docs/HOJA-DE-RUTA.md` (`ha_update_backup_config`: banco de Core, ok; `ha_set_update_backup_settings`: VM, pendiente) y su línea en «Tandas de pruebas» de `docs/BANCO-SUPERVISOR.md` (FR-022)
+
+### Cierre del tramo 1
+
+- [x] T015 Control negativo del tramo 1, anotando recuentos: (a) en `estimar_retencion`, no filtrar `with_automatic_settings` → caen los de T002; contar `copies` en vez de `copies - 1` → cae; (b) en `ha_update_backup_config`, dejar pasar `create_backup.password` → cae el de T004; copiar `password` a `current` → cae el centinela; no pasar `estado=` → cae `state_changed`; (c) `ha_set_update_backup_settings` fuera de `_DESTRUCTIVE_EXACT` → cae el de hints e `test_every_tool_that_asks_for_a_token_says_it_is_destructive`; (d) dejar `backup/config/update` en `deny` → caen T010 y `test_dedicadas_de_la_031`; (e) quitar `ha_update_backup_config` de `PROBADAS_031` → cae el invariante. Restaurar y comprobar verde
+- [x] T016 Documentación parcial y cierre (FR-024): recuento de tools (+4) y fila de la familia en `README.md`, `README.es.md` y `hermes/DOCS.md` (`TestToolCountInDocs`; `backup_integration` en la lista de `tool_families_disabled`); sección «Backups de Home Assistant» en `## [1.2.0]` de `hermes/CHANGELOG.md` con lo del tramo; 031 «en curso» en `docs/HOJA-DE-RUTA.md`; suite completa (los 6 conocidos y ninguno más); revisión del diff buscando datos personales e identificadores de modelos; commit en español con la línea base de T001, la regeneración de T011 y los recuentos de T015
+
+### Notas del tramo 1 (implementación)
+
+- **T001**: la base tiene el estado atado de la 018 y la clase A de la 029 en
+  `_clasificar`. La 019 (HMAC) y la 027 (traducciones) **no** están
+  integradas al empezar: lo deciden T032 y T050. Línea base tras traer
+  `feat/cobertura-total` (con la 012 y la 033): 2836 passed, 95 skipped y los
+  6 fallos conocidos de Windows.
+- **Desviación (sobre de lista, 018)**: `ha_list_backup_agents` devuelve
+  `{count, items, truncated}` con `sobre_de_lista`, no `{agents, count}` como
+  el data-model sección 1: es una tool de lista nueva de la 1.2.0 y el test
+  transversal de `tests/test_sobre_de_lista.py` lo exige.
+- **Desviación (vista previa)**: la de `ha_update_backup_config` lleva
+  además `sends`, la carga exacta de `backup/config/update` (completada con
+  lo actual). El data-model dice que la vista previa enseña lo que se manda,
+  pero no le daba campo; la confirmación manda exactamente `sends`.
+- **Desviación (estimación por copias con retención por agente)**: el nuevo
+  backup automático solo suma uno en los agentes de
+  `create_backup.agent_ids` (si no se conocen, en todos), como hace HA al
+  crearlo; el data-model decía «`copies - 1` por agente» sin distinguir.
+- `schedule.time` se normaliza a `HH:MM:SS`, que es como HA la guarda y la
+  devuelve: así `changed` no marca un cambio que no lo es.
+- `ha_set_update_backup_settings` avisa también al quitar el backup previo a
+  actualizar Core o una app (FR-004 solo pedía el aviso de las copias).
+- `_comprobar_version` de `tools/ha_backups.py` pasa a ser la función de
+  módulo `comprobar_version_backup` (mismo comportamiento) para no copiarla.
+- **HALLAZGO (CI del banco) → DESVIACIÓN DV-1 de spec.md (FR-004)**:
+  `ha_get_update_backup_settings` y `ha_set_update_backup_settings` no pueden
+  funcionar desde un add-on. Hermes habla con Core por el proxy WebSocket del
+  Supervisor, que rechaza todo `supervisor/*` y `hassio/*` de una app con
+  «Unauthorized» (`DENIED_WS_TYPE_PREFIXES` de `supervisor/api/proxy.py`,
+  2026.11.0; el simulado del banco copia la regla). Decisión del supervisor
+  del programa: se QUITAN (código, registro, familia, anotaciones, guía,
+  CHANGELOG, README, DOCS, matriz de la 014, inventario de argumentos atados,
+  invariante de escrituras y tests, incluido el del banco con su `xfail`:
+  `XFAIL_PERMITIDOS_031` vacío). `hassio/update/config/*` pasan a `deny` con
+  el motivo del proxy, por el generador (`_Deny` en `_DEDICADAS_INICIALES`,
+  que ahora también se respeta en la rama de la clase A); la tabla regenerada
+  sale idéntica. Test nuevo `TestProxyDelSupervisor` en
+  `tests/test_command_table.py`: ninguna entrada WS `hassio/*` o
+  `supervisor/*` en `read` ni `confirm`, y una `dedicated` solo si el módulo
+  de su tool no manda ese comando (control negativo: `supervisor/event` en
+  `read` → cae 1). `estimar_retencion` se queda: la usa
+  `ha_update_backup_config`. Las tareas T005 y las partes de T006, T008,
+  T009, T010, T011, T012, T013, T014 y T015 (c) sobre esas dos tools quedan
+  sustituidas por esto. Familia `backup_integration`: 2 tools; recuento
+  total, 253; inventario de argumentos atados, 87; escrituras del banco, 130.
+- **T011**: regenerada la tabla sobre la editada (0 nuevas, 0 quitadas,
+  idéntica byte a byte) y desde cero en un temporal (las cuatro entradas,
+  iguales).
+- **T015** (recuentos): (a) sin el filtro de `with_automatic_settings` cae 1
+  de 14 de la estimación; `copies` en vez de `copies - 1`, 3 de 14; (b)
+  `password` admitido cae 1 (solo quitar su comprobación no cae nada: la clave
+  desconocida se rechaza igual); `password` en `current` cae 1; sin `estado=`
+  al crear y al resolver caen 2; (c) `ha_set_update_backup_settings` fuera de
+  `_DESTRUCTIVE_EXACT` cae 2; (d) `backup/config/update` en `deny` caen 4
+  (3 subtests de las genéricas y `test_dedicadas_de_la_031`); (e) sin
+  `ha_update_backup_config` en `PROBADAS_031` caen 3 (el invariante y 2 de la
+  matriz). Restaurado y en verde.
+
+---
+
+## Tramo 2 — Crear y borrar (US2, US4, US5 clave)
+
+### Tests (antes del código)
+
+- [x] T017 [P] [US5] Tests en `tests/test_backup_key.py` para `leer_clave_de_backups` (data-model sección 6): clave → `ClaveDeBackups(clave=…, motivo=None)`; `password` `None` o `""` → `no_key_configured`; `unknown_command` → `backup_integration_unavailable`; `HAConnectionError` sin código → `ha_unreachable`; respuesta sin `config` → `backup_integration_unavailable`; `repr()` y `str()` no contienen el centinela; ninguna llamada deja el centinela en el log; dos llamadas leen dos veces (sin caché) (FR-011)
+- [x] T018 [P] [US2] Tests en `tests/test_tools_ha_backups.py`: `ha_list_backups` devuelve `last_action_event` con los cuatro escalares; claves extra del evento (`agent_id`, `uploaded_bytes`) no salen; evento ausente → `null`; el resto de la respuesta no cambia (los tests existentes siguen sin tocar) (FR-010, FR-023)
+- [x] T019 [P] [US2] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_create_backup`: `agent_ids` vacío, con más de 10 o con forma inválida → `invalid_argument`; un agente que no está en `backup/agents/info` → `unknown_agent` con `available`; `include_all_addons` con `include_addons` → `invalid_argument`; carpeta desconocida → `invalid_argument`; apps o carpetas sin `hassio.local` entre los agentes → `invalid_argument`; `encrypt=True` sin clave → `no_encryption_key` sin token; vista previa (data-model sección 7) sin llamar a `backup/generate`, con `kind` y `encrypted` de cada agente (`encrypt` y su `protected`; sin entrada de configuración, cifrado) y el aviso de agente remoto sin cifrar; con token, `backup/generate` recibe la clave centinela como `password` y la respuesta trae `backup_job_id` y `follow_with`; el centinela no está en la vista previa, la respuesta, el log ni el directorio de tokens; los agentes cambian entre vista previa y confirmación → `state_changed`; `Backup manager busy` → error redactado y token fallido (FR-005, FR-011, FR-019, FR-020)
+- [x] T020 [P] [US2] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_create_automatic_backup`: sin `create_backup.agent_ids` → `automatic_backups_not_configured` sin token; vista previa con agentes, contenido, `encrypted` (= `password_set`) y `retention_effect` solo con `after_next_automatic_backup`; con token, `backup/generate_with_automatic_settings` y `backup_job_id`; configuración o backups cambiados → `state_changed` (FR-006, FR-003)
+- [x] T021 [P] [US4] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_delete_backup`: id inválido → `invalid_argument`; `backup/details` sin backup → `not_found` sin token; vista previa (data-model sección 9) con todas las ubicaciones, `automatic`, `hermes_safety_backup` (id confirmado en una anotación de prueba en el `HERMES_CONFIG_BASE` propio) y el aviso de único backup con configuración; con token, `backup/delete` y respuesta `ok`; con `agent_errors` en un agente → `partial`, `deleted_from` y `failed` con el error enmascarado (`192.0.2.10` y un `token=centinela-031` no salen); una ubicación nueva entre vista previa y confirmación → `state_changed` (FR-009, FR-019)
+
+### Implementación
+
+- [x] T022 [US5] `hermes/src/hermes/backup_key.py` (data-model sección 6) con comentarios del porqué (research R-3: por qué esta clave, por qué sin caché, por qué se tapa el `repr`). T017 en verde (FR-011)
+- [x] T023 [US2] [US4] `hermes/src/hermes/tools/ha_backup_actions.py` con las tres tools de contracts/tools.md (mismo patrón que `ha_backup_settings.py`; `estimar_retencion` de T007; `hermes_safety_backup` con una lectura pública nueva y de solo lectura de la anotación en `safety_retention.py`, que no toma el lock de escritura ni repara nada; la clave solo dentro de la confirmación, nunca en `args` ni en `estado`, que lleva `key_set`). T019–T021 en verde (FR-005, FR-006, FR-009, FR-019, FR-020)
+- [x] T024 [US2] `hermes/src/hermes/tools/ha_backups.py`: `last_action_event` por lista blanca en `ha_list_backups` y su descripción. T018 en verde (FR-010, FR-023)
+- [x] T025 [US6] `tool_families.py` (módulo `ha_backup_actions`), `tools/__init__.py`, `_annotations.py` (`ha_create_backup` y `ha_create_automatic_backup` en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD`; `ha_delete_backup` en `_OPEN_WORLD`; cada una con su porqué) y `tests/test_tools_registration.py` (las tres en `_HINTS_NUEVAS_1_2_0`: `-D-O`, `-D-O`, `-DIO`) (FR-016, FR-018)
+
+### Tabla
+
+- [x] T026 [P] [US6] Tests en `tests/test_tools_generic_commands.py`: `backup/generate`, `backup/generate_with_automatic_settings` y `backup/delete` por la genérica → `use_dedicated_tool` con su tool (el motivo ya no habla de `ha_call_service`) (FR-017)
+- [x] T027 [US6] `command_table.py`: las tres entradas de data-model sección 13 (sin `cap`), sin los comentarios de «hasta la tool dedicada de la 031»; en `specs/008-cobertura-total/inventario/core-ws.tsv`, sus filas con cobertura `si` y la nota con la tool nueva (research R-13); claves de `_DEDICADAS_INICIALES` hacia las tools nuevas; regenerar (idéntica; desde cero, iguales y sin « (acción de HA)»); `test_dedicadas_de_la_031` ampliado. T026 en verde (FR-017)
+
+### Guía y banco
+
+- [x] T028 [US2] [US4] Tests y tema `backup_integration` ampliado en `guide.py`: crear (con `encrypt`, `follow_with` y `ha_list_backups`), crear con ajustes automáticos (borra por retención), borrar (todas las ubicaciones); alias `create_backup`, `delete_backup` (FR-021)
+- [x] T029 [US2] [US4] [US5] `tests/banco/test_banco_backups_acciones.py`: el lector fija una clave centinela con `backup/config/update` (`create_backup.password`) y la restaura al cerrar; `leer_clave_de_backups` con el `ha_client` de la sesión la devuelve; `ha_create_backup(agent_ids=["backup.local"])` con y sin `encrypt` → el backup aparece (lector, `backup/info`) con `protected` correcto, siguiéndolo con `ha_list_backups` hasta `state: idle`; con `ha_update_backup_config` (`create_backup.agent_ids: ["backup.local"]`, `retention.copies: 1`) y dos `ha_create_automatic_backup`, la vista previa del segundo estima borrar el primero y el lector ve que HA lo borra; `ha_delete_backup` del resto (lector: ya no están); ninguna respuesta ni el log capturado contienen el centinela. Añadir las tres a `PROBADAS_031` y sus filas (banco de Core, ok) a la matriz (FR-003, FR-011, FR-022, SC-002, SC-005)
+
+### Cierre del tramo 2
+
+- [x] T030 Control negativo del tramo 2, anotando recuentos: (a) `ClaveDeBackups` sin `__repr__` propio → cae T017; (b) meter la clave en `args` del token → cae el centinela del directorio de tokens; (c) no validar `agent_ids` contra HA → cae `unknown_agent`; (d) `ha_delete_backup` sin `estado=` → cae `state_changed`; no enmascarar `failed` → cae; (e) `last_action_event` copiado entero → cae T018; (f) `ha_create_backup` fuera de `_OPEN_WORLD` → cae el de hints; (g) `backup/delete` en `deny` → caen T026 y `test_dedicadas_de_la_031`. Restaurar y comprobar verde
+- [x] T031 Documentación parcial y cierre: recuento (+3), CHANGELOG, DOCS y README; suite completa; revisión del diff; commit con los recuentos de T030 y la regeneración de T027 (FR-024)
+
+
+### Notas del tramo 2 (implementación)
+
+- **Proxy del Supervisor (DV-1)**: ningún comando del tramo empieza por
+  `hassio/` ni `supervisor/` (`backup/generate`,
+  `backup/generate_with_automatic_settings`, `backup/delete`,
+  `backup/details`, `backup/info`, `backup/agents/info`,
+  `backup/config/info`). Ninguna tarea del tramo queda fuera.
+- Línea base al empezar (punta `e3d4dad`): 2883 passed, 99 skipped y los 6
+  fallos conocidos de Windows. Al cerrar: 2923 passed, 102 skipped, los
+  mismos 6.
+- **Decisión del supervisor (vista previa FUERTE de borrar)**: la de
+  `ha_delete_backup` lleva además `lost` (configuración, base de datos, apps
+  con versión y carpetas del backup) y el aviso del safety backup; el estado
+  atado es todo lo que enseña (backup, `automatic`, `hermes_safety_backup`,
+  ubicaciones con tamaño y cifrado, contenido y si es el único con la
+  configuración), no solo id, fecha, nombre y ubicaciones. Si `backup/details`
+  trae `agent_errors`, falla cerrado sin token
+  (`backup_locations_unreadable`, con los errores enmascarados), también al
+  confirmar.
+- **Desviación (estado de `ha_create_backup`)**: además de los agentes
+  disponibles y `key_set`, ata `encrypted` de cada agente pedido: si un
+  agente pasa a `protected: false` entre la vista previa y la confirmación,
+  la vista previa mentiría sobre el cifrado.
+- **Desviación (borrar sin éxito en ninguna ubicación)**: si HA da error en
+  todas, `{"error": "delete_failed", "failed": …}` y token fallido; el
+  data-model solo tenía `ok` y `partial`, y `partial` con `deleted_from`
+  vacío diría que algo se borró.
+- **Añadidos de validación**: `include_homeassistant: false` sin el agente
+  `hassio.local` → `invalid_argument` (HA Core: «Home Assistant must be
+  included in backup»), y nada que guardar → `invalid_argument`.
+- `ha_create_automatic_backup` estima solo la regla de copias (la que HA
+  aplica al terminar ese backup); un backup que saldría por las dos reglas
+  va como `within_24h` y no se lista.
+- `hermes_safety_backup`: `safety_retention.es_safety_backup_confirmado`, de
+  solo lectura y sin lock; con la integración `hassio`, el `backup_id` es el
+  slug del Supervisor.
+- **T030 (b)**: el fichero del token solo guarda la huella de los
+  argumentos, así que meter la clave en `args` no deja el centinela en disco.
+  El control se hace espiando los argumentos y el estado que recibe
+  `security` (`test_la_clave_no_entra_en_el_token`) y con la clave rotada
+  entre vista previa y confirmación, que sigue valiendo
+  (`test_clave_rotada_entre_vista_y_confirmacion`).
+- **T027**: regenerada la tabla sobre la editada (0 nuevas, 0 quitadas,
+  idéntica byte a byte) y desde cero en un temporal (las tres entradas,
+  iguales y sin « (acción de HA)»). Los dos tests de T046 de
+  `tests/test_command_table.py` que nombraban
+  `backup/generate_with_automatic_settings` (ya no `deny`) quedan con
+  `hassio/update/core`. Se corrige el comentario de `hassio/update/core` que
+  remitía a la nota quitada.
+- **T030** (recuentos): (a) sin `__repr__` propio cae 1 de 7; (b) clave en
+  `args` caen 2; (c) sin validar `agent_ids` cae 1; (d) borrar sin `estado=`
+  caen 2, `failed` sin enmascarar cae 1; (e) `last_action_event` entero caen
+  3; (f) `ha_create_backup` fuera de `_OPEN_WORLD` cae 1 (hints); (g)
+  `backup/delete` en `deny` caen 4 (3 subtests de las genéricas y
+  `test_dedicadas_de_la_031`). Restaurado y en verde.
+- Recuentos: familia `backup_integration`, 5 tools; total, 256; inventario
+  de argumentos atados, 90; escrituras del banco, 133.
+
+---
+
+## Tramo 3 — Restaurar (US3, US5 restauración)
+
+### Preparación
+
+- [x] T032 Comprobar que la 019 está integrada: `compute_action_hash` de `security.py` es HMAC-SHA256 con clave en memoria (commit «action_hash con HMAC-SHA256 y clave en memoria (019)»). Si no, parar y avisar: sin él, `password` atado al token deja en disco un SHA-256 atacable sin conexión (research R-8). Línea base
+
+### Tests (antes del código)
+
+- [x] T033 [P] [US3] Tests del cliente (en el fichero de tests de `ws_send` que exista, o `tests/test_ha_ws_send_sent.py`): `HAConnectionError.sent` es `False` cuando el WebSocket no está o falla `send_json`, y `True` en el timeout tras enviar y cuando la conexión cae con la petición pendiente; el resto de errores no cambia (FR-008)
+- [x] T034 [P] [US3] Tests en `tests/test_tools_ha_backup_restore.py`, vista previa de `ha_restore_backup` (data-model sección 8) con `backup/details`, `backup/agents/info` y `backup/config/info` simulados: todos los datos de FR-007 (data-model sección 8); `agent_id` ausente con el backup en `hassio.local` y `cloud.cloud` → elige `hassio.local` y `also_in`; solo en remotos → `agent_id_required` con la lista; `agent_id` donde no está → `not_found`; `restore_addons` o `restore_folders` que no están → `not_in_backup`; `restore_database` por defecto = `database_included`; con `hassio.local` presente, distinto con `restore_homeassistant` → `invalid_argument`, y sin él (Core sin Supervisor) se admite; `restore_database` sin `restore_homeassistant` → `invalid_argument`; nada que restaurar → `invalid_argument`; apps o carpetas sin `hassio.local` presente → `invalid_argument`; `password_source` en sus cuatro valores; avisos de reinicio, descarga remota y Hermes sustituido (`_HERMES_SLUG` en `restore_addons`); `password` y la clave centinela no están en la vista previa, el log ni el directorio de tokens; vista previa que no cabe en el tope → `response_too_large` sin token (FR-007, FR-019, FR-020)
+- [x] T035 [P] [US3] Tests en `tests/test_tools_ha_backup_restore.py`, token atado: con token y el backup cambiado en ese agente (fecha, una app de más, otra versión, `protected`, tamaño, ya no está) → `state_changed` sin `backup/restore`, uno por dato; otro `password` en la confirmación → token inválido; mismos argumentos → `backup/restore` con `agent_id`, listas, `restore_database` resuelto y `password` (el dado o la clave de HA leída en la confirmación) (FR-007, SC-003)
+- [x] T036 [P] [US3] Tests en `tests/test_tools_ha_backup_restore.py`, resultado: respuesta de HA → `completed`; error `password_incorrect` → `password_incorrect` y token fallido; `backup_not_found` → idem; otro error → `restore_failed` redactado; `HAConnectionError(sent=True)` (timeout o caída) → `restore_started` con `check_with` y token completado con ese resultado; `HAConnectionError(sent=False)` → error y token fallido; nunca `completed` sin respuesta (FR-008)
+- [x] T037 [P] [US5] Tests en `tests/test_sv_restore_backup_key.py`: `sv_restore_backup_full` y `_partial` sin `password` sobre un backup `protected: true` → vista previa con `password_source: backup_encryption_key` y, al confirmar, el POST lleva la clave centinela; sin clave en HA → `backup_encryption_key_unavailable` en la vista previa y el POST sin `password` (como hoy); con `password` → `provided` y el POST con ese (como hoy); no protegido → `not_needed`; «Invalid password for backup» → el error añade la pista de la clave anterior; el centinela no sale en la vista previa, la respuesta, el log ni el directorio de tokens; `tests/test_tools_supervisor.py` sigue verde sin cambios (FR-015, FR-023)
+
+### Implementación
+
+- [x] T038 [US3] `hermes/src/hermes/ha.py`: atributo `sent` en `HAConnectionError` (por defecto `False`) y `ws_send` que lo pone a `True` tras enviar (comentario del porqué: research R-6). `hermes/src/hermes/tools/ha_backup_restore.py` con `ha_restore_backup` (contracts/tools.md; plazo de 30 s; `_HERMES_SLUG` de `tools/addons.py`). T033–T036 en verde (FR-007, FR-008)
+- [x] T039 [US5] `hermes/src/hermes/tools/backups.py`: `password_source` y la clave de HA en `sv_restore_backup_full`/`_partial` (`backup_key.py`); descripciones al día. T037 en verde (FR-015, FR-023)
+- [x] T040 [US6] `tool_families.py` (módulo `ha_backup_restore`), `tools/__init__.py`, `_annotations.py` (`ha_restore_backup` en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD` con el porqué) y `tests/test_tools_registration.py` (`-DIO`) (FR-016, FR-018)
+
+### Tabla, guía y banco
+
+- [x] T041 [P] [US6] Test en `tests/test_tools_generic_commands.py`: `backup/restore` por la genérica → `use_dedicated_tool` con `ha_restore_backup` (FR-017)
+- [x] T042 [US6] `command_table.py`: `backup/restore` a `dedicated` (data-model sección 13) sin su comentario de «hasta la tool dedicada»; fila del inventario (cobertura `si`, nota); `_DEDICADAS_INICIALES`; regenerar (idéntica; desde cero, igual); `test_dedicadas_de_la_031` comprueba que no queda «(spec 031)» en ninguna tabla. T041 en verde (FR-017, SC-001)
+- [x] T043 [US3] Tests y tema `backup_integration` completo en `guide.py`: restaurar (qué se sobrescribe, elegir ubicación, `password` y la clave de HA, `restore_started` y cómo comprobarlo, que Core se reinicia); alias `restore_backup`, `restore` (si `restore` no lo usa ya otro tema; si lo usa, no se toca) (FR-021)
+- [x] T044 [US3] `tests/banco/test_banco_backups_restaurar.py`: con la clave centinela fijada por el lector, `ha_create_backup` cifrado; vista previa de `ha_restore_backup(backup_id, agent_id="backup.local", restore_database=…)` con los datos de FR-007 (`kind: local`, `password_source: backup_encryption_key`); con `restore_addons` → `invalid_argument` (sin Supervisor); confirmación con `password="incorrecta"` → `password_incorrect` y HA sigue respondiendo sin haberse reiniciado (el lector, con la misma conexión abierta antes, lee `backup/info` después); nunca una restauración con éxito. `NO_EJECUTABLES_031` gana `ha_restore_backup` («restaurar escribe .HA_RESTORE y reinicia Core; el banco no sobrevive al reinicio; se prueban la vista previa, el token y la contraseña incorrecta, que HA comprueba antes; VM de la 014»); fila de la matriz (VM, pendiente, «instantánea antes») y su línea en «Tandas de pruebas» (FR-022)
+
+### Cierre del tramo 3
+
+- [x] T045 Control negativo del tramo 3, anotando recuentos: (a) `sent` siempre `True` → cae el de orden no enviada; (b) quitar un dato de la huella (p. ej. las apps) → cae su caso de T035; (c) devolver `completed` en el timeout → cae T036; (d) no comprobar `not_in_backup` → cae; (e) `password` en la vista previa → cae el centinela; (f) `sv_restore_backup_full` sin la clave → cae T037; (g) `backup/restore` en `deny` → caen T041 y `test_dedicadas_de_la_031`. Restaurar y comprobar verde
+- [x] T046 Documentación parcial y cierre: recuento (+1), CHANGELOG (restaurar y `sv_restore_*` con la clave), DOCS y README; suite completa; revisión del diff; commit con los recuentos de T045 (FR-024)
+
+### Notas del tramo 3 (implementación)
+
+- **T032**: antes de empezar se trajo `feat/cobertura-total` (019, 027, 016
+  y 015). `compute_action_hash` es HMAC-SHA256 con clave en memoria
+  (commit «action_hash con HMAC-SHA256 y clave en memoria (019)»). Conflictos
+  resueltos sin perder nada (familias, anotaciones, guía, tabla con
+  `hassio/update/core` → `sv_update_core`, banco, inventario de argumentos
+  atados, recuentos de README y DOCS); los dos tests de T046 de
+  `tests/test_command_table.py` comprueban ahora que las dos entradas
+  antiguas tienen su tool dedicada. Línea base tras el merge: 3533 passed,
+  118 skipped y los 6 fallos conocidos de Windows.
+- **Proxy del Supervisor (DV-1)**: ningún comando del tramo empieza por
+  `hassio/` ni `supervisor/` (`backup/restore`, `backup/details`,
+  `backup/agents/info`, `backup/config/info`; las `sv_restore_*` van por la
+  API REST del Supervisor). Ninguna tarea del tramo queda fuera.
+- **Desviación (`sent`)**: además de `sent`, un fallo de `send_json` llega
+  ahora como `HAConnectionError(sent=False)` en vez de la excepción de
+  aiohttp (antes se propagaba tal cual); la cancelación sigue igual. Sin
+  esto, «no enviada» no siempre era un `HAConnectionError`. `sent=True` lo
+  ponen el plazo agotado y `_fail_pending_requests` (todo lo pendiente ya
+  salió).
+- **Desviación (`password_source` en las `sv_restore_*`)**: un quinto valor,
+  `unknown`, cuando no se puede leer `/backups/{slug}/info` (no se sabe si
+  está protegido): se manda sin contraseña, como en la 1.1.2. El token ata
+  la fuente (estado de la 018): si la clave desaparece entre la vista previa
+  y la confirmación, `state_changed`.
+- **Añadidos de validación en `ha_restore_backup`**: `not_in_backup` también
+  con `restore_homeassistant` sobre un backup sin la configuración de HA;
+  `backup_locations_unreadable` si el agente pedido no se pudo leer o si el
+  backup no aparece y algún agente falló (no se afirma `not_found`); la
+  orden no enviada es `ha_unreachable`. El aviso de Hermes sustituido usa
+  `_es_hermes` de `tools/addons.py` (que se basa en `_HERMES_SLUG`).
+- `password_source` y `password_source_reason` se añaden a la vista previa
+  después del saneado: `redact_structure` tapa cualquier clave que contenga
+  «password», y estas no son secretos.
+- **T042**: regenerada la tabla sobre la editada (0 nuevas, 0 quitadas,
+  idéntica byte a byte) y desde cero en un temporal (`backup/restore`,
+  igual). La fila del inventario pasa a cobertura `si` con la tool nueva.
+  `test_reales_rechazadas` de las genéricas usaba `backup/restore` como
+  ejemplo de `command_denied`; ahora `backup/start`.
+- **T044**: `ha_restore_backup` va a `NO_EJECUTABLES_031` y a la matriz como
+  «VM / pendiente» (instantánea antes), con su línea en «Tandas de pruebas».
+  El banco prueba la vista previa de un backup cifrado, el rechazo de apps
+  sin Supervisor, la contraseña incorrecta (con `last_action_event` en
+  `failed` y la misma conexión del lector viva) y que el token fallido no
+  vale otra vez.
+- **T045** (recuentos): (a) `sent` siempre True caen 5 de 7; (b) sin las
+  apps en la huella caen 2 subtests («otra app», «otra versión»); (c)
+  `completed` en el timeout caen 2 subtests; (d) sin `not_in_backup` caen 2
+  subtests; (e) la clave o `password` en la vista previa caen 2 subtests;
+  (f) `sv_restore_backup_full` sin la clave cae 1 subtest; (g)
+  `backup/restore` en `deny` caen 4 (3 subtests de las genéricas y
+  `test_dedicadas_de_la_031`); además, sin el alias `restore` caen 2
+  subtests de la guía. Restaurado y en verde.
+- Recuentos: familia `backup_integration`, 6 tools; total, 290; inventario
+  de argumentos atados, 104; escrituras del banco, 158.
+
+---
+
+## Tramo 4 — Safety backups cifrados y cierre (US5, US6)
+
+### Preparación
+
+- [x] T047 Línea base; anotar si la 027 está integrada (`hermes/translations/`)
+
+### Tests (antes del código)
+
+- [x] T048 [P] [US5] Tests de la opción: `tests/test_addon_manifest.py` (schema `list(auto|required|off)?` y opción `auto`), `tests/test_run_sh_options.py` (`HERMES_SAFETY_BACKUP_ENCRYPTION`), `tests/test_config_validation.py` (valor desconocido → `ValueError` al arrancar; por defecto `auto`), `tests/test_main_wiring.py` (llega a las tools de backups y a `fs_write`); y, si la 027 está, el de traducciones (FR-012)
+- [x] T049 [P] [US5] Tests en `tests/test_safety_backup_encryption.py` con `sv_request` y `ws_send` simulados, para `sv_create_safety_backup` y para `maybe_trigger_safety_backup`: `auto` con clave → POST `/backups/new/full` con `password` centinela y respuesta `encrypted: true`; `auto` sin clave (cada uno de los tres motivos) → POST sin `password`, `encrypted: false`, `encryption_skipped_reason` y aviso en el log sin valores; `required` sin clave → sin POST, `encryption_key_unavailable` (en el automático, la escritura devuelve ese error); `off` → POST como en la 1.1.2 sin leer la clave; el centinela no está en `last_safety_backup.json`, `safety_backups.json`, `pending_jobs.json`, el directorio de tokens ni el log; la ventana, el límite duro y el lock no cambian (FR-013, FR-011, SC-002)
+- [x] T050 [P] [US5] Tests en `tests/test_safety_retention.py`: `record_launch(..., encrypted=True)` lo guarda; la poda borra un safety backup `protected: true` con `encrypted: true` como uno sin proteger; uno `protected: true` sin `encrypted` (o con `false`) sigue excluido con `protected`; anotaciones antiguas sin el campo se leen igual (FR-014)
+- [x] T051 [P] [US5] Test transversal en `tests/test_safety_backup_encryption.py`: con la clave centinela en HA, una pasada por las seis tools de la familia (DV-1), `sv_create_safety_backup`, el safety backup automático y las `sv_restore_*` (simuladas) deja el centinela fuera de toda respuesta, vista previa, error, fichero bajo `HERMES_CONFIG_BASE` y log capturado (FR-011, FR-019, SC-002)
+
+### Implementación
+
+- [x] T052 [US5] Opción `safety_backup_encryption`: `hermes/config.yaml` (schema con comentario del porqué y opción `auto`), `hermes/run.sh`, `hermes/src/hermes/config.py` (campo, validación y lectura de entorno), `hermes/src/hermes/__main__.py` y `tools/__init__.py` (cableado hasta `tools/backups.py` y `fs_write`); traducciones en `hermes/translations/en.yaml` y `es.yaml` si la 027 está (si no, anotarlo para quien integre la segunda). T048 en verde (FR-012)
+- [x] T053 [US5] `tools/backups.py` (`_crear_safety_backup`) y `fs_write.py` (`_maybe_trigger_safety_backup`): `leer_clave_de_backups` según la opción, `password` en el POST, `encrypted` en la respuesta y en `record_launch`, aviso en el log con el motivo (sin valores); descripción de `sv_create_safety_backup` al día. T049 en verde (FR-013, FR-023)
+- [x] T054 [US5] `hermes/src/hermes/safety_retention.py`: `record_launch(..., encrypted: bool = False)` y `_motivo_exclusion` según data-model sección 12, con comentario del porqué (research R-5). T050 en verde (FR-014)
+
+### Guía, documentación y cierre
+
+- [x] T055 [US5] Tests y tema `backups` de `guide.py`: los safety backups van cifrados con la clave de HA según `safety_backup_encryption`; restaurarlos con `sv_restore_backup_full` sin `password` o desde la interfaz con el kit de emergencia; si se cambió la clave, la anterior; la retención los sigue podando (FR-021)
+- [x] T056 Documentación final (FR-024): sección «Backups de Home Assistant» completa en `## [1.2.0]` de `hermes/CHANGELOG.md` (seis tools (DV-1), familia, tabla, safety backups cifrados y la opción, `sv_restore_*` con la clave, `last_action_event`); `hermes/DOCS.md` (opción `safety_backup_encryption` con sus tres valores, qué pasa al cambiar la clave en HA, y la familia); `README.md` y `README.es.md` sincronizados; `SECURITY.md` (la clave de HA: se lee, se usa y se descarta; nunca en disco ni en el log); `docs/HOJA-DE-RUTA.md`: 031 «hecha» en la tabla del programa, «Cifrado de los safety backups (031)» fuera de lo pendiente, y las pruebas en vivo de quickstart.md en los pendientes manuales
+- [x] T057 [US6] Test en `tests/test_tools_registration.py`: con `tool_families_disabled: ["backup_integration"]` el registro es exactamente el de antes de la 031 (nombres, anotaciones y argumentos), y con la configuración por defecto las tools de la 1.1.2 no cambian salvo la descripción de `ha_list_backups`, `sv_create_safety_backup` y las `sv_restore_*` (FR-023, SC-006)
+- [x] T058 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-027 (FR-068; `sv_create_safety_backup`, safety backup automático, `safety_retention`; `test_safety_backup_encryption.py`, `test_safety_retention.py`, `test_sv_restore_backup_key.py`) y CAP-057 (FR-067; las seis tools (DV-1); `test_tools_ha_backup_*.py`, `test_backup_retention_estimate.py`, `tests/banco/test_banco_backups_*.py`) (FR-024)
+- [x] T059 Control negativo del tramo 4, anotando recuentos: (a) `auto` sin mandar `password` con clave → cae T049; (b) `required` que crea sin clave → cae; (c) escribir `password` en `last_safety_backup.json` → cae el centinela de T049/T051; (d) `_motivo_exclusion` sin la excepción de `encrypted` → cae T050; admitir `protected` sin `encrypted` → cae; (e) valor desconocido de la opción aceptado → cae T048. Restaurar y comprobar verde
+- [x] T060 Cierre del tramo 4: suite completa (los 6 conocidos y ninguno más), CI en verde con el banco, revisión del diff (principio VIII), commit con los recuentos de T059
+
+### Notas del tramo 4 (implementación)
+
+- **T047**: la 027 está integrada (`hermes/translations/en.yaml` y
+  `es.yaml`), así que la opción lleva su traducción y
+  `test_claves_iguales_que_el_esquema` pasa de 31 a 32 opciones (cambio
+  aditivo, justificado en el test). Línea base: 3567 passed, 120 skipped y
+  los 6 fallos conocidos de Windows.
+- **D-031-1 aceptada** por el supervisor del programa: clave de HA, nunca una
+  generada en `/data`. **D-25** (si `auto` es el valor por defecto adecuado)
+  queda para el final; se implementa como dice la spec.
+- **Desviación (valores por defecto de las funciones)**: `register` de
+  `tools/backups.py`, `register_write` y `maybe_trigger_safety_backup` tienen
+  `off` por defecto, no `auto`: son los de quien registra o llama a mano
+  (tests, herramientas), que no siempre tiene WebSocket de HA, y así las
+  llamadas existentes siguen siendo las de la 1.1.2. El arranque pasa siempre
+  la opción, que por defecto es `auto` (`config.py`, `config.yaml` y
+  `run.sh`; lo comprueban `test_main_wiring` y `test_addon_manifest`).
+- **Añadidos**: `backup_key.clave_para_safety_backup` (con `off` no lee nada;
+  una excepción inesperada al leer cuenta como «integración no disponible»,
+  fail-closed) y `sin_clave_bloquea` (un valor desconocido se trata como
+  `required`). La respuesta cifrada lleva `restore_note` (restaurar necesita
+  la clave de HA o el kit de emergencia; si la clave cambia, la anterior) y
+  la sin cifrar con `auto` lleva `warning` además de
+  `encryption_skipped_reason`. `required` sin clave no toca el estado del
+  safety backup ni cuenta como intento para el límite de 60 s. Los errores
+  del POST salen con la clave tapada, y en el automático la clave y la carga
+  se sueltan tras el POST. La anotación guarda `encrypted` solo si es
+  `true`: las entradas sin cifrar son idénticas a las de antes. El sondeo
+  sigue contando como fallo los errores de los sub-jobs (027).
+- **T057**: no hay instantánea del registro de antes de la 031; el test
+  compara cada tool con la familia apagada con la del registro por defecto
+  (argumentos, anotaciones, título y descripción) y la diferencia es
+  exactamente las seis. Los argumentos de la 1.1.2 los sigue vigilando
+  `test_esquemas_de_la_1_1_2` (la 031 no cambia ninguno).
+- **T059** (recuentos, sobre `test_safety_backup_encryption.py`,
+  `test_safety_retention.py` y `test_config_validation.py`): (a) `auto` sin
+  mandar `password` en los dos caminos caen 4; (b) `required` que crea sin
+  clave caen 7 (con subtests); (c) la clave en `last_safety_backup.json` caen
+  2; (d) sin la excepción de `encrypted` caen 3; admitir `protected` sin
+  `encrypted` caen 6 (con subtests); (e) un valor desconocido aceptado caen 4
+  subtests; además, sin el párrafo del cifrado en el tema `backups` cae su
+  test y la huella del tema. Restaurado y en verde.
+- No toca el banco: el tramo no añade tools de Core y las `sv_*` se prueban
+  con el Supervisor simulado (`sv_create_safety_backup`, fila de la matriz de
+  la 014 en «VM / pendiente» con la nota del cifrado).
+- Recuentos: sin tools nuevas en el tramo; familia `backup_integration`, 6;
+  total, 290; opciones del add-on, 32.
+
+---
+
+## Dependencias
+
+- Tramo 1: T001 → resto. T002…T006 en paralelo. T007 tras T002; T008 tras T003…T005 y T007; T009 tras T006 y T008. T010 → T011 (tras T009). T012 tras T008. T013 y T014 tras T011. T015, T016 al final.
+- Tramo 2 (tras el 1): T017…T021 en paralelo; T022 tras T017; T023 tras T019…T022; T024 tras T018; T025 tras T023. T026 → T027 (tras T025). T028 tras T023. T029 tras T027. T030, T031 al final.
+- Tramo 3 (tras el 2 y con la 019): T032 → resto. T033…T037 en paralelo; T038 tras T033…T036; T039 tras T037; T040 tras T038. T041 → T042 (tras T040). T043 tras T038. T044 tras T042. T045, T046 al final.
+- Tramo 4 (tras el 3): T047 → resto. T048…T051 en paralelo (T051 escrita ahora, en verde tras T053). T052 tras T048; T053 tras T049 y T052; T054 tras T050. T055 tras T053. T056, T057, T058 tras todo. T059, T060 al final.
+
+## Paralelo
+
+- Tramo 1: T002, T003, T004, T005, T006.
+- Tramo 2: T017, T018, T019, T020, T021.
+- Tramo 3: T033, T034, T035, T036, T037.
+- Tramo 4: T048, T049, T050, T051.
+
+## Estrategia
+
+MVP = tramos 1 y 2 (US1, US2 y US4: configurar, crear y borrar con la
+integración, lo que hoy no se puede hacer desde Hermes). El tramo 3 cumple el
+compromiso más delicado de la 011 (restaurar) y el 4 cierra CAP-027. US6 se
+comprueba en todos.
+
+---
+
+## Phase 5: Convergence
+
+Revisión independiente del rango de los cuatro tramos. Comprobado sin hallazgos: la clave de HA no entra en args ni estado de ningún token (las tres de crear con espía), no sale en vistas previas, respuestas, log, `last_safety_backup.json` ni la anotación; `sv_restore_*` y el safety backup tapan la clave en los errores; `ha_restore_backup` ata backup, ubicación elegida, contenido y fuente de la contraseña, y distingue `restore_started` (enviada) de `ha_unreachable` (no enviada); `ha_delete_backup` falla cerrado con `backup_locations_unreadable` y ata cada ubicación; `required` sin clave no hace backup ni escritura y `auto` sin clave lo dice en la respuesta de la tool y en el log del automático; la marca `encrypted` solo la escribe Hermes y la poda sigue excluyendo los protegidos sin ella; `location` y `child_errors` de la 019 y la 027 intactos; el arranque pasa siempre la opción (`auto` si falta en `options.json`); la tabla regenerada idéntica y, desde cero, las filas `backup/*` y `hassio/update/config/*` iguales; suite con los 6 fallos de Windows conocidos y nada más.
+
+- [x] T061 [MEDIO] `ha_create_backup` no tapa la clave en el error de HA al confirmar: `_fallo_ha` (`ha_backup_actions.py`) solo pasa `redact_secrets`, que atrapa `password=<clave>` pero no la clave citada sola. Escenario comprobado con un test fuera del repo: `backup/generate` falla con «cannot encrypt with key <clave>» → la respuesta y el fichero del token (`error` del token fallido) llevan la clave en claro. El test de T030 («manager ocupado») usa `password=<clave>` y pasaría también sin protección propia. Arreglo: `_fallo_ha` recibe el secreto y lo sustituye por `***` antes de redactar, como `_tapar` de `ha_backup_restore.py`; test con la clave citada sin prefijo en respuesta y disco, con control negativo per FR-011, Constitution II (contradicts)
+- [x] T062 [MEDIO] `sv_create_safety_backup` no dice `encrypted` cuando reutiliza (`hard_limit` y `within_window`, `backups.py`), aunque FR-013 y su docstring dicen «siempre». Además, con `required`, la tool y el safety backup automático de `fs_write` (la ventana se mira antes de leer la clave) dan por buena la ventana de un backup anterior SIN cifrar (hecho con `auto` sin clave o con `off`; el estado vive en `/data` y sobrevive al reinicio que cambia la opción), y la escritura sigue sin el backup cifrado que pide `required` y sin avisar. Arreglo: guardar en el estado del safety backup si el último iba cifrado; devolver `encrypted` en las respuestas de reutilización; con `required`, no reutilizar uno que no conste cifrado (hacer uno nuevo o `encryption_key_unavailable`); tests de los dos caminos per FR-013 (partial)
+- [x] T063 [BAJO] Los tests centinela de `ha_restore_backup` y `sv_restore_backup_*` no espían los argumentos ni el estado que reciben `create_confirmation_token`/`resolve_confirmation_token`: el fichero del token solo guarda huellas HMAC, así que buscar el centinela en disco no prueba nada. Control negativo hecho: con la clave añadida al `estado` de las tres tools pasan los 51 tests de `test_tools_ha_backup_restore.py`, `test_sv_restore_backup_key.py` y `test_safety_backup_encryption.py`. Arreglo: el espía de `test_la_clave_no_entra_en_el_token` en las tres per FR-011 (partial)
+- [x] T064 [BAJO] Con `password_source: backup_encryption_key_unavailable` el aviso dice «Home Assistant has no backup encryption key» también cuando el motivo es `ha_unreachable` o `backup_integration_unavailable` (`_poner_fuente` en `backups.py`; avisos de `ha_restore_backup`). Y en `sv_restore_backup_*`, un WebSocket caído solo al confirmar convierte la fuente en `..._unavailable` y responde `state_changed`, que no es lo que pasó. Arreglo: texto según el motivo; al confirmar, si la clave no se pudo leer por `ha_unreachable`, error `ha_unreachable` en vez de `state_changed` (sin restaurar) per FR-015, Constitution V (partial)
+- [x] T065 [BAJO] `ha_create_automatic_backup` no ata los agentes disponibles: la vista previa avisa de los que «se saltarán», pero la confirmación no vuelve a leer `backup/agents/info` y el estado solo lleva la configuración y lo que se borraría. Si un agente de los ajustes desaparece en los 60 s del token, el backup sale en menos ubicaciones de las enseñadas. Arreglo: los destinos disponibles en el estado, leídos en los dos pasos per FR-006 (partial)
+- [x] T066 [BAJO] `scripts/inventario/generar_tabla.py` repite la clave `"backup/restore"` en `_DEDICADAS_INICIALES` (`sv_restore_backup_full` arriba, `ha_restore_backup` abajo): gana la última y la primera engaña a quien lea el mapa. Arreglo: quitar la primera; la tabla regenerada sigue idéntica per FR-017 (partial)
+
+### Notas de la convergencia (T061–T066)
+
+- **T061**: el único punto es `backup_key.sin_secretos`, que envuelve la
+  llamada que lleva la clave (`ha_create_backup`, `ha_restore_backup`,
+  `sv_restore_backup_full`/`_partial`, `sv_create_safety_backup` y el safety
+  backup automático): la excepción (misma clase, `status`, `code` y `sent`,
+  sin la original encadenada) y el resultado salen ya tapados, así que la
+  respuesta, el log, el fichero del token y `/data` solo ven el texto tapado.
+  `tapar_clave` cubre la clave con o sin `password=`, escapada en JSON o
+  `repr` (una o dos veces), entera o recortada (al final o delante de «...»/«…»).
+  Se quitan los `_tapar`/`.replace` sueltos. Los tests fabrican los errores con
+  el código real de `HAClient` (`_handle_ws_message`, `_parse_sv_response`) y el
+  cuerpo de `api_return_error` del Supervisor; el mensaje es el del escenario de
+  la revisión, sin prefijo. `sent` solo se copia: no cambia su valor por defecto.
+- **T062**: `last_safety_backup.json` guarda `last_encrypted` (y el pendiente,
+  `pending_encrypted`). Con `required` (o un valor desconocido) no se reutiliza
+  ni cubre una escritura un backup que no conste cifrado (sin la marca cuenta
+  como sin cifrar). **Desviación**: dentro del límite duro de 60 s no se hace
+  uno nuevo (la regla «nunca menos de 60 s» se mantiene): la tool responde
+  `safety_backup_rate_limited` y la escritura no se hace. Un pendiente lanzado
+  sin cifrar que termina con `required` responde `safety_backup_not_encrypted`
+  y la escritura siguiente hace uno cifrado.
+- **T064**: `backup_key.por_que_sin_clave` da el texto por motivo; también en
+  el `detail` de `no_encryption_key` de `ha_create_backup` y en el aviso de un
+  safety backup sin cifrar por un motivo distinto de `no_key_configured`. En
+  `sv_restore_*`, `ha_unreachable` al confirmar no consume el token.
+- **T065**: el estado lleva `available_agents` (los destinos de los ajustes que
+  están disponibles); un agente ajeno a los ajustes no invalida el token.
+- **T066**: regenerada en su sitio, 0 nuevas y 0 quitadas, sin diff; desde cero,
+  salida idéntica byte a byte a la del generador anterior.

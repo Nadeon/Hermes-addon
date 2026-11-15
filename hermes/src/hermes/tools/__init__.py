@@ -26,6 +26,7 @@ def register_all_tools(
     wait_for_event_max_concurrent: int | None = None,
     safety_backup_keep: int | None = None,
     tool_families_disabled: list[str] | None = None,
+    safety_backup_encryption: str | None = None,
 ) -> None:
     """Registra todas las tools disponibles en el servidor MCP.
 
@@ -56,6 +57,7 @@ def register_all_tools(
         or wait_for_event_max_concurrent is None
         or safety_backup_keep is None
         or tool_families_disabled is None
+        or safety_backup_encryption is None
     )
     if needs_cfg:
         from hermes.config import load_config
@@ -90,6 +92,8 @@ def register_all_tools(
             safety_backup_keep = cfg.safety_backup_keep
         if tool_families_disabled is None:
             tool_families_disabled = cfg.tool_families_disabled
+        if safety_backup_encryption is None:
+            safety_backup_encryption = cfg.safety_backup_encryption
 
     # Se valida otra vez aquí y no solo en `HermesConfig.validate()`: quien
     # llame sin pasar por el arranque (tests, herramientas) tampoco debe poder
@@ -255,6 +259,7 @@ def register_all_tools(
             config_write_min_interval_seconds=config_write_min_interval_seconds,
             config_write_max_per_minute=config_write_max_per_minute,
             safety_backup_keep=safety_backup_keep,
+            safety_backup_encryption=safety_backup_encryption,
         )
 
     # Supervisor — add-ons, supervisor/host/core, backups
@@ -271,6 +276,7 @@ def register_all_tools(
             mcp,
             ha_client,
             safety_backup_window_minutes=safety_backup_window_minutes,
+            safety_backup_encryption=safety_backup_encryption,
         )
 
     # Spec 019: montajes de red y de disco del Supervisor (familia `mounts`,
@@ -516,6 +522,17 @@ def register_all_tools(
     if _activa("conversation"):
         from hermes.tools.conversation import register as register_conversation
         register_conversation(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # Backups de la integración `backup` de HA (spec 031, CAP-057): agentes
+    # y ajustes de los backups automáticos. `ha_list_backup_agents` recorta
+    # su lista a `response_max_bytes`.
+    if _activa("backup_integration"):
+        from hermes.tools.ha_backup_settings import register as register_ha_backup_settings
+        register_ha_backup_settings(mcp, ha_client, response_max_bytes=response_max_bytes)
+        from hermes.tools.ha_backup_actions import register as register_ha_backup_actions
+        register_ha_backup_actions(mcp, ha_client, response_max_bytes=response_max_bytes)
+        from hermes.tools.ha_backup_restore import register as register_ha_backup_restore
+        register_ha_backup_restore(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

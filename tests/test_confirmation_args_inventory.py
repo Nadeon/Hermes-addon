@@ -46,6 +46,18 @@ que confirman (`ha_set_log_level`, `ha_clear_system_log` y
 `ha_dismiss_persistent_notification`). Todas atan todo lo que cambia la
 acción; ningún hallazgo.
 
+Spec 031, tramo 1: 87. Suma `ha_update_backup_config`, que ata todos sus
+argumentos (además del estado leído en la vista previa, que va aparte con
+`estado=`). `ha_set_update_backup_settings` entró y salió en el mismo tramo
+(el proxy del Supervisor rechaza `hassio/*` a las apps).
+
+Spec 031, tramo 2: 90. Suma `ha_create_backup`, `ha_create_automatic_backup`
+y `ha_delete_backup`, que atan todos sus argumentos; además, el estado de la
+vista previa (agentes y cifrado; configuración y retención; el backup y todas
+sus ubicaciones) va aparte con `estado=`. La clave de cifrado de HA que manda
+`ha_create_backup` no es un argumento: se lee en la confirmación y no entra
+en el hash ni en el estado (que lleva solo `key_set`).
+
 Recuento: 91 desde la integración de la 016, que trae cinco tools con token,
 comprobadas en el código: `ha_update_config_entry` (ata los cuatro
 argumentos tal como llegan), `ha_delete_subentry`,
@@ -185,6 +197,27 @@ incluido, que son justo los que manda a `conversation/process`; sin
 omitibles ni `estado` (la vista previa no promete conservar nada). Si la
 frase no llegó a salir (`sent is False`), el token se devuelve con
 `release_confirmation_token` en vez de gastarse. Ningún hallazgo.
+
+Recuento: 139 desde la integración de la 031, que trae cinco tools con
+token, comprobadas en el código (`tools/ha_backup_settings.py`,
+`tools/ha_backup_actions.py` y `tools/ha_backup_restore.py`):
+`ha_update_backup_config` ata sus cinco argumentos tal como llegan y, en el
+`estado`, la configuración leída (con `password_set`, nunca la clave) y los
+backups que la retención estimó borrar; `ha_create_backup` ata sus ocho
+argumentos y, en el `estado`, los agentes disponibles, si se cifra cada
+destino y `key_set` (la clave de HA no es un argumento: se lee al confirmar y
+no entra ni en el hash ni en el estado); `ha_create_automatic_backup` no
+tiene argumentos y ata en el `estado` la configuración, lo que se estimó
+borrar y los agentes disponibles de los destinos, leídos en los dos pasos
+(T065); `ha_delete_backup` ata `backup_id` y, en el `estado`, el backup, su
+contenido y TODAS sus ubicaciones con su tamaño y su cifrado; y
+`ha_restore_backup` ata sus siete argumentos, `password` incluido (el
+`action_hash` es el HMAC-SHA256 de la 019, así que el fichero del token no
+permite atacarla sin conexión), y en el `estado` la huella del backup en esa
+ubicación, su contenido y `password_source`. La 031 cambia también
+`sv_restore_backup_full` y `sv_restore_backup_partial` sin cambiar sus
+argumentos: siguen atando lo mismo y ganan el `estado` `password_source` (de
+dónde sale la contraseña, nunca su valor). Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -380,6 +413,39 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_update_network_config": {"configured_adapters": A},
     "ha_update_http_config": {"changes": A, "discard_pending": A},
     "ha_promote_http_config": {},
+    # ── backups de la integración `backup` (spec 031) ───────────────────
+    # Se atan tal como llegan; lo que se manda a HA (completado con la
+    # configuración actual) lo ata además el estado de la vista previa.
+    "ha_update_backup_config": {
+        "schedule": A,
+        "retention": A,
+        "agents": A,
+        "create_backup": A,
+        "automatic_backups_configured": A,
+    },
+    "ha_create_backup": {
+        "agent_ids": A,
+        "include_homeassistant": A,
+        "include_database": A,
+        "include_addons": A,
+        "include_all_addons": A,
+        "include_folders": A,
+        "name": A,
+        "encrypt": A,
+    },
+    "ha_create_automatic_backup": {},
+    "ha_delete_backup": {"backup_id": A},
+    # Spec 031, tramo 3: `password` también atado (HMAC de la 019); la clave
+    # de HA no es un argumento y no entra.
+    "ha_restore_backup": {
+        "backup_id": A,
+        "agent_id": A,
+        "restore_homeassistant": A,
+        "restore_database": A,
+        "restore_addons": A,
+        "restore_folders": A,
+        "password": A,
+    },
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     # Spec 030: instalar y actualizar atan además la `version_latest` de la
@@ -561,8 +627,10 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # + las tres de la 017 + las seis de la 020
         # + las seis del tramo 1 de la 022 y la del tramo 2 + las nueve de la
         # 021 + las cuatro del host de la 032 y las dos de su red (tramo 2)
-        # + la de la 023 (`ha_process_conversation`).
-        self.assertEqual(len(firmas_con_token(TOOLS)), 134)
+        # + la de la 023 (`ha_process_conversation`) + las cinco de la 031
+        # (ajustes, crear, crear con los ajustes automáticos, borrar y
+        # restaurar backups de HA).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 139)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -582,7 +650,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 134)
+        self.assertEqual(len(publicadas), 139)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

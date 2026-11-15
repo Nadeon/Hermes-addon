@@ -229,11 +229,16 @@ def _job_valido(valor: Any) -> str | None:
 
 
 async def record_launch(name: str, job_id: str | None, origin: str,
-                        slug: str | None = None) -> None:
+                        slug: str | None = None, encrypted: bool = False) -> None:
     """Anota un safety backup recién lanzado por Hermes.
 
     Si el Supervisor ya devolvió el slug (respuesta síncrona), la entrada
     queda confirmada en el acto. Si no, se confirma más tarde.
+
+    `encrypted` (spec 031, FR-014): Hermes lo lanzó con la clave de los
+    backups de HA. Solo esas entradas pueden podarse estando `protected`.
+    Se guarda únicamente si es True: así las entradas sin cifrar son
+    idénticas a las de antes de la 1.2.0. Nunca se guarda la clave.
     """
     slug_ok = _slug_valido(slug)
     entrada = {
@@ -244,6 +249,8 @@ async def record_launch(name: str, job_id: str | None, origin: str,
         "slug": slug_ok,
         "confirmed_by": "sync_response" if slug_ok else None,
     }
+    if encrypted is True:
+        entrada["encrypted"] = True
     async with _lock():
         entradas, legible = _cargar()
         if not legible and not _apartar_ilegible():
@@ -252,6 +259,19 @@ async def record_launch(name: str, job_id: str | None, origin: str,
             return
         entradas.append(entrada)
         _guardar(entradas)
+
+
+def es_safety_backup_confirmado(slug: str) -> bool:
+    """¿Es `slug` un safety backup de Hermes CONFIRMADO en la anotación?
+
+    Lectura pública y de solo lectura (spec 031: la vista previa de
+    `ha_delete_backup` dice si borra un safety backup). No toma el lock de
+    escritura ni repara nada: una anotación ilegible responde `False`, y
+    `_cargar` no la reescribe al leer. Con la integración `hassio`, el
+    `backup_id` de HA es el slug del Supervisor.
+    """
+    entradas, _ = _cargar()
+    return any(e.get("slug") == slug and e.get("confirmed_by") for e in entradas)
 
 
 def _apartar_ilegible() -> bool:
@@ -367,7 +387,13 @@ def _motivo_exclusion(entrada: dict[str, Any], backup: dict[str, Any]) -> str | 
         return "name_format"
     if backup.get("type") != "full":
         return "not_full"
-    if backup.get("protected") is not False:
+    # Un backup protegido no se poda (puede haberlo protegido el usuario, o
+    # ser de antes de la 1.2.0), SALVO que Hermes lo anotara como cifrado por
+    # él con la clave de HA (spec 031, FR-014; research R-5): con el cifrado
+    # todos los safety backups nuevos salen protegidos y, sin esta excepción,
+    # la retención no borraría ninguno y volverían a llenar el disco.
+    protegido = backup.get("protected")
+    if protegido is not False and not (protegido is True and entrada.get("encrypted") is True):
         return "protected"
     if not _una_ubicacion(backup):
         return "multiple_locations"

@@ -205,6 +205,15 @@ _INTERNO = _Deny("uso interno de Hermes")
 _SUSCRIPCION_NO_USADA = _Deny(
     "suscripción/streaming: MCP es petición-respuesta (Hermes no la usa)"
 )
+# Hermes es una app y habla con Core por el proxy WebSocket del Supervisor,
+# que rechaza con «Unauthorized» todo comando `hassio/*` y `supervisor/*` de
+# las apps (HALLAZGO de la 031). Ni una genérica ni una tool dedicada pueden
+# mandarlos: van a `deny` con este motivo.
+MOTIVO_PROXY_SUPERVISOR = (
+    "el proxy WS del Supervisor rechaza los comandos `hassio/*` y "
+    "`supervisor/*` de las apps (DENIED_WS_TYPE_PREFIXES, Supervisor 2026.11.0)"
+)
+_PROXY_SUPERVISOR = _Deny(MOTIVO_PROXY_SUPERVISOR)
 
 # Solo sirve para la PRIMERA generación: la revisión manual (T015 de la 011)
 # reclasificó después en command_table.py lo que la tool dedicada no expone
@@ -226,10 +235,6 @@ _DEDICADAS_INICIALES: dict[
     "backup/config/info": "ha_get_backup_config",
     "backup/details": "ha_get_backup",
     "backup/info": "ha_list_backups",
-    "backup/delete": "sv_delete_backup",
-    "backup/restore": "sv_restore_backup_full",
-    "backup/generate": "ha_call_service",
-    "backup/generate_with_automatic_settings": "ha_call_service",
     "backup/subscribe_events": _SUSCRIPCION_NO_USADA,
     "cloud/subscribe_events": _SUSCRIPCION_NO_USADA,
     # Acciones de HA.
@@ -425,6 +430,19 @@ _DEDICADAS_INICIALES: dict[
     "conversation/sentences/list": "ha_list_conversation_sentences",
     "conversation/agent/homeassistant/debug": "ha_debug_conversation",
     "conversation/process": "ha_process_conversation",
+    # 031: backups de la integración `backup` de HA (CAP-057, clase A de vía
+    # D+T). Tramo 1: agentes y ajustes; tramo 2: crear y borrar (filas
+    # `cubierto` sin CAP, como `backup/config/info`); tramo 3: restaurar.
+    # Los ajustes del backup previo a actualizar
+    # (`hassio/update/config/*`) no llegan a Core desde una app: `deny`.
+    "backup/agents/info": "ha_list_backup_agents",
+    "backup/config/update": "ha_update_backup_config",
+    "backup/delete": "ha_delete_backup",
+    "backup/generate": "ha_create_backup",
+    "backup/generate_with_automatic_settings": "ha_create_automatic_backup",
+    "backup/restore": "ha_restore_backup",
+    "hassio/update/config/info": _PROXY_SUPERVISOR,
+    "hassio/update/config/update": _PROXY_SUPERVISOR,
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
@@ -701,6 +719,14 @@ def _clasificar(
         destino = _DEDICADAS_INICIALES.get(clave)
         if isinstance(destino, (str, _ConMatiz, _ConMotivo)):
             return dedicada(destino)
+        # Una fila A que ninguna tool puede cubrir sale con el motivo de su
+        # `_Deny` del mapa y no como «pendiente de tool dedicada». Es el ÚNICO
+        # punto para cualquier sub-feature que lo necesite: la 031 lo usa
+        # para `hassio/*` (el proxy del Supervisor los rechaza a las apps) y
+        # la 026 para lo que exige el aviso de riesgos del Marketplace; basta
+        # con poner su `_Deny` con motivo en `_DEDICADAS_INICIALES`.
+        if isinstance(destino, _Deny):
+            return deny(destino.motivo)
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")
         if via in ("D", "D+T", "D+X"):

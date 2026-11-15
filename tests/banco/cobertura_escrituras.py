@@ -13,6 +13,8 @@ suite normal (sin HA ni Docker):
       ∪ cobertura_017.PROBADAS_017 ∪ cobertura_017.NO_EJECUTABLES_017  (017, 3)
       ∪ cobertura_020.PROBADAS_020 ∪ cobertura_020.NO_EJECUTABLES_020  (020, 6)
       ∪ cobertura_021.PROBADAS_021 ∪ cobertura_021.NO_EJECUTABLES_021  (021, 9)
+      ∪ cobertura_023.PROBADAS_023 ∪ cobertura_023.NO_EJECUTABLES_023  (023, 1)
+      ∪ cobertura_031.PROBADAS_031 ∪ cobertura_031.NO_EJECUTABLES_031  (031, 5)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el
@@ -51,6 +53,11 @@ from __future__ import annotations
 
 from tests.banco import cobertura, cobertura_016
 from tests.banco.cobertura_012 import PROBADAS_012
+from tests.banco.cobertura_031 import (
+    LECTURAS_EN_BANCO_031,
+    PROBADAS_031,
+    XFAIL_PERMITIDOS_031,
+)
 from tests.banco.cobertura_015 import PROBADAS_015
 from tests.banco.cobertura_017 import PROBADAS_017
 from tests.banco.cobertura_020 import LECTURAS_020, PROBADAS_020
@@ -155,6 +162,8 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     # Spec 029: lecturas, pero también se exigen por ejecución (FR-022).
     | cobertura.PROBADAS_EN_BANCO_029
     | PROBADAS_012
+    # Spec 031: sus escrituras y la lectura de agentes (FR-022).
+    | PROBADAS_031 | LECTURAS_EN_BANCO_031
     | PROBADAS_015
     | cobertura_016.PROBADAS_016
     # Spec 017: guardar y borrar blueprints (tramo A) e importar (tramo B).
@@ -171,7 +180,10 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     | LECTURAS_023
 )
 XFAIL_DEL_JOB: dict[str, str] = {
-    **cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028, **XFAIL_PERMITIDOS_023}
+    **cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028, **XFAIL_PERMITIDOS_023,
+    # Spec 031: vacío desde que se quitaron las tools de `hassio/*`.
+    **XFAIL_PERMITIDOS_031,
+}
 
 # `ha_*` que no se pueden ejecutar en el banco → motivo concreto (qué falta:
 # hardware, internet, nube o Supervisor). Vacío: todas se ejecutan.

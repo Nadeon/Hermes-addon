@@ -24,6 +24,8 @@ from .password_policy import (
 # existía antes.
 # Topologías de red admitidas (ver `network_mode`).
 NETWORK_MODES = frozenset({"tailscale", "reverse_proxy"})
+# Spec 031 (FR-012): cifrado de los safety backups con la clave de HA.
+SAFETY_BACKUP_ENCRYPTION_MODES = frozenset({"auto", "required", "off"})
 
 # 2024.10: Hermes guarda las automatizaciones con las claves en plural
 # (`triggers`, `conditions`, `actions`), que HA solo entiende desde esa
@@ -243,6 +245,13 @@ class HermesConfig:
     # Solo actúa con safety_backup_enabled: cada uno pesa varios GB y, sin
     # poda, llenaban el disco de quien activaba la opción.
     safety_backup_keep: int = 3
+    # Spec 031 (FR-012, D-031-1): los safety backups se cifran con la clave de
+    # los backups de HA (la del kit de emergencia), nunca con una generada en
+    # /data, para que se puedan restaurar desde la interfaz aunque Hermes esté
+    # roto. `auto` por defecto: un safety backup sin cifrar es mejor que
+    # ninguno, y bloquear las escrituras de quien no configuró los backups de
+    # HA rompería a quien hoy usa `safety_backup_enabled` (research R-4).
+    safety_backup_encryption: str = "auto"
 
     # ── Escritura en /config ──────────────────────────────────
     config_write_min_interval_seconds: int = 5
@@ -364,6 +373,14 @@ class HermesConfig:
                 f"safety_backup_keep fuera de rango: {self.safety_backup_keep}. "
                 "Debe estar entre 0 (sin retención) y 50."
             )
+        # Fail-closed: un valor desconocido (p. ej. «requried») no puede caer
+        # en `auto` y dejar sin cifrar a quien pidió `required`.
+        if self.safety_backup_encryption not in SAFETY_BACKUP_ENCRYPTION_MODES:
+            raise ValueError(
+                f"safety_backup_encryption inválido: "
+                f"{self.safety_backup_encryption!r}. Valores admitidos: "
+                f"{', '.join(sorted(SAFETY_BACKUP_ENCRYPTION_MODES))}."
+            )
         # Un host mal escrito no se descarta en silencio: si la lista
         # quedara vacía, Hermes aceptaría cualquier host (fail-closed).
         from hermes.cimd import normalize_allowed_hosts
@@ -459,6 +476,8 @@ def load_config() -> HermesConfig:
         file_backup_max_per_path=_env_int("HERMES_FILE_BACKUP_MAX_PER_PATH", 20),
         file_backup_max_total_mb=_env_int("HERMES_FILE_BACKUP_MAX_TOTAL_MB", 200),
         safety_backup_keep=_env_int("HERMES_SAFETY_BACKUP_KEEP", 3),
+        safety_backup_encryption=os.environ.get(
+            "HERMES_SAFETY_BACKUP_ENCRYPTION", "auto").strip() or "auto",
         config_write_min_interval_seconds=_env_int(
             "HERMES_CONFIG_WRITE_MIN_INTERVAL", 5
         ),

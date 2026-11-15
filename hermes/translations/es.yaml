@@ -36,6 +36,9 @@ configuration:
   safety_backup_keep:
     name: "Backups de seguridad que se conservan"
     description: "Backups de seguridad automáticos que se conservan tras cada uno correcto (0 desactiva la retención). Solo se borran los que Hermes anotó al crearlos, nunca uno tuyo. Solo actúa con el backup de seguridad activado."
+  safety_backup_encryption:
+    name: "Cifrado del backup de seguridad"
+    description: "Los backups de seguridad se cifran con la clave de los backups de Home Assistant (la de tu kit de emergencia), así puedes restaurarlos desde Home Assistant aunque Hermes esté roto. auto: cifrados si Home Assistant tiene clave y, si no, sin cifrar y con un aviso. required: sin clave no hay backup de seguridad y la escritura no se hace. off: sin cifrar, como antes de la 1.2.0."
   file_backup_max_per_path:
     name: "Copias por fichero"
     description: "Copias que se guardan de cada fichero antes de sobrescribirlo."

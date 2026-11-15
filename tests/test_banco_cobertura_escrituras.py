@@ -40,6 +40,7 @@ from tests.banco import cobertura_017 as c017
 from tests.banco import cobertura_020 as c020
 from tests.banco import cobertura_021 as c021
 from tests.banco import cobertura_023 as c023
+from tests.banco import cobertura_031 as c031
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -92,6 +93,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 023: su escritura, en su propio módulo.
         "PROBADAS_023": set(c023.PROBADAS_023),
         "NO_EJECUTABLES_023": set(c023.NO_EJECUTABLES_023),
+        # Spec 031: agentes y ajustes de los backups de HA (tramo 1).
+        "PROBADAS_031": set(c031.PROBADAS_031),
+        "NO_EJECUTABLES_031": set(c031.NO_EJECUTABLES_031),
     }
 
 
@@ -122,8 +126,11 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # la de aplicar sugerencias del tramo 2), y las 9 de la 021 (3 del
         # tramo a, núcleo y exposición; 3 del b, usuarios; y 3 del c, red y
         # HTTP), y las 7 de la 032 (4 del tramo 1, control del host, y 3 del
-        # tramo 2, red del host), y la de la 023 (`ha_process_conversation`).
-        self.assertEqual(len(reales), 192)
+        # tramo 2, red del host), y la de la 023 (`ha_process_conversation`),
+        # y las 5 de la 031 (tramo 1: `ha_update_backup_config`; tramo 2:
+        # crear, crear con los ajustes automáticos y borrar; tramo 3:
+        # restaurar, no ejecutable).
+        self.assertEqual(len(reales), 197)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -152,6 +159,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
                 ("NO_EJECUTABLES_012", c012.NO_EJECUTABLES_012),
                 ("NO_EJECUTABLES_017", c017.NO_EJECUTABLES_017),
                 ("NO_EJECUTABLES_021", c021.NO_EJECUTABLES_021),
+                ("NO_EJECUTABLES_031", c031.NO_EJECUTABLES_031),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
                 ("NO_EJECUTABLES_016", c016.NO_EJECUTABLES_016),
                 ("NO_EJECUTABLES_015", c015.NO_EJECUTABLES_015),
@@ -185,11 +193,12 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
             | c016.PROBADAS_016 | c017.PROBADAS_017 | c020.PROBADAS_020
             | c020.LECTURAS_020 | c021.PROBADAS_021 | c021.LECTURAS_021
-            | c021.VISTA_PREVIA_021 | c023.PROBADAS_023 | c023.LECTURAS_023,
+            | c021.VISTA_PREVIA_021 | c023.PROBADAS_023 | c023.LECTURAS_023
+            | c031.PROBADAS_031 | c031.LECTURAS_EN_BANCO_031,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028,
-                                 **c023.XFAIL_PERMITIDOS_023}
+                                 **c023.XFAIL_PERMITIDOS_023, **c031.XFAIL_PERMITIDOS_031}
         )
         conftest = (RAIZ / "tests" / "banco" / "conftest.py").read_text(encoding="utf-8")
         self.assertIn("tools_exigidas=TOOLS_EXIGIDAS_DEL_JOB", conftest)
@@ -228,6 +237,16 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             self.assertIn("HALLAZGO", marcas[0].kwargs.get("reason", ""), nodeid)
             excepcion = marcas[0].kwargs.get("raises")
             self.assertNotIn(excepcion, (None, AssertionError, Exception, BaseException), nodeid)
+
+    def test_031_sin_xfail_ni_tools_de_hassio(self) -> None:
+        # El HALLAZGO del tramo 1 (el proxy WebSocket del Supervisor rechaza
+        # `hassio/*` a las apps) se resolvió quitando las dos tools de
+        # `hassio/update/config/*`: no queda ningún `xfail` de la 031 ni
+        # ninguna de las dos en sus listas.
+        self.assertEqual(c031.XFAIL_PERMITIDOS_031, {})
+        quitadas = {"ha_get_update_backup_settings", "ha_set_update_backup_settings"}
+        self.assertFalse(quitadas & (set(c031.PROBADAS_031) | set(c031.LECTURAS_EN_BANCO_031)
+                                     | set(c031.NO_EJECUTABLES_031)))
 
 
 if __name__ == "__main__":

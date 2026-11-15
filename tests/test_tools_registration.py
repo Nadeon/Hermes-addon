@@ -815,6 +815,20 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
     "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
     "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
+    # Spec 031, tramo 1 (data-model sección 14): la de lectura por su
+    # prefijo; la que cambia ajustes pide token y va en `_DESTRUCTIVE_EXACT`
+    # (la retención borra backups). Ninguna sale a internet: solo leen o
+    # escriben ajustes de HA.
+    "ha_list_backup_agents": ("R-I-", "List backup agents (Home Assistant)"),
+    "ha_update_backup_config": ("-DI-", "Update backup config (Home Assistant)"),
+    # Spec 031, tramo 2 (T025): crear no es idempotente (otro backup cada
+    # vez); borrar sí. Las tres salen a internet con un agente remoto.
+    "ha_create_backup": ("-D-O", "Create backup (Home Assistant)"),
+    "ha_create_automatic_backup": ("-D-O", "Create automatic backup (Home Assistant)"),
+    "ha_delete_backup": ("-DIO", "Delete backup (Home Assistant)"),
+    # Tramo 3 (T040): restaurar es destructiva, idempotente (repetirla deja
+    # lo mismo) y sale a internet al descargar de un agente remoto.
+    "ha_restore_backup": ("-DIO", "Restore backup (Home Assistant)"),
     # Spec 016, tramo A (contracts/tools.md). Las dos de lectura, por prefijo.
     # `ha_ignore_discovery` modifica sin destruir y es idempotente: crea la
     # entrada `ignore` y HA deja de ofrecer ese descubrimiento (se deshace
@@ -2169,6 +2183,85 @@ class TestConversacion023:
         completo = set(_real_registry())
         sin = set(_real_registry(["conversation"]))
         assert completo - sin == set(_CONVERSACION_023)
+
+
+class TestBackupIntegrationRegistration:
+    """Spec 031, tramo 1 (T006; FR-016, FR-018): las dos de agentes y ajustes
+    se registran bajo `backup_integration`, la que modifica con
+    `confirmation_token`, y con la familia desactivada no queda ninguna y el
+    resto no cambia.
+
+    Control negativo (T015 c), comprobado: sacar `ha_update_backup_config`
+    de `_DESTRUCTIVE_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` (sale
+    `--I-`) y `test_every_tool_that_asks_for_a_token_says_it_is_destructive`.
+    """
+
+    # Tramo 2 (T025): las tres de crear y borrar, todas con token.
+    # Tramo 3 (T040): restaurar, con token.
+    _DOS = {"ha_list_backup_agents", "ha_update_backup_config",
+            "ha_create_backup", "ha_create_automatic_backup", "ha_delete_backup",
+            "ha_restore_backup"}
+    _CON_TOKEN = {"ha_update_backup_config", "ha_create_backup",
+                  "ha_create_automatic_backup", "ha_delete_backup", "ha_restore_backup"}
+    # HALLAZGO del tramo 1: el proxy WebSocket del Supervisor rechaza
+    # `hassio/*` a las apps, así que estas dos no podían funcionar
+    # (principio V) y se quitaron. No pueden volver sin otra vía hacia HA.
+    _QUITADAS = {"ha_get_update_backup_settings", "ha_set_update_backup_settings"}
+
+    def test_registradas_y_token_solo_en_las_que_modifican(self):
+        tools = _real_registry()
+        assert self._DOS <= set(tools)
+        for nombre in self._DOS:
+            props = tools[nombre].parameters.get("properties", {})
+            assert ("confirmation_token" in props) == (nombre in self._CON_TOKEN), nombre
+
+    def test_las_de_hassio_update_config_no_existen(self):
+        assert not self._QUITADAS & set(_real_registry())
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["backup_integration"]))
+        assert completo - sin == self._DOS
+
+    def test_desactivada_el_resto_es_identico(self):
+        """Tramo 4 (T057; FR-023, SC-006): con `backup_integration` apagada,
+        cada tool que queda es idéntica a la del registro por defecto
+        (argumentos, anotaciones, título y descripción): la familia no cambia
+        nada fuera de sí. Lo que la 031 cambia de la 1.1.2 (la descripción de
+        `sv_create_safety_backup` y de las `sv_restore_*`, y el campo nuevo de
+        `ha_list_backups`) es igual con la familia encendida o apagada, y los
+        argumentos de la 1.1.2 los vigila `test_esquemas_de_la_1_1_2`."""
+        completo = _real_registry()
+        sin = _real_registry(["backup_integration"])
+        assert set(completo) - set(sin) == self._DOS
+        distintos = []
+        for nombre, tool in sin.items():
+            otra = completo[nombre]
+            for campo in ("parameters", "annotations", "title", "description"):
+                if getattr(tool, campo, None) != getattr(otra, campo, None):
+                    distintos.append(f"{nombre}.{campo}")
+        assert distintos == []
+
+    def test_descripcion_del_safety_backup_dice_el_cifrado(self):
+        """Tramo 4 (T053, principio V): la descripción no puede seguir
+        callando que el backup sale cifrado ni cómo se restaura."""
+        doc = _real_registry()["sv_create_safety_backup"].description
+        for palabra in ("safety_backup_encryption", "`encrypted`", "kit de emergencia",
+                        "encryption_key_unavailable", "encryption_skipped_reason",
+                        "sv_restore_backup_full"):
+            assert palabra in doc, palabra
+
+    def test_recibe_response_max_bytes(self):
+        from unittest.mock import patch
+
+        for modulo in ("ha_backup_settings", "ha_backup_actions", "ha_backup_restore"):
+            with patch(f"hermes.tools.{modulo}.register") as reg:
+                register_all_tools(
+                    _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                    response_max_bytes=54_321, call_service_auto_classify=False,
+                    tool_families_disabled=[],
+                )
+            assert reg.call_args.kwargs.get("response_max_bytes") == 54_321, modulo
 
 
 class TestMarketplaceRegistration:

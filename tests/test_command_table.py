@@ -34,6 +34,7 @@ import unittest
 from hermes import command_table as ct
 from hermes.config import HA_CORE_LAST_TESTED
 from hermes.tool_families import FAMILIAS, familia_de_modulo
+from scripts.inventario.generar_tabla import MOTIVO_PROXY_SUPERVISOR
 
 _RAIZ = pathlib.Path(__file__).resolve().parents[1]
 _INVENTARIO = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
@@ -448,6 +449,60 @@ class TestDedicadas(unittest.TestCase):
         # `auth/current_user` lo usa Hermes por dentro; la genérica, no.
         self.assertEqual(ct.CORE_WS["auth/current_user"].category, "deny")
 
+    def test_dedicadas_de_la_031(self) -> None:
+        """Spec 031, T011 (FR-017): los dos comandos de agentes y ajustes de
+        los backups de HA son `dedicated` hacia su tool de
+        `backup_integration`, con la forma exacta que escribe el generador
+        (data-model sección 13), y el mapa del generador los nombra. Los dos
+        de `hassio/update/config/*` (HALLAZGO del tramo 1) son `deny` con el
+        motivo del proxy del Supervisor, también desde el mapa.
+        Control negativo (T015 d): `backup/config/update` en `deny` → cae.
+
+        Tramo 2 (T027): crear y borrar, `dedicated` SIN `cap` (sus filas del
+        inventario son `cubierto`, sin CAP) y sin « (acción de HA)».
+
+        Tramo 3 (T042): restaurar, igual que los del tramo 2, y ya no queda
+        ninguna entrada «pendiente de tool dedicada (spec 031)» en ninguna
+        tabla (SC-001). Control negativo (T045 g): `backup/restore` en `deny`
+        → cae."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES, _Deny
+
+        tramo_2 = {
+            "backup/delete": "ha_delete_backup",
+            "backup/generate": "ha_create_backup",
+            "backup/generate_with_automatic_settings": "ha_create_automatic_backup",
+            "backup/restore": "ha_restore_backup",
+        }
+        for comando, tool in tramo_2.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "backup_integration", tool, None))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+
+        tramo_1 = {
+            "backup/agents/info": "ha_list_backup_agents",
+            "backup/config/update": "ha_update_backup_config",
+        }
+        for comando, tool in tramo_1.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "backup_integration", tool,
+                     "CAP-057"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        for comando in ("hassio/update/config/info", "hassio/update/config/update"):
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("deny", MOTIVO_PROXY_SUPERVISOR, "generic_commands", None, "CAP-057"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], _Deny(MOTIVO_PROXY_SUPERVISOR))
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 031)" in e.reason)
+        self.assertEqual(pendientes, [])
+
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
         otras = sorted(str(k) for k, e in _todas()
@@ -516,22 +571,26 @@ class TestPistasYMotivos(unittest.TestCase):
                 if ("pide confirmación" in e.reason) != (accion in CALL_SERVICE_DENYLIST):
                     problemas.append(f"{k}: {accion} y el motivo {e.reason!r}")
         self.assertEqual(problemas, [], "\n".join(problemas))
-        # La que antes era `dedicated` hacia `ha_call_service` sin decir qué
-        # acción (T046) y que el test no esté vacío. `hassio/update/core`
-        # también lo era hasta que la 015 le dio su tool (`sv_update_core`).
-        self.assertIn("backup/generate_with_automatic_settings", vistos)
+        # Las dos que antes eran `dedicated` hacia `ha_call_service` sin decir
+        # qué acción (T046) tienen ya su tool: `hassio/update/core` desde la
+        # 015 y `backup/generate_with_automatic_settings` desde la 031 (tramo
+        # 2). Hoy ningún motivo remite a `ha_call_service` con una acción; el
+        # bucle de arriba queda de guarda para el que lo haga.
+        self.assertEqual(vistos, set())
 
     def test_ninguna_dedicada_a_ha_call_service_sin_accion(self) -> None:
         # Las que quedan apuntan a una acción del mismo nombre que el comando
         # (p. ej. `calendar/event/create` → `calendar.create_event`), ninguna
         # de la denylist; las dos de T046 ya no son `dedicated` hacia
-        # `ha_call_service`: una sigue pendiente de su spec y la otra apunta
-        # desde la 015 a `sv_update_core`, su tool dedicada.
-        k = "backup/generate_with_automatic_settings"
-        self.assertEqual(ct.CORE_WS[k].category, "deny")
-        self.assertRegex(ct.CORE_WS[k].reason, r"^pendiente de tool dedicada \(spec \d{3}\)")
-        e = ct.CORE_WS["hassio/update/core"]
-        self.assertEqual((e.category, e.tool), ("dedicated", "sv_update_core"))
+        # `ha_call_service`: cada una apunta a su tool dedicada (la 015 y la
+        # 031, tramo 2).
+        for k, tool in (
+            ("hassio/update/core", "sv_update_core"),
+            ("backup/generate_with_automatic_settings", "ha_create_automatic_backup"),
+        ):
+            with self.subTest(k=k):
+                e = ct.CORE_WS[k]
+                self.assertEqual((e.category, e.tool), ("dedicated", tool))
 
     def test_motivo_de_dns_options(self) -> None:
         # T048: `SCHEMA_OPTIONS` de supervisor/api/dns.py (2026.11.0) solo
@@ -691,6 +750,11 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                         malas.append(f"{k} ({f['cap']}): dedicated hacia {e.tool!r} "
                                      f"de {e.family!r}")
                     continue
+                # Spec 031: lo que el proxy WebSocket del Supervisor no deja
+                # mandar a una app no puede tener tool (lo vigila
+                # `TestProxyDelSupervisor`).
+                if (e.category, e.reason) == ("deny", MOTIVO_PROXY_SUPERVISOR):
+                    continue
                 if k in _POR_LA_TABLA and e.category in {"read", "confirm"}:
                     spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])
                     if spec and spec.group(1) in subs:
@@ -743,6 +807,84 @@ class TestCapitulosDeLa020(unittest.TestCase):
                                   "CAP-054" if comando.startswith("energy/") else "CAP-050"))
                 # Ninguna sale a internet (research R-5).
                 self.assertFalse(e.open_world)
+
+
+# Prefijos WS que el proxy del Supervisor 2026.11.0 rechaza a las apps
+# (`DENIED_WS_TYPE_PREFIXES` de `supervisor/api/proxy.py`).
+_PREFIJOS_DENEGADOS_POR_EL_PROXY = ("hassio/", "supervisor/")
+
+
+def _fuente_de_cada_tool() -> dict[str, str]:
+    """Nombre de cada función de `tools/*.py` → texto de su módulo."""
+    out: dict[str, str] = {}
+    for path in sorted(_TOOLS_DIR.glob("*.py")):
+        texto = path.read_text(encoding="utf-8")
+        for n in ast.walk(ast.parse(texto)):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                out.setdefault(n.name, texto)
+    return out
+
+
+def problemas_proxy_del_supervisor(
+    core_ws: dict[str, ct.E], fuentes: dict[str, str],
+) -> list[str]:
+    """Entradas WS `hassio/*` o `supervisor/*` que prometen algo imposible.
+
+    Hermes es una app y habla con Core por el proxy WebSocket del Supervisor,
+    que rechaza esos comandos con «Unauthorized» (HALLAZGO de la 031). En
+    `read` o `confirm`, la genérica nunca llegaría a HA; y una `dedicated`
+    solo vale si su tool NO manda ese comando por WebSocket (p. ej.
+    `hassio/update/addon` → `sv_update_addon`, que va por la API REST del
+    Supervisor): el módulo de la tool no puede contener el tipo del comando.
+    """
+    problemas = []
+    for k, e in core_ws.items():
+        if not k.startswith(_PREFIJOS_DENEGADOS_POR_EL_PROXY):
+            continue
+        if e.category in {"read", "confirm"}:
+            problemas.append(f"{k}: {e.category}, y el proxy del Supervisor lo rechaza")
+        elif e.category == "dedicated":
+            fuente = fuentes.get(e.tool or "")
+            if fuente is None:
+                problemas.append(f"{k}: dedicated hacia {e.tool!r}, que no existe")
+            elif f'"{k}"' in fuente:
+                problemas.append(f"{k}: {e.tool} manda el comando por WebSocket")
+    return problemas
+
+
+class TestProxyDelSupervisor(unittest.TestCase):
+    """Spec 031, HALLAZGO del tramo 1: ninguna entrada WS `hassio/*` o
+    `supervisor/*` puede estar en `read` ni en `confirm`, y una `dedicated`
+    solo si su tool no manda ese comando por WebSocket.
+
+    Control negativo, comprobado a mano: `supervisor/event` en `read` en
+    command_table.py → cae `test_ninguna_entrada_imposible` nombrándola. Y
+    queda fijo en `test_control_negativo`."""
+
+    def test_ninguna_entrada_imposible(self) -> None:
+        problemas = problemas_proxy_del_supervisor(ct.CORE_WS, _fuente_de_cada_tool())
+        self.assertEqual(problemas, [], "\n".join(problemas))
+        # Hay entradas que mirar, y una `dedicated` válida (si no, el test no
+        # probaría nada).
+        self.assertGreaterEqual(
+            sum(1 for k in ct.CORE_WS if k.startswith(_PREFIJOS_DENEGADOS_POR_EL_PROXY)), 9)
+        self.assertEqual(ct.CORE_WS["hassio/update/addon"].category, "dedicated")
+
+    def test_control_negativo(self) -> None:
+        import dataclasses
+
+        tabla = dict(ct.CORE_WS)
+        tabla["supervisor/event"] = dataclasses.replace(
+            tabla["supervisor/event"], category="read")
+        tabla["hassio/update/config/info"] = dataclasses.replace(
+            tabla["hassio/update/config/info"], category="confirm")
+        fuentes = _fuente_de_cada_tool()
+        # Una `sv_update_addon` que mandase `hassio/update/addon` por WS.
+        fuentes["sv_update_addon"] += '\nws_send({"type": "hassio/update/addon"})\n'
+        problemas = problemas_proxy_del_supervisor(tabla, fuentes)
+        self.assertEqual(sorted(p.split(":")[0] for p in problemas),
+                         ["hassio/update/addon", "hassio/update/config/info",
+                          "supervisor/event"])
 
 
 # Spec 013 (data-model, «A dedicated»): las rutas de logs de CAP-081 y su tool.

@@ -495,6 +495,18 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   - `sv_create_vlan`: crear una VLAN sobre la tarjeta principal, comprobar
     que aparece en `ha network info` y que la VM sigue accesible; borrarla
     desde la interfaz de HA (no hay tool para borrarla).
+- `ha_restore_backup` (spec 031), en la tanda 3, con una instantánea antes:
+  con la clave de cifrado de HA configurada (Ajustes → Sistema → Backups),
+  un backup cifrado creado con `ha_create_backup` en `hassio.local`. La vista
+  previa da el backup, la ubicación (`kind: local`, `protected: true`),
+  `password_source: backup_encryption_key`, lo que se sobrescribe (una app
+  de prueba y `share`) y lo que no; confirmada, la respuesta es `completed`
+  o `restore_started`, Core vuelve, `ha_list_backups` da `state: idle` y
+  `last_action_event` `completed`, y la app y la carpeta están como en el
+  backup. Con `password` incorrecta, `password_incorrect` sin reiniciar.
+  Las `sv_restore_backup_*` sin `password` sobre ese backup cifrado
+  restauran con la clave de HA (`password_source` en la vista previa). En
+  el log, ni la clave ni la contraseña.
 
 ## Probar hassio_role: manager
 

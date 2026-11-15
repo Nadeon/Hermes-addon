@@ -92,7 +92,10 @@ class TestTraducciones(unittest.TestCase):
 
     def test_claves_iguales_que_el_esquema(self) -> None:
         esquema = _esquema()
-        self.assertEqual(len(esquema), 31)
+        # 32 desde la spec 031 (FR-012): `safety_backup_encryption`, opción
+        # nueva y opcional (cambio aditivo; las 31 de antes siguen igual).
+        self.assertEqual(len(esquema), 32)
+        self.assertIn("safety_backup_encryption", esquema)
         for idioma in _IDIOMAS:
             with self.subTest(idioma=idioma):
                 self.assertEqual(set(_traduccion(idioma)["configuration"]), esquema)

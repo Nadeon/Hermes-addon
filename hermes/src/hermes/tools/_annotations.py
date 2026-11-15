@@ -190,6 +190,24 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # anunciaba no destructiva (`----`, por el prefijo `ha_create_`) y su
     # descripción decía que una colisión daba error, que no es lo que hace HA.
     "ha_create_scene_from_current",
+    # Spec 031: cambiar la retención BORRA backups automáticos (por días al
+    # día siguiente, por copias tras el próximo automático) y
+    # `protected: false` sube la casa sin cifrar. Pide token; sin estar
+    # aquí, el prefijo `ha_update_` la dejaría sin `destructiveHint`
+    # (invariante «pide token ⇔ destructiva»).
+    "ha_update_backup_config",
+    # Spec 031, tramo 2: crear un backup ocupa GB en cada agente y, en uno
+    # remoto, sube la casa entera fuera; con los ajustes automáticos, al
+    # terminar HA aplica la retención y BORRA backups. Las dos piden token
+    # y su prefijo `ha_create_` las dejaría sin `destructiveHint`.
+    # (`ha_delete_backup` ya lo es por el prefijo `ha_delete_`.)
+    "ha_create_backup",
+    "ha_create_automatic_backup",
+    # Spec 031, tramo 3: restaurar sustituye la configuración, la base de
+    # datos, apps y carpetas por su estado en la fecha del backup y reinicia
+    # Core; lo posterior se pierde. Pide token y su prefijo `ha_restore_` no
+    # lo delata. Idempotente: repetirla deja lo mismo que la primera vez.
+    "ha_restore_backup",
     # Spec 016: puede pedir token. Desactivar el sondeo recarga la integración
     # y deja sus entidades sin actualizar; desactivar las entidades nuevas hace
     # que lo que se añada entre deshabilitado. Invariante «pide token ⇔
@@ -344,6 +362,14 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
     # Es de solo lectura, pero no puede decir que no sale.
     "ha_get_system_health",
+    # Spec 031, tramo 2: con un agente remoto (la nube, otro servicio) crear
+    # sube el backup a internet y borrar lo borra allí; quien sale es HA,
+    # pero lo provoca la tool.
+    "ha_create_backup",
+    "ha_create_automatic_backup",
+    "ha_delete_backup",
+    # Tramo 3: restaurar desde un agente remoto descarga antes el backup.
+    "ha_restore_backup",
     # Spec 015 (contracts/tools.md): actualizar Core descarga la imagen nueva,
     # y buscar actualizaciones descarga el registro de versiones y refresca los
     # repositorios de la tienda. Quien sale es el Supervisor, pero lo provoca

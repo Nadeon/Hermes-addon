@@ -792,18 +792,32 @@ class HAClient:
             payload_with_id["id"] = request_id
             try:
                 await ws.send_json(payload_with_id)
-            except BaseException:
+            except Exception as exc:
                 # Si el envío falla no hay nadie que vaya a resolver el future:
                 # se retira aquí mismo para no dejarlo colgado hasta la
-                # siguiente reconexión.
+                # siguiente reconexión. Se convierte en `HAConnectionError`
+                # con `sent=False` (spec 031): quien decide si la orden llegó
+                # a HA (restaurar) necesita distinguirlo de un fallo después
+                # de enviar, y el socket de aiohttp lanza aquí errores propios.
+                # Explícito: el defecto del atributo es `None` (no se sabe) y
+                # aquí SÍ se sabe que no salió (contrato de la spec 022).
+                self._pending_ws_responses.pop(request_id, None)
+                raise HAConnectionError(
+                    f"WebSocket send failed for command {payload.get('type')}: {exc}",
+                    sent=False,
+                ) from exc
+            except BaseException:
+                # Cancelación: se propaga tal cual.
                 self._pending_ws_responses.pop(request_id, None)
                 raise
 
         try:
             return await asyncio.wait_for(future, timeout_seconds)
         except asyncio.TimeoutError as exc:
+            # La orden ya salió: HA puede estar ejecutándola (spec 031).
             raise HAConnectionError(
-                f"Timeout waiting for HA WS response for command {payload.get('type')}"
+                f"Timeout waiting for HA WS response for command {payload.get('type')}",
+                sent=True,
             ) from exc
         finally:
             self._pending_ws_responses.pop(request_id, None)
@@ -1576,6 +1590,11 @@ class HAClient:
         quedaban esperando a un socket que ya no existe y solo se enteraban al
         vencer su propio timeout, con HA caída todo ese rato.
         """
+        # Todo lo pendiente ya se envió (el future se registra justo antes de
+        # escribir en el socket y se retira si la escritura falla): la caída
+        # llega DESPUÉS de enviar (`sent`, spec 031).
+        if isinstance(error, HAConnectionError):
+            error.sent = True
         for pendientes in (self._pending_ws_responses, self._pending_ws_subscriptions):
             for future in list(pendientes.values()):
                 if not future.done():

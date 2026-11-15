@@ -35,6 +35,9 @@ configuration:
   safety_backup_keep:
     name: "Safety backups to keep"
     description: "Automatic safety backups kept after each successful one (0 turns retention off). Only backups Hermes recorded when creating them are deleted, never yours. Applies only with the safety backup on."
+  safety_backup_encryption:
+    name: "Safety backup encryption"
+    description: "Safety backups are encrypted with Home Assistant's backup encryption key (the one in your emergency kit), so you can restore them from Home Assistant even if Hermes is broken. auto: encrypted if Home Assistant has a key, otherwise unencrypted with a warning. required: without a key there is no safety backup and the write is not made. off: unencrypted, as before 1.2.0."
   file_backup_max_per_path:
     name: "Copies per file"
     description: "Copies kept of each file before it is overwritten."

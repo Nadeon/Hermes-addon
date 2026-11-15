@@ -560,8 +560,11 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "automations": "d27ee3c45bc13171",
         # La 027 cambia `backups` (`success` y `child_errors` de los jobs) y la
         # 019 (tramo 2) también (`location` en sv_create_backup_*); sus
-        # CHANGELOG lo dicen. Huella recalculada al integrar la 019.
-        "backups": "284e226b8aaf6fed",
+        # CHANGELOG lo dicen. Huella recalculada al integrar la 019. La 031
+        # (tramo 4, T055) añade el cifrado de los safety backups; su
+        # CHANGELOG lo dice. La convergencia (T062) dice que `required` no
+        # reutiliza uno sin cifrar; también en el CHANGELOG.
+        "backups": "3e685f47171224e7",
         # La 016 cambia `config_entries` (remite a `integration_flows`; el
         # reconfigure va por su tool y el `reauth` pide token), `diagnostics`
         # (textos de los avisos y remite a `repair_flows`) y `helpers`
@@ -1434,6 +1437,114 @@ class TestTemaHostNetwork(unittest.IsolatedAsyncioTestCase):
         self.assertIn('hermes_guide("host_control")', _GUIDE["core_network"])
         self.assertIn("red del host", _GUIDE["supervisor"])
         self.assertIn("red del host", await self.guide())
+
+
+class TestTemaBackupIntegration(unittest.IsolatedAsyncioTestCase):
+    """Spec 031, tramo 1 (T012, FR-021): tema `backup_integration` con las
+    cuatro tools de agentes y ajustes, la retención y su estimación, y que la
+    clave de cifrado no sale ni se cambia aquí; sus alias; el índice lo
+    menciona; `backup` sigue llevando a `backups`; los temas de la 1.1.2 no
+    cambian (lo vigila `TestTemaSystemDiagnostics.test_los_demas_temas_no_cambian`).
+
+    Control negativo, comprobado: sin el alias `backup_retention` cae
+    `test_tema_y_alias`; con `backup` apuntando a `backup_integration` cae
+    `test_backup_sigue_en_backups`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("backup_integration")
+        self.assertIs(texto, _GUIDE["backup_integration"])
+        for palabra in ("ha_list_backup_agents", "ha_update_backup_config",
+                        "retention_effect", "ESTIMACIÓN", "within_24h",
+                        "after_next_automatic_backup", "password_set",
+                        "kit de emergencia", "state_changed", "sv_",
+                        "hassio/*"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        # HALLAZGO de la 031: estas dos se quitaron (el proxy del Supervisor
+        # rechaza `hassio/*` a las apps); la guía no puede prometerlas.
+        for quitada in ("ha_get_update_backup_settings", "ha_set_update_backup_settings",
+                        "supervisor_integration_unavailable"):
+            with self.subTest(quitada=quitada):
+                self.assertNotIn(quitada, texto)
+        for alias in ("backup_agents", "backup_config", "backup_schedule",
+                      "backup_retention", "BACKUP_AGENTS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_lo_menciona(self) -> None:
+        self.assertIn("backup_integration", await self.guide())
+
+    async def test_backup_sigue_en_backups(self) -> None:
+        self.assertEqual(await self.guide("backup"), _GUIDE["backups"])
+
+    async def test_crear_y_borrar_del_tramo_2(self) -> None:
+        """Tramo 2 (T028): crear (con `encrypt`, `follow_with` y
+        `ha_list_backups`), crear con los ajustes automáticos (la retención
+        borra) y borrar (todas las ubicaciones), con sus alias.
+        Control negativo, comprobado: sin el alias `delete_backup` cae."""
+        texto = await self.guide("backup_integration")
+        for palabra in ("ha_create_backup", "encrypt", "follow_with", "ha_list_backups",
+                        "last_action_event", "ha_create_automatic_backup", "BORRA",
+                        "ha_delete_backup", "TODAS sus ubicaciones",
+                        "backup_locations_unreadable", "no_encryption_key",
+                        "unknown_agent"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("create_backup", "delete_backup"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_restaurar_del_tramo_3(self) -> None:
+        """Tramo 3 (T043): qué se sobrescribe, elegir ubicación, `password` y
+        la clave de HA, `restore_started` y cómo comprobarlo, que Core se
+        reinicia; alias `restore_backup` y `restore` (que no usaba ningún
+        tema). Control negativo, comprobado: sin el alias `restore` cae."""
+        texto = await self.guide("backup_integration")
+        for palabra in ("ha_restore_backup", "SOBRESCRIBE", "Core se reinicia",
+                        "agent_id_required", "also_in", "password_source",
+                        "backup_encryption_key", "backup_encryption_key_unavailable",
+                        "restore_started", "NO está confirmada", "ha_list_backups",
+                        "last_action_event", "password_incorrect", "not_in_backup",
+                        "sv_restore_backup_*", "anterior: pásala"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("restore_backup", "restore", "RESTORE"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+
+class TestTemaBackupsCifrado031(unittest.IsolatedAsyncioTestCase):
+    """Spec 031, tramo 4 (T055, FR-021): el tema `backups` explica los
+    safety backups cifrados con la clave de HA, los tres valores de
+    `safety_backup_encryption`, cómo restaurarlos (sin `password` o con el
+    kit de emergencia), la clave anterior y que la retención los sigue
+    podando; el tema `backup_integration` no cambia por esto.
+
+    Control negativo, comprobado: sin el párrafo del cifrado caen
+    `test_cifrado_de_los_safety_backups` y la huella del tema `backups`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_cifrado_de_los_safety_backups(self) -> None:
+        texto = await self.guide("backups")
+        for palabra in ("safety_backup_encryption", "`auto`", "`required`", "`off`",
+                        "kit de emergencia", "`encrypted`", "encryption_skipped_reason",
+                        "encryption_key_unavailable", "SIN cifrar",
+                        "sv_restore_backup_full", "password_source", "la anterior",
+                        "sigue podando", "no la guarda ni la devuelve"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        self.assertEqual(await self.guide("backup"), texto)
 
 
 if __name__ == "__main__":

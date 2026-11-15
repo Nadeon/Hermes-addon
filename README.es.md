@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **345 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **351 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 345 herramientas
+## Qué puede hacer — 351 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -68,6 +68,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Usuarios** | 4 | Listar los usuarios de Home Assistant y crearlos (sin credenciales), editarlos y borrarlos, con confirmación. Nunca contraseñas ni tokens; el propietario, el usuario de Hermes, los de sistema y el último administrador están protegidos. Familia `users`, nueva en 1.2.0 |
 | **Red y HTTP de Core** | 3 | Qué adaptadores de red usa Home Assistant para descubrir dispositivos, y su servidor HTTP (puerto, SSL, proxy inverso, bloqueo de IP), con confirmación. Cambiar el HTTP reinicia Home Assistant y deja la configuración nueva 5 minutos a prueba hasta promoverla; un `server_host` que dejaría fuera a las apps que conectan directamente se rechaza. Familia `core_network`, nueva en 1.2.0 |
 | **Assist y conversación** | 4 | Los agentes de conversación de Assist y sus idiomas (solo del integrado se sabe que funciona en local), las frases de los disparadores de frase de las automatizaciones, analizar frases con el agente integrado sin ejecutarlas (intent y entidades objetivo) y mandar una frase a Assist, que la ejecuta: siempre en dos pasos, con una vista previa de lo que reconoce Home Assistant o, con otro agente (un LLM en la nube), el aviso de que el texto se le envía. Familia `conversation`, nueva en 1.2.0 |
+| **Backups de Home Assistant** | 6 | Dónde puede guardar Home Assistant sus backups (local, almacenamiento de red, nube) con su cifrado y su retención; la programación, la retención y el contenido de los backups automáticos; y crear backups (a medida o con los ajustes automáticos, cifrados con la clave de Home Assistant) borrarlos de todas sus ubicaciones y restaurarlos desde cualquiera (con una vista previa completa de lo que se sobrescribe; un backup cifrado sin contraseña usa la clave de Home Assistant). Todo lo que cambia algo, en dos pasos y con una estimación de los backups que borraría la retención. La clave de cifrado nunca sale de Home Assistant ni se cambia aquí. Familia `backup_integration`, nueva en 1.2.0 |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 
 Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y
@@ -82,7 +83,7 @@ están siempre, y apagando las familias nuevas de la 1.2.0
 `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`,
 `system_control`, `resolution_fixes`, `core_config`,
 `assistant_exposure`, `users`, `core_network`, `host_control`,
-`host_network` y `conversation`)
+`host_network`, `conversation` y `backup_integration`)
 tienes exactamente la lista de herramientas de la 1.1.2.
 
 Las herramientas destructivas devuelven, en la primera llamada, una vista previa
@@ -481,11 +482,12 @@ completo está aquí abajo.
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes`, `core_config`, `assistant_exposure`, `users`, `core_network`, `host_control`, `host_network` y `conversation`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
+| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes`, `core_config`, `assistant_exposure`, `users`, `core_network`, `host_control`, `host_network`, `conversation` y `backup_integration`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs que no sean de loopback (también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (p. ej. `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**: cada descarga sale de la IP de tu casa hacia un host que cualquiera puede elegir sin la contraseña. Pon solo los hosts que uses; ver `hermes/DOCS.md` |
 | `safety_backup_enabled` | `false` | Backup **completo** de HAOS automático antes de escribir en `/config`. Desactivado por defecto (genera varios GB). El backup por-fichero se hace siempre. Si el backup falla, o Hermes no puede saber si terminó, la escritura no se hace (`safety_backup_job_failed`, `safety_backup_state_unknown`) |
+| `safety_backup_encryption` | `auto` | Cifrado de los safety backups (nuevo en 1.2.0) con la clave de los backups de Home Assistant, la de su kit de emergencia: Hermes la lee de Home Assistant en cada backup y nunca la guarda ni la devuelve, y puedes restaurarlos desde Home Assistant aunque Hermes esté roto. `auto`: cifrados si Home Assistant tiene clave y, si no, sin cifrar y dicho en la respuesta y en el log. `required`: sin clave no hay safety backup (`encryption_key_unavailable`) y la escritura no se hace; un safety backup reciente sin cifrar no cuenta. `off`: sin cifrar, como en la 1.1.2. Cualquier otro valor impide arrancar |
 | `mcp_max_requests_per_minute` | `120` | Rate limit global post-auth |
 | `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Rate limit pre-auth por IP. Aplica a la superficie pública (OAuth y discovery), y el mismo valor acota por IP las peticiones a rutas protegidas que llegan sin token o con uno inválido. Las válidas las gobierna `mcp_max_requests_per_minute` |
 | `response_max_bytes` | `131072` | Cap de respuesta de cualquier tool (128 KiB); por encima se recorta y se indica con `truncated: true`. Máximo efectivo `524288` (512 KiB): un valor guardado mayor se recorta. Súbelo hasta ahí si las respuestas te llegan truncadas |
@@ -494,7 +496,7 @@ completo está aquí abajo.
 | `max_concurrent_requests` | `64` | Peticiones simultáneas que acepta el servidor. Acota la memoria máxima en vuelo (`max_concurrent_requests × max_request_body_bytes`). Claude lanza ráfagas de ~24 llamadas, así que 64 deja holgura |
 | `wait_for_event_max_seconds` | `90` | Máximo timeout permitido para `ha_wait_for_event` (10–220; un valor guardado por encima de 220 se recorta) |
 | `wait_for_event_max_concurrent` | `5` | Máximo de `ha_wait_for_event` simultáneos (1–20) |
-| `safety_backup_keep` | `3` | Retención de los safety backups automáticos (0–50). Tras cada uno correcto, Hermes conserva este número de los más recientes y borra el resto, como mucho 5 por vez. Un safety backup que terminó con errores en sus sub-jobs (una app que no se pudo guardar) está incompleto: no cuenta entre los que se conservan y se borra el primero. Solo borra los que él mismo anotó al crearlos: nunca uno tuyo, aunque se llame `hermes-safety-…`, ni uno protegido con contraseña, parcial o copiado a otra ubicación. `0` la desactiva. Solo actúa con `safety_backup_enabled` |
+| `safety_backup_keep` | `3` | Retención de los safety backups automáticos (0–50). Tras cada uno correcto, Hermes conserva este número de los más recientes y borra el resto, como mucho 5 por vez. Un safety backup que terminó con errores en sus sub-jobs (una app que no se pudo guardar) está incompleto: no cuenta entre los que se conservan y se borra el primero. Solo borra los que él mismo anotó al crearlos: nunca uno tuyo, aunque se llame `hermes-safety-…`, ni uno protegido con contraseña (salvo los que el propio Hermes cifró con la clave de Home Assistant, desde la 1.2.0), parcial o copiado a otra ubicación. `0` la desactiva. Solo actúa con `safety_backup_enabled` |
 | `safety_backup_window_minutes` | `30` | Si Hermes hizo su propio backup de seguridad hace menos de esto, no se hace otro. Los backups hechos a mano o por otras herramientas no cuentan. Mientras se hace, la escritura espera hasta 5 minutos, y se cancela si el backup falla |
 | `file_backup_max_per_path` | `20` | Copias que se guardan de cada fichero antes de sobrescribirlo |
 | `file_backup_max_total_mb` | `200` | Tope total del directorio de copias por fichero |
@@ -584,8 +586,12 @@ Bajo qué reglas está escrito todo esto: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.m
   las que no tienen arreglo, las que no sabe explicar, las que tocan los
   discos de datos y las que apuntan al propio Hermes. Apaga la familia
   `resolution_fixes` si no lo quieres en absoluto.
-- **Los safety backups no van cifrados.** Son backups completos de HAOS sin
-  contraseña. Para uno cifrado, usa `sv_create_backup_full` con `password`.
+- **Los safety backups solo van cifrados si Home Assistant tiene clave de
+  cifrado de backups.** Desde la 1.2.0 usan la clave de Home Assistant (la de
+  su kit de emergencia), que existe en cuanto se configuran los backups
+  automáticos. Sin ella, con el valor por defecto `safety_backup_encryption:
+  auto`, se hacen sin contraseña y Hermes lo dice; pon `required` para
+  bloquear las escrituras en su lugar.
 - **Los safety backups anteriores a 1.1.0 no se podan.** Hermes no los anotó, así
   que la retención no los distingue de los tuyos: bórralos con
   `sv_delete_backup` si ya no los necesitas.
