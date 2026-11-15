@@ -293,7 +293,59 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Supervisor
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **Montajes de red y ajustes de backup (019).** Familia nueva `mounts`
+  (desactivable con `tool_families_disabled`) con nueve tools. Seis para los
+  montajes del Supervisor: `sv_list_mounts` (montajes, su estado y el montaje
+  por defecto de backups), `sv_create_mount` (CIFS, NFS o disco local),
+  `sv_update_mount` (funde lo que se pasa con lo actual), `sv_delete_mount`,
+  `sv_reload_mount` (vuelve a comprobar y rearma un montaje caído) y
+  `sv_set_default_backup_mount` (a dónde van los backups sin ubicación,
+  también los safety backups de Hermes). Crear, editar, borrar y el montaje
+  por defecto van en dos pasos; la vista previa dice si el montaje pasa a ser
+  (o deja de ser) el de por defecto, qué backups dejan de verse al borrarlo o
+  al cambiar su destino, y que el Supervisor lo monta al crearlo y no crea
+  nada si falla. El token ata también el estado que describe la vista
+  previa: si el montaje cambia antes de confirmar, no se ejecuta
+  (`mount_changed`). Las cuatro con token están en el inventario de
+  argumentos atados de la 033: crear y editar atan sus 13 argumentos, y
+  borrar y el montaje por defecto, `name`.
+  - **Credenciales**: el usuario y la contraseña de un CIFS entran, pero no
+    salen nunca: ni en respuestas, vistas previas, errores, el log de Hermes
+    ni el fichero del token. Tampoco cuando el texto de error del Supervisor
+    repite el usuario en una tool que no lo recibe (recargar, borrar, el
+    montaje por defecto, los ajustes de backup): se tapa por su forma
+    (`username=…`, también entre comillas y con espacios, `DOMINIO\usuario`,
+    `//usuario@servidor`), y la contraseña también cuando llega escapada en
+    el JSON o el `repr` del error. Como el Supervisor reemplaza la
+    configuración entera y no las devuelve, editar un CIFS sin `username` y
+    `password` las quita; la vista previa lo avisa (`removed_if_present`).
+  - Tres para los ajustes de backup del Supervisor, sin confirmación:
+    `sv_get_backup_settings` (`days_until_stale`, el montaje por defecto y
+    los montajes de backup con su estado), `sv_set_backup_settings`
+    (`days_until_stale`, entero de 1 a 3650; devuelve el anterior) y
+    `sv_reload_backups` (el Supervisor relee los backups de todas las
+    ubicaciones y dice cuántos ve).
+  - `sv_create_backup_full` y `sv_create_backup_partial` aceptan `location`
+    opcional: `.local`, un montaje de backup o una lista de ellos.
+    `.cloud_backup`, listas vacías o con repetidos y nombres inválidos se
+    rechazan sin llamar al Supervisor. Sin `location`, la petición y la
+    respuesta son las de la 1.1.2. Sus errores salen ahora redactados.
+  - Las nueve rutas de CAP-083 (`/mounts` y `/backups/info`,
+    `/backups/options`, `/backups/reload`) pasan de `deny` a `dedicated` en
+    la tabla de comandos; `sv_read_api` y `sv_call_api` remiten a su tool.
+  - Guía: tema nuevo `hermes_guide("mounts")` (alias `cifs`, `nfs`, `nas`,
+    `network_storage`, `backup_settings`), con los ajustes de backup; el
+    tema `backups` explica `location`.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Tokens de confirmación con HMAC (019).** El `action_hash` que se guarda
+  junto a cada token pasa de SHA-256 a HMAC-SHA256 con una clave aleatoria
+  que solo vive en memoria y cambia en cada arranque. El hash de una acción
+  con una contraseña (montajes CIFS, `fs_set_secret`, restaurar un backup
+  cifrado) ya no se puede atacar sin conexión leyendo `/data`. **Cambio de
+  comportamiento, intencionado:** en la 1.1.2 un token todavía vigente (menos
+  de 60 s) seguía valiendo después de reiniciar Hermes; ahora deja de valer,
+  porque la clave es otra. Se rechaza con «lost across restart» sin gastarlo,
+  y basta con pedir otra vista previa (falla cerrado).
 
 ### Sistema
 

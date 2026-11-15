@@ -605,5 +605,52 @@ class TestDiscoHostYOsDeLa013(unittest.TestCase):
         self.assertEqual(pendientes, [])
 
 
+# Spec 019, tramo 1 (data-model): las seis rutas de montajes (CAP-083).
+_MOUNTS_019: dict[tuple[str, str], str] = {
+    ("GET", "/mounts"): "sv_list_mounts",
+    ("POST", "/mounts"): "sv_create_mount",
+    ("PUT", "/mounts/{mount}"): "sv_update_mount",
+    ("DELETE", "/mounts/{mount}"): "sv_delete_mount",
+    ("POST", "/mounts/{mount}/reload"): "sv_reload_mount",
+    ("POST", "/mounts/options"): "sv_set_default_backup_mount",
+}
+# Tramo 2: las tres de ajustes de backup (`/backups`), misma familia.
+_BACKUP_SETTINGS_019: dict[tuple[str, str], str] = {
+    ("GET", "/backups/info"): "sv_get_backup_settings",
+    ("POST", "/backups/options"): "sv_set_backup_settings",
+    ("POST", "/backups/reload"): "sv_reload_backups",
+}
+
+
+class TestMontajesDeLa019(unittest.TestCase):
+    """FR-015 de la 019: las 9 rutas de CAP-083 (6 de `/mounts` en el
+    tramo 1 y 3 de `/backups` en el 2) pasan a `dedicated` con su tool en el
+    mismo cambio, familia `mounts` y CAP-083; no queda ninguna «spec 019».
+
+    Controles negativos: dejar `POST /mounts` como `deny` (T016 i) o
+    `POST /backups/options` como `deny` (T030 e) → cae
+    `test_rutas_de_montajes_dedicadas` nombrándola.
+    """
+
+    def test_rutas_de_montajes_dedicadas(self) -> None:
+        malas = []
+        for k, tool in {**_MOUNTS_019, **_BACKUP_SETTINGS_019}.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "mounts", "CAP-083", f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_ninguna_ruta_de_montajes_pendiente(self) -> None:
+        pendientes = sorted(
+            str(k) for k, e in ct.SUPERVISOR.items()
+            if k[1].startswith("/mounts") and e.category != "dedicated")
+        self.assertEqual(pendientes, [])
+        quedan = sorted(str(k) for k, e in ct.SUPERVISOR.items()
+                        if "spec 019" in e.reason)
+        self.assertEqual(quedan, [])
+
+
 if __name__ == "__main__":
     unittest.main()

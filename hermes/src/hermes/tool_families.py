@@ -138,6 +138,17 @@ _CATALOGO: tuple[Familia, ...] = (
     Familia("repair_flows",
             "Repairs issue details and fix flows.",
             "1.2.0", True, ("repair_flows",)),
+    # Spec 019 (research R-1): montajes de red del Supervisor (CIFS, NFS y
+    # disco local) y sus ajustes de backup. Una capacidad, una familia: quien
+    # no tiene NAS ni discos externos la apaga entera. Va aparte de `backups`
+    # para que apagar las familias de la 1.2.0 deje la lista de la 1.1.2
+    # (FR-010 de la 008). `backup_settings` (tramo 2) va aquí y no en
+    # `backups`: sus ajustes son a dónde van los backups y cuándo envejecen,
+    # y `backups` es de la 1.1.2 y no puede ganar tools.
+    Familia("mounts",
+            "Supervisor network mounts (CIFS/NFS) and local disk mounts for "
+            "backups, media and share, and the Supervisor's backup settings.",
+            "1.2.0", True, ("mounts", "backup_settings")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

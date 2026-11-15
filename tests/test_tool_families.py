@@ -215,6 +215,16 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("repair_flows"), "repair_flows")
         self.assertEqual(familia_de_modulo("repairs"), "diagnostics")
         self.assertEqual(validar_desactivadas(["repair_flows"]), frozenset({"repair_flows"}))
+    def test_mounts_es_de_la_1_2_0(self) -> None:
+        # Spec 019, FR-016 (research R-1): los montajes de red y los ajustes
+        # de backup del Supervisor, en una familia propia de la 1.2.0. El
+        # tramo 1 trae el módulo `mounts`; el 2 añade `backup_settings`.
+        familia = FAMILIAS["mounts"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("mounts", "backup_settings"))
+        self.assertEqual(familia_de_modulo("mounts"), "mounts")
+        self.assertEqual(familia_de_modulo("backup_settings"), "mounts")
 
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")

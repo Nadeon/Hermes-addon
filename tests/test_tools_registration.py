@@ -821,6 +821,22 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_start_repair_fix": ("----", "Start repair fix (Home Assistant)"),
     "ha_continue_repair_fix": ("-D--", "Continue repair fix (Home Assistant)"),
     "ha_abort_repair_fix": ("--I-", "Abort repair fix (Home Assistant)"),
+    # Spec 019, tramo 1 (contracts/tools.md): montajes, familia `mounts`. Las
+    # cuatro con token se anuncian destructivas; crear no es idempotente
+    # (prefijo `sv_create_`); recargar ni lee solo ni destruye. Ninguna sale a
+    # internet: el NAS está en la red local.
+    "sv_list_mounts": ("R-I-", "List mounts (Supervisor)"),
+    "sv_create_mount": ("-D--", "Create mount (Supervisor)"),
+    "sv_update_mount": ("-DI-", "Update mount (Supervisor)"),
+    "sv_delete_mount": ("-DI-", "Delete mount (Supervisor)"),
+    "sv_reload_mount": ("--I-", "Reload mount (Supervisor)"),
+    "sv_set_default_backup_mount": ("-DI-", "Set default backup mount (Supervisor)"),
+    # Tramo 2: ajustes de backup. Ninguna pide token (research R-7):
+    # leer es de solo lectura; cambiar `days_until_stale` y releer, ni de
+    # solo lectura ni destructivas, e idempotentes.
+    "sv_get_backup_settings": ("R-I-", "Get backup settings (Supervisor)"),
+    "sv_set_backup_settings": ("--I-", "Set backup settings (Supervisor)"),
+    "sv_reload_backups": ("--I-", "Reload backups (Supervisor)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -846,7 +862,22 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "ha_get_repair", "ha_start_repair_fix", "ha_continue_repair_fix",
         "ha_abort_repair_fix",
     },
+    "mounts": {
+        "sv_list_mounts", "sv_create_mount", "sv_update_mount",
+        "sv_delete_mount", "sv_reload_mount", "sv_set_default_backup_mount",
+        "sv_get_backup_settings", "sv_set_backup_settings", "sv_reload_backups",
+    },
 }
+
+# Las de la spec 019, tramo 1 (montajes, CAP-083).
+_MOUNTS_019 = (
+    "sv_list_mounts", "sv_create_mount", "sv_update_mount", "sv_delete_mount",
+    "sv_reload_mount", "sv_set_default_backup_mount",
+)
+# Las de la spec 019, tramo 2 (ajustes de backup, misma familia).
+_BACKUP_SETTINGS_019 = (
+    "sv_get_backup_settings", "sv_set_backup_settings", "sv_reload_backups",
+)
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
 _LOGS_013 = (
@@ -1060,6 +1091,17 @@ class TestToolTitles:
                                   "confirmation_token"]),
             "required": esperado["ha_continue_config_entry_flow"]["required"],
         }
+        # Novena diferencia permitida, de la spec 019 (FR-014 y FR-017 de la
+        # 019, FR-066 de la 008): `sv_create_backup_full` y
+        # `sv_create_backup_partial` ganan `location`, OPCIONAL, para elegir
+        # el montaje. Sin ella la carga y la respuesta son las de la 1.1.2 (lo
+        # comprueba `test_tools_supervisor.TestUbicacionDelBackup`); nunca
+        # entra en `required`.
+        for nombre in ("sv_create_backup_full", "sv_create_backup_partial"):
+            esperado[nombre] = {
+                "properties": sorted([*esperado[nombre]["properties"], "location"]),
+                "required": esperado[nombre]["required"],
+            }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
         distintos = []
@@ -1128,7 +1170,7 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert {"generic_commands", "system_diagnostics"} <= set(nuevas)
+        assert {"generic_commands", "system_diagnostics", "mounts"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1320,6 +1362,80 @@ class TestHostSystem013:
                     and e.family == "supervisor"]
         assert len(con_boot) == 2
         assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+
+
+# ── Spec 019, tramo 1: montajes del Supervisor (FR-016, SC-001; T011) ────────
+
+
+class TestMontajes019:
+    """Las seis tools de montajes se registran por defecto; las cuatro que
+    piden token se anuncian destructivas y la de lectura `readOnlyHint`; con
+    `mounts` apagada no existe ninguna y sus rutas siguen `dedicated`."""
+
+    _CON_TOKEN = ("sv_create_mount", "sv_update_mount", "sv_delete_mount",
+                  "sv_set_default_backup_mount")
+
+    def test_registradas_y_sus_hints(self):
+        tools = _real_registry()
+        for nombre in _MOUNTS_019:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.open_world_hint is False, nombre
+            con_token = "confirmation_token" in tools[nombre].parameters.get(
+                "properties", {})
+            assert con_token == (nombre in self._CON_TOKEN), nombre
+            assert ann.destructive_hint == con_token, nombre
+        assert tools["sv_list_mounts"].annotations.read_only_hint is True
+        recargar = tools["sv_reload_mount"].annotations
+        assert (recargar.read_only_hint, recargar.destructive_hint,
+                recargar.idempotent_hint) == (False, False, True)
+
+    def test_ajustes_de_backup_registrados_y_sus_hints(self):
+        # Tramo 2 (T025): sin token; leer, de solo lectura; cambiar y releer,
+        # ni de solo lectura ni destructivas, e idempotentes.
+        tools = _real_registry()
+        for nombre in _BACKUP_SETTINGS_019:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.open_world_hint is False, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+            assert ann.read_only_hint is (nombre == "sv_get_backup_settings"), nombre
+        assert set(tools["sv_set_backup_settings"].parameters["properties"]) == {
+            "days_until_stale"}
+        assert tools["sv_set_backup_settings"].parameters["required"] == [
+            "days_until_stale"]
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _MOUNTS_019}
+        campos = {"name", "type", "usage", "server", "share", "path", "port",
+                  "version", "read_only", "username", "password", "device", "uuid",
+                  "confirmation_token"}
+        assert props == {
+            "sv_list_mounts": set(),
+            "sv_create_mount": campos,
+            "sv_update_mount": campos,
+            "sv_delete_mount": {"name", "confirmation_token"},
+            "sv_reload_mount": {"name"},
+            "sv_set_default_backup_mount": {"name", "confirmation_token"},
+        }
+        assert sorted(tools["sv_create_mount"].parameters["required"]) == [
+            "name", "type", "usage"]
+        assert tools["sv_update_mount"].parameters["required"] == ["name"]
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["mounts"])
+        assert [n for n in _MOUNTS_019 + _BACKUP_SETTINGS_019 if n in tools] == []
+        dedicadas = {e.tool for e in SUPERVISOR.values()
+                     if e.category == "dedicated" and e.family == "mounts"}
+        assert dedicadas == set(_MOUNTS_019 + _BACKUP_SETTINGS_019)
+        # `location` es de `backups` (1.1.2): sigue aunque `mounts` se apague.
+        assert "location" in tools["sv_create_backup_full"].parameters["properties"]
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

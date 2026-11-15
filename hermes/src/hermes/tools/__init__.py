@@ -273,6 +273,15 @@ def register_all_tools(
             safety_backup_window_minutes=safety_backup_window_minutes,
         )
 
+    # Spec 019: montajes de red y de disco del Supervisor (familia `mounts`,
+    # 1.2.0). Va después de `backups` porque es donde acaban los backups.
+    if _activa("mounts"):
+        from hermes.tools.mounts import register as register_mounts
+        register_mounts(mcp, ha_client)
+        # Tramo 2: los ajustes de backup del Supervisor, misma familia.
+        from hermes.tools.backup_settings import register as register_backup_settings
+        register_backup_settings(mcp, ha_client)
+
     # Centro de resolución del Supervisor (lee y descarta; nunca aplica
     # sugerencias) y backups de la integración `backup` de HA, que ven todas
     # las ubicaciones y no solo las locales del Supervisor.

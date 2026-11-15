@@ -192,6 +192,14 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # propósito (ver `_HINTS_CAMBIADOS_A_PROPOSITO` en
     # tests/test_tools_registration.py). Sigue idempotente, como en la 1.1.2.
     "ha_continue_config_entry_flow",
+    # Montajes del Supervisor (spec 019). Piden token y su nombre no lo
+    # delata: crear uno de backup puede pasar a ser el destino de TODOS los
+    # backups (también los safety backups); editar desmonta y puede quitar
+    # las credenciales; el montaje por defecto decide a dónde van los backups.
+    # `sv_delete_mount` ya lo cubre el prefijo `sv_delete_`.
+    "sv_create_mount",
+    "sv_update_mount",
+    "sv_set_default_backup_mount",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

@@ -1707,3 +1707,108 @@ class TestTerminologiaApps(unittest.TestCase):
             .read_text(encoding="utf-8"))
         for nombre in self._TOOLS:
             self.assertIn(nombre, fixture)
+# ── Spec 019, tramo 2: `location` en sv_create_backup_* (FR-014, FR-017) ─────
+
+
+class TestUbicacionDelBackup(unittest.IsolatedAsyncioTestCase):
+    """`location` opcional en `sv_create_backup_full` y
+    `sv_create_backup_partial`: sin ella, la carga y la respuesta son las de
+    la 1.1.2 (el Supervisor usa el montaje por defecto); con ella, va tal cual
+    y la respuesta y el log la nombran. `.cloud_backup`, listas vacías o con
+    repetidos y nombres de forma inválida se rechazan sin llamar.
+
+    Controles negativos (T030 a y b) en el mensaje del commit.
+    """
+
+    # Cargas de la 1.1.2, capturadas ANTES del cambio con este mismo cliente.
+    _CARGA_FULL_1_1_2 = {"name": "B", "background": True, "password": "x"}
+    _CARGA_PARTIAL_1_1_2 = {"name": "B", "background": True, "homeassistant": True,
+                            "password": "x", "addons": ["core_mosquitto"],
+                            "folders": ["share"]}
+    _RESPUESTA_1_1_2 = {"job_id": "job1", "status": "running",
+                        "poll_with": "sv_get_job_status"}
+
+    def setUp(self) -> None:
+        import tempfile
+
+        import hermes.tools.backups as backups_mod
+        from hermes.tools.backups import register
+
+        self._tmpdir = tempfile.mkdtemp()
+        datos = Path(self._tmpdir)
+        self._parches = [
+            patch.object(addons_mod, "_PENDING_JOBS_PATH", datos / "pending_jobs.json"),
+            patch.object(backups_mod, "_SAFETY_BACKUP_STATE_PATH",
+                         datos / "last_safety_backup.json"),
+        ]
+        for p in self._parches:
+            p.start()
+        self.client = _ClienteQueGraba()
+        self.client.set_sv_response("POST", "/backups/new/full", {"job_id": "job1"})
+        self.client.set_sv_response("POST", "/backups/new/partial", {"job_id": "job1"})
+        mcp = DummyMCP()
+        register(mcp, self.client, safety_backup_window_minutes=30)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        import shutil
+
+        for p in self._parches:
+            p.stop()
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    async def _full(self, **kw: Any) -> Any:
+        return await self.tools["sv_create_backup_full"]("B", password="x", **kw)
+
+    async def _partial(self, **kw: Any) -> Any:
+        return await self.tools["sv_create_backup_partial"](
+            "B", addons='["core_mosquitto"]', folders='["share"]', password="x", **kw)
+
+    async def test_sin_location_identico_a_la_1_1_2(self) -> None:
+        for kw in ({}, {"location": None}):
+            with self.subTest(kw=kw):
+                self.client.peticiones.clear()
+                self.assertEqual(await self._full(**kw), self._RESPUESTA_1_1_2)
+                self.assertEqual(await self._partial(**kw), self._RESPUESTA_1_1_2)
+                self.assertEqual([c for _, _, c in self.client.peticiones],
+                                 [self._CARGA_FULL_1_1_2, self._CARGA_PARTIAL_1_1_2])
+
+    async def test_con_location_tal_cual(self) -> None:
+        from structlog.testing import capture_logs
+
+        for location in ("nas_backups", ".local", ["nas_backups", ".local"]):
+            with self.subTest(location=location):
+                self.client.peticiones.clear()
+                with capture_logs() as eventos:
+                    full = await self._full(location=location)
+                    partial = await self._partial(location=location)
+                for r in (full, partial):
+                    self.assertEqual(r, {**self._RESPUESTA_1_1_2, "location": location})
+                self.assertEqual(
+                    [c for _, _, c in self.client.peticiones],
+                    [{**self._CARGA_FULL_1_1_2, "location": location},
+                     {**self._CARGA_PARTIAL_1_1_2, "location": location}])
+                empezados = [e for e in eventos if e["event"].endswith("_started")]
+                self.assertEqual([e["location"] for e in empezados], [location, location])
+
+    async def test_location_invalida_sin_llamada(self) -> None:
+        for location in (".cloud_backup", ["nas_backups", ".cloud_backup"], [], "",
+                         ["a", "a"], "../x", "con espacio", 7, ["ok", None],
+                         "x" * 65):
+            with self.subTest(location=location):
+                for tool in (self._full, self._partial):
+                    r = await tool(location=location)
+                    self.assertEqual(r["error"], "invalid_argument")
+                    self.assertIn("location", r["detail"])
+        self.assertEqual(self.client.peticiones, [])
+        r = await self._full(location=".cloud_backup")
+        self.assertIn(".cloud_backup", r["detail"])
+
+    async def test_error_del_supervisor_redactado(self) -> None:
+        for ruta in ("/backups/new/full", "/backups/new/partial"):
+            self.client.set_sv_response("POST", ruta, HAConnectionError(
+                "Supervisor error: nas_media is not a backup mount; token=abc123secreto"))
+        for tool in (self._full, self._partial):
+            r = await tool(location="nas_media")
+            self.assertIn("not a backup mount", r["error"])
+            self.assertNotIn("abc123secreto", r["error"])
