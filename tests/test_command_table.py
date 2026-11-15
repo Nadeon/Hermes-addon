@@ -396,6 +396,15 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
     ("GET", "/host/disks"): (
         "spec 013: lectura menor de CAP-085 (discos con particiones montables, "
         "para los montajes de la 019); sin tool en el research de la 008"),
+    ("GET", "/core/stats"): (
+        "spec 022: FR-076 de la 008 pide las estadÃ­sticas `read` en la tabla, "
+        "sin tool dedicada"),
+    ("GET", "/supervisor/stats"): (
+        "spec 022: FR-076 de la 008 pide las estadÃ­sticas `read` en la tabla, "
+        "sin tool dedicada"),
+    ("POST", "/host/reload"): (
+        "spec 022: CAP-084 la incluye pero FR-076 no le da tool; solo refresca "
+        "la informaciÃ³n del host (principio IX)"),
 }
 
 
@@ -586,7 +595,9 @@ class TestDiscoHostYOsDeLa013(unittest.TestCase):
             elif "solo lee" not in e.reason:
                 malas.append(f"{k}: el motivo no dice que solo lee: {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
-        self.assertEqual(set(_READ_013), set(_POR_LA_TABLA))
+        # Las de la 013 estÃ¡n en `_POR_LA_TABLA`; la 022 aÃ±adiÃ³ despuÃ©s las
+        # suyas (estadÃ­sticas y `/host/reload`).
+        self.assertLessEqual(set(_READ_013), set(_POR_LA_TABLA))
 
     def test_hardware_y_red_siguen_read(self) -> None:
         malas = sorted(
@@ -650,6 +661,69 @@ class TestMontajesDeLa019(unittest.TestCase):
         quedan = sorted(str(k) for k, e in ct.SUPERVISOR.items()
                         if "spec 019" in e.reason)
         self.assertEqual(quedan, [])
+
+
+# Spec 022, tramo 1 (data-model, «Entradas de la tabla que cambian»).
+_CONTROL_022: dict[tuple[str, str], str] = {
+    ("POST", "/core/start"): "sv_start_core",
+    ("POST", "/core/rebuild"): "sv_rebuild_core",
+    ("POST", "/core/options"): "sv_set_core_options",
+    ("POST", "/supervisor/reload"): "sv_reload_supervisor",
+    ("POST", "/supervisor/restart"): "sv_restart_supervisor",
+    ("POST", "/supervisor/repair"): "sv_repair_supervisor",
+    ("POST", "/supervisor/options"): "sv_set_supervisor_options",
+}
+_POR_LA_TABLA_022: dict[tuple[str, str], tuple[str, str]] = {
+    ("GET", "/core/stats"): ("read", "solo lee"),
+    ("GET", "/supervisor/stats"): ("read", "solo lee"),
+    ("POST", "/host/reload"): ("confirm", "no corta nada"),
+}
+
+
+class TestEntradasDeLa022(unittest.TestCase):
+    """FR-013 de la 022 (parte 1): las 7 rutas de CAP-084 con tool pasan a
+    `dedicated` (familia `system_control`); las estadísticas a `read` y
+    `/host/reload` a `confirm`, con su porqué en `_POR_LA_TABLA`; `/core/stop`
+    y los alias `/homeassistant/*` siguen `deny`. Quedan 4 «spec 022» (las de
+    CAP-087, del tramo 2).
+
+    Control negativo (T014 h): dejar `/supervisor/restart` como `deny` → cae
+    `test_siete_dedicadas` (y el de la genérica en test_tools_control_tabla).
+    """
+
+    def test_siete_dedicadas(self) -> None:
+        malas = []
+        for k, tool in _CONTROL_022.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "system_control", "CAP-084", f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_tres_por_la_tabla(self) -> None:
+        for k, (categoria, frase) in _POR_LA_TABLA_022.items():
+            with self.subTest(clave=k):
+                e = ct.SUPERVISOR[k]
+                self.assertEqual((e.category, e.family, e.cap, e.tool),
+                                 (categoria, "generic_commands", "CAP-084", None))
+                self.assertIn(frase, e.reason)
+                self.assertTrue(_POR_LA_TABLA[k].startswith("spec 022: "))
+
+    def test_parar_core_y_alias_siguen_deny(self) -> None:
+        self.assertEqual(ct.SUPERVISOR[("POST", "/core/stop")].category, "deny")
+        abiertas = sorted(str(k) for k, e in ct.SUPERVISOR.items()
+                          if k[1].startswith("/homeassistant/") and e.category != "deny")
+        self.assertEqual(abiertas, [])
+
+    def test_quedan_las_cuatro_del_tramo_2(self) -> None:
+        quedan = sorted(k for k, e in ct.SUPERVISOR.items() if "spec 022" in e.reason)
+        self.assertEqual(quedan, [
+            ("POST", "/resolution/check/{check}/options"),
+            ("POST", "/resolution/check/{check}/run"),
+            ("POST", "/resolution/healthcheck"),
+            ("POST", "/resolution/suggestion/{suggestion}"),
+        ])
 
 
 if __name__ == "__main__":

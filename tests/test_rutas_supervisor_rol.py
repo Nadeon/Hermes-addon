@@ -184,6 +184,15 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
         "/os/config/swap",
         "/os/datadisk/list",
     ),
+    # Spec 022 (tramo 1): las ayudas comunes de `system_control` reciben la
+    # ruta de cada tool; aquí, todas las que pueden recibir.
+    ("hermes.tools.system_control", "leer_version"): ("/core/info", "/supervisor/info"),
+    ("hermes.tools.system_control", "ejecutar_larga"): (
+        "/core/start", "/core/rebuild", "/supervisor/repair"),
+    ("hermes.tools.system_control", "opciones"): (
+        "/core/info", "/core/options", "/supervisor/info", "/supervisor/options"),
+    ("hermes.tools.system_control", "sv_reload_supervisor"): ("/supervisor/reload",),
+    ("hermes.tools.system_control", "sv_restart_supervisor"): ("/supervisor/restart",),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.

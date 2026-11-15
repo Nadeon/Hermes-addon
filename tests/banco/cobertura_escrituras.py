@@ -184,6 +184,12 @@ _SV_MONTAJES = (
     "la 014"
 )
 
+_SV_CONTROL = (
+    "controla Core o el Supervisor: el Supervisor del banco es un simulado que "
+    "solo reenvía a Core y no sobreviviría; se prueba con simuladores "
+    "(tests/fixtures/supervisor_control.py) y en la VM de la 014"
+)
+
 # Solo `fs_*` y `sv_*`: una `ha_*` que no se pueda ejecutar va a
 # `NO_EJECUTABLES_028` con su motivo, nunca aquí (lo vigila el invariante).
 FUERA_DEL_BANCO: dict[str, str] = {
@@ -222,4 +228,10 @@ FUERA_DEL_BANCO: dict[str, str] = {
     # no tiene backups ni montajes.
     "sv_set_backup_settings": _SV_MONTAJES,
     "sv_reload_backups": _SV_MONTAJES,
+    # Spec 022, tramo 1 (control de Core y del Supervisor).
+    **{t: _SV_CONTROL for t in (
+        "sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+        "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
+        "sv_set_supervisor_options",
+    )},
 }

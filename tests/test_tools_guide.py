@@ -991,6 +991,71 @@ class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("mounts", instrucciones(frozenset({"mounts"})))
 
 
+class TestTemaSystemControl(unittest.IsolatedAsyncioTestCase):
+    """Spec 022, FR-020 (tramo 1): tema `system_control` con las siete tools,
+    qué corta cada una y cuánto, las listas cerradas, los rechazos, lo que va
+    por la tabla y la receta «Core no arranca»; sus alias; el índice y las
+    instrucciones lo nombran solo con la familia activa; `supervisor` remite
+    a él.
+
+    Control negativo comprobado (T014): sin `jobs_in_progress` en el tema →
+    cae su subtest; sin la línea del índice → cae `test_indice_e_instrucciones`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("system_control")
+        self.assertIs(texto, _GUIDE["system_control"])
+        for palabra in ("sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+                        "sv_reload_supervisor", "sv_restart_supervisor",
+                        "sv_repair_supervisor", "sv_set_supervisor_options",
+                        # qué corta y cuánto
+                        "interrupts", "1-5 minutos", "30-90 s", "Minutos",
+                        # listas cerradas y rechazos
+                        "boot", "watchdog", "audio_input", "image", "refresh_token",
+                        "timezone", "country", "logging", "auto_update",
+                        "diagnostics", "channel", "not_allowed",
+                        "jobs_in_progress", "already_running", "blocked",
+                        "no_changes", "started", "verify_with",
+                        # por la tabla
+                        "/core/stats", "/supervisor/stats", "/host/reload",
+                        "/core/stop",
+                        # receta
+                        "Core no arranca", "sv_get_core_logs", "sv_check_core_config"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("core_control", "supervisor_control", "CORE_CONTROL"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `core` y `system` siguen llevando a `supervisor`, como en la 1.1.2.
+        self.assertEqual(await self.guide("core"), _GUIDE["supervisor"])
+        self.assertEqual(await self.guide("system"), _GUIDE["supervisor"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b", _GUIDE["system_control"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`system_control`", await self.guide())
+        self.assertIn("system_control", INSTRUCTIONS)
+        self.assertNotIn("system_control", instrucciones(frozenset({"system_control"})))
+
+    def test_supervisor_remite(self) -> None:
+        self.assertIn('hermes_guide("system_control")', _GUIDE["supervisor"])
+
+
 class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):
     """Spec 019, FR-018 (tramo 2): el tema `mounts` nombra las tres tools de
     ajustes de backup y `days_until_stale`; el tema `backups` explica

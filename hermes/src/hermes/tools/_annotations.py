@@ -200,6 +200,18 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "sv_create_mount",
     "sv_update_mount",
     "sv_set_default_backup_mount",
+    # Control de Core y del Supervisor (spec 022, research R-10). Reconstruir
+    # Core y reiniciar el Supervisor cortan el servicio; reparar borra
+    # imágenes y volúmenes sin usar; `boot=false` deja Home Assistant apagado
+    # tras reiniciar el host. Arrancar Core y las opciones del Supervisor no
+    # destruyen nada, pero piden token: invariante «pide token ⇔
+    # destructiva» (desviación de R-10, que las daba no destructivas).
+    "sv_start_core",
+    "sv_rebuild_core",
+    "sv_set_core_options",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
+    "sv_set_supervisor_options",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -232,6 +244,10 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
     # Es de solo lectura, pero no puede decir que no sale.
     "ha_get_system_health",
+    # Spec 022 (R-10): recargar el Supervisor vuelve a pedir las versiones
+    # disponibles a internet; repararlo descarga las imágenes que falten.
+    "sv_reload_supervisor",
+    "sv_repair_supervisor",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -264,6 +280,11 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # avanzarlo un paso.
     "ha_start_repair_fix",
     "ha_continue_repair_fix",
+    # Spec 022 (R-10): repetirlas vuelve a cortar el servicio (reconstruir
+    # Core, reiniciar o reparar el Supervisor), no deja el mismo estado.
+    "sv_rebuild_core",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

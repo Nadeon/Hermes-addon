@@ -383,6 +383,13 @@ def register_all_tools(
         from hermes.tools.repair_flows import register as register_repair_flows
         register_repair_flows(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Control de Core y del Supervisor (spec 022, CAP-084): arrancar,
+    # reconstruir y configurar Core; recargar, reiniciar, reparar y
+    # configurar el Supervisor. Todo lo que corta pide token.
+    if _activa("system_control"):
+        from hermes.tools.system_control import register as register_system_control
+        register_system_control(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

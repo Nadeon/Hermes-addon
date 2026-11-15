@@ -63,6 +63,14 @@ atan sus 13 argumentos tal como llegan (credenciales incluidas; desde la
 cambia la acción (el montaje actual, el por defecto y los backups
 afectados) va además en el `estado` del token. Las otras cinco de la 019
 no piden token. Ningún hallazgo.
+
+Recuento: 101 desde el tramo 1 de la 022, que trae seis tools con token:
+`sv_rebuild_core` ata `safe_mode`; `sv_set_core_options` y
+`sv_set_supervisor_options`, `options` normalizado (y, como `estado`, los
+valores actuales de esas claves); `sv_start_core`, `sv_restart_supervisor`
+y `sv_repair_supervisor` no tienen argumentos (su `estado` es el de Core o
+la lista vacía de jobs en curso). `sv_reload_supervisor` no pide token
+(FR-076 de la 008).
 """
 
 from __future__ import annotations
@@ -232,6 +240,13 @@ INVENTARIO: dict[str, dict[str, str]] = {
     # van además en el `estado`.
     "sv_delete_mount": {"name": A},
     "sv_set_default_backup_mount": {"name": A},
+    # ── control de Core y del Supervisor (spec 022, tramo 1) ────────────
+    "sv_start_core": {},
+    "sv_rebuild_core": {"safe_mode": A},
+    "sv_set_core_options": {"options": A},
+    "sv_restart_supervisor": {},
+    "sv_repair_supervisor": {},
+    "sv_set_supervisor_options": {"options": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -326,7 +341,8 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 95)
+        # Y las seis con token del tramo 1 de la 022.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 101)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -346,7 +362,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 95)
+        self.assertEqual(len(publicadas), 101)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

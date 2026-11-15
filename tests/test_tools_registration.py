@@ -837,6 +837,19 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_backup_settings": ("R-I-", "Get backup settings (Supervisor)"),
     "sv_set_backup_settings": ("--I-", "Set backup settings (Supervisor)"),
     "sv_reload_backups": ("--I-", "Reload backups (Supervisor)"),
+    # Spec 022, tramo 1 (research R-10): control de Core y del Supervisor,
+    # familia `system_control`. Ninguna es de solo lectura. Las seis con
+    # token se anuncian destructivas (invariante «pide token ⇔ destructiva»;
+    # R-10 daba no destructivas `sv_start_core` y `sv_set_supervisor_options`:
+    # desviación anotada en tasks.md). Reconstruir, reiniciar y reparar no
+    # son idempotentes; recargar y reparar salen a internet.
+    "sv_start_core": ("-DI-", "Start core (Supervisor)"),
+    "sv_rebuild_core": ("-D--", "Rebuild core (Supervisor)"),
+    "sv_set_core_options": ("-DI-", "Set core options (Supervisor)"),
+    "sv_reload_supervisor": ("--IO", "Reload supervisor (Supervisor)"),
+    "sv_restart_supervisor": ("-D--", "Restart supervisor (Supervisor)"),
+    "sv_repair_supervisor": ("-D-O", "Repair supervisor (Supervisor)"),
+    "sv_set_supervisor_options": ("-DI-", "Set supervisor options (Supervisor)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -866,6 +879,11 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_list_mounts", "sv_create_mount", "sv_update_mount",
         "sv_delete_mount", "sv_reload_mount", "sv_set_default_backup_mount",
         "sv_get_backup_settings", "sv_set_backup_settings", "sv_reload_backups",
+    },
+    "system_control": {
+        "sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+        "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
+        "sv_set_supervisor_options",
     },
 }
 
@@ -1436,6 +1454,66 @@ class TestMontajes019:
         assert dedicadas == set(_MOUNTS_019 + _BACKUP_SETTINGS_019)
         # `location` es de `backups` (1.1.2): sigue aunque `mounts` se apague.
         assert "location" in tools["sv_create_backup_full"].parameters["properties"]
+
+
+# ── Spec 022, tramo 1: control de Core y del Supervisor (FR-017, FR-018) ────
+
+_CONTROL_022 = (
+    "sv_start_core", "sv_rebuild_core", "sv_set_core_options",
+    "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
+    "sv_set_supervisor_options",
+)
+
+
+class TestControl022:
+    """Las siete tools de `system_control` se registran por defecto, con los
+    argumentos del contrato y los hints de R-10 (salvo la desviación de las
+    dos con token no destructivas, ver `_HINTS_NUEVAS_1_2_0`); con la familia
+    apagada no existe ninguna y sus rutas siguen `dedicated`.
+
+    Control negativo (T014): quitar `sv_rebuild_core` de
+    `_NON_IDEMPOTENT_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` y
+    `test_hints_de_r10`."""
+
+    def test_registradas_y_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _CONTROL_022}
+        assert props == {
+            "sv_start_core": {"confirmation_token"},
+            "sv_rebuild_core": {"safe_mode", "confirmation_token"},
+            "sv_set_core_options": {"options", "confirmation_token"},
+            "sv_reload_supervisor": set(),
+            "sv_restart_supervisor": {"confirmation_token"},
+            "sv_repair_supervisor": {"confirmation_token"},
+            "sv_set_supervisor_options": {"options", "confirmation_token"},
+        }
+        assert tools["sv_set_core_options"].parameters["required"] == ["options"]
+        assert tools["sv_rebuild_core"].parameters.get("required", []) == []
+
+    def test_hints_de_r10(self):
+        tools = _real_registry()
+        anotaciones = {n: tools[n].annotations for n in _CONTROL_022}
+        assert [n for n, a in anotaciones.items() if a.read_only_hint] == []
+        assert {n for n, a in anotaciones.items() if not a.idempotent_hint} == {
+            "sv_rebuild_core", "sv_restart_supervisor", "sv_repair_supervisor"}
+        assert {n for n, a in anotaciones.items() if a.open_world_hint} == {
+            "sv_reload_supervisor", "sv_repair_supervisor"}
+        for nombre in ("sv_rebuild_core", "sv_set_core_options",
+                       "sv_restart_supervisor", "sv_repair_supervisor"):
+            assert anotaciones[nombre].destructive_hint is True, nombre
+        # Recargar no pide token y no es destructiva.
+        assert anotaciones["sv_reload_supervisor"].destructive_hint is False
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["system_control"])
+        assert [n for n in _CONTROL_022 if n in tools] == []
+        dedicadas = {e.tool for e in SUPERVISOR.values()
+                     if e.category == "dedicated" and e.family == "system_control"}
+        assert dedicadas == set(_CONTROL_022)
+        # Las de la 1.1.2 del mismo área siguen.
+        assert {"sv_restart_core", "sv_reboot_host", "sv_get_core_info"} <= set(tools)
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

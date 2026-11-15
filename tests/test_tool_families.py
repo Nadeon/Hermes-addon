@@ -226,6 +226,19 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("mounts"), "mounts")
         self.assertEqual(familia_de_modulo("backup_settings"), "mounts")
 
+    def test_system_control_es_de_la_1_2_0(self) -> None:
+        # Spec 022, FR-017 (research R-1): el control de Core y del
+        # Supervisor, en una familia propia de la 1.2.0 y desactivable.
+        familia = FAMILIAS["system_control"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_control",))
+        self.assertEqual(familia_de_modulo("system_control"), "system_control")
+        # `supervisor` (1.1.2) no gana módulos.
+        self.assertEqual(FAMILIAS["supervisor"].modulos, ("addons", "supervisor"))
+        self.assertEqual(validar_desactivadas(["system_control"]),
+                         frozenset({"system_control"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

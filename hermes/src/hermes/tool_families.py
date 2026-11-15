@@ -149,6 +149,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "Supervisor network mounts (CIFS/NFS) and local disk mounts for "
             "backups, media and share, and the Supervisor's backup settings.",
             "1.2.0", True, ("mounts", "backup_settings")),
+    # Spec 022 (research R-1): arrancar, reconstruir y configurar Core, y
+    # recargar, reiniciar, reparar y configurar el Supervisor. Familia propia
+    # y no `supervisor` (1.1.2) para que apagar las de la 1.2.0 deje la lista
+    # de la 1.1.2 (FR-010 de la 008), y para que quien no quiera que un
+    # agente corte Core o el Supervisor la apague sin perder lo demás.
+    Familia("system_control",
+            "Start, rebuild and configure Home Assistant Core; reload, restart, "
+            "repair and configure the Supervisor.",
+            "1.2.0", True, ("system_control",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}
