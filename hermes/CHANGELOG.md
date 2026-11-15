@@ -304,7 +304,7 @@ la lista de tools es la de la 1.1.2.
   `unsupported_by_ha_version`.
 - **Tres tools nuevas de solo lectura, familia `recorder`**: la familia del
   recorder y las estadísticas de largo plazo; el mantenimiento de
-  estadísticas (spec 020) se sumará a ella.
+  estadísticas (spec 020, «Estadísticas y energía») se suma a ella.
   - `ha_get_recorder_info`: si el recorder graba, su cola y si migra la base;
     con `entity_id` (que tiene que existir), si esa entidad se graba y quién
     lo desactivó.
@@ -334,6 +334,49 @@ la lista de tools es la de la 1.1.2.
 - **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
   también la auditoría y la red por la genérica. La configuración del banco
   carga `system_health:`, `network:`, `recorder:` y `logbook:`.
+
+### Estadísticas y energía
+
+Spec 020 (en curso). Tramo 1: tres tools nuevas que ESCRIBEN en la base de
+estadísticas de largo plazo, en la familia `recorder` de la 029. Las tres en
+dos pasos (vista previa sin efecto y confirmación con token), y solo un
+backup que incluya la base de HA deshace lo que hacen.
+
+- **`ha_clear_statistics`**: borra de 1 a 100 estadísticas enteras (filas y
+  metadatos) o, con `start_time` y `end_time` (ISO 8601 con zona), las filas
+  que se solapan con ese periodo. La vista previa da los metadatos de cada
+  una y el periodo EFECTIVO por tabla, porque HA borra también la fila
+  horaria que empieza hasta una hora antes de `start_time` (y la de 5
+  minutos, hasta 5 minutos antes).
+- **`ha_change_statistics_unit`**: convierte todo el histórico de una
+  estadística a otra unidad de la misma clase (Wh → kWh). Antes del token
+  rechaza lo que HA aceptaría sin hacer nada: una estadística que no es del
+  recorder (`not_supported_for_source`), una unidad vieja que no es la
+  guardada (`unit_mismatch`, con la actual) o la misma unidad. HA lo aplica
+  desde la cola del recorder: la confirmación responde `queued: true` y dice
+  cómo comprobarlo.
+- **`ha_update_statistics_metadata`**: cambia la unidad y la clase guardadas
+  SIN convertir valores (para un aviso de «unidad cambiada» con los valores
+  ya bien). Envía siempre `unit_class`.
+- **Comunes**: un id que HA no conoce da `statistics_not_found` con la lista,
+  sin token. El token ata los argumentos normalizados (ids ordenados y sin
+  repetir, fechas en UTC) y los metadatos leídos en la vista previa: si
+  cambian antes de confirmar, `statistics_changed` y no se envía nada; si no
+  se pueden leer, no se ejecuta. Un `timeout` de HA da `ha_timeout` con el
+  aviso de que el trabajo puede seguir en la cola. Respuestas y errores
+  redactados; el log no lleva ids, unidades ni fechas.
+- **Familia `recorder`**: su descripción ya no dice «read only»; nombra el
+  mantenimiento. Quien la desactiva apaga también estas tres.
+- **Tabla de comandos**: `recorder/clear_statistics`,
+  `recorder/change_statistics_unit` y `recorder/update_statistics_metadata`
+  pasan de `deny` a `dedicated`; las genéricas los rechazan con
+  `use_dedicated_tool`.
+- **Guía**: el tema `recorder` explica el mantenimiento (dos pasos,
+  `queued`, convertir frente a solo cambiar la etiqueta, rango efectivo); la
+  frase «SOLO LECTURA» queda para el grupo de las tres lecturas.
+- **Banco de Core**: las tres se ejecutan contra HA Core real con
+  estadísticas que siembra el lector, que comprueba que la vista previa no
+  cambia nada y el efecto de cada confirmación.
 
 ### Banco de pruebas
 

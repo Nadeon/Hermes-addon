@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **251 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **254 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 251 herramientas
+## Qué puede hacer — 254 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -49,7 +49,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Espera de eventos** | 3 | Esperar a que ocurra algo, con filtros |
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
 | **Estado del sistema** | 5 | De solo lectura: el informe de salud del sistema (lo que enseña Ajustes → Sistema → Reparaciones → Información del sistema), si Home Assistant o el host piden reinicio, cuánto tardó cada integración en arrancar y los manifiestos de las integraciones. Familia `system_status`, nueva en 1.2.0 |
-| **Recorder** | 3 | De solo lectura: si el recorder está grabando (y si se graba una entidad), los problemas que Home Assistant ve en las estadísticas de largo plazo y los metadatos de las estadísticas que nombres. Familia `recorder`, nueva en 1.2.0; el mantenimiento de estadísticas se le sumará |
+| **Recorder** | 6 | Si el recorder está grabando (y si se graba una entidad), los problemas que Home Assistant ve en las estadísticas de largo plazo y los metadatos de las estadísticas que nombres (de solo lectura); y el mantenimiento de estadísticas con vista previa y confirmación: borrarlas (enteras o un periodo), convertir su unidad y corregir la unidad guardada. Familia `recorder`, nueva en 1.2.0 |
 | **Diagnóstico de Core** | 12 | El log del sistema de Home Assistant (errores agrupados, y limpiarlo), el log de errores en bruto cuando HA escribe uno, los niveles de log (leerlos y subir una integración a DEBUG para depurarla), validar automatizaciones y scripts antes de guardarlos, probar una condición, los diagnósticos de integraciones y dispositivos, y las notificaciones persistentes (listarlas y descartarlas) |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 

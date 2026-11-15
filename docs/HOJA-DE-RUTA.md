@@ -452,7 +452,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
-| 020 | Estadísticas y energía | 050, 054 | pendiente |
+| 020 | Estadísticas y energía | 050, 054 | en curso: tramo 1 (borrar estadísticas, cambiar la unidad y editar los metadatos, con dos pasos y prueba en el banco de Core); faltan ajustar sumas, importar y la energía |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
@@ -643,7 +643,9 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_call_ws_command` | banco de Core | ok | |
 | `ha_cancel_timer` | banco de Core | ok | |
 | `ha_cancel_wait` | banco de Core | ok | |
+| `ha_change_statistics_unit` | banco de Core | ok | |
 | `ha_change_timer` | banco de Core | ok | |
+| `ha_clear_statistics` | banco de Core | ok | |
 | `ha_clear_system_log` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
@@ -740,6 +742,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
+| `ha_update_statistics_metadata` | banco de Core | ok | |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_create_backup_full` | VM | pendiente | |
