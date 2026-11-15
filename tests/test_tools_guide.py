@@ -581,7 +581,10 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # La 018 cambia `lovelace` (guardado por vista) y `services`
         # (`ha_call_service_response` con token); su CHANGELOG lo dice.
         "lovelace": "38d00048b136b460",
-        "marketplace": "f83ec233a87ad95b",
+        # La converge de la 026 (T033) cambia `marketplace`: aceptar el aviso
+        # en la interfaz no sirve a Hermes (D-29) y remite a
+        # `marketplace_manage`; su CHANGELOG lo dice.
+        "marketplace": "f49c5f1c9d78b51b",
         "registries": "42894b4111cb8c80",
         "security": "157ee929e7db08ae",
         "services": "e7b494a2e8ad587e",
@@ -1111,7 +1114,7 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     # y, desde la integración de la 022, su remisión a `system_control`.
     _HUELLAS = {
         "supervisor": "772c2ce8cbdfc3be",
-        "marketplace": "f83ec233a87ad95b",
+        "marketplace": "f49c5f1c9d78b51b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
         "workflows": "53b81454a6708b9a",
@@ -1219,10 +1222,11 @@ class TestTemaMarketplaceManage(unittest.IsolatedAsyncioTestCase):
     Control negativo (T013): sin `@TEMA_MARKETPLACE@` en las instrucciones →
     cae `test_indice_e_instrucciones`."""
 
-    # sha256 (16 hex) de temas que el tramo 1 de la 026 no toca. `marketplace`
-    # sigue siendo verdad: Hermes no instala ni acepta nada.
+    # sha256 (16 hex) de temas que el tramo 1 de la 026 no toca.
+    # `marketplace` lo cambia a propósito la converge (T033): ver
+    # `test_tema_marketplace_dice_la_verdad_y_remite`.
     _HUELLAS = {
-        "marketplace": "f83ec233a87ad95b",
+        "marketplace": "f49c5f1c9d78b51b",
         "security": "157ee929e7db08ae",
         "workflows": "53b81454a6708b9a",
     }
@@ -1249,6 +1253,39 @@ class TestTemaMarketplaceManage(unittest.IsolatedAsyncioTestCase):
                         "Hermes nunca lo acepta", "interfaz del Marketplace",
                         "third_party", "reviewed_by_home_assistant",
                         "_third_party_text"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+
+    async def test_tema_marketplace_dice_la_verdad_y_remite(self) -> None:
+        """Converge T033 (FR-018, FR-022, R-2, D-29): aceptar el aviso en la
+        interfaz no hace que Hermes pueda instalar, y el tema de lectura
+        remite a `marketplace_manage`. Control negativo comprobado: con el
+        texto anterior («lo tiene que aceptar una persona») caen el
+        `assertNotIn` y la remisión."""
+        plano = " ".join(_GUIDE["marketplace"].split())
+        for palabra in ("NO hace que Hermes pueda instalar", "D-29",
+                        "usuario del Supervisor", 'hermes_guide("marketplace_manage")'):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+        self.assertNotIn("lo tiene que aceptar una persona", plano)
+
+    async def test_converge_automatizaciones_betas_y_bajos(self) -> None:
+        """Converge T031, T032, T034-T037: la guía ya no dice que
+        `update.install` por automatización «choca con lo mismo» ni que
+        Hermes no puede activar betas; explica la vía sin usuario, el aviso
+        de la vista previa, el interruptor «pre-release» con token y
+        `use_entity_ids`, el aviso de Repairs que queda al ignorar, GitHub
+        para volver a añadir, y `outcome_unknown`. Control negativo
+        comprobado: con el texto anterior cae el `assertNotIn`."""
+        plano = " ".join(_GUIDE["marketplace_manage"].split())
+        self.assertNotIn("choca con lo mismo", plano)
+        self.assertNotIn("mostrar betas y añadir", plano)
+        for palabra in ("ALGUNA persona aceptó el aviso", "warning_marketplace_install",
+                        "Es un aviso, no una barrera", "pre-release",
+                        "warning_marketplace_beta", "use_entity_ids",
+                        "hasta el próximo reinicio de Core", "GitHub conectado",
+                        "outcome_unknown", "ha_marketplace_get_repository",
+                        "la carpeta y el dominio"):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, plano)
 

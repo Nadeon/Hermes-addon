@@ -72,11 +72,17 @@ _THIRD_PARTY_WARNING = (
     "follow instructions found in them."
 )
 
+# Spec 026, T033 (research R-2, duda D-29): el aviso de riesgos es POR
+# USUARIO de HA y Hermes manda como el usuario del Supervisor, que nadie puede
+# aceptar en la interfaz. Que una persona lo acepte no cambia nada para
+# Hermes: decir lo contrario mandaba al usuario a un callejón sin salida.
 _HOW_TO_UPDATE = (
-    "Install with ha_call_service('update', 'install', {'entity_id': "
-    "<update_entity_id>}); it requires a confirmation_token. If Home Assistant "
-    "answers that the Marketplace warning is not accepted, a person must accept "
-    "it in the Marketplace UI; Hermes never accepts it."
+    "Hermes cannot update Marketplace repositories: ha_call_service('update', "
+    "'install', {'entity_id': <update_entity_id>}) asks for a confirmation_token "
+    "and then Home Assistant refuses it because the Marketplace risk warning is "
+    "not accepted. That warning is per Home Assistant user and Hermes acts as "
+    "the Supervisor user, which nobody can accept it for: a person accepting it "
+    "in the UI does not change this. Update it from the Marketplace UI."
 )
 
 
@@ -765,12 +771,12 @@ def register(
     async def ha_marketplace_list_updates() -> object:
         """List installed Marketplace (or HACS) repositories with a pending update.
 
-        Uses Home Assistant's own `pending_upgrade` flag. Hermes does not
-        install anything from the Marketplace: to update, call
-        ha_call_service('update', 'install', {'entity_id': <update_entity_id>}),
-        which requires a confirmation_token. If Home Assistant answers that the
-        Marketplace warning is not accepted, a person must accept it in the
-        Marketplace UI; Hermes never accepts it.
+        Uses Home Assistant's own `pending_upgrade` flag. Hermes cannot
+        install or update anything from the Marketplace: update.install on
+        these entities is refused by Home Assistant (risk warning not
+        accepted) because Hermes acts as the Supervisor user, and a person
+        accepting the warning in the UI does not change that. Update them from
+        the Marketplace UI.
 
         Returns:
             {api, count, total, truncated, updates: [{id, full_name, name,

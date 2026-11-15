@@ -30,6 +30,13 @@ HA exige que el usuario de HA que manda el comando haya aceptado el aviso de
 riesgos del Marketplace, y el de Hermes (el del Supervisor) no puede
 aceptarlo (DESVIACIÓN DV-1 de la 026, duda D-29). Estas cinco no lo exigen.
 
+Converge (T031, T032): esa protección de HA tiene dos huecos que Hermes no
+puede cerrar aquí. Una automatización o un script (sin usuario) instalan con
+`update.install` si alguna persona aceptó el aviso: la vista previa de
+crearlos lo avisa (`tools/ha.py`, `menciona_update_install`). Y el interruptor
+«pre-release» de cada repositorio activa betas sin el aviso: por
+`ha_call_service` pide token (`_marketplace_write.comprobar_interruptor_beta`).
+
 Los textos de terceros (`name`, `reason`, `link`, `removal_type`) salen
 recortados y marcados con `_third_party_text`, y toda la salida pasa por
 `tapar_en_estructura` (la parte de usuario de cualquier URL, como en la 030).
@@ -41,7 +48,7 @@ import functools
 from typing import Any
 
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
-from hermes.ha import HAClient
+from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
@@ -91,6 +98,23 @@ _NO_ENCONTRADO = {
 _IRREVERSIBLE = (
     "Home Assistant 2026.11 has no command to undo it (neither has Hermes)."
 )
+
+
+def _resultado_desconocido(causa: BaseException | None) -> bool:
+    """True si Hermes no puede saber si HA hizo la desinstalación (T037).
+
+    Un plazo agotado o una conexión caída esperando la respuesta no dicen
+    nada del resultado. Una respuesta de error de HA (con `code`) sí es un
+    error de verdad, y una orden que seguro no salió (`sent is False`,
+    contrato de la 022) no hizo nada."""
+    if causa is None:
+        return False
+    if getattr(causa, "sent", None) is False:
+        return False
+    if isinstance(causa, TimeoutError):
+        return True
+    return (isinstance(causa, HAConnectionError)
+            and causa.code is None and causa.status is None)
 
 
 def register(
@@ -318,6 +342,15 @@ def register(
                     "removed from the catalogue and does not take it off the "
                     "list. Nothing is installed, uninstalled or updated."
                 ),
+                # T034: `marketplace/repository/ignore` solo añade el nombre a
+                # `ignored_repositories`; el aviso `removed_<id>` ya creado
+                # (no persistente) sigue en Repairs hasta el próximo
+                # reinicio de Core, y entonces ya no se vuelve a crear.
+                "repairs_issue": (
+                    "An existing Repairs issue about this removal is NOT "
+                    "deleted now: it stays until Home Assistant Core restarts, "
+                    "and then it is not created again."
+                ),
                 "reversible": False,
                 "note": _IRREVERSIBLE,
                 "backup": SIN_BACKUP,
@@ -413,7 +446,8 @@ def register(
                     "Home Assistant takes this custom repository off the "
                     "Marketplace list. It is not installed, so no file under "
                     "/config changes. It can be added again later from the "
-                    "Marketplace UI."
+                    "Marketplace UI, which needs GitHub connected in the "
+                    "Marketplace."
                 ),
                 "backup": SIN_BACKUP,
                 **terceros(repo.get("custom")),
@@ -549,7 +583,9 @@ def register(
             Without token: {"confirmation_token", "preview"}, or an error:
             repository_not_found, repository_not_installed, repository_in_use.
             With token: {"result": "ok", "repository", "restart_required",
-            "backup"}, or backup_failed (nothing sent to Home Assistant).
+            "backup"}, backup_failed (nothing sent to Home Assistant), or
+            outcome_unknown (no answer in time: it may have been uninstalled;
+            read it back with ha_marketplace_get_repository).
         """
         tool = "ha_marketplace_uninstall"
         try:
@@ -592,10 +628,15 @@ def register(
                     "hint": "Delete them first with ha_delete_config_entry, "
                             "then ask for the preview again.",
                 }, categoria)
+        # T036: también la carpeta y el dominio. Si cambian entre la vista
+        # previa y la confirmación, `removes.path` ya no es lo que se borraría
+        # y el token no vale.
         estado = {
             "full_name": repo.get("full_name"),
             "category": categoria,
             "installed_version": repo.get("installed_version"),
+            "domain": domain,
+            "local_path": repo.get("local_path"),
         }
 
         if not confirmation_token:
@@ -626,7 +667,17 @@ def register(
             preview = {
                 "action": "uninstall",
                 "repository": {**resumen(repo), "domain": domain},
-                "removes": lo_que_quita(repo),
+                "removes": {
+                    **lo_que_quita(repo),
+                    # T036: con GitHub conectado (o un tema sin nombre de
+                    # fichero) HA refresca el repositorio justo antes de
+                    # borrar (`marketplace_repository_uninstall`).
+                    "path_note": (
+                        "With GitHub connected, Home Assistant refreshes the "
+                        "repository just before deleting, which may recompute "
+                        "this path."
+                    ),
+                },
                 "restart": reinicio_probable(repo),
                 "may_break": lo_que_puede_romper(repo),
                 "effect": (
@@ -671,11 +722,37 @@ def register(
             await ws_escritura(ha_client, "repository/uninstall",
                                carga_desinstalar(repository_id), ESPERA_DESINSTALAR)
         except ErrorMarketplace as exc:
+            causa = exc.__cause__
+            if _resultado_desconocido(causa):
+                # T037: plazo agotado o conexión caída con la orden enviada. El
+                # manejador sigue corriendo en HA: puede haber desinstalado.
+                # Contrato de `sent` (spec 022): `None` = no se sabe. El token
+                # queda gastado para que un reintento no lo repita a ciegas.
+                await complete_confirmation_token(
+                    confirmation_token, success=False, error="outcome_unknown")
+                registrar(tool, "outcome_unknown", categoria)
+                return {
+                    "error": "outcome_unknown",
+                    "detail": (
+                        "Home Assistant did not answer in time. The uninstall "
+                        "MAY have happened anyway: it keeps running in Home "
+                        "Assistant."
+                    ),
+                    "sent": getattr(causa, "sent", None),
+                    "backup": hecho_backup,
+                    "hint": (
+                        "Read it back with ha_marketplace_get_repository "
+                        "(installed) before trying again."
+                    ),
+                }
             await complete_confirmation_token(
                 confirmation_token, success=False, error=str(exc.payload.get("error")))
             registrar(tool, "error", categoria)
             # El backup ya está hecho: que se sepa a qué volver.
-            return {**exc.payload, "backup": hecho_backup}
+            fallo = {**exc.payload, "backup": hecho_backup}
+            if getattr(causa, "sent", None) is False:
+                fallo["sent"] = False
+            return fallo
 
         result: dict[str, Any] = {"result": "ok", "backup": hecho_backup}
         try:
