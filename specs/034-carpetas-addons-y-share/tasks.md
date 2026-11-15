@@ -284,15 +284,58 @@ separado. Cada uno necesita el anterior integrado en la rama.
 
 ## Tramo 4 — guía, documentación y versión
 
-- [ ] T036 [US5] Versión 1.2.1: tests en `tests/test_addon_manifest.py` (la entrada que se comprueba es la de `__version__`; `SECCIONES_1_2_1` sustituye a `SECCIONES_1_2_0` en `test_la_entrada_tiene_las_secciones_del_programa`, con secciones `### Carpetas /addons y /share`, `### Privilegios al instalar y reconstruir` y `### Pruebas`, y el comentario de por qué); después `hermes/config.yaml` (`version: "1.2.1"`), `hermes/src/hermes/__init__.py`, `HA_CORE_LAST_TESTED_IN_HERMES` en `config.py` y la entrada `## [1.2.1] — <fecha de publicación>` encima de la 1.2.0 en `hermes/CHANGELOG.md` (las siete tools y la familia, el montaje nuevo y su aviso en el log del Supervisor, sin backup automático, apps instaladas protegidas, privilegios en instalar y reconstruir, invariantes, prueba en vivo pendiente) (FR-034, FR-033)
-- [ ] T037 [P] [US2] Guía, tests en `tests/test_tools_guide.py` (`TestTemaFolders`): tema `folders` que nombra las siete tools, el argumento `folder`, los dos pasos con huella, que no hay backup y cómo hacerlo, el aviso de `/addons`, que no se borra ni mueve una app instalada (desinstalar antes), la lista negra, los puntos de montaje de `/share`, que una carpeta en la que otra app está escribiendo nunca casa la huella (parar antes esa app); alias `addons`, `share`, `local_apps`, `carpetas`; el índice lo nombra; con `addons_share` apagada no aparece ni en el índice ni en las instrucciones; las instrucciones dicen `fs_` (ficheros de /config, /addons y /share) solo con la familia activa (y el texto de antes con ella apagada); el tema `filesystem` remite a `folders`; `supervisor` y `app_store` nombran `privileges`; `test_no_nombra_tools_que_no_existen` en verde; huellas de `filesystem`, `supervisor` y `app_store` recalculadas y las demás iguales (FR-032)
-- [ ] T038 [US2] `hermes/src/hermes/tools/guide.py`: tema `folders` en `_TEMAS` (familia `addons_share`), alias, cabecera condicional y menciones. T037 en verde (FR-032)
-- [ ] T039 [P] `hermes/DOCS.md`: recuento (366), la familia `addons_share` en la lista de `tool_families_disabled`, el montaje nuevo (`addons`, con escritura: qué permite, que el Supervisor lo da por heredado y lo avisa en su log, y que se puede apagar la familia) y el apartado de uso de las dos carpetas (FR-033)
-- [ ] T040 [P] `SECURITY.md`: superficie nueva en el modelo de seguridad (escritura en `/addons`, código que el Supervisor construye y ejecuta; `/share` y los NAS montados; dos pasos con huella; apps instaladas protegidas; sin backup automático; privilegios en instalar y reconstruir como salvaguarda frente a una app local maliciosa; la lista negra por nombre y que el resto del contenido sale sin redactar, como en `/config`) (FR-033)
-- [ ] T041 [P] `README.md` y `README.es.md` sincronizados: 366 tools en la entradilla y en el título de la sección, fila «/addons and /share» / «/addons y /share» (7, familia `addons_share`, nueva en 1.2.1), la familia en las dos listas de familias y en la fila de `tool_families_disabled` (FR-033)
-- [ ] T042 [P] `docs/HOJA-DE-RUTA.md`: sección «Hecho en 1.2.1 — carpetas /addons y /share (spec 034)» en «Plan por versiones»; casillas en «Pruebas manuales pendientes» (las cuatro que modifican en la VM y después en una instalación real; borrar una app local instalada; el aviso del tipo heredado en el log del Supervisor; los privilegios en `sv_install_addon` de una app local), y la duda de pasar a `local_apps` en «1.3.0 y posteriores»; `tests/test_matriz_pruebas.py` en verde (FR-033)
-- [ ] T043 Control negativo del tramo 4: (a) dejar `version` en 1.2.0 en `config.yaml` → cae la coherencia de versiones; (b) quitar una sección de `SECCIONES_1_2_1` del CHANGELOG → cae su test; (c) registrar el tema `folders` sin familia → caen los de la familia apagada; (d) no cambiar la cabecera → cae el de `fs_`. Restaurar y comprobar verde
-- [ ] T044 Cierre del tramo 4: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff completo de la rama (principio VIII: nada de hostnames, IPs, slugs de una instalación, rutas `C:\`), `README.md` y `README.es.md` con el mismo recuento que el registro real (`len(_real_registry())` sin `test_progress`), commit con los recuentos de T043
+- [x] T036 [US5] Versión 1.2.1: tests en `tests/test_addon_manifest.py` (la entrada que se comprueba es la de `__version__`; `SECCIONES_1_2_1` sustituye a `SECCIONES_1_2_0` en `test_la_entrada_tiene_las_secciones_del_programa`, con secciones `### Carpetas /addons y /share`, `### Privilegios al instalar y reconstruir` y `### Pruebas`, y el comentario de por qué); después `hermes/config.yaml` (`version: "1.2.1"`), `hermes/src/hermes/__init__.py`, `HA_CORE_LAST_TESTED_IN_HERMES` en `config.py` y la entrada `## [1.2.1] — <fecha de publicación>` encima de la 1.2.0 en `hermes/CHANGELOG.md` (las siete tools y la familia, el montaje nuevo y su aviso en el log del Supervisor, sin backup automático, apps instaladas protegidas, privilegios en instalar y reconstruir, invariantes, prueba en vivo pendiente) (FR-034, FR-033)
+- [x] T037 [P] [US2] Guía, tests en `tests/test_tools_guide.py` (`TestTemaFolders`): tema `folders` que nombra las siete tools, el argumento `folder`, los dos pasos con huella, que no hay backup y cómo hacerlo, el aviso de `/addons`, que no se borra ni mueve una app instalada (desinstalar antes), la lista negra, los puntos de montaje de `/share`, que una carpeta en la que otra app está escribiendo nunca casa la huella (parar antes esa app); alias `addons`, `share`, `local_apps`, `carpetas`; el índice lo nombra; con `addons_share` apagada no aparece ni en el índice ni en las instrucciones; las instrucciones dicen `fs_` (ficheros de /config, /addons y /share) solo con la familia activa (y el texto de antes con ella apagada); el tema `filesystem` remite a `folders`; `supervisor` y `app_store` nombran `privileges`; `test_no_nombra_tools_que_no_existen` en verde; huellas de `filesystem`, `supervisor` y `app_store` recalculadas y las demás iguales (FR-032)
+- [x] T038 [US2] `hermes/src/hermes/tools/guide.py`: tema `folders` en `_TEMAS` (familia `addons_share`), alias, cabecera condicional y menciones. T037 en verde (FR-032)
+- [x] T039 [P] `hermes/DOCS.md`: recuento (366), la familia `addons_share` en la lista de `tool_families_disabled`, el montaje nuevo (`addons`, con escritura: qué permite, que el Supervisor lo da por heredado y lo avisa en su log, y que se puede apagar la familia) y el apartado de uso de las dos carpetas (FR-033)
+- [x] T040 [P] `SECURITY.md`: superficie nueva en el modelo de seguridad (escritura en `/addons`, código que el Supervisor construye y ejecuta; `/share` y los NAS montados; dos pasos con huella; apps instaladas protegidas; sin backup automático; privilegios en instalar y reconstruir como salvaguarda frente a una app local maliciosa; la lista negra por nombre y que el resto del contenido sale sin redactar, como en `/config`) (FR-033)
+- [x] T041 [P] `README.md` y `README.es.md` sincronizados: 366 tools en la entradilla y en el título de la sección, fila «/addons and /share» / «/addons y /share» (7, familia `addons_share`, nueva en 1.2.1), la familia en las dos listas de familias y en la fila de `tool_families_disabled` (FR-033)
+- [x] T042 [P] `docs/HOJA-DE-RUTA.md`: sección «Hecho en 1.2.1 — carpetas /addons y /share (spec 034)» en «Plan por versiones»; casillas en «Pruebas manuales pendientes» (las cuatro que modifican en la VM y después en una instalación real; borrar una app local instalada; el aviso del tipo heredado en el log del Supervisor; los privilegios en `sv_install_addon` de una app local), y la duda de pasar a `local_apps` en «1.3.0 y posteriores»; `tests/test_matriz_pruebas.py` en verde (FR-033)
+- [x] T043 Control negativo del tramo 4: (a) dejar `version` en 1.2.0 en `config.yaml` → cae la coherencia de versiones; (b) quitar una sección de `SECCIONES_1_2_1` del CHANGELOG → cae su test; (c) registrar el tema `folders` sin familia → caen los de la familia apagada; (d) no cambiar la cabecera → cae el de `fs_`. Restaurar y comprobar verde
+- [x] T044 Cierre del tramo 4: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff completo de la rama (principio VIII: nada de hostnames, IPs, slugs de una instalación, rutas `C:\`), `README.md` y `README.es.md` con el mismo recuento que el registro real (`len(_real_registry())` sin `test_progress`), commit con los recuentos de T043
+
+**Notas del tramo 4** (al cerrar):
+
+- Línea base en `bc55d4e` (punta del tramo 3): 5514 passed, 216 skipped,
+  6 failed (los 6 conocidos de Windows).
+- T036: `SECCIONES_1_2_1` (`### Carpetas /addons y /share`, `### Privilegios
+  al instalar y reconstruir`, `### Pruebas`) sustituye a `SECCIONES_1_2_0`;
+  la entrada lleva además `### Desviaciones`. `HA_CORE_LAST_TESTED` se queda
+  en 2026.11.1 (no hay prueba en vivo de la 1.2.1); solo sube la pareja
+  `HA_CORE_LAST_TESTED_IN_HERMES`.
+- T037–T038, desviación: `addons` sigue siendo alias de `supervisor` (lo
+  fija `test_aliases_resolve_to_canonical` desde la 1.1.2, igual que
+  `backup` o `host`); los alias de `folders` son `share`, `local_apps`,
+  `carpetas`, `folder`, `addons_share` y `addons_folder`. El índice
+  (`_OVERVIEW`) y los temas son fijos para todas las familias (`register`
+  no recibe las familias); con `addons_share` apagada desaparecen el tema de
+  la lista de las instrucciones y la cabecera nueva, y el tema dice qué pasa
+  con la familia apagada. Con la familia apagada las instrucciones son
+  byte a byte las de la 1.2.0 (huella `6ce3dfc48e813d80`); con todas
+  activas, `a618698e69c75890`. Con `filesystem` apagada y `addons_share`
+  activa la cabecera dice `fs_` (ficheros de /addons y /share): por eso
+  `test_varias_familias_de_la_1_1_2` comprueba ahora «sin /config» y «sin
+  `fs_`» solo apagando también `addons_share`. Huellas recalculadas:
+  `filesystem` (remite a `folders`), `supervisor` y `app_store`
+  (privilegios), en las cuatro clases que las fijan; las demás, iguales.
+- T039–T042: DOCS.md (apartado «Carpetas /addons y /share (1.2.1)» con el
+  montaje y su aviso), SECURITY.md (dos viñetas en el modelo), los dos
+  README (viñeta de seguridad y privilegios en las filas de add-ons y de
+  la tienda; el recuento, la fila y las listas ya venían de los tramos 1 y
+  2) y la hoja de ruta («Hecho en 1.2.1», cuatro casillas y las dudas
+  D-31, `local_apps`, y D-32, la redacción por nombre de fichero).
+- T043, controles negativos (tests que caen): (a) `version` en 1.2.0 en
+  `config.yaml` → 1 (`test_la_version_del_codigo_coincide_con_la_del_manifiesto`);
+  (b) sin `### Pruebas` en la entrada → 1
+  (`test_la_entrada_tiene_las_secciones_del_programa`); (c) el tema
+  `folders` en `_TEMAS` sin familia → 4 (`test_instrucciones_con_y_sin_la_familia`,
+  `test_cabecera_dice_fs_de_las_carpetas`, `test_con_todas_activas_no_cambia`
+  y `test_todas_desactivadas_y_apartados_seguidos`); (d) sin cambiar la
+  cabecera → 3 (`test_cabecera_dice_fs_de_las_carpetas`,
+  `test_con_todas_activas_no_cambia` y `test_varias_familias_de_la_1_1_2`).
+  Restaurado y en verde.
+- T044: suite completa con 5519 passed, 216 skipped y solo los 6 fallos
+  conocidos; diff de la rama revisado (principio VIII).
 
 ## Dependencias
 

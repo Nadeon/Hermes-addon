@@ -37,7 +37,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Integrations** | 13 | Config entries and their config flows, options flows included |
 | **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
 | **Lovelace** | 10 | Dashboards and resources |
-| **Add-ons** | 12 | List, install, start, stop, update, read logs (also from previous boots) and statistics |
+| **Add-ons** | 12 | List, install, start, stop, update, read logs (also from previous boots) and statistics. Since 1.2.1 the install preview shows the privileges the app asks for (and, for a local app, what its `config.yaml` declares); if they change before confirming, nothing is installed |
 | **Backups** | 13 | Full and partial, create (optionally on a chosen backup mount) and restore. Also, read-only, the backups of Home Assistant's `backup` integration (HA 2025.1 or later) in every location (local, network, cloud), and its configuration without the encryption password |
 | **Supervisor and system** | 6 | Host and core info, validate configuration, restart |
 | **Mounts** | 9 | Supervisor network mounts (CIFS and NFS) and local disk mounts for backups, media and share: list, create, edit, delete, re-check and choose the default backup mount, always with a preview. Also the Supervisor's backup settings (when backups count as stale) and re-reading the backups of every location. CIFS credentials go in but never come out (not in responses, previews, errors or logs) |
@@ -59,7 +59,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Core diagnostics** | 12 | Home Assistant's system log (grouped errors, and clear it), the raw error log when HA writes one, log levels (read them, and raise an integration to DEBUG to troubleshoot it), validating automations and scripts before saving them, testing a condition, integration and device diagnostics, and persistent notifications (list and dismiss) |
 | **Integration flows** | 12 | Discovered integrations (list and ignore), the domains that can be set up with a config flow, an integration's title and system options (polling and new entities; disabling them asks for confirmation), config subentries (add, reconfigure, rename; deleting asks for confirmation) and reconfiguring an integration (every step asks for confirmation) |
 | **Repair flows** | 4 | One Repairs issue with its internal data (redacted), and its fix flow: open it, submit each step (every step asks for confirmation) or abort it |
-| **App store** | 9 | The Supervisor app store repositories: list them (with their apps and which are installed), add one (third-party code: two steps, the exact URL in the preview, the credentials in the URL hidden), remove one (two steps; refused if it is built-in or has installed apps), repair one and reload the store. The changelog and documentation of the store version of an app (third-party text, redacted, in chunks), whether it can be installed on this system, and rebuilding an installed app (two steps). Installing, updating and changing options now check first: availability, the changelog and the Supervisor's validation of the options. Family `app_store`, new in 1.2.0 |
+| **App store** | 9 | The Supervisor app store repositories: list them (with their apps and which are installed), add one (third-party code: two steps, the exact URL in the preview, the credentials in the URL hidden), remove one (two steps; refused if it is built-in or has installed apps), repair one and reload the store. The changelog and documentation of the store version of an app (third-party text, redacted, in chunks), whether it can be installed on this system, and rebuilding an installed app (two steps; since 1.2.1 the preview shows the app's privileges and any change before confirming cancels it). Installing, updating and changing options now check first: availability, the changelog and the Supervisor's validation of the options. Family `app_store`, new in 1.2.0 |
 | **Blueprints** | 5 | List the automation, script and template blueprints, preview the config a blueprint gives with some inputs, save a blueprint you write, import one from a URL (Home Assistant downloads it; the preview shows the whole YAML and it is saved only if it has not changed) and delete one nobody uses (saving, importing and deleting, with confirmation). Family `blueprints`, new in 1.2.0 |
 | **Automation assist** | 9 | Read only: the device triggers, conditions and actions a device offers (ready to paste into an automation, with their extra fields), what a target (entities, devices, areas, floors, labels) really covers and why, the names of the triggers, conditions and actions that apply to it, and waiting once for a trigger to fire (only triggers known to just listen). Family `automation_assist`, new in 1.2.0 |
 | **Core configuration** | 2 | Read and change Home Assistant's general configuration (name, location, units, time zone, currency, country, language and URLs), with a before-and-after preview. Family `core_config`, new in 1.2.0 |
@@ -551,6 +551,13 @@ See `config.yaml` for the full schema with valid ranges.
   tokens or passwords is refused or masked.
 - **`/config` filesystem**: anti-traversal, secret blacklist, *default-deny*
   allowlist under `.storage/`, *managed paths*, backup before every write.
+- **`/addons` and `/share`** (1.2.1): the same anti-traversal and blocked
+  file names as `/config`; every change in two steps, bound to a fingerprint
+  of what the preview saw; installed local apps, folder roots and mount
+  points cannot be deleted or moved; **no automatic backup** (the preview
+  gives the partial backup call to make first). Installing or rebuilding an
+  app shows the privileges it asks for, and any change before confirming
+  cancels it.
 - **Anti path-injection validation** of identifiers (slug, `entry_id`…) plus a
   central guard in the HA client.
 - **Security headers** (`X-Content-Type-Options`, `X-Frame-Options`,

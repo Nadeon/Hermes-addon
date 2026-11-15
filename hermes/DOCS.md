@@ -117,6 +117,44 @@ que nadie puede usar en la interfaz. Hazlo desde la interfaz del Marketplace.
 Por la misma razón, actualizar con la entidad `update` suele fallar desde
 Hermes con ese motivo, y Claude te lo dirá.
 
+**Carpetas /addons y /share (1.2.1).** Además de `/config`, Claude puede
+trabajar con dos carpetas más (familia `addons_share`): `/addons`, donde
+viven las apps locales (cada carpeta con un `config.yaml` es una app
+`local_<slug>`), y `/share`, la carpeta compartida entre apps. Puede listar,
+ver metadatos y leer texto; y escribir ficheros, crear carpetas, mover y
+borrar, **siempre en dos pasos**. Las reglas:
+
+- Las rutas pasan las mismas comprobaciones que en `/config`: nada de `..` ni
+  de symlinks que salgan de la carpeta. Los ficheros con nombre sensible
+  (`secrets.yaml`, claves, certificados, tokens, bases de datos) no se leen
+  nunca; el resto se devuelve tal cual, sin redactar, como en `/config`.
+- **No hay backup automático.** La vista previa lo dice y trae la llamada
+  para hacer antes un backup parcial (`addons/local` o `share`). Lo que se
+  borra o se sobrescribe aquí no se recupera desde Hermes.
+- El token se ata a lo que vio la vista previa: si el fichero o la carpeta
+  cambian antes de confirmar, no se hace nada. Una carpeta en la que otra app
+  está escribiendo no se puede borrar sin parar antes esa app.
+- En `/addons`, toda vista previa recuerda que el Supervisor construye y
+  ejecuta lo que hay ahí. La carpeta de una app local **instalada** no se
+  borra ni se mueve: hay que desinstalarla antes. Escribir dentro sí se
+  puede; el cambio se aplica al reconstruir la app.
+- La raíz de cada carpeta y los puntos de montaje (un NAS montado en
+  `/share`) no se borran ni se mueven.
+- Instalar o reconstruir una app (`sv_install_addon`, `sv_rebuild_addon`)
+  enseña en la vista previa los privilegios que pide (acceso completo al
+  hardware, a Docker o a la red del host, AppArmor desactivado, carpetas con
+  escritura…) y, para una app local, lo que declara su `config.yaml`. Si
+  cambian antes de confirmar, no se instala ni se reconstruye nada.
+
+Para eso Hermes monta `/addons` **con escritura** desde la 1.2.1. Usa el tipo
+de montaje `addons`, que el Supervisor da por heredado desde la 2026.07: al
+arrancar Hermes, el log del Supervisor dice que usa el tipo heredado `addons`
+en vez de `local_apps`. Es esperado y no afecta a nada; Hermes no usa
+`local_apps` porque un Supervisor anterior a la 2026.07 no lo conoce y
+rechazaría la app entera. Si no quieres que Claude toque esas carpetas, desactiva la familia
+`addons_share` (ver «Familias de tools»): sus tools desaparecen, aunque el
+montaje sigue.
+
 ## Límites y Claude Code
 
 Los límites por defecto están alineados con lo que aceptan los clientes de

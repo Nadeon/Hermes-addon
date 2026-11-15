@@ -269,6 +269,48 @@ report about one of them will be closed with a pointer to this section:
   - `/config` filesystem: anti-traversal (resolve + boundary check), secret
     blacklist, *default-deny* allowlist for `.storage/`, *managed paths* that are
     never writable, automatic backup before every write.
+  - **`/addons` and `/share`** (1.2.1, family `addons_share`): Hermes mounts
+    `/addons` with write access, and `/addons` holds the code of local apps,
+    which the Supervisor builds and runs. Writing there can therefore end up
+    as code running on the host with whatever privileges the app declares.
+    `/share` is shared with every other app and may hold mounted network
+    storage. The safeguards: paths go through the same anti-traversal
+    function as `/config` (same checks, a different root; a symlink leaving
+    the folder is refused, and deleting or moving a symlink acts on the link,
+    never its target); every write, folder creation, move and delete takes
+    two steps, and the token is bound to the tool, the folder, the
+    normalised paths, the content and `recursive`, and to a fingerprint of
+    what the preview saw (the file's SHA-256, or the full listing of a
+    folder), so any change before the confirmation cancels it; every
+    preview of `/addons` warns that it is app code; the folder of an
+    installed local app (or its `config.*`, or a folder that contains it)
+    cannot be deleted or moved, and when the Supervisor does not answer, a
+    path with a `config.*` in it is refused instead of guessed; changing the
+    `slug` of an installed app's `config.*` is refused; the root of each
+    folder and any mount point (or a folder that contains one) cannot be
+    deleted or moved. **There is no automatic backup** in these folders: the
+    preview says so (`backup: null`) and gives the exact partial backup call
+    to make first. File names on the `/config` blacklist (`secrets.yaml`,
+    `*.key`, `*.pem`, `*token*`, `*.db`…) are never read, and no preview
+    shows content; the `/config` directory rules (`.storage/`, managed
+    paths) do not apply, and every other file is returned as is, without
+    redaction, exactly like `fs_read_file` in `/config`. The log records the
+    tool, folder, relative path and outcome, never content or full hashes.
+    Switching off the family removes the tools; the mount stays.
+  - **App privileges on install and rebuild** (1.2.1): since a client can
+    now write a local app and then install it, the previews of
+    `sv_install_addon` and `sv_rebuild_addon` show the privileges the app
+    asks for (`privileges`: the store data, the installed app's data on a
+    rebuild, what the local app's `config.*` declares, and which of them are
+    elevated: full hardware access, Docker API, host network, PID, IPC, UTS
+    or D-Bus, kernel modules, udev, privileged capabilities, devices, a
+    `manager` or `admin` Supervisor role, AppArmor disabled, any read-write
+    `map`). The fields are picked one by one (never the raw store data, which
+    carries free author text and, for an installed app, its options), and
+    author text goes through secret redaction. The token is bound to that
+    block (on install, together with the store version): if the privileges
+    change before the confirmation, nothing is installed or rebuilt.
+    `sv_rebuild_addon` now binds its token to that state as well.
   - Identifier validation (slug, `entry_id`, …) before interpolating them into
     URLs, plus a central anti path-injection guard in the HA client.
 - **Home Assistant's backup encryption key** (1.2.0). Hermes reads it from
