@@ -170,8 +170,10 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Sistema
 
-Configuración del sistema (spec 021). Tramo a: el núcleo y la exposición a
-asistentes, en dos familias nuevas que se pueden desactivar.
+Configuración del sistema (spec 021): doce tools nuevas en cuatro familias
+que se pueden desactivar (`core_config`, `assistant_exposure`, `users` y
+`core_network`); las nueve que escriben confirman en dos pasos. Tramo a: el
+núcleo y la exposición a asistentes.
 
 - **`core_config`** (CAP-053):
   - `ha_get_core_config`: la configuración general editable (nombre,
@@ -247,6 +249,56 @@ Tramo b: los usuarios, en su propia familia (que se puede desactivar).
   renombrar, dar y quitar el grupo de administrador, solo red local,
   desactivar y borrar) y el rechazo sobre el propietario, comprobados por el
   lector independiente; el banco queda como estaba.
+
+Tramo c: la red y el servidor HTTP de Core, en su propia familia (que se puede
+desactivar), y analytics y labs por la tabla.
+
+- **`core_network`** (CAP-069; no es la red del host, que es del Supervisor):
+  - `ha_update_network_config`: qué adaptadores usa HA para descubrir
+    dispositivos y qué direcciones anuncia (`[]` = automático), en dos pasos,
+    con los habilitados antes y después. Un adaptador que no existe da
+    `invalid_argument` con los disponibles. No cambia dónde escucha HA.
+  - `ha_update_http_config`: el servidor HTTP (puerto, `server_host`, SSL,
+    proxy inverso, bloqueo de IP, CORS, perfil SSL, `use_x_frame_options`).
+    Funde los cambios sobre la configuración con la que HA está funcionando
+    (estable, pendiente o por defecto), quita los metadatos y manda el
+    documento entero; `null` quita una clave y `discard_pending` tira una
+    pendiente. La vista previa enseña el documento resultante, el diff, el
+    aviso de reinicio y de la prueba de 5 minutos (HA vuelve sola a la
+    estable si nadie promueve la nueva), un aviso por riesgo y, si el cambio
+    puede dejar HA inaccesible (puerto, `server_host`, SSL, proxy, bloqueo de
+    IP, perfil SSL), `access_risk`. Respeta el bloqueo de reinicio de
+    `sv_restart_core` en la vista previa y al confirmar. La respuesta dice si
+    HA reinicia, que hay que promover en 5 minutos y que con
+    `configuration.yaml` inválida no reinicia.
+  - Un `server_host` que deje fuera al Supervisor se rechaza sin token
+    (`supervisor_lockout`): el Supervisor, y con él Hermes y todas las apps,
+    llega a Core desde su red interna (172.30.32.0/23) por la dirección
+    `172.30.32.1`, en IPv4. Valen `0.0.0.0` o `172.30.32.1`; `::` sola no,
+    porque no acepta IPv4.
+  - `ha_promote_http_config`: confirma la configuración de prueba, que pasa a
+    ser la de recuperación; solo con una pendiente sin error con la que HA ya
+    funcione (si no, `nothing_to_promote` con el motivo). Su vista previa
+    sirve de estado de la prueba (diff y `revert_at`).
+  - En un Home Assistant anterior a 2026.11, sin la configuración HTTP en
+    almacenamiento: `unsupported_by_ha_version`. El log no lleva puertos,
+    hosts, rutas de certificados, proxies ni nombres de adaptador.
+- Analytics y labs (CAP-074) siguen por las genéricas: `analytics` y
+  `labs/list` leen, `analytics/preferences` y `labs/update` confirman.
+  `analytics/preferences` pasa a ser de mundo abierto en la tabla (activar el
+  envío manda datos a los servidores de Home Assistant). El tema
+  `core_config` de la guía explica las cuatro llamadas.
+- Los tres comandos de CAP-069 pasan a `dedicated`: ya no queda ninguna
+  entrada «pendiente (spec 021)» en la tabla. Tema `core_network` en
+  `hermes_guide`; el alias `network` pasa de `system_status` a
+  `core_network`, y el tema `system_status` remite a él en vez de decir que
+  Hermes no tenía tool para cambiar la red y el HTTP.
+- Banco de Core: `ha_update_network_config` cambia y restaura los adaptadores,
+  comprobado por el lector; de las dos de HTTP, su vista previa sobre la
+  configuración real (el lector ve `http/config` igual) y sus rechazos reales
+  (`supervisor_lockout`, `nothing_to_promote`), porque confirmar reiniciaría
+  la HA del banco; su confirmación queda para la VM. Las cuatro de analytics y
+  labs, por las genéricas, sin activar ningún envío.
 
 ### Mejoras de tools existentes
 

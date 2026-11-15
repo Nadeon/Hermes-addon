@@ -207,45 +207,93 @@ El b necesita el a integrado (comparte `cobertura_021.py`, el test de
 
 ### Preparación
 
-- [ ] T037 Línea base del tramo y comprobación de que el b está integrado; leer `fs_write.check_restart_allowed_sync` y su uso en `sv_restart_core`
+- [x] T037 Línea base del tramo y comprobación de que el b está integrado; leer `fs_write.check_restart_allowed_sync` y su uso en `sv_restart_core`
 
 ### Tests de las tools (antes del código)
 
-- [ ] T038 [P] [US4] Tests en `tests/test_tools_core_network.py`, `ha_update_network_config`: adaptador inexistente o lista con repetidos o > 32 → `invalid_argument` con los disponibles y sin escritura; vista previa con `configured_adapters` y `enabled` antes/después (lista vacía → los `auto` de HA) y la nota de que no cambia dónde escucha HA; `no_changes`; confirmación con `network/configure` y `{"config": {"configured_adapters": [...]}}`; estado cambiado → nada; log sin nombres de adaptador ni direcciones (FR-013, SC-004)
-- [ ] T039 [P] [US4] Tests en `tests/test_tools_core_network.py`, `ha_update_http_config`: (a) validación (`changes` y `discard_pending` a la vez o ninguno; clave desconocida; tipos; `use_x_forwarded_for: true` sin proxies en el resultado) sin llamar a escribir; (b) fusión sobre la configuración ACTIVA (`stable`, `pending` o `default` según `active_config_type`), `null` quita la clave, metadatos (`created_at`, `error`, `error_message`) fuera; la confirmación manda el documento completo previsualizado; (c) un aviso por cada código de data-model, con el de `server_host` cuando la lista no incluye `0.0.0.0` ni `::`, y `pending_replaced` si hay pendiente; (d) bloqueo de reinicio activo → `restart_blocked` en la vista previa y al confirmar, sin escritura; (e) `discard_pending` → `config: null`, y sin pendiente → `no_changes`; (f) respuesta con `restart`, `next` y `config_check`; (g) `bind_failed`, `not_running` e `invalid_format` de HA → traducidos y redactados; (h) estado cambiado (otro `http/config`) → nada; (i) log sin puerto, hosts, rutas de certificado ni proxies (centinela `/ssl/fullchain.pem`, `192.0.2.10`); (j) `unknown_command` en `http/config` (HA anterior a 2026.11, sin la configuración HTTP en almacenamiento) → `unsupported_by_ha_version` con `ha_code` y la versión de la tabla, sin escritura (FR-014, FR-020, FR-021, SC-006)
-- [ ] T040 [P] [US4] Tests en `tests/test_tools_core_network.py`, `ha_promote_http_config`: sin pendiente, con `error` o con `active_config_type != "pending"` → `nothing_to_promote` con el motivo y sin token; vista previa con diff estable → pendiente, `revert_at` y la nota de recuperación; confirmación con `http/config/promote`; `not_allowed` de HA → traducido; estado cambiado → nada; `unknown_command` → `unsupported_by_ha_version` (FR-015, FR-020)
+- [x] T038 [P] [US4] Tests en `tests/test_tools_core_network.py`, `ha_update_network_config`: adaptador inexistente o lista con repetidos o > 32 → `invalid_argument` con los disponibles y sin escritura; vista previa con `configured_adapters` y `enabled` antes/después (lista vacía → los `auto` de HA) y la nota de que no cambia dónde escucha HA; `no_changes`; confirmación con `network/configure` y `{"config": {"configured_adapters": [...]}}`; estado cambiado → nada; log sin nombres de adaptador ni direcciones (FR-013, SC-004)
+- [x] T039 [P] [US4] Tests en `tests/test_tools_core_network.py`, `ha_update_http_config`: (a) validación (`changes` y `discard_pending` a la vez o ninguno; clave desconocida; tipos; `use_x_forwarded_for: true` sin proxies en el resultado) sin llamar a escribir; (b) fusión sobre la configuración ACTIVA (`stable`, `pending` o `default` según `active_config_type`), `null` quita la clave, metadatos (`created_at`, `error`, `error_message`) fuera; la confirmación manda el documento completo previsualizado; (c) un aviso por cada código de data-model, con el de `server_host` cuando la lista no incluye `0.0.0.0` ni `::`, y `pending_replaced` si hay pendiente; (d) bloqueo de reinicio activo → `restart_blocked` en la vista previa y al confirmar, sin escritura; (e) `discard_pending` → `config: null`, y sin pendiente → `no_changes`; (f) respuesta con `restart`, `next` y `config_check`; (g) `bind_failed`, `not_running` e `invalid_format` de HA → traducidos y redactados; (h) estado cambiado (otro `http/config`) → nada; (i) log sin puerto, hosts, rutas de certificado ni proxies (centinela `/ssl/fullchain.pem`, `192.0.2.10`); (j) `unknown_command` en `http/config` (HA anterior a 2026.11, sin la configuración HTTP en almacenamiento) → `unsupported_by_ha_version` con `ha_code` y la versión de la tabla, sin escritura (FR-014, FR-020, FR-021, SC-006)
+- [x] T040 [P] [US4] Tests en `tests/test_tools_core_network.py`, `ha_promote_http_config`: sin pendiente, con `error` o con `active_config_type != "pending"` → `nothing_to_promote` con el motivo y sin token; vista previa con diff estable → pendiente, `revert_at` y la nota de recuperación; confirmación con `http/config/promote`; `not_allowed` de HA → traducido; estado cambiado → nada; `unknown_command` → `unsupported_by_ha_version` (FR-015, FR-020)
 
 ### Implementación
 
-- [ ] T041 [US4] `hermes/src/hermes/tools/core_network.py` con las tres tools según contracts y data-model; comentarios del porqué (HA rellena por defecto lo que falta; reinicio y prueba de 5 minutos; el Supervisor recibe el puerto nuevo al arrancar; el bloqueo de reinicio es el de `sv_restart_core`). T038…T040 en verde (FR-013…FR-015, FR-020, FR-021)
-- [ ] T042 [US6] Tests y luego `tool_families.py` (familia `core_network`, con comentario: no es la red del host de la 032), registro, `_annotations.py` (las tres en `_DESTRUCTIVE_EXACT` con su porqué) y `_HINTS_NUEVAS_1_2_0` (`-DI-`); con las cuatro familias de la 021 desactivadas, la lista de tools es exactamente la de antes de la 021 (`test_sin_las_familias_de_la_021_es_la_lista_de_antes`) (FR-017, FR-019, SC-001)
+- [x] T041 [US4] `hermes/src/hermes/tools/core_network.py` con las tres tools según contracts y data-model; comentarios del porqué (HA rellena por defecto lo que falta; reinicio y prueba de 5 minutos; el Supervisor recibe el puerto nuevo al arrancar; el bloqueo de reinicio es el de `sv_restart_core`). T038…T040 en verde (FR-013…FR-015, FR-020, FR-021)
+- [x] T042 [US6] Tests y luego `tool_families.py` (familia `core_network`, con comentario: no es la red del host de la 032), registro, `_annotations.py` (las tres en `_DESTRUCTIVE_EXACT` con su porqué) y `_HINTS_NUEVAS_1_2_0` (`-DI-`); con las cuatro familias de la 021 desactivadas, la lista de tools es exactamente la de antes de la 021 (`test_sin_las_familias_de_la_021_es_la_lista_de_antes`) (FR-017, FR-019, SC-001)
 
 ### Tabla y CAP-074
 
-- [ ] T043 [P] [US5] Tests en `tests/test_tools_generic_commands.py` con la tabla real: `ha_read_ws_command("analytics")` y `("labs/list")` leen; `ha_call_ws_command("analytics/preferences", {"preferences": {"base": false}})` y `("labs/update", {...})` piden token y, con él, llaman a HA con la carga exacta; en `tests/test_command_table.py`, `analytics/preferences` con `open_world=True` y las cuatro con `cap="CAP-074"` (FR-016)
-- [ ] T044 [US5] `command_table.py`: `analytics/preferences` con `open_world=True` y comentario del porqué encima (activar el envío manda datos a los servidores de Home Assistant). T043 en verde (FR-016)
-- [ ] T045 [US6] Tests y luego los tres de CAP-069 a `dedicated` (`network/configure` → `ha_update_network_config`, `http/config/configure` → `ha_update_http_config`, `http/config/promote` → `ha_promote_http_config`, familia `core_network`) con sus claves en `_DEDICADAS_INICIALES`; rechazo por la genérica; `test_dedicadas_de_la_021` completo con los doce y ninguna entrada «(spec 021)» en ninguna de las dos tablas; regenerar sobre la tabla editada (idéntica byte a byte) y desde cero en un temporal (las doce iguales) (FR-018, SC-002)
+- [x] T043 [P] [US5] Tests en `tests/test_tools_generic_commands.py` con la tabla real: `ha_read_ws_command("analytics")` y `("labs/list")` leen; `ha_call_ws_command("analytics/preferences", {"preferences": {"base": false}})` y `("labs/update", {...})` piden token y, con él, llaman a HA con la carga exacta; en `tests/test_command_table.py`, `analytics/preferences` con `open_world=True` y las cuatro con `cap="CAP-074"` (FR-016)
+- [x] T044 [US5] `command_table.py`: `analytics/preferences` con `open_world=True` y comentario del porqué encima (activar el envío manda datos a los servidores de Home Assistant). T043 en verde (FR-016)
+- [x] T045 [US6] Tests y luego los tres de CAP-069 a `dedicated` (`network/configure` → `ha_update_network_config`, `http/config/configure` → `ha_update_http_config`, `http/config/promote` → `ha_promote_http_config`, familia `core_network`) con sus claves en `_DEDICADAS_INICIALES`; rechazo por la genérica; `test_dedicadas_de_la_021` completo con los doce y ninguna entrada «(spec 021)» en ninguna de las dos tablas; regenerar sobre la tabla editada (idéntica byte a byte) y desde cero en un temporal (las doce iguales) (FR-018, SC-002)
 
 ### Guía
 
-- [ ] T046 [US4] [US5] Tests y luego: tema `core_network` (las tres tools, la prueba de 5 minutos, los avisos, el bloqueo de reinicio, cómo leer con `ha_read_ws_command("network")` y `("http/config")`); sección «Analytics y labs» en `core_config` con las cuatro llamadas exactas; el tema `system_status` deja de decir que Hermes no tiene tool para cambiar la red y el HTTP y remite a `core_network` (actualizar su test de la 029); alias `http`, `ssl`, `port`, `proxy` y `network` → `core_network` (actualizar el test que fijaba `network` → `system_status`), `analytics`, `labs` → `core_config`; índice y docstring; las huellas de la 013 no cambian (FR-022)
+- [x] T046 [US4] [US5] Tests y luego: tema `core_network` (las tres tools, la prueba de 5 minutos, los avisos, el bloqueo de reinicio, cómo leer con `ha_read_ws_command("network")` y `("http/config")`); sección «Analytics y labs» en `core_config` con las cuatro llamadas exactas; el tema `system_status` deja de decir que Hermes no tiene tool para cambiar la red y el HTTP y remite a `core_network` (actualizar su test de la 029); alias `http`, `ssl`, `port`, `proxy` y `network` → `core_network` (actualizar el test que fijaba `network` → `system_status`), `analytics`, `labs` → `core_config`; índice y docstring; las huellas de la 013 no cambian (FR-022)
 
 ### Banco de Core
 
-- [ ] T047 [US4] `tests/banco/test_banco_red_http.py`: (a) `ha_update_network_config` con los nombres de los adaptadores habilitados que lee el lector de `network`: sin token, el lector ve `configured_adapters` igual; con token, los ve; restaurar la lista previa en `finally`; (b) `ha_update_http_config(changes={"cors_allowed_origins": [...]})` sin token: vista previa con el documento fundido sobre el `http/config` real y el aviso de reinicio; el lector ve `http/config` idéntico antes y después (no se confirma: aplicar reiniciaría la HA del banco); (c) `ha_promote_http_config()` real → `nothing_to_promote` (el banco no tiene pendiente); (d) `ha_call_ws_command("http/config/configure", …)` → `use_dedicated_tool`. `cobertura_021.py`: `ha_update_network_config` en `PROBADAS_021`; `ha_update_http_config` y `ha_promote_http_config` en `NO_EJECUTABLES_021` con el motivo de research R-8 (FR-023, SC-003)
-- [ ] T048 [US5] `tests/banco/test_banco_analytics_labs.py`: `analytics` y `labs/list` por `ha_read_ws_command`; `analytics/preferences` con `{"base": false}` por `ha_call_ws_command` en dos pasos (el lector comprueba que `base` sigue `false`: no se activa ningún envío); `labs/update` con la primera función de `labs/list` (activar y desactivar, sin `create_backup`, comprobado por el lector) o, si la lista está vacía, su `not_found` real, anotado; `config/core/detect` ya está en T014 (FR-016, FR-023)
+- [x] T047 [US4] `tests/banco/test_banco_red_http.py`: (a) `ha_update_network_config` con los nombres de los adaptadores habilitados que lee el lector de `network`: sin token, el lector ve `configured_adapters` igual; con token, los ve; restaurar la lista previa en `finally`; (b) `ha_update_http_config(changes={"cors_allowed_origins": [...]})` sin token: vista previa con el documento fundido sobre el `http/config` real y el aviso de reinicio; el lector ve `http/config` idéntico antes y después (no se confirma: aplicar reiniciaría la HA del banco); (c) `ha_promote_http_config()` real → `nothing_to_promote` (el banco no tiene pendiente); (d) `ha_call_ws_command("http/config/configure", …)` → `use_dedicated_tool`. `cobertura_021.py`: `ha_update_network_config` en `PROBADAS_021`; `ha_update_http_config` y `ha_promote_http_config` en `NO_EJECUTABLES_021` con el motivo de research R-8 (FR-023, SC-003)
+- [x] T048 [US5] `tests/banco/test_banco_analytics_labs.py`: `analytics` y `labs/list` por `ha_read_ws_command`; `analytics/preferences` con `{"base": false}` por `ha_call_ws_command` en dos pasos (el lector comprueba que `base` sigue `false`: no se activa ningún envío); `labs/update` con la primera función de `labs/list` (activar y desactivar, sin `create_backup`, comprobado por el lector) o, si la lista está vacía, su `not_found` real, anotado; `config/core/detect` ya está en T014 (FR-016, FR-023)
 
 ### Inventarios, documentación y cierre
 
-- [ ] T049 [US6] Matriz de la 014: `ha_update_network_config` `banco de Core | ok`; `ha_update_http_config` y `ha_promote_http_config` `VM | pendiente` con su nota y su línea en «Tandas de pruebas» de `docs/BANCO-SUPERVISOR.md` (cambiar el puerto o `cors_allowed_origins`, comprobar la reversión a los 5 minutos y la promoción); inventario de argumentos atados (tres entradas) (FR-024)
-- [ ] T050 Documentación final (FR-025): sección «Sistema» completa en `## [1.2.0]` de `hermes/CHANGELOG.md` (doce tools, cuatro familias, protecciones de usuarios, sesiones no listables, HTTP con reinicio y prueba, `config/core/detect` y CAP-074 por la tabla, `analytics/preferences` de mundo abierto, el cambio de texto y del alias `network` en la guía); `hermes/DOCS.md` (cuatro familias en `tool_families_disabled`, recuento); `README.md` y `README.es.md` sincronizados (+3 y fila de `core_network`); 021 «hecha» en la tabla del programa de `docs/HOJA-DE-RUTA.md`
-- [ ] T051 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-053, CAP-055, CAP-056, CAP-069 y CAP-074 con las tools y entradas definitivas y los ficheros de test; en la fila de CAP-056, la desviación de las sesiones (research R-5) (FR-025)
-- [ ] T052 [P] [US6] Test de conjunto en `tests/test_tools_registration.py`: las nueve que escriben de la 021 toman `confirmation_token` y están en `_DESTRUCTIVE_EXACT` o en un prefijo destructivo; ninguna de las doce tiene argumentos de credenciales (AST, como T033 pero para los cuatro módulos) (FR-019, SC-006)
-- [ ] T053 Revisar `SECURITY.md`: si enumera tools que tocan accesos o credenciales, añadir las de `users` y `core_network` con una línea (sin cambiar la política); si no las enumera, nada (FR-025)
-- [ ] T054 Comprobación final de la tabla: ninguna entrada con «pendiente de tool dedicada (spec 021)»; generar desde cero y comparar las doce `dedicated`, `config/core/detect` y `auth/refresh_tokens` con la tabla (las dos últimas por sus excepciones del test); anotar el resultado (SC-002)
-- [ ] T055 Revisión del diff entero de la sub-feature (tres tramos) buscando datos personales, hostnames, IPs que no sean `192.0.2.x`, rutas `C:\` e identificadores de modelos (principio VIII)
-- [ ] T056 Control negativo del tramo c, anotando recuentos: (a) fundir sobre `stable` siempre → cae el de base `pending`; (b) no quitar los metadatos → cae el de documento enviado; (c) mandar solo los cambios (sin fundir) → cae; (d) sin bloqueo de reinicio al confirmar → cae `restart_blocked`; (e) sin el aviso `server_host` → cae; (f) promover sin comprobar `active_config_type` → cae; (g) quitar `open_world` de `analytics/preferences` → cae T043; (h) dejar `http/config/promote` en `deny` → caen T045 y el de «(spec 021)»; (i) mover `ha_update_http_config` de `NO_EJECUTABLES_021` a ninguna lista → cae el invariante. Restaurar y comprobar verde
-- [ ] T057 Cierre del tramo c: suite completa (los 6 conocidos), CI en verde con el banco, commit con línea base, regeneración de T045/T054 y recuentos de T056
+- [x] T049 [US6] Matriz de la 014: `ha_update_network_config` `banco de Core | ok`; `ha_update_http_config` y `ha_promote_http_config` `VM | pendiente` con su nota y su línea en «Tandas de pruebas» de `docs/BANCO-SUPERVISOR.md` (cambiar el puerto o `cors_allowed_origins`, comprobar la reversión a los 5 minutos y la promoción); inventario de argumentos atados (tres entradas) (FR-024)
+- [x] T050 Documentación final (FR-025): sección «Sistema» completa en `## [1.2.0]` de `hermes/CHANGELOG.md` (doce tools, cuatro familias, protecciones de usuarios, sesiones no listables, HTTP con reinicio y prueba, `config/core/detect` y CAP-074 por la tabla, `analytics/preferences` de mundo abierto, el cambio de texto y del alias `network` en la guía); `hermes/DOCS.md` (cuatro familias en `tool_families_disabled`, recuento); `README.md` y `README.es.md` sincronizados (+3 y fila de `core_network`); 021 «hecha» en la tabla del programa de `docs/HOJA-DE-RUTA.md`
+- [x] T051 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-053, CAP-055, CAP-056, CAP-069 y CAP-074 con las tools y entradas definitivas y los ficheros de test; en la fila de CAP-056, la desviación de las sesiones (research R-5) (FR-025)
+- [x] T052 [P] [US6] Test de conjunto en `tests/test_tools_registration.py`: las nueve que escriben de la 021 toman `confirmation_token` y están en `_DESTRUCTIVE_EXACT` o en un prefijo destructivo; ninguna de las doce tiene argumentos de credenciales (AST, como T033 pero para los cuatro módulos) (FR-019, SC-006)
+- [x] T053 Revisar `SECURITY.md`: si enumera tools que tocan accesos o credenciales, añadir las de `users` y `core_network` con una línea (sin cambiar la política); si no las enumera, nada (FR-025)
+- [x] T054 Comprobación final de la tabla: ninguna entrada con «pendiente de tool dedicada (spec 021)»; generar desde cero y comparar las doce `dedicated`, `config/core/detect` y `auth/refresh_tokens` con la tabla (las dos últimas por sus excepciones del test); anotar el resultado (SC-002)
+- [x] T055 Revisión del diff entero de la sub-feature (tres tramos) buscando datos personales, hostnames, IPs que no sean `192.0.2.x`, rutas `C:\` e identificadores de modelos (principio VIII)
+- [x] T056 Control negativo del tramo c, anotando recuentos: (a) fundir sobre `stable` siempre → cae el de base `pending`; (b) no quitar los metadatos → cae el de documento enviado; (c) mandar solo los cambios (sin fundir) → cae; (d) sin bloqueo de reinicio al confirmar → cae `restart_blocked`; (e) sin el aviso `server_host` → cae; (f) promover sin comprobar `active_config_type` → cae; (g) quitar `open_world` de `analytics/preferences` → cae T043; (h) dejar `http/config/promote` en `deny` → caen T045 y el de «(spec 021)»; (i) mover `ha_update_http_config` de `NO_EJECUTABLES_021` a ninguna lista → cae el invariante. Restaurar y comprobar verde
+- [x] T057 Cierre del tramo c: suite completa (los 6 conocidos), CI en verde con el banco, commit con línea base, regeneración de T045/T054 y recuentos de T056
+
+### Desviaciones y notas del tramo c
+
+- **D-3, decidida por el supervisor (fail-closed)**: `ha_update_http_config`
+  rechaza sin token (`supervisor_lockout`) un `server_host` que deje fuera al
+  Supervisor, y lo mira en el documento resultante (también si la base ya lo
+  dejaba fuera). Comprobado en las fuentes: Core corre con la red del host
+  (`network_mode="host"`) y el Supervisor le llega por la pasarela de su red
+  interna, `http://172.30.32.1:<puerto>` (`DOCKER_IPV4_NETWORK_MASK[1]` de
+  172.30.32.0/23), en IPv4. Valen `0.0.0.0` o `172.30.32.1`, o quitar la
+  clave (HA escucha en `0.0.0.0` y `::`). Desviación del ejemplo del encargo:
+  `::` sola NO vale, porque HA enlaza con `loop.create_server`, que pone
+  `IPV6_V6ONLY` en los sockets IPv6 (no acepta IPv4); y de la red interna
+  solo vale la pasarela (otra dirección de la /23 no es del host ni es a la
+  que llama el Supervisor). Un nombre de host no se puede comprobar y se
+  rechaza. T039 (c) pedía un aviso; ahora es este rechazo, y el aviso
+  `server_host` queda para un cambio aceptado.
+- **Pérdida de acceso** (decisión del supervisor): además de `warnings`, la
+  vista previa lleva `access_risk` con un aviso claro cuando el cambio toca
+  el puerto, `server_host`, el SSL, el proxy inverso, el bloqueo de IP o el
+  perfil SSL. `base_url` no es una clave admitida (HA la quita del esquema):
+  `invalid_argument`. Códigos de aviso extra respecto a data-model:
+  `x_frame_options`.
+- `restart_blocked` es un error sin token en la vista previa (no una vista
+  previa con `blocked`, como `sv_restart_core`): el cambio reinicia HA y no
+  tiene sentido emitir un token que no se podría usar. Al confirmar se vuelve
+  a mirar y el token se da por fallido.
+- `default_legacy_port`: la base es la de por defecto con el puerto 8123 (lo
+  que HA usa en ese caso, `_DEFAULT_CONFIG_LEGACY_PORT`).
+- Los diffs comparan valores efectivos (el del documento o el por defecto de
+  `http/config`): quitar una clave que vale lo mismo que el defecto es
+  `no_changes`.
+- `ha_update_network_config`: `no_changes` compara conjuntos (el orden no
+  cambia qué adaptadores se usan).
+- Banco: `NO_EJECUTABLES_021` con las dos de HTTP; la vista previa de
+  `ha_update_http_config` también se exige por ejecución
+  (`VISTA_PREVIA_021` en `TOOLS_EXIGIDAS_DEL_JOB`). La de
+  `ha_promote_http_config` en el banco solo puede ser su rechazo real, que no
+  cuenta como llamada con éxito; su test lo comprueba igual.
+- T053: `SECURITY.md` no enumera las tools que tocan accesos o credenciales;
+  no se cambia.
+- T054: desde cero, las doce `dedicated` salen iguales que en la tabla;
+  `config/core/detect` y `auth/refresh_tokens` salen `deny` «pendiente (spec
+  021)» (revisión manual, por sus excepciones del test) y
+  `analytics/preferences` como la dejó la 011 (provisional de vía T revisada
+  a mano). Ninguna entrada «(spec 021)» en la tabla real.
+- Para el final: D-1 (sesiones), D-2/D-27 (credenciales en
+  `ha_create_user`) y D-5 (familias de riesgo alto activas por defecto).
 
 ---
 

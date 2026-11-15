@@ -90,9 +90,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B), las 3 del tramo a de la 021 (núcleo y exposición) y
-        # las 3 del tramo b (usuarios).
-        self.assertEqual(len(reales), 135)
+        # del tramo B), las 3 del tramo a de la 021 (núcleo y exposición),
+        # las 3 del tramo b (usuarios) y las 3 del tramo c (red y HTTP).
+        self.assertEqual(len(reales), 138)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -142,7 +142,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             c028.TOOLS_EXIGIDAS_DEL_JOB,
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
             | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012
-            | c021.PROBADAS_021 | c021.LECTURAS_021,
+            | c021.PROBADAS_021 | c021.LECTURAS_021 | c021.VISTA_PREVIA_021,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}

@@ -453,7 +453,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
-| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | en curso: tramo a (núcleo y exposición a asistentes: `ha_get_core_config`, `ha_update_core_config`, `ha_list_exposed_entities`, `ha_set_entity_exposure`, `ha_set_expose_new_entities`) hecho y probado en el banco de Core; tramo b (usuarios: `ha_list_users`, `ha_create_user`, `ha_update_user`, `ha_delete_user`, con protecciones del propietario, el usuario de Hermes, los de sistema y el último administrador) hecho y probado en el banco de Core; falta red y HTTP (c) |
+| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | hecha: núcleo (`ha_get_core_config`, `ha_update_core_config`), exposición a asistentes (`ha_list_exposed_entities`, `ha_set_entity_exposure`, `ha_set_expose_new_entities`), usuarios (`ha_list_users`, `ha_create_user`, `ha_update_user`, `ha_delete_user`, con protecciones del propietario, el usuario de Hermes, los de sistema y el último administrador) y red y HTTP de Core (`ha_update_network_config`, `ha_update_http_config`, `ha_promote_http_config`, con la prueba de 5 minutos de HA y el rechazo de un `server_host` sin el Supervisor); `config/core/detect` y CAP-074 por la tabla. Todo probado en el banco de Core salvo la confirmación de las dos de HTTP (reinicia HA), pendiente en la VM |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
@@ -706,6 +706,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_increment_input_number` | banco de Core | ok | |
 | `ha_pause_timer` | banco de Core | ok | |
 | `ha_press_input_button` | banco de Core | ok | |
+| `ha_promote_http_config` | VM | pendiente | aplicarla reinicia HA: en el banco de Core solo la vista previa y el rechazo real (spec 021, research R-8) |
 | `ha_reload_automations` | banco de Core | ok | |
 | `ha_reload_config_entry` | banco de Core | ok | |
 | `ha_reload_counters` | banco de Core | no ejecutable | `counter.reload` no existe en Core 2026.11.1: responde `not_supported` sin llamar a HA y está deprecada hasta la 1.3.0 (spec 033); su test del banco es un canario |
@@ -741,9 +742,11 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_device` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
+| `ha_update_http_config` | VM | pendiente | aplicarla reinicia HA: en el banco de Core solo la vista previa y el rechazo real (spec 021, research R-8) |
 | `ha_update_label` | banco de Core | ok | |
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
+| `ha_update_network_config` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
 | `ha_update_user` | banco de Core | ok | |
 | `sv_call_api` | VM | pendiente | |

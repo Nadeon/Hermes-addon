@@ -346,6 +346,16 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   plantilla y la categoría, y la ejecución reinicia el plugin DNS
   (`ha dns info`); una ruta `deny`, una de Hermes (`local_hermes`) o el
   proxy de Core se rechazan sin llegar al Supervisor.
+- `ha_update_http_config` y `ha_promote_http_config` (red y HTTP de Core,
+  spec 021), en la tanda 3: confirmar reinicia Core. Cambiar
+  `cors_allowed_origins` (o el puerto, si la interfaz se vuelve a abrir en el
+  nuevo): Core reinicia con la configuración pendiente (`ha_read_ws_command`
+  de `http/config`: `active_config_type` `pending` y `revert_at`), Hermes se
+  reconecta por el Supervisor, y sin promover Core vuelve a la estable y
+  reinicia a los 5 minutos. Repetir y promover con `ha_promote_http_config`
+  antes de que pase el plazo: la configuración nueva queda como estable y no
+  se revierte. Un `server_host` sin `0.0.0.0` ni `172.30.32.1` se rechaza sin
+  tocar nada.
 
 ## Probar hassio_role: manager
 

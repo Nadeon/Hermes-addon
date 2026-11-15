@@ -283,13 +283,14 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         # Desde la 029, también sus lecturas.
         from tests.banco.cobertura import PROBADAS_EN_BANCO_029
 
-        # Desde la 021, sus escrituras y sus lecturas.
-        from tests.banco.cobertura_021 import LECTURAS_021, PROBADAS_021
+        # Desde la 021, sus escrituras y sus lecturas, y la vista previa de
+        # `ha_update_http_config` (tramo c: no se confirma en el banco).
+        from tests.banco.cobertura_021 import LECTURAS_021, PROBADAS_021, VISTA_PREVIA_021
 
         self.assertEqual(
             plugin.tools_exigidas,
             PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029
-            | PROBADAS_012 | PROBADAS_021 | LECTURAS_021,
+            | PROBADAS_012 | PROBADAS_021 | LECTURAS_021 | VISTA_PREVIA_021,
         )
 
 
