@@ -57,6 +57,7 @@ from hermes.security import (
     es_clave_sensible,
     redact_secrets,
     resolve_confirmation_token,
+    tapar_entero,
 )
 from hermes.tools._common import (
     ajustar_lista_a_bytes,
@@ -146,19 +147,25 @@ def _mensaje_seguro(mensaje: str, carga: Any) -> str:
 def _redactar(valor: Any, extra: frozenset[str], clave: str = "") -> Any:
     """`redact_structure` más las claves extra de la entrada, y
     `redact_secrets` en todos los textos (FR-014): un JWT o un `password=…`
-    dentro de un texto no lleva una clave que lo delate."""
+    dentro de un texto no lleva una clave que lo delate.
+
+    Una clave sensible o de `redact_extra` tapa su valor ENTERO, también si
+    es un objeto o una lista, ANTES de recorrerlo (spec 025, FR-008 y D-2;
+    hallazgo H-1): la clave de red de ZHA viaja como `network_key: {"key":
+    …}` y, recorriendo, `key` salía en claro."""
+    if clave and clave.lower() in extra and valor is not None and valor != "":
+        # Una clave extra de la tabla es sensible por decisión explícita
+        # (p. ej. un PIN numérico): se tapa sea cual sea su tipo, booleano
+        # incluido, como antes de la 025.
+        return REDACTED_MARKER
+    if clave and es_clave_sensible(clave) and tapar_entero(valor):
+        return REDACTED_MARKER
     if isinstance(valor, Mapping):
         return {k: _redactar(v, extra, str(k)) for k, v in valor.items()}
     if isinstance(valor, list):
         return [_redactar(v, extra, clave) for v in valor]
     if isinstance(valor, str):
-        if valor and (es_clave_sensible(clave) or clave.lower() in extra):
-            return REDACTED_MARKER
         return redact_secrets(valor)
-    if clave and clave.lower() in extra and valor is not None:
-        # Una clave extra de la tabla es sensible por decisión explícita
-        # (p. ej. un PIN numérico): se tapa sea cual sea su tipo.
-        return REDACTED_MARKER
     return valor
 
 

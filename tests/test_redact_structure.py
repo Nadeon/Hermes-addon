@@ -89,10 +89,15 @@ class TestRedactStructure(unittest.TestCase):
                 "url": "https://ejemplo.com", "slug": "core_mosquitto"}
         self.assertEqual(redact_structure(data), data)
 
-    def test_only_strings_are_redacted(self) -> None:
-        """Un número o un booleano bajo una clave 'sensible' no es un secreto."""
-        data = {"token_expiry_seconds": 3600, "use_password": True,
-                "password_min_length": 12, "token": None}
+    def test_booleanos_y_none_se_conservan(self) -> None:
+        """Un booleano o `None` bajo una clave sensible no lleva secreto: dice
+        si algo está activado o configurado, que es diagnóstico útil.
+
+        Hasta la 025 también se conservaban los números (`token_expiry_seconds`).
+        Desde la 025 (D-2, hallazgo H-1) un número bajo una clave sensible se
+        tapa: un PIN o una clave numérica no se distinguen de una duración por
+        el tipo, y el criterio es «la clave es sensible → el valor entero»."""
+        data = {"use_password": True, "token": None, "has_secret": False}
         self.assertEqual(redact_structure(data), data)
 
     def test_empty_strings_survive(self) -> None:
@@ -112,7 +117,9 @@ class TestRedactStructure(unittest.TestCase):
         out = redact_structure(data)
         self.assertEqual(out["addons"][0]["options"]["password"], "***REDACTED***")
         self.assertEqual(out["addons"][1]["options"]["nested"]["api_key"], "***REDACTED***")
-        self.assertEqual(out["tokens"], ["***REDACTED***", "***REDACTED***"])
+        # Desde la 025 la lista entera bajo una clave sensible es un solo
+        # marcador: ni siquiera cuántos secretos hay (antes, uno por elemento).
+        self.assertEqual(out["tokens"], "***REDACTED***")
         self.assertEqual(out["addons"][0]["slug"], "a")
 
     def test_input_is_not_mutated(self) -> None:
@@ -124,6 +131,103 @@ class TestRedactStructure(unittest.TestCase):
     def test_survives_odd_shapes(self) -> None:
         for value in (None, 42, "texto", [], {}, [1, "dos", None]):
             redact_structure(value)  # no debe lanzar
+
+
+# Forma REAL de la copia de la red de ZHA (`backup.as_dict()` de zigpy, que
+# devuelven `zha/network/settings` y `zha/network/backups/*` en
+# `homeassistant/components/zha/websocket_api.py`): `network_key` NO es un
+# texto sino un objeto con la clave (`KeyData`, 16 bytes en hexadecimal con dos
+# puntos) y sus contadores; `partner_ieee` va DENTRO (por eso
+# `zha/diagnostics.py` lista a la vez `network_key` y `partner_ieee` en
+# `KEYS_TO_REDACT`, y su `async_redact_data` tapa el valor entero).
+_CLAVE_ZHA = "c0:ff:ee:02:50:25:de:ad:be:ef:00:11:22:33:44:55"
+_RED_ZHA = {
+    "network_info": {
+        "extended_pan_id": "00:11:22:33:44:55:66:77",
+        "pan_id": "1A2B",
+        "channel": 15,
+        "security_level": 5,
+        "network_key": {
+            "key": _CLAVE_ZHA,
+            "tx_counter": 202501,
+            "rx_counter": 0,
+            "seq": 0,
+            "partner_ieee": "ff:ff:ff:ff:ff:ff:ff:ff",
+        },
+    },
+}
+
+# Forma REAL de las claves S0/S2 de Z-Wave JS: opciones de la app Z-Wave JS
+# que escribe la integración (`homeassistant/components/zwave_js/const.py`,
+# `CONF_ADDON_S0_LEGACY_KEY`… y `__init__.py`, `addon_config`), 16 bytes en
+# 32 caracteres hexadecimales. `sv_get_addon_options` las devuelve tal cual.
+# Ninguna se llama `password` ni `network_key`: hasta la 025 salían en claro.
+_OPCIONES_ZWAVE = {
+    "device": "/dev/serial/by-id/usb-ficticio-if00",
+    "s0_legacy_key": "0025C0FFEE0000000000000000000A00",
+    "s2_access_control_key": "0025C0FFEE0000000000000000000A01",
+    "s2_authenticated_key": "0025C0FFEE0000000000000000000A02",
+    "s2_unauthenticated_key": "0025C0FFEE0000000000000000000A03",
+    "lr_s2_access_control_key": "0025C0FFEE0000000000000000000A04",
+    "lr_s2_authenticated_key": "0025C0FFEE0000000000000000000A05",
+    "network_key": "0025C0FFEE0000000000000000000A06",
+    "log_level": "info",
+}
+
+
+class TestValorEnteroBajoClaveSensible(unittest.TestCase):
+    """Spec 025, D-2 (hallazgo H-1): si la clave es sensible, se tapa su
+    valor ENTERO, sea texto, número, objeto o lista. Antes solo se tapaban
+    textos: un objeto se recorría y lo que llevaba dentro bajo una clave
+    inocente (`key`) salía en claro.
+
+    Control negativo comprobado: volver a tapar solo textos en
+    `redact_structure` → caen `test_clave_de_red_zha_con_su_forma_real`,
+    `test_objeto_y_lista_enteros` y `test_numero`; quitar los marcadores
+    S0/S2 de `_SENSITIVE_KEY_MARKERS` → cae `test_claves_s0_s2_de_zwave`.
+    """
+
+    def test_clave_de_red_zha_con_su_forma_real(self) -> None:
+        out = redact_structure(_RED_ZHA)
+        self.assertNotIn(_CLAVE_ZHA, str(out))
+        self.assertNotIn("202501", str(out))
+        self.assertEqual(out["network_info"]["network_key"], "***REDACTED***")
+        # Lo que no es secreto sigue visible.
+        self.assertEqual(out["network_info"]["channel"], 15)
+        self.assertEqual(out["network_info"]["pan_id"], "1A2B")
+
+    def test_claves_s0_s2_de_zwave(self) -> None:
+        out = redact_structure({"options": _OPCIONES_ZWAVE})["options"]
+        self.assertNotIn("0025C0FFEE", str(out))
+        for clave in _OPCIONES_ZWAVE:
+            if clave.endswith("_key"):
+                self.assertEqual(out[clave], "***REDACTED***", clave)
+        self.assertEqual(out["device"], _OPCIONES_ZWAVE["device"])
+        self.assertEqual(out["log_level"], "info")
+
+    def test_objeto_y_lista_enteros(self) -> None:
+        data = {"credentials": {"username": "u", "pin": "centinela-025"},
+                "api_tokens": [{"name": "n", "value": "centinela-025"}]}
+        out = redact_structure(data)
+        self.assertEqual(out, {"credentials": "***REDACTED***",
+                               "api_tokens": "***REDACTED***"})
+
+    def test_numero(self) -> None:
+        out = redact_structure({"encryption_key": 202512345, "pin_secret": 1.5})
+        self.assertEqual(out, {"encryption_key": "***REDACTED***",
+                               "pin_secret": "***REDACTED***"})
+
+    def test_vacios_se_conservan(self) -> None:
+        """Como la cadena vacía: un objeto o una lista vacíos dicen «sin
+        configurar» y no revelan nada."""
+        data = {"network_key": {}, "api_tokens": [], "password": "", "token": None}
+        self.assertEqual(redact_structure(data), data)
+
+    def test_clave_no_sensible_se_sigue_recorriendo(self) -> None:
+        data = {"options": {"nested": [{"password": "p", "host": "h"}]}}
+        out = redact_structure(data)
+        self.assertEqual(out["options"]["nested"][0],
+                         {"password": "***REDACTED***", "host": "h"})
 
 
 class TestToolsApplyRedaction(unittest.TestCase):
