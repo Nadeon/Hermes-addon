@@ -495,3 +495,87 @@ class TestClasificacionConservadora(_ConRecarga):
         nota = r["preview"]["ignored_config_files"]
         self.assertEqual(nota["count"], len(_SALTA_SEGURO))
         self.assertIn("skips each of these", nota["note"])
+
+
+# ── T063: lo que la ficha de la tienda no da ─────────────────────────────────
+
+
+class TestNoLoDaLaTienda(_ConRaices):
+    """Control negativo comprobado: con `no_los_da_la_tienda` devolviendo
+    siempre `None` caen `test_instalar_una_app_que_no_es_local` y
+    `test_actualizar_una_app_que_no_es_local`."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        from hermes.tools import addons as addons_mod
+        from tests.fixtures.supervisor_tienda import SupervisorSimulado
+
+        self.sv = SupervisorSimulado()
+        mcp = _MCP()
+        addons_mod.register(mcp, self.sv)
+        self.t = mcp.tools
+
+    def tienda(self, slug: str, **campos: Any) -> None:
+        from tests.test_tools_privilegios import ficha_extendida
+
+        self.sv.respuesta("GET", f"/store/addons/{slug}", ficha_extendida(slug, **campos))
+        self.sv.respuesta("GET", f"/store/addons/{slug}/availability", {})
+
+    def test_la_lista_sale_de_la_ficha_real(self) -> None:
+        # La ficha (`api/store.py`, `_generate_app_information(extended=True)`)
+        # trae solo `CAMPOS_PRIVILEGIO_TIENDA`; todo lo demás que la app
+        # instalada enseña es desconocido antes de instalar, más `map`,
+        # `ports` y `realtime`, que solo están en el `config.*`.
+        from tests.test_tools_privilegios import _TERCEROS, ficha_extendida
+
+        ficha = ficha_extendida(_TERCEROS)
+        no_da = set(_store.NO_LOS_DA_LA_TIENDA)
+        self.assertFalse(no_da & set(ficha))
+        self.assertFalse(no_da & set(_store.CAMPOS_PRIVILEGIO_TIENDA))
+        faltan = (set(_store.CAMPOS_PRIVILEGIO_INSTALADA)
+                  - set(_store.CAMPOS_PRIVILEGIO_TIENDA))
+        self.assertLessEqual(faltan, no_da)
+        self.assertLessEqual({"privileged", "devices", "kernel_modules", "udev",
+                              "host_ipc", "host_uts", "host_dbus", "map"}, no_da)
+
+    async def test_instalar_una_app_que_no_es_local(self) -> None:
+        from tests.test_tools_privilegios import _TERCEROS
+
+        self.tienda(_TERCEROS)
+        r = await self.t["sv_install_addon"](_TERCEROS)
+        self.assertIn("confirmation_token", r, r)
+        priv = r["preview"]["privileges"]
+        self.assertEqual(priv["elevated"], [])
+        aviso = priv["not_in_store_data"]
+        self.assertEqual(aviso["fields"], list(_store.NO_LOS_DA_LA_TIENDA))
+        self.assertIn("does NOT mean the app asks for nothing", aviso["note"])
+        self.assertNotIn("REDACTED", aviso["note"])
+
+    async def test_actualizar_una_app_que_no_es_local(self) -> None:
+        from tests.test_tools_privilegios import _TERCEROS, ficha_extendida, info_instalada
+
+        self.sv.respuesta("GET", f"/addons/{_TERCEROS}/info", info_instalada(
+            _TERCEROS, version="1.0.0", version_latest="1.1.0", update_available=True))
+        self.sv.respuesta("GET", f"/store/addons/{_TERCEROS}", ficha_extendida(
+            _TERCEROS, installed=True, version="1.0.0", version_latest="1.1.0"))
+        self.sv.respuesta("GET", f"/store/addons/{_TERCEROS}/availability", {})
+        r = await self.t["sv_update_addon"](_TERCEROS)
+        self.assertIn("confirmation_token", r, r)
+        aviso = r["preview"]["privileges"]["not_in_store_data"]
+        self.assertIn("NEW version", aviso["note"])
+        self.assertIn("'installed' shows the current values", aviso["note"])
+
+    async def test_una_app_local_no_lo_lleva(self) -> None:
+        self.app_local()
+        self.tienda(_LOCAL, repository="local")
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertIn("confirmation_token", r, r)
+        self.assertNotIn("not_in_store_data", r["preview"]["privileges"])
+        self.assertIn("declared_in_folder", r["preview"]["privileges"])
+
+    def test_no_va_al_token(self) -> None:
+        # Es fijo: no se ata al token (el estado es el del bloque, sin él).
+        from tests.test_tools_privilegios import _TERCEROS, ficha_extendida
+
+        bloque = _store.privilegios_de(store=ficha_extendida(_TERCEROS))
+        self.assertNotIn("not_in_store_data", _store.estado_de_privilegios(bloque))

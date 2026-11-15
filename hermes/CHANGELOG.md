@@ -100,6 +100,18 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   libre del autor y, en la instalada, las opciones), y el texto del autor
   pasa por la redacción de secretos. El esquema de entrada de las dos no
   cambia.
+- **Lo que la ficha de la tienda no da, dicho.** La ficha de una app de la
+  tienda no trae `privileged`, `devices`, `host_ipc`, `host_uts`,
+  `host_dbus`, `kernel_modules`, `udev`, `usb`, `uart`, `gpio`,
+  `devicetree`, `video`, `audio`, `realtime`, `map` ni `ports`, y para una
+  app que no es local Hermes no tiene otra fuente antes de instalarla: un
+  `elevated: []` se podía leer como «no pide nada». Ahora la vista previa
+  de `sv_install_addon` y de `sv_update_addon` de una app que no es local
+  los lista en `privileges.not_in_store_data`, con una nota que dice que
+  no se pueden conocer antes (al actualizar, los de la versión nueva;
+  `installed` enseña los actuales). Es fijo y no se ata al token; el
+  esquema de entrada no cambia. Para una app local se ven en
+  `declared_in_folder`.
 
 ### Convergencia tras la revisión independiente
 

@@ -1141,9 +1141,9 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
         # convergencia, T047, `store_copy_stale` para las apps locales; en la
-        # convergencia 2, `sv_update_addon` y `folder_busy`); su
-        # CHANGELOG lo dice.
-        "supervisor": "a867c2463cd18ca9",
+        # convergencia 2, `sv_update_addon` y `folder_busy`; en la
+        # convergencia 4, `not_in_store_data`); su CHANGELOG lo dice.
+        "supervisor": "63a16c6249b6bf09",
         "marketplace": "f49c5f1c9d78b51b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
@@ -2157,15 +2157,15 @@ class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
         # convergencia 2, `sv_update_addon` y `folder_busy`; en la
         # convergencia 3, la marca de /addons al recargar y las recargas en
         # curso en el Supervisor; en la convergencia 4, que la recarga
-        # programada no se ve); su CHANGELOG lo dice.
-        "app_store": "ced132f47114a9f6",
+        # programada no se ve y `not_in_store_data`); su CHANGELOG lo dice.
+        "app_store": "df39bc13b8f3f640",
         "workflows": "53b81454a6708b9a",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
         # convergencia, T047, `store_copy_stale` para las apps locales; en la
-        # convergencia 2, `sv_update_addon` y `folder_busy`); su
-        # CHANGELOG lo dice.
-        "supervisor": "a867c2463cd18ca9",
+        # convergencia 2, `sv_update_addon` y `folder_busy`; en la
+        # convergencia 4, `not_in_store_data`); su CHANGELOG lo dice.
+        "supervisor": "63a16c6249b6bf09",
     }
 
     def setUp(self) -> None:
@@ -2266,8 +2266,8 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         # convergencia 2, `sv_update_addon` y `folder_busy`; en la
         # convergencia 3, la marca de /addons al recargar y las recargas en
         # curso en el Supervisor; en la convergencia 4, que la recarga
-        # programada no se ve); su CHANGELOG lo dice.
-        "app_store": "ced132f47114a9f6",
+        # programada no se ve y `not_in_store_data`); su CHANGELOG lo dice.
+        "app_store": "df39bc13b8f3f640",
         "automation_assist": "d360de0f7fd1deb5",
         "automations": "d27ee3c45bc13171",
         "backups": "3e685f47171224e7",
@@ -2306,9 +2306,9 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
         # `app_store` (privilegios en instalar y reconstruir; en su
         # convergencia, T047, `store_copy_stale` para las apps locales; en la
-        # convergencia 2, `sv_update_addon` y `folder_busy`); su
-        # CHANGELOG lo dice.
-        "supervisor": "a867c2463cd18ca9",
+        # convergencia 2, `sv_update_addon` y `folder_busy`; en la
+        # convergencia 4, `not_in_store_data`); su CHANGELOG lo dice.
+        "supervisor": "63a16c6249b6bf09",
         "system_diagnostics": "50509e336b5ca215",
         "system_status": "f6401ab7737759f6",
         # El remate del cierre de seguridad cambia `updates`: otra app

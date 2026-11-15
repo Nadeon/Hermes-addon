@@ -74,6 +74,7 @@ from hermes.tools._store import (
     comprobar_copia_de_tienda,
     leer_declarado,
     mensaje_del_supervisor,
+    no_los_da_la_tienda,
     privilegios_de,
     privilegios_para_mostrar,
     texto_de_la_app,
@@ -327,9 +328,16 @@ def register(
                               motivos={k: v for k, v in motivos.items() if v})
 
     def _poner_privilegios(
-        preview: dict[str, Any], bloque: dict[str, Any] | None, motivo: str | None
+        preview: dict[str, Any], bloque: dict[str, Any] | None, motivo: str | None,
+        slug: str, *, actualizar: bool = False,
     ) -> None:
         preview["privileges"] = privilegios_para_mostrar(bloque)
+        # Convergencia 4 (T063): para una app que no es `local_*`, qué
+        # privilegios no se pueden conocer antes (la ficha de la tienda no
+        # los da), para que `elevated: []` no se lea como «no pide nada».
+        aviso = no_los_da_la_tienda(slug, actualizar=actualizar)
+        if aviso is not None and preview["privileges"] is not None:
+            preview["privileges"]["not_in_store_data"] = aviso
         if bloque is None:
             # Sin ninguna fuente: se dice por qué y nunca se inventa (FR-021).
             preview["privileges_unavailable"] = motivo or "The store could not be read."
@@ -368,7 +376,7 @@ def register(
             preview["third_party_repository"] = None
             motivo_tienda = redact_secrets(str(exc))
             bloque = await _privilegios_de_instalar(slug, None, motivo_tienda)
-            _poner_privilegios(preview, bloque, motivo_tienda)
+            _poner_privilegios(preview, bloque, motivo_tienda, slug)
             estado.update({"version_latest": None,
                            "privileges": estado_de_privilegios(bloque)})
             return None
@@ -393,7 +401,7 @@ def register(
             )
         preview["_third_party_text"] = texto_de_terceros(["name"])
         bloque = await _privilegios_de_instalar(slug, ficha, None)
-        _poner_privilegios(preview, bloque, None)
+        _poner_privilegios(preview, bloque, None, slug)
         estado.update({"version_latest": ficha.get("version_latest"),
                        "privileges": estado_de_privilegios(bloque)})
         return None
@@ -1050,7 +1058,11 @@ def register(
         carpetas con escritura…) y, para una app local (`local_*`), lo que
         declara su `config.*` en /addons (`declared_in_folder`, con `map` y
         `ports`). Si no se pueden leer, `privileges: null` y
-        `privileges_unavailable` con el motivo.
+        `privileges_unavailable` con el motivo. Para una app que NO es local,
+        `privileges.not_in_store_data` lista los privilegios que la ficha de
+        la tienda no da (`privileged`, `devices`, `kernel_modules`, `udev`,
+        `host_dbus`, `map`…): Hermes no los puede conocer antes de instalar,
+        así que `elevated: []` NO quiere decir que la app no pida nada.
 
         El token se ata a la `version_latest` y a los `privileges` de la vista
         previa: si cambian al confirmar, responde `preview_outdated` sin
@@ -1261,7 +1273,10 @@ def register(
         copia a la app), lo actual (`installed`), para una app local
         (`local_*`) lo que declara su `config.*` en /addons
         (`declared_in_folder`) y cuáles son elevados (`elevated`). Si no se
-        pueden leer, `privileges: null` y `privileges_unavailable`.
+        pueden leer, `privileges: null` y `privileges_unavailable`. Para una
+        app que NO es local, `privileges.not_in_store_data` lista los que la
+        ficha de la tienda no da: lo que pida la versión NUEVA en ellos no se
+        puede conocer antes de actualizar (`installed` enseña lo actual).
 
         El token se ata a la `version_latest` y a los `privileges` de la
         vista previa: si cambian al confirmar, responde `preview_outdated`
@@ -1376,7 +1391,7 @@ def register(
             # incluidos, como instalar y reconstruir. La vista previa los
             # enseña y el token se ata también a ellos.
             bloque = await _privilegios_de_actualizar(slug, info, motivo_info)
-            _poner_privilegios(preview, bloque, motivo_info)
+            _poner_privilegios(preview, bloque, motivo_info, slug, actualizar=True)
             # Y, para una app local, la copia del Supervisor es la de la
             # última recarga, no el fichero (T047).
             desfase, ignorados = await comprobar_copia_de_tienda(slug, ha_client)

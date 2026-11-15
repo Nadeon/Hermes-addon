@@ -295,7 +295,8 @@ class TestActualizar(_Tienda):
         r = await self.t["sv_update_addon"](_TERCEROS)
         self.assertIn("confirmation_token", r, r)
         priv = r["preview"]["privileges"]
-        self.assertEqual(set(priv), {"store", "installed", "elevated"})
+        # Convergencia 4 (T063): más `not_in_store_data` (no es `local_*`).
+        self.assertEqual(set(priv), {"store", "installed", "elevated", "not_in_store_data"})
         self.assertIn("host_network", priv["elevated"])
 
     async def test_sin_poder_leer_nada(self) -> None:

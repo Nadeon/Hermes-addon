@@ -674,6 +674,41 @@ def _acotar(valor: Any) -> tuple[Any, bool]:
     return valor, False
 
 
+#: Convergencia 4 (T063): los campos de privilegio del `config.*` de una app
+#: que la ficha de la tienda NO da (`api/store.py`,
+#: `_generate_app_information(extended=True)` solo trae los de
+#: `CAMPOS_PRIVILEGIO_TIENDA`). Para una app que no es `local_*` no hay otra
+#: fuente antes de instalarla (ni de la versión nueva antes de
+#: actualizarla), así que `elevated` no los puede contar.
+NO_LOS_DA_LA_TIENDA: tuple[str, ...] = (
+    "privileged", "devices", "host_ipc", "host_uts", "host_dbus",
+    "kernel_modules", "udev", "usb", "uart", "gpio", "devicetree", "video",
+    "audio", "realtime", "map", "ports",
+)
+
+
+def no_los_da_la_tienda(slug: Any, *, actualizar: bool = False) -> dict[str, Any] | None:
+    """El aviso `not_in_store_data` de la vista previa de instalar
+    (`actualizar=False`) o actualizar una app que no es `local_*` (T063), o
+    `None` para una `local_*` (su `config.*` se ve en `declared_in_folder`
+    y `store_copy_stale` garantiza que es la copia que se aplica). No va al
+    token: es fijo."""
+    if not isinstance(slug, str) or slug.startswith("local_"):
+        return None
+    if actualizar:
+        nota = ("The store's data does not include these privilege fields, so "
+                "Hermes cannot know what the NEW version asks for before "
+                "updating; 'installed' shows the current values, and 'elevated' "
+                "only covers what is shown.")
+    else:
+        nota = ("The store's data does not include these privilege fields, so "
+                "Hermes cannot know them before installing; 'elevated' only "
+                "covers what is shown, and an empty list does NOT mean the app "
+                "asks for nothing. Check the app's documentation, or its "
+                "config file in its repository, before confirming.")
+    return {"fields": list(NO_LOS_DA_LA_TIENDA), "note": nota}
+
+
 def privilegios_para_mostrar(bloque: dict[str, Any] | None) -> dict[str, Any] | None:
     """El bloque con listas y textos acotados para la vista previa (el tope
     de respuesta sigue vigente). Al token se ata el bloque entero

@@ -1050,6 +1050,14 @@ OTRAS REGLAS
   `sv_update_addon` hace lo mismo, con `installed` (lo actual) además de
   `store` (lo que la actualización aplicará); `sv_rebuild_addon`, también
   (`hermes_guide("app_store")`).
+- OJO con una app que NO es local: la ficha de la tienda no da `privileged`,
+  `devices`, `host_ipc`, `host_uts`, `host_dbus`, `kernel_modules`, `udev`,
+  `usb`, `uart`, `gpio`, `devicetree`, `video`, `audio`, `realtime`, `map`
+  ni `ports`, y Hermes no los puede conocer antes de instalar (ni, al
+  actualizar, los de la versión nueva). La vista previa los lista en
+  `privileges.not_in_store_data`: `elevated: []` NO quiere decir que la app
+  no pida nada. Dilo al usuario y, si importa, mira antes su documentación
+  (`sv_get_addon_documentation`).
 - App local (`local_*`): el Supervisor instala, actualiza y reconstruye con
   SU copia del `config.*`, la de la última recarga de la tienda. Si algo en
   /addons cambió después del inicio de la última recarga que lanzó Hermes
@@ -2227,6 +2235,12 @@ FICHA DE UNA APP (antes de instalarla o actualizarla)
   que el Supervisor no la actualizará. Si la tienda no se puede leer al
   instalar, `store_check.checked` es false y la vista previa avisa de que no
   se sabe si la app está disponible ni si es de terceros.
+- La ficha de la tienda NO da varios privilegios (`privileged`, `devices`,
+  `kernel_modules`, `udev`, `host_dbus`, `map`…). Para una app que no es
+  local, las vistas previas de instalar y actualizar los listan en
+  `privileges.not_in_store_data`: Hermes no los puede conocer antes, y
+  `elevated: []` NO quiere decir que la app no pida nada
+  (`hermes_guide("supervisor")`).
 
 VERSIÓN CONCRETA: NO SE PUEDE ELEGIR
 Instalar y actualizar llevan SIEMPRE a la versión que ofrece la tienda: el
