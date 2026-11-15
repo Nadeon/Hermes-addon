@@ -1109,7 +1109,8 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
         sin = instrucciones(frozenset({"app_store"}))
         self.assertNotIn("app_store", sin)
         self.assertNotIn("@", sin)
-        self.assertIn("marketplace, security", sin)
+        # Desde la 023, el tema `conversation` va entre los dos.
+        self.assertIn("marketplace, conversation, security", sin)
 
     def test_los_temas_que_no_toca_no_cambian(self) -> None:
         import hashlib
@@ -1209,3 +1210,87 @@ class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):
                         ".cloud_backup", "sv_create_backup_full"):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
+
+
+class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
+    """Spec 023, T012 (FR-013): tema `conversation` con las cuatro tools, que
+    procesar ejecuta y confirma, el aviso del agente externo, lo que va por
+    las genéricas y lo que sigue rechazado; sus alias; el índice lo nombra y
+    las instrucciones del servidor solo con la familia activa; los temas que
+    la 023 no toca no cambian. No nombra las tools de exposición de la 021,
+    que no están en esta rama (principio V): se completa al integrar.
+
+    Control negativo comprobado: sin `@TEMA_CONVERSACION@` en las
+    instrucciones → cae `test_indice_e_instrucciones`."""
+
+    # sha256 (16 hex) de temas que la 023 no toca.
+    _HUELLAS = {
+        "services": "e7b494a2e8ad587e",
+        "security": "157ee929e7db08ae",
+        "generic_commands": "906066a916e93727",
+        "app_store": "f02491e7f0e6c93c",
+        "workflows": "53b81454a6708b9a",
+        "supervisor": "59ff6dec570dcfbf",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_contenido(self) -> None:
+        texto = await self.guide("conversation")
+        self.assertIs(texto, _GUIDE["conversation"])
+        plano = " ".join(texto.split())
+        for palabra in ("ha_list_conversation_agents", "ha_list_conversation_sentences",
+                        "ha_debug_conversation", "ha_process_conversation",
+                        "confirmation_token", "SIN ejecutarlas", "SIEMPRE EN DOS PASOS",
+                        "Hermes no puede predecir qué hará", "LLM en la nube",
+                        "local: \"unknown\"", "outcome_unknown", "PUDO ejecutarse",
+                        "assist_pipeline/pipeline/list", "ai_task/preferences/set",
+                        "allow_automatic_evaluation", "assist_satellite/set_wake_words",
+                        "assist_pipeline/pipeline/create", "EXPUESTAS",
+                        "ha_call_service_response"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+        # `assist_pipeline/run` solo aparece como no disponible.
+        self.assertIn("No disponibles: `assist_pipeline/run`", plano)
+        self.assertEqual(plano.count("assist_pipeline/run"), 1)
+
+    async def test_no_nombra_tools_que_no_existen(self) -> None:
+        from hermes.tools.conversation import register as reg_conversation
+        from unittest.mock import MagicMock
+
+        mcp = _MockMCP()
+        reg_conversation(mcp, MagicMock(), response_max_bytes=131072)
+        texto = _GUIDE["conversation"]
+        self.assertNotIn("ha_list_exposed_entities", texto)
+        for nombre in ("ha_list_conversation_agents", "ha_list_conversation_sentences",
+                       "ha_debug_conversation", "ha_process_conversation"):
+            self.assertIn(nombre, mcp.tools)
+
+    async def test_alias(self) -> None:
+        texto = _GUIDE["conversation"]
+        for alias in ("assist", "voice", "conversation_agents", "sentences", "intents",
+                      "pipelines", "assist_pipeline", "tts", "stt", "wake_word",
+                      "satellite", "ai_task", "llm", "ASSIST"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), texto)
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`conversation`", await self.guide())
+        self.assertIn(", conversation,", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"conversation"}))
+        self.assertNotIn("conversation", sin)
+        self.assertNotIn("@", sin)
+        self.assertIn("app_store, security", sin)
+
+    def test_los_temas_que_no_toca_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)

@@ -871,6 +871,15 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_addon_documentation": ("R-I-", "Get add-on documentation (Supervisor)"),
     "sv_get_addon_availability": ("R-I-", "Get add-on availability (Supervisor)"),
     "sv_rebuild_addon": ("-DIO", "Rebuild add-on (Supervisor)"),
+    # Spec 023 (research R-3, familia `conversation`). Las tres de lectura
+    # no salen de la instalación (el análisis solo usa el agente integrado,
+    # local). Procesar pide token siempre (destructiva), repetirla repite la
+    # acción (no idempotente) y con otro agente el texto puede salir a la
+    # nube (mundo abierto: el peor caso).
+    "ha_list_conversation_agents": ("R-I-", "List conversation agents (Home Assistant)"),
+    "ha_list_conversation_sentences": ("R-I-", "List conversation sentences (Home Assistant)"),
+    "ha_debug_conversation": ("R-I-", "Debug conversation (Home Assistant)"),
+    "ha_process_conversation": ("-D-O", "Process conversation (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -913,7 +922,17 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_get_addon_documentation", "sv_get_addon_availability",
         "sv_rebuild_addon",
     },
+    "conversation": {
+        "ha_list_conversation_agents", "ha_list_conversation_sentences",
+        "ha_debug_conversation", "ha_process_conversation",
+    },
 }
+
+# Las cuatro de la spec 023 (Assist y conversación, CAP-060).
+_CONVERSACION_023 = (
+    "ha_list_conversation_agents", "ha_list_conversation_sentences",
+    "ha_debug_conversation", "ha_process_conversation",
+)
 
 # Las de la spec 019, tramo 1 (montajes, CAP-083).
 _MOUNTS_019 = (
@@ -1713,6 +1732,42 @@ class TestTiendaDeApps030:
         completo = set(_real_registry())
         sin = set(_real_registry(["app_store"]))
         assert completo - sin == set(_TIENDA_030)
+
+
+class TestConversacion023:
+    """Spec 023, T006 (FR-007, FR-010): las cuatro tools de Assist se
+    registran por defecto con las anotaciones de research R-3; solo
+    `ha_process_conversation` lleva `confirmation_token`; con
+    `conversation` desactivada no queda ninguna y el resto no cambia (SC-001).
+
+    Control negativo (T016 g): quitar `ha_process_conversation` de
+    `_OPEN_WORLD` → cae `test_anotaciones` («-D--» frente a «-D-O»)."""
+
+    def test_anotaciones(self):
+        tools = _real_registry()
+        for nombre in _CONVERSACION_023:
+            assert nombre in tools, nombre
+            codigo, titulo = _HINTS_NUEVAS_1_2_0[nombre]
+            assert _hint_code(tools[nombre].annotations) == codigo, nombre
+            assert tools[nombre].title == titulo, nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _CONVERSACION_023}
+        assert props == {
+            "ha_list_conversation_agents": {"language", "country", "include_language_scores"},
+            "ha_list_conversation_sentences": {"search", "limit"},
+            "ha_debug_conversation": {"sentences", "language", "device_id"},
+            "ha_process_conversation": {"text", "agent_id", "language", "conversation_id",
+                                        "device_id", "confirmation_token"},
+        }
+        assert tools["ha_debug_conversation"].parameters.get("required") == ["sentences"]
+        assert tools["ha_process_conversation"].parameters.get("required") == ["text"]
+
+    def test_con_la_familia_apagada(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["conversation"]))
+        assert completo - sin == set(_CONVERSACION_023)
 
 
 class TestMarketplaceRegistration:

@@ -80,6 +80,10 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # HA y no guardan nada. Su nombre no tiene prefijo de lectura.
     "ha_validate_config",
     "ha_test_condition",
+    # Spec 023: analiza frases con el agente integrado y devuelve lo que
+    # reconoce, sin ejecutar ni el intent ni el disparador de frase. Su
+    # nombre no tiene prefijo de lectura.
+    "ha_debug_conversation",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -220,6 +224,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Spec 030, tramo 2: reconstruir borra el contenedor y la imagen de la
     # app; si la construcción falla, la app queda sin poder arrancar.
     "sv_rebuild_addon",
+    # Spec 023: procesar una frase la ejecuta como si se dijera por voz: puede
+    # abrir una cerradura o la puerta del garaje, desarmar una alarma o
+    # disparar una automatización cualquiera. Es el mismo motivo por el que la
+    # acción `conversation.process` está en la denylist. Pide token siempre.
+    "ha_process_conversation",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -273,6 +282,11 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # app (con `force`). Leer el changelog, la documentación o la
     # disponibilidad no sale: el Supervisor lee su clon local.
     "sv_rebuild_addon",
+    # Spec 023: con un agente que no es el integrado, el texto va a ese
+    # agente, que puede ser un LLM en la nube. La anotación es estática y dice
+    # el peor caso (principio V). `ha_debug_conversation` no: solo usa el
+    # agente integrado, que reconoce en local.
+    "ha_process_conversation",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -305,6 +319,9 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # avanzarlo un paso.
     "ha_start_repair_fix",
     "ha_continue_repair_fix",
+    # Spec 023: repetir una frase repite la acción («sube el volumen»,
+    # «alterna la luz») y abre o continúa una sesión de chat.
+    "ha_process_conversation",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

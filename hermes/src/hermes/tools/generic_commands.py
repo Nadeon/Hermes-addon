@@ -86,6 +86,14 @@ _ONE_SHOT_TIMEOUT_SECONDS = 10.0
 _MIN_TAPAR_EN_ERROR = 4
 _TAPADO = "***"
 
+# Spec 023 (research R-5): HA sirve `/api/tts_proxy/<token>` SIN autenticación
+# (`TextToSpeechView.requires_auth = False`): quien tenga la URL descarga el
+# audio. Es una credencial de hecho bajo una clave inocente (`url`, o dentro
+# de un texto), así que se tapa en cualquier respuesta de las genéricas,
+# además del `redact_extra` de `assist_pipeline/pipeline_debug/get`. Se tapa
+# solo la parte secreta, para que se vea qué era.
+_RE_TTS_PROXY = re.compile(r"(/api/tts_proxy/)[^\s\"'<>]+")
+
 # Longitud de un token emitido (UUID): para medir la vista previa ANTES de
 # crear el token, con el mismo tamaño que tendrá.
 _TOKEN_DE_MUESTRA = "00000000-0000-0000-0000-000000000000"
@@ -154,7 +162,7 @@ def _redactar(valor: Any, extra: frozenset[str], clave: str = "") -> Any:
     if isinstance(valor, str):
         if valor and (es_clave_sensible(clave) or clave.lower() in extra):
             return REDACTED_MARKER
-        return redact_secrets(valor)
+        return _RE_TTS_PROXY.sub(rf"\g<1>{REDACTED_MARKER}", redact_secrets(valor))
     if clave and clave.lower() in extra and valor is not None:
         # Una clave extra de la tabla es sensible por decisión explícita
         # (p. ej. un PIN numérico): se tapa sea cual sea su tipo.

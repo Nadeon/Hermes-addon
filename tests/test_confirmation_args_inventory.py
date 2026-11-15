@@ -90,6 +90,12 @@ en el `estado` (si la tienda ofrece otra al confirmar, `preview_outdated`);
 `sv_set_addon_options` sigue atando `slug` y `options`.
 `sv_repair_store_repository` y `sv_reload_store` no piden token. Ningún
 hallazgo.
+
+Recuento: 103 con la 023, que trae una tool con token, comprobada en el
+código: `ha_process_conversation` ata los cinco argumentos que cambian el
+efecto (`text`, `agent_id`, `language`, `conversation_id` y `device_id`) tal
+como llegan, `None` incluido, sin omitibles ni `estado` (la vista previa no
+promete conservar nada). Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -276,6 +282,9 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "sv_add_store_repository": {"repository": A},
     "sv_remove_store_repository": {"repository": A},
     "sv_rebuild_addon": {"slug": A, "force": A},
+    # Spec 023.
+    "ha_process_conversation": {"text": A, "agent_id": A, "language": A,
+                                "conversation_id": A, "device_id": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -369,8 +378,8 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
-        # cuatro de montajes de la 019.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 102)
+        # cuatro de montajes de la 019, las tres de la 030 y la de la 023.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 103)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -390,7 +399,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 102)
+        self.assertEqual(len(publicadas), 103)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

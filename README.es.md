@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **293 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **297 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 293 herramientas
+## Qué puede hacer — 297 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -56,6 +56,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Flujos de integraciones** | 12 | Integraciones descubiertas (listar e ignorar), los dominios que se configuran por flujo, el título y las opciones de sistema de una integración (sondeo y entidades nuevas; desactivarlas pide confirmación), las subentries (añadir, reconfigurar, renombrar; borrar pide confirmación) y reconfigurar una integración (cada paso pide confirmación) |
 | **Flujos de reparación** | 4 | Un aviso de Reparaciones con sus datos internos (redactados) y su flujo de reparación: abrirlo, enviar cada paso (cada paso pide confirmación) o abortarlo |
 | **Tienda de apps** | 9 | Los repositorios de la tienda de apps del Supervisor: listarlos (con sus apps y cuáles están instaladas), añadir uno (código de terceros: en dos pasos, con la URL exacta en la vista previa y las credenciales de la URL tapadas), quitar uno (en dos pasos; se rechaza si es integrado o tiene apps instaladas), repararlo y recargar la tienda. El changelog y la documentación de la versión de la tienda de una app (texto de terceros, redactado, por trozos), si se puede instalar en este sistema y reconstruir una app instalada (en dos pasos). Instalar, actualizar y cambiar opciones comprueban antes: disponibilidad, changelog y validación de las opciones por el Supervisor. Familia `app_store`, nueva en 1.2.0 |
+| **Assist y conversación** | 4 | Los agentes de conversación de Assist y sus idiomas (solo del integrado se sabe que funciona en local), las frases de los disparadores de frase de las automatizaciones, analizar frases con el agente integrado sin ejecutarlas (intent y entidades objetivo) y mandar una frase a Assist, que la ejecuta: siempre en dos pasos, con una vista previa de lo que reconoce Home Assistant o, con otro agente (un LLM en la nube), el aviso de que el texto se le envía. Familia `conversation`, nueva en 1.2.0 |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 
 Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y
@@ -67,7 +68,7 @@ lista de familias está en [DOCS.md](hermes/DOCS.md). `ping` y `hermes_guide`
 están siempre, y apagando las familias nuevas de la 1.2.0
 (`generic_commands`, `system_diagnostics`, `system_status`, `recorder`,
 `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`,
-`system_updates` y `app_store`) tienes exactamente la lista de herramientas de la 1.1.2.
+`system_updates`, `app_store` y `conversation`) tienes exactamente la lista de herramientas de la 1.1.2.
 
 Las herramientas destructivas devuelven, en la primera llamada, una vista previa
 y un `confirmation_token`. No hacen nada hasta que se les vuelve a llamar con
@@ -465,7 +466,7 @@ completo está aquí abajo.
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates` y `app_store`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
+| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store` y `conversation`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs que no sean de loopback (también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (p. ej. `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**: cada descarga sale de la IP de tu casa hacia un host que cualquiera puede elegir sin la contraseña. Pon solo los hosts que uses; ver `hermes/DOCS.md` |

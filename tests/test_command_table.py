@@ -854,5 +854,71 @@ class TestTiendaDeLa030(unittest.TestCase):
         self.assertEqual(texto.count("spec 030"), 0)
 
 
+# Spec 023 (data-model, «Entradas de la tabla»): los cinco comandos de CAP-060
+# → (tool, motivo).
+_CONVERSACION_023: dict[str, tuple[str, str]] = {
+    "conversation/agent/homeassistant/debug": (
+        "ha_debug_conversation", "cubierto por ha_debug_conversation"),
+    "conversation/agent/homeassistant/language_scores": (
+        "ha_list_conversation_agents",
+        "cubierto por ha_list_conversation_agents (con include_language_scores=true)"),
+    "conversation/agent/list": (
+        "ha_list_conversation_agents", "cubierto por ha_list_conversation_agents"),
+    "conversation/process": (
+        "ha_process_conversation", "cubierto por ha_process_conversation"),
+    "conversation/sentences/list": (
+        "ha_list_conversation_sentences", "cubierto por ha_list_conversation_sentences"),
+}
+
+
+class TestConversacionDeLa023(unittest.TestCase):
+    """FR-008 y FR-009 de la 023 (T011, SC-002): los cinco comandos de
+    CAP-060 pasan a `dedicated` con su clave en el mapa del generador; no
+    queda ninguna «(spec 023)»; las tres revisadas de CAP-061/CAP-062 dicen lo
+    que hacen; `assist_pipeline/run` sigue en `deny` (clase D).
+
+    Control negativo (T016 e): dejar `conversation/process` en `deny` → cae
+    `test_dedicadas_de_la_023` nombrándolo (y el de las genéricas)."""
+
+    def test_dedicadas_de_la_023(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(_RAIZ / "scripts" / "inventario"))
+        try:
+            import generar_tabla as gt
+        finally:
+            sys.path.pop(0)
+        malas = []
+        for comando, (tool, motivo) in _CONVERSACION_023.items():
+            e = ct.CORE_WS[comando]
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != ("dedicated", tool, "conversation", "CAP-060", motivo):
+                malas.append(f"{comando}: {real}")
+            destino = gt._DEDICADAS_INICIALES.get(comando)
+            nombre = getattr(destino, "tool", destino)
+            if nombre != tool:
+                malas.append(f"{comando}: no está en el mapa del generador ({destino!r})")
+        self.assertEqual(malas, [], "\n".join(malas))
+        pendientes = sorted(k for k, e in ct.CORE_WS.items() if "spec 023" in e.reason)
+        self.assertEqual(pendientes, [])
+
+    def test_revisadas(self) -> None:
+        debug = ct.CORE_WS["assist_pipeline/pipeline_debug/get"]
+        self.assertEqual(debug.category, "read")
+        self.assertIn("url", debug.redact_extra)
+        self.assertIn("tts_proxy", debug.reason)
+        ai = ct.CORE_WS["ai_task/preferences/set"]
+        self.assertEqual(ai.category, "confirm")
+        self.assertIn("allow_automatic_evaluation", ai.reason)
+        self.assertIn("LLM", ai.reason)
+        crear = ct.CORE_WS["assist_pipeline/pipeline/create"]
+        self.assertEqual(crear.category, "confirm")
+        self.assertEqual(crear.example["conversation_engine"], "conversation.home_assistant")
+        self.assertEqual(len(crear.example), 11)
+        run = ct.CORE_WS["assist_pipeline/run"]
+        self.assertEqual(run.category, "deny")
+        self.assertIn("clase D", run.reason)
+
+
 if __name__ == "__main__":
     unittest.main()

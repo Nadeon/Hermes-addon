@@ -360,6 +360,15 @@ _DEDICADAS_INICIALES: dict[
     "diagnostics/list": "ha_list_diagnostics_handlers",
     "diagnostics/get": "ha_list_diagnostics_handlers",
     "persistent_notification/get": "ha_list_persistent_notifications",
+    # 023: Assist y conversación (CAP-060), clase A de vía D, por el mismo
+    # mecanismo que las de la 012 y la 029. `language_scores` no tiene tool
+    # propia: lo da la lista de agentes con un argumento (research R-1).
+    "conversation/agent/list": "ha_list_conversation_agents",
+    "conversation/agent/homeassistant/language_scores": _ConMatiz(
+        "ha_list_conversation_agents", "con include_language_scores=true"),
+    "conversation/sentences/list": "ha_list_conversation_sentences",
+    "conversation/agent/homeassistant/debug": "ha_debug_conversation",
+    "conversation/process": "ha_process_conversation",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
