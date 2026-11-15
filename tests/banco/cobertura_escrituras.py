@@ -10,7 +10,7 @@ suite normal (sin HA ni Docker):
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
       ∪ FUERA_DEL_BANCO                                              (24)
       ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 3)
-      ∪ cobertura_020.PROBADAS_020 ∪ cobertura_020.NO_EJECUTABLES_020  (020, 3)
+      ∪ cobertura_020.PROBADAS_020 ∪ cobertura_020.NO_EJECUTABLES_020  (020, 5)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el

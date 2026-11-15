@@ -638,6 +638,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `fs_write_file` | VM | pendiente | |
 | `ha_abort_config_entry_flow` | banco de Core | ok | |
 | `ha_activate_scene` | banco de Core | ok | |
+| `ha_adjust_statistics_sum` | banco de Core | ok | |
 | `ha_call_service` | banco de Core | ok | |
 | `ha_call_service_response` | banco de Core | ok | |
 | `ha_call_ws_command` | banco de Core | ok | |
@@ -702,6 +703,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_finish_timer` | banco de Core | ok | |
 | `ha_fire_event` | banco de Core | ok | |
 | `ha_ignore_repair` | banco de Core | ok | |
+| `ha_import_statistics` | banco de Core | ok | |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
 | `ha_pause_timer` | banco de Core | ok | |

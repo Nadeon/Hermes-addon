@@ -10,6 +10,11 @@ Tramo 1: `ha_clear_statistics`, `ha_change_statistics_unit` y
 `ha_update_statistics_metadata`, en `tests/banco/test_banco_estadisticas.py`
 (el lector siembra las estadísticas y comprueba cada efecto).
 
+Tramo 2: `ha_adjust_statistics_sum` e `ha_import_statistics`, en el mismo
+fichero. `recorder/update_statistics_issues` va por `ha_call_ws_command`
+(decisión D-3), que ya está en `PROBADAS_GENERICAS`; su caso también está
+allí.
+
 `MODULOS_020` son los módulos de la 020. `statistics_maintenance` entra en la
 familia `recorder` de la 029, así que el test de los módulos de las familias
 de la 029 (`tests/test_banco_cobertura.py`) los resta: las tools de la 020
@@ -24,6 +29,8 @@ PROBADAS_020: frozenset[str] = frozenset({
     "ha_clear_statistics",
     "ha_change_statistics_unit",
     "ha_update_statistics_metadata",
+    "ha_adjust_statistics_sum",
+    "ha_import_statistics",
 })
 
 # Vacío: todas las de la 020 se ejecutan contra HA Core real en el banco.

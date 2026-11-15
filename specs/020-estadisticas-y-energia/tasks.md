@@ -116,36 +116,63 @@ separado (uno o varios commits; el tramo no se cierra con la suite en rojo).
 
 ### Tests de las tools (antes del código)
 
-- [ ] T021 [P] [US3] Tests de `ha_adjust_statistics_sum` (doble de T002): vista previa con `from` en UTC, ajuste y unidades, `sum_at_start` leído con `recorder/statistics_during_period` (`period: "hour"`, `types: ["sum"]`, esa hora; `before` y `after` si las unidades coinciden, solo `before` si no; `null` sin fila), `repeat_warning`; sin enviar el comando; confirmación con `adjustment_unit_of_measurement` → `queued: true`; `has_sum: false` → `statistic_has_no_sum`; id desconocido → `statistics_not_found`; `adjustment` 0, NaN o infinito, fecha sin zona → `invalid_argument`; `invalid_units` de HA → `ha_command_failed` con `ha_code`; log sin ids ni valores (FR-004, FR-006, FR-008, FR-017, FR-018)
-- [ ] T022 [P] [US4] Tests de `ha_import_statistics`: vista previa con `exists`, metadatos actuales y nuevos, `rows`, `first_start`, `last_start` y `overwritten_rows` (contadas con una lectura horaria del rango cuando es ≤ 31 días; `null` con `overwritten_rows_reason` si es mayor); aviso `recorded_entity_warning` si el id es de una entidad que existe; confirmación que envía `metadata` con `mean_type` y `unit_class` y sin `has_mean`, y `stats` en UTC ordenado → `queued: true`; `invalid_argument` sin llamar a HA con: `start` sin zona o con minutos, filas repetidas, 0 o 5001 filas, valor no finito, `mean_type` 3, clave desconocida en `metadata` o en una fila, `source` que no casa (`sensor.x` con `banco`; `banco:x` con `otra`), falta una clave obligatoria (FR-005, FR-006, FR-017)
-- [ ] T023 [P] [US3] [US4] Tests del token en las dos: cambiar `adjustment`, su unidad o `start_time` → «does not match»; `ha_import_statistics` confirmada sin `stats` → usa lo guardado (`omit_on_confirm`, `confirm_hint`); con `stats` distinto (una fila cambiada) → «does not match»; metadatos cambiados entre medias → `ESTADO_CAMBIADO`; tope de `stored_args` lleno → la confirmación sin `stats` se rechaza pidiendo reenviarlo (FR-005, FR-007, SC-003)
+- [x] T021 [P] [US3] Tests de `ha_adjust_statistics_sum` (doble de T002): vista previa con `from` en UTC, ajuste y unidades, `sum_at_start` leído con `recorder/statistics_during_period` (`period: "hour"`, `types: ["sum"]`, esa hora; `before` y `after` si las unidades coinciden, solo `before` si no; `null` sin fila), `repeat_warning`; sin enviar el comando; confirmación con `adjustment_unit_of_measurement` → `queued: true`; `has_sum: false` → `statistic_has_no_sum`; id desconocido → `statistics_not_found`; `adjustment` 0, NaN o infinito, fecha sin zona → `invalid_argument`; `invalid_units` de HA → `ha_command_failed` con `ha_code`; log sin ids ni valores (FR-004, FR-006, FR-008, FR-017, FR-018)
+- [x] T022 [P] [US4] Tests de `ha_import_statistics`: vista previa con `exists`, metadatos actuales y nuevos, `rows`, `first_start`, `last_start` y `overwritten_rows` (contadas con una lectura horaria del rango cuando es ≤ 31 días; `null` con `overwritten_rows_reason` si es mayor); aviso `recorded_entity_warning` si el id es de una entidad que existe; confirmación que envía `metadata` con `mean_type` y `unit_class` y sin `has_mean`, y `stats` en UTC ordenado → `queued: true`; `invalid_argument` sin llamar a HA con: `start` sin zona o con minutos, filas repetidas, 0 o 5001 filas, valor no finito, `mean_type` 3, clave desconocida en `metadata` o en una fila, `source` que no casa (`sensor.x` con `banco`; `banco:x` con `otra`), falta una clave obligatoria (FR-005, FR-006, FR-017)
+- [x] T023 [P] [US3] [US4] Tests del token en las dos: cambiar `adjustment`, su unidad o `start_time` → «does not match»; `ha_import_statistics` confirmada sin `stats` → usa lo guardado (`omit_on_confirm`, `confirm_hint`); con `stats` distinto (una fila cambiada) → «does not match»; metadatos cambiados entre medias → `ESTADO_CAMBIADO`; tope de `stored_args` lleno → la confirmación sin `stats` se rechaza pidiendo reenviarlo (FR-005, FR-007, SC-003)
 
 ### Implementación
 
-- [ ] T024 [US3] [US4] `statistics_maintenance.py`: las dos tools de contracts/tools.md con el ayudante del tramo 1 (`omitibles=("stats",)` en la importación); descripciones en inglés (repetir el ajuste suma dos veces; la importación sobrescribe filas con la misma hora). T021–T023 en verde (FR-004…FR-008, FR-017, FR-018)
-- [ ] T025 [US3] [US4] `_annotations.py`: las dos en `_DESTRUCTIVE_EXACT`, `ha_adjust_statistics_sum` también en `_NON_IDEMPOTENT_EXACT` (con el porqué), y en `_HINTS_NUEVAS_1_2_0` (`-D--` y `-DI-`); tests en `tests/test_tools_registration.py` primero (FR-016)
-- [ ] T026 [US3] [US4] `tests/test_confirmation_args_inventory.py`: filas de las dos (`stats` atado y omitible) y recuento (FR-007)
+- [x] T024 [US3] [US4] `statistics_maintenance.py`: las dos tools de contracts/tools.md con el ayudante del tramo 1 (`omitibles=("stats",)` en la importación); descripciones en inglés (repetir el ajuste suma dos veces; la importación sobrescribe filas con la misma hora). T021–T023 en verde (FR-004…FR-008, FR-017, FR-018)
+- [x] T025 [US3] [US4] `_annotations.py`: las dos en `_DESTRUCTIVE_EXACT`, `ha_adjust_statistics_sum` también en `_NON_IDEMPOTENT_EXACT` (con el porqué), y en `_HINTS_NUEVAS_1_2_0` (`-D--` y `-DI-`); tests en `tests/test_tools_registration.py` primero (FR-016)
+- [x] T026 [US3] [US4] `tests/test_confirmation_args_inventory.py`: filas de las dos (`stats` atado y omitible) y recuento (FR-007)
 
 ### Tabla
 
-- [ ] T027 [P] [US6] Tests: en `tests/test_tools_generic_commands.py`, `recorder/adjust_sum_statistics` e `recorder/import_statistics` → `use_dedicated_tool`; `ha_call_ws_command("recorder/update_statistics_issues")` da vista previa con token y, al confirmar, lo envía sin carga; `ha_read_ws_command` con él → rechazado por ser `confirm`. En `tests/test_command_table.py`, `recorder/update_statistics_issues` en `_POR_LA_TABLA` con «spec 020: …» (research R-3) (FR-009, FR-015)
-- [ ] T028 [US6] `command_table.py`: las dos a `dedicated` (familia `recorder`, CAP-050) con sus claves en `_DEDICADAS_INICIALES`; `recorder/update_statistics_issues` a `E("confirm", "<motivo de data-model>", "generic_commands", cap="CAP-050")` a mano; regenerar y comprobar que no cambia nada. T027 y los de la tabla en verde (FR-009, FR-015)
+- [x] T027 [P] [US6] Tests: en `tests/test_tools_generic_commands.py`, `recorder/adjust_sum_statistics` e `recorder/import_statistics` → `use_dedicated_tool`; `ha_call_ws_command("recorder/update_statistics_issues")` da vista previa con token y, al confirmar, lo envía sin carga; `ha_read_ws_command` con él → rechazado por ser `confirm`. En `tests/test_command_table.py`, `recorder/update_statistics_issues` en `_POR_LA_TABLA` con «spec 020: …» (research R-3) (FR-009, FR-015)
+- [x] T028 [US6] `command_table.py`: las dos a `dedicated` (familia `recorder`, CAP-050) con sus claves en `_DEDICADAS_INICIALES`; `recorder/update_statistics_issues` a `E("confirm", "<motivo de data-model>", "generic_commands", cap="CAP-050")` a mano; regenerar y comprobar que no cambia nada. T027 y los de la tabla en verde (FR-009, FR-015)
 
 ### Guía
 
-- [ ] T029 [US3] [US4] Tests y después `guide.py`: el tema `recorder` nombra las cinco de mantenimiento, explica el ajuste (no idempotente), la importación (horas en punto, `mean_type`, fuente, `stats` omitible al confirmar) y `ha_call_ws_command(type="recorder/update_statistics_issues")` para regenerar los avisos de Repairs tras arreglar (FR-020)
+- [x] T029 [US3] [US4] Tests y después `guide.py`: el tema `recorder` nombra las cinco de mantenimiento, explica el ajuste (no idempotente), la importación (horas en punto, `mean_type`, fuente, `stats` omitible al confirmar) y `ha_call_ws_command(type="recorder/update_statistics_issues")` para regenerar los avisos de Repairs tras arreglar (FR-020)
 
 ### Banco de Core
 
-- [ ] T030 [US3] [US4] `tests/banco/test_banco_estadisticas.py`: (a) `ha_adjust_statistics_sum` +5 kWh desde la hora 12 de la siembra: vista previa sin efecto; confirmación → el lector ve la suma +5 desde esa hora y la misma antes (sondeo); (b) `ha_import_statistics` de `banco:<sufijo>_importada` con 6 filas: vista previa sin efecto (no existe para el lector); confirmación → el lector ve las 6 filas y los metadatos; reimportar una fila cambiada sobrescribe; (c) `ha_call_ws_command("recorder/update_statistics_issues")` en dos pasos responde con éxito y `repairs/list_issues` del lector responde después. Limpieza con el lector (FR-009, FR-021)
-- [ ] T031 [US6] `PROBADAS_020` con las dos (cinco en total); `test_banco_cobertura_escrituras.py` en verde (FR-021)
-- [ ] T032 [US6] Matriz de pruebas de `docs/HOJA-DE-RUTA.md`: dos filas más; `test_matriz_pruebas.py` en verde (FR-021, FR-022)
+- [x] T030 [US3] [US4] `tests/banco/test_banco_estadisticas.py`: (a) `ha_adjust_statistics_sum` +5 kWh desde la hora 12 de la siembra: vista previa sin efecto; confirmación → el lector ve la suma +5 desde esa hora y la misma antes (sondeo); (b) `ha_import_statistics` de `banco:<sufijo>_importada` con 6 filas: vista previa sin efecto (no existe para el lector); confirmación → el lector ve las 6 filas y los metadatos; reimportar una fila cambiada sobrescribe; (c) `ha_call_ws_command("recorder/update_statistics_issues")` en dos pasos responde con éxito y `repairs/list_issues` del lector responde después. Limpieza con el lector (FR-009, FR-021)
+- [x] T031 [US6] `PROBADAS_020` con las dos (cinco en total); `test_banco_cobertura_escrituras.py` en verde (FR-021)
+- [x] T032 [US6] Matriz de pruebas de `docs/HOJA-DE-RUTA.md`: dos filas más; `test_matriz_pruebas.py` en verde (FR-021, FR-022)
 
 ### Cierre del tramo 2
 
-- [ ] T033 Control negativo del tramo 2, anotando recuentos: (a) quitar `adjustment_unit` del token → cae T023; (b) no comprobar `has_sum` → cae el de `statistic_has_no_sum`; (c) aceptar `start` con minutos → cae el de T022; (d) no declarar `stats` omitible → cae el de `omit_on_confirm`; (e) quitar `ha_adjust_statistics_sum` de `_NON_IDEMPOTENT_EXACT` → cae T025; (f) dejar `update_statistics_issues` en `deny` → cae T027; (g) quitar una de `PROBADAS_020` → cae T031. Restaurar y comprobar verde
-- [ ] T034 CHANGELOG (sección «Estadísticas y energía» con lo del tramo), recuento +2 en `README.md`, `README.es.md` y `hermes/DOCS.md` (FR-022)
-- [ ] T035 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII), commit con los recuentos de T033 y el resultado de la regeneración de T028
+- [x] T033 Control negativo del tramo 2, anotando recuentos: (a) quitar `adjustment_unit` del token → cae T023; (b) no comprobar `has_sum` → cae el de `statistic_has_no_sum`; (c) aceptar `start` con minutos → cae el de T022; (d) no declarar `stats` omitible → cae el de `omit_on_confirm`; (e) quitar `ha_adjust_statistics_sum` de `_NON_IDEMPOTENT_EXACT` → cae T025; (f) dejar `update_statistics_issues` en `deny` → cae T027; (g) quitar una de `PROBADAS_020` → cae T031. Restaurar y comprobar verde
+- [x] T034 CHANGELOG (sección «Estadísticas y energía» con lo del tramo), recuento +2 en `README.md`, `README.es.md` y `hermes/DOCS.md` (FR-022)
+- [x] T035 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), revisión del diff (principio VIII), commit con los recuentos de T033 y el resultado de la regeneración de T028
+
+### Notas del tramo 2 (implementación)
+
+- Línea base (punta `8c25508`): 2965 passed, 98 skipped, 6 failed (los 6 de
+  Windows). Al cerrar: 2996 passed, 101 skipped (los del banco), los mismos 6.
+- El ayudante `_dos_pasos` admite una vista previa asíncrona (lee la suma de
+  la hora o las filas que se sobrescriben; si esa lectura falla, no hay
+  token) y un comando y un resultado calculados con los argumentos RESUELTOS
+  por el token (con `stats` omitido, se envía lo guardado).
+- `ha_import_statistics` exige las siete claves de `metadata` y no admite
+  `has_mean` (manda `mean_type`); `start` tiene que ser hora en punto EN UTC
+  (más estricto que HA, que mira los minutos en la zona que llega).
+- La vista previa de la importación no cuenta filas si la estadística no
+  existe (`overwritten_rows: 0` sin leer) y solo lee con 31 días o menos.
+- T028: el generador, sobre la tabla editada, la deja idéntica (0 entradas
+  nuevas, 0 quitadas, sin diferencias).
+- T033, controles negativos (comprobados y restaurados): (a) sin
+  `adjustment_unit` en el token → 1 en rojo; (b) sin comprobar `has_sum` →
+  1; (c) `start` con minutos aceptado → 3 casos; (d) `stats` sin declarar
+  omitible → 4; (e) sin `ha_adjust_statistics_sum` en
+  `_NON_IDEMPOTENT_EXACT` → 2 de `test_tools_registration.py`; (f)
+  `update_statistics_issues` en `deny` → 2 de `test_tools_generic_commands.py`;
+  (g) una menos en `PROBADAS_020` → 1 de `test_banco_cobertura_escrituras.py`.
+- Desviaciones: `test_command_table.py::test_tres_rutas_a_read` comparaba
+  `_POR_LA_TABLA` entero con las de la 013; ahora filtra las «spec 013: ».
+  `ha_import_statistics` sale en la vista previa con `columns` (las columnas
+  que llegan) además de lo de data-model.
 
 ---
 

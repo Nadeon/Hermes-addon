@@ -378,6 +378,41 @@ backup que incluya la base de HA deshace lo que hacen.
   estadísticas que siembra el lector, que comprueba que la vista previa no
   cambia nada y el efecto de cada confirmación.
 
+Tramo 2: dos tools más en la misma familia, también en dos pasos, y los
+avisos de Repairs de las estadísticas por la genérica de escritura.
+
+- **`ha_adjust_statistics_sum`**: suma una cantidad (en su unidad, que HA
+  convierte) a la suma de cada fila desde un instante, para arreglar un
+  salto o un reinicio de un contador. NO es idempotente: la vista previa lo
+  dice, se anuncia sin `idempotentHint` y el token, de un solo uso, ata la
+  cantidad, la estadística, el instante (en UTC) y la unidad. La vista
+  previa da la suma guardada en esa hora antes y, con la misma unidad,
+  después. Una estadística sin suma da `statistic_has_no_sum` sin token
+  (HA respondería «ok» sin hacer nada). Responde `queued: true`.
+- **`ha_import_statistics`**: importa de 1 a 5000 filas horarias (más da
+  `invalid_argument` con el límite) y crea o actualiza los metadatos. Antes
+  de llamar a HA valida lo que HA rechazaría o aceptaría a medias: las siete
+  claves de `metadata` (sin `has_mean`: manda `mean_type`), la fuente que
+  casa con el id, `start` con zona y en hora en punto en UTC, filas sin
+  repetir, números finitos y claves conocidas. La vista previa resume sin
+  volcar las filas: si la estadística existe, sus metadatos actuales y los
+  nuevos, el número de filas, la primera y la última hora y cuántas filas
+  existentes se sobrescriben (contadas si abarcan 31 días o menos), y avisa
+  si el id es de una entidad que el recorder sigue grabando. El token ata el
+  documento entero normalizado; `stats` se puede omitir al confirmar (lo
+  guarda el token, como en Lovelace) y, si llega, tiene que ser idéntico.
+  Responde `queued: true`.
+- **Avisos de Repairs**: `recorder/update_statistics_issues` pasa de `deny`
+  a `confirm` en la tabla: `ha_call_ws_command` lo envía en dos pasos y sin
+  carga, para recalcular los avisos tras arreglar una estadística.
+- **Tabla de comandos**: `recorder/adjust_sum_statistics` y
+  `recorder/import_statistics` pasan a `dedicated`.
+- **Guía**: el tema `recorder` nombra las cinco de mantenimiento, explica el
+  ajuste no idempotente, la importación y la genérica de los avisos.
+- **Banco de Core**: las dos se ejecutan contra HA Core real (ajustar +5 kWh
+  desde una hora; importar 6 filas y sobrescribir una), y también los avisos
+  por la genérica; el lector comprueba cada efecto con un sondeo acotado.
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de
