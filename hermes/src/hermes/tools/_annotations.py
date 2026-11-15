@@ -182,6 +182,12 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # destructiva por su prefijo.
     "ha_create_user",
     "ha_update_user",
+    # Spec 021, tramo c: los adaptadores cambian el descubrimiento; el HTTP
+    # reinicia HA y puede cortar el acceso (puerto, SSL, proxy); promover hace
+    # de la de prueba la configuración de recuperación. Las tres piden token.
+    "ha_update_network_config",
+    "ha_update_http_config",
+    "ha_promote_http_config",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

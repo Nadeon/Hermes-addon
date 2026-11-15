@@ -306,7 +306,12 @@ class TestDedicadas(unittest.TestCase):
             "config/auth/create": ("ha_create_user", "users", "CAP-056"),
             "config/auth/update": ("ha_update_user", "users", "CAP-056"),
             "config/auth/delete": ("ha_delete_user", "users", "CAP-056"),
+            # Tramo c (T045): los tres de CAP-069, familia `core_network`.
+            "network/configure": ("ha_update_network_config", "core_network", "CAP-069"),
+            "http/config/configure": ("ha_update_http_config", "core_network", "CAP-069"),
+            "http/config/promote": ("ha_promote_http_config", "core_network", "CAP-069"),
         }
+        self.assertEqual(len(cinco), 12)
         for comando, (tool, familia, cap) in cinco.items():
             with self.subTest(comando=comando):
                 e = ct.CORE_WS[comando]
@@ -321,6 +326,28 @@ class TestDedicadas(unittest.TestCase):
         self.assertIn("no guarda nada", e.reason)
         self.assertTrue(_POR_LA_TABLA["config/core/detect"].startswith("spec 021: "))
         self.assertNotIn("config/core/detect", _DEDICADAS_INICIALES)
+        # Tramo c (T045, SC-002): ya no queda nada «pendiente (spec 021)» en
+        # ninguna de las dos tablas. Control negativo (T056 h):
+        # `http/config/promote` en `deny` pendiente → cae.
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 021)" in e.reason)
+        self.assertEqual(pendientes, [])
+
+    def test_cap_074_por_la_tabla(self) -> None:
+        """Spec 021, tramo c (T043; FR-016): las cuatro de analytics y labs
+        siguen por las genéricas con `cap="CAP-074"`; `analytics/preferences`
+        es de mundo abierto (activar el envío manda datos a los servidores de
+        Home Assistant). Control negativo (T056 g): sin `open_world` → cae."""
+        esperado = {
+            "analytics": ("read", False),
+            "labs/list": ("read", False),
+            "analytics/preferences": ("confirm", True),
+            "labs/update": ("confirm", False),
+        }
+        for comando, (categoria, sale) in esperado.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual((e.category, e.cap, e.open_world, e.family),
+                                 (categoria, "CAP-074", sale, "generic_commands"))
 
     def test_credenciales_y_sesiones_siguen_deny(self) -> None:
         """Spec 021, tramo b (T027; FR-012): `auth/refresh_tokens` queda `deny`

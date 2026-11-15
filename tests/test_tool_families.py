@@ -225,6 +225,20 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("users"), "users")
         self.assertEqual(validar_desactivadas(["users"]), frozenset({"users"}))
 
+    def test_familia_de_la_021_tramo_c(self) -> None:
+        """Spec 021 (FR-017, T042): `core_network`, nueva de la 1.2.0,
+        desactivable y con su módulo; no es la red del host (032)."""
+        familia = FAMILIAS["core_network"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("core_network",))
+        self.assertEqual(familia.descripcion,
+                         "Core network adapters and HTTP server configuration "
+                         "(port, SSL, reverse proxy).")
+        self.assertEqual(familia_de_modulo("core_network"), "core_network")
+        self.assertEqual(validar_desactivadas(["core_network"]),
+                         frozenset({"core_network"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

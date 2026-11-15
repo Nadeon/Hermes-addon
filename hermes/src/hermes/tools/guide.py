@@ -149,6 +149,7 @@ para el detalle de un área. Temas disponibles:
 - `core_config`    — configuración general: nombre, ubicación, unidades, zona horaria, moneda, idioma y URLs
 - `assistant_exposure` — qué entidades ven y controlan Assist, los agentes y Alexa o Google
 - `users`          — usuarios de HA: listar, crear sin credenciales, editar y borrar
+- `core_network`   — adaptadores de red y servidor HTTP de Core (puerto, SSL, proxy inverso)
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -820,7 +821,7 @@ Para reiniciar HA usa `sv_restart_core` (comprueba antes la configuración),
 nunca `ha_call_service("homeassistant", "restart")`. Si HA no conoce un
 comando (versión antigua): `unsupported_by_ha_version`.
 
-RED, URLS Y HTTP DE CORE (por la genérica de lectura, sin tool dedicada)
+RED, URLS Y HTTP DE CORE (lectura por la genérica)
 - `ha_read_ws_command(type="network")` — los adaptadores de red que ve HA,
   sus direcciones y cuáles usa (`configured_adapters`).
 - `ha_read_ws_command(type="network/url")` — `internal`, `external` y `cloud`:
@@ -829,9 +830,10 @@ RED, URLS Y HTTP DE CORE (por la genérica de lectura, sin tool dedicada)
   HTTP: `stable` (la que funciona), `pending` (una sin confirmar, si la hay) y
   `default`.
 Las tres solo leen y no llevan carga. Las URLs internal y external se cambian
-con `ha_update_core_config` (tema `core_config`). Hermes aún NO tiene tool para
-cambiar la red ni el HTTP: `network/configure` y `http/config/*` están
-denegadas a la espera de su tool dedicada (CAP-069).
+con `ha_update_core_config` (tema `core_config`); los adaptadores de red y el
+servidor HTTP, con las tools del tema `core_network`
+(`ha_update_network_config`, `ha_update_http_config` y
+`ha_promote_http_config`).
 """,
     "recorder": """\
 # Recorder y estadísticas (familia `recorder`)
@@ -903,6 +905,22 @@ externo de geolocalización por IP y propone `unit_system`, `latitude`,
 `longitude`, `time_zone`, `currency` y `country`. No guarda nada; sin salida a
 internet responde `{}`. Enseña la propuesta al usuario antes de aplicarla con
 `ha_update_core_config`.
+
+ANALYTICS Y LABS (por las genéricas, sin tool dedicada)
+- `ha_read_ws_command(type="analytics")` — qué datos de uso manda HA a los
+  servidores de Home Assistant (`preferences`) y si el onboarding está hecho.
+  Solo lee.
+- `ha_call_ws_command(type="analytics/preferences", payload={"preferences":
+  {"base": false}})` — guarda las preferencias (`base`, `snapshots`,
+  `diagnostics`, `statistics`, `usage`). Confirma en dos pasos y es de mundo
+  abierto: activar una hace que HA mande datos a internet. No actives nada
+  sin que el usuario lo pida.
+- `ha_read_ws_command(type="labs/list")` — las funciones en pruebas de las
+  integraciones cargadas y si están activas. Solo lee.
+- `ha_call_ws_command(type="labs/update", payload={"domain": "<integración>",
+  "preview_feature": "<función>", "enabled": true})` — activa o desactiva una
+  función en pruebas (con `"create_backup": true`, HA hace antes un backup).
+  Confirma en dos pasos; una función que no existe da `not_found`.
 """,
     "assistant_exposure": """\
 # Exposición a asistentes (familia `assistant_exposure`)
@@ -981,6 +999,58 @@ LO QUE NO HAY
   denegada en la genérica.
 - Contraseñas, nombres de acceso, sesiones y MFA (`config/auth_provider/*`,
   `auth/*`) están denegados: se gestionan desde la interfaz de Home Assistant.
+""",
+    "core_network": """\
+# Red y HTTP de Core (familia `core_network`)
+
+Lo que guarda Home Assistant Core sobre su red y su servidor web (Ajustes →
+Sistema → Red). No es la red del host (eso es el Supervisor). Para leer:
+`ha_read_ws_command(type="network")` (adaptadores, direcciones y
+`configured_adapters`) y `ha_read_ws_command(type="http/config")` (`stable`,
+`pending`, `revert_at`, `active_config_type` y `default`). Las tres tools
+CONFIRMAN en dos pasos: enseña la vista previa al usuario antes de confirmar.
+
+- `ha_update_network_config(configured_adapters)` — qué adaptadores usa HA
+  para descubrir dispositivos y qué direcciones anuncia. `[]` = automático.
+  Un nombre que no existe da `invalid_argument` con `available`. La vista
+  previa dice los habilitados antes y después. NO cambia dónde escucha la
+  interfaz web.
+- `ha_update_http_config(changes=None, discard_pending=False)` — el servidor
+  HTTP: `server_port`, `server_host`, `ssl_certificate`, `ssl_key`,
+  `ssl_peer_certificate`, `ssl_profile`, `use_x_forwarded_for`,
+  `trusted_proxies`, `ip_ban_enabled`, `login_attempts_threshold`,
+  `cors_allowed_origins`, `use_x_frame_options`. Funde `changes` sobre la
+  configuración con la que HA funciona (`null` quita una clave) y manda el
+  documento entero (`new_config` en la vista previa, con `changes` y
+  `warnings`). `discard_pending=true` tira una pendiente sin promover.
+- `ha_promote_http_config()` — confirma que la configuración de prueba
+  funciona: pasa a ser la estable, la que usa el modo de recuperación. Su
+  vista previa sirve de estado de la prueba (diff y `revert_at`). Sin una
+  pendiente con la que HA ya funcione: `nothing_to_promote` con `reason`.
+
+LA PRUEBA DE 5 MINUTOS
+Aplicar un cambio de HTTP REINICIA Home Assistant, que arranca con la
+configuración nueva a prueba. Si nadie la promueve con
+`ha_promote_http_config` en 5 minutos, o si no se puede aplicar, HA vuelve a
+la estable y reinicia otra vez. Tras confirmar, comprueba con el usuario que
+HA responde (navegador, apps, proxy) y promueve.
+
+AVISOS Y RECHAZOS
+- `access_risk` y `warnings`: `port` (URLs, apps y proxies con el puerto
+  viejo dejan de funcionar), `server_host`, `ssl` (HTTPS obligatorio;
+  `http://` deja de funcionar), `reverse_proxy` (un proxy fuera de
+  `trusted_proxies` queda rechazado), `ip_ban`, `ssl_profile`, `cors`,
+  `x_frame_options` y `pending_replaced`.
+- `supervisor_lockout`: un `server_host` sin `0.0.0.0` ni `172.30.32.1` (la
+  dirección por la que el Supervisor llega a Core) se rechaza, porque dejaría
+  fuera a Hermes y a todas las apps. `::` sola no vale (no acepta IPv4).
+- `restart_blocked`: si Hermes escribió configuración sin validarla, se niega
+  como `sv_restart_core`; llama antes a `sv_check_core_config`.
+- `use_x_forwarded_for: true` exige `trusted_proxies` en el resultado.
+- Con `configuration.yaml` inválida HA no reinicia: lo pendiente se aplica en
+  el siguiente reinicio (`config_check`).
+- Un Home Assistant anterior a 2026.11 no tiene esta configuración en
+  almacenamiento: `unsupported_by_ha_version`.
 """,
     "workflows": """\
 # Flujos completos (recetas paso a paso)
@@ -1103,7 +1173,11 @@ _ALIASES: dict[str, str] = {
     "manifests": "system_status",
     "setup_times": "system_status",
     "urls": "system_status",
-    "network": "system_status",
+    "network": "core_network",
+    "http": "core_network",
+    "ssl": "core_network",
+    "port": "core_network",
+    "proxy": "core_network",
     "recorder_info": "recorder",
     "statistics_validation": "recorder",
     "action_calls": "recorder",
@@ -1111,6 +1185,8 @@ _ALIASES: dict[str, str] = {
     "location": "core_config",
     "units": "core_config",
     "time_zone": "core_config",
+    "analytics": "core_config",
+    "labs": "core_config",
     "exposure": "assistant_exposure",
     "expose": "assistant_exposure",
     "voice": "assistant_exposure",
@@ -1226,7 +1302,7 @@ def register(mcp: object) -> None:
                 filesystem, supervisor, system_diagnostics, backups, lovelace,
                 marketplace, security, generic_commands, system_status, recorder,
                 core_diagnostics, core_config, assistant_exposure, users,
-                workflows.
+                core_network, workflows.
                 Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists

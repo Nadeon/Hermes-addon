@@ -837,6 +837,11 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_create_user": ("-D--", "Create user (Home Assistant)"),
     "ha_update_user": ("-DI-", "Update user (Home Assistant)"),
     "ha_delete_user": ("-DI-", "Delete user (Home Assistant)"),
+    # Spec 021, tramo c (T042): las tres de red y HTTP en `_DESTRUCTIVE_EXACT`
+    # (reinicio y pérdida de acceso). Ninguna sale a internet.
+    "ha_update_network_config": ("-DI-", "Update network config (Home Assistant)"),
+    "ha_update_http_config": ("-DI-", "Update http config (Home Assistant)"),
+    "ha_promote_http_config": ("-DI-", "Promote http config (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1686,6 +1691,74 @@ class TestUsuariosTramoB:
         todas = set(_do_register().tools)
         sin_usuarios = set(_do_register(["users"]).tools)
         assert todas - sin_usuarios == set(_USUARIOS_021)
+
+
+# ── Spec 021, tramo c: red y HTTP (T042) y conjunto de la 021 (T052) ─────────
+
+_RED_021 = ("ha_update_network_config", "ha_update_http_config",
+            "ha_promote_http_config")
+_TODAS_021 = _CORE_CONFIG_021 + _EXPOSICION_021 + _USUARIOS_021 + _RED_021
+_LECTURAS_021 = ("ha_get_core_config", "ha_list_exposed_entities", "ha_list_users")
+_FAMILIAS_021 = ["core_config", "assistant_exposure", "users", "core_network"]
+_MODULOS_021 = ("core_config", "assistant_exposure", "users", "core_network")
+
+
+class TestRedYHttpTramoC:
+    """Las tres tools de red y HTTP se registran bajo `core_network` y toman
+    `confirmation_token`; con las cuatro familias de la 021 desactivadas, la
+    lista de tools es exactamente la de antes de la 021 (FR-017, FR-019,
+    SC-001). Hints y títulos: `_HINTS_NUEVAS_1_2_0`."""
+
+    def test_registradas_con_token(self):
+        tools = _real_registry()
+        for nombre in _RED_021:
+            assert "confirmation_token" in tools[nombre].parameters.get("properties", {})
+
+    def test_la_familia_quita_las_suyas(self):
+        todas = set(_do_register().tools)
+        assert todas - set(_do_register(["core_network"]).tools) == set(_RED_021)
+
+    def test_sin_las_familias_de_la_021_es_la_lista_de_antes(self):
+        todas = set(_do_register().tools)
+        sin_021 = set(_do_register(_FAMILIAS_021).tools)
+        assert todas - sin_021 == set(_TODAS_021)
+        assert len(_TODAS_021) == 12
+        assert not sin_021 & set(_TODAS_021)
+
+
+class TestConjuntoDeLa021:
+    """T052 (FR-019, SC-006): las nueve que escriben de la 021 toman
+    `confirmation_token` y son destructivas por nombre o prefijo, salvo las dos
+    de exposición (D-4: `TOKEN_SOLO_AL_AMPLIAR`, ocultar no pide token); y
+    ninguna de las doce tiene un argumento de credenciales (por AST, en los
+    cuatro módulos)."""
+
+    def test_las_que_escriben_toman_token_y_son_destructivas(self):
+        from hermes.tools._annotations import classify
+
+        tools = _real_registry()
+        escriben = [n for n in _TODAS_021 if n not in _LECTURAS_021]
+        assert len(escriben) == 9
+        for nombre in escriben:
+            assert "confirmation_token" in tools[nombre].parameters.get("properties", {})
+            if nombre in TestDestructiveToolsAskBeforeActing.TOKEN_SOLO_AL_AMPLIAR:
+                continue
+            assert classify(nombre).destructive_hint is True, nombre
+
+    def test_ningun_argumento_de_credenciales(self):
+        base = pathlib.Path(__file__).resolve().parent.parent / "hermes/src/hermes/tools"
+        vistas = set()
+        for modulo in _MODULOS_021:
+            arbol = ast.parse((base / f"{modulo}.py").read_text(encoding="utf-8"))
+            for nodo in ast.walk(arbol):
+                if isinstance(nodo, ast.AsyncFunctionDef) and nodo.name in _TODAS_021:
+                    vistas.add(nodo.name)
+                    for arg in nodo.args.args + nodo.args.kwonlyargs:
+                        if arg.arg == "confirmation_token":
+                            continue
+                        assert not any(m in arg.arg for m in (
+                            "password", "secret", "token", "username")), (nodo.name, arg.arg)
+        assert vistas == set(_TODAS_021)
 
 
 class TestToolCountInDocs:

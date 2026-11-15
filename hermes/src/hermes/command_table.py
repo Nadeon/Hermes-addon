@@ -31,7 +31,10 @@ CORE_WS: dict[str, E] = {
     # Escribe aunque el nombre no tenga verbo: `save_preferences` y `async_schedule`
     # (analytics/__init__.py de Core 2026.11.1). La clasificación por verbo lo daba
     # como `read`.
-    "analytics/preferences": E("confirm", "guarda qué datos de uso se envían a Home Assistant (analytics) y reprograma el envío", "generic_commands", cap="CAP-074"),
+    # Spec 021 (FR-016, research R-10): activar `base` u otra preferencia hace
+    # que HA mande datos de uso a los servidores de Home Assistant; la
+    # genérica de escritura no puede anunciar que no sale a internet.
+    "analytics/preferences": E("confirm", "guarda qué datos de uso se envían a Home Assistant (analytics) y reprograma el envío", "generic_commands", cap="CAP-074", open_world=True),
     "application_credentials/config": E("read", "dominios que admiten credenciales de aplicación OAuth y su configuración; solo lee", "generic_commands", cap="CAP-073"),
     "application_credentials/config_entry": E("read", "id de la credencial de aplicación que usa una integración; solo lee", "generic_commands", cap="CAP-073"),
     "application_credentials/create": E("deny", "introduce o cambia client_secret OAuth de terceros (clase D)", "generic_commands"),
@@ -289,8 +292,8 @@ CORE_WS: dict[str, E] = {
     "homeassistant/expose_new_entities/get": E("dedicated", "cubierto por ha_list_exposed_entities", "assistant_exposure", tool="ha_list_exposed_entities", cap="CAP-055"),
     "homeassistant/expose_new_entities/set": E("dedicated", "cubierto por ha_set_expose_new_entities", "assistant_exposure", tool="ha_set_expose_new_entities", cap="CAP-055"),
     "http/config": E("read", "configuración del servidor HTTP de Core (estable, pendiente y por defecto); solo lee", "generic_commands", cap="CAP-068"),
-    "http/config/configure": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-069"),
-    "http/config/promote": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-069"),
+    "http/config/configure": E("dedicated", "cubierto por ha_update_http_config", "core_network", tool="ha_update_http_config", cap="CAP-069"),
+    "http/config/promote": E("dedicated", "cubierto por ha_promote_http_config", "core_network", tool="ha_promote_http_config", cap="CAP-069"),
     # ImageUploadStorageCollectionWebsocket.ws_create_item lanza NotImplementedError
     # (image_upload/__init__.py de Core 2026.11.1).
     "image/create": E("deny", "subir una imagen va por REST multipart: por WebSocket HA responde NotImplementedError", "generic_commands", cap="CAP-072"),
@@ -481,7 +484,7 @@ CORE_WS: dict[str, E] = {
     "mqtt/device/debug_info": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-104"),
     "mqtt/subscribe": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-104"),
     "network": E("read", "adaptadores de red de HA y cuáles usa; solo lee", "generic_commands", cap="CAP-068"),
-    "network/configure": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-069"),
+    "network/configure": E("dedicated", "cubierto por ha_update_network_config", "core_network", tool="ha_update_network_config", cap="CAP-069"),
     "network/url": E("read", "URLs interna, externa y de la nube de HA; solo lee", "generic_commands", cap="CAP-068"),
     "notify/html5/appkey": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "number/device_class_convertible_units": E("deny", "ayudas de formulario de la UI (unidades convertibles) (clase B)", "generic_commands"),

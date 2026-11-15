@@ -141,6 +141,13 @@ _CATALOGO: tuple[Familia, ...] = (
             "Home Assistant users: list, create without credentials, edit and "
             "delete. Never passwords or tokens.",
             "1.2.0", True, ("users",)),
+    # Tramo c: red y HTTP de Core, aparte por su riesgo (cambiar el HTTP
+    # reinicia HA y puede dejarla inaccesible). No es la red del host, que es
+    # del Supervisor (spec 032): solo lo que guarda Core.
+    Familia("core_network",
+            "Core network adapters and HTTP server configuration (port, SSL, "
+            "reverse proxy).",
+            "1.2.0", True, ("core_network",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

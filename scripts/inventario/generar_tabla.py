@@ -335,6 +335,10 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "config/auth/create": "ha_create_user",
     "config/auth/update": "ha_update_user",
     "config/auth/delete": "ha_delete_user",
+    # 021 (tramo c): red y HTTP de Core (CAP-069).
+    "network/configure": "ha_update_network_config",
+    "http/config/configure": "ha_update_http_config",
+    "http/config/promote": "ha_promote_http_config",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

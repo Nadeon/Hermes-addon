@@ -584,16 +584,19 @@ class TestTemaSystemStatus(unittest.IsolatedAsyncioTestCase):
 
     async def test_red_urls_y_http(self) -> None:
         """Spec 029, T028 (FR-014): la llamada exacta por la genérica a
-        `network`, `network/url` y `http/config`, y que Hermes aún no tiene
-        tool para cambiarlos (la 021, CAP-069, actualizará este texto)."""
+        `network`, `network/url` y `http/config`. La 021 (tramo c, T046) ya
+        tiene tools para cambiar la red y el HTTP: el tema remite a
+        `core_network` y el alias `network` pasa a ese tema."""
         texto = _GUIDE["system_status"]
         for palabra in ('ha_read_ws_command(type="network")',
                         'ha_read_ws_command(type="network/url")',
                         'ha_read_ws_command(type="http/config")',
                         "internal", "external", "cloud", "stable", "pending",
-                        "NO tiene tool", "CAP-069"):
+                        "core_network", "ha_update_http_config"):
             self.assertIn(palabra, texto)
-        self.assertEqual(await self.guide("network"), texto)
+        self.assertNotIn("NO tiene tool", texto)
+        self.assertEqual(await self.guide("network"), _GUIDE["core_network"])
+        self.assertEqual(await self.guide("urls"), texto)
 
 
 class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
@@ -832,6 +835,53 @@ class TestTemaDeUsuarios(unittest.IsolatedAsyncioTestCase):
     async def test_indice_y_docstring(self) -> None:
         self.assertIn("`users`", await self.guide())
         self.assertIn("users", self.mcp.tools["hermes_guide"].__doc__)
+
+
+class TestTemaDeRedYHttp(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T046 (FR-022): tema `core_network` con sus tres tools, la
+    prueba de 5 minutos, los avisos, el rechazo de `server_host`, el bloqueo
+    de reinicio y cómo leer; sección de analytics y labs en `core_config` con
+    las cuatro llamadas exactas; alias; índice y docstring."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_core_network(self) -> None:
+        texto = await self.guide("core_network")
+        self.assertIs(texto, _GUIDE["core_network"])
+        for palabra in ("ha_update_network_config", "ha_update_http_config",
+                        "ha_promote_http_config", "5 minutos", "REINICIA",
+                        'ha_read_ws_command(type="network")',
+                        'ha_read_ws_command(type="http/config")',
+                        "access_risk", "supervisor_lockout", "172.30.32.1",
+                        "restart_blocked", "sv_check_core_config",
+                        "nothing_to_promote", "discard_pending",
+                        "unsupported_by_ha_version", "dos pasos"):
+            self.assertIn(palabra, texto)
+        for codigo in ("port", "server_host", "ssl", "reverse_proxy", "ip_ban",
+                       "ssl_profile", "cors", "x_frame_options", "pending_replaced"):
+            self.assertIn(f"`{codigo}`", texto)
+        for alias in ("http", "ssl", "port", "proxy", "network", "CORE_NETWORK"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_analytics_y_labs_en_core_config(self) -> None:
+        texto = _GUIDE["core_config"]
+        for palabra in ('ha_read_ws_command(type="analytics")',
+                        'ha_call_ws_command(type="analytics/preferences"',
+                        'ha_read_ws_command(type="labs/list")',
+                        'ha_call_ws_command(type="labs/update"',
+                        "mundo", "abierto"):
+            self.assertIn(palabra, texto)
+        for alias in ("analytics", "labs"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_y_docstring(self) -> None:
+        self.assertIn("`core_network`", await self.guide())
+        self.assertIn("core_network", self.mcp.tools["hermes_guide"].__doc__)
 
 
 if __name__ == "__main__":

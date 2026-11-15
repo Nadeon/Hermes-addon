@@ -1165,5 +1165,84 @@ class TestDedicadasDeLa021TramoB(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+# Spec 021, tramo c: comando → tool dedicada (familia `core_network`).
+_DEDICADAS_021_C = {
+    "network/configure": "ha_update_network_config",
+    "http/config/configure": "ha_update_http_config",
+    "http/config/promote": "ha_promote_http_config",
+}
+
+
+class TestDedicadasDeLa021TramoC(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T045 (FR-018): con la tabla real, las genéricas rechazan los
+    tres de CAP-069 hacia su tool sin llegar a HA; con `core_network`
+    desactivada, `family_disabled: true`. Y T043 (FR-016): las cuatro de
+    CAP-074 por las genéricas, las de escritura en dos pasos y con la carga
+    exacta.
+
+    Control negativo (T056 h): `http/config/promote` en `deny` → cae
+    `test_rechazo_hacia_su_tool` (`command_denied`)."""
+
+    async def asyncSetUp(self) -> None:
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_021_C.items():
+            with self.subTest(comando=comando):
+                self.assertIn(tool, mcp.tools)
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, "core_network", False))
+                r = await mcp.tools["ha_call_ws_command"](comando, {"config": None})
+                self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", tool))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["core_network"])
+        for comando, tool in _DEDICADAS_021_C.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {})
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_analytics_y_labs_se_leen(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando in ("analytics", "labs/list"):
+            with self.subTest(comando=comando):
+                ha.ws_send.reset_mock()
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual(r["category"], "read")
+                ha.ws_send.assert_awaited_once()
+                self.assertEqual(ha.ws_send.await_args.args[0], {"type": comando})
+
+    async def test_preferencias_y_labs_en_dos_pasos(self) -> None:
+        mcp, ha = _registrar_todo([])
+        casos = {
+            "analytics/preferences": {"preferences": {"base": False}},
+            "labs/update": {"domain": "demo", "preview_feature": "funcion_demo",
+                            "enabled": True},
+        }
+        for comando, carga in casos.items():
+            with self.subTest(comando=comando):
+                ha.ws_send.reset_mock()
+                vista = await mcp.tools["ha_call_ws_command"](comando, carga)
+                self.assertIn("confirmation_token", vista)
+                self.assertEqual(vista["preview"]["cap"], "CAP-074")
+                ha.ws_send.assert_not_awaited()
+                r = await mcp.tools["ha_call_ws_command"](
+                    comando, carga, confirmation_token=vista["confirmation_token"])
+                self.assertTrue(r["executed"])
+                ha.ws_send.assert_awaited_once_with({"type": comando, **carga})
+
+
 if __name__ == "__main__":
     unittest.main()
