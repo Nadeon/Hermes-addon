@@ -1255,6 +1255,35 @@ familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
   envía a HA real la carga exacta de cada comando y comprueba que la acepta;
   el backup previo se prueba con el Supervisor simulado. Prueba en vivo
   pendiente.
+- **Converge de la revisión independiente** (T031-T037):
+  - **Automatizaciones y scripts con `update.install` (D-29 ampliada)**: HA
+    2026.11.1 deja instalar desde el Marketplace a una automatización o un
+    script (corren sin usuario) si ALGUNA persona aceptó el aviso de riesgos.
+    La guía ya no dice que esa vía «choca con lo mismo»: explica la verdad, y
+    la vista previa de `ha_create_or_update_automation` y
+    `ha_create_or_update_script` trae `warning_marketplace_install` si la
+    configuración llama a `update.install` (con `action`, `service` o una
+    plantilla que lo nombre). Es un aviso, no una barrera: no ve llamadas
+    indirectas. Bloquearlo del todo queda como decisión de producto (D-29).
+  - **Interruptor «pre-release» del Marketplace**: cambia a betas de código
+    de terceros sin el aviso de riesgos. Por `ha_call_service`, `switch` u
+    `homeassistant` `turn_on`/`turn_off`/`toggle` sobre uno de ellos (resuelto
+    por el registro de entidades) pide `confirmation_token`, con
+    `warning_marketplace_beta`; un objetivo indirecto (área, dispositivo,
+    etiqueta, planta, `all`) que pueda alcanzarlos se rechaza con
+    `use_entity_ids`, y un registro ilegible, con `registry_unavailable`. Lo
+    demás sigue como en la 1.1.2.
+  - **Textos que decían que una persona podía aceptar el aviso**: el tema
+    `marketplace` de la guía y `how_to_update` de
+    `ha_marketplace_list_updates` dicen que aceptarlo en la interfaz NO hace
+    que Hermes pueda instalar (D-29), y el tema remite a `marketplace_manage`.
+  - **Bajos**: ignorar dice que el aviso de Repairs ya creado sigue hasta el
+    próximo reinicio de Core (`repairs_issue`); quitar dice que volver a
+    añadirlo exige GitHub conectado; el token de desinstalar ata también la
+    carpeta y el dominio, y `removes.path_note` avisa de que con GitHub
+    conectado HA puede recalcular la ruta; si desinstalar agota el plazo, la
+    respuesta es `outcome_unknown` (quizá se hizo; `sent`: `null` = no se
+    sabe) con la pista de releer.
 
 ### Banco de pruebas
 

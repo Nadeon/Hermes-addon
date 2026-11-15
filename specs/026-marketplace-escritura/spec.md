@@ -374,6 +374,20 @@ descripciones y la guía.
 > ata al repositorio, a la categoría y a lo leído (`estado`); la vista previa
 > dice si el repositorio es de terceros y no está revisado.
 >
+> **D-29 AMPLIADA (supervisor, converge T031-T033)**: la protección del aviso
+> tiene dos huecos en HA 2026.11.1. (1) `RepositoryUpdateEntity.async_install`
+> acepta un contexto SIN usuario si cualquier persona aceptó el aviso, y una
+> automatización o un script corren así: con `update.install` pueden instalar
+> código de terceros sin el aviso. Bloquearlo del todo es una decisión de
+> producto que queda abierta en la D-29; mientras tanto, la guía dice la
+> verdad y la vista previa de `ha_create_or_update_automation` y
+> `ha_create_or_update_script` avisa (`warning_marketplace_install`), sin ser
+> una barrera. (2) El interruptor «pre-release» de cada repositorio cambia a
+> betas sin el aviso: por `ha_call_service` pide token, y un objetivo
+> indirecto que pueda alcanzarlo se rechaza (`use_entity_ids`). Además, FR-018
+> pasa a aplicar en parte: los textos de lectura dicen que una persona que
+> acepte el aviso en la interfaz NO hace que Hermes pueda instalar.
+>
 > **DECISIÓN D-2 (supervisor, tramo 2)**: `ha_marketplace_uninstall` va en
 > la familia `marketplace_manage` (módulo `tools/marketplace_manage.py`), no
 > en una familia de una sola tool: **no existe** `marketplace_install`. En
