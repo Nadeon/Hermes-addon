@@ -96,6 +96,11 @@ emergencia viejo o pásala como `password` al restaurar. La retención sigue
 podando los safety backups que Hermes cifró; uno protegido que no creó Hermes
 así no lo toca. Un valor que no sea uno de los tres impide arrancar.
 
+La misma opción decide el cifrado del backup parcial que hace
+`ha_marketplace_uninstall` antes de desinstalar: la vista previa dice si irá
+cifrado (y que restaurarlo necesita la clave del kit de emergencia), y con
+`required` y sin clave no hay backup y no se desinstala nada.
+
 En el Marketplace (HACS hasta HA 2026.10) Claude puede consultar
 repositorios, actualizaciones y versiones y, desde la 1.2.0 (familia
 `marketplace_manage`), reconocer avisos críticos, ignorar repositorios

@@ -71,6 +71,7 @@ from hermes.security import (
 )
 from hermes.tools._validation import es_numero_finito
 from hermes.tools._logs import ArgumentoInvalido
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 
 logger = structlog.get_logger(__name__)
 
@@ -243,7 +244,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
             await ha_client.sv_request("POST", ruta, json_body=carga)
         except (HAConnectionError, aiohttp.ClientError, asyncio.TimeoutError) as exc:
             if _es_respuesta_del_supervisor(exc):
-                texto = redact_secrets(str(exc))
+                # Sin el eco de la carga (cierre de seguridad): `api_validate`
+                # repite el valor rechazado con «Got …».
+                texto = sin_eco_del_supervisor(str(exc), carga)
                 await complete_confirmation_token(token, success=False, error=texto)
                 _log(tool, "error", changed=changed, reason="supervisor")
                 return {"error": texto}
@@ -252,7 +255,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     token, success=False, error="request not sent; nothing was done")
                 _log(tool, "error", changed=changed, reason="not_sent")
                 return {"error": "supervisor_request_failed", "sent": False,
-                        "detail": redact_secrets(str(exc)),
+                        "detail": sin_eco_del_supervisor(str(exc), carga),
                         "note": "The request never reached the Supervisor: nothing was done. Ask for a new preview when Hermes is connected."}
             await complete_confirmation_token(
                 token, success=False, error="connection lost after sending; outcome unknown")

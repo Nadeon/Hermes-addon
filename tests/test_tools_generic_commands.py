@@ -933,7 +933,9 @@ class TestSupervisor(_Base):
                 self.assertEqual((r["error"], r["rule"]), ("path_not_allowed", "self_target"))
                 r = await self.t["sv_call_api"]("POST", f"/addons/{app}/restart")
                 self.assertEqual((r["error"], r["rule"]), ("path_not_allowed", "self_target"))
-        self.ha.sv_request.assert_not_awaited()
+        # D-13 (cierre de seguridad): solo la lectura del slug propio.
+        for llamada in self.ha.sv_request.await_args_list:
+            self.assertEqual(llamada.args[:2], ("GET", "/addons/self/info"))
         self.assertEqual(list(Path(self.temp_dir.name).glob("*")), [])
 
     async def test_rechazos(self) -> None:

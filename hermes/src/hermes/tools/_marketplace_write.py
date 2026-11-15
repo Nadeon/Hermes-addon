@@ -50,6 +50,7 @@ import aiohttp
 
 import structlog
 
+from hermes.backup_key import por_que_sin_clave, sin_secretos
 from hermes.ha import HAClient, HAConnectionError
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._store import redactar_mensaje
@@ -158,30 +159,57 @@ def nombre_backup(accion: str, ahora: datetime | None = None) -> str:
     return f"hermes_marketplace_{accion}_{momento.strftime('%Y%m%dT%H%M%SZ')}"
 
 
-def carga_backup(nombre: str) -> dict[str, Any]:
+# Cierre de seguridad de la 1.2.0: el backup previo de desinstalar sigue el
+# modo `safety_backup_encryption` de la 031, como los safety backups. Lo que
+# dice la vista previa según vaya a ir cifrado o no.
+NOTA_BACKUP_CIFRADO = (
+    "Encrypted with Home Assistant's backup encryption key (the one in your "
+    "emergency kit). Restoring it needs that key: sv_restore_backup_partial "
+    "uses it when you pass no password; from the Home Assistant UI or CLI you "
+    "need the emergency kit. If the key is changed later, this backup still "
+    "needs the old one."
+)
+
+
+def aviso_backup_sin_cifrar(motivo: str | None) -> str:
+    """El aviso de un backup previo que irá sin cifrar con `auto`."""
+    return ("This backup will NOT be encrypted: it holds secrets.yaml and "
+            "integration tokens in clear. "
+            f"{por_que_sin_clave(motivo)}.")
+
+
+def carga_backup(nombre: str, clave: str | None = None) -> dict[str, Any]:
     """`POST /backups/new/partial`: solo la configuración de HA, sin apps,
     sin carpetas y sin la base de datos (es lo que hace lento un backup y el
-    Marketplace no la toca), esperando a que termine. Sin `password`: no se
-    cifra."""
-    return {
+    Marketplace no la toca), esperando a que termine. Con `clave` (la de
+    backups de HA, según `safety_backup_encryption`) va cifrado; sin ella,
+    sin `password`, como en la 026."""
+    carga: dict[str, Any] = {
         "name": nombre,
         "homeassistant": True,
         "homeassistant_exclude_database": True,
         "background": False,
     }
+    if clave is not None:
+        carga["password"] = clave
+    return carga
 
 
-async def backup_previo(ha_client: HAClient, nombre: str) -> dict[str, Any]:
-    """Pide el backup y espera a que termine. Devuelve `{"slug", "name"}`
-    (y `job_id` si lo hay) o lanza `ErrorMarketplace` con `backup_failed`:
-    con un error, un plazo agotado o una respuesta sin `slug` no consta que
-    haya terminado, y quien llama NO envía el comando de HA."""
+async def backup_previo(
+    ha_client: HAClient, nombre: str, clave: str | None = None,
+) -> dict[str, Any]:
+    """Pide el backup y espera a que termine. Devuelve `{"slug", "name",
+    "encrypted"}` (y `job_id` si lo hay) o lanza `ErrorMarketplace` con
+    `backup_failed`: con un error, un plazo agotado o una respuesta sin
+    `slug` no consta que haya terminado, y quien llama NO envía el comando
+    de HA. La clave va solo en la carga: `sin_secretos` la tapa en el error y
+    en la respuesta (T061 de la 031)."""
     try:
-        datos = await ha_client.sv_request(
+        datos = await sin_secretos(ha_client.sv_request(
             "POST", "/backups/new/partial",
-            json_body=carga_backup(nombre),
+            json_body=carga_backup(nombre, clave),
             timeout_seconds=ESPERA_BACKUP,
-        )
+        ), clave)
     except (HAConnectionError, TimeoutError, aiohttp.ClientError) as exc:
         texto = str(exc) or type(exc).__name__
         fallo: dict[str, Any] = {
@@ -202,7 +230,7 @@ async def backup_previo(ha_client: HAClient, nombre: str) -> dict[str, Any]:
         if isinstance(job_id, str) and job_id:
             fallo["job_id"] = job_id
         raise ErrorMarketplace(fallo)
-    hecho: dict[str, Any] = {"slug": slug, "name": nombre}
+    hecho: dict[str, Any] = {"slug": slug, "name": nombre, "encrypted": clave is not None}
     if isinstance(job_id, str) and job_id:
         hecho["job_id"] = job_id
     return hecho
@@ -558,6 +586,40 @@ AVISO_INTERRUPTOR_BETA = (
     "Assistant does not ask for its risk warning on this path. It installs "
     "nothing by itself."
 )
+
+
+# Cierre de seguridad de la 1.2.0: el interruptor nace deshabilitado si el
+# repositorio no tenía activadas las betas (`_attr_entity_registry_enabled_
+# default = show_beta`). Volver a habilitarlo (o mostrarlo) con
+# `ha_update_entity_registry` lo deja al alcance de los servicios y de la UI.
+# Esa tool ya pide token siempre: basta con que su vista previa lo avise.
+AVISO_HABILITAR_INTERRUPTOR_BETA = (
+    "This entity is the pre-release switch of a Marketplace repository. "
+    "Enabling or showing it makes it reachable from services and the UI: "
+    "turning it on makes the Marketplace offer BETA versions of third-party "
+    "code (not reviewed by Home Assistant), without Home Assistant's risk "
+    "warning. Enabling it changes nothing else by itself."
+)
+
+
+def habilita_interruptor_beta(
+    entity_id: str, actual: Any, cambios: dict[str, Any],
+) -> bool | None:
+    """¿Este cambio del registro habilita o muestra el interruptor
+    «pre-release» del Marketplace?
+
+    `True` si la entidad es un `switch` de la plataforma `marketplace` y el
+    cambio pone `disabled_by` o `hidden_by` a `None`; `False` si no; `None`
+    si es un `switch` que se habilita pero no se pudo leer su entrada
+    (`actual` no es un dict): quien llama avisa igual (fail-closed)."""
+    if not entity_id.startswith("switch."):
+        return False
+    habilita = any(k in cambios and cambios[k] is None for k in ("disabled_by", "hidden_by"))
+    if not habilita:
+        return False
+    if not isinstance(actual, dict):
+        return None
+    return actual.get("platform") == "marketplace"
 
 
 def _objetivo_indirecto(data: dict[str, Any]) -> bool:

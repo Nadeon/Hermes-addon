@@ -48,11 +48,11 @@ from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
-    redact_secrets,
     redact_structure,
     resolve_confirmation_token,
 )
 from hermes.tools._common import recortar_a_bytes
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 
 logger = structlog.get_logger(__name__)
 
@@ -123,9 +123,13 @@ _PASOS_REPAIR = [
 ]
 
 
-def _detalle(exc: BaseException) -> str:
-    """Texto de un error del Supervisor, sin secretos y recortado."""
-    return redact_secrets(str(exc))[:_DETALLE_MAX]
+def _detalle(exc: BaseException, *enviado: Any) -> str:
+    """Texto de un error del Supervisor, sin secretos y recortado.
+
+    Sin el eco de lo enviado (cierre de seguridad de la 1.2.0): `/core/options`
+    y `/supervisor/options` se validan con `api_validate`, que repite el valor
+    rechazado con «Got …». Se limpia ANTES de recortar."""
+    return sin_eco_del_supervisor(str(exc), *enviado)[:_DETALLE_MAX]
 
 
 def _no_enviada(exc: BaseException) -> bool:
@@ -141,10 +145,11 @@ def _no_enviada(exc: BaseException) -> bool:
             or isinstance(exc, aiohttp.ClientConnectorError))
 
 
-def _error_sv(exc: BaseException) -> dict[str, Any]:
+def _error_sv(exc: BaseException, *enviado: Any) -> dict[str, Any]:
     """Respuesta de error de una petición al Supervisor: redactada y, si no
     llegó a salir, diciendo que no se hizo nada."""
-    resp: dict[str, Any] = {"error": "supervisor_request_failed", "detail": _detalle(exc)}
+    resp: dict[str, Any] = {"error": "supervisor_request_failed",
+                            "detail": _detalle(exc, *enviado)}
     if _no_enviada(exc):
         resp["sent"] = False
         resp["note"] = ("The request never reached the Supervisor: nothing was "
@@ -323,13 +328,13 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         return recortar_a_bytes({"error": code, **resp}, response_max_bytes)
 
     def error_sv(tool: str, ruta: str, exc: BaseException,
-                 keys: list[str] | None = None) -> dict[str, Any]:
+                 keys: list[str] | None = None, enviado: Any = None) -> dict[str, Any]:
         # Al log, solo el tipo y el `status`: el texto puede repetir lo enviado.
         logger.warning("system_control_rejected", tool=tool, route=ruta,
                        keys=keys or [], code="supervisor_request_failed",
                        status=getattr(exc, "status", None),
                        exc_type=type(exc).__name__)
-        return _error_sv(exc)
+        return _error_sv(exc, *(() if enviado is None else (enviado,)))
 
     def vista_previa_emitida(tool: str, ruta: str, keys: list[str] | None = None) -> None:
         logger.info("system_control_preview", tool=tool, route=ruta,
@@ -385,7 +390,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                 return resp
             await complete_confirmation_token(token, success=False,
                                               error="supervisor_request_failed")
-            return error_sv(tool, ruta, exc, keys)
+            return error_sv(tool, ruta, exc, keys, cuerpo)
         await complete_confirmation_token(token, success=True, result=ok)
         hecho(tool, ruta, "ok", keys)
         return ok
@@ -560,7 +565,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         except (HAConnectionError, TimeoutError, aiohttp.ClientError) as exc:
             await complete_confirmation_token(confirmation_token, success=False,
                                               error="supervisor_request_failed")
-            return error_sv(tool, ruta, exc, claves)
+            return error_sv(tool, ruta, exc, claves, cuerpo)
         resp = {"result": "ok", "changed": sorted(cuerpo), "restart_needed": False}
         await complete_confirmation_token(confirmation_token, success=True, result=resp)
         hecho(tool, ruta, "ok", claves)

@@ -69,7 +69,8 @@ from hermes.tools._common import (
     sobre_de_lista,
     tam_json,
 )
-from hermes.tools.addons import _es_hermes
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
+from hermes.tools.addons import es_hermes
 
 logger = structlog.get_logger(__name__)
 
@@ -307,6 +308,11 @@ def register(
     """
     ready = requires_ready(ha_client)
     desactivadas = frozenset(familias_desactivadas)
+    # D-13: el slug exacto de Hermes; import aquí para no cargar la familia
+    # de actualizaciones al importar este módulo.
+    from hermes.tools.system_updates import lector_slug_propio
+
+    slug_propio = lector_slug_propio(ha_client)
 
     def log(tool: str, outcome: str, **campos: Any) -> None:
         # Nunca valores ni la ruta concreta: solo lo que deja ver QUÉ se hizo.
@@ -526,7 +532,7 @@ def register(
 
     # ── Supervisor ────────────────────────────────────────────────────────
 
-    def decidir_supervisor(
+    async def decidir_supervisor(
         tool: str, method: str, path: str,
     ) -> tuple[Permitido | Rechazo, str | None]:
         """(decisión, plantilla casada o None)."""
@@ -536,9 +542,17 @@ def register(
         if casado is None:
             return cp.decidir(tool, None, familias_desactivadas=desactivadas), None
         (_, plantilla), entrada = casado
+        parametros = cp.parametros(plantilla, path)
+        # D-13 (cierre de seguridad de la 1.2.0): `{app}` es Hermes por su
+        # slug EXACTO cuando se puede leer; si no, por el sufijo (fail-closed).
+        # Se lee antes porque `decidir` es síncrona, y solo si el sufijo dice
+        # que puede serlo.
+        app = parametros.get("app") if parametros else None
+        app_es_hermes = isinstance(app, str) and await es_hermes(app, slug_propio)
         decision = cp.decidir(
             tool, entrada, familias_desactivadas=desactivadas,
-            parametros=cp.parametros(plantilla, path), es_hermes=_es_hermes,
+            # `decidir` solo pregunta por `parametros["app"]`.
+            parametros=parametros, es_hermes=lambda _s: app_es_hermes,
         )
         return decision, plantilla
 
@@ -558,7 +572,9 @@ def register(
             log(tool, "failed", **log_campos)
             error: dict[str, Any] = {
                 "error": "supervisor_request_failed",
-                "detail": _mensaje_seguro(str(exc), body),
+                # Primero la limpieza común del eco del Supervisor (cierre de
+                # seguridad): `api_validate` repite el valor con «Got …».
+                "detail": _mensaje_seguro(sin_eco_del_supervisor(str(exc), body), body),
             }
             if exc.status is not None:
                 error["status"] = exc.status
@@ -594,7 +610,7 @@ def register(
             that fit: {"…", "count", "lines", "truncated"}. Secrets redacted.
         """
         tool = "sv_read_api"
-        decision, ruta = decidir_supervisor(tool, "GET", path)
+        decision, ruta = await decidir_supervisor(tool, "GET", path)
         log_campos = {"method": "GET", "route": ruta}
         if isinstance(decision, Rechazo):
             return rechazo(tool, decision, ruta, **log_campos)
@@ -656,7 +672,7 @@ def register(
             return argumento_invalido(tool, "body", "body must be an object.",
                                       method=metodo)
         cuerpo = dict(body) if body is not None else None
-        decision, ruta = decidir_supervisor(tool, metodo, path)
+        decision, ruta = await decidir_supervisor(tool, metodo, path)
         log_campos = {"method": metodo, "route": ruta, "payload_keys": _claves(cuerpo),
                       "payload_bytes": tam_json(cuerpo) if cuerpo is not None else None}
         if isinstance(decision, Rechazo):

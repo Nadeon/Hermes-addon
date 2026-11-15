@@ -31,6 +31,7 @@ recuentos; nunca el contenido, un id de arranque, el `identifier` ni el
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
@@ -52,23 +53,28 @@ from hermes.tools._logs import (
     validar_plugin,
 )
 from hermes.tools._common import ultimas_lineas_que_caben
-from hermes.tools.addons import _es_hermes
+from hermes.tools.addons import es_hermes
 
 logger = structlog.get_logger(__name__)
 
 _EVENTO = "system_diagnostics_read"
 
 
-def _identifier_de_hermes(identifier: str | None) -> bool:
+async def _identifier_de_hermes(
+    identifier: str | None, leer_propio: Callable[[], Awaitable[str | None]],
+) -> bool:
     """True si el identificador del journal es el del contenedor de Hermes.
 
     El Supervisor 2026.11 etiqueta el log de un add-on con `addon_<slug>` y,
-    en los nuevos, `app_<slug>`.
+    en los nuevos, `app_<slug>`. D-13 (cierre de seguridad de la 1.2.0): el
+    slug se compara EXACTO con el de `/addons/self/info` si se puede leer;
+    si no, por el sufijo (`es_hermes`).
     """
     if not identifier:
         return False
     for prefijo in ("addon_", "app_"):
-        if identifier.startswith(prefijo) and _es_hermes(identifier[len(prefijo):]):
+        if identifier.startswith(prefijo) and await es_hermes(
+                identifier[len(prefijo):], leer_propio):
             return True
     return False
 
@@ -93,6 +99,11 @@ def register(
     response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las tools de logs del sistema en la instancia MCP."""
+    # D-13: el slug exacto de Hermes (import aquí: `system_updates` es otra
+    # familia y no hace falta cargarla al importar este módulo).
+    from hermes.tools.system_updates import lector_slug_propio
+
+    slug_propio = lector_slug_propio(ha_client)
 
     def _invalido(tool: str, exc: ArgumentoInvalido) -> dict[str, Any]:
         # Solo el campo: el valor rechazado puede ser cualquier cosa.
@@ -296,7 +307,7 @@ def register(
         return await _leer_log(
             tool, source="host", ruta=ruta, plantilla=plantilla,
             lines=acotar_lineas(lines), extra=extra,
-            tapar_red=_identifier_de_hermes(identifier),
+            tapar_red=await _identifier_de_hermes(identifier, slug_propio),
         )
 
     @mcp.tool()

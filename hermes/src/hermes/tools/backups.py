@@ -59,6 +59,7 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 from hermes.tools._validation import (
     InvalidIdentifier,
     es_numero_finito,
@@ -311,9 +312,12 @@ def register(
                           "key could not be read; nothing was restored. Retry with the "
                           "same token while it is valid, or pass password."}
 
-    def _error_restaurar(exc: HAConnectionError, fuente: str) -> dict[str, Any]:
-        # `exc` ya viene sin la clave ni la contraseña (`sin_secretos`).
-        out: dict[str, Any] = {"error": str(exc)}
+    def _error_restaurar(exc: HAConnectionError, fuente: str,
+                         carga: dict[str, Any]) -> dict[str, Any]:
+        # `exc` ya viene sin la clave ni la contraseña (`sin_secretos`); el
+        # eco del resto de la carga se quita igual que en todas las `sv_*`
+        # (cierre de seguridad).
+        out: dict[str, Any] = {"error": sin_eco_del_supervisor(str(exc), carga)}
         # «Invalid password for backup» del Supervisor (2026.11.0).
         if fuente == _FUENTE_CLAVE and "invalid password" in str(exc).lower():
             out["hint"] = _PISTA_CLAVE_ANTERIOR
@@ -441,8 +445,11 @@ def register(
             return {"result": "ok", "slug": slug, **con_ubicacion}
         except HAConnectionError as exc:
             # Redactado (019): con `location`, el error puede venir del montaje
-            # de un NAS y repetir sus opciones.
-            return {"error": redact_secrets(str(exc))}
+            # de un NAS y repetir sus opciones. Y sin el eco de la carga
+            # (cierre de seguridad): un 400 de validación repite «Got
+            # {'password': …}» con comillas simples, que `redact_secrets`
+            # no reconoce.
+            return {"error": sin_eco_del_supervisor(str(exc), payload)}
 
     @mcp.tool()
     async def sv_create_backup_partial(
@@ -523,7 +530,7 @@ def register(
             slug = data.get("slug") if isinstance(data, dict) else None
             return {"result": "ok", "slug": slug, **con_ubicacion}
         except HAConnectionError as exc:
-            return {"error": redact_secrets(str(exc))}
+            return {"error": sin_eco_del_supervisor(str(exc), payload)}
 
     @mcp.tool()
     async def sv_create_safety_backup() -> object:
@@ -706,8 +713,9 @@ def register(
             return {"reused": False, "result": "ok", "slug": slug,
                     "backup_name": backup_name, **cifrado}
         except HAConnectionError as exc:
-            # Ya sin la clave (`sin_secretos`).
-            return {"error": str(exc)}
+            # Ya sin la clave (`sin_secretos`), y sin el eco del resto de la
+            # carga (cierre de seguridad).
+            return {"error": sin_eco_del_supervisor(str(exc), cuerpo)}
 
     @mcp.tool()
     async def sv_delete_backup(
@@ -860,7 +868,7 @@ def register(
                         password_source=fuente)
             return result
         except HAConnectionError as exc:
-            out = _error_restaurar(exc, fuente)
+            out = _error_restaurar(exc, fuente, payload)
             await complete_confirmation_token(confirmation_token, success=False,
                                               error=out["error"])
             return out
@@ -986,7 +994,7 @@ def register(
                         password_source=fuente)
             return result
         except HAConnectionError as exc:
-            out = _error_restaurar(exc, fuente)
+            out = _error_restaurar(exc, fuente, payload)
             await complete_confirmation_token(confirmation_token, success=False,
                                               error=out["error"])
             return out

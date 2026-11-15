@@ -2169,6 +2169,69 @@ familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
   confirmación no sustituye a los dos pasos, y la tabla de deprecaciones al
   día.
 
+### Cierre: seguridad transversal
+
+Revisión de seguridad de todo el programa, con las 359 tools ya integradas.
+
+- **Los errores del Supervisor ya no repiten lo que le mandaste.** El
+  Supervisor valida los cuerpos con voluptuous y, en sus errores, repite el
+  valor rechazado (`… Got {'password': '…'}`), entre comillas simples que la
+  redacción no reconocía. La limpieza que la 030 hizo en
+  `sv_set_addon_options` (nada desde «Got» y ningún valor enviado en el
+  texto) vive ahora en un único punto y la usan todas las `sv_*` que mandan
+  datos tuyos: backups (crear, restaurar, el safety backup), montajes, red,
+  opciones del host, de Core y del Supervisor, añadir un repositorio de la
+  tienda, actualizar Core y `sv_call_api`. Un test vigila que ningún módulo
+  nuevo que mande un cuerpo al Supervisor se quede sin ella.
+- **YAML que Home Assistant interpreta: no hay más vías que las ya
+  cerradas.** El cargador de YAML de HA resuelve `!env_var`, `!include` y
+  `!secret`. Hermes solo le manda texto YAML en los blueprints (la 017 lo
+  cerró: solo `!input`) y en `fs_write_file`, que escribe YAML a propósito y
+  con token. Lo demás (automatizaciones, scripts, escenas, helpers,
+  dashboards, opciones) viaja como JSON y HA lo escribe con su volcador, que
+  pone entre comillas un texto que empiece por `!`; `fs_set_secret` también
+  lo entrecomilla. En las fuentes de HA 2026.11.1, el único comando que
+  analiza YAML recibido es `blueprint/save`.
+- **La redacción en texto reconoce las claves de red.** `psk` (y `wpa_psk`),
+  `network_key` (también la lista sin comillas de Zigbee2MQTT) y las claves
+  S0/S2 de Z-Wave (`s0_legacy_key`, `s2_*_key`) se tapan dentro de un JSON en
+  un texto, en el `repr()` de un mensaje del Supervisor o con el valor sin
+  comillas. `psk_set: true` no se toca.
+- **El log tapa las estructuras enteras.** Bajo una clave sensible, un campo
+  del log que sea un objeto, una lista o un número se tapa entero, como en
+  las respuestas de las tools (`{"network_key": {"key": […]}}` salía en
+  claro), y la clave sensible se decide con el mismo criterio.
+- **`ha_start_options_flow` y `ha_continue_options_flow` redactan el
+  formulario.** Muchas integraciones rellenan el flujo de opciones con los
+  valores actuales, contraseña incluida; salían en bruto. Ahora pasan por la
+  misma redacción que los flujos de reconfigure, subentries y reparación, y
+  `ha_continue_options_flow` rechaza un `user_input` con `***REDACTED***`
+  (se guardaría tal cual). Esa redacción mira ahora también dentro de las
+  secciones del formulario (`type: expandable`), donde `scrape`, por
+  ejemplo, lleva la contraseña.
+- **Hermes se reconoce por su slug exacto (D-13).** `sv_update_addon`, los
+  avisos de las demás `sv_*` de apps, `sv_get_addon_logs`, `sv_read_api` y
+  `sv_call_api` y los logs del journal trataban como Hermes cualquier app
+  `*_hermes`. Ahora usan el slug que da el Supervisor en `/addons/self/info`
+  cuando se puede leer: otra app `<algo>_hermes` deja de bloquearse. Si no se
+  puede leer, sigue el criterio del sufijo, que bloquea de más.
+- **El backup previo de `ha_marketplace_uninstall` se cifra como un safety
+  backup.** Sigue `safety_backup_encryption`: la vista previa dice si irá
+  cifrado y que restaurarlo necesita la clave del kit de emergencia; con
+  `auto` y sin clave va sin cifrar y lo avisa; con `required` y sin clave no
+  hay backup y no se desinstala nada (`encryption_key_unavailable`). El token
+  se ata a si el backup va cifrado.
+- **Habilitar el interruptor «pre-release» del Marketplace avisa.**
+  `ha_update_entity_registry` (que ya pide token siempre) añade a la vista
+  previa `warning_marketplace_beta` cuando habilita o muestra un `switch` de
+  la plataforma `marketplace`: queda al alcance de `switch.turn_on`, que hace
+  que el Marketplace ofrezca betas. Si no puede leer la entrada, avisa igual.
+- **Una URL con la contraseña tapada no se guarda.** Cualquier tool que
+  escribe y recibe un valor con `usuario:***@` (la forma en que sale al leer
+  una URL con credenciales: `cors_allowed_origins`, `external_url`, la URL
+  de un repositorio o de un montaje) lo rechaza sin token con
+  `redacted_value_in_payload`, antes de llamar a la tool.
+
 ### Correcciones
 
 - **La redacción de secretos era cuadrática** (FR-001). Tres de las expresiones

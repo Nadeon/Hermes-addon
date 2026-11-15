@@ -20,7 +20,9 @@ import structlog
 # `hermes.security` no importa este módulo, así que no hay ciclo. Se
 # encadena porque cubre formas que los patrones locales no ven: JSON,
 # JWT y URLs con basic-auth.
+from hermes.security import es_clave_sensible as _es_clave_sensible
 from hermes.security import redact_secrets as _redact_secrets
+from hermes.security import tapar_entero as _tapar_entero
 
 # ── Context var para request ID ───────────────────────────────
 REQUEST_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -62,10 +64,21 @@ def _redact_value(key: str, value: Any) -> Any:
 
 
 def _redact_dict(d: dict[str, Any]) -> dict[str, Any]:
-    """Redacta recursivamente un diccionario."""
+    """Redacta recursivamente un diccionario.
+
+    Bajo una clave sensible (el criterio del log más el de las respuestas,
+    `es_clave_sensible`) el valor se tapa ENTERO, sea texto, número, objeto o
+    lista: es `tapar_entero` de `security`, la regla de la 025 para lo que
+    devuelven las tools (cierre de seguridad de la 1.2.0). Antes solo se
+    tapaban textos y con la clave exacta de `_REDACT_KEYS`: un
+    `{"network_key": {"key": [...]}}` o un `{"mqtt_password": "…"}` en un
+    campo del log salían en claro.
+    """
     result = {}
     for k, v in d.items():
-        if isinstance(v, dict):
+        if _clave_del_log_sensible(str(k)) and _tapar_entero(v):
+            result[k] = _REDACTED
+        elif isinstance(v, dict):
             result[k] = _redact_dict(v)
         elif isinstance(v, list):
             result[k] = [
@@ -465,6 +478,14 @@ def _key_looks_sensitive(key: str) -> bool:
     )
 
 
+def _clave_del_log_sensible(key: str) -> bool:
+    """El criterio del log y, además, el de las respuestas de las tools
+    (`es_clave_sensible`: `psk`, `network_key`, las claves S0/S2 de Z-Wave,
+    `webhook_id`…), para que lo que se tapa en una respuesta no salga en el
+    log."""
+    return _key_looks_sensitive(key) or _es_clave_sensible(key)
+
+
 def _redact_processor(
     logger: Any, method: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
@@ -486,8 +507,12 @@ def _redact_processor(
     """
     redacted: dict[str, Any] = {}
     for key, value in event_dict.items():
-        if isinstance(value, str):
-            if _key_looks_sensitive(key):
+        if not isinstance(value, str) and _clave_del_log_sensible(key) and _tapar_entero(value):
+            # Una estructura o un número bajo una clave sensible, ENTERO
+            # (`tapar_entero`, cierre de seguridad de la 1.2.0).
+            redacted[key] = _REDACTED
+        elif isinstance(value, str):
+            if _clave_del_log_sensible(key):
                 redacted[key] = _REDACTED
             else:
                 # Se encadena con `redact_secrets`, que cubre formas que los

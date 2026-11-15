@@ -214,7 +214,9 @@ class TestActualizar(_Base):
     async def test_hermes_sin_ninguna_llamada(self) -> None:
         r = await self.t["sv_update_addon"]("local_hermes")
         self.assertEqual(r["error"], "self_update_not_supported")
-        self.assertEqual(self.sv.llamadas, [])
+        # D-13 (cierre de seguridad): solo la lectura del slug propio.
+        self.assertEqual([c for c in self.sv.llamadas
+                          if (c["metodo"], c["ruta"]) != ("GET", "/addons/self/info")], [])
 
     async def test_confirmacion_identica_a_la_1_1_2(self) -> None:
         self.info()

@@ -100,6 +100,7 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista
+from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 from hermes.tools.addons import _es_hermes, _track_job
 
 logger = structlog.get_logger(__name__)
@@ -261,7 +262,9 @@ def _detalle(exc: BaseException) -> str:
             texto = cuerpo["message"]
     elif texto.startswith("Supervisor error: "):
         texto = texto[len("Supervisor error: "):]
-    return redact_secrets(texto)[:_MAX_DETALLE]
+    # Nada desde «Got» (cierre de seguridad): la misma limpieza que el resto
+    # de las `sv_*`; aquí lo enviado es solo la versión y `backup`.
+    return sin_eco_del_supervisor(texto)[:_MAX_DETALLE]
 
 
 def _bloqueos(

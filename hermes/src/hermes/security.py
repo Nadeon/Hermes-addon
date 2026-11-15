@@ -795,6 +795,49 @@ _BARE_SECRET_RE = re.compile(
 )
 
 
+# Claves de red y de seguridad de radio en texto (cierre de seguridad de la
+# 1.2.0): la PSK de una wifi (`psk` del Supervisor, `wpa_psk`), la clave de
+# red de Zigbee (`network_key`; en Zigbee2MQTT, una lista sin comillas:
+# `network_key: [1, 3, 5, …]`) y las claves S0/S2 de Z-Wave
+# (`s0_legacy_key`, `s2_*_key`, con o sin `lr_`; `zwave_js/const.py`). Son
+# marcadores de `_SENSITIVE_KEY_MARKERS`, así que en una ESTRUCTURA ya se
+# tapan, pero en texto ninguno de los patrones de arriba los conocía: un JSON
+# dentro de un mensaje o un `clave: valor` sin comillas salían en claro.
+#
+# Una sola expresión para las tres formas: la clave (en cualquier sitio de
+# una palabra, como los marcadores: `wpa_psk`, `zigbee_network_key`), una
+# comilla de cierre opcional (JSON o `repr()`), el separador `:` o `=` en la
+# misma línea y el valor: una lista o un objeto de un nivel (hasta su cierre
+# o el fin de línea), un texto entre comillas o lo que haya hasta un espacio
+# o un separador. Detrás de la clave tiene que ir el separador: `psk_set:
+# true` (si hay PSK, no la PSK) no se toca. Lineal: cada intento empieza en
+# un literal de la clave, los cuantificadores son posesivos y las clases
+# del valor no se solapan.
+_CLAVE_DE_RED_RE = re.compile(
+    r"(?i)(network[_-]?key|psk|s0_legacy_key"
+    r"|s2_(?:access_control|authenticated|unauthenticated)_key)"
+    r"""(["']?[ \t]*+[:=][ \t]*+)"""
+    # `null`, `true`, `false` (y los de Python) dicen si hay clave, no cuál:
+    # se conservan, como en `tapar_entero`.
+    r"(?!(?:null|true|false|none)\b)"
+    r"""(\[[^\]\n]*+\]?|\{[^{}\n]*+\}?|"[^"\n]*+"?|'[^'\n]*+'?|[^\s,;}\]]++)"""
+)
+
+
+def _tapar_clave_de_red(m: re.Match[str]) -> str:
+    """El valor tapado, con sus comillas si las tenía (el JSON sigue siendo
+    JSON y el `repr()` se sigue leyendo)."""
+    valor = m.group(3)
+    q = valor[0]
+    if q in "\"'" and len(valor) > 1 and valor[-1] == q:
+        return f"{m.group(1)}{m.group(2)}{q}{REDACTED_MARKER}{q}"
+    if m.group(2).startswith('"'):
+        # Clave JSON con una lista, un objeto o un número: el marcador entre
+        # comillas, para que el JSON siga siendo válido.
+        return f'{m.group(1)}{m.group(2)}"{REDACTED_MARKER}"'
+    return f"{m.group(1)}{m.group(2)}{REDACTED_MARKER}"
+
+
 def redact_secrets(text: str) -> str:
     """Redacta secretos en texto plano — uso típico: logs de add-ons.
 
@@ -813,6 +856,9 @@ def redact_secrets(text: str) -> str:
 
     # 1b. Formato JSON (ver el patrón arriba).
     text = _JSON_SECRET_RE.sub(r"\1***REDACTED***\3", text)
+
+    # 1c. Claves de red y de radio, en JSON, `repr()` o sin comillas.
+    text = _CLAVE_DE_RED_RE.sub(_tapar_clave_de_red, text)
 
     # 2. Basic auth en URLs
     text = _redactar_basic_auth(text)

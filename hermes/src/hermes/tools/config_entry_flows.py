@@ -666,6 +666,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
 
         Solo disponible para integraciones con supports_options: true.
         El flow devuelve un formulario con los campos de opciones actuales.
+        Los valores sugeridos de los campos secretos (selector de contraseña
+        o nombre sensible) salen tapados con ***REDACTED***, y el resultado
+        entero pasa por la redacción de secretos.
 
         Args:
             entry_id: UUID de la config entry cuyas opciones se van a editar.
@@ -688,9 +691,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
             )
         except HAConnectionError as exc:
             logger.error(
-                "ha_start_options_flow_rest_error", entry_id=entry_id, error=str(exc)
+                "ha_start_options_flow_rest_error", entry_id=entry_id,
+                error=redact_secrets(str(exc)),
             )
-            return json.dumps({"error": str(exc)})
+            return json.dumps({"error": redact_secrets(str(exc))})
 
         if not isinstance(raw, dict):
             return json.dumps(
@@ -726,7 +730,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
             flow_type=flow_type,
             flow_id=flow_id,
         )
-        return json.dumps(raw, ensure_ascii=False)
+        # Cierre de seguridad de la 1.2.0: el formulario de opciones trae los
+        # valores ACTUALES como `default` o `description.suggested_value`
+        # (`add_suggested_values_to_schema`), contraseñas incluidas. Sale
+        # redactado como los de reconfigure, subentries y reparación.
+        return json.dumps(_tapar_resultado(raw), ensure_ascii=False)
 
     # ── ha_continue_options_flow ──────────────────────────────────────────
 
@@ -739,7 +747,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
         """Envía datos al paso actual de un options flow en curso.
 
         Úsala después de ha_start_options_flow. Rellena los campos del
-        schema devuelto con los valores deseados.
+        schema devuelto con los valores deseados. Un user_input que lleve el
+        marcador ***REDACTED*** se rechaza sin enviar nada (se guardaría tal
+        cual): manda el valor real o deja el campo como permita el
+        formulario. El resultado sale redactado como el de
+        ha_start_options_flow.
 
         Args:
             flow_id:    ID del options flow (obtenido de ha_start_options_flow).
@@ -755,6 +767,12 @@ def register(mcp: object, ha_client: HAClient) -> None:
             type="abort":        {"type": "abort", "reason": "..."}
             Error:               {"error": "..."}
         """
+        # Desde que el formulario sale con los secretos sugeridos tapados
+        # (cierre de seguridad de la 1.2.0), reenviar el marcador lo
+        # guardaría como contraseña: se rechaza antes de llamar, como en los
+        # flujos de reconfigure.
+        if _lleva_marcador(user_input):
+            return _invalid("user_input", _ERROR_MARCADOR)
         try:
             raw: Any = await ha_client._request_json(  # noqa: SLF001
                 "POST",
@@ -767,9 +785,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
             logger.error(
                 "ha_continue_options_flow_rest_error",
                 flow_id=flow_id,
-                error=str(exc),
+                error=redact_secrets(str(exc)),
             )
-            return json.dumps({"error": str(exc)})
+            return json.dumps({"error": redact_secrets(str(exc))})
 
         if not isinstance(raw, dict):
             return json.dumps(
@@ -785,4 +803,6 @@ def register(mcp: object, ha_client: HAClient) -> None:
             flow_id=flow_id,
             flow_type=flow_type,
         )
-        return json.dumps(raw, ensure_ascii=False)
+        # El paso siguiente también puede ser un formulario con los valores
+        # actuales sugeridos (cierre de seguridad de la 1.2.0).
+        return json.dumps(_tapar_resultado(raw), ensure_ascii=False)

@@ -47,20 +47,35 @@ def _tapar_resultado(raw: dict[str, Any]) -> dict[str, Any]:
     """
     resultado = dict(raw)
     esquema = resultado.get("data_schema")
-    secretos = _campos_secretos(esquema)
-    if secretos and isinstance(esquema, list):
-        nuevo = []
-        for campo in esquema:
-            if isinstance(campo, dict) and campo.get("name") in secretos:
-                campo = dict(campo)
-                if campo.get("default") not in (None, ""):
-                    campo["default"] = REDACTED_MARKER
-                desc = campo.get("description")
-                if isinstance(desc, dict) and desc.get("suggested_value") not in (None, ""):
-                    campo["description"] = {**desc, "suggested_value": REDACTED_MARKER}
-            nuevo.append(campo)
-        resultado["data_schema"] = nuevo
+    if isinstance(esquema, list):
+        resultado["data_schema"] = _tapar_esquema(esquema)
     return redactar_datos(resultado)
+
+
+def _tapar_esquema(esquema: list[Any]) -> list[Any]:
+    """Los campos secretos de un formulario con su valor sugerido tapado.
+
+    Cierre de seguridad de la 1.2.0: también dentro de una SECCIÓN. HA
+    serializa `data_entry_flow.section` como un campo `type: expandable` con
+    su propia lista en `schema` (`cv.custom_serializer`), y
+    `add_suggested_values_to_schema` rellena también los campos de dentro:
+    el flujo de opciones de `scrape` lleva la contraseña en la sección
+    `auth`. Solo se miraba el primer nivel.
+    """
+    secretos = _campos_secretos(esquema)
+    nuevo = []
+    for campo in esquema:
+        if isinstance(campo, dict) and campo.get("type") == "expandable"                 and isinstance(campo.get("schema"), list):
+            campo = {**campo, "schema": _tapar_esquema(campo["schema"])}
+        elif isinstance(campo, dict) and campo.get("name") in secretos:
+            campo = dict(campo)
+            if campo.get("default") not in (None, ""):
+                campo["default"] = REDACTED_MARKER
+            desc = campo.get("description")
+            if isinstance(desc, dict) and desc.get("suggested_value") not in (None, ""):
+                campo["description"] = {**desc, "suggested_value": REDACTED_MARKER}
+        nuevo.append(campo)
+    return nuevo
 
 
 def _lleva_marcador(valor: Any) -> bool:

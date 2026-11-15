@@ -31,10 +31,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import time
 from copy import deepcopy
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
@@ -53,6 +53,12 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools._common import ultimas_lineas_que_caben
+# La limpieza del eco del Supervisor vive en `_eco_supervisor` (cierre de
+# seguridad de la 1.2.0); se reexportan los nombres que usan los tests.
+from hermes.tools._eco_supervisor import (  # noqa: F401
+    _sin_valores_secretos,
+    _valores_secretos,
+)
 from hermes.tools._logs import (
     ArgumentoInvalido,
     comprobar_latest,
@@ -93,18 +99,50 @@ _LONG_OP_TIMEOUT = 300.0  # 5 minutos
 _CHANGELOG_EXTRACTO = 4000
 
 
-def _es_hermes(slug: str) -> bool:
-    """True si el slug apunta al propio Hermes, esté instalado como esté."""
+def _es_hermes(slug: str, propio: str | None = None) -> bool:
+    """True si el slug apunta al propio Hermes, esté instalado como esté.
+
+    D-13 (cierre de seguridad de la 1.2.0): con `propio`, el slug EXACTO que
+    da el Supervisor en `/addons/self/info` (`lector_slug_propio` de la
+    015), solo cuenta ese slug: una app `<x>_hermes` que no es Hermes deja de
+    tratarse como Hermes. Sin él (no se pudo leer), el criterio de siempre:
+    cualquier `*_hermes`, que bloquea de más (fail-closed). Quien pueda leer
+    el slug usa `es_hermes`, que lo lee solo cuando hace falta.
+    """
     s = slug.lower()
     # `self` es el alias del Supervisor para el add-on que llama: con él,
     # `/addons/self/logs` es el log de Hermes y se saltaba la redacción de red
     # (revisión 1.1.0, BAJO-1).
-    return s in (_HERMES_SLUG, "hermes", "self") or s.endswith("_hermes")
+    if s == "self":
+        return True
+    if propio:
+        return s == propio.lower()
+    return s in (_HERMES_SLUG, "hermes") or s.endswith("_hermes")
 
 
-def _self_warning(slug: str, action: str) -> str | None:
+async def es_hermes(slug: str, leer_propio: Callable[[], Awaitable[str | None]]) -> bool:
+    """`_es_hermes` con el slug exacto cuando se puede leer (D-13).
+
+    El slug de Hermes acaba siempre en `_hermes` (`local_hermes` o
+    `<hash del repositorio>_hermes`): si el criterio del sufijo dice que no,
+    no es Hermes y no hace falta preguntar al Supervisor. Si dice que sí, se
+    lee el slug propio (`leer_propio`, con caché) y se compara exacto; si no
+    se puede leer, queda el sufijo (fail-closed).
+    """
+    if not _es_hermes(slug):
+        return False
+    if slug.lower() == "self":
+        return True
+    try:
+        propio = await leer_propio()
+    except Exception:  # noqa: BLE001 — sin slug propio, el sufijo (fail-closed)
+        propio = None
+    return _es_hermes(slug, propio)
+
+
+def _self_warning(slug: str, action: str, propio: str | None = None) -> str | None:
     """Devuelve un aviso de auto-daño si el slug es el propio Hermes."""
-    if _es_hermes(slug):
+    if _es_hermes(slug, propio):
         return (
             f"WARNING: {action} targets Hermes itself (slug={slug!r}). "
             "After this operation Hermes will be unavailable. "
@@ -218,190 +256,6 @@ def _rutas_cambiadas(antes: Any, despues: Any, ruta: str = "") -> list[str]:
     return [ruta or "(raíz)"]
 
 
-def _valores_secretos(original: Any, redactado: Any) -> set[str]:
-    """Los textos de `original` que `redact_structure` sustituyó en
-    `redactado` (recorridos a la vez): los valores secretos de unas opciones."""
-    if redactado == REDACTED_MARKER and original != REDACTED_MARKER and not isinstance(original, str):
-        # Desde la 025 (`tapar_entero`) un objeto, una lista o un número bajo
-        # una clave sensible se tapa ENTERO: el recorrido paralelo encontraba
-        # dict frente a texto y no recogía nada, y un mensaje del Supervisor
-        # que nombrara `credentials.password` salía tal cual (revisión de la
-        # 025, MEDIO-1). Todos sus valores escalares cuentan como secretos.
-        return {h for h in _hojas(original) if h}
-    if isinstance(original, dict) and isinstance(redactado, dict):
-        out: set[str] = set()
-        for clave, valor in original.items():
-            out |= _valores_secretos(valor, redactado.get(clave))
-        return out
-    if isinstance(original, list) and isinstance(redactado, list):
-        out = set()
-        for valor, tapado in zip(original, redactado):
-            out |= _valores_secretos(valor, tapado)
-        return out
-    if isinstance(original, str) and original and original != redactado:
-        return {original}
-    return set()
-
-
-def _sin_valores_secretos(texto: str, *conjuntos: Any) -> str:
-    """Un mensaje del Supervisor sobre unas opciones, sin ningún valor suyo.
-
-    Fail-closed, en cuatro pasos (convergencia de la 030, T029 y T030):
-
-    1. Nada desde «Got» en adelante. El Supervisor valida con
-       `vol.Schema(vol.All(dict, AppOptions))` y `AppOptions` lanza
-       `vol.Invalid` en la RAÍZ, así que `humanize_error` añade «. Got
-       <repr() de TODAS las opciones>», cortado a 497 caracteres + `...`.
-       Un cliente podía alargar una opción para que el corte cayera dentro
-       de un secreto y recibirlo entero menos su último carácter, y un
-       secreto con barras invertidas, saltos de línea o comillas salía escapado y no se
-       encontraba. Lo que queda antes de «Got» es el texto del error, que
-       solo nombra la opción, la app y su slug.
-    2. Cualquier otro eco de un valor (de TODAS las opciones, no solo de las
-       secretas) se tapa: entero, escapado como lo escriben `repr()` y JSON,
-       o cortado al final del texto.
-    3. Si aun así queda un trozo de un valor secreto, no se arriesga nada: un
-       mensaje genérico con solo las claves que fallan (`data['clave']`).
-    4. La redacción general (`redact_secrets`) al final, como siempre.
-
-    `conjuntos` son las opciones que pudo ver el Supervisor (las actuales,
-    los cambios pedidos y las finales): los valores de todas cuentan.
-    """
-    m = _RE_GOT.search(texto)
-    if m:
-        texto = texto[:m.start()].rstrip()
-    antes_de_got = texto
-
-    formas: set[str] = set()
-    for conjunto in conjuntos:
-        for valor in _hojas(conjunto):
-            formas |= {f for f in _formas(valor) if len(f) >= _LARGO_MIN_VALOR}
-    # Los más largos primero, para no dejar restos de uno que contiene a otro.
-    for forma in sorted(formas, key=len, reverse=True):
-        texto = texto.replace(forma, REDACTED_MARKER)
-    if m:
-        texto += " (values not shown)"
-    else:
-        # Sin «Got» el texto no lo cortó voluptuous, pero pudo cortarlo
-        # otro (el cuerpo de un error HTTP): un valor a medias al final.
-        texto = _sin_cola_cortada(texto, formas)
-
-    secretos: set[str] = set()
-    for conjunto in conjuntos:
-        secretos |= _valores_secretos(conjunto, redact_structure(conjunto))
-    if _queda_rastro(texto, secretos):
-        return _mensaje_generico(antes_de_got, conjuntos)
-    return redact_secrets(texto)
-
-
-# Desde aquí el Supervisor (`humanize_error`) repite los valores. `\b` a los
-# dos lados: «Gotify» o un slug `abc_gotify` no cortan nada.
-_RE_GOT = re.compile(r"\bGot\b", re.IGNORECASE)
-
-# Por debajo de este largo un valor no se sustituye en el texto: un `1`, un
-# `on` o un `u` aparecen en cualquier mensaje y lo dejarían ilegible. Tras
-# cortar en «Got» el texto solo nombra opción, app y slug; un SECRETO corto
-# que aparezca igualmente lleva al mensaje genérico (`_queda_rastro`).
-_LARGO_MIN_VALOR = 4
-
-# Largo del trozo de un secreto que, si aparece, delata que se ha colado algo.
-_VENTANA_RASTRO = 6
-
-# Las claves que nombra el error: «option 'clave'» (`apps/options.py`) y
-# `data['clave']` (voluptuous).
-_RE_CLAVE_EN_MENSAJE = re.compile(r"option '([^'\n]{1,200})'|data\['([^'\n]{1,200})'\]")
-
-
-def _hojas(valor: Any) -> list[str]:
-    """Los valores escalares de unas opciones, como texto. Sin booleanos ni
-    `None`: `True`/`None` no identifican nada y están en cualquier mensaje."""
-    if isinstance(valor, dict):
-        return [h for v in valor.values() for h in _hojas(v)]
-    if isinstance(valor, list):
-        return [h for v in valor for h in _hojas(v)]
-    if isinstance(valor, bool) or valor is None:
-        return []
-    if isinstance(valor, (str, int, float)):
-        return [str(valor)]
-    return []
-
-
-def _claves(valor: Any) -> set[str]:
-    """Todas las claves de unas opciones, a cualquier nivel."""
-    if isinstance(valor, dict):
-        out = {str(k) for k in valor}
-        for v in valor.values():
-            out |= _claves(v)
-        return out
-    if isinstance(valor, list):
-        out = set()
-        for v in valor:
-            out |= _claves(v)
-        return out
-    return set()
-
-
-def _formas(valor: str) -> set[str]:
-    """Cómo puede aparecer `valor` en un mensaje: tal cual, escapado por
-    `repr()` (con una u otra comilla), por JSON (con y sin `ensure_ascii`) y
-    el `repr()` metido a su vez en un JSON (el cuerpo del error HTTP)."""
-    escapado = repr(valor)[1:-1]
-    return {
-        valor,
-        escapado,
-        escapado.replace("\'", "'"),
-        escapado.replace('"', '\\"'),
-        json.dumps(valor, ensure_ascii=False)[1:-1],
-        json.dumps(valor)[1:-1],
-        json.dumps(escapado, ensure_ascii=False)[1:-1],
-        json.dumps(escapado)[1:-1],
-    } - {""}
-
-
-def _sin_cola_cortada(texto: str, formas: set[str]) -> str:
-    """Tapa el principio de un valor que se quedó al final del texto porque
-    alguien lo cortó (voluptuous corta a 500 caracteres y añade `...`)."""
-    cola = texto.rstrip(" .'\"}])")
-    for forma in sorted(formas, key=len, reverse=True):
-        for largo in range(len(forma) - 1, _LARGO_MIN_VALOR - 1, -1):
-            if cola.endswith(forma[:largo]):
-                return cola[: len(cola) - largo] + REDACTED_MARKER + "..."
-    return texto
-
-
-def _queda_rastro(texto: str, secretos: set[str]) -> bool:
-    """True si en `texto` queda algún trozo de un secreto, en cualquiera de
-    sus formas: el secreto entero si es corto, o cualquier trozo de
-    `_VENTANA_RASTRO` caracteres si es largo (un corte en cualquier punto)."""
-    comparar = texto.replace(REDACTED_MARKER, "\0")
-    for secreto in secretos:
-        for forma in _formas(secreto):
-            ventana = min(len(forma), _VENTANA_RASTRO)
-            for i in range(len(forma) - ventana + 1):
-                if forma[i:i + ventana] in comparar:
-                    return True
-    return False
-
-
-def _mensaje_generico(texto: str, conjuntos: tuple[Any, ...]) -> str:
-    """Solo las claves que fallan, nunca sus valores. Una clave entra solo si
-    es de verdad una clave de las opciones: así no se cuela por aquí nada que
-    no lo sea."""
-    validas: set[str] = set()
-    for conjunto in conjuntos:
-        validas |= _claves(conjunto)
-    claves: list[str] = []
-    for m in _RE_CLAVE_EN_MENSAJE.finditer(texto):
-        clave = m.group(1) or m.group(2)
-        if clave in validas and clave not in claves:
-            claves.append(clave)
-    mensaje = ("The Supervisor rejected the options. Its message is not shown "
-               "because it could reveal a secret value.")
-    if claves:
-        mensaje += " Failing options: " + ", ".join(f"data['{c}']" for c in claves)
-    return mensaje
-
-
 def _tiene_obligatorias(schema_ui: Any) -> bool:
     """True si el schema de /info declara alguna opción obligatoria, a cualquier nivel.
 
@@ -426,6 +280,20 @@ def register(
     response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las tools de add-ons en la instancia MCP."""
+
+    # D-13: el slug exacto de Hermes (`/addons/self/info`). Import aquí:
+    # `system_updates` importa este módulo.
+    from hermes.tools.system_updates import lector_slug_propio
+
+    slug_propio = lector_slug_propio(ha_client)
+
+    async def _hermes(slug: str) -> bool:
+        return await es_hermes(slug, slug_propio)
+
+    async def _aviso_propio(slug: str, action: str) -> str | None:
+        if not await _hermes(slug):
+            return None
+        return _self_warning(slug, action, None)
 
     def _bad_slug(slug: str) -> dict[str, Any] | None:
         """Valida el slug del add-on antes de interpolarlo en una URL REST."""
@@ -849,7 +717,7 @@ def register(
                 return sin_opciones
             finales = _mezclar_opciones(actuales, opts_dict)
 
-            warning = _self_warning(slug, "changing options of")
+            warning = await _aviso_propio(slug, "changing options of")
             preview: dict[str, Any] = {
                 "slug": slug,
                 # Todo redactado. Las actuales y las finales traen los secretos
@@ -943,7 +811,7 @@ def register(
             except HAConnectionError:
                 state = None
             preview: dict[str, Any] = {"slug": slug, "current_state": state, "action": "start"}
-            w = _self_warning(slug, "starting")
+            w = await _aviso_propio(slug, "starting")
             if w:
                 preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -992,7 +860,7 @@ def register(
             except HAConnectionError:
                 state = None
             preview: dict[str, Any] = {"slug": slug, "current_state": state, "action": "stop"}
-            w = _self_warning(slug, "stopping")
+            w = await _aviso_propio(slug, "stopping")
             if w:
                 preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -1041,7 +909,7 @@ def register(
             except HAConnectionError:
                 state = None
             preview: dict[str, Any] = {"slug": slug, "current_state": state, "action": "restart"}
-            w = _self_warning(slug, "restarting")
+            w = await _aviso_propio(slug, "restarting")
             if w:
                 preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -1185,7 +1053,7 @@ def register(
                     "Read the add-on docs before confirming if you need to preserve data."
                 ),
             }
-            w = _self_warning(slug, "uninstalling")
+            w = await _aviso_propio(slug, "uninstalling")
             if w:
                 preview["critical_warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -1264,7 +1132,7 @@ def register(
         """
         if (err := _bad_slug(slug)):
             return err
-        if _es_hermes(slug):
+        if await _hermes(slug):
             # El Supervisor responde 403 («can't update itself») cuando un
             # add-on pide su propia actualización: la vista previa de la 1.1.2
             # daba un token para algo imposible. Se rechaza antes de cualquier
@@ -1437,6 +1305,8 @@ def register(
         ruta, plantilla = ruta_de_log(f"/addons/{slug}", "/addons/{app}", boot_n, latest)
         por_arranque = boot_n is not None or latest
         lines = min(max(1, lines), 1000)
+        # D-13: el log de Hermes (red tapada) por el slug exacto si se puede leer.
+        de_hermes = await _hermes(slug)
         try:
             raw = await ha_client.sv_request_text(
                 ruta,
@@ -1448,7 +1318,7 @@ def register(
             # tapada si es el de Hermes. La forma `{"error": …}` es la de la
             # 1.1.2.
             mensaje = redact_secrets(str(exc))
-            if _es_hermes(slug):
+            if de_hermes:
                 mensaje = redact_network(mensaje)
             return {"error": mensaje}
 
@@ -1458,8 +1328,8 @@ def register(
         # escribe con la red tapada, así que lo normal es que no cambie aunque
         # la redacción de red se haya aplicado: sin este campo el agente leía
         # `redacted: false` y no podía saberlo (FR-005 de la 009).
-        network_redacted = _es_hermes(slug) and network_redaction_enabled()
-        if _es_hermes(slug):
+        network_redacted = de_hermes and network_redaction_enabled()
+        if de_hermes:
             # El log de Hermes se pide para pegarlo en un issue, y las líneas
             # escritas por versiones anteriores (o con la opción recién
             # activada) traen hostname e IPs en claro. `redact_network` no
