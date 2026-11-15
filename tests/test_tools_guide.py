@@ -1020,3 +1020,52 @@ class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):
                         ".cloud_backup", "sv_create_backup_full"):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
+
+
+class TestTemaHostControl(unittest.IsolatedAsyncioTestCase):
+    """Spec 032, FR-017 (tramo 1): tema `host_control` con las cuatro tools
+    del host, el aviso de que nadie enciende el host a distancia y cómo
+    volver de la ranura; sus alias; el índice y las instrucciones lo nombran
+    solo con la familia activa. `host` sigue llevando a `supervisor`, que
+    remite al tema nuevo."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("host_control")
+        self.assertIs(texto, _GUIDE["host_control"])
+        for palabra in ("sv_shutdown_host", "sv_set_hostname", "sv_set_swap",
+                        "sv_set_boot_slot", "sv_reboot_host", "sv_get_os_info",
+                        "outcome", "unknown", "force", ".local", "reboot_required"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for frase in ("nadie puede encenderlo a distancia", "reinicia en el acto",
+                      "Para volver"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, texto)
+        for alias in ("hostname", "swap", "boot_slot", "shutdown", "SHUTDOWN"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `host` sigue siendo `supervisor`, como en la 1.1.2, y lo remite.
+        self.assertEqual(await self.guide("host"), _GUIDE["supervisor"])
+        self.assertIn("host_control", _GUIDE["supervisor"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b", _GUIDE["host_control"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`host_control`", await self.guide())
+        self.assertIn("host_control", INSTRUCTIONS)
+        self.assertNotIn("host_control", instrucciones(frozenset({"host_control"})))

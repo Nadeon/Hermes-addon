@@ -82,7 +82,7 @@ reintentar. `done` es true también si falla: cualquier entrada en `errors` da
 
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
-events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_DIAGNOSTICO@,
+events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_HOST@@TEMA_DIAGNOSTICO@,
 backups@TEMA_MONTAJES@, lovelace, marketplace, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
@@ -112,6 +112,9 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     texto = texto.replace(
         "@TEMA_DIAGNOSTICO@",
         ", system_diagnostics" if "system_diagnostics" not in desactivadas else "")
+    # Spec 032: el tema del control del host, solo con su familia activa.
+    texto = texto.replace(
+        "@TEMA_HOST@", ", host_control" if "host_control" not in desactivadas else "")
     # Spec 019: el tema de los montajes, solo con su familia activa.
     texto = texto.replace(
         "@TEMA_MONTAJES@", ", mounts" if "mounts" not in desactivadas else "")
@@ -143,6 +146,7 @@ para el detalle de un área. Temas disponibles:
 - `repair_flows`   — arreglar avisos de Repairs con su flujo de reparación
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — apps (add-ons), host y core de HAOS
+- `host_control`   — apagar el host, hostname, swap y ranura de arranque de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
 - `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
@@ -711,6 +715,8 @@ reversible con `fs_restore_file_backup`.
   `sv_reboot_host` (token).
 - Logs de Core, del Supervisor, de los plugins y del host:
   `hermes_guide("system_diagnostics")`.
+- Apagar el host, cambiar el hostname, la swap o la ranura de arranque:
+  `hermes_guide("host_control")`.
 
 Cuidado con el propio Hermes (`local_hermes`): pararlo/desinstalarlo te deja sin
 acceso; el preview lo advierte. Operaciones largas devuelven `job_id`: pollea
@@ -896,6 +902,46 @@ si el montaje cambia entre la vista previa y la confirmación, la respuesta es
   (entero de 1 a 3650, diez años; 30 por defecto). Solo cambia el aviso.
 - `sv_reload_backups` — el Supervisor relee los backups de todas las
   ubicaciones (p. ej., tras copiar a mano un backup al NAS) y dice cuántos ve.
+""",
+    "host_control": """\
+# Control del host: apagar, hostname, swap y ranura de arranque (Supervisor)
+
+Las cuatro piden confirmación en dos pasos: la vista previa enseña el estado
+real (leído del Supervisor) y lo que va a pasar. El token ata los argumentos y
+ese estado: si el hostname, la swap o las ranuras cambian antes de confirmar,
+la respuesta es `state_changed` y hay que pedir otra vista previa.
+
+- `sv_shutdown_host` (token) — apaga la máquina entera: el host, Home
+  Assistant, todas las apps y el propio Hermes. OJO: después
+  nadie puede encenderlo a distancia; hace falta acceso físico (o un
+  enchufe o Wake-on-LAN que no dependan de este equipo). Para reiniciar, usa
+  `sv_reboot_host`. No hay `force`: si Home Assistant está migrando su base
+  de datos, el Supervisor lo rechaza y hay que esperar.
+- `sv_set_hostname(hostname)` (token) — una etiqueta DNS en minúsculas
+  (letras, dígitos y `-`, 1–63, sin puntos). Cambia también el nombre mDNS
+  (`<hostname>.local`): enlaces, marcadores y certificados con el viejo dejan
+  de funcionar.
+- `sv_set_swap(swap_size=, swappiness=)` (token) — Home Assistant OS 15 o
+  posterior. `swap_size` como `2G` o `512M` (`0` desactiva la swap),
+  `swappiness` de 0 a 200; se envía solo lo que pases. Un tamaño mayor que el
+  disco libre se rechaza (`insufficient_disk`). El Supervisor abre un aviso
+  `reboot_required` (`sv_get_resolution`): se aplica tras `sv_reboot_host`.
+- `sv_set_boot_slot(boot_slot)` (token) — `A` o `B`, por ejemplo para volver
+  al OS anterior tras una actualización que va mal. El equipo
+  reinicia en el acto en el OS de esa ranura y sigue arrancando de ella.
+  La vista previa enseña las dos ranuras con su versión y avisa si la de
+  destino está marcada como mala. Para volver, `sv_set_boot_slot` con la
+  ranura de antes (la vista previa dice cuál).
+
+Apagar y la ranura tumban el host: la respuesta puede no llegar. Si la
+conexión se corta después de enviar la orden, la respuesta es
+`outcome: "unknown"` con `verify_with` (`sv_get_os_info` tras la ranura,
+`sv_get_host_info` tras apagar): no reintentes; comprueba cuando Hermes
+vuelva a responder.
+
+Para leer sin cambiar nada: `sv_get_host_info` (hostname y disco),
+`sv_get_os_info` (ranuras y versiones) y `sv_get_swap` (tema
+`system_diagnostics`).
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)
@@ -1238,6 +1284,11 @@ _ALIASES: dict[str, str] = {
     "storage": "system_diagnostics",
     "os": "system_diagnostics",
     "jobs": "system_diagnostics",
+    # Spec 032. `host` sigue siendo `supervisor`, como en la 1.1.2.
+    "hostname": "host_control",
+    "swap": "host_control",
+    "boot_slot": "host_control",
+    "shutdown": "host_control",
     "backup": "backups",
     # Spec 019. `backup` sigue siendo `backups`, como en la 1.1.2.
     "cifs": "mounts",
