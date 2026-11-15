@@ -147,7 +147,7 @@ para el detalle de un área. Temas disponibles:
 - `repair_flows`   — arreglar avisos de Repairs con su flujo de reparación
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — apps (add-ons), host y core de HAOS
-- `system_control` — arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor
+- `system_control` — arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor; aplicar sugerencias
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
 - `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
@@ -375,9 +375,9 @@ reorganizar la casa (asignar entidades/dispositivos a áreas) trabaja aquí.
 - Resolución del Supervisor: `sv_get_resolution` lista por qué la instalación
   sale como no soportada o no saludable, más sus issues, sugerencias y checks.
   `sv_dismiss_resolution_issue(uuid)` y `sv_dismiss_resolution_suggestion(uuid)`
-  (token) los descartan; si la causa sigue, vuelven. Hermes NUNCA aplica una
-  sugerencia del Supervisor (algunas borran backups o reinician el host): si
-  conviene aplicarla, que lo haga el usuario desde la interfaz.
+  (token) los descartan; si la causa sigue, vuelven. Aplicar una sugerencia
+  es `sv_apply_resolution_suggestion` (token, con una vista previa que dice
+  qué hace; algunas borran backups o reinician el host): `hermes_guide("system_control")`.
 
 Receta «¿por qué no se ejecutó mi automatización?»: `ha_list_traces` con su
 `entity_id`; mira `state`, `error` y `last_step` de la última ejecución; si
@@ -967,7 +967,44 @@ sabe si terminó y no lo afirma.
   memoria, red y disco de cada contenedor (con Core parado, error).
 - `sv_call_api("POST", "/host/reload")` (token) — refresca la información del
   host; no corta nada.
+- `sv_call_api("POST", "/resolution/check/{check}/run")` (token) — ejecuta
+  ya un chequeo; `.../{check}/options` con `{"enabled": false}` lo desactiva
+  (y oculta ese problema). `POST /resolution/healthcheck` (token) relanza
+  todos los chequeos y PUEDE aplicar los arreglos automáticos del Supervisor.
+- Plugins (`dns`, `audio`, `multicast`, `observer`, `cli`): `sv_read_api`
+  de `/<plugin>/info` y `/<plugin>/stats`; `update`, `restart`, `reset`,
+  `reload`, `options` y los de audio (`profile`, `volume`, `mute`,
+  `default`) por `sv_call_api` (token). OJO: `/dns/options` cambia el DNS de
+  TODOS los contenedores y `/docker/options` la red (IPv6, MTU) de todos:
+  pueden dejar sin red a las apps.
+- Docker: `sv_read_api("/docker/registries")` (solo el usuario);
+  `POST /docker/registries` con `{"<host>": {"username", "password"}}` y
+  `DELETE /docker/registries/<host>` (token; la contraseña sale tapada en la
+  vista previa, el log y los errores).
+- Placas y hora: `sv_read_api("/os/boards/green")`, `yellow`,
+  `raspberrypi/firmware`; sus `POST` (LED, firmware de la Raspberry Pi) y
+  `POST /time/options` (servidores NTP) por `sv_call_api` (token).
 - `/core/stop` y el `channel` del Supervisor siguen cerrados por cualquier vía.
+
+## Aplicar sugerencias del Supervisor
+
+- `sv_apply_resolution_suggestion(suggestion_uuid)` (token; familia
+  `resolution_fixes`) — el uuid sale de `sv_get_resolution`. La vista previa
+  traduce el arreglo: `effect`, `interrupts`, `duration`, `reversible`, los
+  `issues` que arregla y `details` (los backups completos que
+  `clear_full_backup` borraría —todos menos los 2 más nuevos, nunca los
+  parciales—, los contenedores que reconstruiría, la app afectada). Algunas
+  borran una app con sus datos o reinician el host: enséñaselo al usuario.
+- Tras el arreglo, el Supervisor lanza su healthcheck, que puede aplicar sus
+  arreglos automáticos: van en `also_auto_applied`. El token ata la
+  sugerencia y esa lista: si algo cambia antes de confirmar →
+  `suggestion_changed`, sin aplicar nada (pide otra vista previa).
+- Rechazos sin token: `no_fixup` (el Supervisor no tiene arreglo: es un
+  consejo para el usuario, p. ej. `execute_stop`, `execute_update`,
+  `registry_login`), `unknown_effect` (más nueva que el Supervisor 2026.11.0),
+  `not_allowed` (`adopt_data_disk`, `rename_data_disk`: discos de datos),
+  `targets_hermes` (pararía, reconstruiría o desinstalaría al propio Hermes,
+  también por un arreglo automático) y `suggestion_not_found`.
 
 ## Receta: Core no arranca
 
@@ -1330,6 +1367,8 @@ _ALIASES: dict[str, str] = {
     # Spec 022. `core` y `system` siguen siendo `supervisor`, como en la 1.1.2.
     "core_control": "system_control",
     "supervisor_control": "system_control",
+    "suggestions": "system_control",
+    "fixups": "system_control",
     "dashboards": "lovelace",
     "dashboard": "lovelace",
     "hacs": "marketplace",

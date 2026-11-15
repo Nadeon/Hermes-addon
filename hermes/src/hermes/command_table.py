@@ -956,10 +956,15 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/os/update"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
     ("POST", "/refresh_updates"): E("deny", "Alias «desaconsejado» de `/reload_updates` (clase B)", "generic_commands"),
     ("POST", "/reload_updates"): E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-080"),
-    ("POST", "/resolution/check/{check}/options"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
-    ("POST", "/resolution/check/{check}/run"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
-    ("POST", "/resolution/healthcheck"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
-    ("POST", "/resolution/suggestion/{suggestion}"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
+    # Spec 022 (research R-2): FR-077 de la 008 deja los chequeos `confirm` en
+    # la tabla, sin tool dedicada. Desactivar uno oculta ese problema.
+    ("POST", "/resolution/check/{check}/options"): E("confirm", "activa o desactiva un chequeo (`enabled`); desactivarlo oculta ese problema", "generic_commands", cap="CAP-087"),
+    # Spec 022 (research R-2): FR-077, `confirm`; solo relanza un chequeo.
+    ("POST", "/resolution/check/{check}/run"): E("confirm", "ejecuta ya un chequeo del centro de resolución", "generic_commands", cap="CAP-087"),
+    # Spec 022 (research R-2 y R-6): FR-077, `confirm`; el healthcheck lanza
+    # `run_autofix()`, así que el motivo avisa de los arreglos automáticos.
+    ("POST", "/resolution/healthcheck"): E("confirm", "relanza todos los chequeos y puede aplicar los arreglos automáticos del Supervisor", "generic_commands", cap="CAP-087"),
+    ("POST", "/resolution/suggestion/{suggestion}"): E("dedicated", "cubierto por sv_apply_resolution_suggestion", "resolution_fixes", tool="sv_apply_resolution_suggestion", cap="CAP-087"),
     # api/security.py del Supervisor 2026.11.0: `raise APIGone(...)`.
     ("POST", "/security/integrity"): E("deny", "eliminada en el Supervisor 2026.11: responde 410 Gone (ya no hay comprobación de integridad)", "generic_commands", cap="CAP-088"),
     ("POST", "/security/options"): E("deny", "Desactivar `content_trust`/`force_security` rebaja la seguridad del sistema (clase D)", "generic_commands"),

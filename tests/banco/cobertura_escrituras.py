@@ -234,4 +234,7 @@ FUERA_DEL_BANCO: dict[str, str] = {
         "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
         "sv_set_supervisor_options",
     )},
+    # Spec 022, tramo 2: aplicar sugerencias, que solo existen en el
+    # Supervisor real.
+    "sv_apply_resolution_suggestion": _SV_AVISOS,
 }

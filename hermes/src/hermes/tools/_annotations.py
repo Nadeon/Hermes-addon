@@ -212,6 +212,9 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "sv_restart_supervisor",
     "sv_repair_supervisor",
     "sv_set_supervisor_options",
+    # Spec 022, tramo 2 (R-10): aplicar una sugerencia puede desinstalar una
+    # app, borrar backups completos o reiniciar el host.
+    "sv_apply_resolution_suggestion",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -248,6 +251,9 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # disponibles a internet; repararlo descarga las imágenes que falten.
     "sv_reload_supervisor",
     "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): algunos fixups descargan imágenes o vuelven a
+    # clonar un repositorio de la tienda.
+    "sv_apply_resolution_suggestion",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -285,6 +291,9 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     "sv_rebuild_core",
     "sv_restart_supervisor",
     "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): aplicar dos veces no deja el mismo estado
+    # (otro backup completo, otro reinicio).
+    "sv_apply_resolution_suggestion",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

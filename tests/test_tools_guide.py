@@ -565,9 +565,11 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # recalculadas al integrarla sobre las de la 033, la 027 y la 012.
         "config_entries": "c5acb413e7fedf5a",
         "data": "c77e3e6782cc89a7",
-        # La 012 cambia `diagnostics` (remite a `core_diagnostics`); su
-        # CHANGELOG lo dice.
-        "diagnostics": "b0fdb0a20718d45d",
+        # La 012 cambia `diagnostics` (remite a `core_diagnostics`) y la 022
+        # (tramo 2) también: ya no dice que Hermes nunca aplica sugerencias,
+        # sino que lo hace `sv_apply_resolution_suggestion`; sus CHANGELOG lo
+        # dicen.
+        "diagnostics": "838ff4a3a3eeaddb",
         "events": "3765a76095ece40f",
         "filesystem": "b5902d6d0ff666c1",
         "generic_commands": "906066a916e93727",
@@ -1054,6 +1056,53 @@ class TestTemaSystemControl(unittest.IsolatedAsyncioTestCase):
 
     def test_supervisor_remite(self) -> None:
         self.assertIn('hermes_guide("system_control")', _GUIDE["supervisor"])
+
+
+class TestTemaSystemControlTramo2(unittest.IsolatedAsyncioTestCase):
+    """Spec 022, FR-020 (tramo 2): el tema `system_control` añade aplicar
+    sugerencias (traducción, rechazos, arreglos automáticos), los chequeos y
+    el healthcheck por la tabla, plugins, Docker (con el aviso de la red),
+    placas y NTP; alias `suggestions` y `fixups`; `diagnostics` ya no dice que
+    Hermes nunca aplica una sugerencia y remite a la tool (FR-012); la tabla
+    de la genérica da los chequeos como `confirm`.
+
+    Control negativo: quitar `targets_hermes` del tema → cae su subtest;
+    devolver a `diagnostics` la frase «NUNCA aplica» → cae
+    `test_diagnostics_dice_la_verdad` (y su huella)."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("system_control")
+        for palabra in ("sv_apply_resolution_suggestion", "resolution_fixes",
+                        "effect", "reversible", "clear_full_backup",
+                        "also_auto_applied", "suggestion_changed", "no_fixup",
+                        "unknown_effect", "not_allowed", "adopt_data_disk",
+                        "targets_hermes", "/resolution/check/{check}/run",
+                        "/resolution/healthcheck", "/dns/options", "/docker/options",
+                        "sin red", "/docker/registries", "/os/boards/green",
+                        "/time/options", "observer"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("suggestions", "fixups", "FIXUPS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    def test_diagnostics_dice_la_verdad(self) -> None:
+        texto = _GUIDE["diagnostics"]
+        self.assertNotIn("NUNCA aplica", texto)
+        self.assertIn("sv_apply_resolution_suggestion", texto)
+
+    async def test_chequeos_confirm_en_la_tabla(self) -> None:
+        texto = await self.guide("generic_commands", search="resolution")
+        for ruta in ("/resolution/check/{check}/run", "/resolution/check/{check}/options",
+                     "/resolution/healthcheck"):
+            with self.subTest(ruta=ruta):
+                linea = next(l for l in texto.splitlines() if ruta in l)
+                self.assertIn("confirm", linea)
 
 
 class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):

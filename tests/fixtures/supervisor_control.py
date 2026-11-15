@@ -12,7 +12,11 @@ produce un `POST`. Simula:
 - Core parado: `/core/stats` responde el error `HomeAssistantNotRunningError`
   (`error_key` `homeassistant_not_running_error`, HTTP 400);
 - jobs en curso en `/jobs/info` (árbol con `child_jobs`);
-- errores, tiempos vencidos y conexiones cortadas por ruta (`errores`).
+- errores, tiempos vencidos y conexiones cortadas por ruta (`errores`);
+- (tramo 2) el centro de resolución (`/resolution/info`, forma de
+  `api/resolution.py`), los backups (`/backups`), la información de las apps
+  (`/addons/<slug>/info`) y la del propio Hermes (`/addons/self/info`, con un
+  slug ficticio `SLUG_HERMES`).
 """
 
 from __future__ import annotations
@@ -25,6 +29,32 @@ from typing import Any
 from hermes.ha import HAConnectionError
 
 CENTINELA_SV = "centinela-control-7"
+
+# Slug ficticio del propio Hermes tal como lo daría `/addons/self/info`, y el
+# de OTRA app cuyo nombre también acaba en `_hermes` (no es Hermes: el slug se
+# compara exacto, nunca por el sufijo).
+SLUG_HERMES = "0a1b2c3d_hermes"
+SLUG_OTRA_HERMES = "9f8e7d6c_hermes"
+
+
+def sugerencia(uuid: str, tipo: str, contexto: str, referencia: str | None = None,
+               auto: bool = False) -> dict[str, Any]:
+    """Una sugerencia con la forma de `Suggestion` en `/resolution/info`."""
+    return {"uuid": uuid, "type": tipo, "context": contexto,
+            "reference": referencia, "reference_extra": None, "auto": auto}
+
+
+def issue(uuid: str, tipo: str, contexto: str, referencia: str | None = None) -> dict[str, Any]:
+    return {"uuid": uuid, "type": tipo, "context": contexto,
+            "reference": referencia, "reference_extra": None}
+
+
+def backup(slug: str, fecha: str, tipo: str = "full") -> dict[str, Any]:
+    """Un backup con la forma de `_list_backups` de `api/backups.py`."""
+    return {"slug": slug, "name": f"Backup {slug}", "date": fecha, "type": tipo,
+            "size": 1.5, "size_bytes": 1_500_000, "location": None,
+            "locations": [None], "protected": False, "compressed": True,
+            "content": {"homeassistant": True, "apps": [], "folders": []}}
 
 # Error del Supervisor 2026.11.0 cuando Core no corre, como lo deja
 # `HAClient._parse_sv_response` (HTTP 400 con el cuerpo de `api_return_error`).
@@ -85,6 +115,16 @@ class SupervisorDeControl:
         # estado entre la vista previa y la confirmación).
         self.formas: dict[tuple[str, str], Any] = {}
         self.llamadas: list[dict[str, Any]] = []
+        # Tramo 2: centro de resolución, backups y apps.
+        self.resolution: dict[str, Any] = {
+            "unsupported": [], "unhealthy": [], "suggestions": [], "issues": [],
+            "checks": [{"slug": "free_space", "enabled": True}],
+        }
+        self.backups: list[dict[str, Any]] = []
+        self.addons: dict[str, dict[str, Any]] = {
+            SLUG_HERMES: {"slug": SLUG_HERMES, "name": "Hermes", "state": "started"},
+        }
+        self.slug_propio = SLUG_HERMES
 
     async def wait_ready(self, timeout: float = 5.0) -> bool:
         # Las genéricas esperan a que el cliente esté listo (`requires_ready`).
@@ -125,6 +165,21 @@ class SupervisorDeControl:
             return {"cpu_percent": 0.5, "memory_usage": 500}
         if clave == ("GET", "/jobs/info"):
             return {"ignore_conditions": [], "jobs": copy.deepcopy(self.jobs)}
+        if clave == ("GET", "/resolution/info"):
+            return copy.deepcopy(self.resolution)
+        if clave == ("GET", "/backups"):
+            return {"backups": copy.deepcopy(self.backups)}
+        if clave == ("GET", "/addons/self/info"):
+            return copy.deepcopy(self.addons.get(self.slug_propio, {"slug": self.slug_propio}))
+        if metodo == "GET" and sv_path.startswith("/addons/") and sv_path.endswith("/info"):
+            slug = sv_path[len("/addons/"):-len("/info")]
+            if slug in self.addons:
+                return copy.deepcopy(self.addons[slug])
+        if metodo == "POST" and sv_path.startswith("/resolution/suggestion/"):
+            uuid = sv_path.rsplit("/", 1)[1]
+            self.resolution["suggestions"] = [
+                s for s in self.resolution["suggestions"] if s["uuid"] != uuid]
+            return {}
         if clave == ("POST", "/core/options"):
             self.core_info.update(json_body or {})
             return {}

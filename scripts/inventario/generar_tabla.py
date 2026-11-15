@@ -387,6 +387,9 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     ("POST", "/supervisor/restart"): "sv_restart_supervisor",
     ("POST", "/supervisor/repair"): "sv_repair_supervisor",
     ("POST", "/supervisor/options"): "sv_set_supervisor_options",
+    # 022, tramo 2: aplicar sugerencias (CAP-087). Los chequeos y el
+    # healthcheck van por la tabla (`confirm`), revisados a mano.
+    ("POST", "/resolution/suggestion/{suggestion}"): "sv_apply_resolution_suggestion",
     # 013: logs del sistema (CAP-081) y disco, host y OS (CAP-085), clase A de
     # vía D, por el mismo mecanismo que las de la 012 y la 029.
     **{("GET", f"/{origen}/logs{sufijo}"): tool

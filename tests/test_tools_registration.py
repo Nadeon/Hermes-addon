@@ -850,6 +850,9 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_restart_supervisor": ("-D--", "Restart supervisor (Supervisor)"),
     "sv_repair_supervisor": ("-D-O", "Repair supervisor (Supervisor)"),
     "sv_set_supervisor_options": ("-DI-", "Set supervisor options (Supervisor)"),
+    # Spec 022, tramo 2 (R-10): aplicar sugerencias, familia
+    # `resolution_fixes`: destructiva, no idempotente y de mundo abierto.
+    "sv_apply_resolution_suggestion": ("-D-O", "Apply resolution suggestion (Supervisor)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -885,6 +888,7 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_reload_supervisor", "sv_restart_supervisor", "sv_repair_supervisor",
         "sv_set_supervisor_options",
     },
+    "resolution_fixes": {"sv_apply_resolution_suggestion"},
 }
 
 # Las de la spec 019, tramo 1 (montajes, CAP-083).
@@ -1514,6 +1518,34 @@ class TestControl022:
         assert dedicadas == set(_CONTROL_022)
         # Las de la 1.1.2 del mismo área siguen.
         assert {"sv_restart_core", "sv_reboot_host", "sv_get_core_info"} <= set(tools)
+
+
+# ── Spec 022, tramo 2: aplicar sugerencias (FR-017, FR-018) ─────────────────
+
+
+class TestResolutionFixes022:
+    """`sv_apply_resolution_suggestion` se registra por defecto, con el
+    contrato y los hints de R-10; con `resolution_fixes` apagada no existe y
+    la ruta sigue `dedicated`; las de `diagnostics` (1.1.2) no cambian."""
+
+    def test_registrada_y_hints(self):
+        tools = _real_registry()
+        t = tools["sv_apply_resolution_suggestion"]
+        assert set(t.parameters["properties"]) == {"suggestion_uuid", "confirmation_token"}
+        assert t.parameters["required"] == ["suggestion_uuid"]
+        a = t.annotations
+        assert (a.read_only_hint, a.destructive_hint, a.idempotent_hint,
+                a.open_world_hint) == (False, True, False, True)
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["resolution_fixes"])
+        assert "sv_apply_resolution_suggestion" not in tools
+        assert {"sv_get_resolution", "sv_dismiss_resolution_suggestion",
+                "sv_dismiss_resolution_issue"} <= set(tools)
+        e = SUPERVISOR[("POST", "/resolution/suggestion/{suggestion}")]
+        assert (e.category, e.family) == ("dedicated", "resolution_fixes")
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

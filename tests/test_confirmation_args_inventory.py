@@ -71,6 +71,12 @@ valores actuales de esas claves); `sv_start_core`, `sv_restart_supervisor`
 y `sv_repair_supervisor` no tienen argumentos (su `estado` es el de Core o
 la lista vacía de jobs en curso). `sv_reload_supervisor` no pide token
 (FR-076 de la 008).
+
+Recuento: 102 desde el tramo 2 de la 022: `sv_apply_resolution_suggestion`
+ata `suggestion_uuid` (normalizado, sin guiones) y, como `estado`, el tipo,
+el contexto y la referencia de la sugerencia, los backups a borrar, los
+contenedores a reconstruir y los arreglos automáticos que el Supervisor
+aplicaría de paso.
 """
 
 from __future__ import annotations
@@ -247,6 +253,10 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "sv_restart_supervisor": {},
     "sv_repair_supervisor": {},
     "sv_set_supervisor_options": {"options": A},
+    # ── aplicar sugerencias (spec 022, tramo 2) ─────────────────────────
+    # El uuid normalizado; la sugerencia, los backups a borrar, los
+    # contenedores y los arreglos automáticos van en el `estado`.
+    "sv_apply_resolution_suggestion": {"suggestion_uuid": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -341,8 +351,8 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019.
-        # Y las seis con token del tramo 1 de la 022.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 101)
+        # Y las seis con token del tramo 1 de la 022 y la del tramo 2.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 102)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -362,7 +372,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 101)
+        self.assertEqual(len(publicadas), 102)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

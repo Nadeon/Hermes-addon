@@ -324,6 +324,8 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         self._cfg(["mounts"]).validate()
         # Spec 022: y la del control de Core y del Supervisor.
         self._cfg(["system_control"]).validate()
+        # Spec 022, tramo 2: y la de aplicar sugerencias del Supervisor.
+        self._cfg(["resolution_fixes"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

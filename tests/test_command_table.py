@@ -397,14 +397,21 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
         "spec 013: lectura menor de CAP-085 (discos con particiones montables, "
         "para los montajes de la 019); sin tool en el research de la 008"),
     ("GET", "/core/stats"): (
-        "spec 022: FR-076 de la 008 pide las estadÃ­sticas `read` en la tabla, "
+        "spec 022: FR-076 de la 008 pide las estadísticas `read` en la tabla, "
         "sin tool dedicada"),
     ("GET", "/supervisor/stats"): (
-        "spec 022: FR-076 de la 008 pide las estadÃ­sticas `read` en la tabla, "
+        "spec 022: FR-076 de la 008 pide las estadísticas `read` en la tabla, "
         "sin tool dedicada"),
     ("POST", "/host/reload"): (
         "spec 022: CAP-084 la incluye pero FR-076 no le da tool; solo refresca "
-        "la informaciÃ³n del host (principio IX)"),
+        "la información del host (principio IX)"),
+    ("POST", "/resolution/check/{check}/run"): (
+        "spec 022: FR-077 de la 008 deja los chequeos `confirm` en la tabla"),
+    ("POST", "/resolution/check/{check}/options"): (
+        "spec 022: FR-077 de la 008 deja los chequeos `confirm` en la tabla"),
+    ("POST", "/resolution/healthcheck"): (
+        "spec 022: FR-077 de la 008 lo deja `confirm` en la tabla; puede "
+        "aplicar los arreglos automáticos del Supervisor"),
 }
 
 
@@ -595,8 +602,8 @@ class TestDiscoHostYOsDeLa013(unittest.TestCase):
             elif "solo lee" not in e.reason:
                 malas.append(f"{k}: el motivo no dice que solo lee: {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
-        # Las de la 013 estÃ¡n en `_POR_LA_TABLA`; la 022 aÃ±adiÃ³ despuÃ©s las
-        # suyas (estadÃ­sticas y `/host/reload`).
+        # Las de la 013 están en `_POR_LA_TABLA`; la 022 añadió después las
+        # suyas (estadísticas y `/host/reload`).
         self.assertLessEqual(set(_READ_013), set(_POR_LA_TABLA))
 
     def test_hardware_y_red_siguen_read(self) -> None:
@@ -685,7 +692,7 @@ class TestEntradasDeLa022(unittest.TestCase):
     `dedicated` (familia `system_control`); las estadísticas a `read` y
     `/host/reload` a `confirm`, con su porqué en `_POR_LA_TABLA`; `/core/stop`
     y los alias `/homeassistant/*` siguen `deny`. Quedan 4 «spec 022» (las de
-    CAP-087, del tramo 2).
+    CAP-087, del tramo 2; el tramo 2 las deja en 0).
 
     Control negativo (T014 h): dejar `/supervisor/restart` como `deny` → cae
     `test_siete_dedicadas` (y el de la genérica en test_tools_control_tabla).
@@ -716,14 +723,51 @@ class TestEntradasDeLa022(unittest.TestCase):
                           if k[1].startswith("/homeassistant/") and e.category != "deny")
         self.assertEqual(abiertas, [])
 
-    def test_quedan_las_cuatro_del_tramo_2(self) -> None:
+    def test_ninguna_pendiente_de_la_022(self) -> None:
+        # Tramo 2 (T023): no queda ninguna «spec 022».
         quedan = sorted(k for k, e in ct.SUPERVISOR.items() if "spec 022" in e.reason)
-        self.assertEqual(quedan, [
-            ("POST", "/resolution/check/{check}/options"),
-            ("POST", "/resolution/check/{check}/run"),
-            ("POST", "/resolution/healthcheck"),
-            ("POST", "/resolution/suggestion/{suggestion}"),
-        ])
+        self.assertEqual(quedan, [])
+
+
+# Spec 022, tramo 2 (data-model): CAP-087 escritura.
+_CHEQUEOS_022: dict[tuple[str, str], str] = {
+    ("POST", "/resolution/check/{check}/run"): "ejecuta ya un chequeo",
+    ("POST", "/resolution/check/{check}/options"): "desactivarlo oculta ese problema",
+    ("POST", "/resolution/healthcheck"): "puede aplicar los arreglos automáticos",
+}
+
+
+class TestEntradasDeLa022Tramo2(unittest.TestCase):
+    """FR-013 de la 022 (parte 2): aplicar una sugerencia pasa a `dedicated`
+    (`sv_apply_resolution_suggestion`, familia `resolution_fixes`); los dos
+    chequeos y el healthcheck, a `confirm` con su porqué en `_POR_LA_TABLA`.
+
+    Control negativo (T028 i): dejar `/resolution/check/{check}/run` como
+    `deny` → cae `test_chequeos_confirm` (y el de la genérica en
+    test_tools_control_tabla).
+    """
+
+    def test_aplicar_dedicada(self) -> None:
+        e = ct.SUPERVISOR[("POST", "/resolution/suggestion/{suggestion}")]
+        self.assertEqual(
+            (e.category, e.tool, e.family, e.cap, e.reason),
+            ("dedicated", "sv_apply_resolution_suggestion", "resolution_fixes",
+             "CAP-087", "cubierto por sv_apply_resolution_suggestion"))
+
+    def test_chequeos_confirm(self) -> None:
+        for k, frase in _CHEQUEOS_022.items():
+            with self.subTest(clave=k):
+                e = ct.SUPERVISOR[k]
+                self.assertEqual((e.category, e.family, e.cap, e.tool),
+                                 ("confirm", "generic_commands", "CAP-087", None))
+                self.assertIn(frase, e.reason)
+                self.assertTrue(_POR_LA_TABLA[k].startswith("spec 022: "))
+
+    def test_descartar_sigue_igual(self) -> None:
+        # US6: descartar sigue en `diagnostics` (1.1.2).
+        e = ct.SUPERVISOR[("DELETE", "/resolution/suggestion/{suggestion}")]
+        self.assertEqual((e.category, e.tool, e.family),
+                         ("dedicated", "sv_dismiss_resolution_suggestion", "diagnostics"))
 
 
 if __name__ == "__main__":

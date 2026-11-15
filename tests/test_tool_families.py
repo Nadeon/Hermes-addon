@@ -239,6 +239,20 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["system_control"]),
                          frozenset({"system_control"}))
 
+    def test_resolution_fixes_es_de_la_1_2_0(self) -> None:
+        # Spec 022, tramo 2, FR-017 (research R-1): aplicar sugerencias del
+        # centro de resolución va en su propia familia, separada de
+        # `system_control` y de `diagnostics` (1.1.2), para apagarla sola.
+        familia = FAMILIAS["resolution_fixes"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("resolution_fixes",))
+        self.assertEqual(familia_de_modulo("resolution_fixes"), "resolution_fixes")
+        # `diagnostics` (1.1.2), donde vive `resolution`, no gana módulos.
+        self.assertNotIn("resolution_fixes", FAMILIAS["diagnostics"].modulos)
+        self.assertEqual(validar_desactivadas(["resolution_fixes"]),
+                         frozenset({"resolution_fixes"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

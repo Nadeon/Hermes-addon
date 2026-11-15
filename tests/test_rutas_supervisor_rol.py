@@ -193,6 +193,10 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
         "/core/info", "/core/options", "/supervisor/info", "/supervisor/options"),
     ("hermes.tools.system_control", "sv_reload_supervisor"): ("/supervisor/reload",),
     ("hermes.tools.system_control", "sv_restart_supervisor"): ("/supervisor/restart",),
+    # Spec 022 (tramo 2): las lecturas de `resolution_fixes` pasan por una
+    # ayuda que recibe la ruta.
+    ("hermes.tools.resolution_fixes", "leer"): (
+        "/resolution/info", "/backups", "/addons/self/info", "/addons/x/info"),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.

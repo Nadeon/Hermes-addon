@@ -158,6 +158,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "Start, rebuild and configure Home Assistant Core; reload, restart, "
             "repair and configure the Supervisor.",
             "1.2.0", True, ("system_control",)),
+    # Spec 022, tramo 2 (research R-1): aplicar sugerencias del centro de
+    # resolución. Familia propia y no `diagnostics` (1.1.2, que solo lee y
+    # descarta) ni `system_control`: quien no quiera que un agente aplique
+    # arreglos del Supervisor (algunos borran backups o reinician el host)
+    # la apaga sola, sin perder el resto.
+    Familia("resolution_fixes",
+            "Apply Supervisor resolution suggestions after a preview that "
+            "explains their effect.",
+            "1.2.0", True, ("resolution_fixes",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}
