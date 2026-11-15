@@ -36,6 +36,9 @@ _CAMPOS_CONTRATO = {
 }
 
 
+_CAMPOS_TEXTO = {"title", "description", "description_truncated"}
+
+
 def _issue(issue_id: str, severity: str, *, domain: str = "demo_integ",
            ignored: bool = False, **extra: Any) -> dict[str, Any]:
     base = {
@@ -68,6 +71,9 @@ class _FakeHA:
         self.fail_list = False
         # Código WS con el que falla `repairs/ignore_issue` (None = no falla).
         self.ignore_error_code: str | None = None
+        # Spec 016 (CAP-036): textos traducidos de los avisos.
+        self.recursos: dict[str, str] = {}
+        self.fail_translations = False
 
     async def ws_send(self, payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
         self.sent.append(payload)
@@ -80,6 +86,12 @@ class _FakeHA:
                 raise HAConnectionError("Issue not found",
                                         code=self.ignore_error_code)
             return None
+        if payload["type"] == "get_config":
+            return {"language": "es"}
+        if payload["type"] == "frontend/get_translations":
+            if self.fail_translations:
+                raise HAConnectionError("Unknown command.", code="unknown_command")
+            return {"resources": self.recursos}
         raise AssertionError(f"comando inesperado: {payload}")
 
     def tipos(self) -> list[str]:
@@ -118,7 +130,9 @@ class TestListRepairs(_Base):
         res = json.loads(await mcp.tools["ha_list_repairs"]())
         self.assertEqual(res["count"], 2)
         self.assertEqual([i["issue_id"] for i in res["issues"]], ["roto", "aviso"])
-        self.assertEqual(fake.tipos(), ["repairs/list_issues"])
+        # Spec 016: más el idioma y UNA lectura de traducciones.
+        self.assertEqual(fake.tipos(), ["repairs/list_issues", "get_config",
+                                        "frontend/get_translations"])
 
     async def test_include_ignored_devuelve_los_tres_ordenados(self) -> None:
         mcp, _ = self._montar(self._tres())
@@ -168,11 +182,14 @@ class TestListRepairs(_Base):
         self.assertIn("example.invalid", ph["url"])
 
     async def test_solo_campos_del_contrato(self) -> None:
+        # Spec 016 (FR-015): los de la 1.1.2 y los tres del texto traducido;
+        # en la raíz, el idioma, la marca de no disponibles y la de terceros.
         mcp, _ = self._montar(self._tres())
         res = json.loads(await mcp.tools["ha_list_repairs"](include_ignored=True))
         for issue in res["issues"]:
-            self.assertEqual(set(issue), _CAMPOS_CONTRATO)
-        self.assertEqual(set(res), {"count", "issues"})
+            self.assertEqual(set(issue), _CAMPOS_CONTRATO | _CAMPOS_TEXTO)
+        self.assertEqual(set(res), {"count", "issues", "language",
+                                    "translations_unavailable", "_third_party_text"})
 
     async def test_error_de_ha(self) -> None:
         mcp, fake = self._montar(self._tres())
@@ -285,6 +302,118 @@ class TestIgnoreRepair(_Base):
         # Control negativo: un fallo distinto no se disfraza de not_found.
         res = await self._desaparece_antes_de_confirmar("home_assistant_error")
         self.assertNotEqual(res.get("error"), "not_found")
+
+
+# ── Spec 016, tramo C (T032): textos traducidos (CAP-036) ─────────────────────
+
+_CENTINELA = "centinela-016"
+
+
+def _recursos() -> dict[str, str]:
+    return {
+        "component.demo_integ.issues.key_roto.title": "Broken {cosa}",
+        "component.demo_integ.issues.key_roto.description": "The {cosa} will break.",
+        "component.otra_integ.issues.key_aviso.title": "Warning",
+        "component.otra_integ.issues.key_aviso.description": "y" * 1200,
+    }
+
+
+class TestTextosDeLosAvisos(_Base):
+    """FR-015, FR-022, FR-024. Control negativo (T044 b): quitar un campo de
+    la 1.1.2 del resumen (`learn_more_url`) → 2 rojos
+    (`test_solo_campos_del_contrato` y `test_titulo_y_descripcion_traducidos`)."""
+
+    def _avisos(self) -> list[dict[str, Any]]:
+        return [
+            _issue("aviso", "warning", domain="otra_integ"),
+            _issue("roto", "error", translation_placeholders={"cosa": "puente"}),
+            _issue("oculto", "critical", domain="tercera", ignored=True),
+        ]
+
+    async def test_titulo_y_descripcion_traducidos(self) -> None:
+        mcp, fake = self._montar(self._avisos())
+        fake.recursos = _recursos()
+        res = json.loads(await mcp.tools["ha_list_repairs"]())
+        roto, aviso = res["issues"]
+        self.assertEqual((roto["title"], roto["description"]),
+                         ("Broken puente", "The puente will break."))
+        self.assertFalse(roto["description_truncated"])
+        # Recortada a 1000 en la lista.
+        self.assertEqual(len(aviso["description"]), 1000)
+        self.assertTrue(aviso["description_truncated"])
+        self.assertEqual(res["language"], "es")
+        self.assertFalse(res["translations_unavailable"])
+        self.assertEqual(res["_third_party_text"]["fields"], ["title", "description"])
+        # Los campos de la 1.1.2 siguen, en su orden y antes que los nuevos.
+        self.assertEqual(list(roto)[:12], [
+            "domain", "issue_id", "issue_domain", "severity", "is_fixable",
+            "breaks_in_ha_version", "created", "ignored", "dismissed_version",
+            "translation_key", "translation_placeholders", "learn_more_url"])
+        self.assertEqual(list(res)[:2], ["count", "issues"])
+
+    async def test_una_lectura_con_los_dominios_devueltos(self) -> None:
+        mcp, fake = self._montar(self._avisos())
+        await mcp.tools["ha_list_repairs"]()
+        trad = [p for p in fake.sent if p["type"] == "frontend/get_translations"]
+        # `tercera` solo tiene un aviso ignorado, que no se devuelve.
+        self.assertEqual(len(trad), 1)
+        self.assertEqual(trad[0]["integration"], ["demo_integ", "otra_integ"])
+        self.assertEqual(trad[0]["category"], "issues")
+
+    async def test_lista_vacia_sin_lecturas_de_traducciones(self) -> None:
+        mcp, fake = self._montar([])
+        res = json.loads(await mcp.tools["ha_list_repairs"]())
+        self.assertEqual((res["count"], res["issues"]), (0, []))
+        self.assertEqual(fake.tipos(), ["repairs/list_issues"])
+
+    async def test_si_fallan_las_traducciones_la_misma_lista(self) -> None:
+        mcp, fake = self._montar(self._avisos())
+        fake.recursos = _recursos()
+        fake.fail_translations = True
+        res = json.loads(await mcp.tools["ha_list_repairs"]())
+        self.assertTrue(res["translations_unavailable"])
+        self.assertEqual([i["issue_id"] for i in res["issues"]], ["roto", "aviso"])
+        for issue in res["issues"]:
+            self.assertEqual((issue["title"], issue["description"]), (None, None))
+            self.assertEqual(issue["translation_key"], f"key_{issue['issue_id']}")
+
+    async def test_marcador_con_centinela_tapado(self) -> None:
+        mcp, fake = self._montar([_issue(
+            "roto", "error", translation_placeholders={"cosa": "x", "password": _CENTINELA})])
+        fake.recursos = {"component.demo_integ.issues.key_roto.title": "Clave {password}"}
+        raw = await mcp.tools["ha_list_repairs"]()
+        self.assertNotIn(_CENTINELA, raw)
+        self.assertIn("Clave ", json.loads(raw)["issues"][0]["title"])
+
+    async def test_ignore_preview_con_titulo(self) -> None:
+        mcp, fake = self._montar([_issue("roto", "error",
+                                         translation_placeholders={"cosa": "puente"})])
+        fake.recursos = _recursos()
+        tool = mcp.tools["ha_ignore_repair"]
+        res = json.loads(await tool("demo_integ", "roto"))
+        self.assertEqual(res["preview"]["title"], "Broken puente")
+        antes = len(fake.sent)
+        json.loads(await tool("demo_integ", "roto",
+                              confirmation_token=res["confirmation_token"]))
+        # Con token, ninguna lectura de traducciones.
+        self.assertEqual([p["type"] for p in fake.sent[antes:]], ["repairs/ignore_issue"])
+
+    async def test_ignore_preview_sin_traducciones(self) -> None:
+        mcp, fake = self._montar([_issue("roto", "error")])
+        fake.fail_translations = True
+        res = json.loads(await mcp.tools["ha_ignore_repair"]("demo_integ", "roto"))
+        self.assertIn("confirmation_token", res)
+        self.assertIsNone(res["preview"]["title"])
+
+    def test_esquemas_de_entrada_de_la_1_1_2(self) -> None:
+        import inspect
+
+        mcp = DummyMCP()
+        repairs_mod.register(mcp, object())  # type: ignore[arg-type]
+        self.assertEqual(list(inspect.signature(mcp.tools["ha_list_repairs"]).parameters),
+                         ["include_ignored", "domain", "severity"])
+        self.assertEqual(list(inspect.signature(mcp.tools["ha_ignore_repair"]).parameters),
+                         ["domain", "issue_id", "ignore", "confirmation_token"])
 
 
 if __name__ == "__main__":

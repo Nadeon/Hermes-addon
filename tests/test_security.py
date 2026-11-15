@@ -1,6 +1,7 @@
 import asyncio
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -571,12 +572,29 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
         self.assertIn("expired", error)
         self.assertFalse(self._fichero(token).exists())
 
+    def _reloj_simulado(self):
+        """Reloj del barrido bajo control del test (FR-009 de la 009).
+
+        Desde la 1.2.0 la vista previa barre como mucho una vez por segundo;
+        los dos tests siguientes avanzan este reloj para provocar el barrido
+        que antes ocurría en cada vista previa.
+        """
+        import unittest.mock as mock
+
+        self.reloj = [1000.0]
+        parche = mock.patch.object(security, "_monotonic", lambda: self.reloj[0])
+        parche.start()
+        self.addCleanup(parche.stop)
+
     async def test_cada_vista_previa_barre_los_caducados(self) -> None:
         """Control negativo: sin el barrido en `create_confirmation_token`
-        cae (comprobado)."""
+        cae (comprobado). Desde la 1.2.0, la vista previa que barre es la
+        primera tras un segundo (FR-009 de la 009)."""
+        self._reloj_simulado()
         r = await self._vista_previa()
         viejo = r["confirmation_token"]
         await self._caducar(viejo)
+        self.reloj[0] += 1.1
         await self._vista_previa()
         self.assertFalse(self._fichero(viejo).exists())
 
@@ -618,6 +636,7 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
         los de tokens caducados, completados ni sin documento."""
         import unittest.mock as mock
 
+        self._reloj_simulado()
         primero = await self._vista_previa()
         tam = self._datos(primero["confirmation_token"])["stored_bytes"]
         with mock.patch.object(
@@ -627,16 +646,19 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
             self.assertIn("omit_on_confirm", segundo)
             tercero = await self._vista_previa()
             self.assertNotIn("omit_on_confirm", tercero)
-            # Completar uno libera su parte.
+            # Completar uno libera su parte, en el siguiente barrido (desde la
+            # 1.2.0 el total se sobrestima hasta entonces: FR-009 de la 009).
             await security.resolve_confirmation_token(
                 segundo["confirmation_token"], self.TOOL,
                 {"url_path": "panel-ficticio"}, omitibles=self.OMITIBLES)
             await security.complete_confirmation_token(
                 segundo["confirmation_token"], success=True, result={})
+            self.reloj[0] += 1.1
             cuarto = await self._vista_previa()
             self.assertIn("omit_on_confirm", cuarto)
             # Caducar otro también.
             await self._caducar(primero["confirmation_token"])
+            self.reloj[0] += 1.1
             quinto = await self._vista_previa()
             self.assertIn("omit_on_confirm", quinto)
 
@@ -661,3 +683,370 @@ class TestConfirmarSoloConToken(unittest.IsolatedAsyncioTestCase):
             await security.cleanup_expired_confirmations()
         self.assertTrue(logs, "el test no capturó ningún evento")
         self.assertNotIn(centinela, repr(logs))
+
+
+class TestBarridoAcotado(unittest.IsolatedAsyncioTestCase):
+    """FR-009 (009): las vistas previas con documento barren como mucho una
+    vez por segundo; entre medias el total sale de memoria y el tope de
+    `CONFIRMATION_STORED_MAX_BYTES` sigue intacto.
+
+    En la 1.1.2 cada vista previa releía y parseaba todos los tokens: con el
+    tope casi lleno, decenas de milisegundos en el bucle de eventos cada vez.
+
+    Control negativo (T018): barriendo siempre (código de la 1.1.2) cae
+    `test_diez_en_el_mismo_segundo_barren_una_vez`; sin sumar lo guardado a la
+    memoria cae `test_el_tope_cuenta_lo_guardado_desde_el_ultimo_barrido`;
+    restando en `complete_confirmation_token` cae
+    `test_completar_no_baja_el_total_hasta_el_barrido`.
+    """
+
+    TOOL = "ha_save_lovelace_dashboard"
+    OMITIBLES = ("config",)
+
+    async def asyncSetUp(self) -> None:
+        import unittest.mock as mock
+
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+        self.args = {"url_path": "panel-ficticio",
+                     "config": {"views": [{"title": "Vista ficticia"}]}}
+        self.tam = security._bytes_guardados({"config": self.args["config"]})
+        self.reloj = [5000.0]
+        parche = mock.patch.object(security, "_monotonic", lambda: self.reloj[0])
+        parche.start()
+        self.addCleanup(parche.stop)
+        self.barridos = mock.patch.object(
+            security, "_barrer_caducados", wraps=security._barrer_caducados
+        ).start()
+        self.addCleanup(mock.patch.stopall)
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    async def _vista_previa(self) -> dict:
+        return await security.create_confirmation_token(
+            self.TOOL, dict(self.args), preview={"diff": {}},
+            omitibles=self.OMITIBLES,
+        )
+
+    def _caducar(self, token: str) -> Path:
+        fichero = security.CONFIRMATIONS_DIR / f"{token}.json"
+        datos = json.loads(fichero.read_text(encoding="utf-8"))
+        datos["expires_at"] = 0
+        fichero.write_text(json.dumps(datos), encoding="utf-8")
+        return fichero
+
+    async def test_diez_en_el_mismo_segundo_barren_una_vez(self) -> None:
+        for _ in range(10):
+            r = await self._vista_previa()
+            self.assertIn("omit_on_confirm", r)
+        self.assertEqual(self.barridos.call_count, 1)
+
+    async def test_pasado_un_segundo_se_barre(self) -> None:
+        viejo = (await self._vista_previa())["confirmation_token"]
+        fichero = self._caducar(viejo)
+        await self._vista_previa()
+        self.assertTrue(fichero.exists(), "barrió antes de tiempo")
+        self.reloj[0] += 1.1
+        await self._vista_previa()
+        self.assertEqual(self.barridos.call_count, 2)
+        self.assertFalse(fichero.exists())
+
+    async def test_el_tope_cuenta_lo_guardado_desde_el_ultimo_barrido(self) -> None:
+        import unittest.mock as mock
+        from structlog.testing import capture_logs
+
+        with mock.patch.object(security, "CONFIRMATION_STORED_MAX_BYTES",
+                               2 * self.tam), capture_logs() as logs:
+            primero = await self._vista_previa()
+            segundo = await self._vista_previa()
+            tercero = await self._vista_previa()
+        self.assertEqual(self.barridos.call_count, 1)
+        self.assertIn("omit_on_confirm", primero)
+        self.assertIn("omit_on_confirm", segundo)
+        self.assertNotIn("omit_on_confirm", tercero)
+        eventos = [e for e in logs if e["event"] == "confirmation_args_not_stored"]
+        self.assertEqual(len(eventos), 1)
+
+    async def test_completar_no_baja_el_total_hasta_el_barrido(self) -> None:
+        r = await self._vista_previa()
+        antes = security._en_uso_bytes
+        self.assertEqual(antes, self.tam)
+        token = r["confirmation_token"]
+        ok, error, _ = await security.resolve_confirmation_token(
+            token, self.TOOL, {"url_path": "panel-ficticio"},
+            omitibles=self.OMITIBLES)
+        self.assertTrue(ok, error)
+        await security.complete_confirmation_token(token, success=True, result={})
+        # Sobrestima (fail-closed) hasta el siguiente barrido…
+        self.assertEqual(security._en_uso_bytes, antes)
+        # …que lo corrige.
+        self.reloj[0] += 1.1
+        await self._vista_previa()
+        self.assertEqual(security._en_uso_bytes, self.tam)
+
+    async def test_la_limpieza_fija_el_total_y_la_hora(self) -> None:
+        await self._vista_previa()
+        r = await self._vista_previa()
+        self._caducar(r["confirmation_token"])
+        self.reloj[0] = 7000.0
+        await security.cleanup_expired_confirmations()
+        self.assertEqual(security._ultimo_barrido, 7000.0)
+        self.assertEqual(security._en_uso_bytes, self.tam)
+
+    async def test_si_el_reloj_retrocede_se_barre(self) -> None:
+        await self._vista_previa()
+        self.reloj[0] -= 5
+        await self._vista_previa()
+        self.assertEqual(self.barridos.call_count, 2)
+
+    async def test_sin_documento_no_se_barre(self) -> None:
+        await security.create_confirmation_token(
+            "sv_restart_addon", {"slug": "<slug>"}, preview={})
+        await security.create_confirmation_token(
+            self.TOOL, {"url_path": "panel-ficticio", "config": None},
+            preview={}, omitibles=self.OMITIBLES)
+        self.assertEqual(self.barridos.call_count, 0)
+
+
+class TestTokenAtadoAlEstado(unittest.IsolatedAsyncioTestCase):
+    """Spec 018 (FR-003, data-model «Estado ligado al token»): argumento
+    opcional `estado` en `create_confirmation_token` y
+    `resolve_confirmation_token`.
+
+    El guardado por vista de Lovelace promete en la vista previa que conserva
+    las demás vistas y las claves de nivel superior. Si el dashboard cambia en
+    los 60 s del token, esa promesa ya no vale: el token se ata también a la
+    huella del estado leído en la vista previa. Sin `estado`, nada cambia
+    respecto a la 1.1.2 (FR-020 de la 008).
+
+    Control negativo comprobado (T007): sin la comparación de `state_hash` en
+    `resolve_confirmation_token` caen (c), (d) y (e) (3 de 8); sin guardar
+    `state_hash` al crear caen (b), (c), (d), (f) y (h) (5 de 8).
+    """
+
+    TOOL = "ha_save_lovelace_dashboard"
+
+    async def asyncSetUp(self) -> None:
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+        self.args = {"url_path": "panel-prueba", "view_index": 1,
+                     "view": {"title": "Cocina", "cards": []}}
+        self.estado = {"title": "Casa ficticia",
+                       "views": [{"title": "Inicio"}, {"title": "Cocina"}]}
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    def _datos(self, token: str) -> dict:
+        ruta = security.CONFIRMATIONS_DIR / f"{token}.json"
+        return json.loads(ruta.read_text(encoding="utf-8"))
+
+    async def _crear(self, **kwargs) -> dict:
+        return await security.create_confirmation_token(
+            self.TOOL, dict(self.args), preview={"x": 1}, **kwargs)
+
+    async def _resolver(self, token: str, **kwargs):
+        return await security.resolve_confirmation_token(
+            token, self.TOOL, dict(self.args), **kwargs)
+
+    async def test_a_sin_estado_igual_que_hoy(self) -> None:
+        r = await self._crear()
+        datos = self._datos(r["confirmation_token"])
+        self.assertNotIn("state_hash", datos)
+        self.assertEqual(datos["action_hash"],
+                         security.compute_action_hash(self.TOOL, self.args))
+        ok, error, resueltos = await self._resolver(r["confirmation_token"])
+        self.assertTrue(ok, error)
+        self.assertEqual(resueltos, self.args)
+
+    async def test_b_mismo_estado_vale(self) -> None:
+        r = await self._crear(estado=self.estado)
+        token = r["confirmation_token"]
+        self.assertRegex(self._datos(token)["state_hash"], r"^[0-9a-f]{64}$")
+        ok, error, _ = await self._resolver(token, estado=json.loads(
+            json.dumps(self.estado)))
+        self.assertTrue(ok, error)
+        self.assertEqual(self._datos(token)["state"], "executing")
+
+    async def test_c_estado_distinto_se_rechaza_sin_gastar_el_token(self) -> None:
+        r = await self._crear(estado=self.estado)
+        token = r["confirmation_token"]
+        otro = {**self.estado, "title": "Otro título ficticio"}
+        self.assertEqual(await self._resolver(token, estado=otro),
+                         (False, security.ESTADO_CAMBIADO, {}))
+        self.assertEqual(self._datos(token)["state"], "pending")
+        ok, error, _ = await self._resolver(token, estado=self.estado)
+        self.assertTrue(ok, error)
+
+    async def test_d_token_con_estado_resuelto_sin_estado(self) -> None:
+        r = await self._crear(estado=self.estado)
+        self.assertEqual(await self._resolver(r["confirmation_token"]),
+                         (False, security.ESTADO_CAMBIADO, {}))
+        self.assertEqual(self._datos(r["confirmation_token"])["state"], "pending")
+
+    async def test_e_token_sin_estado_resuelto_con_estado(self) -> None:
+        r = await self._crear()
+        self.assertEqual(
+            await self._resolver(r["confirmation_token"], estado=self.estado),
+            (False, security.ESTADO_CAMBIADO, {}))
+        self.assertEqual(self._datos(r["confirmation_token"])["state"], "pending")
+
+    async def test_f_el_orden_de_las_claves_no_cuenta(self) -> None:
+        r = await self._crear(estado={"a": 1, "b": {"x": 1, "y": 2}})
+        ok, error, _ = await self._resolver(
+            r["confirmation_token"], estado={"b": {"y": 2, "x": 1}, "a": 1})
+        self.assertTrue(ok, error)
+
+    async def test_g_el_estado_no_toca_las_pistas(self) -> None:
+        con = await self._crear(estado=self.estado, omitibles=("view",))
+        sin = await self._crear(omitibles=("view",))
+        for clave in ("confirm_with", "omit_on_confirm", "confirm_hint"):
+            self.assertEqual(con[clave], sin[clave], clave)
+        self.assertEqual(con["confirm_with"],
+                         ["confirmation_token", "url_path", "view_index"])
+        self.assertEqual(set(await self._crear(estado=self.estado)),
+                         {"confirmation_token", "expires_in_seconds", "preview"})
+
+    async def test_h_en_el_fichero_solo_la_huella(self) -> None:
+        centinela = "CENTINELA-ESTADO-91c2"
+        estado = {**self.estado, "background": centinela}
+        r = await self._crear(estado=estado)
+        ruta = security.CONFIRMATIONS_DIR / f"{r['confirmation_token']}.json"
+        self.assertNotIn(centinela, ruta.read_text(encoding="utf-8"))
+        self.assertIn("state_hash", self._datos(r["confirmation_token"]))
+
+
+class TestHashConClave(unittest.IsolatedAsyncioTestCase):
+    """Spec 019 (decisión del programa): el action_hash es un HMAC-SHA256 con
+    una clave aleatoria que solo vive en la memoria del proceso.
+
+    Lo que protege: el fichero del token guarda el action_hash, y entre los
+    argumentos de algunas acciones hay contraseñas (montajes CIFS,
+    `fs_set_secret`, restaurar un backup cifrado). Con un SHA-256 sin clave,
+    quien leyera /data podía probar contraseñas débiles sin conexión.
+
+    Control negativo comprobado: con el `canonicalize_for_hash(payload)` de
+    antes en `compute_action_hash` caen `test_otra_clave_otro_hash`,
+    `test_no_es_el_sha256_de_la_entrada`,
+    `test_contrasena_debil_no_se_adivina_sin_la_clave` y
+    `test_token_de_antes_del_arranque_se_da_por_perdido` (4 de 6; la suite
+    de `test_security.py`: 4 failed, 52 passed).
+    """
+
+    TOOL = "fs_set_secret"
+
+    async def asyncSetUp(self) -> None:
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.original_clave = security._CLAVE_HASH
+        self.original_arranque = security._ARRANQUE
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        security._CLAVE_HASH = self.original_clave
+        security._ARRANQUE = self.original_arranque
+        self.temp_dir.cleanup()
+
+    def test_mismo_argumento_misma_clave_mismo_hash(self) -> None:
+        args = {"key": "nas_clave", "value": "1234"}
+        self.assertEqual(security.compute_action_hash(self.TOOL, args),
+                         security.compute_action_hash(self.TOOL, dict(args)))
+        self.assertRegex(security.compute_action_hash(self.TOOL, args),
+                         r"^[0-9a-f]{64}$")
+
+    def test_otra_clave_otro_hash(self) -> None:
+        args = {"key": "nas_clave", "value": "1234"}
+        antes = security.compute_action_hash(self.TOOL, args)
+        security._CLAVE_HASH = bytes(32)
+        self.assertNotEqual(security.compute_action_hash(self.TOOL, args), antes)
+
+    def test_no_es_el_sha256_de_la_entrada(self) -> None:
+        args = {"key": "nas_clave", "value": "1234"}
+        sin_clave = security.canonicalize_for_hash({"tool": self.TOOL, "args": args})
+        self.assertNotEqual(security.compute_action_hash(self.TOOL, args), sin_clave)
+
+    def test_contrasena_debil_no_se_adivina_sin_la_clave(self) -> None:
+        """El ataque que se quiere impedir: con el hash del disco, probar las
+        contraseñas de un diccionario pequeño con el SHA-256 de la acción."""
+        import hashlib
+
+        real = security.compute_action_hash(self.TOOL, {"key": "k", "value": "1234"})
+        for candidata in ("0000", "1234", "password", "admin", "qwerty"):
+            serializado = json.dumps(
+                {"args": {"key": "k", "value": candidata}, "tool": self.TOOL},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            self.assertNotEqual(
+                hashlib.sha256(serializado.encode("utf-8")).hexdigest(), real)
+
+    async def test_la_clave_no_esta_en_disco_ni_en_el_log(self) -> None:
+        from structlog.testing import capture_logs
+
+        clave = security._CLAVE_HASH
+        with capture_logs() as eventos:
+            r = await security.create_confirmation_token(
+                self.TOOL, {"key": "k", "value": "1234"}, preview={"key": "k"})
+            ok, error = await security.validate_confirmation_token(
+                r["confirmation_token"], self.TOOL, {"key": "k", "value": "1234"})
+            self.assertTrue(ok, error)
+            await security.complete_confirmation_token(
+                r["confirmation_token"], success=True, result={"ok": True})
+            await security.cleanup_expired_confirmations()
+        texto_log = repr(eventos)
+        for ruta in Path(self.temp_dir.name).rglob("*"):
+            contenido = ruta.read_bytes()
+            self.assertNotIn(clave, contenido)
+            self.assertNotIn(clave.hex().encode(), contenido)
+        self.assertNotIn(clave.hex(), texto_log)
+        self.assertNotIn(repr(clave), texto_log)
+
+    async def test_token_de_antes_del_arranque_se_da_por_perdido(self) -> None:
+        """Tras reiniciar (otra clave), un token que siga en disco no casa:
+        se responde que se perdió con el reinicio, no que es otra acción."""
+        args = {"key": "k", "value": "1234"}
+        r = await security.create_confirmation_token(self.TOOL, args)
+        security._CLAVE_HASH = b"\x01" * 32
+        security._ARRANQUE = time.time() + 1
+        ok, error = await security.validate_confirmation_token(
+            r["confirmation_token"], self.TOOL, args)
+        self.assertFalse(ok)
+        self.assertIn("lost across restart", error)
+        # Y un token de este arranque con otros argumentos sigue diciendo que
+        # no casa.
+        security._ARRANQUE = self.original_arranque
+        r2 = await security.create_confirmation_token(self.TOOL, args)
+        ok, error = await security.validate_confirmation_token(
+            r2["confirmation_token"], self.TOOL, {"key": "k", "value": "otra"})
+        self.assertFalse(ok)
+        self.assertIn("does not match", error)
+
+    async def test_hash_danado_no_ascii_da_error_limpio(self) -> None:
+        """T034: un `action_hash` no ASCII en el fichero del token (dañado o
+        manipulado en /data) no puede lanzar `TypeError` desde
+        `compare_digest`: se rechaza con el error limpio y el token no se
+        gasta.
+
+        Control negativo comprobado: con `compare_digest(str(expected_hash),
+        actual_hash)` (dos `str`), este test cae con `TypeError: comparing
+        strings with non-ASCII characters is not supported`; restaurado,
+        verde."""
+        args = {"key": "k", "value": "1234"}
+        for danado in ("ñ" * 64, "é", "", 12345, None, ["x"]):
+            with self.subTest(danado=danado):
+                r = await security.create_confirmation_token(self.TOOL, args)
+                ruta = Path(self.temp_dir.name) / f"{r['confirmation_token']}.json"
+                datos = json.loads(ruta.read_text(encoding="utf-8"))
+                datos["action_hash"] = danado
+                ruta.write_text(json.dumps(datos, ensure_ascii=False),
+                                encoding="utf-8")
+                ok, error = await security.validate_confirmation_token(
+                    r["confirmation_token"], self.TOOL, args)
+                self.assertFalse(ok)
+                self.assertIn("does not match", error)
+                datos = json.loads(ruta.read_text(encoding="utf-8"))
+                self.assertEqual(datos["state"], "pending")

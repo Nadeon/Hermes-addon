@@ -1,0 +1,14 @@
+comando	integracion	fichero	cobertura	clase	nota	cap
+calendar/event/create	calendar	homeassistant/components/calendar/__init__.py	accion-generica	cubierto	calendar.create_event; nada que añadir	
+demo/cubierto_sin_tool	demo	homeassistant/components/demo/ficticio.py	si	cubierto	cubierto por algo que el mapa no conoce	
+demo/frontend	demo	homeassistant/components/demo/ficticio.py	no	B	datos internos del frontend	
+demo/item/create	demo	homeassistant/components/demo/ficticio.py	no	A	Demo: elementos	CAP-066
+demo/item/list	demo	homeassistant/components/demo/ficticio.py	no	A	Demo: elementos	CAP-066
+demo/item/subscribe	demo	homeassistant/components/demo/ficticio.py	no	A	Demo: elementos	CAP-066
+demo/python	demo	homeassistant/components/demo/ficticio.py	no	D	ejecuta Python arbitrario dentro de HA: peligroso por diseño	
+demo/radio/reset	demo	homeassistant/components/demo/ficticio.py	no	C	Demo: radio	CAP-100
+demo/via_d	demo	homeassistant/components/demo/ficticio.py	no	A	Demo: logs	CAP-041
+demo/via_dt	demo	homeassistant/components/demo/ficticio.py	no	A	Demo: núcleo	CAP-053
+demo/via_dx	demo	homeassistant/components/demo/ficticio.py	no	A	Demo: validación	CAP-040
+get_config	websocket_api	homeassistant/components/websocket_api/commands.py	si	cubierto	cliente WS de Hermes	
+lovelace/config/save	lovelace	homeassistant/components/lovelace/websocket.py	si	cubierto	ha_get/save_lovelace_dashboard	

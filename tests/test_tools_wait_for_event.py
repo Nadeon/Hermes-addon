@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 from typing import Any
 
@@ -311,3 +312,161 @@ class TestWaitForEvent(unittest.IsolatedAsyncioTestCase):
             filters={"data.new_state.state": "on"},
         )
         self.assertTrue(result["matched"])
+
+
+# ── Spec 033 (FR-005, T018): `ctx` es el `Context` del SDK, no un argumento ──
+
+
+class _ContextoDePrueba:
+    """Doble de `Context` con lo único que usa la tool: `report_progress`."""
+
+    def __init__(self) -> None:
+        self.avisos: list[dict[str, Any]] = []
+
+    async def report_progress(self, progress: float, total: float | None = None,
+                              message: str | None = None) -> None:
+        self.avisos.append({"progress": progress, "total": total, "message": message})
+
+
+class TestContextoDeLaEspera(unittest.IsolatedAsyncioTestCase):
+    """Antes `ctx` estaba anotado `Any`: el SDK no lo reconocía como su
+    `Context`, lo publicaba como argumento OBLIGATORIO y nunca lo inyectaba,
+    así que ningún cliente podía rellenarlo con sentido y el aviso de
+    progreso del keepalive no salía nunca (research R-3).
+
+    Control negativo (T020), comprobado y restaurado: volviendo a `ctx: Any`
+    cae `test_sin_ctx_por_el_servidor_real` (falta el argumento obligatorio);
+    en `tests/test_tools_registration.py` caen el del esquema y el de
+    `context_kwarg`.
+    """
+
+    def _servidor(self, fake: FakeHAClientForWait):
+        from mcp.server.mcpserver import MCPServer
+
+        mcp = MCPServer("prueba-espera")
+        wfe_mod.register(mcp, fake, wait_for_event_max_seconds=30)
+        return mcp
+
+    async def test_keepalive_avisa_por_el_contexto(self) -> None:
+        mcp = DummyMCP()
+        wfe_mod.register(mcp, FakeHAClientForWait(), wait_for_event_max_seconds=30)
+        ctx = _ContextoDePrueba()
+        original = wfe_mod._KEEPALIVE_INTERVAL
+        wfe_mod._KEEPALIVE_INTERVAL = 0.05
+        try:
+            resultado = await mcp.tools["ha_wait_for_event"](ctx, "state_changed", timeout_seconds=1)
+        finally:
+            wfe_mod._KEEPALIVE_INTERVAL = original
+        self.assertEqual(resultado["reason"], "timeout")
+        self.assertTrue(ctx.avisos, "el keepalive no llamó a report_progress")
+        self.assertEqual(ctx.avisos[0]["total"], 1)
+        self.assertIn("state_changed", ctx.avisos[0]["message"])
+
+    async def test_un_aviso_que_falla_no_corta_la_espera(self) -> None:
+        """El keepalive no se ejecutaba nunca antes de la 033; ahora sí, y un
+        fallo al avisar (sin petición detrás, transporte cerrado) no puede
+        convertir la espera en un error.
+
+        Control negativo, comprobado y restaurado: sin el `try` alrededor de
+        `report_progress`, este test cae con el `ValueError`.
+        """
+
+        class _ContextoRoto(_ContextoDePrueba):
+            async def report_progress(self, *args, **kwargs) -> None:
+                raise ValueError("Context is not available outside of a request")
+
+        mcp = DummyMCP()
+        wfe_mod.register(mcp, FakeHAClientForWait(), wait_for_event_max_seconds=30)
+        original = wfe_mod._KEEPALIVE_INTERVAL
+        wfe_mod._KEEPALIVE_INTERVAL = 0.05
+        try:
+            resultado = await mcp.tools["ha_wait_for_event"](
+                _ContextoRoto(), "state_changed", timeout_seconds=1
+            )
+        finally:
+            wfe_mod._KEEPALIVE_INTERVAL = original
+        self.assertEqual((resultado["matched"], resultado["reason"]), (False, "timeout"))
+
+    async def test_sin_ctx_por_el_servidor_real(self) -> None:
+        fake = FakeHAClientForWait()
+        evento = {"event_type": "banco_prueba", "data": {"x": 1}}
+        fake.preload(evento)
+        resultado = await self._servidor(fake).call_tool(
+            "ha_wait_for_event", {"event_type": "banco_prueba"}
+        )
+        self.assertFalse(resultado.is_error, resultado)
+        self.assertIs(json.loads(resultado.content[0].text)["matched"], True)
+
+    async def test_ctx_sobrante_se_ignora(self) -> None:
+        # Un cliente que siga mandando `ctx` (era obligatorio) no recibe error.
+        fake = FakeHAClientForWait()
+        fake.preload({"event_type": "banco_prueba", "data": {}})
+        resultado = await self._servidor(fake).call_tool(
+            "ha_wait_for_event", {"ctx": {}, "event_type": "banco_prueba"}
+        )
+        self.assertFalse(resultado.is_error, resultado)
+        self.assertIs(json.loads(resultado.content[0].text)["matched"], True)
+
+
+# ── Spec 017 (T039, FR-009): gestor de esperas compartido con la de trigger ──
+
+
+class TestGestorCompartido(unittest.IsolatedAsyncioTestCase):
+    """`register` acepta un gestor; con el mismo gestor, `ha_wait_for_event` y
+    `ha_wait_for_trigger` cuentan en el mismo cupo. Las entradas de eventos de
+    `ha_list_active_waits` conservan exactamente sus claves de antes.
+
+    Control negativo, comprobado y restaurado: ignorando el `manager` recibido
+    (creando siempre uno propio) cae `test_dos_registros_comparten_cupo`.
+    """
+
+    _CLAVES_EVENTO = {"wait_id", "event_type", "filters", "started_at_iso",
+                      "timeout_at_iso", "elapsed_seconds"}
+
+    async def test_dos_registros_comparten_cupo(self) -> None:
+        gestor = wfe_mod._WaitManager(max_concurrent=1)
+        uno, dos = DummyMCP(), DummyMCP()
+        wfe_mod.register(uno, FakeHAClientForWait(), wait_for_event_max_seconds=30,
+                         manager=gestor)
+        wfe_mod.register(dos, FakeHAClientForWait(), wait_for_event_max_seconds=30,
+                         manager=gestor)
+        tarea = asyncio.ensure_future(
+            uno.tools["ha_wait_for_event"](None, "state_changed", timeout_seconds=5))
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            if gestor.active_count:
+                break
+        try:
+            r = await dos.tools["ha_wait_for_event"](None, "state_changed", timeout_seconds=1)
+            self.assertEqual(r.get("error"), "too_many_waits")
+            self.assertEqual((await dos.tools["ha_list_active_waits"]())["count"], 1)
+        finally:
+            for w in list(gestor._active):
+                gestor.cancel(w)
+            await tarea
+
+    async def test_entrada_de_evento_con_las_claves_de_siempre(self) -> None:
+        gestor = wfe_mod._WaitManager()
+        await gestor.register(wfe_mod._ActiveWait(
+            wait_id="a", event_type="state_changed", filters={}, started_at=0.0,
+            timeout_at=1.0))
+        self.assertEqual(set(gestor.list_active()[0]), self._CLAVES_EVENTO)
+
+    async def test_entrada_de_trigger_con_kind_y_plataforma(self) -> None:
+        gestor = wfe_mod._WaitManager()
+        await gestor.register(wfe_mod._ActiveWait(
+            wait_id="b", event_type="", filters={}, started_at=0.0, timeout_at=1.0,
+            kind="trigger", trigger_platform="state"))
+        entrada = gestor.list_active()[0]
+        self.assertEqual(entrada["kind"], "trigger")
+        self.assertEqual(entrada["trigger_platform"], "state")
+        self.assertEqual(set(entrada), {"wait_id", "kind", "trigger_platform",
+                                        "started_at_iso", "timeout_at_iso",
+                                        "elapsed_seconds"})
+
+    async def test_sin_gestor_crea_el_suyo(self) -> None:
+        mcp = DummyMCP()
+        wfe_mod.register(mcp, FakeHAClientForWait(), wait_for_event_max_seconds=30,
+                         wait_for_event_max_concurrent=2)
+        r = await mcp.tools["ha_list_active_waits"]()
+        self.assertEqual(r["max_concurrent"], 2)

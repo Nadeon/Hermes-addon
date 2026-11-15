@@ -121,18 +121,174 @@ report about one of them will be closed with a pointer to this section:
     that document in the add-on storage next to the token, so the
     confirmation does not have to resend it. It is deleted when the token is
     completed (successfully or not) or, if the token expires unconfirmed, at
-    most 60 s after it expires; it is never written to the log.
+    most 60 s after it expires; it is never written to the log. The same goes
+    for the single view of `ha_save_lovelace_dashboard` (`view_index` +
+    `view`). Saving a single view also binds the token to the state of the
+    dashboard read in the preview (only its hash is stored): if the dashboard
+    changes before the confirmation, it is refused (`dashboard_changed`) and
+    nothing is saved.
   - Service denylist + recursive `service_data` sanitisation + automatic
-    classification of dangerous scripts and automations.
+    classification of dangerous scripts and automations. The denylist asks
+    for confirmation in both `ha_call_service` and
+    `ha_call_service_response`: a denylisted service, or one that reaches a
+    restricted script or automation, only runs with a `confirmation_token`
+    bound to that tool and its arguments (the response tool stores only
+    `{"called": true}` next to the token, never the response). The HA client
+    enforces the same denylist on both service endpoints, so no other code
+    path can run a denylisted service. Only tools with two-step confirmation
+    lift it, and only after validating their token: `ha_call_service` and
+    `ha_call_service_response` (a denylisted service or a restricted script
+    or automation), the reload tools `ha_reload_automations`,
+    `ha_reload_scenes`, `ha_reload_schedules`, `ha_reload_scripts`,
+    `ha_reload_timers` and `ha_reload_zones` (always confirmed, since a
+    reload applies whatever YAML is in `/config`; `ha_reload_counters` no
+    longer calls Home Assistant, which has no `counter.reload`, and answers
+    `not_supported`), and
+    `ha_run_script` and `ha_trigger_automation` (only for a restricted
+    script or automation), `ha_clear_system_log` and
+    `ha_dismiss_persistent_notification` (always confirmed: clearing the
+    system log or dismissing a notification hides traces), and
+    `ha_install_update` (1.2.0; always confirmed, with the token bound to
+    the from/to versions: `update.install` is in the denylist). A test walks
+    the code and fails if any other place lifts it.
+  - **`update.install` through `ha_call_service`** (1.2.0) is checked before
+    any token is issued or accepted: the target must be an explicit list of
+    `entity_id` (no area, device, label, floor or `all`), each entity is
+    resolved through the entity registry, Hermes' own update entity is
+    refused (`self_update_not_supported`; fail-closed when Hermes cannot read
+    its own app slug), and the Core, OS and Supervisor entities are sent to
+    `sv_update_core`, `sv_update_os` and `sv_update_supervisor`, which run
+    their own checks (configuration check for Core). Without this, Hermes
+    could update itself through Core, which calls the Supervisor as Core and
+    so skips the Supervisor's own self-update protection.
+  - **Generic tools behind a fail-closed command table.**
+    `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and
+    `sv_read_api`/`sv_call_api` (Supervisor API routes) cover what no
+    dedicated tool does, and run only what Hermes' command table
+    (`command_table.py`) allows. Every one of the 623 Core commands and 254
+    Supervisor routes of HA 2026.11 is classified by hand as `dedicated`,
+    `read`, `confirm` or `deny`; anything not in the table is refused. A
+    refusal never reaches Home Assistant or the Supervisor. The generic tools
+    never: run a command that has a dedicated tool (it may carry a semantic
+    preview or protections of its own), even when that tool's family is
+    switched off; run a `confirm` entry without a preview and a token bound to
+    the tool, the command or method and route, and the whole payload; go
+    through the Supervisor's Core proxy (`/core/api`, `/homeassistant/api`,
+    which would bypass the service denylist); act on Hermes itself
+    (`{app}` resolving to Hermes); accept malformed paths (`..`, encoded
+    dots, `//`, query strings, absolute URLs); or run anything belonging to a
+    family switched off with `tool_families_disabled`. The preview shows every
+    payload key with its type and size, and a value only when it is short and
+    no key on its path or its content looks secret. Only `{"executed": true}`
+    is stored next to the token, never the answer. Answers go through the
+    secret redaction and the response cap; the log records one
+    `generic_command` event per call with the payload keys, never values.
+    Under a sensitive key (by name, or listed in the entry's `redact_extra`)
+    the WHOLE value is masked, whatever its type: an object or a list is not
+    walked, so a network key nested as `{"key": …}` cannot leak. Commands of
+    specific integrations (Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX,
+    Insteon…) that return or take network keys, DSKs, pairing codes, tokens or
+    passwords are refused, or answered with those values masked.
+    Tests keep the table in step with the inventories of the HA source and
+    forbid `read` for any command with a write verb or any route other than
+    `GET`. Some `read` entries hide fields that work as credentials: the
+    `webhook_id` of `webhook/list` (anyone who knows it can trigger the
+    automation without authenticating; its value is also hidden wherever
+    it repeats in the answer, whole or inside a text, such as the `name`
+    that ONVIF sets to the id, and an entry without a readable
+    `webhook_id` keeps only its domain, `local_only` and methods; every
+    answer that redacts by key hides a `webhook_id` value the same way),
+    the `client_secret` and the
+    credential id of the application credentials, and the `thumbnail` of
+    `media_source/browse_media` and `search_media` (some media sources sign
+    it with `authSig`, a temporary credential); `media_source/resolve_media`,
+    which returns a signed URL, is denied.
+  - **App store repositories** (`sv_add_store_repository`): adding a
+    repository to the Supervisor app store brings in third-party code that
+    neither Home Assistant nor Hermes reviews, so it takes two steps. The
+    preview shows the exact URL that will be sent and a third-party code
+    warning, and Hermes downloads nothing for it (the Supervisor clones the
+    repository only when the token is confirmed). The whole user part of a
+    URL with credentials (`user:password@`, `user@` or `token@`) is
+    replaced by `***REDACTED***` in previews, answers and errors, including
+    the Supervisor's own error text; only the real request carries the full
+    URL, and the confirmation token is bound to it, so a different
+    credential cannot confirm the preview. The log records only the
+    repository slug, never the URL. Repository names, URLs and maintainers are marked as third-party
+    text (`_third_party_text`). Removing a repository also takes two steps;
+    a built-in one, or one with installed apps, is refused without a token,
+    and the token is bound to the repository and its installed apps read
+    in the preview.
+  - **Sending a sentence to Assist** (`ha_process_conversation`): it executes
+    the sentence as if it were spoken (it can open a lock, disarm an alarm or
+    run an automation with a sentence trigger), so it always takes two steps,
+    although the WebSocket command it uses, `conversation/process`, does not
+    go through the service denylist (which only guards actions such as
+    `conversation.process`). The preview says which agent gets the text and,
+    with Home Assistant's built-in agent, what it recognizes, without
+    executing anything; with any other agent it warns that the text is sent
+    to it, maybe to a cloud service, and that Hermes cannot predict what it
+    will do. The token is bound to the text, the agent, the language, the
+    conversation and the device, and stores only their hash: the sentence is
+    never written to `/data`. If Home Assistant does not answer in time, the
+    answer says the sentence may have run anyway and the token is spent. The
+    generic tools cannot reach `conversation/process` (`dedicated`). The log
+    never records sentences, answers, conversation ids or agent ids.
+  - **Assist audio URLs**: Home Assistant serves `/api/tts_proxy/<token>`
+    without authentication, so anyone with that URL can download the audio.
+    The generic tools hide any such URL in their answers (for example in
+    `assist_pipeline/pipeline_debug/get`).
+  - **Resetting a dashboard** (`ha_reset_lovelace_dashboard_config`):
+    deletes the stored config of a dashboard, in two steps. The main
+    dashboard and the default panel are always refused, with or without a
+    token, and nothing is reset if the default panel cannot be read. The
+    token is bound to the dashboard and to the config read in the preview:
+    if it changes before the confirmation, nothing is reset. The log never
+    carries the dashboard config.
+  - **Marketplace maintenance** (`marketplace_manage`): acknowledging a
+    critical repository, ignoring a removed one, removing a custom one and
+    refreshing one all take two steps, and the token is bound to what the
+    preview read (the critical or removed entry, the repository name,
+    category, `custom` and `installed`). The preview states that the
+    repository is third-party code that neither Home Assistant nor Hermes
+    reviews. Uninstalling also takes two steps; an integration with config
+    entries is refused without a token, and on confirmation Hermes first
+    asks the Supervisor for a partial backup of the Home Assistant
+    configuration without the database (not encrypted, with a generic name
+    that does not include the repository) and sends nothing to Home
+    Assistant if it fails. Only `marketplace/*` commands from a closed list are sent;
+    Hermes never accepts the Marketplace risk warning nor connects GitHub,
+    and it has no tool to install, pin versions, show betas or add
+    repositories: Home Assistant requires the risk warning accepted by the
+    user that sends the command, and Hermes connects as the Supervisor user.
+    The log records the tool, the outcome and the category, never
+    repository names, ids or third-party text.
+  - **Tool families** (`tool_families_disabled`): whole groups of tools can
+    be left unregistered. An unknown family name, or `base`, stops the add-on
+    from starting rather than silently leaving tools on.
   - `/config` filesystem: anti-traversal (resolve + boundary check), secret
     blacklist, *default-deny* allowlist for `.storage/`, *managed paths* that are
     never writable, automatic backup before every write.
   - Identifier validation (slug, `entry_id`, …) before interpolating them into
     URLs, plus a central anti path-injection guard in the HA client.
+- **Home Assistant's backup encryption key** (1.2.0). Hermes reads it from
+  Home Assistant (`backup/config/info`) only when it is about to use it: to
+  encrypt a safety backup (`safety_backup_encryption`) or a backup made with
+  `ha_create_backup`, or to restore a protected backup without `password`. It
+  is sent to the Supervisor or to Home Assistant in that same call and then
+  dropped: it is never written to disk (safety backup state, retention
+  ledger, pending jobs, confirmation tokens), never kept in memory between
+  calls, never returned in a preview, answer or error (an error that quoted
+  it is masked) and never logged. Tests plant a sentinel key and check every
+  one of those outputs. Hermes never changes the key; that stays in the Home
+  Assistant UI, which hands out the emergency kit.
 - **Secret redaction** in all logs, both Hermes's own and those of other add-ons.
 - **Network redaction** in the log (`log_redact_network`, on by default): the
-  configured `public_hostname`, any `*.ts.net` name and every IP address
-  except loopback are replaced with placeholders. IPs become a pseudonym with
+  configured `public_hostname`, the hosts of Home Assistant's `external_url`
+  and `internal_url` (read from `/api/config` on every connection), any
+  `*.ts.net` name and every IP address except loopback, also when written as
+  `ip-a-b-c-d` (cloud hostnames like `ip-10-0-0-5.ec2.internal`), are replaced
+  with placeholders. IPs become a pseudonym with
   their class (`tailnet`, `private`, `public`…) and an HMAC whose salt changes
   on every start, so lines from one run can be correlated without revealing
   the address. It also covers the standard Python loggers (the MCP SDK,
@@ -209,6 +365,26 @@ them into account:
    isolates for it.
 5. **Single owner.** The authorization model assumes one owner. There are no
    roles, no per-tool scopes, and no separation between concurrent clients.
+6. **Reconfigure and re-authentication flows are recognised by what Hermes
+   can see.** Every step of an integration's reconfigure flow and of a
+   re-authentication (`reauth`) flow needs a preview and a
+   `confirmation_token`, because both can change the credentials of an
+   integration. Home Assistant does not say which kind of flow a `flow_id`
+   is when it is continued, so Hermes fails closed:
+   - a reconfigure is recognised only because Hermes opened it
+     (`ha_start_reconfigure_flow`) and keeps its `flow_id` in memory;
+   - a re-authentication is recognised because Home Assistant lists it, with
+     its source, among the flows in progress;
+   - `ha_continue_config_entry_flow` only continues a flow that
+     `ha_start_config_entry_flow` opened in the same Hermes session (also
+     kept in memory, for an hour since its last use) or that Home Assistant
+     lists among the flows in progress. Any other `flow_id` (a flow opened
+     before Hermes restarted or from the Home Assistant UI, or a reconfigure)
+     is refused without sending anything, and so is every flow while the
+     list of flows in progress cannot be read.
+
+   The cost: after Hermes restarts, a flow that was half-way has to be
+   started again.
 
 ## Deployment recommendations
 

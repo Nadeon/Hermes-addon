@@ -22,11 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import shutil
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -34,15 +32,14 @@ import structlog
 
 import hermes.fs as _fs
 from hermes.fs import (
-    BlacklistedPathError,
     PathTraversalError,
     check_blacklisted,
-    check_path_readable,
     normalize_path,
 )
 from hermes.fs_write import (
     BACKUPS_NORMAL_DIR,
-    BACKUPS_SENSITIVE_DIR,
+    # Sin uso aquí, pero los tests lo parchean también en este módulo.
+    BACKUPS_SENSITIVE_DIR,  # noqa: F401
     MANAGED_PATH_ERROR,
     RateLimitError,
     _decode_rel,
@@ -165,6 +162,8 @@ def register_write(
     config_write_min_interval_seconds: int = 5,
     config_write_max_per_minute: int = 10,
     safety_backup_keep: int = 3,
+    # `off` para quien registra a mano (tests); el arranque pasa la opción.
+    safety_backup_encryption: str = "off",
 ) -> None:
     """Registra las tools de escritura en /config.
 
@@ -324,6 +323,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -500,6 +500,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -680,6 +681,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -837,6 +839,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -1150,6 +1153,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(

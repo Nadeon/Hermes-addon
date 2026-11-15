@@ -1,7 +1,8 @@
 """Hermes — Carga de configuración desde variables de entorno.
 
-run.sh lee options.json con bashio y exporta env vars.
-Este módulo las recoge y las expone como un objeto tipado.
+run.sh lee /data/options.json directamente con jq (sin pasar por la API
+del Supervisor) y exporta env vars. Este módulo las recoge y las expone como un objeto
+tipado.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from .password_policy import (
 # existía antes.
 # Topologías de red admitidas (ver `network_mode`).
 NETWORK_MODES = frozenset({"tailscale", "reverse_proxy"})
+# Spec 031 (FR-012): cifrado de los safety backups con la clave de HA.
+SAFETY_BACKUP_ENCRYPTION_MODES = frozenset({"auto", "required", "off"})
 
 # 2024.10: Hermes guarda las automatizaciones con las claves en plural
 # (`triggers`, `conditions`, `actions`), que HA solo entiende desde esa
@@ -42,7 +45,7 @@ HA_CORE_MIN_SUPPORTED = "2024.10.0"
 # decidir: o se comprueba contra la HA actual y se sube, o se deja a
 # sabiendas y solo se actualiza la pareja.
 HA_CORE_LAST_TESTED = "2026.11.1"
-HA_CORE_LAST_TESTED_IN_HERMES = "1.1.2"
+HA_CORE_LAST_TESTED_IN_HERMES = "1.2.0"
 
 MCP_PORT = 8765
 HEALTH_PORT = 8766
@@ -242,6 +245,13 @@ class HermesConfig:
     # Solo actúa con safety_backup_enabled: cada uno pesa varios GB y, sin
     # poda, llenaban el disco de quien activaba la opción.
     safety_backup_keep: int = 3
+    # Spec 031 (FR-012, D-031-1): los safety backups se cifran con la clave de
+    # los backups de HA (la del kit de emergencia), nunca con una generada en
+    # /data, para que se puedan restaurar desde la interfaz aunque Hermes esté
+    # roto. `auto` por defecto: un safety backup sin cifrar es mejor que
+    # ninguno, y bloquear las escrituras de quien no configuró los backups de
+    # HA rompería a quien hoy usa `safety_backup_enabled` (research R-4).
+    safety_backup_encryption: str = "auto"
 
     # ── Escritura en /config ──────────────────────────────────
     config_write_min_interval_seconds: int = 5
@@ -266,6 +276,10 @@ class HermesConfig:
     call_service_restricted_entities: list[str] = field(default_factory=list)
     call_service_auto_classify_dangerous: bool = True
     fire_event_allowlist: list[str] = field(default_factory=list)
+
+    # ── Familias de tools (spec 011) ──────────────────────────
+    # Familias que no se registran (ver tool_families.py). Vacía = todas.
+    tool_families_disabled: list[str] = field(default_factory=list)
 
     # ── OAuth ─────────────────────────────────────────────────
     # Interruptor de los clientes CIMD (`client_id` con URL https://). Existe
@@ -359,6 +373,14 @@ class HermesConfig:
                 f"safety_backup_keep fuera de rango: {self.safety_backup_keep}. "
                 "Debe estar entre 0 (sin retención) y 50."
             )
+        # Fail-closed: un valor desconocido (p. ej. «requried») no puede caer
+        # en `auto` y dejar sin cifrar a quien pidió `required`.
+        if self.safety_backup_encryption not in SAFETY_BACKUP_ENCRYPTION_MODES:
+            raise ValueError(
+                f"safety_backup_encryption inválido: "
+                f"{self.safety_backup_encryption!r}. Valores admitidos: "
+                f"{', '.join(sorted(SAFETY_BACKUP_ENCRYPTION_MODES))}."
+            )
         # Un host mal escrito no se descarta en silencio: si la lista
         # quedara vacía, Hermes aceptaría cualquier host (fail-closed).
         from hermes.cimd import normalize_allowed_hosts
@@ -371,6 +393,12 @@ class HermesConfig:
                 "path (ej. claude.ai). Una IP no vale: un cliente CIMD nunca "
                 "se identifica con una IP."
             ) from exc
+        # Fail-closed (principio III): un nombre de familia mal escrito no se
+        # ignora, porque dejaría activas tools que el usuario quería apagar.
+        # El mensaje nombra el valor inválido y los válidos.
+        from hermes.tool_families import validar_desactivadas
+
+        validar_desactivadas(self.tool_families_disabled)
         if not self.supervisor_token:
             raise ValueError(
                 "SUPERVISOR_TOKEN no está disponible en el entorno. "
@@ -448,6 +476,8 @@ def load_config() -> HermesConfig:
         file_backup_max_per_path=_env_int("HERMES_FILE_BACKUP_MAX_PER_PATH", 20),
         file_backup_max_total_mb=_env_int("HERMES_FILE_BACKUP_MAX_TOTAL_MB", 200),
         safety_backup_keep=_env_int("HERMES_SAFETY_BACKUP_KEEP", 3),
+        safety_backup_encryption=os.environ.get(
+            "HERMES_SAFETY_BACKUP_ENCRYPTION", "auto").strip() or "auto",
         config_write_min_interval_seconds=_env_int(
             "HERMES_CONFIG_WRITE_MIN_INTERVAL", 5
         ),
@@ -468,6 +498,7 @@ def load_config() -> HermesConfig:
             "HERMES_CALL_SERVICE_AUTO_CLASSIFY", True
         ),
         fire_event_allowlist=_env_list("HERMES_FIRE_EVENT_ALLOWLIST"),
+        tool_families_disabled=_env_list("HERMES_TOOL_FAMILIES_DISABLED"),
         oauth_cimd_enabled=_env_bool("HERMES_OAUTH_CIMD_ENABLED", True),
         oauth_cimd_allowed_hosts=_env_host_list("HERMES_OAUTH_CIMD_ALLOWED_HOSTS"),
         log_redact_network=_env_bool("HERMES_LOG_REDACT_NETWORK", True),

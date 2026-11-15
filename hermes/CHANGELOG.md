@@ -1,5 +1,2433 @@
 # Changelog
 
+## [1.2.0] — 2026-11-15
+
+Programa de cobertura total de Home Assistant 2026.11 (Core 2026.11.1,
+Supervisor 2026.11.0): todo lo que el programa añade sale en esta única
+versión. Es compatible con la 1.1.2: ninguna tool cambia de nombre y ningún
+argumento existente cambia ni pasa a ser obligatorio.
+
+### Diagnóstico
+
+#### Diagnóstico del Supervisor (spec 013)
+
+- **Diagnóstico del Supervisor: los logs de todo el sistema, también de
+  arranques anteriores.** Seis tools nuevas de solo lectura en la familia
+  nueva `system_diagnostics` (desactivable con `tool_families_disabled`):
+  `sv_get_core_logs` (Home Assistant Core), `sv_get_supervisor_logs`,
+  `sv_get_plugin_logs` (`dns`, `audio` o `multicast`), `sv_get_host_logs`
+  (journal del host, entero o de un identificador de syslog como `kernel`),
+  `sv_list_host_log_identifiers` y `sv_list_boots` (arranques del journal,
+  del actual al más antiguo). Las de log aceptan `lines` (1–1000), `boot`
+  (desplazamiento: 0 el actual, -1 el anterior…; o un id de `sv_list_boots`)
+  y, salvo la del host, `latest` (solo desde el último arranque del
+  contenedor); `boot` y `latest` no se combinan. Un argumento inválido se
+  rechaza con `invalid_argument` sin llegar al Supervisor. Los logs pasan por
+  la misma redacción de secretos que `sv_get_addon_logs`, y el del propio
+  Hermes leído por el journal del host lleva también la redacción de red. Si
+  un log no cabe en `response_max_bytes`, llegan sus últimas líneas. El log
+  de Hermes anota cada lectura (`system_diagnostics_read`) con la plantilla
+  de la ruta y recuentos, nunca el contenido, un id de arranque ni el
+  identificador pedido.
+- **`sv_get_addon_logs` gana `boot` y `latest`**, opcionales: el log de un
+  add-on en un arranque anterior o desde que arrancó su contenedor. Sin
+  ellos, la petición y la respuesta son las de la 1.1.2, salvo que su
+  mensaje de error pasa ahora por la redacción de secretos, como el log.
+- **Disco, host y OS.** Cinco tools más de solo lectura en
+  `system_diagnostics`: `sv_list_host_services` (servicios systemd del host;
+  `state="failed"` enseña los que han fallado), `sv_get_disk_usage` (qué
+  ocupa el disco del sistema o un montaje de red, con `max_depth` de 0 a 3
+  y los niveles que da el Supervisor, que en un montaje son uno menos; en
+  cada nivel quedan las 20 carpetas que más ocupan, si aun así no cabe en
+  `response_max_bytes` se pliegan las más pequeñas de todo el árbol, y lo
+  quitado se resume en `children_omitted` y `omitted_bytes` para que la
+  suma cuadre),
+  `sv_get_os_info` (versión de Home Assistant OS, actualización, placa y
+  slots), `sv_get_swap` (tamaño y swappiness, OS 15 o posterior) y
+  `sv_list_datadisk_candidates` (discos que podrían ser el disco de datos;
+  solo los lista). Las de OS, sin Home Assistant OS, devuelven el error del
+  Supervisor con una pista que lo dice. Las respuestas pasan por la
+  redacción de secretos; el número de serie de un disco sí sale en la
+  respuesta (no es un secreto), pero nunca en el log de Hermes.
+- **Tabla de comandos**: las 23 rutas de logs del Supervisor que cubren estas
+  tools y las 5 de disco, host y OS pasan de «pendiente de tool dedicada» a
+  `dedicated`; `sv_read_api` remite a la tool. Las variantes `follow`
+  (streaming) y el alias legado `/homeassistant/logs*` siguen rechazadas.
+  Tres rutas de lectura pasan a `read` y se leen con `sv_read_api`:
+  `/jobs/info` (todos los jobs del Supervisor),
+  `/resolution/issue/{issue}/suggestions` y `/host/disks` (discos con
+  particiones montables). Las de hardware, audio, seguridad, Docker, hora y
+  red del host ya eran `read` y ahora tienen test.
+  `POST /security/integrity` sigue denegada: el Supervisor 2026.11 eliminó la
+  comprobación de integridad y la ruta responde 410 (la spec 008 la preveía
+  con confirmación).
+- **Guía**: tema nuevo `hermes_guide("system_diagnostics")` (alias
+  `system_logs`, `supervisor_logs`, `host_logs`, `boots`, `disk`, `storage`,
+  `os`, `jobs`), con las once tools y las rutas de diagnóstico que se leen
+  por `sv_read_api`; el tema `supervisor` explica `boot` y `latest` en los
+  logs de add-ons.
+- La prueba en vivo contra un Supervisor real queda pendiente, para las once
+  tools y las rutas `read`: en la VM del procedimiento de la 014
+  (`docs/BANCO-SUPERVISOR.md`) y después en una instalación real, con su
+  casilla en las pruebas manuales de la hoja de ruta. En los tests se prueban
+  con un Supervisor simulado con la forma de las respuestas del 2026.11.0.
+  Como solo leen, no tienen fila en la matriz de pruebas, que es de las tools
+  que modifican.
+
+#### Diagnóstico de Core (spec 012)
+
+- **Familia nueva `core_diagnostics`** (desactivable con
+  `tool_families_disabled`), con 12 tools. Cinco de logs de Core:
+  - `ha_list_system_log`: el log del sistema (Ajustes > Sistema > Registros)
+    tal como lo agrupa Home Assistant, con `count`, primera y última vez
+    (ISO 8601) y origen; filtra por nivel y por integración (sus sub-loggers
+    incluidos). Mensajes y trazas, redactados y marcados como texto de
+    terceros; de cada traza, solo su última línea salvo
+    `include_tracebacks=true`. HA solo guarda ahí WARNING, ERROR y CRITICAL:
+    `level` acepta también DEBUG e INFO, que nunca devuelven nada, y entonces
+    la respuesta trae una `note` que remite al log de Core
+    (`sv_get_core_logs` o `ha_get_error_log`), igual que la guía.
+  - `ha_get_error_log(lines)`: las últimas líneas (1 a 1000) del fichero de
+    log de Core, leído en flujo sin cargarlo entero, con los secretos
+    redactados. Una línea de más de 4 KB se corta, y si el corte cae dentro de
+    un secreto (valor JSON, contraseña de URL o JWT) ese trozo se quita: nunca
+    sale un secreto a medias. En HA OS y Supervised ese fichero solo existe con la opción de
+    Core `duplicate_log_file`; sin él, `error_log_unavailable`, que remite a
+    leer el log de Core por el Supervisor (`sv_get_core_logs`).
+  - `ha_get_log_levels`: el nivel efectivo de cada integración.
+  - `ha_set_log_level`: fija el nivel de una integración o de un logger de
+    Python, con persistencia `none`, `once` o `permanent`; `NOTSET` lo quita.
+    En dos pasos: la vista previa da el nivel actual de la integración y lo
+    que hará la persistencia (con `NOTSET` no aplica; `none` borra también un
+    nivel guardado antes para ese objetivo, como hace Home Assistant).
+  - `ha_clear_system_log`: vacía el log del sistema, en dos pasos (no toca el
+    fichero de log ni el journal).
+- Dos de validación, que no guardan nada:
+  - `ha_validate_config`: valida disparadores, condiciones y acciones con los
+    validadores de Home Assistant, sueltos o desde una automatización o un
+    script entero (`trigger`/`triggers`, `condition`/`conditions`,
+    `action`/`actions`/`sequence`). Las demás claves salen en
+    `not_validated`: HA no las comprueba.
+  - `ha_test_condition`: evalúa una condición contra el estado actual, con
+    sus errores de plantilla si los hay.
+- Tres de diagnósticos de integraciones:
+  - `ha_list_diagnostics_handlers`: qué integraciones ofrecen diagnóstico de
+    entrada o de dispositivo.
+  - `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`: lo
+    mismo que «Descargar diagnóstico», comprobando antes que la entrada, el
+    dispositivo y el diagnóstico existen (sin descargar nada si no), con la
+    redacción de Hermes encima de la de la integración, sin la información del
+    sistema salvo que se pida, y filtrable por `keys`. Si no cabe,
+    `response_too_large` con el tamaño de cada clave, nunca JSON cortado. El
+    de dispositivo se pide a la integración dueña (`config_entry_id`).
+- Dos de notificaciones persistentes:
+  - `ha_list_persistent_notifications`: los avisos de la campana, el más
+    reciente primero, redactados y marcados como texto de terceros.
+  - `ha_dismiss_persistent_notification`: descarta uno, en dos pasos; al
+    confirmar vuelve a leer y, si ya no estaba, responde `already_dismissed`.
+- `ha_set_log_level`, `ha_clear_system_log` y
+  `ha_dismiss_persistent_notification` se anuncian destructivas: bajar un
+  nivel, vaciar un log o descartar un aviso oculta rastros, la misma razón por
+  la que sus acciones están en la denylist. `ha_validate_config` y
+  `ha_test_condition` se anuncian de solo lectura.
+- **`logger.set_default_level` entra en la denylist** de `ha_call_service`:
+  por ahí pide confirmación, igual que `logger.set_level`.
+- Tabla de comandos: nueve entradas pasan de `deny` a `dedicated`
+  (`system_log/list`, `logger/log_info`, `logger/log_level`,
+  `logger/integration_log_level`, `validate_config`, `test_condition`,
+  `diagnostics/list`, `diagnostics/get` y `persistent_notification/get`); las
+  genéricas responden `use_dedicated_tool` con su tool.
+- Tema nuevo de la guía, `hermes_guide("core_diagnostics")` (alias `logs`,
+  `log`, `notifications` y `validation`), con la receta «¿por qué falla esta
+  integración?»; el tema `diagnostics` remite a él.
+- `ha_list_system_log`, `ha_list_persistent_notifications` y
+  `ha_list_diagnostics_handlers` (y `ha_get_log_levels`, que también es una
+  lista) devuelven el sobre común de las listas de la 1.2.0: `count` es
+  cuántos `items` vienen y, si la lista se cortó, `_response_limit` dice
+  cuántos había.
+- Probadas contra HA Core real en el banco de pruebas: las 12, con las tres
+  que modifican comprobadas por el lector independiente. El diagnóstico de
+  entrada se prueba con una entrada de `local_calendar`; el de dispositivo,
+  solo en su camino `diagnostics_not_supported`: ninguna integración sin
+  hardware ni nube lo ofrece, así que su camino feliz queda en los unitarios
+  y como prueba manual pendiente.
+
+### Integraciones
+
+#### Integraciones: flujos y Repairs (spec 016)
+
+- **Familia nueva `integration_flows`** (desactivable con
+  `tool_families_disabled`), con cuatro tools:
+  - `ha_list_discovered_integrations` — lo que Home Assistant ha descubierto y
+    espera configuración (también los flujos de reautenticación), con
+    `ignorable` y los datos del descubrimiento redactados. Un descubierto se
+    configura con `ha_continue_config_entry_flow`, como cualquier flujo.
+  - `ha_ignore_discovery` — lo ignora como el botón «Ignorar» de la interfaz:
+    Home Assistant crea una entrada `ignore` y deja de ofrecer ese
+    descubrimiento; se deshace borrando esa entrada con
+    `ha_delete_config_entry`. Sin confirmación. Solo flujos de
+    descubrimiento: un `reauth`, `reconfigure`, `user` o `import` se rechaza,
+    porque Home Assistant sustituiría por la ignorada la entrada real con el
+    mismo identificador y la borraría con sus dispositivos y entidades.
+  - `ha_list_config_flow_domains` — el catálogo de dominios que se configuran
+    por flujo (filtrable por `device`, `helper`, `hub` o `service`), incluidas
+    las integraciones personalizadas instaladas.
+  - `ha_update_config_entry` — título y opciones de sistema de una entrada.
+    Desactivar el sondeo o las entidades nuevas pide confirmación, con una
+    vista previa que dice si Home Assistant recarga la integración y qué deja
+    de actualizarse; renombrar y volver a activarlas, no. Solo envía lo que
+    cambia. El título sale redactado, en la vista previa y en la respuesta.
+- **`ha_list_configured_domains`**: su descripción ya no dice que no existe
+  la lista de dominios configurables; remite a `ha_list_config_flow_domains`.
+  Nombre, argumentos y anotaciones, sin cambios.
+- **Tabla de comandos**: `config_entries/flow/progress`,
+  `config_entries/ignore_flow` y `config_entries/update` pasan de `deny`
+  («pendiente») a `dedicated`; las genéricas remiten a su tool. El generador
+  de la tabla lo hace también en la primera generación.
+- **Guía**: tema nuevo `integration_flows` (alias `discovery` y
+  `discovered`) y, en `helpers`, cómo crear, listar, editar y borrar los
+  helpers que se crean por config entry (template, group…), con un ejemplo.
+- **Banco de Core**: integración de prueba propia `banco_flujos` (solo en
+  `tests/`, sin red) con un descubrimiento, avisos reparables, flujo
+  `reconfigure` y subentries; `ha_ignore_discovery` y
+  `ha_update_config_entry` se ejecutan contra Home Assistant real y el lector
+  independiente comprueba su efecto.
+- **Subentries** (tramo B), en la misma familia:
+  - `ha_list_config_subentries` — las subentries de una entrada y los tipos
+    que admite crear.
+  - `ha_start_subentry_flow`, `ha_continue_subentry_flow` y
+    `ha_abort_subentry_flow` — añadir una subentry o reconfigurarla por su
+    flujo, y cerrar un flujo a medias. Sin confirmación, como los flujos de
+    configuración y de opciones.
+  - `ha_update_subentry` — renombrarla. Sin confirmación.
+  - `ha_delete_subentry` — borrarla con confirmación: la vista previa enumera
+    las entidades y los dispositivos que Home Assistant borra con ella.
+- **Reconfigurar una integración** (tramo B): `ha_start_reconfigure_flow` abre
+  el flujo y `ha_continue_reconfigure_flow` envía cada paso con confirmación
+  (vista previa con los campos y los secretos tapados): cualquier paso puede
+  cambiar credenciales o datos de conexión, y Home Assistant recarga la
+  integración al terminar. Hermes recuerda los reconfigure que abre (en
+  memoria; tras una hora sin usarse caducan y los aborta al abrir o
+  continuar otro) y
+  `ha_continue_config_entry_flow` los rechaza y remite a la tool dedicada.
+  Ninguna otra vía de Hermes
+  abre un reconfigure: `ha_start_config_entry_flow` solo manda el dominio, no
+  hay comando WebSocket que abra flujos y el proxy REST de Core del
+  Supervisor está cerrado. Tras reiniciar Hermes, un reconfigure abierto antes
+  ya no se reconoce (Home Assistant no los lista) y no se puede continuar por
+  ninguna vía: hay que abrir otro.
+- Los flujos de subentry y de reconfigure devuelven tapados los valores
+  sugeridos de los campos de contraseña, y rechazan `***REDACTED***` en
+  `user_input` (se guardaría tal cual).
+- **Tabla de comandos**: `config_entries/subentries/list`, `…/update` y
+  `…/delete` pasan a `dedicated`.
+- **Guía**: el tema `integration_flows` explica subentries y reconfigure
+  (alias `subentries`, `subentry` y `reconfigure`).
+- **Banco de Core**: las siete tools nuevas que modifican se ejecutan contra
+  Home Assistant real; el reconfigure, con un campo de contraseña de nombre
+  inocente, y con el rechazo de `ha_continue_config_entry_flow`.
+- **Reautenticación con confirmación** (tramo C): los flujos `reauth` (los
+  que abre Home Assistant cuando las credenciales de una integración dejan de
+  valer) se siguen con `ha_continue_config_entry_flow`, pero ahora cada paso
+  pide confirmación, con una vista previa de los campos y los secretos
+  tapados, porque cambian credenciales. Hermes lo sabe porque Home Assistant
+  los lista entre los flujos en curso. Por eso esa tool gana el argumento
+  opcional `confirmation_token` y se anuncia destructiva.
+- **Cambio de comportamiento de `ha_continue_config_entry_flow`**: solo
+  continúa los flujos que abrió `ha_start_config_entry_flow` en la misma
+  sesión de Hermes (sin usar más de una hora; Hermes los recuerda en memoria)
+  y los que Home Assistant lista como descubiertos o de reautenticación.
+  Cualquier otro, por ejemplo un flujo abierto antes de reiniciar Hermes o
+  desde la interfaz de Home Assistant, o un reconfigure, se rechaza con
+  `unknown_flow` sin enviar nada, y también si Hermes no puede leer la lista
+  de flujos en curso: hay que abrirlo de nuevo. En la 1.1.2 se enviaba sin
+  confirmación. Abrir y continuar un flujo en la misma sesión sigue igual que
+  en la 1.1.2. Con el token y la anotación, son los tres cambios de una tool
+  de la 1.1.2 en esta sección; su esquema no cambia más. `SECURITY.md` lo
+  explica.
+- **Familia nueva `repair_flows`** (tramo C, desactivable), con cuatro tools:
+  - `ha_get_repair` — un aviso de Repairs con su texto entero y sus datos
+    internos, redactados (si no caben, sus claves y su tamaño).
+  - `ha_start_repair_fix` — abre el flujo de reparación de un aviso
+    reparable. Algunas integraciones lo terminan al abrirlo:
+    `finished_on_start` lo dice.
+  - `ha_continue_repair_fix` — envía cada paso con confirmación: Home
+    Assistant no dice antes qué paso aplica el arreglo. La vista previa tiene
+    el aviso, el texto del paso y los campos con los secretos tapados; al
+    terminar, la respuesta dice si el aviso sigue.
+  - `ha_abort_repair_fix` — cierra el flujo sin aplicar nada.
+- **Textos de los avisos**: `ha_list_repairs` trae `title` y `description` de
+  cada aviso como los enseña la interfaz, en el idioma de Home Assistant y con
+  los marcadores sustituidos (redactados); la vista previa de
+  `ha_ignore_repair`, el título. Sin argumentos nuevos. Si los textos no se
+  pueden leer, la lista sale igual con `translations_unavailable: true`.
+- **Tabla de comandos**: `repairs/get_issue_data` pasa a `dedicated` hacia
+  `ha_get_repair`. En total, la 016 pasa siete entradas a `dedicated`;
+  `frontend/get_translations` sigue `deny` para las genéricas (Hermes lo usa
+  por dentro).
+- **Guía**: tema nuevo `repair_flows` (alias `repair_fix` y `fix`) con la
+  receta «arreglar un aviso de Repairs»; `diagnostics` remite a él;
+  `integration_flows` explica la reautenticación.
+- **Banco de Core**: las tres de reparación que modifican, los textos de
+  `ha_list_repairs`, `ha_get_repair` y la reautenticación con confirmación se
+  ejecutan contra Home Assistant real. En total, la 016 añade 16 tools en dos
+  familias.
+- **Al integrarla con el resto del programa**: `ha_list_discovered_integrations`,
+  `ha_list_config_flow_domains` y `ha_list_config_subentries` devuelven el
+  sobre común de las listas de la 1.2.0 (`count` es cuántos `items` vienen;
+  si la respuesta se recorta, `_response_limit` dice cuántos había). El tema
+  `config_entries` de la guía remite a `integration_flows` y explica que el
+  reconfigure va por su tool y que el `reauth` pide token. La vista previa de
+  `ha_delete_subentry` reconoce los dispositivos de una subentry por
+  `config_entry_id` y `config_subentry_id`, y solo como respaldo para las
+  versiones de Home Assistant anteriores a ese modelo por
+  `config_entries_subentries`, que Home Assistant retira en la 2027.8.
+
+### Automatización
+
+**Automatización asistida (spec 017).** Blueprints (los que ya están en
+`/config/blueprints/`, los que escribe el cliente y los importados de una
+URL), lo que ofrece un dispositivo, targets y triggers por propósito, esperar
+a un trigger y validar al guardar una automatización o un script. Dos
+familias nuevas, `blueprints` y `automation_assist`, con 14 tools.
+Familia nueva
+`blueprints` (desactivable con `tool_families_disabled`):
+
+- `ha_list_blueprints`: los blueprints de `automation`, `script` y
+  `template` (o de uno) con su ruta, nombre, descripción, autor,
+  `source_url`, versión mínima y nombres de las entradas; los que HA no pudo
+  cargar, con su error redactado. Nombre, descripción y autor van marcados
+  como texto de terceros. Sobre común de las listas de la 1.2.0.
+- `ha_preview_blueprint_substitution`: la configuración que da un blueprint
+  con unas entradas, sin guardar nada (`saved: false`), con los valores
+  sensibles tapados.
+- `ha_save_blueprint` (token): guarda un blueprint escrito por el cliente.
+  La vista previa da la ruta final, si ya existe y quién lo usa, los
+  metadatos y entradas leídos del YAML (sin resolver `!input`), el tamaño y
+  la huella SHA-256; no repite el YAML. Una ruta ocupada da `already_exists`
+  sin token salvo con `allow_override=true`. `yaml` se puede omitir al
+  confirmar (spec 007). Solo admite la etiqueta YAML `!input`: cualquier otra
+  (`!secret`, `!env_var`, `!include`, `!include_dir_*`, también las
+  estándar `!!…`, en cualquier nivel) da `unsupported_yaml_tag` sin token,
+  porque HA la resolvería al guardar y escribiría el valor en claro en
+  `/config/blueprints/` (convergencia).
+- `ha_delete_blueprint` (token): nunca da token para un blueprint en uso
+  (`blueprint_in_use` con las automatizaciones o scripts que lo usan, según
+  `search/related`, la misma fuente que usa HA para negarse); si no se puede
+  saber quién lo usa, `preview_unavailable` sin token.
+- `ha_import_blueprint` (token, tramo B): importa un blueprint de una URL
+  `http(s)` (foro, GitHub, gist, web de HA o cualquier otra). Lo descarga
+  Home Assistant (`blueprint/import`); Hermes no abre la URL. La vista previa
+  enseña todo lo que se va a guardar: el importador que usará HA, el
+  dominio, la ruta final (la sugerida o `path`), si existe y quién lo usa,
+  metadatos, entradas y el YAML entero con su tamaño y su huella SHA-256,
+  todo marcado como texto de terceros y con los valores sensibles tapados
+  (se guarda el original). Al confirmar, HA lo descarga otra vez y solo se
+  guarda si la huella y la ruta casan con la vista previa; si no,
+  `content_changed` sin guardar. Sin token con errores de validación o un
+  dominio no admitido (`invalid_blueprint`), un YAML descargado con una
+  etiqueta que no es `!input` (`unsupported_yaml_tag`, comprobado en la
+  vista previa y otra vez al confirmar), una ruta ocupada sin
+  `allow_override` (`already_exists`) o un YAML que no cabe en la respuesta
+  (`blueprint_too_large`: no se recorta). Anotada como destructiva y de
+  mundo abierto. El fichero del token no guarda el YAML y el log no lleva la
+  URL (puede llevar credenciales).
+- Las rutas se validan antes de llegar a HA (sin `..`, absolutas ni
+  caracteres raros) y `.yaml` se añade si falta.
+- Tabla de comandos: `blueprint/list`, `blueprint/save`, `blueprint/delete`,
+  `blueprint/substitute` y `blueprint/import` pasan a `dedicated`. Tema nuevo
+  `blueprints` de `hermes_guide` (alias `blueprint`), con la parte de
+  importar.
+- Banco de Core: guardar (nuevo y sobrescrito), importar y borrar (en uso y
+  sin uso), con el efecto comprobado por el lector, más la lista y la
+  sustitución de los blueprints que trae HA. La importación se prueba sin
+  internet: la HA del banco sirve un blueprint propio desde su carpeta
+  `www` (`/local/`) y se importa desde `127.0.0.1` dentro del contenedor
+  (importador genérico); GitHub, gist y foro quedan como prueba manual.
+
+Tramo C: familia nueva `automation_assist` (desactivable), ocho tools de
+solo lectura que ayudan a escribir automatizaciones:
+
+- `ha_list_device_triggers`, `ha_list_device_conditions` y
+  `ha_list_device_actions`: lo que ofrece un dispositivo, cada elemento tal
+  como se pega en una automatización. Con `include_capabilities=true`, los
+  campos extra de cada uno (`capabilities.extra_fields`), como mucho para
+  los 50 primeros (`capabilities_truncated` si hay más); si los de uno
+  fallan, ese elemento lleva `capabilities_error` y la lista sigue. Un
+  dispositivo que no existe da `not_found`.
+- `ha_resolve_target` y `ha_explain_target`: qué entidades, dispositivos y
+  áreas abarca un target (y qué ids no existen, en `missing`), y por qué
+  entra cada entidad y qué quita cada exclusión. Listas ordenadas;
+  `expand_group` y `primary_entities_only` con los valores por defecto de HA.
+- `ha_list_triggers_for_target`, `ha_list_conditions_for_target` y
+  `ha_list_actions_for_target`: los nombres, ordenados, de los triggers,
+  condiciones y acciones que sirven para alguna entidad del target,
+  incluidos los «por propósito» (`light.turned_on`). Solo nombres, sin sus
+  opciones. En un HA sin estos comandos, `ha_version_unsupported` con la
+  versión.
+- El target se valida antes de llegar a HA (claves `entity_id`,
+  `device_id`, `area_id`, `floor_id` y `label_id`, texto o lista de textos
+  no vacíos, `exclude` con las mismas claves y al menos una fuera de él):
+  una clave desconocida da `invalid_argument` nombrándola.
+- Tabla de comandos: los seis `device_automation/*` (lista y capacidades) y
+  `extract_from_target`, `explain_target`, `get_triggers_for_target`,
+  `get_conditions_for_target` y `get_services_for_target` pasan a
+  `dedicated`. Tema nuevo `automation_assist` de `hermes_guide` (alias
+  `device_automation` y `targets`) con las recetas «automatización para un
+  dispositivo» y «target → propósito → validar».
+- Banco de Core: las ocho contra un interruptor de `kitchen_sink`,
+  contrastadas con lo que lee el lector directamente de Core.
+
+Tramo D: esperar a un trigger y validar al guardar.
+
+- `ha_wait_for_trigger` (familia `automation_assist`, solo lectura): espera
+  UNA vez a que salte un trigger escrito como en una automatización
+  (`subscribe_trigger`) y devuelve el disparo, o `timeout`, `cancelled` o
+  `ws_reconnect` como `ha_wait_for_event`. Solo admite una lista CERRADA de
+  triggers que solo escuchan: `state`, `numeric_state`, `event`, `time`,
+  `time_pattern`, `template`, `sun`, `zone`, `geo_location`,
+  `homeassistant`, `mqtt`, `tag`, `calendar`, `persistent_notification`, y
+  `<integración>.<nombre>` o `device` de integraciones incluidas en HA
+  (según `manifest/get`). Rechaza sin suscribirse (`trigger_not_allowed`)
+  `webhook`, `conversation`, el `turn_on` de `samsungtv`, `webostv`,
+  `lg_netcast` y `philips_js`, los de integraciones personalizadas (también
+  una que sobrescribe una de HA, como una `mqtt` propia: el `manifest/get` se
+  mira en todas las plataformas, con o sin punto) y todo lo que no está en la
+  lista (o si no se puede comprobar). Un trigger que HA no acepta da
+  `invalid_trigger`. El disparo sale con los valores sensibles tapados; si
+  no cabe, sin `from_state`/`to_state` y con `truncated: true`. Comparte con
+  `ha_wait_for_event` el tope de segundos y el de esperas a la vez, sale en
+  `ha_list_active_waits` con `kind: "trigger"` y se corta con
+  `ha_cancel_wait`; siempre cancela la suscripción al terminar.
+- Validación al guardar: la vista previa de `ha_create_or_update_automation`
+  y `ha_create_or_update_script` valida con HA (`validate_config`) los
+  triggers, condiciones y acciones; con `use_blueprint`, los de la
+  configuración que da el blueprint (`blueprint/substitute`). Si HA la
+  rechazaría, `invalid_config` con el error de cada parte y SIN token; si la
+  sustitución falla, `blueprint_substitution_failed` sin token; si no se
+  puede validar, `validation_unavailable` sin token. La vista previa trae
+  `validation` con lo validado, lo que HA solo comprueba al guardar
+  (`not_validated`: `alias`, `mode`…) y `via_blueprint`. La confirmación no
+  vuelve a validar (guarda lo previsualizado y HA valida al guardar). No
+  depende de que `core_diagnostics` o `blueprints` estén activas.
+  `ha_validate_config` no cambia. En un HA anterior a `validate_config` o a
+  `blueprint/substitute` (`unknown_command`), la vista previa da token como
+  en la 1.1.2, sin validar: `validation.available: false`,
+  `reason: "unsupported_by_ha_version"` y todo en `not_validated` (el
+  guardado de HA valida con las mismas funciones). Cualquier otro fallo
+  sigue sin token (convergencia).
+- Tabla de comandos e inventario: `subscribe_trigger` pasa de clase B a A
+  (CAP-038) en el inventario de la 008 y a `dedicated` hacia
+  `ha_wait_for_trigger`.
+- Guía: espera de trigger en el tema `automation_assist` (alias
+  `wait_for_trigger`), y el tema `automations` dice que la vista previa
+  valida y remite a `blueprints` y `automation_assist` (cambia su huella).
+- Banco de Core: la espera de trigger con un `input_boolean` que enciende el
+  lector, un trigger que HA rechaza y uno fuera de la lista; la vista previa
+  con un trigger inválido (sin token y sin automatización) y con un
+  blueprint al que le falta una entrada.
+
+### Supervisor
+
+- **Montajes de red y ajustes de backup (019).** Familia nueva `mounts`
+  (desactivable con `tool_families_disabled`) con nueve tools. Seis para los
+  montajes del Supervisor: `sv_list_mounts` (montajes, su estado y el montaje
+  por defecto de backups), `sv_create_mount` (CIFS, NFS o disco local),
+  `sv_update_mount` (funde lo que se pasa con lo actual), `sv_delete_mount`,
+  `sv_reload_mount` (vuelve a comprobar y rearma un montaje caído) y
+  `sv_set_default_backup_mount` (a dónde van los backups sin ubicación,
+  también los safety backups de Hermes). Crear, editar, borrar y el montaje
+  por defecto van en dos pasos; la vista previa dice si el montaje pasa a ser
+  (o deja de ser) el de por defecto, qué backups dejan de verse al borrarlo o
+  al cambiar su destino, y que el Supervisor lo monta al crearlo y no crea
+  nada si falla. El token ata también el estado que describe la vista
+  previa: si el montaje cambia antes de confirmar, no se ejecuta
+  (`mount_changed`). Las cuatro con token están en el inventario de
+  argumentos atados de la 033: crear y editar atan sus 13 argumentos, y
+  borrar y el montaje por defecto, `name`.
+  - **Credenciales**: el usuario y la contraseña de un CIFS entran, pero no
+    salen nunca: ni en respuestas, vistas previas, errores, el log de Hermes
+    ni el fichero del token. Tampoco cuando el texto de error del Supervisor
+    repite el usuario en una tool que no lo recibe (recargar, borrar, el
+    montaje por defecto, los ajustes de backup): se tapa por su forma
+    (`username=…`, también entre comillas y con espacios, `DOMINIO\usuario`,
+    `//usuario@servidor`), y la contraseña también cuando llega escapada en
+    el JSON o el `repr` del error. Como el Supervisor reemplaza la
+    configuración entera y no las devuelve, editar un CIFS sin `username` y
+    `password` las quita; la vista previa lo avisa (`removed_if_present`).
+  - Tres para los ajustes de backup del Supervisor, sin confirmación:
+    `sv_get_backup_settings` (`days_until_stale`, el montaje por defecto y
+    los montajes de backup con su estado), `sv_set_backup_settings`
+    (`days_until_stale`, entero de 1 a 3650; devuelve el anterior) y
+    `sv_reload_backups` (el Supervisor relee los backups de todas las
+    ubicaciones y dice cuántos ve).
+  - `sv_create_backup_full` y `sv_create_backup_partial` aceptan `location`
+    opcional: `.local`, un montaje de backup o una lista de ellos.
+    `.cloud_backup`, listas vacías o con repetidos y nombres inválidos se
+    rechazan sin llamar al Supervisor. Sin `location`, la petición y la
+    respuesta son las de la 1.1.2. Sus errores salen ahora redactados.
+  - Las nueve rutas de CAP-083 (`/mounts` y `/backups/info`,
+    `/backups/options`, `/backups/reload`) pasan de `deny` a `dedicated` en
+    la tabla de comandos; `sv_read_api` y `sv_call_api` remiten a su tool.
+  - Guía: tema nuevo `hermes_guide("mounts")` (alias `cifs`, `nfs`, `nas`,
+    `network_storage`, `backup_settings`), con los ajustes de backup; el
+    tema `backups` explica `location`.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Tokens de confirmación con HMAC (019).** El `action_hash` que se guarda
+  junto a cada token pasa de SHA-256 a HMAC-SHA256 con una clave aleatoria
+  que solo vive en memoria y cambia en cada arranque. El hash de una acción
+  con una contraseña (montajes CIFS, `fs_set_secret`, restaurar un backup
+  cifrado) ya no se puede atacar sin conexión leyendo `/data`. **Cambio de
+  comportamiento, intencionado:** en la 1.1.2 un token todavía vigente (menos
+  de 60 s) seguía valiendo después de reiniciar Hermes; ahora deja de valer,
+  porque la clave es otra. Se rechaza con «lost across restart» sin gastarlo,
+  y basta con pedir otra vista previa (falla cerrado).
+- **Control de Core y del Supervisor (022, tramo 1).** Familia nueva
+  `system_control` (desactivable con `tool_families_disabled`) con siete
+  tools. Todo lo que corta algo va en dos pasos y la vista previa dice qué se
+  corta, cuánto y qué le pasa a Hermes:
+  - `sv_start_core` arranca Core cuando está parado (Hermes sigue
+    funcionando con Core caído: sus `sv_*` hablan con el Supervisor). Con
+    Core en marcha responde `already_running` sin token, también al
+    confirmar. Las escrituras en `/config` sin validar se avisan, no
+    bloquean: arrancar es recuperar.
+  - `sv_rebuild_core` reconstruye el contenedor de Core (Home Assistant se
+    corta unos minutos); `safe_mode` arranca sin integraciones propias ni
+    YAML, y el token lo ata. Mismo bloqueo que `sv_restart_core` con
+    escrituras sin validar. Nunca manda `force`.
+  - `sv_set_core_options`: solo `boot`, `watchdog`,
+    `backups_exclude_database`, `duplicate_log_file`, `audio_input` y
+    `audio_output`, con el valor actual y el nuevo por clave y avisos
+    (`boot=false` deja Home Assistant apagado tras reiniciar el host;
+    `watchdog=false`; lo que se aplica en el próximo arranque). `image`,
+    `refresh_token`, `port` y `ssl` se rechazan (`not_allowed`) sin llamar.
+  - `sv_reload_supervisor` (sin token: no corta nada), `sv_restart_supervisor`
+    (la API del Supervisor y la conexión de Hermes con Core se cortan unos
+    30-90 s; Core y las apps siguen) y `sv_repair_supervisor` (borra
+    contenedores parados, imágenes, caché de builds y volúmenes sin usar, y
+    descarga lo que falte; minutos). Reiniciar y reparar se rechazan
+    (`jobs_in_progress`) si hay jobs del Supervisor sin terminar, o si no se
+    puede saber.
+  - `sv_set_supervisor_options`: solo `timezone` (también la del host),
+    `country`, `logging`, `auto_update` y `diagnostics`, validadas antes de
+    llamar, con avisos de `auto_update=false` (instalación no soportada y
+    actualizaciones de apps, Core, OS y plugins bloqueadas en cuanto salga un
+    Supervisor nuevo), `auto_update=true` (el Supervisor se actualiza y se
+    reinicia solo) y `diagnostics` (cambia también los del OS Agent;
+    `true` envía informes a un tercero). `channel` y las opciones de
+    desarrollo se rechazan.
+  - Si Hermes no puede saber si una operación terminó (tiempo vencido o
+    conexión cortada), responde `status: "started"` con la tool con la que
+    comprobarlo, nunca un «ok» ni un error inventados.
+  - Las opciones atan `options` y, como estado, los valores actuales: si
+    cambian antes de confirmar, no se ejecuta. Al log van los nombres de las
+    claves, nunca sus valores.
+  - Las siete rutas pasan de `deny` a `dedicated` en la tabla de comandos;
+    las estadísticas (`GET /core/stats`, `GET /supervisor/stats`) se leen por
+    `sv_read_api` y `POST /host/reload` va por `sv_call_api` con token.
+    `POST /core/stop` y el `channel` del Supervisor siguen cerrados por
+    cualquier vía.
+  - Anotaciones: las seis con token se anuncian destructivas; recargar y
+    reparar, de mundo abierto.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Aplicar sugerencias del Supervisor (022, tramo 2).** **Cambio de política
+  respecto a la 1.1.x**: hasta ahora Hermes no aplicaba nunca una sugerencia
+  del centro de resolución; desde esta versión lo hace
+  `sv_apply_resolution_suggestion`, en una familia nueva `resolution_fixes`
+  (desactivable), y solo así:
+  - La vista previa traduce el arreglo que el Supervisor 2026.11.0 tiene para
+    cada par tipo/contexto: qué hace, qué corta, cuánto tarda y si se puede
+    deshacer, los issues que arregla y datos concretos (los backups completos
+    que `clear_full_backup` borraría —todos menos los 2 más nuevos, nunca los
+    parciales—, los contenedores que se reconstruirían, la app afectada).
+  - `clear_full_backup` borra cada backup de TODAS sus ubicaciones (el host y
+    los montajes de red): la vista previa da las `locations` de cada uno y,
+    si alguna está fuera del host, lo avisa la primera, en mayúsculas. Sin
+    saber dónde está cada backup no hay token. `create_full_backup` avisa de
+    que las apps con backup en frío se paran durante la copia, y
+    `clear_port_config` dice la verdad: arranca la app si está parada y no
+    reinicia la que ya corre.
+  - Tras el arreglo, el Supervisor lanza su healthcheck: sus chequeos pueden
+    crear sugerencias nuevas y puede aplicar sus arreglos automáticos. La
+    vista previa lista los que hay ahora (`also_auto_applied`) y avisa de que
+    pueden salir otros. El token ata la sugerencia, esa lista, los backups
+    (con sus ubicaciones) y los contenedores: si algo cambia antes de
+    confirmar, se rechaza sin aplicar (`suggestion_changed`).
+  - Si la petición ni llega a salir (Hermes sin conexión con el Supervisor),
+    la respuesta es un error con `sent: false`, nunca `status: "started"`;
+    lo mismo en las tools de control de Core y del Supervisor.
+  - Se rechazan sin token, también al confirmar: las sugerencias sin arreglo
+    (`no_fixup`: el Supervisor respondería «ok» sin hacer nada), las que
+    Hermes no sabe traducir (`unknown_effect`), las de discos de datos
+    (`not_allowed`) y las que pararían, reconstruirían o desinstalarían al
+    propio Hermes, también por un arreglo automático (`targets_hermes`;
+    Hermes se reconoce por el slug exacto de `/addons/self/info`).
+  - `sv_get_resolution` y `sv_dismiss_resolution_suggestion` no cambian de
+    comportamiento; sus descripciones y la guía (`diagnostics`) ya no dicen
+    que Hermes nunca aplica sugerencias.
+  - Por la tabla: `POST /resolution/check/{check}/run` y `/options` y
+    `POST /resolution/healthcheck` pasan de `deny` a `confirm` (el
+    healthcheck avisa de que puede aplicar los arreglos automáticos). Las
+    rutas de plugins, Docker, placas y hora no cambian; ahora tienen tests
+    con el Supervisor simulado, y la contraseña de un registro Docker no sale
+    ni en la vista previa, ni en el log, ni en un error del Supervisor.
+  - La guía (`system_control`, alias `suggestions` y `fixups`) explica todo
+    esto y avisa de que `/dns/options` y `/docker/options` pueden dejar sin
+    red a las apps.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+
+#### Actualizaciones del sistema
+
+- **Saber qué hay que actualizar y buscar actualizaciones.** Familia nueva
+  `system_updates` (desactivable con `tool_families_disabled`).
+  `sv_list_available_updates` (solo lee) lista lo que tiene actualización
+  —Home Assistant Core, OS, Supervisor, apps y plugins del Supervisor— con la
+  versión instalada, la disponible y la tool con que se actualiza
+  (`update_with`), en el orden en que conviene actualizar. La app de Hermes
+  sale con `update_with: null` y una nota: Hermes no se actualiza a sí mismo,
+  se actualiza desde la interfaz de Home Assistant. Si una lectura del
+  Supervisor falla, la lista lo dice (`partial`, `unavailable`) en vez de
+  parecer vacía. `sv_check_for_updates` pide al Supervisor que busque ya
+  (descarga el registro de versiones y refresca la tienda: sale a internet)
+  y devuelve la misma lista; no pide confirmación.
+- **Actualizar Core con una vista previa que no miente.** `sv_update_core`
+  (versión opcional, `backup` activado por defecto), en dos pasos. La vista
+  previa dice de qué versión a qué versión (y si es una bajada), el backup
+  parcial de Core que hace el Supervisor antes (nombre `core_<versión>`, sin
+  apps), qué se reinicia, la salud del sistema y el resultado de la
+  comprobación de la configuración de Core, que se hace en la vista previa
+  sin levantar el bloqueo de reinicio de `sv_restart_core`. Si el Supervisor
+  la rechazaría —sistema no saludable, Supervisor con actualización
+  pendiente, plugins desactualizados con su actualización automática
+  apagada, menos de 2 GB libres— o la configuración no es válida o no se pudo
+  comprobar, responde `update_blocked` con la vista previa y **sin** token;
+  lo de la configuración no se puede saltar. El token queda atado a los
+  argumentos y a las versiones de origen y destino: si cambian entre la
+  vista previa y la confirmación (por ejemplo, tras buscar actualizaciones),
+  la confirmación responde `preview_outdated` sin enviar nada. La ejecución
+  manda siempre la versión explícita y devuelve el `job_id`, que se sigue con
+  `sv_get_job_status`. Los errores del Supervisor y el detalle de la
+  comprobación pasan por la redacción de secretos; el log de Hermes anota
+  tool, componente y versiones (`system_update_started`), nunca el texto de
+  un error.
+- **Actualizar el OS y el Supervisor.** `sv_update_os` (versión opcional) y
+  `sv_update_supervisor` (sin argumentos), en dos pasos y con el token atado a
+  las versiones igual que en Core. La vista previa del OS dice claramente que
+  instalar no reinicia nada y que el OS nuevo solo se aplica al **reiniciar el
+  host** con `sv_reboot_host`, que reinicia todo, Hermes incluido; Hermes no
+  reinicia el host por su cuenta. Tampoco hace backup: la vista previa lo dice
+  y sugiere `sv_create_backup_full` antes. Sin Home Assistant OS responde
+  `not_haos`; con esa versión ya instalada y esperando el reinicio,
+  `update_blocked` (`reboot_pending`), igual que con el sistema no saludable o
+  el Supervisor pendiente. La del Supervisor dice que se reinicia solo, que
+  Core y las apps siguen funcionando y que las `sv_*` fallan alrededor de un
+  minuto; no admite versión ni backup. Como el Supervisor responde a estas dos
+  actualizaciones cuando terminan (minutos), Hermes lanza la petición en
+  segundo plano y busca el job unos segundos: devuelve el `job_id` o
+  `status: started` con la tool con que comprobar la versión. Que la conexión
+  se corte cuando el Supervisor se reinicia no es un error; el resultado final
+  queda en el log de Hermes (`system_update_finished` o
+  `system_update_failed`, con el error redactado).
+- **Notas de la versión**: Home Assistant no tiene en local las notas de Core
+  y Hermes no las descarga de internet, así que la vista previa lo dice y da
+  la `release_url` de la entidad `update` de Core (buscada por el registro de
+  entidades, no por su nombre). Es una desviación de la spec 008, que pedía
+  las notas recortadas. Tampoco las del Supervisor ni las del OS: de este, la
+  vista previa da el aviso de reinicio que da su entidad.
+- **Entidades `update` de Home Assistant** (firmware de dispositivos,
+  integraciones, HACS…), en el módulo nuevo `update_entities` de la misma
+  familia. `ha_list_updates` (solo lee) lista las que tienen actualización
+  (todas con `include_up_to_date`) con sus versiones, qué admiten (`supports`,
+  decodificado de `supported_features`), la integración y la tool con que se
+  instalan (`install_with`). `ha_get_update_release_notes` da las notas,
+  redactadas, recortadas al tope de respuesta y marcadas como texto de
+  terceros; si la entidad no las tiene, lo dice con el resumen y la URL.
+  `ha_install_update` instala en dos pasos: la vista previa dice de qué
+  versión a qué versión, las notas (1500 caracteres) o el resumen, el backup
+  (lo hace la integración, si lo admite) y, en firmware, que no se apague el
+  dispositivo. Lo que Home Assistant rechazaría (sin actualización, versión o
+  backup que la entidad no admite, instalación ya en curso, entidad sin
+  instalación) vuelve como error y **sin** token. El token queda atado a las
+  versiones igual que en Core, y si la instalación tarda más de 30 s la
+  respuesta es `status: running` (sigue en Home Assistant) en vez de un
+  error. Si la entidad no admite versión concreta, se instala sin `version`
+  (Core la rechazaría), con el token atado a la última leída justo antes.
+- **Un camino por cosa.** Las entidades de la integración del Supervisor
+  (Core, OS, Supervisor y apps), reconocidas por el registro de entidades y no
+  por su nombre, no se instalan con `ha_install_update`: responde
+  `use_dedicated_tool` con `sv_update_core`, `sv_update_os`,
+  `sv_update_supervisor` o `sv_update_addon` y los argumentos. **Hermes no se
+  actualiza a sí mismo**: su entidad responde `self_update_not_supported` sin
+  token, con cómo hacerlo (desde la interfaz de Home Assistant o con la
+  actualización automática del add-on). Para saber que es Hermes se compara
+  con el slug exacto que el Supervisor da para el propio add-on
+  (`/addons/self/info`), no con un sufijo; si no se puede leer, se rechaza
+  igual (`self_check_unavailable`). Ese mismo criterio vale ahora en
+  `sv_list_available_updates`. Una app de otro repositorio cuyo slug también
+  termina en `_hermes` no es Hermes, pero tampoco se manda a
+  `sv_update_addon`, que rechaza todos los slugs con ese sufijo: las tres
+  tools lo dicen (`update_with`/`install_with: null` con una nota;
+  `ha_install_update` responde `unsupported_entity`) y remiten a la interfaz
+  de Home Assistant.
+- **Cambio de comportamiento de `ha_call_service` con `update.install`**
+  (tool de la 1.1.2; el esquema no cambia). Por esa vía Hermes podía
+  actualizarse a sí mismo (Core llama al Supervisor como Core, así que ni la
+  protección propia del Supervisor salta) y Core se actualizaba sin la
+  comprobación de la configuración de `sv_update_core`. Ahora, solo para
+  `update.install`, y tanto en la vista previa como al confirmar: el objetivo
+  tiene que ser una lista explícita de `entity_id` (con `area_id`,
+  `device_id`, `label_id`, `floor_id`, `all` o sin objetivo responde
+  `use_dedicated_tool` hacia `ha_install_update`); cada entidad se resuelve
+  por el registro de entidades igual que en `ha_install_update`; la de Hermes
+  responde `self_update_not_supported` (y, si el slug propio no se puede
+  leer, cualquier app del Supervisor, `self_check_unavailable`); las de Core,
+  OS y Supervisor, `use_dedicated_tool` hacia `sv_update_core`,
+  `sv_update_os` o `sv_update_supervisor`. Todo sin token y sin llegar a Home
+  Assistant. Las demás entidades `update` (otras apps, firmware, HACS…)
+  siguen exactamente igual: token y la misma llamada, con la `hint` hacia
+  `ha_install_update` en la vista previa. `ha_call_service_response` no
+  cambia: ya rechazaba `update.install` (está en la denylist y esa tool no
+  tiene confirmación).
+- **Otra actualización del OS en marcha.** Si ya hay una actualización del OS
+  en curso (lanzada desde la interfaz o por otra llamada), la vista previa de
+  `sv_update_os` responde `update_in_progress` con su `job_id` y sin token. Y
+  la confirmación nunca toma como suyo un job que ya estaba en marcha antes
+  de su petición: si el Supervisor la rechaza, la respuesta lo dice
+  (`supervisor_error`) en vez de quedar solo en el log. Core y el Supervisor
+  no tienen esa carrera (Core devuelve su propio job o el error; el
+  Supervisor comparte la actualización que ya está en curso).
+- **Notas de versión de terceros que no pasan del tope.**
+  `ha_get_update_release_notes` recorta midiendo el tamaño real del texto en
+  la respuesta, con el escape JSON (comillas, barras, saltos de línea), así
+  que unas notas llenas de esos caracteres ya no se cambian por un error.
+- **Tabla de comandos**: `GET /available_updates`, `POST /refresh_updates`,
+  `POST /reload_updates`, `POST /core/update`, `hassio/update/core`,
+  `POST /os/update`, `POST /supervisor/update` y el comando de Core
+  `update/release_notes` pasan a `dedicated` hacia estas tools: las genéricas
+  remiten a ellas y nunca son una forma de actualizar sin la vista previa.
+  `/reload_updates` va a `sv_check_for_updates` aunque la tool use
+  `/refresh_updates`, que además recarga la tienda. No queda ninguna entrada
+  «pendiente (spec 015)».
+- **Guía**: tema nuevo `hermes_guide("updates")` (alias `update`, `upgrade`)
+  con el orden recomendado (Supervisor → Core → OS y reiniciar el host), los
+  bloqueos, el token atado a las versiones y qué hacer tras el reinicio del
+  Supervisor; el tema `supervisor` remite a él.
+- `sv_check_for_updates`, `sv_update_core`, `sv_update_os` y
+  `sv_update_supervisor` se prueban con un Supervisor
+  simulado con la forma de las respuestas del 2026.11.0; su prueba contra un
+  Supervisor real queda pendiente en la VM de la 014 (matriz de pruebas de la
+  hoja de ruta).
+  `ha_install_update` se ejecuta en el banco de Core contra una entidad
+  `update` de la integración `template` (vista previa sin efecto,
+  confirmación, versión concreta y backup, comprobados por el lector
+  independiente); su encaminamiento y el rechazo de Hermes, con simuladores
+  (en el banco no hay integración del Supervisor).
+- Ocho tools en la familia `system_updates`, que se apaga entera con
+  `tool_families_disabled`. Desviaciones de la spec 008: las notas de Core,
+  OS y Supervisor no se descargan (arriba), y hay una tool más de las
+  estimadas (`ha_list_updates`, porque `sv_list_available_updates` no ve las
+  entidades `update` de dispositivos e integraciones).
+
+### Sistema
+
+Configuración del sistema (spec 021): doce tools nuevas en cuatro familias
+que se pueden desactivar (`core_config`, `assistant_exposure`, `users` y
+`core_network`); las nueve que escriben confirman en dos pasos. Tramo a: el
+núcleo y la exposición a asistentes.
+
+- **`core_config`** (CAP-053):
+  - `ha_get_core_config`: la configuración general editable (nombre,
+    ubicación, unidades, zona horaria, moneda, país, idioma y URLs), de dónde
+    viene (`storage` o `yaml`) y la versión.
+  - `ha_update_core_config`: cambia solo los campos que se le pasan, en dos
+    pasos. La vista previa enseña el antes y el después de lo que cambia (lo
+    que ya estaba igual sale solo por nombre) y un aviso por grupo: zona
+    horaria, unidades y `update_units`, ubicación (`zone.home`), URLs,
+    país/moneda/idioma y, si la configuración está en `configuration.yaml`,
+    que el cambio no sobrevive a un reinicio. El token se ata a los
+    argumentos y a la configuración leída. La zona horaria se manda sola y
+    primero: una zona inválida no deja nada a medias, y si el resto falla la
+    respuesta es `partial` con lo aplicado y lo que no. El log y el fichero
+    del token no llevan valores (ni coordenadas, ni zona, ni URLs), y la
+    confirmación solo relee los campos pedidos.
+  - `config/core/detect` pasa a `read` en la tabla, de mundo abierto: HA
+    consulta un servicio externo de geolocalización por IP y no guarda nada.
+- **`assistant_exposure`** (CAP-055):
+  - `ha_list_exposed_entities`: las entidades expuestas a Assist
+    (`conversation`, también agentes de LLM y la integración MCP Server) y a
+    Alexa y Google a través de Home Assistant Cloud, con `expose_new` por
+    asistente y filtros por asistente y dominio.
+  - `ha_set_entity_exposure`: exponer (de 1 a 200 entidades, a 1–3
+    asistentes) pide confirmación, con una vista previa por asistente y las
+    entidades de dominios sensibles (cerraduras, alarmas, persianas,
+    válvulas). Ocultar se aplica a la primera, sin token: solo reduce lo
+    expuesto. Cada entidad tiene que existir (HA crearía una entrada
+    huérfana).
+  - `ha_set_expose_new_entities`: activarlo pide confirmación; desactivarlo
+    va sin token.
+  - Las dos que escriben se anuncian de mundo abierto y no destructivas.
+- Cinco comandos pasan a `dedicated` en la tabla (`config/core/update` y los
+  cuatro de `homeassistant/expose_*`): las genéricas los rechazan hacia su
+  tool. Temas `core_config` y `assistant_exposure` en `hermes_guide`; el tema
+  `system_status` remite las URLs a `ha_update_core_config`.
+- Banco de Core: las cinco, contra HA real, con el lector independiente, y el
+  banco queda como estaba.
+
+Tramo b: los usuarios, en su propia familia (que se puede desactivar).
+
+- **`users`** (CAP-056):
+  - `ha_list_users`: los usuarios con su papel (`is_owner`, `is_admin`,
+    `is_active`, grupos, `local_only`), el tipo de sus credenciales y nada
+    más, `is_hermes` (el usuario por el que entra Hermes; en un add-on, el de
+    sistema del Supervisor) y los administradores activos. Los de sistema,
+    solo con `include_system` (el de Hermes sale siempre).
+  - `ha_create_user`: crea un usuario SIN credenciales, en dos pasos. La
+    vista previa avisa de que no podrá iniciar sesión hasta que se le añadan
+    usuario y contraseña, y de que Hermes no ha comprobado que la interfaz
+    de Home Assistant permita añadírselos a un usuario ya creado.
+  - `ha_update_user` (nombre, activo, grupo y solo red local) y
+    `ha_delete_user`, en dos pasos, con el antes y el después, si da o quita
+    el grupo de administrador, si desactiva o restringe al usuario, los
+    administradores activos antes y después y, al borrar, las personas
+    vinculadas.
+  - Protecciones, en la vista previa y otra vez al confirmar, releyendo los
+    usuarios de HA antes de llamar a nada: el propietario, el usuario de
+    Hermes y los de sistema no se editan ni se borran (`protected_user`, con
+    todos los motivos en `reasons`), y nada deja la casa sin administrador
+    activo (`last_admin`). Si Hermes no puede saber con qué usuario entra, no
+    escribe (`preview_unavailable`).
+  - Ninguna acepta ni devuelve contraseñas, nombres de acceso nuevos ni
+    tokens: lo que devuelve HA se copia de una lista cerrada de campos. El log
+    solo lleva el nombre de la tool y el `user_id`.
+- Las sesiones de los usuarios no se pueden listar: `auth/refresh_tokens` solo
+  devuelve las del usuario de la propia conexión (el de Hermes). Pasa a
+  `deny` revisado en la tabla, con su motivo. Las contraseñas, los nombres de
+  acceso y las sesiones (`config/auth_provider/*`, `auth/*`) siguen denegados.
+- Los cuatro `config/auth/*` pasan a `dedicated`: las genéricas los rechazan
+  hacia su tool. Tema `users` en `hermes_guide`.
+- Banco de Core: el ciclo completo de un usuario creado por la tool (crear,
+  renombrar, dar y quitar el grupo de administrador, solo red local,
+  desactivar y borrar) y el rechazo sobre el propietario, comprobados por el
+  lector independiente; el banco queda como estaba.
+
+Tramo c: la red y el servidor HTTP de Core, en su propia familia (que se puede
+desactivar), y analytics y labs por la tabla.
+
+- **`core_network`** (CAP-069; no es la red del host, que es del Supervisor):
+  - `ha_update_network_config`: qué adaptadores usa HA para descubrir
+    dispositivos y qué direcciones anuncia (`[]` = automático), en dos pasos,
+    con los habilitados antes y después. Un adaptador que no existe da
+    `invalid_argument` con los disponibles. No cambia dónde escucha HA.
+  - `ha_update_http_config`: el servidor HTTP (puerto, `server_host`, SSL,
+    proxy inverso, bloqueo de IP, CORS, perfil SSL, `use_x_frame_options`).
+    Funde los cambios sobre la configuración con la que HA está funcionando
+    (estable, pendiente o por defecto), quita los metadatos y manda el
+    documento entero; `null` quita una clave y `discard_pending` tira una
+    pendiente. La vista previa enseña el documento resultante, el diff, el
+    aviso de reinicio y de la prueba de 5 minutos (HA vuelve sola a la
+    estable si nadie promueve la nueva), un aviso por riesgo y, si el cambio
+    puede dejar HA inaccesible (puerto, `server_host`, SSL, proxy, bloqueo de
+    IP, perfil SSL), `access_risk`. Respeta el bloqueo de reinicio de
+    `sv_restart_core` en la vista previa y al confirmar. La respuesta dice si
+    HA reinicia, que hay que promover en 5 minutos y que con
+    `configuration.yaml` inválida no reinicia.
+  - Un `server_host` sin `0.0.0.0` ni `172.30.32.1` se rechaza sin token
+    (`apps_lockout`), también al promover: las apps que conectan
+    directamente a `homeassistant:8123` llegan a Core desde la red interna
+    del Supervisor (172.30.32.0/23) por la pasarela `172.30.32.1`, en IPv4, y
+    se quedarían fuera. El Supervisor, y Hermes a través de él, hablan con
+    Core por un socket Unix desde Core 2026.4, que no depende de
+    `server_host`. `::` sola no vale, porque no acepta IPv4. Un `server_host`
+    con solo direcciones internas pasa el rechazo pero deja fuera a la red de
+    casa: aviso de acceso `server_host_internal_only`.
+  - Si los `changes` dejan el resultado igual que la estable, HA descarta la
+    pendiente y reinicia con la estable: la vista previa y la respuesta lo
+    dicen (`trial: false`, sin prueba ni nada que promover); si Hermes no lo
+    puede saber seguro, dan las dos posibilidades (`trial: null`).
+  - `ha_promote_http_config`: confirma la configuración de prueba, que pasa a
+    ser la de recuperación; solo con una pendiente sin error con la que HA ya
+    funcione (si no, `nothing_to_promote` con el motivo). Su vista previa
+    sirve de estado de la prueba (diff y `revert_at`) y repite los avisos y
+    el `access_risk` de aplicar, porque promover hace permanente una
+    configuración que puede haber dejado la casa fuera.
+  - `ha_update_network_config` avisa en la vista previa si los adaptadores
+    elegidos no tienen ninguna IPv4 o dejan fuera el adaptador por defecto
+    (`no_ipv4`, `default_adapter_excluded`): el descubrimiento se degrada.
+  - En un Home Assistant anterior a 2026.11, sin la configuración HTTP en
+    almacenamiento: `unsupported_by_ha_version`. El log no lleva puertos,
+    hosts, rutas de certificados, proxies ni nombres de adaptador.
+- Analytics y labs (CAP-074) siguen por las genéricas: `analytics` y
+  `labs/list` leen, `analytics/preferences` y `labs/update` confirman.
+  `analytics/preferences` pasa a ser de mundo abierto en la tabla (activar el
+  envío manda datos a los servidores de Home Assistant). El tema
+  `core_config` de la guía explica las cuatro llamadas.
+- Los tres comandos de CAP-069 pasan a `dedicated`: ya no queda ninguna
+  entrada «pendiente (spec 021)» en la tabla. Tema `core_network` en
+  `hermes_guide`; el alias `network` pasa de `system_status` a
+  `core_network`, y el tema `system_status` remite a él en vez de decir que
+  Hermes no tenía tool para cambiar la red y el HTTP.
+- Banco de Core: `ha_update_network_config` cambia y restaura los adaptadores,
+  comprobado por el lector; de las dos de HTTP, su vista previa sobre la
+  configuración real (el lector ve `http/config` igual) y sus rechazos reales
+  (`apps_lockout`, `nothing_to_promote`), porque confirmar reiniciaría
+  la HA del banco; su confirmación queda para la VM. Las cuatro de analytics y
+  labs, por las genéricas, sin activar ningún envío.
+- **Host y red del host (032), tramo 1: control del host.** Familia nueva
+  `host_control` (desactivable con `tool_families_disabled`) con cuatro
+  tools, todas en dos pasos con una vista previa del estado real leído del
+  Supervisor:
+  - `sv_shutdown_host` apaga la máquina entera. La vista previa dice qué se
+    para (el host, Home Assistant, todas las apps y el propio Hermes), que
+    **nadie puede encenderla a distancia** después y que la conexión se
+    corta. No expone `force`: si Home Assistant está migrando su base de
+    datos, el error del Supervisor vuelve tal cual y no se reintenta.
+  - `sv_set_hostname` cambia el hostname (una etiqueta DNS en minúsculas,
+    validada antes de llamar); la vista previa enseña el viejo y el nuevo y
+    avisa de que cambia el nombre mDNS (`<hostname>.local`). El mismo nombre
+    que ahora, `no_change`.
+  - `sv_set_swap` cambia el tamaño y la swappiness de la swap (Home
+    Assistant OS 15 o posterior; si no, `not_supported`), enviando solo lo
+    que se pasa. La vista previa enseña el antes y el después, el disco libre
+    y que hace falta reiniciar; con `0`, que desactiva la swap. Un tamaño
+    que dejaría libres menos de 1 GiB o del 10 % del disco (lo que sea
+    mayor), `insufficient_disk`.
+  - `sv_set_boot_slot` arranca en la otra ranura de Home Assistant OS (por
+    ejemplo, para volver al OS anterior). La vista previa enseña las dos
+    ranuras con su versión, avisa de que el equipo **reinicia en el acto** en
+    ese OS, de si la ranura está marcada como mala, y cómo volver. La ranura
+    activa, `already_booted`; una sin versión, `slot_unusable`; sin Home
+    Assistant OS (el Supervisor contesta sin ranuras, no con un 404),
+    `not_supported`. El Supervisor **no** comprueba aquí si Home Assistant
+    migra su base de datos (al apagar sí), así que Hermes lee el estado de
+    Core antes de la vista previa y otra vez al confirmar: con una migración
+    fuera de línea, `db_migration_in_progress`; si no puede leerlo,
+    `core_state_unknown`. En los dos casos, sin token ni reinicio.
+  - El token ata los argumentos (`boot_slot` normalizado a mayúsculas) y la
+    huella del estado que describe la vista previa: si el hostname, la swap o
+    las ranuras cambian antes de confirmar, no se ejecuta (`state_changed`).
+    El disco libre no entra, porque cambia solo; `insufficient_disk` se
+    vuelve a comprobar al confirmar. Las cuatro están en el inventario de
+    argumentos atados de la 033 (`sv_shutdown_host`, solo con el token,
+    como `sv_reboot_host`).
+  - Si la conexión se corta después de enviar la orden (lo normal al apagar
+    o al cambiar de ranura), la respuesta no es ni «ok» ni un error:
+    `outcome: "unknown"` con `verify_with`.
+  - El log (`host_control`) lleva la tool, el resultado y los nombres de lo
+    que cambia; nunca el hostname, la swap ni las versiones.
+  - Las cuatro rutas de CAP-086 (`POST /host/shutdown`, `/host/options`,
+    `/os/config/swap` y `/os/boot-slot`) pasan de `deny` a `dedicated` en la
+    tabla de comandos; `sv_call_api` remite a su tool.
+  - Guía: tema nuevo `hermes_guide("host_control")` (alias `hostname`,
+    `swap`, `boot_slot`, `shutdown`); el tema `supervisor` remite a él.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Host y red del host (032), tramo 2: red del host.** Familia nueva
+  `host_network` (desactivable con `tool_families_disabled`; con
+  `host_control` y `host_network` desactivadas, las siete tools de la 032
+  desaparecen) con tres tools:
+  - `sv_reload_network` hace que el Supervisor vuelva a leer el estado de la
+    red y compruebe la conectividad, y responde con `host_internet` y
+    `supervisor_internet`. **Sin token**: no cambia ninguna configuración
+    (es una desviación consciente del texto de FR-082 de la 008, que pedía
+    confirmación para las tres; anotada en la spec).
+  - `sv_update_network_interface` edita una interfaz **secundaria** (un
+    Wi-Fi de respaldo, una segunda tarjeta, una VLAN) en dos pasos. La vista
+    previa enseña la interfaz antes (sin la MAC), lo que se enviará (la clave
+    Wi-Fi como `"psk": "set"`), su papel y un aviso fuerte: el Supervisor
+    aplica el cambio en el acto y **no lo revierte**. Con una puerta de
+    enlace, un aviso más de que puede quedarse con la ruta por defecto. La
+    respuesta trae la interfaz releída.
+  - **Guarda de la interfaz de acceso**: la interfaz principal (la de la
+    ruta por defecto), la única conectada y cualquier interfaz cuando no se
+    sabe cuál es la principal (lectura fallida, ninguna o varias, forma
+    inesperada) se rechazan **siempre**, sin token y sin escribir nada,
+    también para un cambio inocuo como `mdns` (`primary_interface`,
+    `only_connected_interface`, `primary_unknown`); el nombre `default`
+    también. Si la principal es una VLAN, también la tarjeta que la lleva
+    (`primary_interface_parent`): desactivarla borra su conexión y la VLAN
+    no vuelve a levantarse. Si el Supervisor no dice cuál es esa tarjeta por
+    su nombre (suele dar el identificador de la conexión), no se edita
+    ninguna interfaz (`primary_dependency_unknown`). El mensaje dice que se
+    cambie desde la interfaz de Home Assistant con acceso local. La guarda se
+    repite justo antes de enviar.
+  - **Bloques completos**: el Supervisor reemplaza cada bloque entero y
+    rellena lo que falta (un `ipv4` sin `method` pasaría a estático sin
+    dirección; un `wifi` sin `auth`, a red abierta). Hermes exige `method`
+    en `ipv4`/`ipv6` y `mode`, `auth` y `ssid` en `wifi`, y rechaza antes de
+    llamar los bloques incompletos o contradictorios (una dirección con
+    `auto`, una IP de la otra familia, una clave en una red abierta, una
+    clave WPA de menos de 8 caracteres…), diciendo la regla y nunca el
+    valor. También lo que el Supervisor aceptaría y luego ignoraría, que la
+    vista previa daría por aplicado: un bloque `wifi` en una interfaz que no
+    es inalámbrica (`wifi_not_wireless`), DNS con `method: disabled`,
+    `addr_gen_mode` o `ip6_privacy` sin `auto`, y la autenticación `wep`
+    (el Supervisor guarda la clave donde NetworkManager no la lee y la red
+    no llega a conectar).
+  - **`enabled: false` borra la conexión guardada** (la configuración IP y,
+    en Wi-Fi, la red y su clave), no la pausa: tiene que ir sola (con otros
+    bloques se rechaza, porque el Supervisor los descartaría), la vista
+    previa lo avisa (`deletes_saved_connection`) y volver a activarla exige
+    la configuración completa.
+  - `sv_create_vlan` crea `<interfaz>.<id>` (1–4094) sobre una tarjeta
+    ethernet, también la principal (no la modifica). La vista previa avisa
+    de que una puerta de enlace de la VLAN (fija o por DHCP) puede quedarse
+    con la ruta por defecto. Una VLAN que ya existe, una madre que no es
+    ethernet o que no existe se rechazan sin token. No hay tool para
+    borrarla.
+  - **La clave Wi-Fi nunca sale**: ni en la vista previa, ni en la
+    respuesta, ni en los errores (aunque el texto del Supervisor la repita,
+    también escapada dentro de un JSON o de un `repr`), ni en el log, ni en el fichero del token (solo el HMAC de la acción).
+    Una clave igual al marcador de redacción o con caracteres de control se
+    rechaza.
+  - El token ata todos los argumentos (la clave, por el HMAC) y la huella
+    de la interfaz, su papel y las interfaces conectadas; no la señal Wi-Fi
+    ni `ready`, que cambian solos. Las dos tools con token están en el
+    inventario de argumentos atados de la 033.
+  - Si la conexión se corta después de enviar, `outcome: "unknown"` con
+    `verify_with`. El log (`host_network`) lleva la tool, el resultado, la
+    interfaz y los bloques que cambian; nunca IP, puerta de enlace, DNS,
+    SSID, MAC ni la clave.
+  - Las tres rutas de CAP-090 (`POST /network/reload`,
+    `/network/interface/{interface}/update` y
+    `/network/interface/{interface}/vlan/{vlan}`) pasan de `deny` a
+    `dedicated`; las lecturas de red siguen por `sv_read_api`.
+  - Guía: el tema `host_control` cubre también la red (alias
+    `host_network`, `network_config`, `vlan`, `wifi`). El alias `network`
+    es del tema `core_network` (021), y los dos temas explican la
+    diferencia entre la red del host y la de Core y remiten al otro.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014, con una
+    segunda interfaz).
+- **Host y red del host (032): resultado de un envío que falla.** Las seis
+  tools con token siguen el contrato de `sent` de la 022: si la petición ni
+  llegó a salir (Hermes sin conexión con el Supervisor), la respuesta es un
+  error con `sent: false` («no se hizo nada») y no `outcome: "unknown"`;
+  un corte con la petición ya enviada, o sin saber si salió, sigue siendo
+  `unknown`, nunca `ok`. `sv_reload_network` devuelve un error, y no una
+  excepción, ante un corte o un tiempo agotado.
+
+### Mejoras de tools existentes
+
+- **Guardar una sola vista de un dashboard**: `ha_save_lovelace_dashboard`
+  acepta `view_index` (un entero JSON: `true`, `"1"` o `1.0` se rechazan,
+  no se convierten) y `view` (opcionales). Con ellos sustituye solo esa
+  vista del dashboard actual y conserva exactamente las demás vistas y las
+  claves de nivel superior, así que en un dashboard grande ya no hay que
+  reescribirlo entero (ni arriesgarse a perder tarjetas). Va en dos pasos: la
+  vista previa dice qué vista cambia (`view_before`, `view_after`,
+  `view_unchanged`), qué vistas se conservan (`views_kept`) y qué claves
+  (`top_level_keys_kept`), y al confirmar no hace falta reenviar `view` (se
+  guarda junto al token, como `config`). El token queda atado también al
+  estado del dashboard: si cambia entre la vista previa y la confirmación, se
+  rechaza con `dashboard_changed` y no se guarda nada. Mezclarlo con `config`
+  o `remove_top_level_keys` es `invalid_argument`. Sin los argumentos nuevos,
+  el guardado completo es exactamente el de la 1.1.2.
+- **Servicios con respuesta de la denylist, con confirmación**:
+  `ha_call_service_response` acepta `confirmation_token` (opcional). Los
+  servicios de la denylist (por ejemplo `conversation.process`) y los que
+  alcanzan un script o una automatización restringidos ya no quedan
+  bloqueados sin remedio: sin token siguen sin ejecutarse y devuelven el mismo
+  `error` que en la 1.1.2 (`service_in_denylist` o `entity_restricted`), y
+  además el `confirmation_token` y una vista previa como la de
+  `ha_call_service`; repitiendo la llamada con el token se ejecutan una vez y
+  devuelven su respuesta. Como toda vista previa con token, esa primera
+  respuesta ya no va marcada `isError`. La respuesta no se guarda junto al token. Fuera de
+  la denylist, todo igual que antes. Como defensa en profundidad, la capa de
+  cliente que llama a HA aplica también la denylist a los servicios con
+  respuesta, y solo la levanta esta tool tras validar el token.
+- **Sobre común de las listas nuevas**: toda tool de lista nueva de la 1.2.0
+  (y las genéricas) devuelve `{..., "count", "items", "truncated"}`; un test
+  lo exige a cada `ha_list_*` y `sv_list_*` nueva. Las tools de lista
+  anteriores conservan su forma, para no romper a sus clientes. Las cuatro
+  listas del diagnóstico del Supervisor (`sv_list_host_log_identifiers`,
+  `sv_list_boots`, `sv_list_host_services` y `sv_list_datadisk_candidates`)
+  lo usan: `count` es cuántos `items` vienen y, si la lista se cortó,
+  `total` dice cuántos había.
+
+### Política y genéricas
+
+- **Cuatro tools genéricas para lo que ninguna otra cubre**:
+  `ha_read_ws_command` y `ha_call_ws_command` (comandos WebSocket de Core) y
+  `sv_read_api` y `sv_call_api` (API del Supervisor). Solo ejecutan lo que
+  permite la tabla de comandos de Hermes; todo lo demás se rechaza sin llegar
+  a Home Assistant ni al Supervisor, con un código que dice por qué
+  (`command_not_classified`, `command_denied`, `use_dedicated_tool`,
+  `wrong_generic_tool`, `family_disabled`, `path_not_allowed`). Las de lectura
+  llevan `readOnlyHint`; la de Core se anuncia además de mundo abierto, porque
+  navegar o buscar en una fuente de medios remota consulta internet. Las de
+  escritura van siempre en dos pasos: la vista previa enseña lo que se
+  enviará (comando o ruta, categoría, motivo y cada clave de la carga con su
+  tipo y tamaño; un valor corto, entero; uno largo, sus 32 primeros
+  caracteres, su tamaño y un hash corto; uno sensible, tapado) y el token
+  queda atado a la tool, al comando o a la
+  ruta y método, y a la carga entera. Junto al token solo se guarda
+  `{"executed": true}`, nunca la respuesta. Las respuestas pasan por la
+  redacción de secretos y por el tope de tamaño, y el log lleva un evento
+  `generic_command` por llamada, sin valores. `logbook/get_action_calls` tapa
+  el `code` de alarmas y cerraduras de cada llamada.
+- **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
+  Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
+  cada uno `dedicated` (tiene tool propia: 195 y 102), `read` (120 y 31),
+  `confirm` (79 y 29) o `deny` (229 y 92, con su motivo); recuentos con todas
+  las sub-features del programa integradas (la última, la 026). Lo que no está se
+  rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
+  y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
+  la compara con los inventarios de la spec 008 y otro impide clasificar como
+  `read` un comando con verbo de escritura o una ruta que no sea `GET`.
+- **Familias de tools y opción `tool_families_disabled`** (vacía por defecto):
+  apaga grupos enteros de tools para ahorrar contexto al cliente. Las familias
+  de la 1.1.2 son `services`, `automations`, `helpers`, `events`, `data`,
+  `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`,
+  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade 26 más, una o
+  varias por sub-feature (la lista completa, con sus tools, en `DOCS.md`).
+  `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre
+  desconocido, o `base`, impide arrancar con un mensaje que nombra el valor y
+  los válidos. Con las familias de la 1.2.0 desactivadas, la lista de tools es
+  exactamente la de la 1.1.2. Una genérica tampoco ejecuta lo de una familia
+  desactivada. El log de arranque dice cuáles se desactivaron y cuántas tools
+  quedan (`tool_families`). Si una versión futura renombra una familia, el
+  nombre viejo seguirá valiendo como alias.
+- **Guía**: `hermes_guide(topic="generic_commands")` (alias `commands`,
+  `generic`, `ws`, `api`, `table`) explica cuándo usar las genéricas, las
+  categorías, los dos pasos y los rechazos; con `search="tag"` lista hasta 50
+  entradas de la tabla con su categoría, su tool dedicada o su motivo y, si la
+  tabla lo tiene, un ejemplo de carga. `search` es un argumento nuevo y
+  opcional: sin él, la guía responde lo mismo que en la 1.1.2. Las
+  instrucciones del servidor ya no dan un número de tools, que depende de las
+  familias activas.
+- **Inventarios y tabla regenerables** (para el mantenedor; no van dentro del
+  add-on): `scripts/inventario/extraer.py` saca los comandos de Core y las
+  rutas del Supervisor de su código fuente sin importarlo ni ejecutarlo, y
+  `scripts/inventario/generar_tabla.py` añade lo nuevo a la tabla como `deny`
+  «sin revisar» sin tocar lo ya clasificado.
+- **Constitución 1.2.0**: enmiendas E-1…E-4 (vista previa de las genéricas,
+  honestidad atada a la tabla, banco de Core en las comprobaciones y fecha de
+  publicación pendiente en el CHANGELOG mientras la versión se desarrolla).
+
+### Estado del sistema y estadísticas
+
+Spec 029: ocho tools nuevas de solo lectura en dos familias nuevas,
+`system_status` y `recorder`, y cuatro comandos de Core que siguen por la
+genérica de lectura. Con las dos familias desactivadas (y las demás de la
+1.2.0), la lista de tools es la de la 1.1.2.
+
+- **Cinco tools nuevas de solo lectura, familia `system_status`**: ninguna
+  modifica nada ni pide token, y se pueden apagar con
+  `tool_families_disabled`.
+  - `ha_get_system_health`: lo que enseña «Información del sistema» de HA,
+    por dominio. Los valores lentos se esperan hasta `timeout_seconds` (de 1
+    a 30, 10 por defecto), contados desde que HA confirma la petición; los
+    que no llegan salen en `pending` y los que HA da por fallidos (también
+    los que da como valor, como un Supervisor «Unhealthy»), en `failed`. Si no cabe en el tope de respuesta, quita
+    dominios enteros por el final y los nombra en `omitted_domains`; `domain`
+    pide uno solo. La suscripción de HA se cancela siempre. Se anuncia de
+    mundo abierto: algunas comprobaciones de salud de HA consultan servicios
+    de internet.
+  - `ha_get_system_state`: si HA o el host piden reinicio, por qué y si el
+    aviso se pospuso. No lo descarta.
+  - `ha_list_integration_setup_times`: cuánto tardó cada integración en
+    arrancar, de la más lenta a la más rápida.
+  - `ha_list_integration_manifests` y `ha_get_integration_manifest`: resumen
+    de diez campos por integración y manifiesto entero. El texto de una
+    integración que no es de HA va marcado como de terceros
+    (`_third_party_text`).
+  Las dos listas usan el sobre común de las listas nuevas (`count`, `items`
+  y `truncated`), con `total` y `total_seconds`, o `missing`, delante.
+  Las respuestas pasan por la redacción de secretos y el log solo lleva
+  recuentos, nunca valores, URLs ni direcciones. Un comando que HA no conoce
+  se explica por su causa: `system_health_not_loaded` o
+  `unsupported_by_ha_version`.
+- **Tres tools nuevas de solo lectura, familia `recorder`**: la familia del
+  recorder y las estadísticas de largo plazo; el mantenimiento de
+  estadísticas (spec 020, «Estadísticas y energía») se suma a ella.
+  - `ha_get_recorder_info`: si el recorder graba, su cola y si migra la base;
+    con `entity_id` (que tiene que existir), si esa entidad se graba y quién
+    lo desactivó.
+  - `ha_validate_statistics`: los problemas que HA ve en las estadísticas
+    (unidad cambiada, sin `state_class`, entidad que ya no está…), uno por
+    fila, con recuento por tipo y filtros por estadística y por tipo. Solo
+    valida: no corrige nada ni crea avisos en Repairs.
+  - `ha_get_statistics_metadata`: los metadatos de hasta 100 estadísticas, y
+    `missing` con las que HA no conoce.
+  Sin el recorder cargado responden `recorder_not_loaded`. El log no lleva
+  ids de estadísticas ni nombres de entidades.
+- **Por la genérica de lectura** (`ha_read_ws_command`), sin tool nueva:
+  `logbook/get_action_calls` (auditoría de las acciones llamadas en un
+  intervalo, con los `code` de alarmas y cerraduras tapados y un ejemplo de
+  carga en la tabla), y `network`, `network/url` y `http/config` (red, URLs y
+  servidor HTTP de Core; el log no lleva ninguna URL ni dirección).
+- **Tabla de comandos**: `system_health/info`, `subscribe_system_state`,
+  `integration/setup_info`, `manifest/list`, `manifest/get`, `recorder/info`,
+  `recorder/entity_options/get`, `recorder/validate_statistics` y
+  `recorder/get_statistics_metadata` pasan de `deny` a `dedicated` hacia su
+  tool; las genéricas los rechazan con `use_dedicated_tool`.
+- **Guía**: tema `system_status` (alias `health`, `system_health`,
+  `system_state`, `manifest`, `manifests`, `setup_times`, `urls`, `network`),
+  con la red, las URLs y el HTTP de Core; tema `recorder` (alias
+  `recorder_info`, `statistics_validation`, `action_calls`, `audit`), con la
+  auditoría de llamadas a acciones.
+- **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
+  también la auditoría y la red por la genérica. La configuración del banco
+  carga `system_health:`, `network:`, `recorder:` y `logbook:`.
+
+### Estadísticas y energía
+
+Spec 020: siete tools nuevas (cinco de mantenimiento de estadísticas en la
+familia `recorder` y dos del panel de energía en la familia nueva `energy`)
+y seis comandos más por la tabla. Tramo 1: tres tools nuevas que ESCRIBEN en la base de
+estadísticas de largo plazo, en la familia `recorder` de la 029. Las tres en
+dos pasos (vista previa sin efecto y confirmación con token), y solo un
+backup que incluya la base de HA deshace lo que hacen.
+
+- **`ha_clear_statistics`**: borra de 1 a 100 estadísticas enteras (filas y
+  metadatos) o, con `start_time` y `end_time` (ISO 8601 con zona), las filas
+  que se solapan con ese periodo. La vista previa da los metadatos de cada
+  una y el periodo EFECTIVO por tabla, porque HA borra también la fila
+  horaria que empieza hasta una hora antes de `start_time` (y la de 5
+  minutos, hasta 5 minutos antes).
+- **`ha_change_statistics_unit`**: convierte todo el histórico de una
+  estadística a otra unidad de la misma clase (Wh → kWh). Antes del token
+  rechaza lo que HA aceptaría sin hacer nada: una estadística que no es del
+  recorder (`not_supported_for_source`), una unidad vieja que no es la
+  guardada (`unit_mismatch`, con la actual) o la misma unidad. HA lo aplica
+  desde la cola del recorder: la confirmación responde `queued: true` y dice
+  cómo comprobarlo.
+- **`ha_update_statistics_metadata`**: cambia la unidad y la clase guardadas
+  SIN convertir valores (para un aviso de «unidad cambiada» con los valores
+  ya bien). Envía siempre `unit_class`.
+- **Comunes**: un id que HA no conoce da `statistics_not_found` con la lista,
+  sin token. El token ata los argumentos normalizados (ids ordenados y sin
+  repetir, fechas en UTC) y los metadatos leídos en la vista previa: si
+  cambian antes de confirmar, `statistics_changed` y no se envía nada; si no
+  se pueden leer, no se ejecuta. Un `timeout` de HA da `ha_timeout` con el
+  aviso de que el trabajo puede seguir en la cola. Respuestas y errores
+  redactados; el log no lleva ids, unidades ni fechas.
+- **Familia `recorder`**: su descripción ya no dice «read only»; nombra el
+  mantenimiento. Quien la desactiva apaga también estas tres.
+- **Tabla de comandos**: `recorder/clear_statistics`,
+  `recorder/change_statistics_unit` y `recorder/update_statistics_metadata`
+  pasan de `deny` a `dedicated`; las genéricas los rechazan con
+  `use_dedicated_tool`.
+- **Guía**: el tema `recorder` explica el mantenimiento (dos pasos,
+  `queued`, convertir frente a solo cambiar la etiqueta, rango efectivo); la
+  frase «SOLO LECTURA» queda para el grupo de las tres lecturas.
+- **Banco de Core**: las tres se ejecutan contra HA Core real con
+  estadísticas que siembra el lector, que comprueba que la vista previa no
+  cambia nada y el efecto de cada confirmación.
+
+Tramo 2: dos tools más en la misma familia, también en dos pasos, y los
+avisos de Repairs de las estadísticas por la genérica de escritura.
+
+- **`ha_adjust_statistics_sum`**: suma una cantidad (en su unidad, que HA
+  convierte) a la suma de cada fila desde un instante, para arreglar un
+  salto o un reinicio de un contador. NO es idempotente: la vista previa lo
+  dice, se anuncia sin `idempotentHint` y el token, de un solo uso, ata la
+  cantidad, la estadística, el instante (en UTC) y la unidad. La vista
+  previa da la suma guardada en esa hora antes y, con la misma unidad,
+  después. Una estadística sin suma da `statistic_has_no_sum` sin token
+  (HA respondería «ok» sin hacer nada). Responde `queued: true`.
+- **`ha_import_statistics`**: importa de 1 a 5000 filas horarias (más da
+  `invalid_argument` con el límite) y crea o actualiza los metadatos. Antes
+  de llamar a HA valida lo que HA rechazaría o aceptaría a medias: las siete
+  claves de `metadata` (sin `has_mean`: manda `mean_type`), la fuente que
+  casa con el id, `start` con zona y en hora en punto en UTC, filas sin
+  repetir, números finitos y claves conocidas. La vista previa resume sin
+  volcar las filas: si la estadística existe, sus metadatos actuales y los
+  nuevos, el número de filas, la primera y la última hora y cuántas filas
+  existentes se sobrescriben (contadas si abarcan 31 días o menos), y avisa
+  si el id es de una entidad que el recorder sigue grabando. El token ata el
+  documento entero normalizado; `stats` se puede omitir al confirmar (lo
+  guarda el token, como en Lovelace) y, si llega, tiene que ser idéntico.
+  Responde `queued: true`.
+- **Avisos de Repairs**: `recorder/update_statistics_issues` pasa de `deny`
+  a `confirm` en la tabla: `ha_call_ws_command` lo envía en dos pasos y sin
+  carga, para recalcular los avisos tras arreglar una estadística.
+- **Tabla de comandos**: `recorder/adjust_sum_statistics` y
+  `recorder/import_statistics` pasan a `dedicated`.
+- **Guía**: el tema `recorder` nombra las cinco de mantenimiento, explica el
+  ajuste no idempotente, la importación y la genérica de los avisos.
+- **Banco de Core**: las dos se ejecutan contra HA Core real (ajustar +5 kWh
+  desde una hora; importar 6 filas y sobrescribir una), y también los avisos
+  por la genérica; el lector comprueba cada efecto con un sondeo acotado.
+
+Tramo 3: el panel de energía, en una familia nueva `energy` (desactivable con
+`tool_families_disabled`).
+
+- **`ha_get_energy_prefs`**: lee la configuración del panel de energía: las
+  fuentes (red, solar, batería, gas, agua, casa), los dispositivos eléctricos
+  y los de agua. `configured: false` y las tres listas vacías si nunca se
+  configuró. Solo lee. Unas preferencias que no caben en el tope de
+  respuesta dan `response_too_large`: un documento de configuración no se
+  recorta.
+- **`ha_update_energy_prefs`**: guarda en dos pasos. Como en HA, cada lista
+  que llega (`energy_sources`, `device_consumption`,
+  `device_consumption_water`) reemplaza ENTERA la suya y las que no llegan se
+  conservan; la descripción y la vista previa lo dicen. La vista previa lee
+  las preferencias actuales y da, por cada lista que cambia, cómo está y cómo
+  quedará (`current` y `new`), los elementos que entran, salen y cambian
+  (por su tipo y sus estadísticas), las listas que se conservan, un aviso
+  por cada lista de la que se quitan elementos y otro expreso si se quitan
+  todas las fuentes, y las estadísticas que el recorder no conoce (HA no lo
+  comprueba al guardar). El token ata el documento que se enviará y las
+  preferencias leídas: si alguien guarda el panel entre medias,
+  `energy_prefs_changed` y no se guarda nada; si no se pueden leer, no hay
+  token ni se ejecuta. Rechaza, sin llamar a HA, listas mal formadas y un
+  `***REDACTED***` reenviado desde una lectura. El esquema completo lo valida
+  HA (`invalid_format` → `ha_command_failed` redactado). Sin la integración,
+  `energy_not_loaded`. El log lleva solo recuentos por lista.
+- **Por la genérica de lectura** (`ha_read_ws_command`), sin tool nueva:
+  `energy/validate` (problemas de configuración del panel),
+  `energy/info` (sensores de coste y dominios con previsión solar),
+  `energy/solar_forecast` (la previsión que ya tienen las integraciones; no
+  la descarga) y `energy/fossil_energy_consumption` (consumo de origen fósil
+  calculado con estadísticas, con un ejemplo de carga en la tabla). Ninguna
+  sale a internet.
+- **Tabla de comandos**: `energy/get_prefs` y `energy/save_prefs` pasan a
+  `dedicated`; las cuatro lecturas, a `read`. Ya no queda ninguna entrada
+  pendiente de la 020.
+- **Guía**: tema nuevo `energy` (alias `energy_prefs`, `energy_dashboard`,
+  `energia`) con el ciclo leer → editar → guardar y la llamada exacta de las
+  cuatro lecturas.
+- **Banco de Core**: la configuración del banco carga `energy:`. Las dos se
+  ejecutan contra HA Core real con el lector independiente (vista previa sin
+  efecto, dispositivo guardado con las fuentes intactas, preferencias
+  cambiadas entre medias rechazadas, preferencias de antes restauradas al
+  final), y también las cuatro lecturas por la genérica.
+
+Convergencia tras la revisión independiente:
+
+- **`ha_adjust_statistics_sum` exige una hora en punto (en UTC)**: HA ajusta
+  la tabla horaria desde `start_time` con los minutos a cero pero conserva
+  los segundos, así que con `10:30:15` no tocaba la fila de las 10:00 que la
+  vista previa enseñaba como ajustada. Ahora otro instante da
+  `invalid_argument` sin token.
+- **Números enormes**: un entero que no cabe en un float (`10**400`) en
+  `stats` o en `adjustment` da `invalid_argument` en vez de una excepción.
+- **Borrar no hace desaparecer la estadística de un sensor vivo**: la vista
+  previa, la descripción y la guía dicen que el recorder la vuelve a
+  compilar desde ahora (lo borrado no vuelve).
+- **`not_validated: ["statistic_in_database"]`** en la vista previa y la
+  respuesta de cambiar la unidad, editar los metadatos y ajustar: HA lista
+  también las estadísticas que una integración añadirá en su próxima
+  compilación, con los mismos campos que las guardadas, y con ellas responde
+  «ok» sin hacer nada. Hermes no puede distinguirlas y no afirma que se
+  comprobó.
+
+### Tienda de apps
+
+Spec 030: la tienda de apps del Supervisor (repositorios, recarga, changelog,
+documentación, disponibilidad y reconstrucción de una app), en una familia
+nueva, `app_store`, y vistas previas más honestas en tres tools de la 1.1.2.
+Con la familia desactivada (y las demás de la 1.2.0), la lista de tools es la
+de la 1.1.2.
+
+- **Nueve tools nuevas, familia `app_store`**. Cinco de repositorios:
+  - `sv_list_store_repositories`: los repositorios de la tienda con `builtin`
+    (los integrados del Supervisor, que no se pueden quitar), cuántas apps
+    ofrece cada uno y cuáles están instaladas; con `repository`, solo ese. Usa
+    el sobre común de las listas nuevas. Si el catálogo de apps no se puede
+    leer, la lista sale igual con los recuentos a `null` y el motivo.
+  - `sv_add_store_repository`: añade un repositorio en **dos pasos**. Es
+    código de terceros que no revisan ni Home Assistant ni Hermes: la vista
+    previa lo avisa, enseña la URL exacta que se enviará, el servidor y la
+    rama, y no descarga nada (clona el Supervisor al confirmar). Añadir no
+    instala ninguna app. Una URL que no es `http(s)://…[#rama]`, o un
+    repositorio que ya está, se rechazan sin token.
+  - `sv_remove_store_repository`: quita un repositorio en **dos pasos**. Un
+    integrado (`builtin_repository`) o uno con apps instaladas
+    (`repository_in_use`, con la lista y la pista de `sv_uninstall_addon`) se
+    rechazan sin token, como haría el Supervisor. El token se ata también al
+    repositorio y a sus apps instaladas leídos en la vista previa: si se
+    instala una app suya antes de confirmar, no vale.
+  - `sv_repair_store_repository`: vuelve a clonar un repositorio roto (el
+    Supervisor solo sustituye la copia si la descarga sale bien); `local` no
+    se puede reparar. Sin token.
+  - `sv_reload_store`: actualiza todos los repositorios y relee el catálogo,
+    sin instalar ni actualizar nada. Sin token.
+
+  Y cuatro de apps:
+  - `sv_get_addon_changelog` y `sv_get_addon_documentation`: el changelog y
+    la documentación de la versión que ofrece la **tienda** (no de la
+    instalada), redactados y marcados como texto de terceros, **por trozos**
+    (`offset`, `max_chars`, `next_offset`) dentro del tope de respuesta. Se
+    redacta el texto entero antes de cortarlo, para no partir un secreto. El
+    Supervisor responde con un 200 aunque la app no tenga changelog o no
+    exista; Hermes lee antes la ficha y reconoce esos textos
+    (`changelog_not_found`, `documentation_not_found`, `addon_not_found`).
+  - `sv_get_addon_availability`: si la app se puede instalar en este sistema
+    (arquitectura, tipo de máquina, versión de HA) y, si no, el motivo del
+    Supervisor.
+  - `sv_rebuild_addon`: reconstruye una app instalada en **dos pasos** (borra
+    contenedor e imagen y los rehace con la misma versión; con `force`, una
+    app de imagen vuelve a descargarla). Se rechaza sin token lo que el
+    Supervisor rechazaría: no instalada, desligada de la tienda, con otra
+    versión en la tienda o de imagen sin `force`. La vista previa dice que se
+    conservan opciones y `/data` y que, si la construcción falla, la app queda
+    sin imagen; sobre el propio Hermes, con el aviso de autoprotección.
+- **Vistas previas de tres tools de la 1.1.2**, sin argumentos nuevos y con
+  la misma petición al confirmar:
+  - `sv_install_addon` comprueba la tienda antes del token:
+    `addon_not_found`, `already_installed` y `addon_not_available` (con el
+    motivo) se devuelven sin token; la vista previa añade nombre, versión,
+    repositorio y, si el repositorio no es integrado, el aviso de terceros.
+  - `sv_update_addon` añade la disponibilidad y los primeros 4000 caracteres
+    del changelog de la versión de la tienda (redactados, texto de terceros).
+    Una app que ya está en la versión de la tienda responde
+    `already_up_to_date` con la versión instalada, **sin token**: no hay nada
+    que confirmar. Una app desligada de la tienda no se da por al día: la
+    vista previa dice `in_store: false` y que el Supervisor no la actualizará.
+  - En `sv_install_addon` y `sv_update_addon`, el token se ata también a la
+    `version_latest` de la vista previa: si la tienda publica otra antes de
+    confirmar, `preview_outdated` sin instalar ni actualizar nada. Los
+    argumentos y la petición, los de la 1.1.2; un token sin versión atada ya
+    no vale.
+  - Si la tienda no se puede leer al instalar, `store_check` dice que no se
+    sabe si la app está disponible, si ya está instalada ni si es de un
+    repositorio de terceros (`third_party_repository: null`).
+  - `sv_set_addon_options` valida las opciones finales con el Supervisor
+    (`options/validate`) antes del token: si no valen, `invalid_options` sin
+    token; si no se pudo validar, se dice y el token sale como antes. Avisa
+    también de una contraseña filtrada (`pwned`).
+  - **Seguridad (también en código de la 1.1.2)**: el Supervisor repite en
+    sus mensajes de opciones inválidas («… Got {…}») TODAS las opciones en
+    claro, cortadas a 500 caracteres; la sustitución literal de los secretos
+    no encontraba uno cortado ni uno escapado (barras, saltos de línea,
+    comillas). Ahora, del mensaje de validación y del error del guardado
+    nunca sale nada desde «Got», se tapan los valores de todas las opciones
+    (enteros, escapados o cortados) y, si aun así quedara un trozo de un
+    secreto, el mensaje es genérico con solo las claves que fallan. El error
+    del guardado, que además se escribía en claro en el fichero del token en
+    `/data`, pasa por la misma limpieza.
+- **Sin versión concreta (desviación de FR-051 de la 008)**: el Supervisor
+  2026.11.0 ignora `{version}` en `install/{version}`, `update/{version}` y
+  `GET /store/addons/{app}/{version}`, así que ninguna tool acepta una
+  versión: instalar y actualizar llevan siempre a la de la tienda, y la guía
+  explica la vuelta atrás con un backup parcial de la app.
+- **Credenciales y textos de terceros**: la parte de usuario de una URL con
+  credenciales (`usuario:contraseña@`, `usuario@` o `token@`, ENTERA) sale
+  como `***REDACTED***` en las vistas previas, las respuestas y los errores,
+  también en el texto que devuelve el Supervisor (que repite la URL y a veces
+  el token suelto), en todas las tools de repositorios; solo la petición
+  real al Supervisor lleva la URL completa, y el token de confirmación se ata
+  a la URL completa (otra credencial no lo confirma). El log
+  (`app_store_action`) solo lleva el `slug` del repositorio o de la app,
+  nunca la URL, textos ni opciones. Nombres, URL, mantenedores, changelog y
+  documentación van marcados como texto de terceros (`_third_party_text`),
+  con el aviso del Marketplace. Con una `@` sin codificar en la contraseña
+  se tapa hasta la última `@` antes del servidor, y una URL con un puerto que
+  no es un número (`https://u:p/ss@servidor/…`) se rechaza al validar.
+- **Anotaciones**: añadir, quitar y reconstruir son destructivas (piden
+  token); añadir, reparar, recargar y reconstruir, de mundo abierto (el
+  Supervisor descarga). Las de la 1.1.2 no cambian.
+- **Tabla de comandos**: `GET /store`, `GET /store/repositories`,
+  `GET /store/repositories/{repository}`, `POST /store/repositories`,
+  `DELETE /store/repositories/{repository}`,
+  `POST /store/repositories/{repository}/repair` y `POST /store/reload` pasan
+  de `deny` a `dedicated`; las genéricas los rechazan con
+  `use_dedicated_tool`. También el changelog, la documentación, la
+  disponibilidad y `POST /addons/{app}/rebuild` (a las tools nuevas),
+  `POST /addons/{app}/options/validate` (a `sv_set_addon_options`) y las tres
+  rutas con `{version}` (a `sv_install_addon`, `sv_update_addon` y
+  `sv_get_addon`, porque el Supervisor ignora la versión). No queda ninguna
+  entrada pendiente de la 030. Los iconos y logos de las apps siguen `deny`.
+- **Guía**: tema `app_store` (alias `store`, `tienda`, `repositories`,
+  `repository`, `repositorios`, `changelog`, `documentation`, `rebuild`,
+  `availability`), que el índice y las instrucciones del servidor nombran
+  solo con la familia activa; el tema `supervisor` remite a él y cuenta las
+  vistas previas nuevas y la validación de opciones.
+- **Pruebas**: con un Supervisor simulado con la forma del 2026.11.0. Las
+  cinco que modifican no se pueden ejecutar en el banco de Core (su
+  Supervisor es un simulado): quedan en la matriz como `VM` / `pendiente` y
+  en la tanda 2 del procedimiento de la VM. La prueba en vivo de toda la
+  sub-feature queda pendiente (VM de la 014, después instalación real).
+
+### Assist y conversación
+
+Spec 023: usar y depurar Assist desde Claude, en una familia nueva,
+`conversation`. Con la familia desactivada (y las demás de la 1.2.0), la
+lista de tools es la de la 1.1.2.
+
+- **Cuatro tools nuevas, familia `conversation`**:
+  - `ha_list_conversation_agents`: los agentes de conversación y sus idiomas.
+    El integrado de HA (`conversation.home_assistant`) sale primero, con
+    `is_default_agent`; es el único del que se sabe que funciona en local.
+    Con `include_language_scores=true`, además cuánto admite cada idioma.
+  - `ha_list_conversation_sentences`: las frases de los disparadores de frase
+    de las automatizaciones (solo esas), ordenadas, sin repetir y con
+    `search`.
+  - `ha_debug_conversation`: qué reconoce el agente integrado en hasta 20
+    frases (intent, huecos y entidades objetivo, o el disparador de frase con
+    el que coinciden) **sin ejecutar nada**.
+  - `ha_process_conversation`: manda una frase a Assist y la **ejecuta**,
+    siempre en **dos pasos**. La vista previa dice el agente y, con el
+    integrado, lo que HA reconoce; si coincide un disparador de frase, avisa
+    de que se ejecutará esa automatización entera. Con cualquier otro agente,
+    avisa de que el texto se le envía, que puede salir a un servicio externo
+    (un LLM en la nube) y que Hermes no puede prever qué hará (`local:
+    "unknown"`). El token se ata al texto, el agente, el idioma, la
+    conversación y el dispositivo, y solo guarda su hash. Si HA no contesta
+    en 90 s, la respuesta es `outcome_unknown`: la frase pudo ejecutarse
+    igualmente, y el token queda gastado. Si la conexión falla antes de
+    enviar nada, responde el error con `sent: false` y el token sigue
+    valiendo (`HAConnectionError` lleva el atributo `sent`, el mismo de la
+    spec 022). Se anuncia destructiva, no
+    idempotente y de mundo abierto.
+- **Tabla de comandos**: los cinco comandos de CAP-060 pasan a `dedicated`
+  (las genéricas ya no llegan a `conversation/process` sin la vista previa).
+  Pipelines, motores de voz, AI Task y satélites siguen por las genéricas,
+  revisados: en `assist_pipeline/pipeline_debug/get` el `token` del audio, su
+  `url` y su `media_id` salen tapados, y en cualquier respuesta de las
+  genéricas se tapa el token de `/api/tts_proxy/<token>` y de
+  `media-source://tts/-stream-/<token>`, que es el mismo (HA sirve ese audio
+  sin autenticación; el audio de STT no tiene URL); el motivo de
+  `ai_task/preferences/set` dice que la evaluación automática deja a HA usar
+  por su cuenta un LLM; `assist_pipeline/pipeline/create` trae un ejemplo
+  con sus once campos. `assist_pipeline/run` sigue rechazado.
+- **Guía**: tema `conversation` (alias `assist`, `voice`, `sentences`,
+  `intents`, `pipelines`, `tts`, `stt`, `wake_word`, `satellite`, `ai_task`,
+  `llm`…), que el índice y las instrucciones del servidor nombran solo con
+  la familia activa. Remite a las tools de exposición a asistentes
+  (`ha_list_exposed_entities`, `ha_set_entity_exposure`,
+  `ha_set_expose_new_entities`), porque Assist solo controla lo expuesto, y
+  el tema `assistant_exposure` remite a este. Los alias `assist` y `voice`,
+  que antes llevaban a `assistant_exposure`, llevan ahora a `conversation`.
+- **Banco de Core**: `ha_process_conversation` se ejecuta contra HA Core
+  2026.11.1 real con un disparador de frase que crea el test (la vista previa
+  no lo ejecuta; la confirmación sí, y el lector lo ve), y las tres de
+  lectura también. Pipelines (crear, editar, preferido y borrar) y las
+  preferencias de AI Task, por las genéricas. La configuración del banco
+  carga `assist_pipeline:`, `llm:` y `ai_task:`. Un agente que no es el
+  integrado y los satélites solo se prueban en unitarios: el banco no tiene
+  ninguno.
+
+### Backups de Home Assistant
+
+Spec 031. Seis tools nuevas en la familia `backup_integration`, desactivable:
+con ella apagada (y las demás de la 1.2.0), la lista de tools es la de la
+1.1.2. Los safety backups pasan a salir cifrados (ver el primer punto).
+
+- **CAMBIO DE COMPORTAMIENTO frente a la 1.1.2: los safety backups salen
+  cifrados por defecto si Home Assistant tiene clave.** `sv_create_safety_backup`
+  y el safety backup automático (antes de escribir en `/config`) se cifran con
+  la clave de los backups de HA, la del kit de emergencia, que Hermes lee de
+  HA en cada backup y no guarda ni devuelve nunca (ni en la respuesta, ni en
+  `last_safety_backup.json`, `safety_backups.json` o `pending_jobs.json`, ni
+  en un token, ni en el log). Así se pueden restaurar desde la interfaz o la
+  CLI de HA aunque Hermes esté roto. Opción nueva **`safety_backup_encryption`**:
+  `auto` (por defecto; sin clave en HA, el backup sale sin cifrar y se dice),
+  `required` (sin clave no hay safety backup: la tool responde
+  `encryption_key_unavailable` y la escritura en `/config` no se hace) y `off`
+  (como en la 1.1.2). Un valor desconocido impide arrancar. La respuesta de
+  `sv_create_safety_backup` dice siempre `encrypted`; cifrado, con
+  `restore_note` (restaurar necesita la clave de HA o el kit de emergencia);
+  sin cifrar con `auto`, con `encryption_skipped_reason` (`no_key_configured`,
+  `backup_integration_unavailable` o `ha_unreachable`) y un aviso, y el log
+  avisa también en el automático. Para restaurarlo, `sv_restore_backup_full`
+  sin `password` usa la clave de HA. La retención (`safety_backup_keep`) sigue
+  podando los cifrados: la anotación guarda `encrypted: true` en los que
+  Hermes cifró, y solo esos se podan estando protegidos; un backup protegido
+  que no anotó así (tuyo, o de antes de la 1.2.0) sigue sin tocarse. La
+  ventana, el límite duro y el lock no cambian, salvo con `required`: un
+  safety backup reciente SIN cifrar (hecho antes con `auto` sin clave o con
+  `off`) no se reutiliza ni cubre una escritura, y se hace uno nuevo cifrado
+  (o, sin clave, no hay backup ni escritura; si es de hace menos de 60 s,
+  `safety_backup_rate_limited`). `last_safety_backup.json` guarda si el
+  último iba cifrado, y la respuesta de reutilizar también dice
+  `encrypted`. **Desviación de FR-068 de la
+  spec 008** (que pedía una contraseña generada y guardada en `/data`): solo
+  Hermes podría abrir esos backups y la contraseña viajaría dentro del propio
+  backup que cifra; la clave de HA cumple su intención (cifrados, nunca
+  devuelta ni registrada, restaurables) también con Hermes roto.
+
+- **`ha_list_backup_agents`** (solo lee): dónde puede guardar HA sus backups,
+  cada agente con `kind` (`local`, `mount` para un montaje de red del
+  Supervisor, `remote`), `protected` (si HA cifra la copia que guarda ahí),
+  su retención propia y si lo usan los backups automáticos. Lista con el
+  sobre común (`count`, `items`, `truncated`).
+- **`ha_update_backup_config`** (dos pasos): programación, retención,
+  agentes y contenido de los backups automáticos. Valida cada clave contra
+  el esquema de HA 2026.11.1 antes de llamar y rechaza `password` en
+  cualquier sitio sin repetir su valor: la clave de cifrado no sale ni se
+  cambia por Hermes. HA sustituye `schedule` y `retention` enteros, así que
+  Hermes los completa con los valores actuales de lo que no se pasa (un
+  `schedule` a medias ya no apaga los automáticos). La vista previa enseña lo
+  actual, lo resultante, lo que se manda, lo que cambia, los avisos (agente
+  sin cifrar, programación a `never`, agentes que no existen) y una
+  ESTIMACIÓN, con las reglas de HA, de los backups automáticos que la
+  retención borraría y cuándo. El token ata además la configuración leída y
+  esa estimación: si cambian antes de confirmar, `state_changed`.
+- **`ha_create_backup`** (dos pasos): un backup a medida
+  (`backup/generate`) en los agentes que se elijan (validados contra los de
+  HA: `unknown_agent` con los disponibles), con la configuración, la base de
+  datos, apps y carpetas. `encrypt` (por defecto `true`) cifra con la clave
+  de los backups de HA, la del kit de emergencia: no acepta contraseñas, y
+  sin clave en HA responde `no_encryption_key` sin crear nada. La vista
+  previa dice qué se guarda, dónde y si cada copia va cifrada (HA descifra la
+  de un agente con `protected: false`), y avisa si una copia sin cifrar sale
+  a un agente remoto. La clave se lee otra vez al confirmar y no entra en el
+  token, la vista previa, la respuesta ni el log. Devuelve `backup_job_id` y
+  cómo seguirlo.
+- **`ha_create_automatic_backup`** (dos pasos): un backup ahora con los
+  ajustes automáticos. La vista previa trae la estimación de los backups que
+  la retención borrará al terminar; sin agentes en los ajustes,
+  `automatic_backups_not_configured`.
+- **`ha_delete_backup`** (dos pasos): borra un backup de TODAS sus
+  ubicaciones, también las remotas, que `sv_delete_backup` no ve. La vista
+  previa dice el backup, su fecha y versión, cada ubicación con su tamaño y
+  su cifrado, lo que se pierde (configuración, base de datos, apps y
+  carpetas), si es automático o un safety backup de Hermes, y avisa si es el
+  único con la configuración de HA. El token ata el backup, su contenido y
+  sus ubicaciones; si un agente no se puede leer no hay token
+  (`backup_locations_unreadable`). La respuesta dice dónde se borró y dónde
+  falló (`result: partial`), con los errores enmascarados.
+- **`ha_restore_backup`** (dos pasos): restaura un backup desde cualquier
+  ubicación (`backup/restore`), con una vista previa al menos tan completa
+  como la de `sv_restore_backup_full`: el backup, la ubicación elegida (la
+  local si el backup está en ella; si solo está en remotas,
+  `agent_id_required`) con su cifrado y dónde más está, de dónde sale la
+  contraseña (`password_source`, nunca el valor), qué se sobrescribe (cada
+  app con su versión, cada carpeta), qué hay en el backup que no se
+  restaura, y los avisos (lo posterior se pierde, Core se reinicia, se
+  descarga de una ubicación remota, se sustituye el propio Hermes). Valida
+  antes lo que HA rechazaría a mitad de camino (`not_in_backup`, base de
+  datos distinta de la del backup con Supervisor, apps o carpetas sin
+  Supervisor). El token ata los argumentos (también `password`, con el HMAC
+  de la 019) y la huella del backup en esa ubicación: si cambia, no se
+  restaura. Sin respuesta de HA tras enviar la orden (Core reiniciándose),
+  responde `restore_started` con cómo comprobarlo, nunca `completed`; si la
+  orden no llegó a salir, error. Una vista previa que no cabe en
+  `response_max_bytes` no da token. Sin `password`, un backup cifrado usa la
+  clave de los backups de HA, que no sale en ninguna respuesta, error ni log.
+- **`sv_restore_backup_full` y `sv_restore_backup_partial`**: sin
+  `password`, un backup protegido se restaura con la clave de los backups de
+  HA (la del kit de emergencia), y la vista previa dice `password_source`
+  (`provided`, `backup_encryption_key`, `backup_encryption_key_unavailable`,
+  `not_needed` o `unknown` si no se pudo leer el backup). El token ata esa
+  fuente. Si el Supervisor rechaza la clave, el error sugiere que el backup
+  puede ser de una clave anterior. Con `password`, nada cambia.
+- **La clave no sale en ningún texto**: si HA o el Supervisor la citaran en
+  un error (con o sin `password=` delante, escapada en JSON o `repr`, entera
+  o recortada), se tapa en un único punto, la llamada que la lleva, antes de
+  llegar a la respuesta, el log, el fichero del token o `/data`.
+- **Avisos honestos sin clave**: si no hay clave porque HA no respondió o la
+  integración no está, la vista previa de restaurar y el error de
+  `ha_create_backup` dicen que no se pudo leer, no que HA no la tiene; y si
+  HA no responde al confirmar una `sv_restore_*`, el error es
+  `ha_unreachable` (nada se restaura y el token sigue valiendo), no
+  `state_changed`. `ha_create_automatic_backup` ata además los agentes
+  disponibles: si cambian antes de confirmar, `state_changed`.
+- **Cliente de HA**: `HAConnectionError` lleva `sent` (si la orden salió por
+  el WebSocket antes de fallar la espera), y un fallo al escribir en el
+  socket llega como `HAConnectionError` en vez de la excepción de aiohttp.
+- **`ha_list_backups`** añade `last_action_event` (`manager_state`, `state`,
+  `stage`, `reason`, por lista blanca) para ver si un backup creado terminó
+  bien o falló; el resto de la respuesta no cambia.
+- **Sin tools para el backup previo a actualizar**: si HA hace un backup
+  antes de actualizar Core o una app se ajusta con `hassio/update/config/*`,
+  y el proxy WebSocket del Supervisor rechaza todo `hassio/*` y
+  `supervisor/*` que mande una app («Unauthorized»). Hermes es una app, así
+  que esos ajustes se cambian en la interfaz de HA.
+- **Tabla de comandos**: `backup/agents/info` y `backup/config/update` pasan
+  de «pendiente de tool dedicada (spec 031)» a sus tools (las genéricas los
+  rechazan con `use_dedicated_tool`), y `hassio/update/config/*` a `deny`
+  con el motivo del proxy del Supervisor. Un test nuevo impide que un
+  comando `hassio/*` o `supervisor/*` quede en `read` o `confirm`, o como
+  `dedicated` hacia una tool que lo mande por WebSocket. `backup/generate`,
+  `backup/generate_with_automatic_settings` y `backup/delete` pasan de `deny`
+  a sus tools (antes la de los ajustes automáticos remitía a
+  `ha_call_service`), y `backup/restore` a `ha_restore_backup`: ya no queda
+  ninguna entrada pendiente de la 031.
+- **Guía**: tema nuevo `backup_integration` (alias `backup_agents`,
+  `backup_config`, `backup_schedule`, `backup_retention`, `create_backup`,
+  `delete_backup`, `restore_backup`, `restore`), con crear, crear con los
+  ajustes automáticos, borrar y restaurar (y cómo leer `restore_started`);
+  `backup` sigue llevando a `backups`. El tema `backups` explica los safety
+  backups cifrados, la opción y cómo restaurarlos.
+- **Banco de Core**: la configuración carga `backup:` (agente
+  `backup.local`); `ha_list_backup_agents`, `ha_update_backup_config`,
+  `ha_create_backup` (cifrado y sin cifrar), `ha_create_automatic_backup`
+  (con la retención borrando de verdad) y `ha_delete_backup` se ejecutan
+  contra HA real, con el efecto leído por el lector y la vista previa sin
+  cambiar nada; la clave de cifrado se lee de HA real y no sale en ninguna
+  respuesta ni en el log. De `ha_restore_backup` se prueban la vista previa
+  de un backup cifrado, el rechazo de apps sin Supervisor y la contraseña
+  incorrecta (HA la rechaza sin reiniciarse); la restauración con éxito
+  reinicia Core y queda para la VM de la 014.
+
+### Menores de Core
+
+Spec 024: cámaras e imágenes, restablecer un dashboard y lo menor de Core
+por la tabla.
+
+- **`ha_get_camera_snapshot` y `ha_get_image_entity`** (familia nueva
+  `cameras`, activa por defecto y desactivable): la instantánea de una
+  entidad `camera.*` y la imagen de una entidad `image.*`, devueltas como un
+  bloque de imagen MCP junto a sus metadatos (`content_type`, `bytes`,
+  `width`, `height`). Solo leen; se anuncian de mundo abierto porque una
+  cámara en la nube o una entidad `image` que descarga de una URL salen a
+  internet. Privacidad: una cámara puede enseñar el interior de la casa y la
+  imagen se manda al cliente MCP; lo dicen las descripciones y la guía. No
+  devuelven nunca el `access_token` de la entidad ni una URL firmada: Hermes
+  pide la imagen por la API REST de Core con su propio token, y el log solo
+  lleva la entidad, los bytes y el resultado.
+- **Tope de 2 MiB, sin Pillow**: la imagen se lee en flujo
+  (`HAClient.rest_get_image`) y, si pasa de 2 MiB, se deja de leer y la tool
+  responde `image_too_large`; nunca se devuelve una imagen a medias. A Home
+  Assistant se le pide la imagen de la cámara de unos `max_width` píxeles (64
+  a 1920, 640 por defecto), pero solo escala JPEG. Solo se devuelve algo cuyo
+  `Content-Type` sea una imagen (`unsupported_content_type` si no). Errores:
+  `not_found`, `camera_unavailable`/`image_unavailable`, `snapshot_failed`
+  (con el estado de Home Assistant) y `ha_unavailable`.
+- **Preferencias de cámara por la tabla**: `camera/get_prefs` pasa a `read` y
+  `camera/update_prefs` a `confirm` (precarga del stream y orientación, en
+  dos pasos; de mundo abierto, porque precargar el stream de una cámara en la
+  nube mantiene tráfico hacia internet).
+- **Miniaturas tapadas** (hallazgo de la especificación):
+  `media_source/browse_media` y `media_source/search_media` siguen `read`,
+  pero tapan la `thumbnail` de cada elemento, porque alguna fuente de medios
+  (motionEye) la firma con `authSig`, una credencial temporal que da acceso al
+  medio sin token.
+- **Clasificación fijada por tests** de las 17 entradas de cámaras,
+  calendario y tareas, tags, medios e imágenes subidas (`media_source/
+  resolve_media` e `image/create` siguen `deny`).
+- **Guía**: tema nuevo `cameras` (alias `camera`, `cámaras`, `camaras`,
+  `snapshot`, `image`, `imagen`), que las instrucciones del servidor nombran
+  solo con la familia activa, y tema nuevo `core_minor` (alias `minor`,
+  `menores`) con calendario y tareas, tags, medios e imágenes subidas.
+- **Banco de Core**: las dos tools contra HA Core 2026.11.1 real (una cámara
+  `local_file` con un JPEG gris generado por el propio banco, sin fotos, y la
+  entidad `image` de `kitchen_sink`), y una ejecución por las genéricas de
+  calendario y tareas (`local_calendar`, `local_todo`), imágenes subidas,
+  medios locales y preferencias de cámara, con el efecto comprobado por el
+  lector y la vista previa sin efecto. La configuración del banco carga
+  `media_source:` e `image_upload:` y apunta `media_dirs` a su carpeta
+  `media/`.
+- **`ha_reset_lovelace_dashboard_config`** (familia nueva `dashboard_reset`,
+  activa por defecto y desactivable; la familia `lovelace` de la 1.1.2 no
+  cambia): borra la configuración guardada de un dashboard en modo
+  almacenamiento (`lovelace/config/delete`) y lo devuelve a la vista
+  autogenerada. Siempre en dos pasos: la vista previa dice el título, el
+  modo, cuántas vistas y tarjetas se pierden (en un dashboard de estrategia,
+  `strategy` con el tipo de la estrategia que se pierde), que es irreversible
+  salvo con un backup y cómo copiarlo antes con `ha_get_lovelace_dashboard`.
+  Si no se puede leer la lista de dashboards, `dashboards_unavailable`: no
+  se borra nada, nunca un `not_found` falso, y el token no se gasta. El token
+  ata el dashboard y la configuración leída: si cambia antes de confirmar,
+  `dashboard_changed` y no se borra nada. El dashboard principal y el panel
+  por defecto se rechazan siempre, con y sin token
+  (`cannot_reset_default_dashboard`), y si no se puede leer el panel por
+  defecto no se borra nada (`default_panel_unknown`). Los de modo YAML dan
+  `yaml_mode_dashboard` y uno ya autogenerado, `nothing_to_reset`. Destructiva
+  e idempotente, de mundo cerrado. El log no lleva la configuración.
+  `lovelace/config/delete` pasa a `dedicated` hacia ella en la tabla.
+- **Cinco lecturas de la UI por la tabla** (antes `deny`), comprobado en el
+  código de Core que solo leen: `trace/contexts`, `frontend/get_themes`,
+  `webhook/list` (el `webhook_id` sale tapado: basta para disparar la
+  automatización desde fuera sin autenticarse; su valor se tapa también
+  donde se repita, entero o dentro de un texto, como el nombre que ONVIF
+  pone igual al id, y una entrada sin `webhook_id` legible solo deja ver el
+  dominio, `local_only` y los métodos), `vacuum/get_segments` (de
+  mundo abierto: alguna integración pide los segmentos al aspirador o a su
+  nube) y `radio_frequency/list`.
+- **Credenciales de aplicación**: el motivo de
+  `application_credentials/config_entry` ya no promete el id de la
+  credencial, que la redacción general tapa; el `client_secret` de
+  `application_credentials/list` sigue tapado y crear, cambiar o borrar
+  credenciales sigue denegado.
+- **Las 33 entradas** de cámaras, calendario y tareas, tags, medios,
+  registros (orden de áreas y plantas, ids automáticos y ajustes),
+  restablecer, lecturas de la UI, imágenes subidas y credenciales de
+  aplicación, fijadas por test; ninguna queda «pendiente (spec 024)».
+- **Guía**: el tema `lovelace` gana la sección «Restablecer un dashboard»
+  (alias `reset`, `restablecer`) y `core_minor` se completa con temas,
+  webhooks, contextos de trazas, segmentos, radiofrecuencia, orden y
+  ajustes de los registros y credenciales de aplicación (alias
+  `webhooks`, `themes`, `temas`).
+- **Banco de Core**: restablecer un dashboard creado en el test contra HA
+  Core 2026.11.1 real (vista previa sin efecto y `config_not_found` al
+  confirmar, comprobado por el lector; el principal, rechazado sin token),
+  y una ejecución por las genéricas de cada lectura de la UI (con una
+  automatización de disparador `webhook` y un aspirador de plantilla con
+  zonas), de los registros (el orden de las áreas, en dos pasos y
+  restaurado) y de las credenciales de aplicación. La configuración del
+  banco carga además `webhook:` y `application_credentials:`. Sin
+  hallazgos.
+
+### Integraciones específicas
+
+Spec 025: los comandos WebSocket de integraciones concretas (clase C:
+Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX, Insteon…) se clasifican uno a uno
+en la tabla de las genéricas, con el handler de HA leído. Sin tools nuevas: se
+usan con `ha_read_ws_command` y, en dos pasos, `ha_call_ws_command`. Son 192
+comandos: **73 de lectura, 57 en dos pasos y 62 rechazados**, y ninguno queda
+«pendiente de revisión». Lo que no tiene sentido por MCP (suscripciones que
+quedarían abiertas, lo que no responde, la inclusión interactiva) o devuelve
+o pide un secreto (claves de red, DSK, códigos de emparejamiento, tokens,
+contraseñas) se rechaza o se tapa.
+
+- **Z-Wave JS** (55 comandos): 18 de lectura (estado de la red y de los
+  nodos, parámetros de configuración, avisos, capacidades; las estadísticas
+  del controlador y de un nodo, como lectura de un solo mensaje), 13 en dos
+  pasos (cambiar un parámetro, reconstruir rutas, refrescar valores, la tabla
+  de vecinos, que apaga la radio mientras dura, y actualizar la base de datos
+  de dispositivos) y 24 rechazados (inclusión y exclusión, S2, SmartStart y
+  DSK, nodos fallidos, reset y NVM del controlador, firmware,
+  `invoke_cc_api`, las suscripciones sin primer mensaje y
+  `refresh_node_info`, que deja una suscripción de progreso abierta).
+- **Tema `zwave` de `hermes_guide`** (alias `zwave_js`, `z-wave`, `z_wave`):
+  qué se lee, qué se cambia en dos pasos, qué se rechaza y por qué, y la otra
+  vía (las acciones `zwave_js.*` y la interfaz de HA).
+- **ZHA** (28 comandos): 13 de lectura (dispositivos, grupos, clústeres y
+  atributos, ajustes y copias de la red, opciones), 10 en dos pasos (vincular
+  y desvincular, grupos y sus miembros, crear una copia de la red y cambiar
+  las opciones) y 5 rechazados (`zha/devices/permit` y
+  `zha/devices/reconfigure`, que dejan una suscripción abierta; restaurar una
+  copia, cambiar de canal y `zha/topology/update`, que no responde). Para
+  permitir uniones queda la acción `zha.permit` por `ha_call_service`.
+- **Matter** (11): 3 de lectura (topología, diagnóstico y ping de un nodo),
+  1 en dos pasos (reentrevistar un nodo) y 7 rechazados (commissioning y
+  `matter/open_commissioning_window`, que devuelve el código de
+  emparejamiento; quitar un fabric; dataset Thread y Wi-Fi; la suscripción
+  de topología).
+- **Thread y OTBR** (11): 2 de lectura (`thread/list_datasets`, sin la
+  clave, y `otbr/info`), 2 en dos pasos (dataset y router de borde
+  preferidos) y 7 rechazados (leer, añadir o borrar un dataset, crear o
+  cambiar la red y su canal, y el descubrimiento de routers por eventos).
+- **Temas `zigbee` (alias `zha`) y `matter_thread` (alias `matter`,
+  `thread`, `otbr`) de `hermes_guide`**, con el mismo esquema que `zwave`.
+- **MQTT** (2): `mqtt/device/debug_info` de lectura (topics, suscripciones,
+  descubrimiento y mensajes recibidos de un dispositivo) y `mqtt/subscribe`
+  rechazado (streaming). Para publicar queda la acción `mqtt.publish`.
+- **USB y Bluetooth** (7): 4 de lectura (puertos serie y quién los usa,
+  integraciones que usan un puerto serie, pedir un escaneo USB y los anuncios
+  Bluetooth, como lectura de un solo mensaje) y 3 rechazados (suscripciones
+  de Bluetooth que solo emiten si hay datos o mandan un mensaje por
+  escáner).
+- **El resto** (78 comandos de KNX, Insteon, LCN, ESPHome, Dynalite,
+  LoRaWAN, Modbus, Wyoming, HTML5, DHCP, SSDP, zeroconf, Sendspin, la app
+  móvil y la cámara genérica): 32 de lectura, 31 en dos pasos (entidades y
+  exposiciones KNX, ALDB, propiedades y escenas Insteon, módulos y entidades
+  LCN, la configuración de Dynalite, que se REEMPLAZA entera) y 15
+  rechazados (la clave de cifrado de ESPHome, el token de Sendspin, el
+  esquema del hub Insteon, que lleva su contraseña, las credenciales del hub
+  y del proyecto ETS, el enlace interactivo de Insteon, el canal de la app
+  móvil y las suscripciones). Los equipos vistos por DHCP y el estado de
+  carga de la ALDB de Insteon se leen en un solo mensaje.
+- **Tema `other_integrations` de `hermes_guide`** (alias `mqtt`, `usb`,
+  `bluetooth`, `knx`, `insteon`, `lcn`, `esphome`, `dynalite`, `lorawan`,
+  `modbus`, `wyoming`), con el mismo esquema que los otros tres.
+- **Banco de pruebas**: el banco de Core carga `usb:` y prueba sus lecturas
+  por la genérica contra HA real, más los rechazos y la respuesta de una
+  integración no cargada (`unknown_command`). El resto de la clase C
+  necesita radios o servidores y se prueba con unitarios.
+- **Generador de la tabla**: `scripts/inventario/clase_c.py` guarda la
+  clasificación revisada de la clase C, así que generar la tabla desde cero
+  da la misma que la revisada a mano (un test lo compara en las 192 filas).
+  Un comando nuevo de una integración que llegue con una versión nueva de HA
+  entra como `deny` «sin revisar» y un test lo nombra hasta clasificarlo;
+  si una versión nueva cambia un handler de la clase C, hay que volver a
+  leerlo antes de subir la versión probada.
+- Desviaciones frente a las notas de la spec 008, tras leer los handlers:
+  `zwave_js/refresh_node_info`, `zha/devices/permit` y `reconfigure` y
+  `thread/discover_routers` se rechazan (dejan suscripciones abiertas);
+  `matter/open_commissioning_window` y `thread/get_dataset_tlv`, también
+  (devuelven secretos); `usb/scan` y `notify/html5/appkey` (la clave
+  PÚBLICA VAPID) quedan de lectura.
+- Las tools dedicadas de Z-Wave que la spec 008 citaba como opcionales se
+  descartan: la genérica cubre lo mismo.
+
+Seguridad:
+
+- **Un valor bajo una clave sensible se tapa ENTERO, sea del tipo que sea.**
+  Antes, la redacción de las respuestas (`redact_structure` y las copias
+  locales de las genéricas y de dos tools) solo tapaba textos: un número
+  salía tal cual y un objeto se recorría, de modo que lo que llevaba dentro
+  bajo un nombre inocente salía en claro. La clave de red de ZHA viaja
+  justo así (`"network_key": {"key": "…", "tx_counter": …}`). Ahora, si la
+  clave es sensible, el valor entero (texto, número, objeto o lista) sale
+  como `***REDACTED***`; `null`, los booleanos y lo vacío se conservan. Un
+  número legítimo bajo una clave sensible (`token_expiry_seconds`) sale
+  también tapado, y una lista de secretos es un solo marcador. Bajo una
+  clave extra de una entrada de la tabla (`redact_extra`) se tapa aún más:
+  todo salvo `null` y la cadena vacía, también los booleanos y los objetos
+  o listas vacíos.
+- **Las claves S0 y S2 de Z-Wave se reconocen como secretos.** La
+  integración las guarda en las opciones de la app Z-Wave JS como
+  `s0_legacy_key`, `s2_access_control_key`, `s2_authenticated_key`,
+  `s2_unauthenticated_key` y sus variantes `lr_s2_…`; ningún nombre
+  contenía un marcador conocido y `sv_get_addon_options` las devolvía en
+  claro.
+- `zwave_js/get_provisioning_entries` devuelve el DSK de cada nodo
+  preaprovisionado tapado (sus cinco primeros dígitos son el PIN de S2).
+- `zha/network/settings`, `zha/network/backups/list` y
+  `zha/network/backups/create` devuelven tapadas ENTERAS la clave de red, la
+  de enlace, la tabla de claves y el material propio de la radio
+  (`network_key`, `tc_link_key`, `key_table`, `stack_specific`); el canal y
+  el PAN siguen visibles. `otbr/info` tapa el dataset Thread activo (lleva
+  la clave de red y el PSKc), y `zha/configuration` el código maestro de la
+  alarma de ZHA (`alarm_master_code`), también en la vista previa de
+  `zha/configuration/update`.
+- `insteon/config/get` devuelve la contraseña del hub tapada, y
+  `mqtt/device/debug_info`, el `code` del descubrimiento de alarmas y
+  cerraduras MQTT, la lista entera de mensajes que HA envió (el de armar
+  una alarma puede llevar el código dentro del texto) y el contenido
+  (`payload`) de cada mensaje recibido, que es texto libre del dispositivo
+  (un teclado puede publicar el código que se ha tecleado); de los recibidos
+  se siguen viendo el topic, la fecha, el QoS y `retain`. En total, nueve
+  entradas de la clase C tapan secretos, cada una con un test centinela con
+  la forma real de los datos de HA.
+- **Las genéricas de escritura rechazan el marcador de redacción.**
+  `ha_call_ws_command` y `sv_call_api` rechazan, sin token y sin llamar a
+  nada, una carga que lleve `***REDACTED***` en cualquier valor o clave
+  (`redacted_value_in_payload`, con las rutas, nunca los valores). Leer
+  `zha/configuration`, cambiar otra opción y reenviar `data` entero a
+  `zha/configuration/update` guardaba el marcador como código maestro de la
+  alarma (la actualización REEMPLAZA las opciones propias de ZHA), y la vista
+  previa no lo dejaba ver. Las tools dedicadas que reciben un documento
+  leído ya lo rechazaban: `sv_set_addon_options`, las de energía, los
+  puntos de montaje y los flujos de integración, de subentradas y de
+  reparación.
+- Los errores de `sv_set_addon_options` vuelven a reconocer como secretos los
+  valores de un objeto o una lista bajo una clave sensible
+  (`{"credentials": {"password": …}}`): con el tapado entero se habían dejado
+  de reconocer, y un mensaje del Supervisor que nombrara uno corto salía tal
+  cual en lugar del mensaje genérico.
+### Escritura en el Marketplace
+
+Spec 026: atender los avisos del Marketplace de Core (antes HACS), mantener
+su lista y desinstalar, en una familia nueva, `marketplace_manage`. Con la
+familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
+1.1.2.
+
+- **Cinco tools nuevas, familia `marketplace_manage`**, todas en **dos
+  pasos** y ninguna instala nada:
+  - `ha_marketplace_acknowledge_critical`: reconoce un repositorio crítico
+    (HA ya lo desinstaló al marcarlo) y quita su aviso de Repairs. Sin token
+    si no está en la lista de críticos (`not_critical`) o ya está reconocido
+    (`already_acknowledged`).
+  - `ha_marketplace_ignore_repository`: deja de avisar de un repositorio
+    retirado del catálogo y lo conserva. Solo uno retirado y no crítico (sin
+    token: `repository_not_removed`, `critical_repository`).
+  - `ha_marketplace_remove_repository`: quita de la lista un repositorio
+    personalizado que no está instalado (sin token: `not_custom_repository`,
+    `repository_installed`).
+  - `ha_marketplace_refresh_repository`: HA vuelve a pedir el repositorio a
+    GitHub; `github_rate_limited` explicado.
+  - `ha_marketplace_uninstall`: desinstala un repositorio instalado (HA
+    borra sus ficheros de `/config`, el recurso de Lovelace de una tarjeta y
+    la entidad `update` del Marketplace). Sin token si no está instalado
+    (`repository_not_installed`) o si es una integración con entradas de
+    configuración, también ignoradas (`repository_in_use`, con la pista de
+    `ha_delete_config_entry`). La vista previa dice qué se quita, si habrá
+    que reiniciar Core (y cuándo Hermes no lo puede saber) y qué puede dejar
+    de funcionar según la categoría (HA no dice qué entidades o tarjetas lo
+    usan, y la vista previa lo avisa). **Backup previo**: al confirmar, y
+    antes de enviar nada a HA, Hermes pide al Supervisor un backup parcial de
+    la configuración de HA **sin la base de datos** (sin cifrar), con un
+    nombre genérico sin el repositorio, y espera a que termine; si falla o no
+    termina, responde `backup_failed` (con el `job_id` si lo hay), no
+    desinstala nada y el token queda gastado. `backup=false` lo omite.
+    Hermes no reinicia Core: `restart_required` lo dice y `sv_restart_core`
+    lo hace. Por decisión del supervisor (D-2) va en `marketplace_manage` y
+    no en una familia de una sola tool.
+- **Vistas previas**: el efecto, si se puede deshacer (reconocer e ignorar no
+  tienen comando que los deshaga), si hay backup (solo al desinstalar, lo
+  único que cambia ficheros de `/config`) y que el repositorio es de terceros y nadie lo ha revisado
+  (`third_party`, `reviewed_by_home_assistant: false`,
+  `in_default_catalog`). El token se ata al repositorio y a lo leído en la
+  vista previa (la entrada crítica o retirada, el `full_name`, la categoría,
+  `custom` e `installed`): si cambia antes de confirmar, no se hace nada.
+  Los textos de terceros salen recortados y marcados (`_third_party_text`) y
+  la parte de usuario de cualquier URL, tapada.
+- **Solo `marketplace/*`**: con HACS 2.x (HA ≤ 2026.10) las cinco responden
+  `marketplace_write_unsupported` sin probar `hacs/*` (desinstalar lee
+  además `config_entries/get` del dominio y pide el backup al Supervisor). Lista cerrada de
+  comandos de escritura con su guarda; nunca `warning/accept` ni
+  `github/connect`. El evento de log `marketplace_write` lleva la tool, el
+  resultado y la categoría, nunca repositorios, ids ni textos.
+- **Lo que Hermes no puede hacer (HALLAZGO)**: HA 2026.11.1 exige que el
+  usuario de HA que manda el comando haya aceptado el aviso de riesgos del
+  Marketplace para instalar, fijar versión, mostrar betas, detectar y añadir
+  repositorios. Hermes se conecta con el usuario del Supervisor, que nadie
+  puede usar en la interfaz, y nunca acepta el aviso: esas operaciones no
+  tienen tool (una tool que no puede funcionar no se publica) y sus cinco
+  comandos quedan `deny` en la tabla con ese motivo. Es una **desviación
+  parcial de FR-091 de la spec 008** (DV-1 de la 026): de las nueve tools
+  previstas quedan cinco. **Duda abierta D-29**: si una versión futura de HA
+  deja que el usuario de una app acepte el aviso (o lo exime), esas tools
+  podrán volver; hasta entonces, instalar, fijar versión, mostrar betas y
+  añadir repositorios se hacen desde la interfaz del Marketplace.
+- **Tabla de comandos**: `marketplace/critical/acknowledge`,
+  `repository/ignore`, `repositories/remove` y `repository/refresh` pasan a
+  `dedicated`; `repositories/add`, `repositories/detect`,
+  `repository/install`, `repository/version` y `repository/beta`, a `deny`
+  con el motivo del aviso de riesgos; `repository/uninstall`, a `dedicated`
+  hacia `ha_marketplace_uninstall`. No queda ninguna entrada «pendiente» de
+  la 026.
+- **Guía**: tema `marketplace_manage` (alias `marketplace write`,
+  `critical`, `custom repository`, `repositorio personalizado`, `hacs
+  install`, `marketplace uninstall`, `hacs uninstall`, `desinstalar
+  marketplace`), con desinstalar, su backup y el reinicio, que el índice y las instrucciones del servidor nombran solo con
+  la familia activa.
+- **Pruebas**: con un HA simulado con la forma de 2026.11.1. En el banco de
+  Core, `ha_marketplace_acknowledge_critical` reconoce un aviso crítico
+  ficticio sembrado en el storage del banco y el lector ve el efecto; las
+  otras cuatro no se pueden ejecutar allí (sin internet no hay catálogo, ni
+  por tanto nada instalado que desinstalar), así que un test de contrato
+  envía a HA real la carga exacta de cada comando y comprueba que la acepta;
+  el backup previo se prueba con el Supervisor simulado. Prueba en vivo
+  pendiente.
+- **Converge de la revisión independiente** (T031-T037):
+  - **Automatizaciones y scripts con `update.install` (D-29 ampliada)**: HA
+    2026.11.1 deja instalar desde el Marketplace a una automatización o un
+    script (corren sin usuario) si ALGUNA persona aceptó el aviso de riesgos.
+    La guía ya no dice que esa vía «choca con lo mismo»: explica la verdad, y
+    la vista previa de `ha_create_or_update_automation` y
+    `ha_create_or_update_script` trae `warning_marketplace_install` si la
+    configuración llama a `update.install` (con `action`, `service` o una
+    plantilla que lo nombre). Es un aviso, no una barrera: no ve llamadas
+    indirectas. Bloquearlo del todo queda como decisión de producto (D-29).
+  - **Interruptor «pre-release» del Marketplace**: cambia a betas de código
+    de terceros sin el aviso de riesgos. Por `ha_call_service`, `switch` u
+    `homeassistant` `turn_on`/`turn_off`/`toggle` sobre uno de ellos (resuelto
+    por el registro de entidades) pide `confirmation_token`, con
+    `warning_marketplace_beta`; un objetivo indirecto (área, dispositivo,
+    etiqueta, planta, `all`) que pueda alcanzarlos se rechaza con
+    `use_entity_ids`, y un registro ilegible, con `registry_unavailable`. Lo
+    demás sigue como en la 1.1.2.
+  - **Textos que decían que una persona podía aceptar el aviso**: el tema
+    `marketplace` de la guía y `how_to_update` de
+    `ha_marketplace_list_updates` dicen que aceptarlo en la interfaz NO hace
+    que Hermes pueda instalar (D-29), y el tema remite a `marketplace_manage`.
+  - **Bajos**: ignorar dice que el aviso de Repairs ya creado sigue hasta el
+    próximo reinicio de Core (`repairs_issue`); quitar dice que volver a
+    añadirlo exige GitHub conectado; el token de desinstalar ata también la
+    carpeta y el dominio, y `removes.path_note` avisa de que con GitHub
+    conectado HA puede recalcular la ruta; si desinstalar agota el plazo, la
+    respuesta es `outcome_unknown` (quizá se hizo; `sent`: `null` = no se
+    sabe) con la pista de releer.
+
+### Banco de pruebas
+
+- **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de
+  Core`, arranca Home Assistant Core 2026.11.1 en un contenedor (imagen fijada
+  por digest y sin salida a internet), completa el onboarding sin
+  intervención humana y conecta Hermes a ella por un Supervisor simulado, por
+  el mismo camino que en un add-on (`/core/api` y `/core/api/websocket` con el
+  token de add-on). Corre en cada push y cada pull request. Ejecuta los tests
+  de humo (arranque, lectura de estados y servicios, una llamada a servicio
+  con su efecto comprobado directamente en Core, los filtros del Supervisor y
+  que ninguna credencial del banco sale en el log, tampoco durante el
+  onboarding) y los de los helpers del punto siguiente. El job falla si algún
+  test del banco se salta, se deselecciona o queda como fallo esperado sin
+  ser un hallazgo documentado.
+- **Las tools que modifican helpers, ejecutadas de verdad.** En el mismo
+  job, las escrituras de `input_boolean`, `input_button`, `input_datetime`,
+  `input_number`, `input_select`, `input_text`, `counter`, `timer`, `schedule`,
+  `zone` y `person` se ejecutan contra esa HA: crear y editar en dos pasos (la
+  vista previa no toca nada y, al editar, lo que no se cambia se conserva),
+  cada acción sobre el valor, las recargas y los borrados. El efecto lo
+  comprueba un lector que habla directamente con Core, no Hermes. Un test de
+  la suite normal obliga a que cualquier tool nueva de esos dominios se pruebe
+  en el banco o diga por qué no se puede, y el job comprueba que cada una se
+  ha llamado con éxito en un test que ha pasado. 46 de las 47 funcionan.
+- **Hallazgo: `ha_reload_counters` falla contra HA real.** HA Core 2026.11.1
+  no tiene el servicio `counter.reload`; Core responde 400. No cuenta como
+  probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
+  033, y en el banco como fallo esperado que solo admite ese error. Esta
+  sección no cambia la tool. Arreglado en esta misma versión: ver «Arreglos
+  destapados por el banco (033)».
+- **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
+  automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
+  configuración guardada leída de HA; activar, desactivar, disparar,
+  ejecutar, recargar y borrar), `ha_call_service` directo y en dos pasos con un
+  servicio de la denylist, `ha_call_service_response`, `ha_fire_event`,
+  `ha_cancel_wait` y las siete de dashboards y recursos Lovelace.
+  `ha_run_script` y `ha_trigger_automation` se prueban también por su camino
+  con token (script o automatización restringidos). Un test de la suite
+  normal obliga a que las tools que modifican (las 124 de la 1.1.2 y, desde
+  la integración con la 011, sus 2 genéricas de escritura) estén clasificadas, y el job
+  comprueba que cada una de las probadas se ha llamado con éxito en un test
+  que ha pasado.
+- **Y las 27 que quedaban: las 100 `ha_*` que modifican, en el banco.** Con
+  la integración de demostración `kitchen_sink` cargada en la HA del banco
+  (dispositivos, avisos de reparación y flujo de opciones sin hardware ni
+  internet): áreas, plantas, etiquetas y categorías (crear, editar en dos
+  pasos y borrar), editar y borrar dispositivos, renombrar una entidad y
+  quitarla del registro, ignorar y volver a mostrar un aviso de reparación,
+  el flujo de opciones, y el ciclo entero de una config entry de `uptime`
+  creada por las propias tools (abrir, abortar y completar el flujo,
+  recargar, deshabilitar, habilitar y borrar). De las 100, 99 funcionan
+  contra HA real; `ha_reload_counters` falla (hallazgo de arriba). Solo quedan
+  fuera del banco las 5 `fs_*` y las 19 `sv_*` de la 1.1.2, cada una con su
+  motivo.
+- **Hallazgo: `ha_create_scene_from_current` con `name` falla siempre.** El
+  servicio `scene.create` de HA Core 2026.11.1 no admite `name` y Core
+  responde 400; la descripción de la tool dice que «HA decide». Tampoco es
+  cierto que una colisión de `scene_id` dé error: Core reemplaza la escena.
+  Sin `name` funciona. Pendiente de arreglo en la spec 033; en el banco, fallo
+  esperado que solo admite ese error. Arreglado en esta misma versión: ver
+  «Arreglos destapados por el banco (033)».
+- **Hallazgo de seguridad: el token de `ha_run_script` y
+  `ha_trigger_automation` no cubre `variables`.** Con un script o una
+  automatización restringidos, se acepta una confirmación con variables
+  distintas de las de la vista previa, y la vista previa no las enseña.
+  Pendiente de arreglo en la spec 033 (prioridad máxima); en el banco, fallo
+  esperado que solo admite ese caso. Arreglado en esta misma versión: ver
+  «Arreglos destapados por el banco (033)».
+- Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
+  y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
+  onboarding, reglas de salto, comprobaciones del workflow, inventario de
+  cobertura) se prueban en la suite normal. Sin cambios en el código del
+  add-on.
+- **Banco del Supervisor: procedimiento y matriz de pruebas.** Las tools
+  del Supervisor y de ficheros que modifican (25 cuando se hizo: las 24 de la
+  1.1.2 y `sv_call_api`; 56 con la 1.2.0 completa) no se pueden ejecutar en
+  el banco de Core. `docs/BANCO-SUPERVISOR.md` documenta cómo probarlas en una máquina
+  virtual con Home Assistant OS (Core 2026.11.1 fijado y la versión real
+  del Supervisor anotada, porque no se puede fijar; instantánea antes de cada prueba destructiva, Hermes como add-on
+  local) y la prueba de `hassio_role: manager`; nadie la ha ejecutado todavía
+  y queda como prueba manual. La hoja de ruta tiene una matriz con una fila
+  por cada tool que modifica (dónde se prueba contra el software real y con
+  qué resultado), que un test compara con las tools registradas y con los
+  inventarios del banco, y las pruebas manuales pendientes dicen dónde se
+  hace cada una.
+- **El comentario de `hassio_role` dice la verdad.** Decía que con `manager`
+  el Supervisor devolvía 403 en `/addons/self/options/config` y que Hermes la
+  necesitaba para `bashio::config`; en el Supervisor 2026.11.0 esa ruta pasa
+  con cualquier rol y Hermes no usa `bashio::config`. El rol sigue en `admin`
+  hasta probar `manager` en vivo. Un test nuevo comprueba que todas las rutas
+  del Supervisor que usa Hermes caben en `manager` según el código del
+  Supervisor 2026.11.0.
+- **Las lecturas nuevas de Core, también exigidas por ejecución.** Como las
+  escrituras, cada tool `ha_*` de solo lectura de una familia de la 1.2.0
+  tiene que haberse ejecutado con éxito en el job del banco, o estar en una
+  lista de no ejecutables con su motivo (hoy solo `ha_get_device_diagnostics`:
+  ninguna integración sin hardware ni nube ofrece diagnóstico de
+  dispositivo). Un test de la suite normal nombra la lectura nueva que no
+  esté en ninguna de las dos.
+
+### Plataforma y deprecaciones
+
+- **`sv_get_job_status` ya no da por bueno un job con sub-jobs fallidos.** El
+  Supervisor guarda el error de un sub-job en ese sub-job y no lo sube al job
+  padre: un backup completo con una app que no se pudo guardar terminaba con
+  `errors: []` y la tool daba `success: true`. Ahora devuelve también
+  `child_errors` (`{job, message}`, recortados y redactados, hasta 20 y 5
+  niveles; `child_errors_truncated: true` si hay más) y, con cualquiera de
+  ellos, `success: false`, igual que con cualquier error del propio job. Es un
+  arreglo, no un cambio de contrato: el campo `success` decía que todo había
+  ido bien cuando no. La descripción y la guía explican además que `done` es
+  `true` también cuando el job falla, que el Supervisor no distingue avisos
+  de errores fatales (cualquier entrada en `errors` da `success: false`) y
+  que, con errores, `reference` puede apuntar a un backup incompleto.
+- **`child_jobs` sale redactado.** `sv_get_job_status` devuelve el árbol de
+  sub-jobs entero, y antes iba en bruto: un secreto en el error de un sub-job
+  salía por ahí aunque `child_errors` lo tapara. Ahora pasa por la misma
+  redacción, igual que el error HTTP de la tool. Los mensajes de `errors` y
+  `child_errors` se redactan antes de recortarlos a 500 caracteres: un
+  secreto que cruzaba el corte salía a medias.
+- **Al guardar scripts y automatizaciones, cuenta la denylist extra.** La
+  clasificación de lo peligroso al guardar con `ha_create_or_update_script` o
+  `ha_create_or_update_automation` usaba solo la lista de serie; ahora usa
+  también `call_service_denylist_extra`, como `ha_call_service`. Y la
+  descripción de `call_service_auto_classify_dangerous` dice lo que hace: con
+  `false` solo se apagan la revisión del arranque y la de tras un `reload`;
+  lo que se guarda con Hermes se revisa siempre.
+- **El safety backup con sub-jobs fallidos ya no deja escribir.** El sondeo
+  del safety backup de las escrituras `fs_*` cuenta esos errores como fallo
+  (`safety_backup_job_failed` con el mensaje del sub-job): no se escribe sin
+  un backup válido. La retención (`safety_backup_keep`) aplica el mismo
+  criterio: ese backup incompleto se poda el primero y ya no cuenta como una
+  de las copias buenas que se conservan, así que no queda una copia completa
+  menos de las prometidas.
+- **Nada se retira en la 1.2.0.** Los alias `ha_hacs_*` siguen hasta la 1.3.0
+  y `ha_remove_device_from_config_entry` sigue registrada y deprecada, con
+  sus argumentos y anotaciones de siempre. Si Home Assistant retira su comando
+  (anunciado para la 2027.9), la tool responde `command_removed_in_ha` con
+  `replacement: "ha_remove_device"`, sin cambiar nada ni enviar otro comando.
+  Las deprecadas en esta versión (ver «Correcciones») también siguen
+  registradas hasta la 1.3.0 con sus argumentos: `ha_reload_counters` y
+  `ha_get_config_entry_options` responden `not_supported` con `_deprecated`, y
+  `ha_create_scene_from_current` conserva el argumento `name`, que con valor
+  responde `name_not_supported`. Hermes ya no depende de los campos de los dispositivos que HA retira en la
+  2027.8 y la 2027.10 (`config_entries`, `config_entries_subentries`,
+  `primary_config_entry`); hay tests con esa forma.
+- **Socket Unix y API `/v2` del Supervisor: se detectan, no se usan.** Al
+  arrancar, Hermes anota en el log (`supervisor_platform`) si el Supervisor le
+  ofrece `SUPERVISOR_SOCKET` o tiene activada la opción `supervisor_v2_api`, y
+  avisa de que sigue por TCP y por la V1, que el Supervisor mantiene. Si no
+  puede leerlo, lo dice (`api_v2_enabled: null`) y el arranque sigue. Lo que
+  hará falta para usarlos está en la hoja de ruta.
+- **Opciones traducidas y «apps».** La página de configuración enseña el
+  nombre y una descripción corta de cada opción, en inglés o en español
+  (`translations/en.yaml` y `es.yaml`). Como el Supervisor 2026.11, las
+  descripciones de las tools de apps, la guía y las instrucciones dicen «app
+  (add-on)»; los nombres de las tools (`sv_*_addon*`) y sus argumentos no
+  cambian.
+- **Guarda de deprecaciones del SDK MCP.** La suite falla si Hermes usa algo
+  que el SDK marque como deprecado (`MCPDeprecationWarning`, que no hereda de
+  `DeprecationWarning`, y los `DeprecationWarning` de `mcp` o de Hermes), y
+  fija qué tools declaran `outputSchema` (`ping` y `hermes_guide`). La
+  auto-clasificación de scripts peligrosos ya no usa `asyncio.ensure_future`,
+  que sin un bucle en marcha avisa en Python 3.13 y fallará en 3.14: lanza la
+  tarea en el bucle en marcha o la aplaza al arranque del servidor.
+- **Documentado en la hoja de ruta**: los hosts CIMD conocidos y cómo
+  averiguar otro (`oauth_cimd_allowed_hosts` sigue vacío por defecto), por qué
+  no se declara `outputSchema` y por qué la vía nativa de MCP para pedir
+  confirmación no sustituye a los dos pasos, y la tabla de deprecaciones al
+  día.
+
+### Cierre: seguridad transversal
+
+Revisión de seguridad de todo el programa, con las 359 tools ya integradas.
+
+- **Los errores del Supervisor ya no repiten lo que le mandaste.** El
+  Supervisor valida los cuerpos con voluptuous y, en sus errores, repite el
+  valor rechazado (`… Got {'password': '…'}`), entre comillas simples que la
+  redacción no reconocía. La limpieza que la 030 hizo en
+  `sv_set_addon_options` (nada desde «Got» y ningún valor enviado en el
+  texto) vive ahora en un único punto y la usan todas las `sv_*` que mandan
+  datos tuyos: backups (crear, restaurar, el safety backup), montajes, red,
+  opciones del host, de Core y del Supervisor, añadir un repositorio de la
+  tienda, actualizar Core y `sv_call_api`. Un test vigila que ningún módulo
+  nuevo que mande un cuerpo al Supervisor se quede sin ella.
+- **YAML que Home Assistant interpreta: no hay más vías que las ya
+  cerradas.** El cargador de YAML de HA resuelve `!env_var`, `!include` y
+  `!secret`. Hermes solo le manda texto YAML en los blueprints (la 017 lo
+  cerró: solo `!input`) y en `fs_write_file`, que escribe YAML a propósito y
+  con token. Lo demás (automatizaciones, scripts, escenas, helpers,
+  dashboards, opciones) viaja como JSON y HA lo escribe con su volcador, que
+  pone entre comillas un texto que empiece por `!`; `fs_set_secret` también
+  lo entrecomilla. En las fuentes de HA 2026.11.1, el único comando que
+  analiza YAML recibido es `blueprint/save`.
+- **La redacción en texto reconoce las claves de red.** `psk` (y `wpa_psk`),
+  `network_key` (también la lista sin comillas de Zigbee2MQTT) y las claves
+  S0/S2 de Z-Wave (`s0_legacy_key`, `s2_*_key`) se tapan dentro de un JSON en
+  un texto, en el `repr()` de un mensaje del Supervisor o con el valor sin
+  comillas. `psk_set: true` no se toca.
+- **El log tapa las estructuras enteras.** Bajo una clave sensible, un campo
+  del log que sea un objeto, una lista o un número se tapa entero, como en
+  las respuestas de las tools (`{"network_key": {"key": […]}}` salía en
+  claro), y la clave sensible se decide con el mismo criterio.
+- **`ha_start_options_flow` y `ha_continue_options_flow` redactan el
+  formulario.** Muchas integraciones rellenan el flujo de opciones con los
+  valores actuales, contraseña incluida; salían en bruto. Ahora pasan por la
+  misma redacción que los flujos de reconfigure, subentries y reparación, y
+  `ha_continue_options_flow` rechaza un `user_input` con `***REDACTED***`
+  (se guardaría tal cual). Esa redacción mira ahora también dentro de las
+  secciones del formulario (`type: expandable`), donde `scrape`, por
+  ejemplo, lleva la contraseña.
+- **Hermes se reconoce por su slug exacto (D-13).** `sv_update_addon`, los
+  avisos de las demás `sv_*` de apps, `sv_get_addon_logs`, `sv_read_api` y
+  `sv_call_api` y los logs del journal trataban como Hermes cualquier app
+  `*_hermes`. Ahora usan el slug que da el Supervisor en `/addons/self/info`
+  cuando se puede leer: otra app `<algo>_hermes` deja de bloquearse. Si no se
+  puede leer, sigue el criterio del sufijo, que bloquea de más.
+  Lo mismo, desde el remate del cierre, el aviso de `sv_rebuild_addon`, el
+  de `ha_restore_backup` al restaurar apps, y `ha_list_updates`,
+  `ha_install_update` y `sv_list_available_updates`: otra app
+  `<algo>_hermes` se remite a `sv_update_addon` como cualquier app (antes
+  salía sin tool, con la nota de que `sv_update_addon` la rechazaría, que ya
+  no era verdad). La guía (`updates`) lo dice.
+- **El backup previo de `ha_marketplace_uninstall` se cifra como un safety
+  backup.** Sigue `safety_backup_encryption`: la vista previa dice si irá
+  cifrado y que restaurarlo necesita la clave del kit de emergencia; con
+  `auto` y sin clave va sin cifrar y lo avisa; con `required` y sin clave no
+  hay backup y no se desinstala nada (`encryption_key_unavailable`). El token
+  se ata a si el backup va cifrado.
+- **Habilitar el interruptor «pre-release» del Marketplace avisa.**
+  `ha_update_entity_registry` (que ya pide token siempre) añade a la vista
+  previa `warning_marketplace_beta` cuando habilita o muestra un `switch` de
+  la plataforma `marketplace`: queda al alcance de `switch.turn_on`, que hace
+  que el Marketplace ofrezca betas. Si no puede leer la entrada, avisa igual.
+- **Una URL con la contraseña tapada no se guarda.** Cualquier tool que
+  escribe y recibe un valor con `usuario:***@` (la forma en que sale al leer
+  una URL con credenciales: `cors_allowed_origins`, `external_url`, la URL
+  de un repositorio o de un montaje) lo rechaza sin token con
+  `redacted_value_in_payload`, antes de llamar a la tool.
+
+### Correcciones
+
+- **La redacción de secretos era cuadrática** (FR-001). Tres de las expresiones
+  de `redact_secrets` recorrían el texto desde cada posición de una misma
+  racha: 30 KB de ciertas formas (`eyJ` repetido, `a://b:c` repetido sin `@`,
+  `"` seguido de `password` repetido) tardaban medio segundo, en el bucle de
+  eventos, al leer un log con `sv_get_addon_logs`. Ahora son lineales (1 MiB,
+  decenas de milisegundos) y redactan exactamente lo mismo que en la 1.1.2,
+  comprobado con un test diferencial.
+- **El log ya no lleva los hosts de las URLs de Home Assistant** (FR-002). Al
+  conectar (y en cada reconexión), Hermes lee `external_url` e `internal_url`
+  de `/api/config` y la redacción de red sustituye sus hosts por
+  `<ha_external_host>` y `<ha_internal_host>`. No se tapan los literales IP
+  (ya se seudonimizan), ni `localhost`, `homeassistant` y
+  `homeassistant.local`. Si no se pueden leer, la conexión sigue y el log lo
+  avisa con `ha_url_redaction_unavailable`, sin la URL.
+- **La clasificación automática no escribe `entity_id` al log** (FR-003).
+  `auto_classify_restricted` lleva `count` y `new_count`, y
+  `auto_classify_on_save` lleva `restricted` y `count`: los id de
+  automatizaciones y scripts salen de sus alias, que nombran la casa.
+- **Los nombres `ip-a-b-c-d` se redactan** (FR-004). `ip-10-0-0-5.ec2.internal`
+  sale como `<ip:private:…>.ec2.internal`, con el mismo seudónimo que
+  `10.0.0.5`.
+- **Las vistas previas con documento ya no releen todos los tokens** (FR-009).
+  El barrido de tokens caducados se hace como mucho una vez por segundo y,
+  entre medias, el total de lo guardado sale de memoria. El tope de 16 MiB no
+  cambia: el total solo puede sobrestimarse hasta el siguiente barrido, así
+  que, como mucho, un documento no se guarda y hay que reenviarlo entero.
+- **`sv_get_addon_logs` dice qué redactó** (FR-005). `redacted` solo decía si
+  el texto cambió, y el log de Hermes, que ya se escribe con la red tapada,
+  salía con `redacted: false`. Ahora la respuesta y el evento llevan además
+  `secrets_redacted` (se sustituyó algún secreto) y `network_redacted` (se
+  aplicó la redacción de red: el log de Hermes con `log_redact_network`
+  activa, cambie o no el texto).
+- **Un historial recortado dice cuánto falta** (FR-006). Con `truncated`,
+  `ha_get_history` añade `_response_limit` con `list: "history"`, los estados
+  devueltos, los que dio HA, el tope y una pista; la respuesta entera, con el
+  bloque, cabe en `response_max_bytes`.
+- **`ha_marketplace_list_removed` con filtros y resumen** (FR-007). En HA
+  2026.11 la lista tiene unas 500 entradas (~97 KB). Dos argumentos
+  opcionales: `installed_only` (solo los retirados que están instalados) y
+  `limit` (1–500). La respuesta añade `by_removal_type` (los 20 tipos más
+  frecuentes) y `by_removal_type_other`, y `removal_type` pasa a tratarse como
+  texto de terceros (recortado a 300 caracteres). Sin argumentos, la lista es
+  la de la 1.1.2.
+- **Eventos `*_ok` del Marketplace y de `sv_get_resolution`** (FR-008). Cada
+  tool `ha_marketplace_*` y `sv_get_resolution` deja en el log, cuando termina
+  bien, qué API respondió y cuántas entradas devolvió; nunca nombres de
+  repositorio ni textos de terceros.
+- **`sv_update_addon` ya no promete actualizar al propio Hermes** (FR-010). El
+  Supervisor responde 403 a un add-on que se actualiza a sí mismo; la 1.1.2
+  daba vista previa y token y la confirmación fallaba. Ahora responde
+  `self_update_not_supported` sin token y sin llamar al Supervisor: Hermes se
+  actualiza desde la interfaz de Home Assistant.
+- **Apagado sin traza** (FR-011, problema 23). Al reiniciar el add-on con una
+  petición en vuelo, uvicorn cancelaba la petición y registraba
+  `Exception in ASGI application` con la traza de un `CancelledError`. Ahora
+  sale una línea `request_cancelled_on_shutdown`; cualquier otra excepción
+  conserva su traza. Un `CancelledError` que llegue a `main()` se registra
+  como `interrupted`, y la espera del servidor recoge su cancelación.
+
+#### Arreglos destapados por el banco (033)
+
+- **El token de un script o una automatización restringidos cubre
+  `variables`** (seguridad). Con una entidad restringida (sus acciones llaman
+  a servicios de la denylist), `ha_run_script` y `ha_trigger_automation` piden
+  confirmación, pero el token solo ataba la entidad y el servicio: se podía
+  pedir la vista previa con unas variables y confirmar con otras, y la vista
+  previa no las enseñaba. Ahora la vista previa trae `variables` y el token
+  las ata tal como llegan: confirmar con otras, sin ellas o con ellas tras una
+  vista previa sin ellas se rechaza sin llamar a HA. Un script o una
+  automatización no restringidos siguen en un paso. Un test de inventario
+  exige que cada argumento de cada tool con `confirmation_token` esté atado
+  al token o exento con un motivo escrito; el banco lo comprueba contra HA
+  real con las dos tools.
+- **`ha_reload_counters` dice que no puede recargar** (deprecada; se retira en
+  la 1.3.0). Home Assistant no tiene `counter.reload`: la tool pedía token y,
+  al confirmar, HA respondía 400. Ahora responde siempre `not_supported`, con
+  o sin token, sin llamar a HA: los counters de la UI o de Hermes se aplican
+  al guardar y los de YAML al reiniciar. En el banco es un canario que avisa
+  si un HA futuro añade la recarga.
+- **`ha_get_config_entry_options` dice que no puede leer las opciones**
+  (deprecada; se retira en la 1.3.0). Home Assistant no publica las opciones
+  de una config entry por su API, y la tool devolvía siempre `options: {}`.
+  Ahora responde `not_supported` con el dominio, el título y si la
+  integración tiene opciones, e indica la vía: abrir el flujo de opciones con
+  `ha_start_options_flow` (muchas integraciones enseñan los valores actuales)
+  y cerrarlo con `ha_abort_config_entry_flow`.
+- **`ha_wait_for_event` ya no pide `ctx`.** El contexto del SDK estaba mal
+  anotado y salía en el esquema como argumento obligatorio, sin ningún valor
+  con sentido; además, el aviso de progreso durante la espera no salía nunca.
+  Ahora el SDK lo inyecta y el aviso sale cada 15 s (si el cliente pidió
+  avisos de progreso). Un cliente que siga mandando `ctx` no recibe error.
+- **`ha_create_scene_from_current` hace lo que dice.** Crea una escena
+  TEMPORAL (se pierde al reiniciar HA o al recargar las escenas). Con `name`
+  respondía siempre el 400 de HA, porque `scene.create` no admite nombre:
+  ahora responde `name_not_supported` sin llamar a HA (el argumento queda
+  deprecado y se retira en la 1.3.0; para una escena con nombre,
+  `ha_create_or_update_scene`). Reemplazar otra escena temporal, que HA hace
+  en silencio, pide ahora `confirmation_token` con una vista previa de las
+  entidades actuales y las nuevas; sobre una escena que no es temporal
+  responde `scene_exists` (HA no la tocaría); una entidad que no existe da
+  `entity_not_found`; y después comprueba que la escena tiene esas entidades
+  y, si la reemplazaba, que HA la ha recreado de verdad (`scene_not_created`
+  si no; una escena de YAML sin `id` con las mismas entidades ya no pasa por
+  reemplazada). Pasa a anunciarse destructiva, y la respuesta
+  de éxito dice si reemplazó y conserva la de HA en `ha_response`.
+- **Las escenas editables están en `scenes.yaml`.** Las descripciones de
+  `ha_get_scene`, `ha_create_or_update_scene` y `ha_delete_scene` decían
+  `.storage/core.scene_*`, y la segunda, que veía las escenas de
+  `scene.create`, que no están en ningún fichero.
+- **`amount` de los counters y `ha_set_counter_value` no dan el 500 de HA.**
+  HA solo acepta valores múltiplos del `step` y dentro de los límites, y si
+  no, responde un 500 genérico. Ahora `ha_increment_counter` y
+  `ha_decrement_counter` con `amount` responden `invalid_amount`, y
+  `ha_set_counter_value` responde `invalid_value`, con el motivo
+  (`not_multiple_of_step` u `out_of_range`), el valor y los límites, sin
+  tocar el counter. Sin `amount`, todo sigue igual.
+- **La vista previa de deshabilitar o borrar una integración cuenta bien las
+  entidades.** Comparaba el `entry_id` por subcadena: una entidad de la entry
+  `e10` contaba para la `e1`. Ahora compara el id exacto.
+- El banco de pruebas queda sin ningún fallo esperado: los tres hallazgos
+  (el de la 010 y los dos de la 028) están arreglados y sus tests prueban el
+  comportamiento nuevo contra HA real.
+
+### Cierre: robustez
+
+- **Un plazo agotado ya no se escapa como error genérico.** Cuando Home
+  Assistant o el Supervisor no contestaban a tiempo, el error de aiohttp no
+  era un error de conexión de Hermes: las tools que solo esperan ese no lo
+  recogían y el cliente veía un fallo sin explicar. Ahora todas las
+  peticiones (REST de Core, Supervisor y WebSocket) lo convierten en un
+  error de conexión que sigue diciendo que fue un plazo agotado. Mantiene la
+  regla de `sent`: en REST no se sabe si la petición llegó a salir (`null`),
+  en el WebSocket se sabe que salió (`true`), y nunca dice «no se hizo nada»
+  (`false`). Las tools que ya distinguían el plazo siguen diciendo lo mismo:
+  `ha_install_update` responde `running`, `sv_update_core` da el
+  `config_check` como `timeout` (no como configuración inválida), las de
+  control del Supervisor y la de aplicar un arreglo responden `started`, y
+  la de desinstalar del Marketplace, `outcome_unknown`.
+- **Un entero enorme ya no tumba una tool.** Un número como `10**400` es
+  JSON válido pero no cabe en un número de coma flotante, y varias tools
+  lanzaban una excepción. Ahora, como argumento, da `invalid_argument`
+  (`timeout_seconds` y `min_seconds` de las de estado del sistema, latitud y
+  longitud de `ha_update_core_config`); el timeout de `ha_render_template`
+  cae al mínimo y un filtro numérico de `ha_wait_for_event` no casa. Si lo
+  devuelve Home Assistant o el Supervisor, se trata como no numérico: las
+  estadísticas lo devuelven tal cual (y una fecha fuera de rango también),
+  los tiempos de arranque de integraciones lo omiten, el disco del host da
+  una forma inesperada sin token, y el tamaño de un backup y el orden del
+  log del sistema lo ignoran.
+- **Recuentos de la documentación al día y vigilados.** Un test nuevo
+  cuenta en el registro real las tools de cada familia y comprueba la tabla
+  de familias de `DOCS.md`, la suma de las tablas de los README, la lista de
+  `tool_families_disabled` y la de las familias nuevas de la 1.2.0 (ya
+  cuadraban: 359 tools, más la auxiliar de `HERMES_DEV`). En este
+  CHANGELOG se quita una viñeta repetida de la tabla de comandos en la
+  sección de la 013 y se corrigen recuentos que se habían quedado viejos
+  (las familias que añade la 1.2.0 y las tools del Supervisor de la matriz).
+  El contrato de la matriz de pruebas de la 014 recoge el resultado
+  `no ejecutable`.
+
+#### Revisión final
+
+- **Con el Supervisor caído, cada tool que lleva la clave de backups da su
+  error.** Al tapar la clave en un error de conexión rechazada (el de
+  aiohttp), la copia de la excepción no se podía ni escribir y salía un
+  error falso. Ahora conserva su clase y sus datos: `ha_marketplace_uninstall`
+  responde `backup_failed` y gasta el token, el safety backup automático de
+  las `fs_*` dice que no pudo conectar, y `sv_create_safety_backup`,
+  `sv_restore_backup_full` y `sv_restore_backup_partial` responden ese error
+  (las de restaurar cierran el token como fallido) en vez del genérico.
+- **`ha_get_core_config` tapa la contraseña de una URL.** Una `internal_url`
+  o `external_url` con `usuario:clave@` salía en claro; ahora sale
+  `usuario:***@`, también en la vista previa y la confirmación de
+  `ha_update_core_config`. Reenviarla así ya se rechaza.
+- **Las instrucciones del servidor no nombran tools de familias
+  desactivadas.** Con `tool_families_disabled`, solo los temas de las
+  familias de la 1.2.0 desaparecían; ahora tampoco salen las tools ni los
+  temas de las familias de la 1.1.2 (cómo reiniciar Core, guardar un
+  dashboard o seguir un job). Con todas las familias activas el texto no
+  cambia.
+
 ## [1.1.2] — 2026-11-14
 
 Arreglo de lo que encontraron las pruebas en vivo de la 1.1.1 con Home

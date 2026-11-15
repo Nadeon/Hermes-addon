@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **216 tools**: turn on lights, write automations,
+external systems). It ships **359 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 216 tools
+## What it can do — 359 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -29,7 +29,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | Family | # | What it covers |
 |---|---:|---|
 | **States and services** | 7 | Read states, list and call services, fire events, render Jinja templates |
-| **Automations and scripts** | 14 | Create, edit, delete, enable, disable and run |
+| **Automations and scripts** | 14 | Create, edit, delete, enable, disable and run. Since 1.2.0 the preview of a create or edit is validated by Home Assistant (triggers, conditions and actions, also through a blueprint) and gives no confirmation token if Home Assistant would reject it |
 | **Scenes** | 7 | Including capturing the current state of the house as a new scene |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zones and people** | 10 | Geographic zones and person tracking |
@@ -37,17 +37,56 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Integrations** | 13 | Config entries and their config flows, options flows included |
 | **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
 | **Lovelace** | 10 | Dashboards and resources |
-| **Add-ons** | 12 | List, install, start, stop, update, read logs and statistics |
-| **Backups** | 13 | Full and partial, create and restore. Also, read-only, the backups of Home Assistant's `backup` integration (HA 2025.1 or later) in every location (local, network, cloud), and its configuration without the encryption password |
+| **Add-ons** | 12 | List, install, start, stop, update, read logs (also from previous boots) and statistics |
+| **Backups** | 13 | Full and partial, create (optionally on a chosen backup mount) and restore. Also, read-only, the backups of Home Assistant's `backup` integration (HA 2025.1 or later) in every location (local, network, cloud), and its configuration without the encryption password |
 | **Supervisor and system** | 6 | Host and core info, validate configuration, restart |
+| **Mounts** | 9 | Supervisor network mounts (CIFS and NFS) and local disk mounts for backups, media and share: list, create, edit, delete, re-check and choose the default backup mount, always with a preview. Also the Supervisor's backup settings (when backups count as stale) and re-reading the backups of every location. CIFS credentials go in but never come out (not in responses, previews, errors or logs) |
+| **Core and Supervisor control** | 7 | Start Home Assistant Core when it is stopped, rebuild it (also in safe mode) and change its Supervisor options (boot, watchdog, audio…); reload, restart and repair the Supervisor and change its options (time zone, country, logging, auto-update, diagnostics). Everything that interrupts something shows what stops, for how long and what happens to Hermes, and asks for confirmation (reloading does not); options go through closed lists. Family `system_control`, new in 1.2.0 |
+| **Host control** | 4 | Shut down the host, change its hostname, swap and Home Assistant OS boot slot (for example, back to the previous OS after a bad update). Always with a preview of the current state and confirmation; the shutdown preview says that nobody can power the machine back on remotely. Family `host_control`, new in 1.2.0 |
+| **Host network** | 3 | Reload the host network state, edit a secondary interface (a backup Wi-Fi, a second card) and create VLANs. The primary interface (and the card that carries it, if it is a VLAN), the only connected one, or any interface when the primary or what it depends on cannot be determined are always refused, so the agent cannot cut your access; each change shows the interface before and after with a strong warning (the Supervisor does not roll back), and the Wi-Fi key is never returned or logged. Family `host_network`, new in 1.2.0 |
+| **System diagnostics** | 11 | Read only: Home Assistant Core, Supervisor, plugin (`dns`, `audio`, `multicast`) and host journal logs, also from previous boots, with secrets redacted; the journal's identifiers and boots; host services, what fills the disk, Home Assistant OS version and slots, swap and data disk candidates |
+| **System updates** | 8 | What has an update (Core, OS, Supervisor, apps and plugins), check for updates and update Core, the OS and the Supervisor: the preview gives versions, backup, what restarts (an OS update only applies when the host reboots), system health and, for Core, the configuration check, and gives no token if the Supervisor would refuse it. Update entities (device firmware, integrations, HACS): list them, read their release notes and install them with versions, notes and backup in the preview; Core, OS, Supervisor and app entities are sent to their tools, and Hermes never updates itself |
 | **History and statistics** | 4 | History, logbook and long-term statistics |
-| **Diagnostics** | 8 | Repairs issues (list and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; suggestions are never applied) |
+| **Diagnostics** | 8 | Repairs issues (list, with their title and description as the UI shows them, and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; applying one is the next row) |
+| **Resolution fixes** | 1 | Apply a Supervisor resolution suggestion after a preview that explains what it does (what it interrupts, whether it can be undone, which full backups it would delete, which automatic fixes the Supervisor applies on the way), always with confirmation. Suggestions with no fix, that Hermes cannot explain, that touch the data disks or that act on Hermes itself are refused. Family `resolution_fixes`, new in 1.2.0 |
 | **Marketplace (formerly HACS)** | 11 | Read-only: status, repositories, available updates, published versions, critical and removed repositories. Detects on every call whether Home Assistant has the built-in Marketplace (2026.11 or later) or HACS 2.x. Updates are installed through the `update` entity, with confirmation. The 4 `ha_hacs_*` tools remain as deprecated aliases until 1.3.0 |
+| **Marketplace maintenance** | 5 | Acknowledge a critical repository, ignore the removal of a repository taken off the catalogue, remove a custom repository that is not installed, refresh a repository from GitHub and uninstall an installed one (after a partial backup of the configuration without the database; if the backup fails, nothing is uninstalled), each in two steps with a preview (installs nothing; the repository is third-party code nobody reviewed). Installing, pinning a version, showing betas and adding repositories are not possible: Home Assistant requires the Marketplace risk warning accepted by the Home Assistant user Hermes connects as (the Supervisor user), who cannot accept it, and Hermes never accepts it. Family `marketplace_manage`, new in 1.2.0 |
 | **Event waiting** | 3 | Wait for something to happen, with filters |
 | **Utilities** | 2 | `ping` and `hermes_guide` |
+| **System status** | 5 | Read only: the system health report (what Settings > System > Repairs > System information shows), whether Home Assistant or the host needs a restart, how long each integration took to set up, and integration manifests. Family `system_status`, new in 1.2.0 |
+| **Recorder** | 8 | Whether the recorder is recording (and whether one entity is recorded), the problems Home Assistant finds in long-term statistics and the metadata of the statistics you name (read only); and statistics maintenance with a preview and confirmation: clear statistics (whole or a time range), convert their unit, fix their stored unit, adjust a sum, import hourly statistics. Family `recorder`, new in 1.2.0 |
+| **Energy** | 2 | Read the energy dashboard configuration (sources, electricity devices and water devices) and save it with a preview and confirmation: each list you pass replaces that list, the others are kept, and the preview shows what goes in and out. Family `energy`, new in 1.2.0 |
+| **Core diagnostics** | 12 | Home Assistant's system log (grouped errors, and clear it), the raw error log when HA writes one, log levels (read them, and raise an integration to DEBUG to troubleshoot it), validating automations and scripts before saving them, testing a condition, integration and device diagnostics, and persistent notifications (list and dismiss) |
+| **Integration flows** | 12 | Discovered integrations (list and ignore), the domains that can be set up with a config flow, an integration's title and system options (polling and new entities; disabling them asks for confirmation), config subentries (add, reconfigure, rename; deleting asks for confirmation) and reconfiguring an integration (every step asks for confirmation) |
+| **Repair flows** | 4 | One Repairs issue with its internal data (redacted), and its fix flow: open it, submit each step (every step asks for confirmation) or abort it |
+| **App store** | 9 | The Supervisor app store repositories: list them (with their apps and which are installed), add one (third-party code: two steps, the exact URL in the preview, the credentials in the URL hidden), remove one (two steps; refused if it is built-in or has installed apps), repair one and reload the store. The changelog and documentation of the store version of an app (third-party text, redacted, in chunks), whether it can be installed on this system, and rebuilding an installed app (two steps). Installing, updating and changing options now check first: availability, the changelog and the Supervisor's validation of the options. Family `app_store`, new in 1.2.0 |
+| **Blueprints** | 5 | List the automation, script and template blueprints, preview the config a blueprint gives with some inputs, save a blueprint you write, import one from a URL (Home Assistant downloads it; the preview shows the whole YAML and it is saved only if it has not changed) and delete one nobody uses (saving, importing and deleting, with confirmation). Family `blueprints`, new in 1.2.0 |
+| **Automation assist** | 9 | Read only: the device triggers, conditions and actions a device offers (ready to paste into an automation, with their extra fields), what a target (entities, devices, areas, floors, labels) really covers and why, the names of the triggers, conditions and actions that apply to it, and waiting once for a trigger to fire (only triggers known to just listen). Family `automation_assist`, new in 1.2.0 |
+| **Core configuration** | 2 | Read and change Home Assistant's general configuration (name, location, units, time zone, currency, country, language and URLs), with a before-and-after preview. Family `core_config`, new in 1.2.0 |
+| **Assistant exposure** | 3 | Which entities Assist, conversation agents (the MCP Server integration included) and Alexa or Google Assistant through Home Assistant Cloud can see and control: list them, expose them (with confirmation) and hide them. Family `assistant_exposure`, new in 1.2.0 |
+| **Users** | 4 | List Home Assistant users and create (without credentials), edit and delete them, with confirmation. Never passwords or tokens; the owner, the user Hermes connects as, system users and the last administrator are protected. Family `users`, new in 1.2.0 |
+| **Core network and HTTP** | 3 | Which network adapters Home Assistant uses for discovery, and its HTTP server (port, SSL, reverse proxy, login bans), with confirmation. Changing the HTTP server restarts Home Assistant and runs the new settings on a 5-minute trial until promoted; a `server_host` that would cut off the apps that connect to Home Assistant directly is rejected. Family `core_network`, new in 1.2.0 |
+| **Assist and conversation** | 4 | Assist conversation agents and their languages (only the built-in one is known to run locally), the sentences of automations' sentence triggers, analysing sentences with the built-in agent without executing them (intent and target entities), and sending a sentence to Assist, which executes it: always two steps, with a preview of what Home Assistant recognizes or, with another agent (a cloud LLM), the warning that the text goes to it. Family `conversation`, new in 1.2.0 |
+| **Home Assistant backups** | 6 | Where Home Assistant can store its backups (local, network storage, cloud) with their encryption and retention; the automatic backup schedule, retention and content; and creating backups (custom or with the automatic settings, encrypted with Home Assistant's key) deleting them from every location, and restoring them from any location (with a full preview of what is overwritten; an encrypted backup without a password uses Home Assistant's key). Everything that changes goes in two steps, with an estimate of the backups the retention would delete. The encryption key never leaves Home Assistant and is not changed here. Family `backup_integration`, new in 1.2.0 |
+| **Cameras** | 2 | Read only: a still image of what a camera sees right now and the current image of an `image` entity, returned as an image to the client (privacy: a camera may show the inside of your home). Home Assistant is asked for a smaller camera image (it only scales JPEG); images over 2 MiB are not returned. Family `cameras`, new in 1.2.0 |
+| **Dashboard reset** | 1 | Reset a Lovelace dashboard to the auto-generated one by deleting its stored config, in two steps (the preview says how many views and cards are lost; irreversible except from a backup). The main dashboard and the default panel are always protected. Family `dashboard_reset`, new in 1.2.0 |
+| **Generic commands** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` and `sv_call_api`: what no other tool covers, and only what Hermes' command table allows (writes always in two steps) |
 
 There is one more, auxiliary, tool that is only registered with `HERMES_DEV=1`
 and does not exist in a normal installation.
+
+If your client struggles with this many tools, switch off whole groups with
+the `tool_families_disabled` option (for example `lovelace` or
+`marketplace`); see [DOCS.md](hermes/DOCS.md) for the list of families. `ping`
+and `hermes_guide` are always on, and switching off the families new in 1.2.0
+(`generic_commands`, `system_diagnostics`, `system_status`, `recorder`,
+`core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`,
+`system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`,
+`system_control`, `resolution_fixes`, `core_config`,
+`assistant_exposure`, `users`, `core_network`, `host_control`,
+`host_network`, `conversation`, `backup_integration`, `cameras`,
+`dashboard_reset` and `marketplace_manage`)
+gives you exactly the tool list of 1.1.2.
 
 On their first call, destructive tools return a preview and a
 `confirmation_token`. They do nothing until they are called again with that
@@ -436,6 +475,10 @@ queries `hermes_guide` on its own — you do not have to do anything.
 
 ## Configuration options
 
+The configuration page of the app shows a name and a short description of
+each option, in English or Spanish (`hermes/translations/`). The full detail
+is below.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `auth_password` | _(required)_ | OAuth flow password. Minimum 12 characters, and checked for guessability: Hermes will not start with a weak one |
@@ -444,10 +487,12 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
 | `trusted_proxy_ips` | `[]` | Proxies whose `X-Forwarded-For` is trusted, as plain IPs or CIDR ranges (`172.30.32.0/23` is the HAOS bridge network). Empty means only `127.0.0.1` is trusted, which under `reverse_proxy` turns every per-IP limit into a single global bucket. Anybody inside a trusted range can forge the client IP (rate limits and logs only — never authorization) |
 | `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
-| `log_redact_network` | `true` | Replaces your `public_hostname`, any `*.ts.net` name and every non-loopback IP in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
+| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes`, `core_config`, `assistant_exposure`, `users`, `core_network`, `host_control`, `host_network`, `conversation`, `backup_integration`, `cameras`, `dashboard_reset` and `marketplace_manage`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
+| `log_redact_network` | `true` | Replaces your `public_hostname`, the hosts of Home Assistant's `external_url` and `internal_url`, any `*.ts.net` name and every non-loopback IP (also when written as `ip-a-b-c-d`) in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
 | `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |
 | `safety_backup_enabled` | `false` | Automatic **full** HAOS backup before writing to `/config`. Off by default (it produces several GB). The per-file backup always happens. If the backup fails, or Hermes cannot tell whether it finished, the write is not made (`safety_backup_job_failed`, `safety_backup_state_unknown`) |
+| `safety_backup_encryption` | `auto` | Encryption of the safety backups (new in 1.2.0) with Home Assistant's backup encryption key, the one in its emergency kit: Hermes reads it from Home Assistant on every backup and never stores or returns it, and you can restore them from Home Assistant even if Hermes is broken. `auto`: encrypted if Home Assistant has a key, otherwise unencrypted and said so in the response and the log. `required`: without a key there is no safety backup (`encryption_key_unavailable`) and the write is not made; a recent unencrypted safety backup does not count. `off`: unencrypted, as in 1.1.2. It also applies to the backup made before uninstalling from the Marketplace (`ha_marketplace_uninstall`). Any other value stops the app from starting |
 | `mcp_max_requests_per_minute` | `120` | Global post-auth rate limit |
 | `mcp_preauth_max_requests_per_minute_per_ip` | `20` | Pre-auth per-IP rate limit. Applies to the public surface (OAuth and discovery), and the same value caps per IP the requests to protected routes that carry a missing or invalid token. Valid requests are governed by `mcp_max_requests_per_minute` |
 | `response_max_bytes` | `131072` | Response cap for every tool (128 KiB); above it the answer is cut and flagged with `truncated: true`. Effective maximum `524288` (512 KiB): a larger saved value is clamped. Raise it up to that if your answers come back truncated |
@@ -456,7 +501,7 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `max_concurrent_requests` | `64` | Simultaneous requests the server accepts. Bounds the maximum in-flight memory (`max_concurrent_requests × max_request_body_bytes`). Claude fires bursts of ~24 calls, so 64 leaves headroom |
 | `wait_for_event_max_seconds` | `90` | Maximum timeout allowed for `ha_wait_for_event` (10–220; a saved value above 220 is clamped) |
 | `wait_for_event_max_concurrent` | `5` | Maximum simultaneous `ha_wait_for_event` calls (1–20) |
-| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected or partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
+| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. A safety backup that finished with errors in its sub-jobs (an app that could not be saved) is incomplete: it does not count among those kept and is deleted first. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected one (except those Hermes itself encrypted with Home Assistant's key, since 1.2.0), a partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
 | `safety_backup_window_minutes` | `30` | If Hermes made its own safety backup more recently than this, another one is skipped. Backups made by hand or by other tools do not count. While the backup runs, the write waits up to 5 minutes, and it is cancelled if the backup fails |
 | `file_backup_max_per_path` | `20` | Copies kept of each file before overwriting it |
 | `file_backup_max_total_mb` | `200` | Total cap for the per-file backup directory |
@@ -483,7 +528,7 @@ These change **what Claude can do without asking you**. Worth reading:
 | `call_service_denylist_extra` | `[]` | Additional services that will require explicit confirmation, on top of the ~70 Hermes already ships. Format `domain.service`, wildcards allowed (`shell_command.*`) |
 | `call_service_restricted_entities` | `[]` | Specific entities that will require confirmation even when the service is not denylisted. Useful for `script.open_garage` and friends |
 | `fire_event_allowlist` | `[]` | Event types `ha_fire_event` is allowed to fire. Empty means the tool is disabled: every permitted event must be named explicitly |
-| `call_service_auto_classify_dangerous` | `true` | On startup and on save, Hermes reads your scripts and automations and automatically marks as restricted the ones invoking dangerous services. Disable it only if you want to manage the list by hand |
+| `call_service_auto_classify_dangerous` | `true` | On startup and after a scripts or automations reload made through Hermes, Hermes reads your scripts and automations and automatically marks as restricted the ones invoking dangerous services (the built-in list plus `call_service_denylist_extra`). Disabling it stops only those two scans: scripts and automations saved through Hermes (`ha_create_or_update_script`, `ha_create_or_update_automation`) are always checked and restricted if dangerous, even with this option off |
 
 See `config.yaml` for the full schema with valid ranges.
 
@@ -495,6 +540,14 @@ See `config.yaml` for the full schema with valid ranges.
   plus exponential-backoff throttling on failed attempts (anti-brute-force).
 - **Hardened DCR**: `redirect_uris` validation and a client cap.
 - **Confirmation tokens** for every destructive action.
+- **Generic tools governed by a fail-closed table**: `ha_read_ws_command`,
+  `ha_call_ws_command`, `sv_read_api` and `sv_call_api` run only the commands
+  and routes Hermes' command table allows; anything else, the Supervisor's Core
+  proxy and any route aimed at Hermes itself are refused before reaching Home
+  Assistant. Writes always go through a preview and a token. They also cover
+  specific integrations (Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX…) with no
+  tools of their own: whatever returns or takes network keys, pairing codes,
+  tokens or passwords is refused or masked.
 - **`/config` filesystem**: anti-traversal, secret blacklist, *default-deny*
   allowlist under `.storage/`, *managed paths*, backup before every write.
 - **Anti path-injection validation** of identifiers (slug, `entry_id`…) plus a
@@ -529,11 +582,20 @@ The rules all of this is written under: [docs/PRINCIPIOS.md](docs/PRINCIPIOS.md)
 - **`network_mode: reverse_proxy` is less battle-tested than `tailscale`.** It has
   its tests, but sees far less real-world use. If something breaks, an issue with
   the startup log is much appreciated.
-- **Supervisor suggestions are never applied.** `sv_get_resolution` shows them
-  and they can be dismissed, but some delete backups or reboot the host: apply
-  them yourself from the Home Assistant UI.
-- **Safety backups are not encrypted.** They are full HAOS backups without a
-  password. For an encrypted one, use `sv_create_backup_full` with `password`.
+- **Supervisor suggestions are applied only with a preview and confirmation.**
+  Up to 1.1.x Hermes never applied them. Since 1.2.0
+  `sv_apply_resolution_suggestion` does, but only after a preview that says
+  what the fix does (some delete an app or old full backups, or reboot the
+  host) and with a confirmation token tied to the suggestion and to the
+  automatic fixes the Supervisor would apply on the way. It refuses, without
+  a token, suggestions with no fix, that it cannot explain, that touch the
+  data disks or that act on Hermes itself. Switch off the `resolution_fixes`
+  family if you do not want this at all.
+- **Safety backups are only encrypted if Home Assistant has a backup
+  encryption key.** Since 1.2.0 they use Home Assistant's key (the one in its
+  emergency kit), which exists once the automatic backups are set up. Without
+  it, with the default `safety_backup_encryption: auto`, they are made without
+  a password and Hermes says so; set `required` to block writes instead.
 - **Safety backups made before 1.1.0 are not pruned.** Hermes did not record
   them, so retention cannot tell them apart from yours: delete them with
   `sv_delete_backup` if you no longer need them.

@@ -10,17 +10,141 @@ import structlog
 
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
+    REDACTED_MARKER,
     complete_confirmation_token,
     create_confirmation_token,
+    redact_secrets,
+    redact_structure,
     validate_confirmation_token,
 )
 
 logger = structlog.get_logger(__name__)
 
 
+def redactar_datos(valor: Any) -> Any:
+    """Redacta por clave (`redact_structure`) y por patrón en cada texto.
+
+    Las dos capas hacen falta: la clave tapa `{"token": "…"}`, pero una URL
+    con credenciales bajo una clave inocente (`url`) solo la detecta el
+    patrón de `redact_secrets`.
+
+    Nació en `tools/repairs.py` para los marcadores de los avisos; se movió
+    aquí sin cambiarlo cuando la spec 016 lo necesitó también para lo que HA
+    cuenta de un descubrimiento (`title_placeholders`).
+    """
+    valor = redact_structure(valor)
+    if isinstance(valor, dict):
+        return {k: redactar_datos(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [redactar_datos(v) for v in valor]
+    if isinstance(valor, str):
+        return redact_secrets(valor)
+    return valor
+
+
+_RUTAS_MARCADOR_MAX = 20
+
+
+def rutas_con_marcador(valor: Any, ruta: str = "", marcador: str = REDACTED_MARKER) -> list[str]:
+    """Rutas (`data.zha_alarm_options.alarm_master_code`, `items[0]`) de una
+    carga donde aparece el marcador de redacción, en un valor de texto o en
+    una CLAVE, a cualquier profundidad. Nunca valores: es seguro devolverlo.
+
+    Convergencia de la 025 (T047, hallazgo ALTO-1): lo que Hermes lee sale
+    con los secretos tapados con `REDACTED_MARKER`. Si el cliente reenvía ese
+    documento a una escritura, HA o el Supervisor guardan el marcador LITERAL
+    en lugar del secreto real (`zha/configuration/update` reemplaza la
+    configuración entera, código maestro de la alarma incluido). Se rechaza
+    antes de emitir el token y antes de llamar. Una clave con el marcador
+    también: no es un nombre que nadie quiera guardar.
+
+    `marcador` es el texto que se busca; por defecto, el de la redacción
+    por clave. El cierre de seguridad de la 1.2.0 lo usa también con
+    `CREDENCIAL_TAPADA`.
+    """
+    rutas: list[str] = []
+    if isinstance(valor, dict):
+        for clave, sub in valor.items():
+            nombre = str(clave)
+            hija = f"{ruta}.{nombre}" if ruta else nombre
+            if marcador in nombre:
+                rutas.append(hija)
+            rutas += rutas_con_marcador(sub, hija, marcador)
+    elif isinstance(valor, (list, tuple)):
+        for i, sub in enumerate(valor):
+            rutas += rutas_con_marcador(sub, f"{ruta}[{i}]", marcador)
+    elif isinstance(valor, str) and marcador in valor:
+        rutas.append(ruta or "(root)")
+    return rutas[:_RUTAS_MARCADOR_MAX]
+
+
+# La forma en que `redact_secrets` deja la contraseña de una URL
+# (`esquema://usuario:***@servidor`). Cierre de seguridad de la 1.2.0: una
+# URL así, copiada de una lectura (`cors_allowed_origins`, `external_url`, la
+# URL de un repositorio o de un montaje) y reenviada a una escritura, se
+# guardaría con `***` como contraseña. Se rechaza igual que el marcador.
+CREDENCIAL_TAPADA = ":***@"
+
+
+def error_credencial_tapada(rutas: list[str]) -> dict[str, Any]:
+    """El rechazo `redacted_value_in_payload` para una URL con la
+    contraseña tapada (`usuario:***@`)."""
+    return {
+        "error": "redacted_value_in_payload",
+        "detail": (
+            "A value contains a URL whose password is redacted (user:***@), the "
+            "form Hermes shows instead of the real credentials when reading. "
+            "Sending it would save '***' as the password. Send the real URL, "
+            "or leave that field out."
+        ),
+        "paths": rutas,
+    }
+
+
+def error_marcador_en_carga(rutas: list[str]) -> dict[str, Any]:
+    """El rechazo común `redacted_value_in_payload` (T047)."""
+    return {
+        "error": "redacted_value_in_payload",
+        "detail": (
+            f"The payload contains the redaction marker {REDACTED_MARKER}, the "
+            "placeholder Hermes shows instead of a secret when reading. Sending "
+            "it would save that text in place of the real value. Send the real "
+            "value, or remove that field from the payload."
+        ),
+        "paths": rutas,
+    }
+
+
 def tam_json(valor: Any) -> int:
     """Bytes UTF-8 de `valor` serializado como lo devuelven las tools."""
     return len(json.dumps(valor, ensure_ascii=False).encode("utf-8"))
+
+
+_CLAVES_DEL_SOBRE = ("count", "items", "truncated")
+
+
+def sobre_de_lista(
+    items: list[Any], /, *, truncated: bool = False, **cabecera: Any
+) -> dict[str, Any]:
+    """Sobre común de las tools de lista NUEVAS de la 1.2.0 (spec 018, FR-012).
+
+    `{**cabecera, "count": len(items), "items": items, "truncated": truncated}`.
+    Una sola forma para que el cliente aprenda a leer una lista una vez, y la
+    que el tope central (`recortar_a_bytes`) sabe recortar: corta `items`,
+    pone al día `count` y marca `truncated`. `count` sale siempre de la lista,
+    nunca a mano, para que no pueda mentir. Las tools de la 1.1.2 conservan
+    su forma (cambiarla rompería a sus clientes).
+
+    Una cabecera llamada `count` o `items` pisaría el sobre: es un error de
+    programación y se rechaza con `ValueError` (`items` es solo posicional
+    para que llegue aquí; `truncated` es el propio argumento).
+    """
+    pisadas = sorted(k for k in cabecera if k in _CLAVES_DEL_SOBRE)
+    if pisadas:
+        raise ValueError(
+            f"sobre_de_lista: la cabecera no puede usar {', '.join(pisadas)}"
+        )
+    return {**cabecera, "count": len(items), "items": items, "truncated": truncated}
 
 
 def ajustar_lista_a_bytes(
@@ -82,6 +206,53 @@ def recortar_grupos_a_bytes(
         if exceso <= 0:
             exceso = tam_json(construir(grupos)) - max_bytes
     return grupos
+
+
+def ultimas_lineas_que_caben(
+    respuesta: dict[str, Any], logs: str, max_bytes: int, *, clave: str = "logs"
+) -> dict[str, Any]:
+    """`respuesta` con `logs` entero si cabe; si no, sus últimas líneas.
+
+    Un log es un texto, no una lista, así que el guardián central solo podía
+    cambiarlo entero por `response_too_large`: un add-on que escribe mucho
+    dejaba de tener log por Hermes (revisión de 1.1.1, M-2). En un log lo que
+    importa es el final, así que se quitan líneas del PRINCIPIO y se dice.
+
+    Vive aquí desde la spec 012: la comparten `sv_get_addon_logs` (clave
+    `logs`) y `ha_get_error_log` (clave `log`).
+    """
+    completa = {**respuesta, clave: logs}
+    if tam_json(completa) <= max_bytes:
+        return completa
+    lineas = logs.splitlines(keepends=True)
+
+    def armar(n: int) -> dict[str, Any]:
+        return {
+            **respuesta,
+            clave: "".join(lineas[len(lineas) - n:]) if n else "",
+            "truncated": True,
+            "lines_returned": n,
+            "hint": (
+                "Only the last lines that fit in response_max_bytes are shown. "
+                "Ask for fewer lines instead of repeating the same call."
+            ),
+        }
+
+    # Estimación con el tamaño escapado de cada línea desde el final y
+    # verificación con el tamaño real.
+    presupuesto = max_bytes - tam_json(armar(0)) - 8
+    n = usado = 0
+    for linea in reversed(lineas):
+        coste = tam_json(linea) - 2
+        if usado + coste > presupuesto:
+            break
+        usado += coste
+        n += 1
+    out = armar(n)
+    while n > 0 and tam_json(out) > max_bytes:
+        n -= 1
+        out = armar(n)
+    return out
 
 
 _LIMIT_HINT = (
@@ -592,8 +763,9 @@ async def guarded_reload(
     limpia para activar un `fs_write_file` malicioso previo: escribir el YAML
     (que sí pide token) y luego recargarlo con una tool que el cliente aprueba
     sin mirar. Por eso piden confirmación como cualquier otra acción
-    destructiva, y son el único sitio que pasa `allow_dangerous=True` además
-    de `ha_call_service`.
+    destructiva, y pasan `allow_dangerous=True` solo después de validar el
+    token (como `ha_call_service`, `ha_call_service_response` y
+    `guarded_entity_invoke`; lista en `tests/test_allow_dangerous_inventario.py`).
     """
     args = {"domain": domain}
     if not confirmation_token:
@@ -627,7 +799,7 @@ async def guarded_entity_invoke(
     entity_id: str,
     tool_name: str,
     confirmation_token: str | None,
-    extra_data: dict[str, Any] | None = None,
+    variables: dict[str, Any] | None = None,
 ) -> object:
     """Ejecuta `domain.service` sobre una entidad, con token si está restringida.
 
@@ -641,17 +813,28 @@ async def guarded_entity_invoke(
     Aquí se consulta el set y, si la entidad está restringida, se aplica el
     mismo flujo de dos pasos que en `ha_call_service`. Si no lo está, la
     llamada es directa y de un solo paso.
+
+    El token ata también `variables` (spec 033): un script restringido puede
+    hacer cosas muy distintas según sus variables, así que lo que se confirma
+    tiene que ser exactamente lo que se previsualizó. Se atan tal como llegan
+    (`None` si no llegan): pedir la vista previa con variables y confirmar sin
+    ellas, o al revés, es otra acción y se rechaza. La vista previa las enseña
+    para que el usuario vea qué está aprobando.
     """
     from hermes.service_policy import get_auto_restricted_entities
 
     payload: dict[str, Any] = {"entity_id": entity_id}
-    if extra_data:
-        payload.update(extra_data)
+    if variables is not None:
+        payload["variables"] = variables
 
     if entity_id not in get_auto_restricted_entities():
         return await ha_client.call_service(domain, service, payload)
 
-    args = {"entity_id": entity_id, "service": f"{domain}.{service}"}
+    args = {
+        "entity_id": entity_id,
+        "service": f"{domain}.{service}",
+        "variables": variables,
+    }
     if not confirmation_token:
         return await create_confirmation_token(
             tool_name,
@@ -659,6 +842,7 @@ async def guarded_entity_invoke(
             preview={
                 "action": f"{domain}.{service}",
                 "entity_id": entity_id,
+                "variables": variables,
                 "reason": (
                     "Esta entidad está restringida: su contenido invoca "
                     "servicios de la denylist (borrado, reinicio, ejecución "

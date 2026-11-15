@@ -1744,6 +1744,7 @@ class OAuthServer:
             elif parts.scheme and parts.netloc:
                 destination = f"{parts.scheme}://{parts.netloc}"
         except ValueError:
+            # URI mal formada: la pantalla enseña «(sin destino)».
             pass
         e_destination = html.escape(destination or "(sin destino)", quote=True)
 

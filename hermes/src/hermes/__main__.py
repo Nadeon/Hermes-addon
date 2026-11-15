@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 import structlog
 import uvicorn
@@ -55,6 +57,7 @@ from hermes.network import (
 from hermes.ha import HAClient
 from hermes.oauth import OAuthServer
 from hermes.security import cleanup_expired_confirmations
+from hermes.supervisor_platform import comprobar_plataforma
 from mcp.server.transport_security import TransportSecuritySettings
 
 logger = structlog.get_logger(__name__)
@@ -74,6 +77,61 @@ logger = structlog.get_logger(__name__)
 # de que terminara el apagado ordenado.
 MCP_GRACEFUL_SHUTDOWN_SECONDS = 3
 MCP_SHUTDOWN_WAIT_SECONDS = 5.0
+
+
+class _CancelacionSinTraza(logging.Filter):
+    """Cambia la traza de una petición cancelada al apagar por una línea.
+
+    Al agotarse `timeout_graceful_shutdown`, uvicorn 0.54 cancela las
+    peticiones en vuelo (un `ha_wait_for_event`, por ejemplo) y su `run_asgi`,
+    que captura `BaseException`, registra `Exception in ASGI application` con
+    la traza del `CancelledError`. Es un apagado normal, pero en el log parecía
+    un fallo (problema 23, FR-011 de la 009). Solo las cancelaciones: cualquier
+    otra excepción conserva su traza, que es justo lo que hay que ver.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, asyncio.CancelledError):
+            record.msg = "request_cancelled_on_shutdown"
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+            record.levelno = logging.INFO
+            record.levelname = "INFO"
+        return True
+
+
+def _instalar_filtro_de_cancelacion() -> None:
+    """Pone `_CancelacionSinTraza` en `uvicorn.error`, una sola vez.
+
+    En el logger y no en el manejador: el registro de uvicorn se emite en
+    `uvicorn.error`, y así el filtro actúa venga a donde venga a parar.
+    """
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    if not any(isinstance(f, _CancelacionSinTraza) for f in uvicorn_error.filters):
+        uvicorn_error.addFilter(_CancelacionSinTraza())
+
+
+async def _esperar_servidor_mcp(server_task: asyncio.Task[Any], timeout: float) -> None:
+    """Espera a que el servidor MCP termine; si no, lo cancela y lo recoge.
+
+    Antes se cancelaba sin esperarla. En Python 3.12+ `wait_for` ya cancela y
+    espera la task al vencer el plazo, así que esto deja explícito, sin
+    depender de la versión, que la cancelación se recoge antes de seguir con
+    el apagado (FR-011 de la 009). Una cancelación de `_boot` desde fuera no
+    se traga: se propaga.
+    """
+    try:
+        await asyncio.wait_for(server_task, timeout=timeout)
+    except asyncio.TimeoutError:
+        server_task.cancel()
+        try:
+            await server_task
+        except asyncio.CancelledError:
+            actual = asyncio.current_task()
+            if actual is not None and actual.cancelling():
+                raise
 
 
 def build_forwarded_allow_ips(trusted_proxy_ips: list[str]) -> list[str]:
@@ -206,6 +264,13 @@ async def _boot(config: HermesConfig) -> None:
         ha_client, config.health_startup_grace_seconds
     )
 
+    # Socket Unix y API `/v2` del Supervisor: solo se detectan y se anotan
+    # en el log. Hermes 1.2.0 sigue por TCP y por la V1, que el Supervisor
+    # mantiene; activar algo sin probarlo contra un Supervisor real podría
+    # romper una instalación que hoy funciona (spec 027, FR-011). La función
+    # nunca lanza y tarda como mucho 10 s.
+    await comprobar_plataforma(ha_client, os.environ)
+
     # ── Paso 9: Arrancar servidor MCP principal ──────────────
     health_server.set_boot_step(9)
     logger.info(
@@ -254,6 +319,12 @@ async def _boot(config: HermesConfig) -> None:
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette):
         async with mcp.session_manager.run():
+            # Tareas que el registro de tools no pudo lanzar por no tener
+            # bucle en marcha (hoy ninguna: `_build_mcp` corre dentro de
+            # `_boot`). Así el registro no depende de dónde se le llame.
+            from hermes.tools.ha import lanzar_tareas_aplazadas
+
+            lanzar_tareas_aplazadas()
             oauth_server.start_periodic_cleanup()
             confirmations_cleanup = asyncio.create_task(
                 _periodic_confirmations_cleanup(),
@@ -422,10 +493,7 @@ async def _boot(config: HermesConfig) -> None:
     await health_server.stop()
 
     # Esperar a que el servidor MCP termine
-    try:
-        await asyncio.wait_for(server_task, timeout=MCP_SHUTDOWN_WAIT_SECONDS)
-    except asyncio.TimeoutError:
-        server_task.cancel()
+    await _esperar_servidor_mcp(server_task, timeout=MCP_SHUTDOWN_WAIT_SECONDS)
 
     # Limpiar ficheros temporales .mcp_tmp
     _cleanup_tmp_files()
@@ -454,6 +522,7 @@ def _setup_logging_from_config(config: HermesConfig) -> None:
         redact_network=config.log_redact_network,
         public_hostname=config.public_hostname,
     )
+    _instalar_filtro_de_cancelacion()
     if not config.log_redact_network:
         # Aviso explícito: quien pegue este log debe saber que lleva su
         # hostname y sus IPs (los secretos se siguen redactando).
@@ -514,9 +583,14 @@ def _build_mcp(config: HermesConfig, ha_client: object) -> HermesMCPServer:
     los ajustes de esa segunda carga no se registran en ningún sitio.
     """
     from hermes.tools import register_all_tools
-    from hermes.tools.guide import INSTRUCTIONS
+    from hermes.tool_families import validar_desactivadas
+    from hermes.tools.guide import instrucciones
 
-    mcp = build_mcp_server(INSTRUCTIONS)
+    # Las instrucciones solo anuncian las genéricas si su familia está activa
+    # (T049 de la 011): se validan los nombres igual que al registrar.
+    mcp = build_mcp_server(
+        instrucciones(validar_desactivadas(config.tool_families_disabled or []))
+    )
     register_all_tools(
         mcp,
         ha_client,
@@ -534,6 +608,8 @@ def _build_mcp(config: HermesConfig, ha_client: object) -> HermesMCPServer:
         wait_for_event_max_seconds=config.wait_for_event_max_seconds,
         wait_for_event_max_concurrent=config.wait_for_event_max_concurrent,
         safety_backup_keep=config.safety_backup_keep,
+        safety_backup_encryption=config.safety_backup_encryption,
+        tool_families_disabled=config.tool_families_disabled,
     )
     return mcp
 
@@ -691,7 +767,10 @@ def main() -> None:
     # Arrancar el event loop
     try:
         asyncio.run(_boot(config))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # `CancelledError` hereda de `BaseException`: si escapa de
+        # `asyncio.run` al apagar, el `except Exception` de abajo no lo
+        # recogía y Python imprimía su traza (FR-011 de la 009).
         logger.info("interrupted")
     except SystemExit:
         raise

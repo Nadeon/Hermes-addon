@@ -15,7 +15,13 @@ from hermes.security import (
     resolve_confirmation_token,
     validate_confirmation_token,
 )
-from hermes.tools.ha import automation_entity_ids_for, classify_saved_config
+from hermes.tools.core_validation import validar_al_guardar
+from hermes.tools.ha import (
+    AVISO_UPDATE_INSTALL,
+    automation_entity_ids_for,
+    classify_saved_config,
+    menciona_update_install,
+)
 from hermes.tools._common import (
     guarded_entity_invoke,
     guarded_reload,
@@ -162,6 +168,22 @@ def register(mcp: object, ha_client: HAClient) -> None:
         Para confirmar basta con `automation_id` y `confirmation_token`
         (`confirm_with`): la vista previa guarda `config` en el servidor. Si se
         reenvía `config`, tiene que ser idéntico.
+
+        La vista previa VALIDA con Home Assistant los triggers, condiciones y
+        acciones (con `use_blueprint`, los de la configuración que da el
+        blueprint): si HA la rechazaría, devuelve `invalid_config` (o
+        `blueprint_substitution_failed`) sin token; si no se puede validar,
+        `validation_unavailable` sin token. La vista previa trae
+        `validation` con lo validado y lo NO validado (`alias`, `mode`...),
+        que HA comprueba al guardar. En un Home Assistant anterior a esos
+        comandos (`unknown_command`), da token sin validar:
+        `validation.available: false`, `reason: "unsupported_by_ha_version"`
+        y todo en `not_validated`; HA lo valida al guardar.
+
+        Si la configuración llama a `update.install`, la vista previa lo
+        avisa (`warning_marketplace_install`): una automatización corre sin
+        usuario y HA le deja instalar desde el Marketplace si alguna persona
+        aceptó su aviso de riesgos. Es un aviso, no una barrera.
         """
         if config is None and not confirmation_token:
             return {
@@ -188,6 +210,19 @@ def register(mcp: object, ha_client: HAClient) -> None:
             args["config"] = normalized_config
 
         if not confirmation_token:
+            # Validación al guardar (spec 017, research R-9): solo en la vista
+            # previa, y sin token si HA la rechazaría o no se pudo validar.
+            # La confirmación no vuelve a validar: guarda lo previsualizado y
+            # HA valida otra vez al guardar.
+            validation, error_validacion = await validar_al_guardar(
+                ha_client, "automation", normalized_config)
+            if error_validacion is not None:
+                logger.info(
+                    "ha_create_or_update_automation_not_valid",
+                    automation_id=automation_id,
+                    error=error_validacion.get("error"),
+                )
+                return error_validacion
             try:
                 config_id = await _resolve_automation_config_id(ha_client, automation_id)
                 try:
@@ -204,7 +239,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
                     "config_id": config_id,
                     "current": current,
                     "new": normalized_config,
+                    "validation": validation,
                 }
+                if menciona_update_install(normalized_config):
+                    # Spec 026, T031: AVISO, no barrera (ver
+                    # `menciona_update_install`). El token, lo que se guarda
+                    # y la clasificación siguen como en la 1.1.2.
+                    preview["warning_marketplace_install"] = AVISO_UPDATE_INSTALL
                 return await create_confirmation_token(
                     "ha_create_or_update_automation",
                     args,
@@ -402,7 +443,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
         variables: dict[str, Any] | None = None,
         confirmation_token: str | None = None,
     ) -> object:
-        """Dispara una automatización de Home Assistant."""
+        """Dispara una automatización de Home Assistant.
+
+        Si la automatización está restringida (sus acciones invocan servicios
+        de la denylist), pide confirmación en dos pasos: la vista previa enseña
+        `variables` y el `confirmation_token` las cubre, así que hay que
+        confirmar con exactamente las mismas.
+        """
         if not await entity_exists(ha_client, automation_id):
             logger.warning("ha_trigger_automation_not_found", automation_id=automation_id)
             return not_found_response(automation_id)
@@ -413,7 +460,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
             automation_id,
             "ha_trigger_automation",
             confirmation_token,
-            {"variables": variables} if variables is not None else None,
+            variables,
         )
 
     @mcp.tool()

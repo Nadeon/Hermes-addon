@@ -1,0 +1,589 @@
+"""Catálogo de familias de tools (spec 011, FR-019, T005).
+
+Las familias agrupan los módulos de `hermes/tools/` para poder desactivarlas
+con `tool_families_disabled`. Si un módulo con tools no estuviera en ninguna
+familia, sus tools no se podrían desactivar (y el registro por familias del
+tramo 3 las perdería); si estuviera en dos, desactivar una de ellas no las
+quitaría. Por eso se comprueba por AST, como `test_tools_registration`, sobre
+los módulos que declaran `@mcp.tool()` de verdad.
+
+Control negativo (T005/T016 g): sacar `scenes` de `automations` → falla
+`test_cada_modulo_con_tools_en_una_familia` nombrándolo; ponerlo además en
+`helpers` → falla igual («en 2 familias»); dejar que `validar_desactivadas`
+acepte `base` → falla `test_base_no_se_puede_desactivar`.
+"""
+
+from __future__ import annotations
+
+import ast
+import pathlib
+import re
+import unittest
+
+from hermes import tool_families
+from hermes.tool_families import FAMILIAS, familia_de_modulo, validar_desactivadas
+
+_TOOLS_DIR = (
+    pathlib.Path(__file__).resolve().parents[1] / "hermes" / "src" / "hermes" / "tools"
+)
+
+# Catálogo de la 1.1.2 (research R-5): familia → módulos.
+_CATALOGO_1_1_2 = {
+    "base": {"ping", "guide"},
+    "services": {"ha"},
+    "automations": {"automations", "scripts", "scenes"},
+    "helpers": {
+        "input_boolean", "input_button", "input_datetime", "input_number",
+        "input_select", "input_text", "counter", "timer", "schedule", "zones",
+        "persons",
+    },
+    "events": {"events", "wait_for_event"},
+    "data": {"templates", "history", "logbook", "statistics"},
+    "registries": {
+        "registry_area", "registry_category", "registry_device",
+        "registry_entity", "registry_floor", "registry_label",
+    },
+    "diagnostics": {"repairs", "traces", "search", "resolution"},
+    "config_entries": {"config_entries", "config_entry_flows"},
+    "filesystem": {"filesystem", "filesystem_write"},
+    "supervisor": {"addons", "supervisor"},
+    "backups": {"backups", "ha_backups"},
+    "lovelace": {"lovelace"},
+    "marketplace": {"marketplace", "hacs"},
+}
+
+
+def _es_tool(deco: ast.expr) -> bool:
+    return (
+        isinstance(deco, ast.Call)
+        and getattr(getattr(deco, "func", None), "attr", "") == "tool"
+    ) or (isinstance(deco, ast.Attribute) and deco.attr == "tool")
+
+
+def _tools_por_modulo() -> dict[str, list[str]]:
+    """Módulo de `hermes/tools/` → nombres de sus funciones `@mcp.tool()`."""
+    out: dict[str, list[str]] = {}
+    for path in sorted(_TOOLS_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        nombres = [
+            n.name for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(_es_tool(d) for d in n.decorator_list)
+        ]
+        if nombres:
+            out[path.stem] = nombres
+    return out
+
+
+class TestCatalogo(unittest.TestCase):
+    def test_cada_modulo_con_tools_en_una_familia(self) -> None:
+        problemas = []
+        for modulo in sorted(_tools_por_modulo()):
+            familias = [f.nombre for f in FAMILIAS.values() if modulo in f.modulos]
+            if len(familias) != 1:
+                problemas.append(f"{modulo}: en {len(familias)} familias {familias}")
+        self.assertEqual(problemas, [], "\n".join(problemas))
+
+    def test_cada_familia_nombra_modulos_que_existen(self) -> None:
+        existentes = {p.stem for p in _TOOLS_DIR.glob("*.py")}
+        faltan = sorted(
+            f"{f.nombre}: {m}" for f in FAMILIAS.values() for m in f.modulos
+            if m not in existentes
+        )
+        self.assertEqual(faltan, [], f"módulos inexistentes: {faltan}")
+
+    def test_ningun_modulo_en_dos_familias(self) -> None:
+        todos = [m for f in FAMILIAS.values() for m in f.modulos]
+        repetidos = sorted({m for m in todos if todos.count(m) > 1})
+        self.assertEqual(repetidos, [])
+
+    def test_nombres_unicos_y_con_forma(self) -> None:
+        for clave, familia in FAMILIAS.items():
+            self.assertEqual(clave, familia.nombre)
+            self.assertRegex(familia.nombre, r"^[a-z][a-z0-9_]*$")
+            self.assertTrue(familia.descripcion.strip(), familia.nombre)
+            self.assertIn(familia.desde, {"1.1.2", "1.2.0"}, familia.nombre)
+
+    def test_base_contiene_ping_y_guide_y_es_la_unica_fija(self) -> None:
+        self.assertIn("base", FAMILIAS)
+        self.assertLessEqual({"ping", "guide"}, set(FAMILIAS["base"].modulos))
+        fijas = sorted(f.nombre for f in FAMILIAS.values() if not f.desactivable)
+        self.assertEqual(fijas, ["base"])
+
+    def test_familias_de_la_1_1_2(self) -> None:
+        de_1_1_2 = {
+            f.nombre: set(f.modulos) for f in FAMILIAS.values() if f.desde == "1.1.2"
+        }
+        self.assertEqual(de_1_1_2, _CATALOGO_1_1_2)
+
+    def test_las_familias_de_la_1_1_2_suman_las_216_tools(self) -> None:
+        por_modulo = _tools_por_modulo()
+        nombres = {
+            t for f in FAMILIAS.values() if f.desde == "1.1.2"
+            for m in f.modulos for t in por_modulo.get(m, [])
+        }
+        # `test_progress` solo se registra con HERMES_DEV: no es de las 216.
+        nombres.discard("test_progress")
+        self.assertEqual(len(nombres), 216)
+
+    def test_generic_commands_es_de_la_1_2_0(self) -> None:
+        familia = FAMILIAS["generic_commands"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("generic_commands",))
+
+    def test_system_diagnostics_es_de_la_1_2_0(self) -> None:
+        # Spec 013, FR-021 (research R-1): las tools de logs del sistema van
+        # en una familia propia de la 1.2.0 para que apagarla devuelva la
+        # lista de la 1.1.2. El tramo 2 añade a la misma familia el módulo
+        # `host_system` (disco, host y OS; data-model).
+        familia = FAMILIAS["system_diagnostics"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_logs", "host_system"))
+        self.assertEqual(familia_de_modulo("system_logs"), "system_diagnostics")
+        self.assertEqual(familia_de_modulo("host_system"), "system_diagnostics")
+
+    def test_system_status_es_de_la_1_2_0(self) -> None:
+        """Spec 029, T009 (FR-015): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las cinco tools de CAP-043."""
+        familia = FAMILIAS["system_status"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_status",))
+        self.assertEqual(
+            familia.descripcion,
+            "System health, pending restart state, integration setup times and "
+            "manifests (read only).")
+        self.assertEqual(familia_de_modulo("system_status"), "system_status")
+
+    def test_recorder_es_de_la_1_2_0(self) -> None:
+        """Spec 029, T020 (FR-015): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las tres tools de CAP-049. Es la del recorder entero:
+        la 020 (T007, FR-014) añade el mantenimiento de estadísticas
+        (`statistics_maintenance`), y la descripción deja de decir «read only»
+        y nombra el mantenimiento (principio V)."""
+        familia = FAMILIAS["recorder"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("recorder_status", "statistics_maintenance"))
+        self.assertEqual(
+            familia.descripcion,
+            "Recorder status and long-term statistics: validation, metadata and "
+            "maintenance (clear, change units, fix metadata, adjust sums, import; "
+            "with confirmation).")
+        self.assertNotIn("read only", familia.descripcion)
+        self.assertEqual(familia_de_modulo("recorder_status"), "recorder")
+        self.assertEqual(familia_de_modulo("statistics_maintenance"), "recorder")
+        # Las dos de estadísticas de la 1.1.2 siguen en `data` (FR-010 de la 008).
+        self.assertEqual(familia_de_modulo("statistics"), "data")
+    def test_core_diagnostics_de_la_1_2_0(self) -> None:
+        """Spec 012 (FR-013, T002): la familia del diagnóstico de Core, nueva,
+        desactivable y con exactamente sus cuatro módulos (tramo A:
+        `core_logs`; tramo B, T026: los otros tres). Control negativo (T018
+        h): sacar `core_logs` de la familia → cae este test (y
+        `test_cada_modulo_con_tools_en_una_familia`).
+        """
+        familia = FAMILIAS["core_diagnostics"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("core_logs", "core_validation",
+                                           "integration_diagnostics",
+                                           "persistent_notifications"))
+        for modulo in familia.modulos:
+            self.assertEqual(familia_de_modulo(modulo), "core_diagnostics")
+        self.assertEqual(validar_desactivadas(["core_diagnostics"]),
+                         frozenset({"core_diagnostics"}))
+
+    def test_backup_integration_de_la_1_2_0(self) -> None:
+        """Spec 031 (FR-016, T006): familia nueva, desactivable, con el módulo
+        del tramo 1 (`ha_backup_settings`; los tramos 2 y 3 añaden los
+        suyos). Los backups de la 1.1.2 siguen en `backups`."""
+        familia = FAMILIAS["backup_integration"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("ha_backup_settings", "ha_backup_actions",
+                                           "ha_backup_restore"))
+        self.assertEqual(familia_de_modulo("ha_backup_settings"), "backup_integration")
+        # Tramo 2 (T025): crear y borrar.
+        self.assertEqual(familia_de_modulo("ha_backup_actions"), "backup_integration")
+        # Tramo 3 (T040): restaurar.
+        self.assertEqual(familia_de_modulo("ha_backup_restore"), "backup_integration")
+        self.assertEqual(familia_de_modulo("ha_backups"), "backups")
+        self.assertEqual(validar_desactivadas(["backup_integration"]),
+                         frozenset({"backup_integration"}))
+
+    def test_integration_flows_es_de_la_1_2_0(self) -> None:
+        """Spec 016 (T002, FR-017): familia nueva, desactivable, con los
+        módulos de sus tramos: A `integration_setup`, B `config_subentries`.
+
+        Control negativo (T016 h): sacar `integration_setup` de la familia →
+        cae este test y `test_cada_modulo_con_tools_en_una_familia`."""
+        familia = FAMILIAS["integration_flows"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("integration_setup", "config_subentries"))
+        self.assertEqual(familia_de_modulo("integration_setup"), "integration_flows")
+        self.assertEqual(familia_de_modulo("config_subentries"), "integration_flows")
+        self.assertEqual(validar_desactivadas(["integration_flows"]),
+                         frozenset({"integration_flows"}))
+
+    def test_repair_flows_es_de_la_1_2_0(self) -> None:
+        """Spec 016, tramo C (T039, FR-017): familia nueva con el módulo
+        `repair_flows`; `repairs` sigue en `diagnostics`."""
+        familia = FAMILIAS["repair_flows"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("repair_flows",))
+        self.assertEqual(familia_de_modulo("repair_flows"), "repair_flows")
+        self.assertEqual(familia_de_modulo("repairs"), "diagnostics")
+        self.assertEqual(validar_desactivadas(["repair_flows"]), frozenset({"repair_flows"}))
+    def test_mounts_es_de_la_1_2_0(self) -> None:
+        # Spec 019, FR-016 (research R-1): los montajes de red y los ajustes
+        # de backup del Supervisor, en una familia propia de la 1.2.0. El
+        # tramo 1 trae el módulo `mounts`; el 2 añade `backup_settings`.
+        familia = FAMILIAS["mounts"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("mounts", "backup_settings"))
+        self.assertEqual(familia_de_modulo("mounts"), "mounts")
+        self.assertEqual(familia_de_modulo("backup_settings"), "mounts")
+    def test_system_updates_es_de_la_1_2_0(self) -> None:
+        # Spec 015, FR-017 (research R-1): las actualizaciones del sistema van
+        # en una familia propia de la 1.2.0 para que apagarla devuelva la lista
+        # de la 1.1.2. El tramo 1 la crea con el módulo `system_updates`; el
+        # tramo 3 añade `update_entities` (data-model, «Familia»).
+        familia = FAMILIAS["system_updates"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_updates", "update_entities"))
+        self.assertEqual(familia_de_modulo("system_updates"), "system_updates")
+        self.assertEqual(familia_de_modulo("update_entities"), "system_updates")
+
+    def test_app_store_es_de_la_1_2_0(self) -> None:
+        """Spec 030, T002 y T020 (FR-015): familia nueva de la 1.2.0,
+        desactivable, con el módulo de repositorios y recarga (tramo 1) y el
+        de fichas, disponibilidad y reconstrucción (tramo 2), y una
+        descripción que nombra las dos cosas (principio V)."""
+        familia = FAMILIAS["app_store"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("store_repositories", "store_apps"))
+        self.assertEqual(
+            familia.descripcion,
+            "App store: repositories, store reload, app changelog, "
+            "documentation and availability, and app rebuild.")
+        self.assertEqual(familia_de_modulo("store_repositories"), "app_store")
+        self.assertEqual(familia_de_modulo("store_apps"), "app_store")
+        # Las tools de apps de la 1.1.2 siguen en `supervisor` (FR-010 de la 008).
+        self.assertEqual(familia_de_modulo("addons"), "supervisor")
+        self.assertEqual(validar_desactivadas(["app_store"]), frozenset({"app_store"}))
+
+    def test_blueprints_de_la_1_2_0(self) -> None:
+        """Spec 017 (FR-011, T002): familia nueva de la 1.2.0, desactivable,
+        con exactamente el módulo `blueprints` (va sola: research R-10).
+        Control negativo comprobado: con `blueprints` en la familia
+        `automations` cae este test (y el SC-005 de las 216 de la 1.1.2)."""
+        familia = FAMILIAS["blueprints"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("blueprints",))
+        self.assertEqual(familia_de_modulo("blueprints"), "blueprints")
+        self.assertEqual(validar_desactivadas(["blueprints"]), frozenset({"blueprints"}))
+
+    def test_automation_assist_de_la_1_2_0(self) -> None:
+        """Spec 017 (FR-011, T026): familia nueva de la 1.2.0, desactivable,
+        con los módulos de dispositivo y de targets, y la espera de trigger
+        (tramo D, T042). Control negativo comprobado: con `targets` en la
+        familia `automations` cae este test (y el SC-005 de las 216 de la
+        1.1.2)."""
+        familia = FAMILIAS["automation_assist"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos,
+                         ("device_automation", "targets", "wait_for_trigger"))
+        for modulo in familia.modulos:
+            self.assertEqual(familia_de_modulo(modulo), "automation_assist")
+        self.assertEqual(validar_desactivadas(["automation_assist"]),
+                         frozenset({"automation_assist"}))
+
+    def test_energy_de_la_1_2_0(self) -> None:
+        """Spec 020, T036 (FR-014): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las dos tools de CAP-054 y la descripción de
+        data-model (dice que guardar pide confirmación)."""
+        familia = FAMILIAS["energy"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("energy",))
+        self.assertEqual(
+            familia.descripcion,
+            "Energy dashboard preferences: read and save (with confirmation).")
+        self.assertEqual(familia_de_modulo("energy"), "energy")
+        self.assertEqual(validar_desactivadas(["energy"]), frozenset({"energy"}))
+
+    def test_system_control_es_de_la_1_2_0(self) -> None:
+        # Spec 022, FR-017 (research R-1): el control de Core y del
+        # Supervisor, en una familia propia de la 1.2.0 y desactivable.
+        familia = FAMILIAS["system_control"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_control",))
+        self.assertEqual(familia_de_modulo("system_control"), "system_control")
+        # `supervisor` (1.1.2) no gana módulos.
+        self.assertEqual(FAMILIAS["supervisor"].modulos, ("addons", "supervisor"))
+        self.assertEqual(validar_desactivadas(["system_control"]),
+                         frozenset({"system_control"}))
+
+    def test_resolution_fixes_es_de_la_1_2_0(self) -> None:
+        # Spec 022, tramo 2, FR-017 (research R-1): aplicar sugerencias del
+        # centro de resolución va en su propia familia, separada de
+        # `system_control` y de `diagnostics` (1.1.2), para apagarla sola.
+        familia = FAMILIAS["resolution_fixes"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("resolution_fixes",))
+        self.assertEqual(familia_de_modulo("resolution_fixes"), "resolution_fixes")
+        # `diagnostics` (1.1.2), donde vive `resolution`, no gana módulos.
+        self.assertNotIn("resolution_fixes", FAMILIAS["diagnostics"].modulos)
+        self.assertEqual(validar_desactivadas(["resolution_fixes"]),
+                         frozenset({"resolution_fixes"}))
+    def test_familias_de_la_021_tramo_a(self) -> None:
+        """Spec 021 (FR-017, T007): `core_config` y `assistant_exposure`,
+        nuevas de la 1.2.0, desactivables y con su módulo cada una (research
+        R-9: la exposición, aparte, porque puede mandar entidades a la nube
+        de un tercero)."""
+        esperadas = {
+            "core_config": ("core_config", "Core configuration: name, location, "
+                            "units, time zone, currency, country, language and URLs."),
+            "assistant_exposure": ("assistant_exposure", "Which entities Assist, "
+                                   "conversation agents and the cloud voice "
+                                   "assistants can see and control."),
+        }
+        for nombre, (modulo, descripcion) in esperadas.items():
+            with self.subTest(familia=nombre):
+                familia = FAMILIAS[nombre]
+                self.assertEqual(familia.desde, "1.2.0")
+                self.assertTrue(familia.desactivable)
+                self.assertEqual(familia.modulos, (modulo,))
+                self.assertEqual(familia.descripcion, descripcion)
+                self.assertEqual(familia_de_modulo(modulo), nombre)
+                self.assertEqual(validar_desactivadas([nombre]), frozenset({nombre}))
+
+    def test_familia_de_la_021_tramo_b(self) -> None:
+        """Spec 021 (FR-017, T025): `users`, nueva de la 1.2.0, desactivable
+        y con su módulo (research R-9: riesgo alto, aparte del resto)."""
+        familia = FAMILIAS["users"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("users",))
+        self.assertEqual(familia.descripcion,
+                         "Home Assistant users: list, create without credentials, "
+                         "edit and delete. Never passwords or tokens.")
+        self.assertEqual(familia_de_modulo("users"), "users")
+        self.assertEqual(validar_desactivadas(["users"]), frozenset({"users"}))
+
+    def test_familia_de_la_021_tramo_c(self) -> None:
+        """Spec 021 (FR-017, T042): `core_network`, nueva de la 1.2.0,
+        desactivable y con su módulo; no es la red del host (032)."""
+        familia = FAMILIAS["core_network"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("core_network",))
+        self.assertEqual(familia.descripcion,
+                         "Core network adapters and HTTP server configuration "
+                         "(port, SSL, reverse proxy).")
+        self.assertEqual(familia_de_modulo("core_network"), "core_network")
+        self.assertEqual(validar_desactivadas(["core_network"]),
+                         frozenset({"core_network"}))
+
+    def test_host_control_es_de_la_1_2_0(self) -> None:
+        # Spec 032, FR-015 (research R-1): apagar el host, el hostname, la
+        # swap y la ranura de arranque, en una familia propia de la 1.2.0 y
+        # separada de la red del host (tramo 2), que es otro riesgo.
+        familia = FAMILIAS["host_control"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("host_control",))
+        self.assertEqual(familia_de_modulo("host_control"), "host_control")
+        self.assertEqual(validar_desactivadas(["host_control"]), frozenset({"host_control"}))
+
+    def test_host_network_es_de_la_1_2_0(self) -> None:
+        # Spec 032, FR-015 (tramo 2, research R-1): la red del host, en su
+        # propia familia de la 1.2.0, separada del control del host.
+        familia = FAMILIAS["host_network"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("host_network",))
+        self.assertEqual(familia_de_modulo("host_network"), "host_network")
+        self.assertEqual(validar_desactivadas(["host_network"]), frozenset({"host_network"}))
+        self.assertEqual(validar_desactivadas(["host_control", "host_network"]),
+                         frozenset({"host_control", "host_network"}))
+    def test_conversation_es_de_la_1_2_0(self) -> None:
+        """Spec 023, T002 (FR-010): familia nueva de la 1.2.0, desactivable,
+        con su módulo, y una descripción que no dice «read only» porque
+        `ha_process_conversation` ejecuta (principio V)."""
+        familia = FAMILIAS["conversation"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("conversation",))
+        self.assertEqual(
+            familia.descripcion,
+            "Assist conversation agents, custom sentences, sentence analysis "
+            "and sending a sentence to Assist (with confirmation).")
+        self.assertNotIn("read only", familia.descripcion)
+        self.assertEqual(familia_de_modulo("conversation"), "conversation")
+        # `ha_call_service_response` (con `conversation.process`) sigue en
+        # `services`, familia de la 1.1.2 (FR-010 de la 008).
+        self.assertEqual(familia_de_modulo("ha"), "services")
+        self.assertEqual(validar_desactivadas(["conversation"]),
+                         frozenset({"conversation"}))
+
+    def test_cameras_de_la_1_2_0(self) -> None:
+        """Spec 024 (FR-013, T002): familia nueva de la 1.2.0, desactivable,
+        con exactamente el módulo `cameras` (research R-3): las dos tools que
+        devuelven imágenes van solas para que quien no quiera que el cliente
+        vea la cámara la apague sin perder nada más.
+        Control negativo comprobado: con `cameras` en la familia `services`
+        cae este test (y el SC-005 de las de la 1.1.2)."""
+        familia = FAMILIAS["cameras"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("cameras",))
+        self.assertEqual(familia_de_modulo("cameras"), "cameras")
+        self.assertEqual(validar_desactivadas(["cameras"]), frozenset({"cameras"}))
+
+    def test_dashboard_reset_de_la_1_2_0(self) -> None:
+        """Spec 024 (FR-013, T018): familia nueva de la 1.2.0, desactivable,
+        con exactamente el módulo `lovelace_reset` (research R-3): la familia
+        `lovelace` de la 1.1.2 no gana tools.
+        Control negativo comprobado: con `lovelace_reset` en la familia
+        `lovelace` cae este test (y el SC-005 de las de la 1.1.2)."""
+        familia = FAMILIAS["dashboard_reset"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("lovelace_reset",))
+        self.assertEqual(familia_de_modulo("lovelace_reset"), "dashboard_reset")
+        self.assertEqual(validar_desactivadas(["dashboard_reset"]),
+                         frozenset({"dashboard_reset"}))
+
+    def test_marketplace_manage_es_de_la_1_2_0(self) -> None:
+        # Spec 026, tramo 1 (FR-020, research R-3): el mantenimiento del
+        # Marketplace, en una familia propia de la 1.2.0, desactivable y
+        # distinta de `marketplace` (1.1.2, solo lectura).
+        familia = FAMILIAS["marketplace_manage"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("marketplace_manage",))
+        self.assertEqual(familia_de_modulo("marketplace_manage"), "marketplace_manage")
+        self.assertEqual(FAMILIAS["marketplace"].modulos, ("marketplace", "hacs"))
+        self.assertEqual(validar_desactivadas(["marketplace_manage"]),
+                         frozenset({"marketplace_manage"}))
+        # Tramo 2 (decisión D-2 del supervisor): desinstalar va aquí; no hay
+        # familia `marketplace_install` ni módulo propio.
+        self.assertNotIn("marketplace_install", FAMILIAS)
+        self.assertIn("uninstall", FAMILIAS["marketplace_manage"].descripcion)
+
+    def test_familia_de_modulo(self) -> None:
+        self.assertEqual(familia_de_modulo("scenes"), "automations")
+        self.assertEqual(familia_de_modulo("guide"), "base")
+        self.assertEqual(familia_de_modulo("generic_commands"), "generic_commands")
+        with self.assertRaises(KeyError):
+            familia_de_modulo("no_existe")
+
+    def test_neutral_no_importa_nada_de_hermes(self) -> None:
+        # Lo importa config.py: si importara tools/ habría ciclos.
+        arbol = ast.parse(pathlib.Path(tool_families.__file__).read_text(encoding="utf-8"))
+        importados: list[str] = []
+        for n in ast.walk(arbol):
+            if isinstance(n, ast.Import):
+                importados += [a.name for a in n.names]
+            elif isinstance(n, ast.ImportFrom):
+                importados.append("." * n.level + (n.module or ""))
+        self.assertEqual([m for m in importados if m.startswith(("hermes", "."))], [])
+
+
+class TestValidarDesactivadas(unittest.TestCase):
+    def test_vacia(self) -> None:
+        self.assertEqual(validar_desactivadas([]), frozenset())
+
+    def test_validas_y_duplicados(self) -> None:
+        self.assertEqual(
+            validar_desactivadas(["lovelace", "marketplace", "lovelace"]),
+            frozenset({"lovelace", "marketplace"}),
+        )
+
+    def test_nombre_desconocido(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            validar_desactivadas(["lovelace", "familia_inventada"])
+        msg = str(ctx.exception)
+        self.assertIn("familia_inventada", msg)
+        # Nombra las válidas para que el usuario corrija sin leer el código.
+        self.assertIn("lovelace", msg)
+        self.assertIn("generic_commands", msg)
+
+    def test_base_no_se_puede_desactivar(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            validar_desactivadas(["base"])
+        self.assertIn("base", str(ctx.exception))
+
+    def test_forma_invalida(self) -> None:
+        with self.assertRaises(ValueError):
+            validar_desactivadas(["Lovelace"])
+
+
+class TestFamiliasEnLaDocumentacion(unittest.TestCase):
+    """DOCS.md tiene una fila por familia y los README las nombran todas (la
+    opción no sirve si el usuario no sabe qué nombres valen). Una familia
+    nueva sin documentar hace caer este test."""
+
+    def test_cada_familia_documentada(self) -> None:
+        raiz = pathlib.Path(__file__).resolve().parents[1]
+        docs = (raiz / "hermes" / "DOCS.md").read_text(encoding="utf-8")
+        readmes = {n: (raiz / n).read_text(encoding="utf-8")
+                   for n in ("README.md", "README.es.md")}
+        for nombre in FAMILIAS:
+            with self.subTest(familia=nombre):
+                self.assertRegex(docs, rf"(?m)^\| `{nombre}` \| \d+ \|")
+                for fichero, texto in readmes.items():
+                    self.assertIn(f"`{nombre}`", texto, fichero)
+
+
+class TestAliasDeFamilias(unittest.TestCase):
+    """Nombres antiguos de familias renombradas (decisión del supervisor del
+    programa, desviación anotada en tasks.md): quien tenga guardado el nombre
+    viejo en `tool_families_disabled` no puede quedarse sin arrancar al
+    actualizar, ni —peor— con la familia activa sin enterarse. Hoy `ALIAS`
+    está vacío; el mecanismo se prueba con alias inyectados.
+
+    Control negativo (T042): ignorar `alias` en `validar_desactivadas` → cae
+    `test_el_alias_se_traduce_al_nombre_actual` («no existe»).
+    """
+
+    def test_el_alias_se_traduce_al_nombre_actual(self) -> None:
+        alias = {"paneles": "lovelace"}
+        self.assertEqual(
+            validar_desactivadas(["paneles", "lovelace"], alias=alias),
+            frozenset({"lovelace"}),
+        )
+
+    def test_un_alias_de_base_tampoco_la_desactiva(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            validar_desactivadas(["nucleo"], alias={"nucleo": "base"})
+        self.assertIn("no se puede desactivar", str(ctx.exception))
+
+    def test_sin_el_alias_el_nombre_viejo_no_existe(self) -> None:
+        with self.assertRaises(ValueError):
+            validar_desactivadas(["paneles"])
+
+    def test_los_alias_reales_son_coherentes(self) -> None:
+        """Cada alias apunta a una familia que existe, no tapa un nombre
+        actual (sería ambiguo) y tiene la forma de un nombre de familia."""
+        for viejo, actual in tool_families.ALIAS.items():
+            with self.subTest(alias=viejo):
+                self.assertNotIn(viejo, FAMILIAS)
+                self.assertIn(actual, FAMILIAS)
+                self.assertRegex(viejo, r"^[a-z][a-z0-9_]*$")
+
+
+if __name__ == "__main__":
+    unittest.main()

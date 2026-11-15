@@ -861,6 +861,180 @@ class TestBackupTools(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(addons_mod._load_jobs_sync(), {}, contenido)
 
 
+class TestJobStatusSubJobs(unittest.IsolatedAsyncioTestCase):
+    """Spec 027, FR-001, FR-002 y D-1: los errores de los sub-jobs.
+
+    El Supervisor 2026.11.0 no sube al padre los errores de un sub-job
+    (`supervisor/jobs/__init__.py`, `capture_error`; `api/jobs.py`,
+    `_list_jobs`): un backup completo con una app que no se pudo guardar
+    terminaba con `errors: []` y `sv_get_job_status` daba `success: true`.
+
+    Controles negativos comprobados: sin la línea que añade `child_errors` al
+    resultado → 7 en rojo; calculando `success` solo con `errors` → 3 en rojo
+    (sub-job, recorte y seguimiento local).
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+
+        import hermes.tools.backups as backups_mod
+        from hermes.tools.backups import register
+
+        self._tmp = tempfile.TemporaryDirectory()
+        datos = Path(self._tmp.name)
+        self._patches = [
+            patch.object(addons_mod, "_PENDING_JOBS_PATH", datos / "pending_jobs.json"),
+            patch.object(backups_mod, "_SAFETY_BACKUP_STATE_PATH",
+                         datos / "last_safety_backup.json"),
+        ]
+        for p in self._patches:
+            p.start()
+        self.client = MockHAClient()
+        mcp = DummyMCP()
+        register(mcp, self.client, safety_backup_window_minutes=30)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        for p in self._patches:
+            p.stop()
+        self._tmp.cleanup()
+
+    @staticmethod
+    def _sub(name: str, mensajes: list[str], hijos: list | None = None) -> dict:
+        job: dict[str, Any] = {
+            "name": name, "done": True,
+            "errors": [{"type": "BackupError", "message": m, "stage": None}
+                       for m in mensajes],
+        }
+        if hijos is not None:
+            job["child_jobs"] = hijos
+        return job
+
+    async def _estado(self, data: dict) -> dict:
+        self.client.set_sv_response("GET", "/jobs/job_abc123", data)
+        return await self.tools["sv_get_job_status"]("job_abc123")
+
+    async def test_error_en_un_sub_job_es_un_fallo(self) -> None:
+        result = await self._estado({
+            "name": "backup_manager_full_backup", "done": True, "errors": [],
+            "progress": 100, "reference": "<slug>",
+            "child_jobs": [self._sub("backup_store_apps",
+                                     ["Can't create backup for <slug>"])],
+        })
+        self.assertIs(result["success"], False)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["child_errors"], [
+            {"job": "backup_store_apps", "message": "Can't create backup for <slug>"}])
+        self.assertEqual(result["reference"], "<slug>")
+        self.assertNotIn("child_errors_truncated", result)
+
+    async def test_el_seguimiento_local_lo_marca_fallido(self) -> None:
+        self.client.set_sv_response("POST", "/backups/new/full", {"job_id": "job_abc123"})
+        await self.tools["sv_create_backup_full"]("Backup con una app fallida")
+        await self._estado({"name": "backup_full", "done": True, "errors": [],
+                            "child_jobs": [self._sub("backup_store_apps", ["fallo"])]})
+        en_disco = json.loads(addons_mod._PENDING_JOBS_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(en_disco["job_abc123"]["status"], "failed")
+
+    async def test_error_propio_sigue_siendo_un_fallo(self) -> None:
+        result = await self._estado({
+            "name": "backup_full", "done": True,
+            "errors": [{"type": "BackupError", "message": "Not enough free space"}],
+        })
+        self.assertIs(result["success"], False)
+        self.assertEqual(result["errors"], ["Not enough free space"])
+        self.assertEqual(result["child_errors"], [])
+
+    async def test_sin_sub_jobs_todo_igual_que_antes(self) -> None:
+        data = {"name": "backup_full", "done": True, "errors": [], "progress": 100,
+                "stage": None, "reference": "deadbeef"}
+        result = await self._estado(data)
+        self.assertEqual(result, {
+            "job_id": "job_abc123", "name": "backup_full", "done": True,
+            "success": True, "errors": [], "child_errors": [], "progress": 100,
+            "stage": None, "reference": "deadbeef", "child_jobs": None,
+        })
+
+    async def test_sub_jobs_sin_errores_es_un_exito(self) -> None:
+        result = await self._estado({"name": "backup_full", "done": True, "errors": [],
+                                     "child_jobs": [self._sub("backup_store_apps", [])]})
+        self.assertIs(result["success"], True)
+        self.assertEqual(result["child_errors"], [])
+
+    async def test_en_curso_success_null(self) -> None:
+        result = await self._estado({"name": "backup_full", "done": False, "errors": [],
+                                     "child_jobs": [self._sub("x", ["ya falló"])]})
+        self.assertIsNone(result["success"])
+        self.assertEqual(result["child_errors"], [{"job": "x", "message": "ya falló"}])
+
+    async def test_recorte(self) -> None:
+        from hermes.supervisor_jobs import CHILD_ERRORS_MAX
+
+        result = await self._estado({
+            "name": "backup_full", "done": True, "errors": [],
+            "child_jobs": [self._sub(f"app_{i}", ["f"]) for i in range(CHILD_ERRORS_MAX + 5)],
+        })
+        self.assertIs(result["child_errors_truncated"], True)
+        self.assertEqual(len(result["child_errors"]), CHILD_ERRORS_MAX)
+        self.assertIs(result["success"], False)
+
+    async def test_centinela_tapado(self) -> None:
+        result = await self._estado({
+            "name": "backup_full", "done": True,
+            "errors": [{"message": "fallo: password=centinela-027"}],
+            "child_jobs": [self._sub("x", ["fallo: token=centinela-027"])],
+        })
+        self.assertNotIn("centinela-027", json.dumps(result["errors"]))
+        self.assertNotIn("centinela-027", json.dumps(result["child_errors"]))
+
+    async def test_centinela_anidado_no_sale_en_ninguna_parte(self) -> None:
+        """Un secreto en el error de un sub-job anidado no sale ni por
+        `child_errors` ni por `child_jobs`, que se devuelve entero.
+
+        Control negativo comprobado: con `"child_jobs": data.get("child_jobs")`
+        (sin redactar) en `sv_get_job_status` → en rojo.
+        """
+        nieto = self._sub("backup_app_save", ["fallo: token=centinela-027-a"])
+        nieto["errors"][0]["extra_fields"] = {"password": "centinela-027-b"}
+        result = await self._estado({
+            "name": "backup_full", "done": True, "errors": [],
+            "child_jobs": [self._sub("backup_store_apps", [], hijos=[
+                self._sub("backup_app", [], hijos=[nieto])])],
+        })
+        texto = json.dumps(result)
+        self.assertNotIn("centinela-027", texto)
+        # Lo que no es secreto sigue ahí: la estructura y los nombres.
+        self.assertEqual(
+            result["child_jobs"][0]["child_jobs"][0]["child_jobs"][0]["name"],
+            "backup_app_save")
+        self.assertIs(result["success"], False)
+
+    async def test_centinela_tapado_en_el_error_http(self) -> None:
+        """El error HTTP (cuerpo de la respuesta del Supervisor) sale redactado.
+
+        Control negativo comprobado: con `{"error": str(exc)}` en el
+        `except HAConnectionError` de `sv_get_job_status` → en rojo.
+        """
+        self.client.set_sv_response("GET", "/jobs/job_abc123", HAConnectionError(
+            "Supervisor 400: job failed, token=centinela-027-http", status=400))
+        result = await self.tools["sv_get_job_status"]("job_abc123")
+        self.assertIn("error", result)
+        self.assertNotIn("centinela-027-http", json.dumps(result))
+        self.assertIn("Supervisor 400", result["error"])
+
+    def test_descripcion(self) -> None:
+        texto = self.tools["sv_get_job_status"].__doc__ or ""
+        for frase in (
+            "`done` es True también cuando el job FALLA",
+            "CUALQUIER entrada en `errors`",
+            "no distingue avisos de errores fatales",
+            "`child_errors`",
+            "TAMBIÉN dan success=false",
+            "sv_get_backup",
+        ):
+            self.assertIn(frase, texto)
+
+
 class TestOpcionesDeAddon(unittest.IsolatedAsyncioTestCase):
     """`sv_get_addon_options` leía un endpoint que el Supervisor le negaba.
 
@@ -1197,3 +1371,453 @@ class TestSelfProtectionWorksWhereverItIsInstalled(unittest.TestCase):
         self.assertIsNotNone(aviso, "sin aviso al pararse a sí mismo")
         self.assertIn("unavailable", aviso)
         self.assertIsNone(_self_warning("core_mosquitto", "Stopping"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 009 — FR-005: sv_get_addon_logs dice qué redactó
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestQueRedactoElLog(unittest.IsolatedAsyncioTestCase):
+    """`redacted` solo dice si el texto cambió, no qué se tapó (FR-005).
+
+    En la prueba en vivo de la 1.1.1 el log de Hermes ya venía con la red
+    tapada (se redacta al escribir), no traía secretos y la tool dijo
+    `redacted: false`: el agente no podía saber que la redacción de red se
+    había aplicado. `secrets_redacted` y `network_redacted` lo separan.
+    """
+
+    _HERMES = "a1b2c3d4_hermes"
+
+    def setUp(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        from hermes.tools.addons import register
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        self.client = MockHAClient()
+        mcp = DummyMCP()
+        register(mcp, self.client)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        # Estado del módulo: desactivado, como en el arranque.
+        configure_network_redaction(False, "")
+
+    def _log(self, slug: str, texto: str) -> None:
+        self.client.set_sv_text_response(f"/addons/{slug}/logs", texto)
+
+    async def test_log_de_hermes_ya_redactado(self) -> None:
+        self._log(self._HERMES, "conexión desde <ip:private:0a1b2c3d>\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertFalse(r["redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertTrue(r["network_redacted"])
+
+    async def test_otro_addon_con_secreto(self) -> None:
+        self._log("core_mosquitto", "password: centinela-9876\n")
+        r = await self.tools["sv_get_addon_logs"]("core_mosquitto")
+        self.assertTrue(r["redacted"])
+        self.assertTrue(r["secrets_redacted"])
+        self.assertFalse(r["network_redacted"])
+        self.assertNotIn("centinela-9876", r["logs"])
+
+    async def test_hermes_con_la_redaccion_desactivada(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(False, "")
+        self._log(self._HERMES, "conexión desde 10.0.0.5\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertFalse(r["network_redacted"])
+        self.assertFalse(r["redacted"])
+        self.assertIn("10.0.0.5", r["logs"])
+
+    async def test_hermes_con_una_ip_en_claro(self) -> None:
+        self._log(self._HERMES, "conexión desde 10.0.0.5\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertTrue(r["redacted"])
+        self.assertTrue(r["network_redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertNotIn("10.0.0.5", r["logs"])
+
+    async def test_el_evento_lleva_los_tres_campos(self) -> None:
+        from structlog.testing import capture_logs
+        self._log("core_mosquitto", "password: centinela-9876\n")
+        with capture_logs() as eventos:
+            await self.tools["sv_get_addon_logs"]("core_mosquitto")
+        ev = [e for e in eventos if e["event"] == "sv_get_addon_logs"]
+        self.assertEqual(len(ev), 1)
+        self.assertIs(ev[0]["redacted"], True)
+        self.assertIs(ev[0]["secrets_redacted"], True)
+        self.assertIs(ev[0]["network_redacted"], False)
+
+    async def test_el_recorte_por_tamano_conserva_los_campos(self) -> None:
+        from hermes.tools.addons import register
+        mcp = DummyMCP()
+        register(mcp, self.client, response_max_bytes=2048)
+        self._log(self._HERMES, "".join(f"línea {i} desde 10.0.0.5\n" for i in range(400)))
+        r = await mcp.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertTrue(r["truncated"])
+        self.assertTrue(r["redacted"])
+        self.assertFalse(r["secrets_redacted"])
+        self.assertTrue(r["network_redacted"])
+
+    async def test_tapa_el_host_de_la_url_externa_de_ha(self) -> None:
+        from hermes.logging_setup import set_ha_url_hosts
+        set_ha_url_hosts("casa.example.org", None)
+        self._log(self._HERMES, "GET https://casa.example.org/api/states\n")
+        r = await self.tools["sv_get_addon_logs"](self._HERMES)
+        self.assertNotIn("casa.example.org", r["logs"])
+        self.assertIn("<ha_external_host>", r["logs"])
+        self.assertTrue(r["network_redacted"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 013 — FR-007: sv_get_addon_logs con `boot` y `latest`
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestLogsDeAddonPorArranque(unittest.IsolatedAsyncioTestCase):
+    """`boot` y `latest` son opcionales; sin ellos, la petición y la respuesta
+    son EXACTAMENTE las de antes (FR-007, FR-022; FR-020 de la 008).
+
+    Control negativo (T013 g): añadir `route` a la respuesta siempre → cae
+    `test_sin_boot_ni_latest_identica_a_la_1_1_2`.
+    """
+
+    _HERMES = "a1b2c3d4_hermes"
+
+    def setUp(self) -> None:
+        from tests.fixtures.supervisor_diagnostico import SupervisorSimulado
+        self.sv = SupervisorSimulado()
+        mcp = DummyMCP()
+        addons_mod.register(mcp, self.sv)
+        self.tools = mcp.tools
+
+    async def test_sin_boot_ni_latest_identica_a_la_1_1_2(self) -> None:
+        from tests.fixtures.supervisor_diagnostico import log_con_centinelas
+        self.sv.texto("/addons/core_ficticio/logs", log_con_centinelas())
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", lines=50)
+        # Petición y respuesta capturadas ANTES de añadir `boot` y `latest`.
+        self.assertEqual(self.sv.llamadas, [{
+            "metodo": "GET", "ruta": "/addons/core_ficticio/logs",
+            "params": {"lines": "50"}, "timeout": 60.0, "texto": True}])
+        self.assertEqual(r, {
+            "slug": "core_ficticio", "lines_requested": 50, "redacted": True,
+            "secrets_redacted": True, "network_redacted": False,
+            "logs": (
+                "2026-11-14 12:00:00 core: arrancando\n"
+                "2026-11-14 12:00:01 core: password: ***REDACTED***\n"
+                "2026-11-14 12:00:02 core: Authorization: ***REDACTED*** ***JWT_REDACTED***\n"
+                "2026-11-14 12:00:03 core: GET /api?token=***REDACTED***\n"
+                "2026-11-14 12:00:04 core: listo\n"
+            ),
+        })
+
+    async def test_latest(self) -> None:
+        self.sv.texto("/addons/core_ficticio/logs/latest", "x\n")
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", latest=True)
+        self.assertEqual([c["ruta"] for c in self.sv.llamadas],
+                         ["/addons/core_ficticio/logs/latest"])
+        self.assertEqual(self.sv.llamadas[0]["params"], {"lines": "100"})
+        self.assertEqual(r["route"], "/addons/{app}/logs/latest")
+        self.assertIs(r["latest"], True)
+        self.assertNotIn("boot", r)
+        self.assertEqual(r["slug"], "core_ficticio")
+        self.assertEqual(r["logs"], "x\n")
+
+    async def test_boot(self) -> None:
+        for boot in (-1, "-1"):
+            with self.subTest(boot=boot):
+                self.sv.llamadas.clear()
+                self.sv.texto("/addons/core_ficticio/logs/boots/-1", "x\n")
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=boot)
+                self.assertEqual([c["ruta"] for c in self.sv.llamadas],
+                                 ["/addons/core_ficticio/logs/boots/-1"])
+                self.assertEqual(r["route"], "/addons/{app}/logs/boots/{bootid}")
+                self.assertEqual(r["boot"], -1)
+                self.assertNotIn("latest", r)
+
+    async def test_invalidos_sin_llamada(self) -> None:
+        r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=-1, latest=True)
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "latest"))
+        for boot in ("abc", 1000, "../x", 1.5):
+            with self.subTest(boot=boot):
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", boot=boot)
+                self.assertEqual((r["error"], r["field"]), ("invalid_argument", "boot"))
+        self.assertEqual(self.sv.llamadas, [])
+
+    async def test_error_del_supervisor_redactado(self) -> None:
+        """T030: el error del Supervisor se redacta como el log (FR-024), con
+        y sin `boot`/`latest`, sin cambiar la forma `{"error": …}`. Control
+        negativo: volver a `{"error": str(exc)}` → cae (el centinela sale en
+        claro)."""
+        from hermes.ha import HAConnectionError
+        from tests.fixtures.supervisor_diagnostico import CENTINELA_PASSWORD
+        for ruta, extra in (
+            ("/addons/core_ficticio/logs", {}),
+            ("/addons/core_ficticio/logs/boots/-1", {"boot": -1}),
+            ("/addons/core_ficticio/logs/latest", {"latest": True}),
+        ):
+            with self.subTest(ruta=ruta):
+                self.sv.texto(ruta, HAConnectionError(
+                    f"Supervisor GET {ruta} failed 400: password: {CENTINELA_PASSWORD}",
+                    status=400))
+                r = await self.tools["sv_get_addon_logs"]("core_ficticio", **extra)
+                self.assertEqual(list(r), ["error"])
+                self.assertNotIn(CENTINELA_PASSWORD, r["error"])
+                self.assertIn("***REDACTED***", r["error"])
+
+    async def test_error_del_log_de_hermes_tapa_la_red(self) -> None:
+        """T030: en el log de Hermes el error lleva además la red tapada.
+        Control negativo: quitar `redact_network` del error → cae."""
+        from hermes.ha import HAConnectionError
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        try:
+            self.sv.texto(f"/addons/{self._HERMES}/logs/boots/-1", HAConnectionError(
+                "Supervisor failed: conexión desde 192.0.2.10", status=500))
+            r = await self.tools["sv_get_addon_logs"](self._HERMES, boot=-1)
+        finally:
+            configure_network_redaction(False, "")
+        self.assertNotIn("192.0.2.10", r["error"])
+
+    async def test_hermes_con_boot_sigue_tapando_la_red(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+        try:
+            self.sv.texto(f"/addons/{self._HERMES}/logs/boots/-1",
+                          "conexión desde 192.0.2.10\n")
+            r = await self.tools["sv_get_addon_logs"](self._HERMES, boot=-1)
+        finally:
+            configure_network_redaction(False, "")
+        self.assertNotIn("192.0.2.10", r["logs"])
+        self.assertIs(r["network_redacted"], True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 009 — FR-010: sv_update_addon no promete actualizar al propio Hermes
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _sin_slug_propio(peticiones: list[Any]) -> list[Any]:
+    """Las peticiones menos `GET /addons/self/info`: desde el cierre de
+    seguridad de la 1.2.0 (D-13), Hermes lee su slug exacto para saber si un
+    `*_hermes` es él. Es una lectura; nada más puede salir."""
+    return [p for p in peticiones if tuple(p[:2]) != ("GET", "/addons/self/info")]
+
+
+class TestNoSeActualizaASiMismo(unittest.IsolatedAsyncioTestCase):
+    """El Supervisor contesta 403 («can't update itself») a un add-on que pide
+    su propia actualización. La 1.1.2 daba vista previa y token, y la
+    confirmación fallaba: prometía algo imposible. Ahora se rechaza antes, sin
+    token y sin ninguna petición al Supervisor (FR-010).
+    """
+
+    # El último es un slug de HOSTNAME que no termina en `_hermes`: solo lo
+    # reconoce `_HERMES_SLUG`, parcheado como si viniera del entorno.
+    _SLUG_DEL_HOSTNAME = "a1b2c3d4_hermes_dev"
+    _SLUGS = ("self", "hermes", "a1b2c3d4_hermes", _SLUG_DEL_HOSTNAME)
+
+    def setUp(self) -> None:
+        from hermes.tools.addons import register
+        self._p = patch.object(addons_mod, "_HERMES_SLUG", self._SLUG_DEL_HOSTNAME)
+        self._p.start()
+        self.client = _ClienteQueGraba()
+        mcp = DummyMCP()
+        register(mcp, self.client)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        self._p.stop()
+
+    def _es_el_rechazo(self, r: Any) -> None:
+        self.assertEqual(r.get("error"), "self_update_not_supported")
+        self.assertIn("Home Assistant UI", r["detail"])
+        self.assertNotIn("confirmation_token", r)
+
+    async def test_sin_token_se_rechaza_sin_llamar_al_supervisor(self) -> None:
+        for slug in self._SLUGS:
+            with self.subTest(slug=slug):
+                self.client.peticiones.clear()
+                r = await self.tools["sv_update_addon"](slug)
+                self._es_el_rechazo(r)
+                # D-13 (cierre de seguridad): solo la lectura del slug propio.
+                self.assertEqual(_sin_slug_propio(self.client.peticiones), [])
+
+    async def test_con_un_token_de_la_112_tambien(self) -> None:
+        from hermes import security
+        for slug in self._SLUGS:
+            with self.subTest(slug=slug):
+                self.client.peticiones.clear()
+                # Lo que dejaba una vista previa de la 1.1.2.
+                emitido = await security.create_confirmation_token(
+                    "sv_update_addon", {"slug": slug}, preview={"slug": slug}
+                )
+                token = emitido["confirmation_token"]
+                r = await self.tools["sv_update_addon"](slug, confirmation_token=token)
+                self._es_el_rechazo(r)
+                # D-13 (cierre de seguridad): solo la lectura del slug propio.
+                self.assertEqual(_sin_slug_propio(self.client.peticiones), [])
+                fichero = security.CONFIRMATIONS_DIR / f"{token}.json"
+                self.assertEqual(
+                    json.loads(fichero.read_text(encoding="utf-8"))["state"], "pending"
+                )
+
+    async def test_otro_addon_sigue_como_en_la_112(self) -> None:
+        self.client.set_sv_response("GET", "/addons/core_mosquitto/info", {
+            "version": "6.5.1", "version_latest": "6.5.2", "update_available": True
+        })
+        r = await self.tools["sv_update_addon"]("core_mosquitto")
+        self.assertIn("confirmation_token", r)
+        self.assertEqual(self.client.lecturas("/addons/core_mosquitto/info"), 1)
+
+
+class TestTerminologiaApps(unittest.TestCase):
+    """Spec 027, FR-007: el Supervisor 2026.11.0 llama «apps» a los add-ons
+    (paquete `apps/`, rutas `/v2/apps`, acciones `hassio.app_*`). Las doce
+    tools de apps lo dicen en su descripción; sus nombres (`sv_*_addon*`) y
+    argumentos no cambian, y eso lo fija el test de esquemas de la 1.1.2
+    (`tests/fixtures/esquemas_1_1_2.json`); aquí solo se comprueba que las
+    doce están en él.
+
+    Control negativo comprobado: con la descripción de `sv_get_addon_stats`
+    de antes («de un add-on») → `test_descripciones_dicen_app` en rojo.
+    """
+
+    _TOOLS = (
+        "sv_list_addons", "sv_get_addon", "sv_get_addon_options",
+        "sv_set_addon_options", "sv_start_addon", "sv_stop_addon",
+        "sv_restart_addon", "sv_install_addon", "sv_uninstall_addon",
+        "sv_update_addon", "sv_get_addon_logs", "sv_get_addon_stats",
+    )
+
+    def setUp(self) -> None:
+        mcp = DummyMCP()
+        addons_mod.register(mcp, MockHAClient())
+        self.tools = mcp.tools
+
+    def test_son_las_doce_del_modulo(self) -> None:
+        self.assertEqual(set(self.tools), set(self._TOOLS))
+
+    def test_descripciones_dicen_app(self) -> None:
+        import re
+
+        for nombre in self._TOOLS:
+            with self.subTest(tool=nombre):
+                texto = self.tools[nombre].__doc__ or ""
+                self.assertRegex(texto, r"\bapps?\b")
+                # «app (add-on)» la primera vez, para quien busque el término viejo.
+                self.assertRegex(texto, r"\bapps? \(add-ons?\)")
+                # Tras la primera mención, «add-on» ya no se usa para el objeto.
+                self.assertEqual(len(re.findall(r"add-on", texto)), 1, texto[:80])
+
+    def test_nombres_y_argumentos_los_de_la_1_1_2(self) -> None:
+        fixture = json.loads(
+            (Path(__file__).parent / "fixtures" / "esquemas_1_1_2.json")
+            .read_text(encoding="utf-8"))
+        for nombre in self._TOOLS:
+            self.assertIn(nombre, fixture)
+# ── Spec 019, tramo 2: `location` en sv_create_backup_* (FR-014, FR-017) ─────
+
+
+class TestUbicacionDelBackup(unittest.IsolatedAsyncioTestCase):
+    """`location` opcional en `sv_create_backup_full` y
+    `sv_create_backup_partial`: sin ella, la carga y la respuesta son las de
+    la 1.1.2 (el Supervisor usa el montaje por defecto); con ella, va tal cual
+    y la respuesta y el log la nombran. `.cloud_backup`, listas vacías o con
+    repetidos y nombres de forma inválida se rechazan sin llamar.
+
+    Controles negativos (T030 a y b) en el mensaje del commit.
+    """
+
+    # Cargas de la 1.1.2, capturadas ANTES del cambio con este mismo cliente.
+    _CARGA_FULL_1_1_2 = {"name": "B", "background": True, "password": "x"}
+    _CARGA_PARTIAL_1_1_2 = {"name": "B", "background": True, "homeassistant": True,
+                            "password": "x", "addons": ["core_mosquitto"],
+                            "folders": ["share"]}
+    _RESPUESTA_1_1_2 = {"job_id": "job1", "status": "running",
+                        "poll_with": "sv_get_job_status"}
+
+    def setUp(self) -> None:
+        import tempfile
+
+        import hermes.tools.backups as backups_mod
+        from hermes.tools.backups import register
+
+        self._tmpdir = tempfile.mkdtemp()
+        datos = Path(self._tmpdir)
+        self._parches = [
+            patch.object(addons_mod, "_PENDING_JOBS_PATH", datos / "pending_jobs.json"),
+            patch.object(backups_mod, "_SAFETY_BACKUP_STATE_PATH",
+                         datos / "last_safety_backup.json"),
+        ]
+        for p in self._parches:
+            p.start()
+        self.client = _ClienteQueGraba()
+        self.client.set_sv_response("POST", "/backups/new/full", {"job_id": "job1"})
+        self.client.set_sv_response("POST", "/backups/new/partial", {"job_id": "job1"})
+        mcp = DummyMCP()
+        register(mcp, self.client, safety_backup_window_minutes=30)
+        self.tools = mcp.tools
+
+    def tearDown(self) -> None:
+        import shutil
+
+        for p in self._parches:
+            p.stop()
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    async def _full(self, **kw: Any) -> Any:
+        return await self.tools["sv_create_backup_full"]("B", password="x", **kw)
+
+    async def _partial(self, **kw: Any) -> Any:
+        return await self.tools["sv_create_backup_partial"](
+            "B", addons='["core_mosquitto"]', folders='["share"]', password="x", **kw)
+
+    async def test_sin_location_identico_a_la_1_1_2(self) -> None:
+        for kw in ({}, {"location": None}):
+            with self.subTest(kw=kw):
+                self.client.peticiones.clear()
+                self.assertEqual(await self._full(**kw), self._RESPUESTA_1_1_2)
+                self.assertEqual(await self._partial(**kw), self._RESPUESTA_1_1_2)
+                self.assertEqual([c for _, _, c in self.client.peticiones],
+                                 [self._CARGA_FULL_1_1_2, self._CARGA_PARTIAL_1_1_2])
+
+    async def test_con_location_tal_cual(self) -> None:
+        from structlog.testing import capture_logs
+
+        for location in ("nas_backups", ".local", ["nas_backups", ".local"]):
+            with self.subTest(location=location):
+                self.client.peticiones.clear()
+                with capture_logs() as eventos:
+                    full = await self._full(location=location)
+                    partial = await self._partial(location=location)
+                for r in (full, partial):
+                    self.assertEqual(r, {**self._RESPUESTA_1_1_2, "location": location})
+                self.assertEqual(
+                    [c for _, _, c in self.client.peticiones],
+                    [{**self._CARGA_FULL_1_1_2, "location": location},
+                     {**self._CARGA_PARTIAL_1_1_2, "location": location}])
+                empezados = [e for e in eventos if e["event"].endswith("_started")]
+                self.assertEqual([e["location"] for e in empezados], [location, location])
+
+    async def test_location_invalida_sin_llamada(self) -> None:
+        for location in (".cloud_backup", ["nas_backups", ".cloud_backup"], [], "",
+                         ["a", "a"], "../x", "con espacio", 7, ["ok", None],
+                         "x" * 65):
+            with self.subTest(location=location):
+                for tool in (self._full, self._partial):
+                    r = await tool(location=location)
+                    self.assertEqual(r["error"], "invalid_argument")
+                    self.assertIn("location", r["detail"])
+        self.assertEqual(self.client.peticiones, [])
+        r = await self._full(location=".cloud_backup")
+        self.assertIn(".cloud_backup", r["detail"])
+
+    async def test_error_del_supervisor_redactado(self) -> None:
+        for ruta in ("/backups/new/full", "/backups/new/partial"):
+            self.client.set_sv_response("POST", ruta, HAConnectionError(
+                "Supervisor error: nas_media is not a backup mount; token=abc123secreto"))
+        for tool in (self._full, self._partial):
+            r = await tool(location="nas_media")
+            self.assertIn("not a backup mount", r["error"])
+            self.assertNotIn("abc123secreto", r["error"])

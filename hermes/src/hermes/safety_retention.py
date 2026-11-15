@@ -33,6 +33,7 @@ from typing import Any
 import structlog
 
 from hermes.identifiers import InvalidIdentifier, validate_identifier, validate_slug
+from hermes.supervisor_jobs import child_job_errors as _child_job_errors
 from hermes.supervisor_jobs import job_errors as _job_errors
 
 logger = structlog.get_logger(__name__)
@@ -228,11 +229,16 @@ def _job_valido(valor: Any) -> str | None:
 
 
 async def record_launch(name: str, job_id: str | None, origin: str,
-                        slug: str | None = None) -> None:
+                        slug: str | None = None, encrypted: bool = False) -> None:
     """Anota un safety backup recién lanzado por Hermes.
 
     Si el Supervisor ya devolvió el slug (respuesta síncrona), la entrada
     queda confirmada en el acto. Si no, se confirma más tarde.
+
+    `encrypted` (spec 031, FR-014): Hermes lo lanzó con la clave de los
+    backups de HA. Solo esas entradas pueden podarse estando `protected`.
+    Se guarda únicamente si es True: así las entradas sin cifrar son
+    idénticas a las de antes de la 1.2.0. Nunca se guarda la clave.
     """
     slug_ok = _slug_valido(slug)
     entrada = {
@@ -243,6 +249,8 @@ async def record_launch(name: str, job_id: str | None, origin: str,
         "slug": slug_ok,
         "confirmed_by": "sync_response" if slug_ok else None,
     }
+    if encrypted is True:
+        entrada["encrypted"] = True
     async with _lock():
         entradas, legible = _cargar()
         if not legible and not _apartar_ilegible():
@@ -251,6 +259,19 @@ async def record_launch(name: str, job_id: str | None, origin: str,
             return
         entradas.append(entrada)
         _guardar(entradas)
+
+
+def es_safety_backup_confirmado(slug: str) -> bool:
+    """¿Es `slug` un safety backup de Hermes CONFIRMADO en la anotación?
+
+    Lectura pública y de solo lectura (spec 031: la vista previa de
+    `ha_delete_backup` dice si borra un safety backup). No toma el lock de
+    escritura ni repara nada: una anotación ilegible responde `False`, y
+    `_cargar` no la reescribe al leer. Con la integración `hassio`, el
+    `backup_id` de HA es el slug del Supervisor.
+    """
+    entradas, _ = _cargar()
+    return any(e.get("slug") == slug and e.get("confirmed_by") for e in entradas)
 
 
 def _apartar_ilegible() -> bool:
@@ -275,12 +296,26 @@ def _apartar_ilegible() -> bool:
 
 
 def _clasificar_job(job_data: Any) -> tuple[str, str | None]:
-    """("ok", slug), ("fallo", None) o ("indeterminado", None)."""
+    """("ok", slug), ("incompleto", slug), ("fallo", None) o ("indeterminado", None).
+
+    "incompleto" es un safety backup FALLIDO que, aun así, existe: el job
+    terminó sin errores propios pero con errores en sus sub-jobs (una app
+    que no se pudo guardar), o con un recorrido de sub-jobs recortado, y trae
+    `reference`. Es el mismo criterio que el sondeo de `fs_write` y
+    `sv_get_job_status` (spec 027, D-1: error en un sub-job = fallo). Antes se
+    daba por "ok" y ese backup incompleto contaba como una de las `keep`
+    copias buenas, así que podía quedar una copia completa menos de las
+    prometidas. No se descarta como un "fallo" sin backup: existe, ocupa
+    varios GB y tiene que poder podarse.
+    """
     if not isinstance(job_data, dict) or job_data.get("done") is not True:
         return "indeterminado", None
     if not isinstance(job_data.get("errors"), list) or _job_errors(job_data):
         return "fallo", None
     slug = _slug_valido(job_data.get("reference"))
+    errores_hijos, recortado = _child_job_errors(job_data)
+    if errores_hijos or recortado:
+        return ("incompleto", slug) if slug else ("fallo", None)
     return ("ok", slug) if slug else ("indeterminado", None)
 
 
@@ -289,6 +324,9 @@ async def confirm_from_job(job_id: str, job_data: Any) -> None:
 
     Solo confirma con `done is True`, `errors` vacío y `reference` de texto;
     un job terminado con errores no dejó un backup válido y su entrada sale.
+    Un job con errores solo en sus sub-jobs dejó un backup INCOMPLETO: su
+    entrada se queda marcada `incomplete` (se poda, pero no cuenta en las
+    `keep`), también si ya estaba confirmada por la respuesta síncrona.
     """
     resultado, slug = _clasificar_job(job_data)
     if resultado == "indeterminado":
@@ -299,7 +337,11 @@ async def confirm_from_job(job_id: str, job_data: Any) -> None:
             return
         nuevas = []
         for e in entradas:
-            if e.get("job_id") == job_id and e.get("slug") is None:
+            if e.get("job_id") == job_id and resultado == "incompleto":
+                if e.get("slug") is None:
+                    e = {**e, "slug": slug, "confirmed_by": "job_reference"}
+                e = {**e, "incomplete": True}
+            elif e.get("job_id") == job_id and e.get("slug") is None:
                 if resultado == "fallo":
                     continue
                 e = {**e, "slug": slug, "confirmed_by": "job_reference"}
@@ -345,7 +387,13 @@ def _motivo_exclusion(entrada: dict[str, Any], backup: dict[str, Any]) -> str | 
         return "name_format"
     if backup.get("type") != "full":
         return "not_full"
-    if backup.get("protected") is not False:
+    # Un backup protegido no se poda (puede haberlo protegido el usuario, o
+    # ser de antes de la 1.2.0), SALVO que Hermes lo anotara como cifrado por
+    # él con la clave de HA (spec 031, FR-014; research R-5): con el cifrado
+    # todos los safety backups nuevos salen protegidos y, sin esta excepción,
+    # la retención no borraría ninguno y volverían a llenar el disco.
+    protegido = backup.get("protected")
+    if protegido is not False and not (protegido is True and entrada.get("encrypted") is True):
         return "protected"
     if not _una_ubicacion(backup):
         return "multiple_locations"
@@ -384,6 +432,10 @@ async def _confirmar_pendientes(
                 continue
             if estado == "ok":
                 resultado.append({**e, "slug": slug, "confirmed_by": "job_reference"})
+                continue
+            if estado == "incompleto":
+                resultado.append({**e, "slug": slug, "confirmed_by": "job_reference",
+                                  "incomplete": True})
                 continue
         mismos = [b for b in backups if b.get("name") == e.get("name")]
         if len(mismos) == 1:
@@ -457,6 +509,9 @@ async def _aplicar(ha_client: Any, keep: int, recien_creado: str | None,
             por_slug.setdefault(b["slug"], []).append(b)
 
     candidatos: list[tuple[float, float, dict[str, Any]]] = []
+    # Safety backups incompletos (un sub-job falló): se podan, pero no cuentan
+    # como una de las `keep` copias buenas (spec 027, D-1).
+    incompletos: list[tuple[float, float, dict[str, Any]]] = []
     for e in entradas:
         slug = e.get("slug")
         if slug is None:
@@ -474,13 +529,17 @@ async def _aplicar(ha_client: Any, keep: int, recien_creado: str | None,
             resumen["excluded"].append({"name": e.get("name"), "reason": motivo})
             continue
         fecha = _fecha(presentes[0].get("date")) or 0.0
-        candidatos.append((fecha, _numero(e.get("launched_at")), e))
+        destino = incompletos if e.get("incomplete") is True else candidatos
+        destino.append((fecha, _numero(e.get("launched_at")), e))
 
     # Del más reciente al más antiguo; el recién creado va delante siempre.
     candidatos.sort(key=lambda c: (c[2].get("name") == recien_creado, c[0], c[1]),
                     reverse=True)
     conservar = candidatos[:keep]
-    sobrantes = list(reversed(candidatos[keep:]))[:_MAX_BORRADOS]
+    # Primero los incompletos, del más antiguo al más reciente; luego los
+    # buenos que sobran. El tope de borrados vale para todos juntos.
+    incompletos.sort(key=lambda c: (c[0], c[1]))
+    sobrantes = (incompletos + list(reversed(candidatos[keep:])))[:_MAX_BORRADOS]
     resumen["kept"] = [c[2].get("name") for c in conservar]
 
     borrados: set[str] = set()

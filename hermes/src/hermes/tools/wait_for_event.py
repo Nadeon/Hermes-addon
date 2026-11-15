@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
+from mcp.server.mcpserver import Context
 
 from hermes.ha import HAClient, HAConnectionError, _WS_CLOSED_SENTINEL
 from hermes.tools._common import requires_ready
@@ -77,7 +78,9 @@ def _compare_value(actual: Any, expected_str: str) -> bool:
             rhs = expected_str[len(op):]
             try:
                 return fn(actual, rhs)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
+                # `OverflowError`: un entero enorme no cabe en un float y el
+                # filtro no casa, en vez de tumbar la espera (cierre 1.2.0).
                 return False
 
     # Igualdad (default)
@@ -103,6 +106,11 @@ class _ActiveWait:
     started_at: float
     timeout_at: float
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # Spec 017: las esperas de trigger (`ha_wait_for_trigger`) comparten este
+    # gestor. `kind` es None en las de eventos, para que su entrada en
+    # `ha_list_active_waits` siga teniendo exactamente las claves de antes.
+    kind: str | None = None
+    trigger_platform: str | None = None
 
 
 class _WaitManager:
@@ -129,6 +137,18 @@ class _WaitManager:
         now = time.monotonic()
         result = []
         for w in self._active.values():
+            if w.kind == "trigger":
+                # Espera de trigger (spec 017, data-model): sin `event_type`
+                # ni `filters`, que no tiene; con su tipo y su plataforma.
+                result.append({
+                    "wait_id": w.wait_id,
+                    "kind": "trigger",
+                    "trigger_platform": w.trigger_platform,
+                    "started_at_iso": _monotonic_to_approx_iso(w.started_at),
+                    "timeout_at_iso": _monotonic_to_approx_iso(w.timeout_at),
+                    "elapsed_seconds": round(now - w.started_at, 1),
+                })
+                continue
             result.append({
                 "wait_id": w.wait_id,
                 "event_type": w.event_type,
@@ -171,16 +191,29 @@ def register(
     ha_client: HAClient,
     wait_for_event_max_seconds: int = 90,
     wait_for_event_max_concurrent: int = 5,
+    manager: _WaitManager | None = None,
 ) -> None:
-    """Registra las tools de wait_for_event."""
+    """Registra las tools de wait_for_event.
+
+    `manager` (spec 017): el gestor de esperas compartido con
+    `ha_wait_for_trigger`, para que las dos cuenten en el mismo cupo y se
+    listen y cancelen juntas. Sin él, se crea uno propio como antes.
+    """
 
     ready = requires_ready(ha_client)
-    manager = _WaitManager(max_concurrent=wait_for_event_max_concurrent)
+    if manager is None:
+        manager = _WaitManager(max_concurrent=wait_for_event_max_concurrent)
 
     @mcp.tool()
     @ready
     async def ha_wait_for_event(
-        ctx: Any,
+        # `Context` y no `Any` (spec 033, FR-005): el SDK solo inyecta un
+        # parámetro anotado con su `Context`; con `Any` lo publicaba como
+        # argumento obligatorio que ningún cliente podía rellenar y el aviso
+        # de progreso del keepalive no salía nunca. Va primero y sin valor
+        # por defecto porque `event_type` no lo tiene; los tests que llaman a
+        # la función directamente pasan `None` (de ahí el `hasattr` de abajo).
+        ctx: Context,
         event_type: str,
         filters: dict[str, str] | None = None,
         timeout_seconds: int = 30,
@@ -313,11 +346,24 @@ def register(
                     if loop_now2 >= next_keepalive:
                         elapsed_so_far = round(time.monotonic() - wait.started_at, 1)
                         if hasattr(ctx, "report_progress"):
-                            await ctx.report_progress(
-                                progress=int(elapsed_so_far),
-                                total=timeout_seconds,
-                                message=f"waiting for {event_type} ({elapsed_so_far}s)",
-                            )
+                            # El aviso es solo para mantener viva la llamada:
+                            # si falla (sin petición detrás, transporte
+                            # cerrado), la espera sigue. Hasta la spec 033
+                            # este código no se ejecutaba nunca (`ctx` era el
+                            # dict del cliente), así que un fallo aquí sería
+                            # una regresión nueva que no debe cortar la espera.
+                            try:
+                                await ctx.report_progress(
+                                    progress=int(elapsed_so_far),
+                                    total=timeout_seconds,
+                                    message=f"waiting for {event_type} ({elapsed_so_far}s)",
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.debug(
+                                    "wait_for_event_progress_failed",
+                                    wait_id=wait_id,
+                                    error=str(exc),
+                                )
                         last_keepalive = loop_now2
                     continue
 
@@ -366,7 +412,9 @@ def register(
         Returns:
             {"count": N, "max_concurrent": M, "waits": [...]}
             Cada wait incluye: wait_id, event_type, filters, elapsed_seconds,
-            started_at_iso, timeout_at_iso.
+            started_at_iso, timeout_at_iso. Las esperas de ha_wait_for_trigger
+            (mismo cupo) salen con kind: "trigger" y trigger_platform en vez
+            de event_type y filters.
         """
         waits = manager.list_active()
         return {
@@ -377,7 +425,7 @@ def register(
 
     @mcp.tool()
     async def ha_cancel_wait(wait_id: str) -> object:
-        """Cancela un ha_wait_for_event activo por su wait_id.
+        """Cancela un ha_wait_for_event (o ha_wait_for_trigger) activo por su wait_id.
 
         El wait activo recibirá {matched: false, reason: "cancelled"} y terminará.
 

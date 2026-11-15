@@ -493,11 +493,18 @@ class TestListUpdates(_Base):
     async def test_how_to_update(self) -> None:
         mcp = self._mcp(self._fake([]))
         result = await mcp.tools["ha_marketplace_list_updates"]()
+        # Spec 026, T033 (R-2, D-29): ya no manda a una persona a aceptar el
+        # aviso, porque eso no hace que `update.install` funcione desde
+        # Hermes (el aviso es del usuario del Supervisor). Control negativo
+        # comprobado: con el texto anterior cae el `assertNotIn`.
         for text in (result["how_to_update"], mcp.tools["ha_marketplace_list_updates"].__doc__):
-            self.assertIn("update", text)
-            self.assertIn("install", text)
-            self.assertIn("confirmation_token", text)
-            self.assertIn("never accepts", text)
+            plano = " ".join(text.split())
+            self.assertIn("update.install", plano.replace("'update', 'install'", "update.install"))
+            self.assertIn("Supervisor user", plano)
+            self.assertIn("does not change", plano)
+            self.assertIn("Marketplace UI", plano)
+            self.assertNotIn("a person must accept", plano)
+        self.assertIn("confirmation_token", result["how_to_update"])
 
 
 # ── Fase 4: US2 con HACS ──────────────────────────────────────────────────────
@@ -951,6 +958,253 @@ class TestCatalogoPorCategorias(_Base):
         result = await self._mcp(fake).tools["ha_marketplace_list_repositories"](installed_only=False)
         self.assertEqual(result.get("category"), "plugin", result)
         self.assertEqual(result["error"], "home_assistant_error")
+
+
+# ── 009, FR-007: retirados con filtros y resumen ──────────────────────────────
+
+
+def _retirado(full_name: str, removal_type: Any = "remove", **extra: Any) -> dict[str, Any]:
+    base = {"repository": full_name, "reason": "Archivado", "link": None,
+            "removal_type": removal_type, "acknowledged": False}
+    base.update(extra)
+    return base
+
+
+# Lo que devolvía la 1.1.2 para una entrada de retirados: la proyección de
+# cinco campos con `reason` recortado y `removal_type` tal cual.
+def _como_en_la_112(entry: dict[str, Any]) -> dict[str, Any]:
+    out = {f: entry.get(f) for f in ("repository", "reason", "link", "removal_type",
+                                     "acknowledged")}
+    out["reason"] = entry["reason"][:300] if isinstance(entry.get("reason"), str) else None
+    return out
+
+
+class TestRetiradosConFiltros(_Base):
+    """En HA 2026.11 la lista de retirados tiene ~500 entradas (~97 KB): sin
+    filtros ni resumen, el agente gastaba el contexto para saber si alguna le
+    afecta. `installed_only`, `limit` y el resumen por `removal_type` lo
+    resuelven sin cambiar la respuesta por defecto (FR-007, FR-014).
+    """
+
+    _RETIRADOS = [
+        _retirado("autor/ficticio", "remove"),
+        _retirado("Autor/Instalado", "critical", reason="r" * 1000),
+        _retirado("otro/repo-a", "remove"),
+        _retirado("otro/repo-b", None),
+        _retirado("otro/repo-c", "archived"),
+    ]
+
+    def _fake(self, prefix: str = "marketplace", retirados: Any = None,
+              instalados: Any = None) -> FakeHA:
+        data: dict[str, Any] = {
+            "repositories/removed": self._RETIRADOS if retirados is None else retirados,
+        }
+        if instalados is not None:
+            data["repositories/list"] = instalados
+        return FakeHA(_marketplace(prefix, data))
+
+    def _instalados(self) -> list[dict[str, Any]]:
+        return [
+            _repo("1", "autor/instalado", installed=True, category="integration"),
+            _repo("2", "otro/repo-a", installed=False, category="integration"),
+            _repo("3", "autor/ficticio", installed=True, category="theme"),
+        ]
+
+    async def test_sin_argumentos_la_lista_de_la_112_y_el_resumen(self) -> None:
+        mcp = self._mcp(self._fake())
+        r = await mcp.tools["ha_marketplace_list_removed"]()
+        self.assertEqual(r["repositories"], [_como_en_la_112(e) for e in self._RETIRADOS])
+        self.assertEqual((r["count"], r["total"], r["truncated"]), (5, 5, False))
+        self.assertEqual(r["by_removal_type"], [
+            {"removal_type": "remove", "count": 2},
+            {"removal_type": "archived", "count": 1},
+            {"removal_type": "critical", "count": 1},
+            {"removal_type": None, "count": 1},
+        ])
+        self.assertEqual(r["by_removal_type_other"], 0)
+        self.assertEqual(r["_third_party_text"]["fields"], ["reason", "removal_type"])
+
+    async def test_solo_los_instalados(self) -> None:
+        fake = self._fake(instalados=self._instalados())
+        mcp = self._mcp(fake)
+        r = await mcp.tools["ha_marketplace_list_removed"](installed_only=True)
+        # Coincide sin distinguir mayúsculas; `otro/repo-a` está en el
+        # catálogo pero no instalado.
+        self.assertEqual([e["repository"] for e in r["repositories"]],
+                         ["autor/ficticio", "Autor/Instalado"])
+        self.assertEqual(r["total"], 2)
+        self.assertEqual(r["by_removal_type"], [
+            {"removal_type": "critical", "count": 1},
+            {"removal_type": "remove", "count": 1},
+        ])
+        # El catálogo se pide por categorías, nunca entero.
+        for p in fake.sent:
+            if p["type"].endswith("/repositories/list"):
+                self.assertIn("categories", p)
+
+    async def test_limit_corta_y_el_resumen_cuenta_todos(self) -> None:
+        mcp = self._mcp(self._fake())
+        r = await mcp.tools["ha_marketplace_list_removed"](limit=2)
+        self.assertEqual((r["count"], r["total"], r["truncated"]), (2, 5, True))
+        self.assertEqual(len(r["repositories"]), 2)
+        self.assertEqual(sum(t["count"] for t in r["by_removal_type"]), 5)
+
+    async def test_limit_invalido(self) -> None:
+        fake = self._fake()
+        mcp = self._mcp(fake)
+        for limit in (0, 501, True, "5", -1, 2.0):
+            with self.subTest(limit=limit):
+                r = await mcp.tools["ha_marketplace_list_removed"](limit=limit)
+                self.assertEqual(r["error"], "invalid_argument")
+                self.assertEqual(r["argument"], "limit")
+        self.assertEqual(fake.sent, [])
+
+    async def test_resumen_top_20_y_el_resto(self) -> None:
+        # 25 tipos: `t00` con 3, `t01` con 2 y el resto con 1.
+        retirados = [_retirado(f"autor/r{i}-{j}", f"t{i:02d}")
+                     for i in range(25) for j in range(3 if i == 0 else 2 if i == 1 else 1)]
+        mcp = self._mcp(self._fake(retirados=retirados))
+        r = await mcp.tools["ha_marketplace_list_removed"]()
+        tipos = r["by_removal_type"]
+        self.assertEqual(len(tipos), 20)
+        self.assertEqual(tipos[0], {"removal_type": "t00", "count": 3})
+        self.assertEqual(tipos[1], {"removal_type": "t01", "count": 2})
+        # A igualdad de `count`, por `removal_type`.
+        self.assertEqual([t["removal_type"] for t in tipos[2:]],
+                         [f"t{i:02d}" for i in range(2, 20)])
+        self.assertEqual(r["by_removal_type_other"], 5)
+        self.assertEqual(sum(t["count"] for t in tipos) + r["by_removal_type_other"],
+                         len(retirados))
+
+    async def test_removal_type_largo_se_recorta(self) -> None:
+        mcp = self._mcp(self._fake(retirados=[_retirado("autor/ficticio", "x" * 5000)]))
+        r = await mcp.tools["ha_marketplace_list_removed"]()
+        self.assertEqual(len(r["repositories"][0]["removal_type"]), 300)
+        self.assertEqual(len(r["by_removal_type"][0]["removal_type"]), 300)
+
+    async def test_si_falla_la_lista_de_instalados_error(self) -> None:
+        fake = self._fake(instalados=HAConnectionError("caída", code="home_assistant_error"))
+        mcp = self._mcp(fake)
+        r = await mcp.tools["ha_marketplace_list_removed"](installed_only=True)
+        self.assertIn("error", r)
+        self.assertNotIn("repositories", r)
+
+    async def test_fallback_hacs(self) -> None:
+        fake = self._fake("hacs", instalados=self._instalados())
+        mcp = self._mcp(fake)
+        r = await mcp.tools["ha_marketplace_list_removed"](installed_only=True)
+        self.assertEqual(r["api"], "hacs")
+        self.assertEqual(r["total"], 2)
+        self.assertIn("hacs/repositories/list", fake.types)
+
+    async def test_critical_como_en_la_112(self) -> None:
+        mcp = self._mcp(FakeHA(_marketplace("marketplace", {"critical/list": _CRITICAL})))
+        r = await mcp.tools["ha_marketplace_list_critical"]()
+        self.assertEqual(set(r), {"api", "count", "total", "truncated", "repositories",
+                                  "_third_party_text"})
+        self.assertEqual(r["_third_party_text"]["fields"], ["reason"])
+
+    async def test_recorte_por_bytes_conserva_el_resumen(self) -> None:
+        retirados = [_retirado(f"autor/r{i}", "remove", reason="r" * 300) for i in range(200)]
+        self._install(self._fake(retirados=retirados))
+        mcp = DummyMCP()
+        mp.register(mcp, self.client, response_max_bytes=8192)
+        r = await mcp.tools["ha_marketplace_list_removed"]()
+        self.assertLessEqual(len(json.dumps(r, ensure_ascii=False).encode()), 8192)
+        self.assertTrue(r["truncated"])
+        self.assertEqual(r["total"], 200)
+        self.assertEqual(r["by_removal_type"], [{"removal_type": "remove", "count": 200}])
+
+
+# ── 009, FR-008: eventos `*_ok` ───────────────────────────────────────────────
+
+
+class TestEventosOk(_Base):
+    """Las tools del Marketplace no dejaban rastro en el log cuando iban bien:
+    tras una prueba en vivo no se podía saber qué API respondió ni cuánto
+    devolvió. Cada una registra `<tool>_ok` con recuentos, nunca nombres de
+    repositorio ni textos de terceros (FR-008)."""
+
+    _CENTINELA = "autor/centinela-repo"
+
+    def _datos(self) -> dict[str, Any]:
+        repos = [_repo("123456", self._CENTINELA, installed=True, pending_upgrade=True)]
+        return {
+            "info": _INFO_MARKETPLACE, "repositories/list": repos,
+            "repository/releases": _RELEASES,
+            "critical/list": [{"repository": self._CENTINELA, "reason": "motivo-centinela",
+                               "link": None, "acknowledged": False}],
+            "repositories/removed": [_retirado(self._CENTINELA, "tipo-centinela",
+                                               reason="motivo-centinela")],
+        }
+
+    _ESPERADOS = {
+        "ha_marketplace_info": ({}, {"api"}),
+        "ha_marketplace_list_repositories": ({}, {"api", "count", "total", "truncated"}),
+        "ha_marketplace_get_repository": ({"repository_id": "123456"}, {"api"}),
+        "ha_marketplace_list_updates": ({}, {"api", "count", "total", "truncated"}),
+        "ha_marketplace_list_releases": ({"repository_id": "123456"}, {"api", "count"}),
+        "ha_marketplace_list_critical": ({}, {"api", "count", "total", "truncated"}),
+        "ha_marketplace_list_removed": (
+            {}, {"api", "count", "total", "truncated", "installed_only"}),
+    }
+
+    async def test_cada_tool_registra_su_evento_sin_textos(self) -> None:
+        from structlog.testing import capture_logs
+        responses = _marketplace("marketplace", self._datos())
+        responses["config/entity_registry/list"] = []
+        mcp = self._mcp(FakeHA(responses))
+        self.assertEqual(set(mcp.tools), set(self._ESPERADOS))
+        for nombre, (kwargs, campos) in self._ESPERADOS.items():
+            with self.subTest(tool=nombre):
+                with capture_logs() as eventos:
+                    r = await mcp.tools[nombre](**kwargs)
+                self.assertNotIn("error", r)
+                ok = [e for e in eventos if e["event"] == f"{nombre}_ok"]
+                self.assertEqual(len(ok), 1, eventos)
+                self.assertEqual(set(ok[0]) - {"event", "log_level"}, campos)
+                self.assertEqual(ok[0]["api"], "marketplace")
+                texto = json.dumps(eventos, default=str)
+                for centinela in (self._CENTINELA, "motivo-centinela", "tipo-centinela"):
+                    self.assertNotIn(centinela, texto)
+
+    async def test_con_error_no_hay_ok(self) -> None:
+        from structlog.testing import capture_logs
+        # Ninguna API conocida, y después formas inesperadas.
+        for caso, responses in (
+            ("sin_api", {"get_config": {"version": "2026.11.0"}}),
+            ("forma_inesperada", _marketplace("marketplace", {
+                "info": "x", "repositories/list": {"x": 1}, "repository/releases": "x",
+                "critical/list": "x", "repositories/removed": "x",
+            })),
+        ):
+            mcp = self._mcp(FakeHA(responses))
+            for nombre, (kwargs, _) in self._ESPERADOS.items():
+                with self.subTest(tool=nombre, caso=caso):
+                    with capture_logs() as eventos:
+                        r = await mcp.tools[nombre](**kwargs)
+                    self.assertIn("error", r)
+                    self.assertFalse(
+                        [e for e in eventos if e["event"].endswith("_ok")], eventos)
+
+    async def test_los_alias_hacs_no_registran_el_evento_del_marketplace(self) -> None:
+        from structlog.testing import capture_logs
+
+        from hermes.tools import hacs as hacs_mod
+        responses = _marketplace("marketplace", self._datos())
+        responses["config/entity_registry/list"] = []
+        self._install(FakeHA(responses))
+        mcp = DummyMCP()
+        hacs_mod.register(mcp, self.client)
+        self.assertTrue(mcp.tools)
+        for nombre, fn in mcp.tools.items():
+            kwargs = {"repository_id": "123456"} if "get_repository" in nombre else {}
+            with self.subTest(alias=nombre):
+                with capture_logs() as eventos:
+                    await fn(**kwargs)
+                self.assertFalse(
+                    [e for e in eventos if e["event"].startswith("ha_marketplace_")],
+                    eventos)
 
 
 if __name__ == "__main__":

@@ -462,6 +462,9 @@ def register(
             Sin token: {"confirmation_token": "...", "preview": {...}}
             Con token válido: {"result": "ok"} o entry actualizada del device
             Error: {"error": "..."}
+            Si HA ya retiró el comando: {"error": "command_removed_in_ha",
+            "command": "...", "replacement": "ha_remove_device", "detail":
+            "..."}; no se cambia nada: usa ha_remove_device.
         """
         args = {"device_id": device_id, "config_entry_id": config_entry_id}
 
@@ -551,7 +554,24 @@ def register(
                 "ha_remove_device_from_config_entry_ws_error",
                 device_id=device_id,
                 error=str(exc),
+                code=exc.code,
             )
+            if exc.code == "unknown_command":
+                # HA retiró el comando (anunciado para la 2027.9). No se
+                # reintenta con `config/device_registry/remove`: el efecto
+                # sería otro y el token se dio para este. Se reconoce por el
+                # código, que es estable, nunca por el texto (spec 027, R-4).
+                await complete_confirmation_token(
+                    confirmation_token, success=False, error="command_removed_in_ha"
+                )
+                return json.dumps({
+                    "error": "command_removed_in_ha",
+                    "command": "config/device_registry/remove_config_entry",
+                    "replacement": "ha_remove_device",
+                    "detail": "Home Assistant no longer has this command "
+                              "(deprecated, removed in 2027.9). Nothing was "
+                              "changed. Use ha_remove_device to delete the device.",
+                })
             await complete_confirmation_token(
                 confirmation_token, success=False, error=str(exc)
             )

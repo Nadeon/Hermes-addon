@@ -8,10 +8,12 @@ estado en tiempo real.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from collections import deque
 import json
 import re
-import time
 from datetime import datetime
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import aiohttp
@@ -26,7 +28,10 @@ from hermes.service_policy import (
 )
 from hermes.health import HealthServer
 from hermes.identifiers import validate_path_segment
-from urllib.parse import unquote
+from hermes.security import quitar_secreto_abierto
+from urllib.parse import unquote, urlsplit
+
+from hermes.logging_setup import set_ha_url_hosts
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +50,33 @@ class HAConnectionError(RuntimeError):
     `unknown_command`…): es la parte estable del protocolo de HA, mientras que
     el texto cambia entre versiones y comparar subcadenas confunde un recurso
     inexistente con un fallo real.
+
+    `sent` dice si la petición llegó a salir, porque quien manda algo que
+    cambia estado necesita distinguir «no se hizo nada» de un corte a mitad,
+    en el que no sabe si se hizo. Es UN solo atributo, con tres valores, para
+    todo el cliente (REST del Supervisor y de Core y WebSocket):
+
+    - `False`: seguro que NO salió (cliente HTTP sin inicializar, envío
+      fallido). Solo se pone a mano donde se sabe;
+    - `True`: salió y lo que falló fue esperar la respuesta (plazo agotado o
+      conexión caída con la petición pendiente);
+    - `None` (por defecto): no se sabe, o no aplica (una respuesta de error
+      de HA o del Supervisor, que ya lleva `status` o `code`).
+
+    El valor por defecto TIENE que seguir siendo `None`: las tools de la spec
+    022 (`system_control._no_enviada`) leen `sent is False` como «no se hizo
+    nada» y lo dicen al usuario, así que un `False` por defecto convertiría
+    cualquier error del Supervisor en esa afirmación falsa. Quien añada otra
+    señal de envío (la spec 031 marca `True` tras enviar por el WebSocket y
+    `False` si falla el envío) usa este mismo atributo con estos valores, sin
+    redefinirlo ni cambiar el defecto (spec 022, T032; lo vigila
+    `test_sent_por_defecto_es_desconocido`). La spec 023 marca `False` en
+    `ws_send` y en las suscripciones cuando no hay WebSocket con el que
+    enviar, con este mismo atributo (spec 023, T020).
+    `rest_get_image` (spec 024) marca `False` sin cliente HTTP y deja el
+    defecto en sus respuestas de error (estado HTTP, imagen demasiado grande).
+    El plazo agotado de cualquier petición sale como `HATimeoutError`
+    (subclase de esta), con `None` en REST y `True` en el WebSocket.
     """
 
     def __init__(
@@ -52,10 +84,61 @@ class HAConnectionError(RuntimeError):
         *args: Any,
         status: int | None = None,
         code: str | None = None,
+        sent: bool | None = None,
     ) -> None:
         super().__init__(*args)
         self.status = status
         self.code = code
+        self.sent = sent
+
+
+class HATimeoutError(HAConnectionError, TimeoutError):
+    """Plazo agotado esperando a Home Assistant o al Supervisor (cierre 1.2.0).
+
+    aiohttp avisa del plazo con `asyncio.TimeoutError` (o su subclase
+    `ServerTimeoutError`), que NO es un `HAConnectionError`: se escapaba de
+    las tools que solo capturan este, y salía como error genérico. Todo el
+    cliente (REST de Core, Supervisor y WebSocket) lo convierte en esta clase.
+
+    POR QUÉ hereda de las dos: varias tools distinguen el plazo agotado con
+    `except TimeoutError` o `isinstance(exc, TimeoutError)` («la instalación
+    sigue en Core», «no se sabe si se hizo») ANTES de su rama de
+    `HAConnectionError`. Si el plazo pasara a ser solo `HAConnectionError`,
+    esas ramas dejarían de verlo y lo tratarían como un error de verdad.
+
+    `sent` sigue el contrato de `HAConnectionError`: `None` si no se sabe
+    (REST: el plazo puede vencer conectando o esperando la respuesta) y
+    `True` si se sabe que la orden salió (WebSocket). Nunca `False`.
+    """
+
+
+@contextlib.contextmanager
+def _plazo_como_error(que: str, *, sent: bool | None = None) -> Iterator[None]:
+    """Convierte el plazo agotado de aiohttp en `HATimeoutError`.
+
+    Un `HAConnectionError` que salga de dentro (un estado HTTP de error, o un
+    `HATimeoutError` ya convertido) pasa tal cual. El mensaje lleva solo el
+    método y la ruta: nunca el cuerpo ni la URL completa.
+    """
+    try:
+        yield
+    except HAConnectionError:
+        raise
+    except TimeoutError as exc:
+        raise HATimeoutError(f"Timeout waiting for {que}", sent=sent) from exc
+
+
+class ImageTooLargeError(HAConnectionError):
+    """La imagen que sirve Core pasa del tope de `rest_get_image` (spec 024).
+
+    Es subclase de `HAConnectionError` para que quien solo capture esa no
+    deje escapar el fallo, y lleva el tope para que la tool lo diga en su
+    error (`image_too_large` con `max_bytes`).
+    """
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(f"image larger than {max_bytes} bytes")
+        self.max_bytes = max_bytes
 
 
 # Sentinel para señalizar reconexión/cierre de WS a los waiter de eventos
@@ -172,6 +255,22 @@ def _state_is_newer(candidato: Any, cacheado: Any) -> bool:
     if t_nuevo is None or t_viejo is None:
         return True
     return t_nuevo >= t_viejo
+
+
+def _host_de_url(url: Any) -> str | None:
+    """Host de una URL de `/api/config`, o `None` si no hay o no vale.
+
+    Sin host, mal formada (`urlsplit(...).hostname` lanza `ValueError` con
+    `http://[fe80::1`) o de un tipo que no es texto: se ignora sin error
+    (spec de la 009, casos límite). Por campo, para que una URL rota no
+    impida tapar la otra (T045).
+    """
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
 
 
 class HAClient:
@@ -314,8 +413,13 @@ class HAClient:
         que estar aquí, donde pasa todo.
 
         Quien necesite de verdad ejecutar un servicio vetado tiene que pedirlo
-        explícitamente, y el único camino que lo hace es la tool
-        `ha_call_service`, después de validar su `confirmation_token`.
+        explícitamente, y solo lo hacen las tools con confirmación en dos
+        pasos, después de validar su `confirmation_token`: `ha_call_service`,
+        las recargas (`guarded_reload`), las de atajo sobre una entidad
+        restringida (`guarded_entity_invoke`) y, desde la spec 012,
+        `ha_clear_system_log` y `ha_dismiss_persistent_notification`. La lista
+        exacta la vigila
+        `tests/test_allow_dangerous_inventario.py`.
         """
         if not allow_dangerous and is_in_denylist(
             domain.strip().lower(), service.strip().lower(), CALL_SERVICE_DENYLIST
@@ -340,8 +444,27 @@ class HAClient:
         domain: str,
         service: str,
         service_data: dict[str, Any] | None = None,
+        *,
+        allow_dangerous: bool = False,
     ) -> Any:
-        """Llama un servicio de Home Assistant con return_response=1."""
+        """Llama un servicio de Home Assistant con return_response=1.
+
+        Misma guarda de denylist que `call_service`, y por lo mismo (spec
+        018): es otra puerta al mismo endpoint REST, y desde la 1.2.0 la tool
+        `ha_call_service_response` ejecuta servicios vetados tras confirmar.
+        La tool ya comprueba la denylist antes de llegar aquí; esta guarda es
+        defensa en profundidad para cualquier camino futuro que llame a este
+        método sin pasar por ella. El único que pasa `allow_dangerous=True` es
+        `ha_call_service_response`, después de validar su `confirmation_token`.
+        """
+        if not allow_dangerous and is_in_denylist(
+            domain.strip().lower(), service.strip().lower(), CALL_SERVICE_DENYLIST
+        ):
+            raise DangerousServiceError(
+                f"El servicio {domain}.{service} exige confirmación explícita. "
+                f"Usa la tool ha_call_service_response, que emite un preview y "
+                f"un confirmation_token."
+            )
         validate_path_segment(domain, field="domain")
         validate_path_segment(service, field="service")
         if service_data is None:
@@ -388,7 +511,7 @@ class HAClient:
     async def _connect_and_watch(self) -> None:
         """Establece la conexión WebSocket y procesa eventos de estado."""
         if self._session is None or self._session.closed:
-            raise HAConnectionError("El cliente HTTP no está inicializado.")
+            raise HAConnectionError("El cliente HTTP no está inicializado.", sent=False)
 
         # `timeout` espera un ClientWSTimeout, y hay que pasarlo como tal: un
         # ClientTimeout aquí lo trata aiohttp como el parámetro float legacy y
@@ -427,6 +550,9 @@ class HAClient:
             # el snapshot lo resuelve `_state_is_newer` en el manejador.
             await self._subscribe_state_changes()
             await self._populate_state_cache()
+            # Antes de `ha_ws_connected`: desde aquí puede haber líneas con
+            # las URLs de HA, y en cada reconexión se vuelven a leer.
+            await self._aprender_urls_de_ha()
 
             # Señalizar reconexión a waits activos
             self._reconnect_generation += 1
@@ -439,6 +565,40 @@ class HAClient:
             logger.info("ha_ws_connected", ws_url=self._ws_url)
 
             await self._read_ws_messages()
+
+    async def _aprender_urls_de_ha(self) -> None:
+        """Pasa a la redacción del log los hosts de `external_url`/`internal_url`.
+
+        FR-002 de la 009: el dominio propio de la casa salía en claro en el log.
+        Por REST (`/api/config`, el mismo canal que el snapshot de estados) y
+        no por WebSocket: el bucle de lectura aún no corre, así que un
+        `ws_send` esperaría una respuesta que nadie lee.
+
+        Un fallo aquí NO corta la conexión (principio III, matiz justificado
+        en el plan de la 009): dejar la casa sin servicio por no poder tapar
+        dos nombres en el log sería desproporcionado, y el resto de la
+        redacción sigue activa. Se avisa sin ningún trozo de URL. Se captura
+        `Exception` y no solo `HAConnectionError` porque aiohttp lanza más
+        tipos (y el tiempo máximo, `TimeoutError`); `CancelledError` no es
+        `Exception` y se propaga, como debe.
+
+        Cada URL se trata por separado (`_host_de_url`): una mal formada se
+        ignora sin aviso, como dice la spec, y no impide tapar la otra
+        (revisión de la 009, T045).
+        """
+        try:
+            datos = await self._request_json("GET", "/config")
+            if not isinstance(datos, dict):
+                raise TypeError("respuesta de /api/config inesperada")
+        except Exception as exc:  # noqa: BLE001 — ver el docstring
+            logger.warning(
+                "ha_url_redaction_unavailable", error_type=type(exc).__name__
+            )
+            return
+        set_ha_url_hosts(
+            _host_de_url(datos.get("external_url")),
+            _host_de_url(datos.get("internal_url")),
+        )
 
     async def _authenticate_ws(self) -> None:
         """Realiza el handshake de autenticación del WebSocket de HA."""
@@ -654,7 +814,8 @@ class HAClient:
     async def ws_send(self, payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
         """Envía un comando al WebSocket de Home Assistant y espera su resultado."""
         if self._ws is None or self._ws.closed:
-            raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
 
         # El lock protege SOLO la sección crítica —reservar el id, registrar el
         # future y escribir en el socket—, nunca la espera de la respuesta.
@@ -671,7 +832,8 @@ class HAClient:
             # haber sido sustituido por el de una reconexión.
             ws = self._ws
             if ws is None or ws.closed:
-                raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+                raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
 
             request_id = self._next_ws_request_id
             self._next_ws_request_id += 1
@@ -683,18 +845,32 @@ class HAClient:
             payload_with_id["id"] = request_id
             try:
                 await ws.send_json(payload_with_id)
-            except BaseException:
+            except Exception as exc:
                 # Si el envío falla no hay nadie que vaya a resolver el future:
                 # se retira aquí mismo para no dejarlo colgado hasta la
-                # siguiente reconexión.
+                # siguiente reconexión. Se convierte en `HAConnectionError`
+                # con `sent=False` (spec 031): quien decide si la orden llegó
+                # a HA (restaurar) necesita distinguirlo de un fallo después
+                # de enviar, y el socket de aiohttp lanza aquí errores propios.
+                # Explícito: el defecto del atributo es `None` (no se sabe) y
+                # aquí SÍ se sabe que no salió (contrato de la spec 022).
+                self._pending_ws_responses.pop(request_id, None)
+                raise HAConnectionError(
+                    f"WebSocket send failed for command {payload.get('type')}: {exc}",
+                    sent=False,
+                ) from exc
+            except BaseException:
+                # Cancelación: se propaga tal cual.
                 self._pending_ws_responses.pop(request_id, None)
                 raise
 
         try:
             return await asyncio.wait_for(future, timeout_seconds)
         except asyncio.TimeoutError as exc:
-            raise HAConnectionError(
-                f"Timeout waiting for HA WS response for command {payload.get('type')}"
+            # La orden ya salió: HA puede estar ejecutándola (spec 031).
+            raise HATimeoutError(
+                f"Timeout waiting for HA WS response for command {payload.get('type')}",
+                sent=True,
             ) from exc
         finally:
             self._pending_ws_responses.pop(request_id, None)
@@ -726,7 +902,8 @@ class HAClient:
                                o timeout esperando el evento.
         """
         if self._ws is None or self._ws.closed:
-            raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
 
         loop = asyncio.get_running_loop()
 
@@ -761,8 +938,10 @@ class HAClient:
             self._pending_ws_responses.pop(request_id, None)
             self._pending_ws_subscriptions.pop(request_id, None)
             await self._ws_unsubscribe(request_id)
-            raise HAConnectionError(
-                f"Timeout waiting for subscription confirmation: {payload.get('type')}"
+            # La suscripción ya salió (cierre 1.2.0: `HATimeoutError`).
+            raise HATimeoutError(
+                f"Timeout waiting for subscription confirmation: {payload.get('type')}",
+                sent=True,
             )
         except HAConnectionError:
             self._pending_ws_subscriptions.pop(request_id, None)
@@ -804,11 +983,119 @@ class HAClient:
             return event_data if isinstance(event_data, dict) else {}
         except asyncio.TimeoutError:
             self._pending_ws_subscriptions.pop(request_id, None)
-            raise HAConnectionError(
-                f"Timeout waiting for subscription event: {payload.get('type')}"
+            raise HATimeoutError(
+                f"Timeout waiting for subscription event: {payload.get('type')}",
+                sent=True,
             )
         finally:
             # Siempre cancelar la suscripción al salir (con o sin error)
+            await self._ws_unsubscribe(request_id)
+
+    async def ws_collect_subscription(
+        self,
+        payload: dict[str, Any],
+        *,
+        terminado: Callable[[Any], bool],
+        timeout_seconds: float,
+        confirmacion_timeout_seconds: float | None = None,
+    ) -> tuple[list[Any], bool]:
+        """Envía un comando WS de suscripción, recoge sus eventos y cancela.
+
+        Para suscripciones de VARIOS mensajes con final, como
+        `system_health/info` (spec 029, FR-002): HA confirma con un `result`
+        y manda eventos hasta uno que cierra (`finish`). Devuelve
+        `(eventos, completo)`: los eventos en orden, incluido el que hace
+        verdadero a `terminado`, y `completo=False` si venció el plazo antes.
+
+        POR QUÉ un método aparte: `ws_one_shot_subscription` termina en el
+        primer evento y la usan otras tools; cambiar su contrato las tocaría
+        a todas (FR-020 de la 008).
+
+        - El plazo es TOTAL, no por evento: un HA que gotea actualizaciones
+          sin llegar nunca al final no puede alargar la espera sin tope y
+          dejar la tool colgada.
+        - Sin `confirmacion_timeout_seconds`, la confirmación cuenta dentro
+          de `timeout_seconds`. Con él, la confirmación tiene ese plazo
+          propio y `timeout_seconds` empieza a contar al confirmar (T038):
+          `system_health/info` no confirma hasta que HA reúne la información
+          rápida (hasta 5 s por callback en HA), y con un plazo corto la
+          tool fallaría entera en vez de devolver lo que llegó. La espera
+          sigue acotada: como mucho, la suma de los dos.
+        - La suscripción se cancela SIEMPRE en el `finally` (fin, plazo, error
+          de HA, caída de la WS y cancelación de la tarea): abierta, HA
+          seguiría mandando eventos por la WebSocket compartida sin nadie que
+          los lea.
+
+        Raises:
+            HAConnectionError: WS no disponible o caída a mitad (sin código),
+                rechazo de HA en el `result` (con su `code`) o sin
+                confirmación dentro del plazo.
+        """
+        if self._ws is None or self._ws.closed:
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
+
+        loop = asyncio.get_running_loop()
+        limite = loop.time() + timeout_seconds
+        limite_confirmacion = (
+            limite if confirmacion_timeout_seconds is None
+            else loop.time() + confirmacion_timeout_seconds)
+
+        async with self._ws_request_lock:
+            ws = self._ws
+            if ws is None or ws.closed:
+                raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
+            request_id = self._next_ws_request_id
+            self._next_ws_request_id += 1
+
+            result_future: asyncio.Future[Any] = loop.create_future()
+            # Cola y no future: llegan varios eventos, a veces antes de que
+            # se empiece a esperar (HA manda `initial` y `finish` seguidos
+            # cuando no hay nada pendiente). La caída de la WS la avisa el
+            # sentinel de `_fail_pending_requests`.
+            cola: asyncio.Queue[Any] = asyncio.Queue()
+            self._pending_ws_responses[request_id] = result_future
+            self._event_subscription_queues[request_id] = cola
+
+            try:
+                await ws.send_json({**payload, "id": request_id})
+            except BaseException:
+                self._pending_ws_responses.pop(request_id, None)
+                self._event_subscription_queues.pop(request_id, None)
+                raise
+
+        eventos: list[Any] = []
+        try:
+            try:
+                await asyncio.wait_for(
+                    result_future, timeout=max(limite_confirmacion - loop.time(), 0))
+            except asyncio.TimeoutError as exc:
+                raise HATimeoutError(
+                    f"Timeout waiting for subscription confirmation: {payload.get('type')}",
+                    sent=True,
+                ) from exc
+            if confirmacion_timeout_seconds is not None:
+                limite = loop.time() + timeout_seconds
+            while True:
+                restante = limite - loop.time()
+                if restante <= 0:
+                    return eventos, False
+                try:
+                    item = await asyncio.wait_for(cola.get(), timeout=restante)
+                except asyncio.TimeoutError:
+                    return eventos, False
+                if item is _WS_CLOSED_SENTINEL:
+                    raise HAConnectionError(
+                        "WebSocket connection lost while collecting "
+                        f"subscription events: {payload.get('type')}"
+                    )
+                eventos.append(item)
+                if terminado(item):
+                    return eventos, True
+        finally:
+            self._pending_ws_responses.pop(request_id, None)
+            # `_ws_unsubscribe` también retira la cola del registro.
             await self._ws_unsubscribe(request_id)
 
     async def ws_subscribe_events_queue(
@@ -826,11 +1113,34 @@ class HAClient:
         El llamador es responsable de llamar ws_unsubscribe_events_queue(sub_id)
         cuando termine, incluso si recibe el sentinel.
         """
+        # Delega en `ws_subscribe_queue` (spec 017): el mismo montaje y la
+        # misma limpieza sirven para `subscribe_trigger`. El payload es
+        # exactamente el de antes, y el texto del plazo también.
+        return await self.ws_subscribe_queue(
+            {"type": "subscribe_events", "event_type": event_type},
+            descripcion=f"'{event_type}'",
+        )
+
+    async def ws_subscribe_queue(
+        self,
+        payload: dict[str, Any],
+        *,
+        descripcion: str | None = None,
+    ) -> "tuple[int, asyncio.Queue[Any], int]":
+        """Abre una suscripción WS cualquiera con cola persistente (spec 017).
+
+        `payload` es el mensaje sin `id` (p. ej. `{"type": "subscribe_trigger",
+        "trigger": …}`). Devuelve lo mismo que `ws_subscribe_events_queue`, y
+        el llamador cancela igual, con `ws_unsubscribe_events_queue(sub_id)`.
+        Si HA rechaza la suscripción, sale `HAConnectionError` con su `code`
+        (p. ej. `invalid_format` de un trigger mal escrito).
+        """
         if self._ws is None or self._ws.closed:
             raise HAConnectionError("WebSocket no disponible para suscripción.")
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Any] = asyncio.Queue()
+        que = descripcion or f"'{payload.get('type')}'"
 
         async with self._ws_request_lock:
             sub_id = self._next_ws_request_id
@@ -840,11 +1150,7 @@ class HAClient:
             self._pending_ws_responses[sub_id] = result_future
             self._event_subscription_queues[sub_id] = queue
 
-            await self._ws.send_json({
-                "id": sub_id,
-                "type": "subscribe_events",
-                "event_type": event_type,
-            })
+            await self._ws.send_json({"id": sub_id, **payload})
 
         # Si algo sale mal aqui hay que deshacer TODO lo que se dejo montado
         # antes de mandar el subscribe: la cola, el future pendiente y —sobre
@@ -861,8 +1167,9 @@ class HAClient:
         except asyncio.TimeoutError as exc:
             self._pending_ws_responses.pop(sub_id, None)
             await self._ws_unsubscribe(sub_id)
-            raise HAConnectionError(
-                f"Timeout esperando confirmación de suscripción a '{event_type}'"
+            raise HATimeoutError(
+                f"Timeout esperando confirmación de suscripción a {que}",
+                sent=True,
             ) from exc
         except BaseException:
             self._pending_ws_responses.pop(sub_id, None)
@@ -1062,7 +1369,7 @@ class HAClient:
     ) -> dict[str, Any] | None:
         """Helper común para los endpoints `/config/{domain}/config/{id}`."""
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         validate_path_segment(domain, field="domain")
         validate_path_segment(config_id, field="config_id")
@@ -1070,73 +1377,92 @@ class HAClient:
         _assert_safe_request_path(path)
         url = f"{self._rest_base_url}{path}"
 
-        async with self._session.request(
-            method,
-            url,
-            json=json_body,
-            timeout=ClientTimeout(total=30),
-        ) as resp:
-            text = await resp.text()
-            status = resp.status
+        with _plazo_como_error(f"HA REST {method} {path}"):
+            async with self._session.request(
+                method,
+                url,
+                json=json_body,
+                timeout=ClientTimeout(total=30),
+            ) as resp:
+                text = await resp.text()
+                status = resp.status
+        return self._config_response(
+            method, url, domain, config_id, text, status,
+            expect_ok=expect_ok, allow_missing=allow_missing,
+        )
 
-            if status == 404 and allow_missing:
+    def _config_response(
+        self,
+        method: str,
+        url: str,
+        domain: str,
+        config_id: str,
+        text: str,
+        status: int,
+        *,
+        expect_ok: bool,
+        allow_missing: bool,
+    ) -> dict[str, Any] | None:
+        """Interpreta la respuesta de `_config_request` (ya leída entera)."""
+
+        if status == 404 and allow_missing:
+            return None
+
+        if status == 400 and allow_missing and method == "DELETE":
+            # HA devuelve 400 "Resource not found" al borrar algo inexistente.
+            if "not found" in text.lower():
+                logger.info(
+                    "ha_config_delete_missing",
+                    domain=domain,
+                    config_id=config_id,
+                )
                 return None
 
-            if status == 400 and allow_missing and method == "DELETE":
-                # HA devuelve 400 "Resource not found" al borrar algo inexistente.
-                if "not found" in text.lower():
-                    logger.info(
-                        "ha_config_delete_missing",
-                        domain=domain,
-                        config_id=config_id,
-                    )
-                    return None
+        if status >= 400:
+            logger.warning(
+                "ha_config_request_http_error",
+                method=method,
+                domain=domain,
+                config_id=config_id,
+                status=status,
+                body=text[:500],
+            )
+            raise HAConnectionError(
+                f"HA REST {method} {url} failed {status}: {text}"
+            )
 
-            if status >= 400:
-                logger.warning(
-                    "ha_config_request_http_error",
+        parsed: dict[str, Any] | None
+        if not text:
+            parsed = {}
+        else:
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                logger.error(
+                    "ha_config_request_invalid_json",
                     method=method,
                     domain=domain,
                     config_id=config_id,
-                    status=status,
                     body=text[:500],
                 )
                 raise HAConnectionError(
-                    f"HA REST {method} {url} failed {status}: {text}"
+                    f"HA REST returned invalid JSON: {text!r}"
+                ) from exc
+
+        if expect_ok:
+            if not isinstance(parsed, dict) or parsed.get("result") != "ok":
+                logger.warning(
+                    "ha_config_request_unexpected_body",
+                    method=method,
+                    domain=domain,
+                    config_id=config_id,
+                    parsed=parsed,
+                )
+                raise HAConnectionError(
+                    f"HA REST {method} {url} unexpected response: {parsed!r}"
                 )
 
-            parsed: dict[str, Any] | None
-            if not text:
-                parsed = {}
-            else:
-                try:
-                    parsed = json.loads(text)
-                except json.JSONDecodeError as exc:
-                    logger.error(
-                        "ha_config_request_invalid_json",
-                        method=method,
-                        domain=domain,
-                        config_id=config_id,
-                        body=text[:500],
-                    )
-                    raise HAConnectionError(
-                        f"HA REST returned invalid JSON: {text!r}"
-                    ) from exc
-
-            if expect_ok:
-                if not isinstance(parsed, dict) or parsed.get("result") != "ok":
-                    logger.warning(
-                        "ha_config_request_unexpected_body",
-                        method=method,
-                        domain=domain,
-                        config_id=config_id,
-                        parsed=parsed,
-                    )
-                    raise HAConnectionError(
-                        f"HA REST {method} {url} unexpected response: {parsed!r}"
-                    )
-
-            return parsed
+        return parsed
 
     async def _request_json(
         self,
@@ -1147,18 +1473,153 @@ class HAClient:
     ) -> Any:
         """Hace un request REST a la API de Home Assistant y parsea JSON."""
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         _assert_safe_request_path(path)
         url = f"{self._rest_base_url}{path}"
-        async with self._session.request(
-            method,
-            url,
-            params=params,
-            json=json_body,
-            timeout=ClientTimeout(total=30),
-        ) as resp:
-            return await self._parse_response(resp)
+        with _plazo_como_error(f"HA REST {method} {path}"):
+            async with self._session.request(
+                method,
+                url,
+                params=params,
+                json=json_body,
+                timeout=ClientTimeout(total=30),
+            ) as resp:
+                return await self._parse_response(resp)
+
+    async def rest_get_text_tail(
+        self,
+        path: str,
+        *,
+        lines: int,
+        max_line_bytes: int = 4096,
+    ) -> list[str]:
+        """GET de texto a la API de Core; devuelve sus ÚLTIMAS `lines` líneas.
+
+        Existe por `/api/error_log` (spec 012, research R-2): es el fichero de
+        log de Core entero, que crece hasta el siguiente reinicio y puede
+        ocupar cientos de MB. Leerlo con `resp.text()` lo cargaría completo en
+        memoria del add-on para quedarse con cien líneas. Aquí se lee en flujo
+        y solo se conservan las últimas (`deque(maxlen=lines)`); una línea
+        más larga que `max_line_bytes` se recorta y se dice en la propia línea.
+
+        No se pide un `Range`: no consta que el proxy del Supervisor lo
+        reenvíe, y un cuerpo comprimido al vuelo no da posiciones estables.
+
+        Un estado HTTP de error se lanza como `HAConnectionError(status=…)`
+        para que quien llama distinga el 404 («no hay fichero de log») de una
+        caída real. El cuerpo del error no se incluye en el mensaje: en esta
+        ruta puede ser el propio log.
+        """
+        if self._session is None:
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
+        if lines < 1:
+            raise ValueError("lines must be >= 1")
+
+        _assert_safe_request_path(path)
+        url = f"{self._rest_base_url}{path}"
+        marca = " …[line truncated]"
+        cola: deque[str] = deque(maxlen=lines)
+
+        def guardar(crudo: bytes) -> None:
+            if crudo.endswith(b"\r"):
+                crudo = crudo[:-1]
+            recortada = len(crudo) > max_line_bytes
+            texto = crudo[:max_line_bytes].decode("utf-8", errors="replace")
+            if recortada:
+                # La redacción viene después (quien llama redacta cada
+                # línea) y no puede ver el final de un secreto que el corte
+                # dejó abierto: `"password": "hunter2` sin su comilla no lo
+                # reconoce. Se quita ese trozo aquí (spec 012, T035).
+                texto = quitar_secreto_abierto(texto) + marca
+            cola.append(texto)
+
+        with _plazo_como_error(f"HA REST GET {path}"):
+            async with self._session.get(url, timeout=ClientTimeout(total=30)) as resp:
+                if resp.status >= 400:
+                    raise HAConnectionError(
+                        f"HA REST GET {path} failed {resp.status}",
+                        status=resp.status,
+                    )
+                # Pendiente de la línea en curso. Solo guarda hasta
+                # `max_line_bytes + 1` bytes: con eso ya se sabe que hay que
+                # recortarla, y una línea de un giga no se acumula en memoria.
+                pendiente = bytearray()
+                desbordada = False
+                async for trozo in resp.content.iter_chunked(64 * 1024):
+                    inicio = 0
+                    while True:
+                        fin = trozo.find(b"\n", inicio)
+                        pedazo = trozo[inicio:] if fin < 0 else trozo[inicio:fin]
+                        if not desbordada:
+                            pendiente += pedazo
+                            if len(pendiente) > max_line_bytes:
+                                del pendiente[max_line_bytes + 1:]
+                                desbordada = True
+                        if fin < 0:
+                            break
+                        guardar(bytes(pendiente))
+                        pendiente.clear()
+                        desbordada = False
+                        inicio = fin + 1
+                if pendiente or desbordada:
+                    guardar(bytes(pendiente))
+        return list(cola)
+
+    async def rest_get_image(
+        self,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        max_bytes: int,
+    ) -> tuple[str, bytes]:
+        """GET binario a la API de Core; devuelve `(content_type, bytes)`.
+
+        Existe por las instantáneas de cámara y las imágenes de las entidades
+        `image` (spec 024, research R-2). Core no les pone tope (una cámara
+        4K da varios MB) y Hermes no reduce imágenes: no añade Pillow. Por eso
+        se lee en flujo y, en cuanto el acumulado pasa de `max_bytes`, se deja
+        de leer —la conexión se cierra sin bajar el resto— y se lanza
+        `ImageTooLargeError`. Nunca se devuelve una imagen cortada: no se
+        podría decodificar y daría al cliente algo que parece válido.
+
+        `content_type` va sin parámetros y en minúsculas (`image/jpeg`): es
+        quien llama quien decide qué tipos acepta.
+
+        Un estado HTTP de error se lanza como `HAConnectionError(status=…)`
+        para que quien llama distinga 404 (no existe) y 503 (apagada) de un
+        fallo. El cuerpo no viaja en el mensaje: puede ser HTML con datos de
+        la instalación.
+        """
+        if self._session is None:
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
+        _assert_safe_request_path(path)
+        # La comprobación central no mira segmentos vacíos; aquí no hay
+        # ninguna ruta legítima con `//` y quien llama interpola un
+        # `entity_id` que viene del cliente MCP.
+        if "//" in path:
+            raise HAConnectionError(f"Unsafe request path (empty segment): {path!r}")
+        url = f"{self._rest_base_url}{path}"
+
+        with _plazo_como_error(f"HA REST GET {path}"):
+            async with self._session.get(
+                url, params=params, timeout=ClientTimeout(total=30)
+            ) as resp:
+                if resp.status >= 400:
+                    raise HAConnectionError(
+                        f"HA REST GET {path} failed {resp.status}",
+                        status=resp.status,
+                    )
+                tipo = resp.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                datos = bytearray()
+                async for trozo in resp.content.iter_chunked(64 * 1024):
+                    datos += trozo
+                    if len(datos) > max_bytes:
+                        # Salir del `async with` sin leer el resto libera la
+                        # conexión cerrándola: no se descarga lo que queda.
+                        resp.close()
+                        raise ImageTooLargeError(max_bytes)
+        return tipo, bytes(datos)
 
     # ── Supervisor REST API ───────────────────────────────────────────────────
 
@@ -1180,18 +1641,19 @@ class HAClient:
         directamente, o lanza HAConnectionError si result==error.
         """
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         _assert_safe_request_path(sv_path)
         url = f"{self._supervisor_base_url}{sv_path}"
-        async with self._session.request(
-            method,
-            url,
-            params=params,
-            json=json_body,
-            timeout=ClientTimeout(total=timeout_seconds),
-        ) as resp:
-            return await self._parse_sv_response(resp)
+        with _plazo_como_error(f"Supervisor REST {method} {sv_path}"):
+            async with self._session.request(
+                method,
+                url,
+                params=params,
+                json=json_body,
+                timeout=ClientTimeout(total=timeout_seconds),
+            ) as resp:
+                return await self._parse_sv_response(resp)
 
     async def sv_request_text(
         self,
@@ -1201,22 +1663,23 @@ class HAClient:
     ) -> str:
         """GET a la API del Supervisor y devuelve texto plano (logs de add-ons)."""
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         _assert_safe_request_path(sv_path)
         url = f"{self._supervisor_base_url}{sv_path}"
-        async with self._session.get(
-            url,
-            params=params,
-            timeout=ClientTimeout(total=timeout_seconds),
-        ) as resp:
-            text = await resp.text()
-            if resp.status >= 400:
-                raise HAConnectionError(
-                    f"Supervisor GET {sv_path} failed {resp.status}: {text}",
-                    status=resp.status,
-                )
-            return text
+        with _plazo_como_error(f"Supervisor GET {sv_path}"):
+            async with self._session.get(
+                url,
+                params=params,
+                timeout=ClientTimeout(total=timeout_seconds),
+            ) as resp:
+                text = await resp.text()
+                if resp.status >= 400:
+                    raise HAConnectionError(
+                        f"Supervisor GET {sv_path} failed {resp.status}: {text}",
+                        status=resp.status,
+                    )
+                return text
 
     async def _parse_sv_response(self, resp: ClientResponse) -> Any:
         """Parsea una respuesta JSON del Supervisor.
@@ -1263,6 +1726,11 @@ class HAClient:
         quedaban esperando a un socket que ya no existe y solo se enteraban al
         vencer su propio timeout, con HA caída todo ese rato.
         """
+        # Todo lo pendiente ya se envió (el future se registra justo antes de
+        # escribir en el socket y se retira si la escritura falla): la caída
+        # llega DESPUÉS de enviar (`sent`, spec 031).
+        if isinstance(error, HAConnectionError):
+            error.sent = True
         for pendientes in (self._pending_ws_responses, self._pending_ws_subscriptions):
             for future in list(pendientes.values()):
                 if not future.done():

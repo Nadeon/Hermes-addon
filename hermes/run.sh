@@ -63,6 +63,7 @@ export HERMES_SAFETY_BACKUP_WINDOW="$(cfg_default safety_backup_window_minutes 3
 export HERMES_FILE_BACKUP_MAX_PER_PATH="$(cfg_default file_backup_max_per_path 20)"
 export HERMES_FILE_BACKUP_MAX_TOTAL_MB="$(cfg_default file_backup_max_total_mb 200)"
 export HERMES_SAFETY_BACKUP_KEEP="$(cfg_default safety_backup_keep 3)"
+export HERMES_SAFETY_BACKUP_ENCRYPTION="$(cfg_default safety_backup_encryption auto)"
 export HERMES_CONFIG_WRITE_MIN_INTERVAL="$(cfg_default config_write_min_interval_seconds 5)"
 export HERMES_CONFIG_WRITE_MAX_PER_MINUTE="$(cfg_default config_write_max_per_minute 10)"
 export HERMES_RESPONSE_MAX_BYTES="$(cfg_default response_max_bytes 131072)"
@@ -87,6 +88,9 @@ export HERMES_CALL_SERVICE_RESTRICTED_ENTITIES="$(jq -c '.call_service_restricte
 export HERMES_CALL_SERVICE_AUTO_CLASSIFY="$(cfg_default call_service_auto_classify_dangerous true)"
 export HERMES_FIRE_EVENT_ALLOWLIST="$(jq -c '.fire_event_allowlist // []' "$OPTIONS")"
 export HERMES_OAUTH_CIMD_ALLOWED_HOSTS="$(jq -c '.oauth_cimd_allowed_hosts // []' "$OPTIONS")"
+# Familias de tools que no se registran (spec 011). Los nombres los valida
+# Hermes al arrancar: uno desconocido impide arrancar y el log dice cuál.
+export HERMES_TOOL_FAMILIES_DISABLED="$(jq -c '.tool_families_disabled // []' "$OPTIONS")"
 
 # ── Token del Supervisor (inyectado por HAOS) ─────────────────
 # SUPERVISOR_TOKEN ya está en el entorno del contenedor del add-on.

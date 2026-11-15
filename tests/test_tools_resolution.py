@@ -1,9 +1,12 @@
 """Tests de la resolución del Supervisor (spec 005, US6).
 
-`sv_get_resolution` lee; `sv_dismiss_resolution_*` descartan con token. Lo que
-NUNCA puede hacer Hermes es aplicar una sugerencia del Supervisor
-(`POST /resolution/suggestion/{uuid}`): algunas borran backups, reinician el
-host o resetean datos (FR-024).
+`sv_get_resolution` lee; `sv_dismiss_resolution_*` descartan con token. Hasta
+la 1.1.x Hermes nunca aplicaba una sugerencia del Supervisor
+(`POST /resolution/suggestion/{uuid}`, FR-024): algunas borran backups,
+reinician el host o resetean datos. Desde la 1.2.0 (FR-077 de la 008, spec
+022) las aplica, pero SOLO `sv_apply_resolution_suggestion`
+(`resolution_fixes.py`) y siempre con vista previa y token; lo vigila
+`TestSoloResolutionFixesAplica`.
 """
 
 from __future__ import annotations
@@ -111,6 +114,34 @@ class TestGetResolution(_Base):
         self.assertIn("error", r)
 
 
+class TestEventoOk(_Base):
+    """FR-008 de la 009: `sv_get_resolution` deja en el log cuántas entradas
+    leyó, sin uuids ni referencias, y solo cuando terminó bien."""
+
+    async def test_registra_los_cinco_recuentos(self) -> None:
+        from structlog.testing import capture_logs
+        with capture_logs() as eventos:
+            r = await self._tools(_Supervisor())["sv_get_resolution"]()
+        self.assertNotIn("error", r)
+        ok = [e for e in eventos if e["event"] == "sv_get_resolution_ok"]
+        self.assertEqual(len(ok), 1)
+        self.assertEqual(
+            {k: v for k, v in ok[0].items() if k not in ("event", "log_level")},
+            {"unsupported": 1, "unhealthy": 1, "issues": 1, "suggestions": 1, "checks": 1},
+        )
+        self.assertNotIn(_ISSUE, json.dumps(eventos))
+        self.assertNotIn(_SUG, json.dumps(eventos))
+
+    async def test_con_error_no_hay_ok(self) -> None:
+        from structlog.testing import capture_logs
+        for sv in (_Supervisor(info=HAConnectionError("caído")), _Supervisor(info=["x"])):
+            with self.subTest(info=type(sv.info).__name__):
+                with capture_logs() as eventos:
+                    r = await self._tools(sv)["sv_get_resolution"]()
+                self.assertIn("error", r)
+                self.assertFalse([e for e in eventos if e["event"].endswith("_ok")])
+
+
 class TestDismiss(_Base):
     casos = (("sv_dismiss_resolution_issue", "issue_uuid", _ISSUE, "issue"),
              ("sv_dismiss_resolution_suggestion", "suggestion_uuid", _SUG, "suggestion"))
@@ -155,7 +186,10 @@ class TestDismiss(_Base):
         self.assertEqual((p["suggestion_uuid"], p["type"], p["context"]),
                          (_SUG, "clear_full_backup", "system"))
         self.assertIn("without applying it", p["effect"])
-        self.assertIn("never applies", p["effect"])
+        # Desde la 1.2.0 (spec 022) aplicar es de otra tool: la vista previa
+        # lo dice en vez de afirmar que Hermes nunca aplica.
+        self.assertIn("sv_apply_resolution_suggestion", p["effect"])
+        self.assertNotIn("never applies", p["effect"])
 
     async def test_with_token_exactly_one_delete_and_no_post(self) -> None:
         for tool, campo, uuid, ruta in self.casos:
@@ -225,11 +259,20 @@ def posts_a_sugerencias(directorio: pathlib.Path) -> list[str]:
     return hallazgos
 
 
-class TestNuncaAplicaSugerencias(unittest.TestCase):
-    """FR-024: ninguna tool aplica sugerencias del Supervisor."""
+class TestSoloResolutionFixesAplica(unittest.TestCase):
+    """FR-024 de la 1.1.x, cambiado por FR-077 de la 008 (spec 022, FR-012):
+    solo `resolution_fixes.py` aplica sugerencias del Supervisor, y ningún
+    otro módulo puede hacer `POST /resolution/suggestion/…`.
 
-    def test_no_post_to_resolution_suggestion(self) -> None:
-        self.assertEqual(posts_a_sugerencias(_TOOLS_DIR), [])
+    Control negativo (T028 g): un `POST /resolution/suggestion/` en
+    `resolution.py` → cae `test_solo_resolution_fixes`."""
+
+    def test_solo_resolution_fixes(self) -> None:
+        hallazgos = posts_a_sugerencias(_TOOLS_DIR)
+        self.assertEqual(sorted({h.split(":")[0] for h in hallazgos}),
+                         ["resolution_fixes.py"], hallazgos)
+        # Y en un único sitio, el de después de validar el token.
+        self.assertEqual(len(hallazgos), 1, hallazgos)
 
     def test_guard_detects_a_post(self) -> None:
         # El propio detector se prueba con un caso positivo: un test de guarda

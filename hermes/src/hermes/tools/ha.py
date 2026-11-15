@@ -7,6 +7,7 @@ import json
 import re
 import unicodedata
 from pathlib import Path
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 import structlog
@@ -33,6 +34,42 @@ _FILTERED_ATTRIBUTES = {
     "min_color_temp_kelvin",
     "max_color_temp_kelvin",
 }
+
+
+def _vista_previa_servicio(
+    accion: str,
+    domain_lower: str,
+    service_lower: str,
+    data: dict[str, Any],
+    *,
+    in_denylist: bool,
+    entity_is_restricted: bool,
+) -> dict[str, Any]:
+    """Vista previa de un servicio que pide confirmación.
+
+    La comparten `ha_call_service` y `ha_call_service_response` (spec 018)
+    para que las dos enseñen lo mismo y no diverjan; solo cambia `action`.
+    """
+    reason = (
+        f"Service '{domain_lower}.{service_lower}' requires confirmation "
+        f"({'denylist match' if in_denylist else 'auto-restricted entity'})."
+    )
+    preview: dict[str, Any] = {
+        "action": accion,
+        "domain": domain_lower,
+        "service": service_lower,
+        "service_data": data,
+        "reason": reason,
+    }
+    if entity_is_restricted:
+        # Los entity_id se re-extraen con la misma normalización que usó la
+        # comprobación, para que el preview enseñe justo lo que la disparó
+        # (incluidas listas separadas por comas).
+        restricted_auto = get_auto_restricted_entities()
+        preview["restricted_entities"] = sorted(
+            _policy._collect_entity_ids(data) & restricted_auto
+        ) or ["(objetivo indirecto: área, dispositivo o comodín)"]
+    return preview
 
 
 def _compact_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -206,6 +243,51 @@ def _scan_for_dangerous_services(
     return False
 
 
+def menciona_update_install(data: Any, depth: int = 0) -> bool:
+    """¿Llama esta configuración (automatización o script) a `update.install`?
+
+    Spec 026, T031 (decisión del supervisor, D-29 ampliada): una
+    automatización o un script corren SIN usuario (`Context` sin `user_id`), y
+    el Marketplace de HA 2026.11.1 (`RepositoryUpdateEntity.async_install`)
+    deja instalar en ese caso si CUALQUIER persona aceptó su aviso de riesgos.
+    Esto solo sirve para AVISAR en la vista previa: NO es una barrera de
+    seguridad. No ve una llamada indirecta (un script que llama a otro, una
+    escena, un blueprint con la acción dentro de una entrada) y la guía lo
+    dice. Mira las mismas claves que `_scan_for_dangerous_services` y, con
+    una plantilla, si nombra `install`: mejor un aviso de más que uno de
+    menos.
+    """
+    if depth > 20:
+        return False
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in _SERVICE_CALL_KEYS | _SERVICE_TEMPLATE_KEYS and isinstance(value, str):
+                texto = value.strip().lower()
+                if texto == "update.install":
+                    return True
+                if ("{{" in texto or "{%" in texto or key in _SERVICE_TEMPLATE_KEYS) \
+                        and "install" in texto:
+                    return True
+            elif isinstance(value, (dict, list)) and menciona_update_install(value, depth + 1):
+                return True
+    elif isinstance(data, list):
+        return any(menciona_update_install(item, depth + 1) for item in data)
+    return False
+
+
+# Aviso de la vista previa de `ha_create_or_update_automation` y
+# `ha_create_or_update_script` cuando la configuración llama a
+# `update.install` (spec 026, T031). Es un aviso, no una barrera.
+AVISO_UPDATE_INSTALL = (
+    "This configuration calls update.install. An automation or a script runs "
+    "without a Home Assistant user, and in that case Home Assistant 2026.11 lets "
+    "update.install install from the Marketplace if ANY person accepted the "
+    "Marketplace risk warning: it can install third-party code from the "
+    "Marketplace (not reviewed by Home Assistant) without going through that "
+    "warning. Check which update entities it targets before confirming."
+)
+
+
 def _slugify(text: str) -> str:
     """Convierte un alias a un slug de entity_id, como hace HA."""
     slug = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -310,6 +392,15 @@ def automation_entity_ids_for(config: dict, config_id: str) -> list[str]:
     return ids
 
 
+# Denylist efectiva (la de base más `call_service_denylist_extra`) con la que
+# se clasifica lo que se guarda. La fija `register`, que es quien conoce la
+# opción; hasta entonces vale la de base. Antes `classify_saved_config` usaba
+# solo la de base: un script que llamaba a un servicio vetado SOLO por la
+# extra se guardaba sin restringir, aunque `ha_call_service` sí lo vetaba
+# (revisión de la 027).
+_denylist_al_guardar: frozenset[str] = CALL_SERVICE_DENYLIST
+
+
 def classify_saved_config(entity_id: str, config: dict) -> bool:
     """Clasifica AL VUELO la config que se acaba de guardar.
 
@@ -323,13 +414,20 @@ def classify_saved_config(entity_id: str, config: dict) -> bool:
     Se clasifica el dict recibido en vez de releer el YAML del disco: es
     inmediato y no depende de cuándo escriba HA el fichero.
 
+    No depende de `call_service_auto_classify_dangerous`: esa opción apaga la
+    clasificación del arranque y la de tras un `reload`, pero lo que se guarda
+    por Hermes se clasifica siempre (fail-closed), con la denylist efectiva.
+
     Devuelve True si la entidad ha quedado marcada como restringida.
     """
     if not isinstance(config, dict) or not entity_id:
         return False
-    if _scan_for_dangerous_services(config, CALL_SERVICE_DENYLIST):
+    if _scan_for_dangerous_services(config, _denylist_al_guardar):
         _policy.add_auto_restricted_entity(entity_id)
-        logger.info("auto_classify_on_save", entity_id=entity_id, restricted=True)
+        # Sin `entity_id` (FR-003 de la 009): el log se pega en issues
+        # públicos y el id de una automatización sale de su alias, que nombra
+        # la casa («abrir garaje de …»). Basta con saber que se restringió una.
+        logger.info("auto_classify_on_save", restricted=True, count=1)
         return True
     return False
 
@@ -341,10 +439,13 @@ async def auto_classify_dangerous(denylist: frozenset[str]) -> list[str]:
     new_entities = [e for e in restricted if e not in _auto_restricted]
     _auto_restricted.update(restricted)
     if new_entities:
+        # Solo recuentos, sin los `entity_id` (FR-003 de la 009): el log se
+        # pega en issues públicos y los ids de automatizaciones y scripts
+        # salen de sus alias, que nombran la casa.
         logger.info(
             "auto_classify_restricted",
             count=len(restricted),
-            new=new_entities,
+            new_count=len(new_entities),
         )
     return restricted
 
@@ -352,6 +453,52 @@ async def auto_classify_dangerous(denylist: frozenset[str]) -> list[str]:
 def get_auto_restricted_entities() -> frozenset[str]:
     """Devuelve snapshot del set de entidades auto-restringidas."""
     return _policy.get_auto_restricted_entities()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tareas de fondo: con el bucle en marcha o aplazadas al arranque
+# ══════════════════════════════════════════════════════════════════════════════
+
+# `asyncio.ensure_future(coro)` sin un bucle en marcha cae en
+# `get_event_loop()`, que da `DeprecationWarning` (y en Python 3.14 es un
+# error); además la tarea quedaba en un bucle que nadie ejecuta. En el add-on
+# `register` corre dentro de `_boot`, con el bucle en marcha, pero no tiene
+# por qué depender de eso: si no hay bucle, la tarea se guarda como FÁBRICA
+# (no como corrutina, que daría «never awaited» si no llega a lanzarse) y la
+# lanza `lanzar_tareas_aplazadas` desde el lifespan del servidor.
+_tareas_aplazadas: list[Callable[[], Coroutine[Any, Any, Any]]] = []
+# Referencias fuertes: el bucle solo guarda referencias débiles a sus tareas y
+# una tarea sin referencia puede desaparecer a medias (documentación de asyncio).
+_tareas_vivas: set[asyncio.Task[Any]] = set()
+
+
+def _lanzar(fabrica: Callable[[], Coroutine[Any, Any, Any]]) -> None:
+    tarea = asyncio.get_running_loop().create_task(fabrica())
+    _tareas_vivas.add(tarea)
+    tarea.add_done_callback(_tareas_vivas.discard)
+
+
+def _lanzar_o_aplazar(fabrica: Callable[[], Coroutine[Any, Any, Any]]) -> None:
+    """Lanza la tarea en el bucle en marcha o, si no lo hay, la aplaza."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        _tareas_aplazadas.append(fabrica)
+        return
+    _lanzar(fabrica)
+
+
+def lanzar_tareas_aplazadas() -> int:
+    """Lanza en el bucle en marcha las tareas aplazadas; devuelve cuántas.
+
+    Se llama desde el lifespan del servidor (`__main__._boot`). Sin tareas
+    aplazadas, que es lo normal en el add-on, no hace nada.
+    """
+    pendientes = list(_tareas_aplazadas)
+    _tareas_aplazadas.clear()
+    for fabrica in pendientes:
+        _lanzar(fabrica)
+    return len(pendientes)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -369,10 +516,26 @@ def register(
 
     ready = requires_ready(ha_client)
 
+    # Spec 015, T051: `update.install` reutiliza el encaminamiento de
+    # `ha_install_update`. Import aquí para no cargar la familia de
+    # actualizaciones al importar este módulo.
+    from hermes.tools.system_updates import lector_slug_propio
+    from hermes.tools.update_entities import comprobar_update_install
+    from hermes.tools._marketplace_write import (
+        AVISO_INTERRUPTOR_BETA,
+        comprobar_interruptor_beta,
+    )
+
+    slug_propio = lector_slug_propio(ha_client)
+
     # Construir denylist efectiva
     effective_denylist: frozenset[str] = CALL_SERVICE_DENYLIST
     if call_service_denylist_extra:
         effective_denylist = effective_denylist | frozenset(call_service_denylist_extra)
+    # La misma para clasificar al guardar automatizaciones y scripts: lo que
+    # `ha_call_service` veta tiene que restringirse también al guardarlo.
+    global _denylist_al_guardar
+    _denylist_al_guardar = effective_denylist
 
     # Añadir entidades restringidas por config
     if call_service_restricted_entities:
@@ -386,7 +549,7 @@ def register(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("auto_classify_boot_error", error=str(exc))
 
-        asyncio.ensure_future(_boot_classify())
+        _lanzar_o_aplazar(_boot_classify)
 
     @mcp.tool()
     @ready
@@ -502,6 +665,18 @@ def register(
         homeassistant.reload_*, homeassistant.restart, mqtt.publish,
         lock.unlock, alarm_control_panel.alarm_disarm, y más.
 
+        update.install: solo con una lista explícita de entity_id (sin
+        area_id, device_id, label_id, floor_id ni 'all'). La entidad de Hermes
+        se rechaza (self_update_not_supported) y las de Core, OS y Supervisor
+        se remiten a sv_update_core, sv_update_os y sv_update_supervisor
+        (use_dedicated_tool). Mejor ha_install_update, con versiones y notas.
+
+        switch/homeassistant turn_on, turn_off y toggle sobre el interruptor
+        «pre-release» de un repositorio del Marketplace (activa betas de
+        código de terceros sin el aviso de riesgos de HA) piden token; con
+        area_id, device_id, label_id, floor_id o 'all' que puedan alcanzarlo:
+        use_entity_ids (nombra las entidades).
+
         Args:
             domain (str): Dominio del servicio. Ej: 'light', 'switch'.
             service (str): Nombre del servicio. Ej: 'turn_on', 'set_temperature'.
@@ -520,6 +695,29 @@ def register(
         if not safe:
             return {"error": "unsafe_service_data", "detail": san_err}
 
+        if (domain_lower, service_lower) == ("update", "install"):
+            # Spec 015, T051 (D-1 y D-3, decisión del supervisor): por esta vía
+            # Hermes se actualizaba a sí mismo (Core llama al Supervisor como
+            # Core, así que ni su protección salta) y Core se actualizaba sin
+            # comprobar la configuración. Se comprueba en la vista previa Y en
+            # la confirmación (el registro puede cambiar entre las dos), antes
+            # de emitir o validar el token; lo que pasa sigue como en la 1.1.2
+            # (mismo token, misma llamada: `args_cs` no cambia).
+            rechazo = await comprobar_update_install(
+                ha_client, data if isinstance(data, dict) else {}, slug_propio)
+            if rechazo is not None:
+                return rechazo
+
+        # Spec 026, T032: el interruptor «pre-release» de un repositorio del
+        # Marketplace activa betas de código de terceros sin el aviso de
+        # riesgos de HA. Pide token (y un objetivo indirecto que pueda
+        # alcanzarlo se rechaza). Se mira en la vista previa Y al confirmar,
+        # como la 015; lo que no lo toca sigue como en la 1.1.2.
+        rechazo_beta, interruptores_beta = await comprobar_interruptor_beta(
+            ha_client, domain_lower, service_lower, data if isinstance(data, dict) else {})
+        if rechazo_beta is not None:
+            return rechazo_beta
+
         # Check denylist
         in_denylist = _is_in_denylist(domain_lower, service_lower, effective_denylist)
 
@@ -532,7 +730,7 @@ def register(
             domain_lower, data, get_auto_restricted_entities(), service=service_lower
         )
 
-        needs_token = in_denylist or entity_is_restricted
+        needs_token = in_denylist or entity_is_restricted or bool(interruptores_beta)
 
         if needs_token:
             tool_name_cs = "ha_call_service"
@@ -543,25 +741,28 @@ def register(
             }
 
             if not confirmation_token:
-                reason = (
-                    f"Service '{domain_lower}.{service_lower}' requires confirmation "
-                    f"({'denylist match' if in_denylist else 'auto-restricted entity'})."
+                preview = _vista_previa_servicio(
+                    "call_service", domain_lower, service_lower, data,
+                    in_denylist=in_denylist, entity_is_restricted=entity_is_restricted,
                 )
-                preview: dict[str, Any] = {
-                    "action": "call_service",
-                    "domain": domain_lower,
-                    "service": service_lower,
-                    "service_data": data,
-                    "reason": reason,
-                }
-                if entity_is_restricted:
-                    # Los entity_id se re-extraen con la misma normalización que
-                    # usó la comprobación, para que el preview enseñe justo lo
-                    # que la disparó (incluidas listas separadas por comas).
-                    restricted_auto = get_auto_restricted_entities()
-                    preview["restricted_entities"] = sorted(
-                        _policy._collect_entity_ids(data) & restricted_auto
-                    ) or ["(objetivo indirecto: área, dispositivo o comodín)"]
+                if interruptores_beta and not (in_denylist or entity_is_restricted):
+                    preview["reason"] = (
+                        f"Service '{domain_lower}.{service_lower}' requires "
+                        "confirmation (Marketplace pre-release switch).")
+                if interruptores_beta:
+                    preview["marketplace_prerelease_switches"] = interruptores_beta
+                    preview["warning_marketplace_beta"] = AVISO_INTERRUPTOR_BETA
+                if (domain_lower, service_lower) == ("update", "install"):
+                    # Spec 015, FR-015: la vía de siempre sigue igual (mismo
+                    # token, misma llamada), pero esta vista previa no dice de
+                    # qué versión a qué versión ni qué notas o backup hay. Se
+                    # recomienda la tool que sí lo dice. No cambia lo que el
+                    # token ata (`args_cs`).
+                    preview["hint"] = (
+                        "Prefer ha_install_update: its preview shows the from/to "
+                        "versions, release notes and backup, binds the token to "
+                        "those versions, and sends Core, OS, Supervisor and app "
+                        "updates to their sv_* tools.")
                 return await create_confirmation_token(tool_name_cs, args_cs, preview=preview)
 
             valid, error = await validate_confirmation_token(
@@ -571,8 +772,8 @@ def register(
                 return {"error": error}
 
             try:
-                # Único punto que autoriza explícitamente un servicio vetado: se
-                # llega aquí solo con un confirmation_token ya validado.
+                # Aquí se autoriza explícitamente un servicio vetado: se llega
+                # solo con un confirmation_token ya validado.
                 result = await ha_client.call_service(
                     domain_lower, service_lower, data, allow_dangerous=True
                 )
@@ -583,7 +784,7 @@ def register(
                 if call_service_auto_classify and service_lower == "reload" and domain_lower in (
                     "automation", "script"
                 ):
-                    asyncio.ensure_future(auto_classify_dangerous(effective_denylist))
+                    _lanzar_o_aplazar(lambda: auto_classify_dangerous(effective_denylist))
                 return result
             except Exception as exc:  # noqa: BLE001
                 await complete_confirmation_token(
@@ -599,18 +800,25 @@ def register(
         domain: str,
         service: str,
         service_data: dict[str, object] | None = None,
+        confirmation_token: str | None = None,
     ) -> object:
         """Llama un servicio de Home Assistant y devuelve su respuesta si está soportado.
 
-        Es la vía para servicios de consulta. NO acepta confirmation_token, así
-        que los servicios de la denylist se rechazan sin llegar a ejecutarse,
-        con {"error": "service_in_denylist"}. Para esos usa ha_call_service,
-        que sí tiene el flujo de confirmación en dos pasos.
+        Es la vía para servicios de consulta. Los servicios de la denylist
+        (p. ej. conversation.process) y los que alcanzan un script o una
+        automatización restringidos piden confirmación en dos pasos: sin
+        token NO se ejecutan, y la respuesta trae
+        {"error": "service_in_denylist" | "entity_restricted", "hint",
+        "confirmation_token", "expires_in_seconds", "preview"}. Repite la
+        MISMA llamada con ese confirmation_token para ejecutarlo una vez y
+        recibir su respuesta. La denylist no se relaja: solo se confirma.
 
         Args:
             domain (str): Dominio del servicio. Ej: 'weather', 'calendar'.
             service (str): Nombre del servicio. Ej: 'get_forecasts', 'get_events'.
             service_data (dict, opcional): Parámetros del servicio. Ej: {'entity_id': 'weather.home'}.
+            confirmation_token (str, opcional): Token de la vista previa, para
+                los servicios que piden confirmación. Fuera de ellos se ignora.
 
         Nota:
             Muchos servicios no soportan `return_response=1`. Si no es
@@ -625,33 +833,80 @@ def register(
         if not safe:
             return {"error": "unsafe_service_data", "detail": san_err}
 
-        # ha_call_service_response no acepta confirmation_token (es para read-like ops).
-        # Si el servicio está en la denylist, rechazar con hint.
-        if _is_in_denylist(domain_lower, service_lower, effective_denylist):
+        # Mismo criterio que ha_call_service (spec 018, FR-008): la denylist y
+        # las entidades restringidas (un script peligroso devuelve respuesta
+        # por esta vía) piden token.
+        in_denylist = _is_in_denylist(domain_lower, service_lower, effective_denylist)
+        entity_is_restricted = _policy.targets_restricted_entity(
+            domain_lower, data, get_auto_restricted_entities(), service=service_lower
+        )
+
+        if not (in_denylist or entity_is_restricted):
+            try:
+                return await ha_client.call_service_response(domain_lower, service_lower, data)
+            except HAConnectionError as exc:
+                return {"error": "ha_call_service_response_failed", "details": str(exc)}
+
+        # El token se ata a ESTA tool: el de ha_call_service (mismos args,
+        # otra tool) no vale aquí, ni al revés.
+        tool_name_csr = "ha_call_service_response"
+        args_csr: dict[str, Any] = {
+            "domain": domain_lower,
+            "service": service_lower,
+            "service_data": data,
+        }
+
+        if not confirmation_token:
+            # Sin token se conserva el `error` de la 1.1.2 (un cliente que solo
+            # lo lee sigue viendo un rechazo y no ejecuta nada) y se AÑADEN el
+            # token y la vista previa (DF-1 de la 018: cambio aditivo).
+            if in_denylist:
+                error = "service_in_denylist"
+                motivo = f"'{domain_lower}.{service_lower}' is in the service denylist."
+            else:
+                error = "entity_restricted"
+                motivo = (
+                    f"'{domain_lower}.{service_lower}' reaches an auto-restricted "
+                    "script or automation."
+                )
+            preview = _vista_previa_servicio(
+                "call_service_response", domain_lower, service_lower, data,
+                in_denylist=in_denylist, entity_is_restricted=entity_is_restricted,
+            )
+            token = await create_confirmation_token(tool_name_csr, args_csr, preview=preview)
             return {
-                "error": "service_in_denylist",
+                "error": error,
                 "hint": (
-                    f"'{domain_lower}.{service_lower}' is in the service denylist. "
-                    "Use ha_call_service with confirmation_token instead."
+                    f"{motivo} Repeat this same call with confirmation_token "
+                    "to run it and get its response."
                 ),
+                **token,
             }
 
-        # Mismo cierre que en ha_call_service: un script clasificado como
-        # peligroso se ejecuta igual por esta vía (`script.<id>` devuelve
-        # respuesta), y aquí no hay flujo de confirmación que pedir.
-        if _policy.targets_restricted_entity(
-            domain_lower, data, get_auto_restricted_entities(), service=service_lower
-        ):
-            return {
-                "error": "entity_restricted",
-                "hint": (
-                    f"'{domain_lower}.{service_lower}' reaches an auto-restricted "
-                    "script or automation. Use ha_call_service with "
-                    "confirmation_token instead."
-                ),
-            }
+        valid, err = await validate_confirmation_token(
+            confirmation_token, tool_name_csr, args_csr
+        )
+        if not valid:
+            return {"error": err}
 
         try:
-            return await ha_client.call_service_response(domain_lower, service_lower, data)
-        except HAConnectionError as exc:
-            return {"error": "ha_call_service_response_failed", "details": str(exc)}
+            # Único punto que autoriza un servicio vetado con respuesta: se
+            # llega aquí solo con un confirmation_token ya validado.
+            result = await ha_client.call_service_response(
+                domain_lower, service_lower, data, allow_dangerous=True
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Cualquier fallo deja el token `failed` (no `executing` hasta que
+            # caduque); los de conexión, con la respuesta de siempre.
+            await complete_confirmation_token(
+                confirmation_token, success=False, error=str(exc)
+            )
+            if isinstance(exc, HAConnectionError):
+                return {"error": "ha_call_service_response_failed", "details": str(exc)}
+            raise
+        # Solo `called`: la respuesta (la de conversation.process puede llevar
+        # datos de la casa) no se escribe en /data, que entra en los backups.
+        await complete_confirmation_token(
+            confirmation_token, success=True, result={"called": True}
+        )
+        return result

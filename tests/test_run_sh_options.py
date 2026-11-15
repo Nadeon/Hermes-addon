@@ -167,6 +167,44 @@ class TestValoresPorDefectoDeRunSh(unittest.TestCase):
         self.assertEqual(self._export("HERMES_SAFETY_BACKUP_KEEP"),
                          "safety_backup_keep 3")
 
+    def test_exporta_safety_backup_encryption_con_auto(self) -> None:
+        """Spec 031, FR-012."""
+        self.assertEqual(self._export("HERMES_SAFETY_BACKUP_ENCRYPTION"),
+                         "safety_backup_encryption auto")
+
+
+    def test_exporta_tool_families_disabled_como_lista_json(self) -> None:
+        """Spec 011, FR-020: como las demás listas, array JSON y `[]` si falta."""
+        self.assertIn(
+            "export HERMES_TOOL_FAMILIES_DISABLED="
+            "\"$(jq -c '.tool_families_disabled // []' \"$OPTIONS\")\"",
+            self.texto,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDocstringDeConfig(unittest.TestCase):
+    """Extra del supervisor en la spec 033: el docstring de `hermes.config`
+    decía que `run.sh` lee las opciones «con bashio», y `run.sh` las lee
+    directamente de `/data/options.json` con `jq` (su cabecera explica por
+    qué no usa `bashio::config`). La documentación del código no puede
+    contradecir al código (principio V).
+
+    Control negativo, comprobado y restaurado: con el docstring de antes
+    («run.sh lee options.json con bashio») este test cae.
+    """
+
+    def test_dice_jq_como_run_sh(self) -> None:
+        import hermes.config as config
+
+        texto_run = RUN_SH.read_text(encoding="utf-8")
+        # Lo que el docstring tiene que reflejar: run.sh usa jq y no llama a bashio.
+        self.assertIn("jq -r", texto_run)
+        self.assertNotRegex(texto_run, r"(?m)^[^#\n]*bashio::")
+        doc = config.__doc__ or ""
+        self.assertNotIn("bashio", doc)
+        self.assertIn("jq", doc)
+        self.assertIn("/data/options.json", doc)

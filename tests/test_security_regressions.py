@@ -337,6 +337,114 @@ class TestRestrictedEntityInvocation(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(spy.reached, ["script.turn_on"])
 
+
+class TestRestrictedEntityVariables(unittest.IsolatedAsyncioTestCase):
+    """El token de una entidad restringida ata `variables` (spec 033, FR-001/FR-002).
+
+    Hasta la 1.2.0, `guarded_entity_invoke` ataba solo `entity_id` y
+    `service`: se podía pedir la vista previa de un script restringido con
+    unas variables y confirmarla con otras, y la vista previa ni siquiera las
+    enseñaba. Un script restringido puede hacer cosas muy distintas según sus
+    variables, así que lo que el usuario aprueba tiene que ser lo que se
+    ejecuta (principio IV).
+
+    Control negativo (T005): quitando `variables` de los argumentos atados
+    (dejando la vista previa) caen los 3 tests de rechazo de esta clase y los
+    2 de `test_tools_scripts.py` / `test_tools_automations.py` (5 en total);
+    quitándola solo de la vista previa caen `test_preview_shows_variables` y
+    esos 2 de las tools, que también miran la vista previa (3 en total).
+    """
+
+    def setUp(self) -> None:
+        from hermes import security, service_policy
+
+        service_policy.set_auto_restricted_entities({"script.ficticio"})
+        self._dir_original = security.CONFIRMATIONS_DIR
+        self._tmp = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = pathlib.Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        from hermes import security, service_policy
+
+        service_policy.set_auto_restricted_entities(set())
+        security.CONFIRMATIONS_DIR = self._dir_original
+        self._tmp.cleanup()
+
+    class _Spy:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict, bool]] = []
+
+        async def call_service(self, domain, service, data=None, *, allow_dangerous=False):
+            self.calls.append((f"{domain}.{service}", data, allow_dangerous))
+            return {"ok": True}
+
+    async def _invoke(self, spy, entity_id, token, variables):  # type: ignore[no-untyped-def]
+        from hermes.tools._common import guarded_entity_invoke
+
+        out = await guarded_entity_invoke(
+            spy, "script", "turn_on", entity_id, "ha_run_script", token,
+            variables=variables,
+        )
+        return json.loads(out) if isinstance(out, str) else out
+
+    async def _preview(self, spy, variables):  # type: ignore[no-untyped-def]
+        out = await self._invoke(spy, "script.ficticio", None, variables)
+        self.assertIn("confirmation_token", out)
+        return out
+
+    async def test_preview_shows_variables(self) -> None:
+        spy = self._Spy()
+        out = await self._preview(spy, {"modo": "suave"})
+        self.assertEqual(out["preview"]["variables"], {"modo": "suave"})
+        self.assertEqual(spy.calls, [])
+
+    async def test_other_variables_are_rejected(self) -> None:
+        spy = self._Spy()
+        token = (await self._preview(spy, {"modo": "suave"}))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, {"modo": "todo"})
+        self.assertIn("does not match", out.get("error", ""))
+        self.assertEqual(spy.calls, [], "se ejecutó con variables no revisadas")
+
+    async def test_missing_variables_are_rejected(self) -> None:
+        # Pedir con variables y confirmar sin ellas es otra acción.
+        spy = self._Spy()
+        token = (await self._preview(spy, {"modo": "suave"}))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, None)
+        self.assertIn("does not match", out.get("error", ""))
+        self.assertEqual(spy.calls, [])
+
+    async def test_added_variables_are_rejected(self) -> None:
+        # Y al revés: vista previa sin variables, confirmación con ellas.
+        spy = self._Spy()
+        token = (await self._preview(spy, None))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, {"modo": "todo"})
+        self.assertIn("does not match", out.get("error", ""))
+        self.assertEqual(spy.calls, [])
+
+    async def test_same_variables_in_other_key_order_run(self) -> None:
+        spy = self._Spy()
+        token = (await self._preview(spy, {"modo": "suave", "nivel": 2}))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, {"nivel": 2, "modo": "suave"})
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(
+            spy.calls,
+            [(
+                "script.turn_on",
+                {"entity_id": "script.ficticio", "variables": {"nivel": 2, "modo": "suave"}},
+                True,
+            )],
+        )
+
+    async def test_unrestricted_entity_with_variables_is_one_step(self) -> None:
+        spy = self._Spy()
+        out = await self._invoke(spy, "script.inocuo", None, {"modo": "todo"})
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(
+            spy.calls,
+            [("script.turn_on", {"entity_id": "script.inocuo", "variables": {"modo": "todo"}}, False)],
+        )
+        self.assertEqual(list(pathlib.Path(self._tmp.name).glob("*.json")), [])
+
 class TestLegitimatePathStillWorks(unittest.IsolatedAsyncioTestCase):
     """El guardia nuevo no puede romper el camino autorizado.
 
@@ -1326,10 +1434,28 @@ class TestStateCacheDoesNotLoseUpdates(unittest.TestCase):
         return HAClient(supervisor_base_url="http://supervisor",
                         supervisor_token="t", health_server=_Salud(), **kw)
 
-    def test_subscribing_happens_before_the_snapshot(self) -> None:
-        import asyncio
+    # Desde la 009 (FR-002), al conectar también se lee `/api/config` para
+    # tapar en el log los hosts de `external_url`/`internal_url`. La sesión
+    # falsa de este test no tenía `request`: la lectura fallaba, el fallo se
+    # tragaba (no corta la conexión, a propósito) y el test pasaba sin recorrer
+    # el camino real. Ahora la sesión responde a `/api/config` y el orden
+    # completo se comprueba.
+    #
+    # Control negativo comprobado: con `_aprender_urls_de_ha()` antes de
+    # `_populate_state_cache()`, después de `set_ws_connected(True)` o sin
+    # la llamada caen los dos tests (el orden cambia); dejando que la
+    # excepción se propague cae el del fallo explícito.
 
-        orden = []
+    _CONFIG_MINIMA = {"external_url": "https://casa.example.org",
+                      "internal_url": "http://ha.lan.example:8123"}
+
+    def _conexion(self, orden, respuesta_config):
+        """Cliente con WS, salud y sesión falsas que apuntan cada paso.
+
+        `respuesta_config`: el dict que devuelve `/api/config` o la excepción
+        que lanza su petición.
+        """
+        import json as _json
 
         class _Alto(Exception):
             pass
@@ -1341,13 +1467,49 @@ class TestStateCacheDoesNotLoseUpdates(unittest.TestCase):
             async def __aexit__(self, *exc):
                 return False
 
+        class _Resp:
+            status = 200
+            method = "GET"
+
+            def __init__(self, url):
+                self.url = url
+
+            async def text(self):
+                return _json.dumps(respuesta_config)
+
+        class _CtxResp:
+            def __init__(self, url):
+                self.url = url
+
+            async def __aenter__(self):
+                if isinstance(respuesta_config, BaseException):
+                    raise respuesta_config
+                return _Resp(self.url)
+
+            async def __aexit__(self, *exc):
+                return False
+
         class _Sesion:
             closed = False
 
             def ws_connect(self, url, **kw):
                 return _CtxWS()
 
-        cliente = self._cliente()
+            def request(self, method, url, **kw):
+                if method == "GET" and url.endswith("/api/config"):
+                    orden.append("config")
+                    return _CtxResp(url)
+                raise AssertionError(f"petición inesperada {method} {url}")
+
+        class _Salud:
+            def set_ws_connected(self, v):
+                if v:
+                    orden.append("conectado")
+
+        from hermes.ha import HAClient
+
+        cliente = HAClient(supervisor_base_url="http://supervisor",
+                           supervisor_token="t", health_server=_Salud())
         cliente._session = _Sesion()
 
         async def _marca(nombre):
@@ -1358,17 +1520,62 @@ class TestStateCacheDoesNotLoseUpdates(unittest.TestCase):
         cliente._populate_state_cache = lambda: _marca("snapshot")
 
         async def _fin():
+            orden.append("leer")
             raise _Alto
 
         cliente._read_ws_messages = _fin
+        return cliente, _Alto
+
+    def _conectar(self, respuesta_config):
+        import asyncio
+
+        from structlog.testing import capture_logs
+
+        orden = []
+        cliente, alto = self._conexion(orden, respuesta_config)
 
         async def _correr():
-            with self.assertRaises(_Alto):
+            with self.assertRaises(alto):
                 await cliente._connect_and_watch()
 
-        asyncio.run(_correr())
-        self.assertEqual(orden, ["auth", "suscribir", "snapshot"],
-                         "el snapshot se toma antes de suscribirse: se pierden cambios")
+        with capture_logs() as eventos:
+            asyncio.run(_correr())
+        return orden, eventos
+
+    def setUp(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+
+        configure_network_redaction(True, "homeassistant.tailXXXX.ts.net")
+
+    def tearDown(self) -> None:
+        from hermes.logging_setup import configure_network_redaction
+
+        # Estado del módulo: desactivado y sin hosts, como en el arranque.
+        configure_network_redaction(False, "")
+
+    def test_subscribing_happens_before_the_snapshot(self) -> None:
+        from hermes.logging_setup import redact_network
+
+        orden, eventos = self._conectar(self._CONFIG_MINIMA)
+        self.assertEqual(
+            orden, ["auth", "suscribir", "snapshot", "config", "conectado", "leer"],
+            "el snapshot se toma antes de suscribirse (se pierden cambios), o las "
+            "URLs de HA se leen fuera de su sitio")
+        # El camino real: la lectura fue bien y los hosts llegaron a la
+        # redacción del log.
+        self.assertNotIn("ha_url_redaction_unavailable", [e["event"] for e in eventos])
+        self.assertEqual(redact_network("https://casa.example.org/x"),
+                         "https://<ha_external_host>/x")
+
+    def test_if_the_config_read_fails_it_warns_and_connects(self) -> None:
+        import aiohttp
+
+        orden, eventos = self._conectar(aiohttp.ClientConnectionError("caída"))
+        self.assertEqual(orden, ["auth", "suscribir", "snapshot", "config", "conectado", "leer"])
+        avisos = [e for e in eventos if e["event"] == "ha_url_redaction_unavailable"]
+        self.assertEqual(len(avisos), 1, eventos)
+        self.assertEqual(avisos[0]["error_type"], "ClientConnectionError")
+        self.assertEqual(avisos[0]["log_level"], "warning")
 
     def _evento(self, entity_id, estado, marca):
         return {"type": "event", "event": {

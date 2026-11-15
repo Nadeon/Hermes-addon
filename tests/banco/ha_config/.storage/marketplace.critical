@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "marketplace.critical",
+  "data": [
+    {
+      "repository": "ejemplo/tarjeta-critica",
+      "reason": "Aviso ficticio del banco de pruebas de Hermes",
+      "link": "https://example.com/aviso",
+      "acknowledged": false
+    }
+  ]
+}

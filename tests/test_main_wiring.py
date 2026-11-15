@@ -152,6 +152,7 @@ def test_servidor_mcp_con_version_y_limites_de_la_configuracion(
         wait_for_event_max_seconds=150,
         wait_for_event_max_concurrent=3,
         safety_backup_keep=5,
+        safety_backup_encryption="required",
     )
     with mock.patch("hermes.tools.register_all_tools") as registrar:
         mcp = main_mod._build_mcp(config, object())
@@ -162,6 +163,66 @@ def test_servidor_mcp_con_version_y_limites_de_la_configuracion(
     assert kwargs["wait_for_event_max_seconds"] == 150
     assert kwargs["wait_for_event_max_concurrent"] == 3
     assert kwargs["safety_backup_keep"] == 5
+    # Spec 031 (FR-012): la opción llega a las tools de backups y a fs_write.
+    assert kwargs["safety_backup_encryption"] == "required"
+
+
+@pytest.mark.parametrize("modo", ["auto", "required", "off"])
+def test_safety_backup_encryption_llega_a_backups_y_a_fs_write(modo: str) -> None:
+    """Spec 031 (T048): sin este cableado, la opción no manda y las tools se
+    quedarían con su valor por defecto (`off`, el de la 1.1.2)."""
+    from unittest.mock import MagicMock
+
+    from hermes.tools import register_all_tools
+
+    with mock.patch("hermes.tools.backups.register") as backups, \
+            mock.patch("hermes.tools.filesystem_write.register_write") as escritura:
+        register_all_tools(
+            MagicMock(), MagicMock(), fire_event_allowlist=[],
+            response_max_bytes=131_072, call_service_auto_classify=False,
+            tool_families_disabled=[], safety_backup_encryption=modo,
+        )
+    assert backups.call_args.kwargs["safety_backup_encryption"] == modo
+    assert escritura.call_args.kwargs["safety_backup_encryption"] == modo
+
+
+def test_safety_backup_encryption_de_la_configuracion_si_no_se_pasa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from hermes.tools import register_all_tools
+
+    monkeypatch.setenv("HERMES_SAFETY_BACKUP_ENCRYPTION", "required")
+    with mock.patch("hermes.tools.backups.register") as backups:
+        register_all_tools(
+            MagicMock(), MagicMock(), fire_event_allowlist=[],
+            response_max_bytes=131_072, call_service_auto_classify=False,
+            tool_families_disabled=[],
+        )
+    assert backups.call_args.kwargs["safety_backup_encryption"] == "required"
+
+
+def test_instrucciones_sin_genericas_con_su_familia_desactivada() -> None:
+    """T049 de la 011 (principio V): con `generic_commands` en
+    `tool_families_disabled`, las instrucciones del `initialize` no anuncian
+    unas genéricas que no están registradas; con la familia activa, sí.
+    Control negativo comprobado: con `build_mcp_server(INSTRUCTIONS)` fijo en
+    `_build_mcp` → cae la primera comprobación."""
+    genericas = ("ha_read_ws_command", "ha_call_ws_command", "sv_read_api", "sv_call_api")
+    with mock.patch("hermes.tools.register_all_tools"):
+        apagada = main_mod._build_mcp(
+            _config(tool_families_disabled=["generic_commands"]), object())
+        activa = main_mod._build_mcp(_config(), object())
+    for nombre in genericas:
+        assert nombre not in apagada.instructions
+        assert nombre in activa.instructions
+    assert "generic_commands" not in apagada.instructions
+    assert "generic_commands" in activa.instructions
+    # Otra familia apagada no quita las genéricas.
+    with mock.patch("hermes.tools.register_all_tools"):
+        otra = main_mod._build_mcp(_config(tool_families_disabled=["lovelace"]), object())
+    assert "ha_read_ws_command" in otra.instructions
 
 
 def test_boot_usa_las_funciones_cableadas() -> None:
@@ -197,3 +258,42 @@ def test_ninguna_tool_conserva_el_tope_antiguo_por_defecto() -> None:
             "response_max_bytes"
         ].default
         assert defecto == RESPONSE_MAX_BYTES_DEFAULT, modulo.__name__
+
+
+# ── Plataforma del Supervisor (spec 027, FR-011) ──────────────
+
+
+def _llamadas_en_boot() -> tuple[dict[str, int], list[str]]:
+    """Línea de la primera llamada a cada función dentro de `_boot`, y las
+    funciones llamadas dentro de algún `try` de `_boot`."""
+    import ast
+    import textwrap
+
+    arbol = ast.parse(textwrap.dedent(inspect.getsource(main_mod._boot)))
+    lineas: dict[str, int] = {}
+    en_try: list[str] = []
+
+    def visitar(nodo: ast.AST, dentro_de_try: bool) -> None:
+        if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Name):
+            lineas.setdefault(nodo.func.id, nodo.lineno)
+            if dentro_de_try:
+                en_try.append(nodo.func.id)
+        for hijo in ast.iter_child_nodes(nodo):
+            visitar(hijo, dentro_de_try or isinstance(nodo, ast.Try))
+
+    visitar(arbol, False)
+    return lineas, en_try
+
+
+def test_boot_comprueba_la_plataforma_tras_conectar_y_antes_del_mcp() -> None:
+    """La detección va tras conectar con HA (necesita el cliente) y antes de
+    servir MCP, y fuera de cualquier `try` del arranque: la función nunca
+    lanza, y meterla en uno que llame a `sys.exit` podría abortar el
+    arranque por algo informativo.
+    Controles negativos comprobados: sin la llamada, con la llamada movida
+    tras `_build_mcp` y con la llamada dentro de un `try` → rojo."""
+    fuente = inspect.getsource(main_mod._boot)
+    assert "await comprobar_plataforma(ha_client, os.environ)" in fuente
+    lineas, en_try = _llamadas_en_boot()
+    assert lineas["_connect_ha_ws"] < lineas["comprobar_plataforma"] < lineas["_build_mcp"]
+    assert "comprobar_plataforma" not in en_try

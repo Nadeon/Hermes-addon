@@ -247,8 +247,43 @@ async def test_history_amplio_recorta_con_datos_y_no_da_error() -> None:
         assert payload["truncated"] is True
         assert payload["history"]["light.test"], tope
         assert payload["truncated_at"] == payload["history"]["light.test"][-1]["last_updated"]
-        # Lo recortó la tool, no el guardián.
-        assert "_response_limit" not in payload
+        # Lo recortó la tool, no el guardián: el guardián quita `truncated_at`
+        # al recortar. Desde la 009 (FR-006) la tool añade su propio
+        # `_response_limit` con `list: "history"`; antes este test afirmaba
+        # que no había ninguno.
+        assert payload["_response_limit"]["list"] == "history"
+        assert payload["_response_limit"]["total"] == 3000
+
+
+async def test_history_con_tope_justo_cabe_con_el_bloque() -> None:
+    """FR-006 de la 009: el `_response_limit` del historial se mide dentro del
+    tope. Si se añadiera después de medir, con un tope justo la respuesta
+    pasaría del tope y el guardián la cambiaría por la suya (o por
+    `response_too_large`)."""
+    from hermes.tools.history import _envolver, _truncate_to_bytes
+
+    puntos = [
+        {"s": "encendido", "a": {"friendly_name": "Salón ñ"}, "lu": 1_712_000_000.0 + i}
+        for i in range(300)
+    ]
+    for tope in range(1_000, 1_400, 37):
+        async with ClientSession() as session:
+            ha_client = _cliente_ws(session, {"light.test": puntos})
+            result, payload = await _llamar(
+                ha_client, "ha_get_history", {"entity_ids": ["light.test"]}, tope,
+            )
+        _sin_error(result, payload, "ha_get_history")
+        assert payload["truncated_at"] is not None, tope
+        assert payload["_response_limit"]["list"] == "history", tope
+        assert payload["_response_limit"]["max_bytes"] == tope, tope
+
+    # Y directamente sobre el recorte, sin el guardián detrás.
+    estados = {"light.test": [{"state": "x" * 20, "last_updated": f"2026-11-14T10:{i:02d}"}
+                              for i in range(60)]}
+    for tope in range(600, 900, 13):
+        final, recortado, _ = _truncate_to_bytes(estados, tope, total=60)
+        assert recortado is True
+        assert tam_json(_envolver(final, True, total=60, max_bytes=tope)) <= tope, tope
 
 
 async def test_statistics_amplio_recorta_con_datos_y_no_da_error() -> None:

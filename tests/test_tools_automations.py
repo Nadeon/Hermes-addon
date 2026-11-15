@@ -17,6 +17,14 @@ import hermes.tools.automations as automations_module
 from tests._ha_fixture import REST_BASE, make_ready_client
 
 
+async def _validate_config_valido(payload: dict, timeout_seconds: int = 30) -> dict:
+    """Spec 017 (T048): la vista previa valida con `validate_config`; estos
+    tests no van de eso, así que HA da por buena cada parte enviada. Los de
+    la validación están en `tests/test_tools_validacion_al_guardar.py`."""
+    assert payload["type"] == "validate_config", payload
+    return {k: {"valid": True, "error": None} for k in payload if k != "type"}
+
+
 class DummyMCP:
     def __init__(self) -> None:
         self.tools: dict[str, object] = {}
@@ -48,6 +56,8 @@ class TestToolsAutomations(unittest.IsolatedAsyncioTestCase):
             }
         }
         self.ha_client = make_ready_client(self.session, self.cache)
+        # Spec 017 (T048): la vista previa valida (ver el helper).
+        self.ha_client.ws_send = _validate_config_valido
         self.mcp = DummyMCP()
         automations_module.register(self.mcp, self.ha_client)
 
@@ -107,6 +117,8 @@ class TestToolsAutomations(unittest.IsolatedAsyncioTestCase):
         self.assertIn("confirmation_token", result)
         self.assertEqual(result["preview"]["current"]["alias"], "Cocina antigua")
         self.assertEqual(result["preview"]["new"]["alias"], "Cocina nueva")
+        # Spec 017 (T048): la vista previa dice qué se validó.
+        self.assertIn("validation", result["preview"])
 
     async def test_update_automation_apply(self) -> None:
         new_config = {"alias": "Cocina nueva", "trigger": []}
@@ -450,3 +462,65 @@ class TestConfirmarSinConfigAutomation(unittest.IsolatedAsyncioTestCase):
             r["confirmation_token"], "ha_save_lovelace_dashboard",
             {"automation_id": "automation.cocina"}, omitibles=("config",))
         self.assertTrue(ok, error)
+
+
+class TestTriggerAutomationRestringidaVariables(unittest.IsolatedAsyncioTestCase):
+    """`ha_trigger_automation` sobre una automatización restringida: el token
+    ata `variables` (spec 033, FR-001). Control negativo en
+    `test_security_regressions.py` (`TestRestrictedEntityVariables`)."""
+
+    async def asyncSetUp(self) -> None:
+        from hermes import service_policy
+
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+        service_policy.set_auto_restricted_entities({"automation.ficticia"})
+        self.session = ClientSession()
+        cache = {
+            "automation.ficticia": {
+                "entity_id": "automation.ficticia",
+                "state": "on",
+                "attributes": {"id": "1", "friendly_name": "Ficticia"},
+            }
+        }
+        self.mcp = DummyMCP()
+        automations_module.register(self.mcp, make_ready_client(self.session, cache))
+
+    async def asyncTearDown(self) -> None:
+        from hermes import service_policy
+
+        service_policy.set_auto_restricted_entities(set())
+        await self.session.close()
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    async def _llamar(self, **kwargs) -> tuple[object, list]:
+        with aioresponses() as m:
+            m.post(f"{REST_BASE}/services/automation/trigger", status=200, payload=[], repeat=True)
+            res = await self.mcp.tools["ha_trigger_automation"]("automation.ficticia", **kwargs)
+            enviados = [
+                c.kwargs.get("json")
+                for (metodo, _url), llamadas in m.requests.items()
+                if metodo.upper() == "POST"
+                for c in llamadas
+            ]
+        return (json.loads(res) if isinstance(res, str) else res), enviados
+
+    async def test_vista_con_a_y_confirmacion_con_b_se_rechaza(self) -> None:
+        vista, enviados = await self._llamar(variables={"modo": "suave"})
+        self.assertEqual(vista["preview"]["variables"], {"modo": "suave"})
+        self.assertEqual(enviados, [])
+        res, enviados = await self._llamar(
+            variables={"modo": "todo"}, confirmation_token=vista["confirmation_token"]
+        )
+        self.assertIn("does not match", res["error"])
+        self.assertEqual(enviados, [], "HA recibió variables que no se revisaron")
+
+        res, enviados = await self._llamar(
+            variables={"modo": "suave"}, confirmation_token=vista["confirmation_token"]
+        )
+        self.assertEqual(res, [])
+        self.assertEqual(
+            enviados, [{"entity_id": "automation.ficticia", "variables": {"modo": "suave"}}]
+        )

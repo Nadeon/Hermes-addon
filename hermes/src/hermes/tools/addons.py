@@ -13,7 +13,8 @@ Tools:
   sv_install_addon      — instala desde el store (token + async job)
   sv_uninstall_addon    — desinstala (token + async job)
   sv_update_addon       — actualiza a la última versión (token + async job)
-  sv_get_addon_logs     — logs recientes (REDACTADOS de secretos)
+  sv_get_addon_logs     — logs recientes (REDACTADOS de secretos), también
+                          de un arranque anterior (`boot`, `latest`)
   sv_get_addon_stats    — CPU / RAM / red del add-on
 
 Auto-protección: si el slug del add-on objetivo es el propio Hermes
@@ -33,22 +34,45 @@ import os
 import time
 from copy import deepcopy
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
 
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
-from hermes.logging_setup import redact_network
+from hermes.logging_setup import network_redaction_enabled, redact_network
 from hermes.security import (
+    ESTADO_CAMBIADO,
     REDACTED_MARKER,
     redact_structure,
     complete_confirmation_token,
     create_confirmation_token,
     redact_secrets,
+    resolve_confirmation_token,
     validate_confirmation_token,
 )
-from hermes.tools._common import tam_json
+from hermes.tools._common import ultimas_lineas_que_caben
+# La limpieza del eco del Supervisor vive en `_eco_supervisor` (cierre de
+# seguridad de la 1.2.0); se reexportan los nombres que usan los tests.
+from hermes.tools._eco_supervisor import (  # noqa: F401
+    _texto_sin_eco,
+    _valores_secretos,
+)
+from hermes.tools._logs import (
+    ArgumentoInvalido,
+    comprobar_latest,
+    normalizar_boot,
+    ruta_de_log,
+)
+from hermes.tools._store import (
+    disponibilidad,
+    es_integrado,
+    ficha_de_tienda,
+    mensaje_del_supervisor,
+    texto_de_la_app,
+    texto_de_terceros,
+)
 from hermes.tools._validation import InvalidIdentifier, validate_slug
 
 logger = structlog.get_logger(__name__)
@@ -69,19 +93,56 @@ _HERMES_SLUG = (os.environ.get("HOSTNAME") or "local-hermes").replace("-", "_").
 # Timeout largo para operaciones de instalación/actualización/desinstalación
 _LONG_OP_TIMEOUT = 300.0  # 5 minutos
 
+# Principio del changelog en la vista previa de `sv_update_addon` (spec 030,
+# FR-010): lo bastante para ver qué cambia sin gastar el contexto de una
+# vista previa; el entero, por trozos, con `sv_get_addon_changelog`.
+_CHANGELOG_EXTRACTO = 4000
 
-def _es_hermes(slug: str) -> bool:
-    """True si el slug apunta al propio Hermes, esté instalado como esté."""
+
+def _es_hermes(slug: str, propio: str | None = None) -> bool:
+    """True si el slug apunta al propio Hermes, esté instalado como esté.
+
+    D-13 (cierre de seguridad de la 1.2.0): con `propio`, el slug EXACTO que
+    da el Supervisor en `/addons/self/info` (`lector_slug_propio` de la
+    015), solo cuenta ese slug: una app `<x>_hermes` que no es Hermes deja de
+    tratarse como Hermes. Sin él (no se pudo leer), el criterio de siempre:
+    cualquier `*_hermes`, que bloquea de más (fail-closed). Quien pueda leer
+    el slug usa `es_hermes`, que lo lee solo cuando hace falta.
+    """
     s = slug.lower()
     # `self` es el alias del Supervisor para el add-on que llama: con él,
     # `/addons/self/logs` es el log de Hermes y se saltaba la redacción de red
     # (revisión 1.1.0, BAJO-1).
-    return s in (_HERMES_SLUG, "hermes", "self") or s.endswith("_hermes")
+    if s == "self":
+        return True
+    if propio:
+        return s == propio.lower()
+    return s in (_HERMES_SLUG, "hermes") or s.endswith("_hermes")
 
 
-def _self_warning(slug: str, action: str) -> str | None:
+async def es_hermes(slug: str, leer_propio: Callable[[], Awaitable[str | None]]) -> bool:
+    """`_es_hermes` con el slug exacto cuando se puede leer (D-13).
+
+    El slug de Hermes acaba siempre en `_hermes` (`local_hermes` o
+    `<hash del repositorio>_hermes`): si el criterio del sufijo dice que no,
+    no es Hermes y no hace falta preguntar al Supervisor. Si dice que sí, se
+    lee el slug propio (`leer_propio`, con caché) y se compara exacto; si no
+    se puede leer, queda el sufijo (fail-closed).
+    """
+    if not _es_hermes(slug):
+        return False
+    if slug.lower() == "self":
+        return True
+    try:
+        propio = await leer_propio()
+    except Exception:  # noqa: BLE001 — sin slug propio, el sufijo (fail-closed)
+        propio = None
+    return _es_hermes(slug, propio)
+
+
+def _self_warning(slug: str, action: str, propio: str | None = None) -> str | None:
     """Devuelve un aviso de auto-daño si el slug es el propio Hermes."""
-    if _es_hermes(slug):
+    if _es_hermes(slug, propio):
         return (
             f"WARNING: {action} targets Hermes itself (slug={slug!r}). "
             "After this operation Hermes will be unavailable. "
@@ -213,56 +274,26 @@ def _tiene_obligatorias(schema_ui: Any) -> bool:
     return False
 
 
-def _ultimas_lineas_que_caben(
-    respuesta: dict[str, Any], logs: str, max_bytes: int
-) -> dict[str, Any]:
-    """`respuesta` con `logs` entero si cabe; si no, sus últimas líneas.
-
-    Un log es un texto, no una lista, así que el guardián central solo podía
-    cambiarlo entero por `response_too_large`: un add-on que escribe mucho
-    dejaba de tener log por Hermes (revisión de 1.1.1, M-2). En un log lo que
-    importa es el final, así que se quitan líneas del PRINCIPIO y se dice.
-    """
-    completa = {**respuesta, "logs": logs}
-    if tam_json(completa) <= max_bytes:
-        return completa
-    lineas = logs.splitlines(keepends=True)
-
-    def armar(n: int) -> dict[str, Any]:
-        return {
-            **respuesta,
-            "logs": "".join(lineas[len(lineas) - n:]) if n else "",
-            "truncated": True,
-            "lines_returned": n,
-            "hint": (
-                "Only the last lines that fit in response_max_bytes are shown. "
-                "Ask for fewer lines instead of repeating the same call."
-            ),
-        }
-
-    # Estimación con el tamaño escapado de cada línea desde el final y
-    # verificación con el tamaño real.
-    presupuesto = max_bytes - tam_json(armar(0)) - 8
-    n = usado = 0
-    for linea in reversed(lineas):
-        coste = tam_json(linea) - 2
-        if usado + coste > presupuesto:
-            break
-        usado += coste
-        n += 1
-    out = armar(n)
-    while n > 0 and tam_json(out) > max_bytes:
-        n -= 1
-        out = armar(n)
-    return out
-
-
 def register(
     mcp: object,
     ha_client: HAClient,
     response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las tools de add-ons en la instancia MCP."""
+
+    # D-13: el slug exacto de Hermes (`/addons/self/info`). Import aquí:
+    # `system_updates` importa este módulo.
+    from hermes.tools.system_updates import lector_slug_propio
+
+    slug_propio = lector_slug_propio(ha_client)
+
+    async def _hermes(slug: str) -> bool:
+        return await es_hermes(slug, slug_propio)
+
+    async def _aviso_propio(slug: str, action: str) -> str | None:
+        if not await _hermes(slug):
+            return None
+        return _self_warning(slug, action, None)
 
     def _bad_slug(slug: str) -> dict[str, Any] | None:
         """Valida el slug del add-on antes de interpolarlo en una URL REST."""
@@ -272,13 +303,181 @@ def register(
         except InvalidIdentifier as exc:
             return {"error": "invalid_identifier", "detail": str(exc)}
 
+    # ── Vistas previas de la tienda (spec 030, tramo 2) ──
+    #
+    # Solo añaden campos a la vista previa o rechazan SIN token lo que el
+    # Supervisor rechazaría. Ninguna cambia los argumentos ni lo que se hace
+    # con un token válido (FR-009…FR-013 de la 030; SC-005).
+
+    async def _vista_previa_de_instalar(
+        slug: str, preview: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Completa `preview` o devuelve el rechazo (sin token)."""
+        try:
+            ficha = await ficha_de_tienda(ha_client, slug)
+            if ficha is None:
+                return {"error": "addon_not_found",
+                        "detail": "No app with that slug in the store."}
+            if ficha.get("installed") is True:
+                return {"error": "already_installed",
+                        "detail": ("The app is already installed. Use "
+                                   "sv_update_addon to update it.")}
+            disponible, motivo = await disponibilidad(ha_client, slug)
+        except HAConnectionError as exc:
+            if exc.status == 404:
+                return {"error": "addon_not_found",
+                        "detail": "No app with that slug in the store."}
+            # Sin la ficha no se sabe nada de lo que se iba a comprobar, y
+            # callarlo daría a entender que no hay nada que avisar
+            # (convergencia de la 030, T035).
+            preview["store_check"] = {
+                "checked": False,
+                "reason": redact_secrets(str(exc)),
+                "note": ("The store could not be read, so it is unknown whether "
+                         "the app is available on this system, whether it is "
+                         "already installed and whether it comes from a "
+                         "third-party repository. The Supervisor checks "
+                         "availability again when installing."),
+            }
+            preview["third_party_repository"] = None
+            return None
+        if not disponible:
+            return {"error": "addon_not_available", "reason": motivo,
+                    "detail": "The app cannot be installed on this system."}
+        repositorio = ficha.get("repository")
+        preview.update({
+            "name": redact_secrets(ficha["name"]) if isinstance(ficha.get("name"), str)
+            else ficha.get("name"),
+            "version_latest": ficha.get("version_latest"),
+            "repository": repositorio,
+            "build": ficha.get("build"),
+            "store_check": {"checked": True, "available": True},
+        })
+        if not (isinstance(repositorio, str) and es_integrado(repositorio)):
+            preview["third_party_repository"] = True
+            preview["warning"] = (
+                "This app comes from a third-party repository: it is not "
+                "reviewed by Home Assistant nor by Hermes, and once installed "
+                "it runs with the permissions it declares."
+            )
+        preview["_third_party_text"] = texto_de_terceros(["name"])
+        return None
+
+    async def _version_de_la_tienda(slug: str) -> Any:
+        """`version_latest` de la ficha de la tienda, o `None` si no se puede
+        leer. Es lo que ata el token de `sv_install_addon`."""
+        try:
+            ficha = await ficha_de_tienda(ha_client, slug)
+        except HAConnectionError:
+            return None
+        return ficha.get("version_latest") if isinstance(ficha, dict) else None
+
+    async def _token_con_version(
+        tool_name: str,
+        args: dict[str, Any],
+        confirmation_token: str,
+        version: Any,
+    ) -> dict[str, Any] | None:
+        """Resuelve un token atado a la versión de la vista previa, o devuelve
+        el rechazo.
+
+        Convergencia de la 030 (T031): la vista previa enseña `version_latest`
+        (y, al actualizar, el changelog de ESA versión), pero el Supervisor
+        instala o actualiza a la que tenga la tienda al confirmar. Si la
+        tienda publicó otra en los 60 s del token, se confirmaría algo que
+        nadie vio. El token ata la versión con `estado` (spec 018) y, si ya
+        no es la misma, `preview_outdated` sin tocar nada, como la 015. Si
+        no se puede leer, cuenta como `None`: si la vista previa sí la leyó,
+        no casa (fail-closed). Los argumentos y la petición, como en la 1.1.2.
+        """
+        valid, error, _ = await resolve_confirmation_token(
+            confirmation_token, tool_name, args, estado={"version_latest": version})
+        if valid:
+            return None
+        if error == ESTADO_CAMBIADO:
+            return {
+                "error": error,
+                "preview_outdated": True,
+                "slug": args["slug"],
+                "version_latest": version,
+                "hint": ("The store version changed since the preview. Nothing "
+                         "was done; request a new preview (call again without "
+                         "confirmation_token)."),
+            }
+        return {"error": error}
+
+    async def _resumen_de_changelog(slug: str) -> dict[str, Any]:
+        """Los campos de changelog de la vista previa de actualizar. Nunca
+        impiden el token: sin changelog se dice por qué."""
+        try:
+            texto = await texto_de_la_app(ha_client, slug, "changelog")
+        except HAConnectionError as exc:
+            return {"changelog_excerpt": None,
+                    "changelog_unavailable": redact_secrets(str(exc))}
+        if texto is None:
+            return {"changelog_excerpt": None,
+                    "changelog_unavailable": "The app has no changelog."}
+        # Se redacta el texto ENTERO antes de cortar (como en
+        # `sv_get_addon_changelog`): un secreto no se parte en el corte.
+        redactado = redact_secrets(texto)
+        return {
+            "changelog_excerpt": redactado[:_CHANGELOG_EXTRACTO],
+            "changelog_truncated": len(redactado) > _CHANGELOG_EXTRACTO,
+            "_third_party_text": texto_de_terceros(["changelog_excerpt"]),
+        }
+
+    async def _validar_opciones(
+        slug: str,
+        actuales: dict[str, Any],
+        finales: dict[str, Any],
+        preview: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Añade `validation` a `preview` o devuelve `invalid_options` (sin
+        token). El cuerpo son las opciones finales SIN envolver
+        (`api/apps.py`, `options_validate`)."""
+        if not finales:
+            # Con un cuerpo vacío el Supervisor valida las GUARDADAS, no las
+            # enviadas: decir que se validó `{}` sería mentir.
+            preview["validation"] = {"checked": False, "reason": "empty_options"}
+            return None
+        try:
+            res = await ha_client.sv_request(
+                "POST", f"/addons/{slug}/options/validate", json_body=finales)
+        except HAConnectionError as exc:
+            preview["validation"] = {
+                "checked": False,
+                "reason": _texto_sin_eco(str(exc), actuales, finales),
+            }
+            return None
+        if not isinstance(res, dict) or not isinstance(res.get("valid"), bool):
+            preview["validation"] = {"checked": False, "reason": "unexpected_response"}
+            return None
+        if res["valid"] is False:
+            mensaje = res.get("message")
+            return {
+                "error": "invalid_options",
+                "message": _texto_sin_eco(mensaje, actuales, finales)
+                if isinstance(mensaje, str) else None,
+                "changed_paths": _rutas_cambiadas(actuales, finales),
+            }
+        pwned = res.get("pwned")
+        preview["validation"] = {"checked": True, "valid": True, "pwned": pwned}
+        if pwned is True:
+            preview["warning_pwned"] = (
+                "The Supervisor reports that a secret in these options appears "
+                "in known data breaches (Have I Been Pwned). Use another one."
+            )
+        elif pwned is None:
+            preview["pwned_check"] = "failed"
+        return None
+
     @mcp.tool()
     async def sv_list_addons(installed_only: bool = True) -> object:
-        """Lista los add-ons de Home Assistant.
+        """Lista las apps (add-ons) de Home Assistant.
 
         Args:
-            installed_only: Si True (default), solo devuelve los add-ons
-                instalados (`GET /addons`). Si False, devuelve el catálogo
+            installed_only: Si True (default), solo devuelve las apps
+                instaladas (`GET /addons`). Si False, devuelve el catálogo
                 completo del store (`GET /store/addons`), que puede ser una
                 lista larga.
 
@@ -307,13 +506,13 @@ def register(
 
     @mcp.tool()
     async def sv_get_addon(slug: str, include_long_description: bool = False) -> object:
-        """Devuelve información detallada de un add-on instalado.
+        """Devuelve información detallada de una app (add-on) instalada.
 
         Args:
-            slug: Identificador del add-on (ej. 'core_mosquitto',
+            slug: Identificador de la app (ej. 'core_mosquitto',
                   'a0d7b954_tailscale', 'local_hermes').
-            include_long_description: Incluir el README completo del add-on.
-                  Por defecto NO: en add-ons con documentación larga son
+            include_long_description: Incluir el README completo de la app.
+                  Por defecto NO: en apps con documentación larga son
                   decenas de miles de caracteres que rara vez se necesitan.
 
         Returns:
@@ -352,17 +551,17 @@ def register(
 
     @mcp.tool()
     async def sv_get_addon_options(slug: str) -> object:
-        """Devuelve las opciones actuales de configuración de un add-on.
+        """Devuelve las opciones actuales de configuración de una app (add-on).
 
         Devuelve las opciones tal como el usuario las tiene configuradas
-        (el formulario del add-on en la UI de HAOS), y nada más.
+        (el formulario de la app en la UI de HAOS), y nada más.
 
         Es la versión enfocada de `sv_get_addon`: aquella trae el manifiesto
         entero —schema, traducciones, red, permisos—, que son varios kilobytes
         para leer cuatro valores.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
 
         Returns:
             {"slug": "...", "options": {...}} con los secretos redactados.
@@ -424,7 +623,7 @@ def register(
         options: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Cambia opciones de configuración de un add-on, conservando el resto.
+        """Cambia opciones de configuración de una app (add-on), conservando el resto.
 
         Pasa SOLO lo que quieres cambiar. El Supervisor sustituye las opciones
         guardadas por las que recibe, así que esta tool lee las actuales, pone
@@ -436,7 +635,7 @@ def register(
           `{"mqtt": {"user": "x"}}` conserva `mqtt.password` y el resto.
         - Listas y valores simples: se sustituyen enteros. Una lista con
           secretos (p. ej. `logins` de Mosquitto) hay que pasarla completa.
-        - `null`: quita la opción. Si el add-on le da un valor por defecto,
+        - `null`: quita la opción. Si la app le da un valor por defecto,
           vuelve ese valor; si es obligatoria, el Supervisor rechaza el cambio.
         - Un valor con `***REDACTED***` se rechaza: es el marcador con que
           Hermes tapa los secretos, y guardarlo machacaría el real.
@@ -445,19 +644,24 @@ def register(
         (`current_options_unavailable`): enviar solo los cambios borraría el
         resto.
 
-        Siempre requiere confirmation_token: cambiar opciones puede dejar un
-        add-on sin arrancar. Las opciones nuevas se aplican cuando el add-on
+        Siempre requiere confirmation_token: cambiar opciones puede dejar una
+        app sin arrancar. Las opciones nuevas se aplican cuando la app
         se reinicia (`sv_restart_addon`).
 
         Primera llamada (sin token): preview con las opciones actuales, los
         cambios pedidos, las opciones finales que se enviarán y las rutas que
-        cambian, todo con los secretos redactados, + confirmation_token.
+        cambian, todo con los secretos redactados, + confirmation_token. Antes
+        de dar el token, el Supervisor valida las opciones finales: si no son
+        válidas, responde `invalid_options` (mensaje redactado) SIN token; si
+        no se pudo validar, `validation.checked` es false y el token sale igual
+        (el guardado vuelve a validar). `warning_pwned` avisa de un secreto
+        filtrado.
         Segunda llamada (con token): vuelve a leer las opciones actuales, mezcla
         de nuevo y envía. Si alguien las tocó entre medias, lo que tú no
         cambias conserva su valor más reciente.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             options: JSON string con un objeto: solo las opciones a cambiar.
             confirmation_token: Token obtenido del preview anterior.
 
@@ -507,12 +711,13 @@ def register(
             try:
                 actuales = await _opciones_en_bruto(slug)
             except HAConnectionError as exc:
-                return {"error": str(exc)}
+                # Por si el Supervisor repitiera los cambios pedidos.
+                return {"error": _texto_sin_eco(str(exc), opts_dict)}
             if actuales is None:
                 return sin_opciones
             finales = _mezclar_opciones(actuales, opts_dict)
 
-            warning = _self_warning(slug, "changing options of")
+            warning = await _aviso_propio(slug, "changing options of")
             preview: dict[str, Any] = {
                 "slug": slug,
                 # Todo redactado. Las actuales y las finales traen los secretos
@@ -526,6 +731,14 @@ def register(
             }
             if warning:
                 preview["warning"] = warning
+            # Spec 030 (FR-013, research R-7): el Supervisor valida las
+            # opciones FINALES antes del token. Si dice que no valen, no hay
+            # token (el guardado las rechazaría igual); si no se pudo validar,
+            # se dice y el token sale como en la 1.1.2, porque el guardado
+            # vuelve a validar.
+            rechazo = await _validar_opciones(slug, actuales, finales, preview)
+            if rechazo is not None:
+                return rechazo
             return await create_confirmation_token(tool_name, args, preview=preview)
 
         valid, error = await validate_confirmation_token(
@@ -534,6 +747,7 @@ def register(
         if not valid:
             return {"error": error}
 
+        actuales = finales = None
         try:
             # Se vuelven a leer: las del preview pueden haber cambiado mientras
             # tanto, y reutilizarlas desharía cambios ajenos en lo que el
@@ -553,24 +767,32 @@ def register(
             logger.info("sv_set_addon_options_ok", slug=slug)
             return result
         except HAConnectionError as exc:
+            # Si el guardado rechaza las opciones, el Supervisor responde
+            # «App … has invalid options: <humanize_error>», con el repr() de
+            # TODAS las opciones en claro (y otra vez en `validation_error`).
+            # Ese texto iba a la respuesta y al fichero del token en /data
+            # (`cached_error`, que entra en los backups del add-on): se limpia
+            # igual que el mensaje de la validación (convergencia de la 030,
+            # T030). La forma `{"error": …}` no cambia.
+            mensaje = _texto_sin_eco(str(exc), opts_dict, actuales, finales)
             await complete_confirmation_token(
-                confirmation_token, success=False, error=str(exc)
+                confirmation_token, success=False, error=mensaje
             )
-            return {"error": str(exc)}
+            return {"error": mensaje}
 
     @mcp.tool()
     async def sv_start_addon(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Arranca un add-on detenido.
+        """Arranca una app (add-on) detenida.
 
         Siempre requiere confirmation_token.
         Primera llamada: devuelve preview + token.
-        Segunda llamada: arranca el add-on.
+        Segunda llamada: arranca la app.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -589,7 +811,7 @@ def register(
             except HAConnectionError:
                 state = None
             preview: dict[str, Any] = {"slug": slug, "current_state": state, "action": "start"}
-            w = _self_warning(slug, "starting")
+            w = await _aviso_propio(slug, "starting")
             if w:
                 preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -613,13 +835,13 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Para un add-on en ejecución.
+        """Para una app (add-on) en ejecución.
 
-        Siempre requiere confirmation_token. Si el add-on objetivo es
+        Siempre requiere confirmation_token. Si la app objetivo es
         Hermes mismo, el preview incluye una advertencia crítica.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -638,7 +860,7 @@ def register(
             except HAConnectionError:
                 state = None
             preview: dict[str, Any] = {"slug": slug, "current_state": state, "action": "stop"}
-            w = _self_warning(slug, "stopping")
+            w = await _aviso_propio(slug, "stopping")
             if w:
                 preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -662,13 +884,13 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Reinicia un add-on.
+        """Reinicia una app (add-on).
 
-        Siempre requiere confirmation_token. Si el add-on objetivo es
+        Siempre requiere confirmation_token. Si la app objetivo es
         Hermes mismo, el preview incluye una advertencia crítica.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -687,7 +909,7 @@ def register(
             except HAConnectionError:
                 state = None
             preview: dict[str, Any] = {"slug": slug, "current_state": state, "action": "restart"}
-            w = _self_warning(slug, "restarting")
+            w = await _aviso_propio(slug, "restarting")
             if w:
                 preview["warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -711,13 +933,25 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Instala un add-on del store de HAOS.
+        """Instala una app (add-on) de la tienda del Supervisor, en la versión
+        que ofrece la tienda (`version_latest`): no se puede elegir otra.
+
+        La vista previa comprueba antes la tienda: `addon_not_found`,
+        `already_installed` y `addon_not_available` (con el motivo:
+        arquitectura, máquina o versión de HA) se devuelven SIN token. Si la
+        app viene de un repositorio de terceros, lo avisa. Si la tienda no se
+        puede leer, el token sale igual y `store_check` dice que no se sabe
+        si la app está disponible ni si es de terceros
+        (`third_party_repository: null`).
+
+        El token se ata a la `version_latest` de la vista previa: si la tienda
+        ofrece otra al confirmar, responde `preview_outdated` sin instalar.
 
         Operación larga — devuelve inmediatamente un job_id.
         Usa sv_get_job_status(job_id) para consultar el progreso.
 
         Args:
-            slug: Identificador del add-on en el store.
+            slug: Identificador de la app en el store.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -736,11 +970,22 @@ def register(
                 "action": "install",
                 "note": "This operation may take several minutes.",
             }
-            return await create_confirmation_token(tool_name, args, preview=preview)
+            # Spec 030 (FR-009, research R-3): antes del token, la ficha de la
+            # tienda y la disponibilidad. Lo que el Supervisor rechazaría (no
+            # está, ya instalada, no disponible en este sistema) se dice sin
+            # token. Si la tienda no se puede leer, se dice y el token sale
+            # como en la 1.1.2: el Supervisor vuelve a comprobarlo al instalar.
+            rechazo = await _vista_previa_de_instalar(slug, preview)
+            if rechazo is not None:
+                return rechazo
+            return await create_confirmation_token(
+                tool_name, args, preview=preview,
+                estado={"version_latest": preview.get("version_latest")})
 
-        valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
-        if not valid:
-            return {"error": error}
+        rechazo = await _token_con_version(
+            tool_name, args, confirmation_token, await _version_de_la_tienda(slug))
+        if rechazo is not None:
+            return rechazo
 
         try:
             data = await ha_client.sv_request(
@@ -771,16 +1016,16 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Desinstala un add-on de HAOS.
+        """Desinstala una app (add-on) de HAOS.
 
-        WARNING: la desinstalación elimina todos los datos del add-on
-        en /data por defecto. Lee la documentación del add-on antes de
+        WARNING: la desinstalación elimina todos los datos de la app
+        en /data por defecto. Lee la documentación de la app antes de
         confirmar si necesitas conservar los datos.
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -808,7 +1053,7 @@ def register(
                     "Read the add-on docs before confirming if you need to preserve data."
                 ),
             }
-            w = _self_warning(slug, "uninstalling")
+            w = await _aviso_propio(slug, "uninstalling")
             if w:
                 preview["critical_warning"] = w
             return await create_confirmation_token(tool_name, args, preview=preview)
@@ -840,26 +1085,66 @@ def register(
             await complete_confirmation_token(confirmation_token, success=False, error=str(exc))
             return {"error": str(exc)}
 
+    async def _version_de_la_app(slug: str) -> Any:
+        """`version_latest` de la app instalada (`/addons/{slug}/info`), o
+        `None` si no se puede leer. Es lo que ata el token de
+        `sv_update_addon`."""
+        try:
+            info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
+        except HAConnectionError:
+            return None
+        return info.get("version_latest") if isinstance(info, dict) else None
+
     @mcp.tool()
     async def sv_update_addon(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Actualiza un add-on a la versión más reciente disponible.
+        """Actualiza una app (add-on) a la versión que ofrece la tienda
+        (`version_latest`): no se puede elegir otra.
+
+        La vista previa enseña la disponibilidad y el principio del changelog
+        de esa versión (texto de terceros, redactado). Si la app ya está en la
+        versión de la tienda, responde `already_up_to_date` con la versión
+        instalada, SIN token: no hay nada que confirmar. Si la app ya no
+        está en la tienda (`detached`), no lo dice: la vista previa lleva
+        `in_store: false` y avisa de que el Supervisor rechazará actualizarla.
+
+        El token se ata a la `version_latest` de la vista previa: si la tienda
+        ofrece otra al confirmar, responde `preview_outdated` sin actualizar.
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
+        Hermes no puede actualizarse a sí mismo: con su propio slug (o `self`)
+        responde `self_update_not_supported`, sin token; se actualiza desde la
+        interfaz de Home Assistant.
+
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
             Sin token: {"confirmation_token": "...", "preview": {...}}
             Con token: {"job_id": "...", "status": "running",
                         "poll_with": "sv_get_job_status"}
+            Sobre Hermes: {"error": "self_update_not_supported", "detail": "..."}
+            Sin actualización: {"error": "already_up_to_date", "version": "..."}
         """
         if (err := _bad_slug(slug)):
             return err
+        if await _hermes(slug):
+            # El Supervisor responde 403 («can't update itself») cuando un
+            # add-on pide su propia actualización: la vista previa de la 1.1.2
+            # daba un token para algo imposible. Se rechaza antes de cualquier
+            # petición y sin tocar el token que se traiga (FR-010 de la 009).
+            return {
+                "error": "self_update_not_supported",
+                "detail": (
+                    "Hermes cannot update itself through the Supervisor API. "
+                    "Update it from the Home Assistant UI: "
+                    "Settings > Add-ons > Hermes > Update."
+                ),
+            }
         tool_name = "sv_update_addon"
         args: dict[str, Any] = {"slug": slug}
 
@@ -870,10 +1155,30 @@ def register(
                     current = info.get("version")
                     latest = info.get("version_latest")
                     avail = info.get("update_available", False)
+                    detached = info.get("detached")
                 else:
-                    current = latest = avail = None
+                    current = latest = avail = detached = None
             except HAConnectionError:
-                current = latest = avail = None
+                current = latest = avail = detached = None
+
+            # Convergencia de la 030 (T032): una app que ya no está en la
+            # tienda (`detached`) también da `update_available: false`
+            # (`need_update` del Supervisor), y decir que está al día sería
+            # falso. Solo con `detached: false` se sabe que está en la tienda.
+            if avail is False and current is not None and detached is False:
+                # Spec 030, extra del supervisor del programa: una app
+                # instalada sin actualización no tiene nada que confirmar (el
+                # Supervisor respondería `AppNoUpdateAvailableError`), así que
+                # no hay token. Solo con la lectura correcta y la app
+                # instalada; si no se pudo leer, sigue como en la 1.1.2.
+                return {
+                    "error": "already_up_to_date",
+                    "slug": slug,
+                    "version": current,
+                    "version_latest": latest,
+                    "detail": ("The app is already at the version the store "
+                               "offers; there is nothing to update."),
+                }
 
             preview: dict[str, Any] = {
                 "slug": slug,
@@ -883,14 +1188,36 @@ def register(
             }
             if not avail and avail is not None:
                 preview["note"] = "No update available at this time."
-            w = _self_warning(slug, "updating")
-            if w:
-                preview["warning"] = w
-            return await create_confirmation_token(tool_name, args, preview=preview)
+            if detached is True:
+                # Como en la 1.1.2, con token; pero diciendo la verdad.
+                preview["in_store"] = False
+                preview["update_status"] = "not_in_store"
+                preview["note"] = (
+                    "The app is no longer in the store (its repository was "
+                    "removed or no longer offers it), so it is unknown whether "
+                    "a newer version exists. The Supervisor will refuse to "
+                    "update it.")
+            elif detached is False:
+                preview["in_store"] = True
+            else:
+                preview["in_store"] = None
+            # Spec 030 (FR-010): disponibilidad y principio del changelog de
+            # la versión de la tienda. Ninguna de las dos impide el token.
+            try:
+                disponible, motivo = await disponibilidad(ha_client, slug)
+                preview["available"] = disponible
+                preview["reason"] = motivo
+            except HAConnectionError as exc:
+                preview["available"] = None
+                preview["reason"] = redact_secrets(mensaje_del_supervisor(exc))
+            preview.update(await _resumen_de_changelog(slug))
+            return await create_confirmation_token(
+                tool_name, args, preview=preview, estado={"version_latest": latest})
 
-        valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
-        if not valid:
-            return {"error": error}
+        rechazo = await _token_con_version(
+            tool_name, args, confirmation_token, await _version_de_la_app(slug))
+        if rechazo is not None:
+            return rechazo
 
         try:
             data = await ha_client.sv_request(
@@ -917,8 +1244,13 @@ def register(
             return {"error": str(exc)}
 
     @mcp.tool()
-    async def sv_get_addon_logs(slug: str, lines: int = 100) -> object:
-        """Lee los logs recientes de un add-on.
+    async def sv_get_addon_logs(
+        slug: str,
+        lines: int = 100,
+        boot: int | str | None = None,
+        latest: bool = False,
+    ) -> object:
+        """Lee los logs recientes de una app (add-on).
 
         Los logs se REDACTAN automáticamente antes de ser devueltos:
         passwords, tokens, JWT, URLs con auth básica son sustituidos
@@ -928,60 +1260,116 @@ def register(
         defecto), también se redactan el hostname público (`<public_hostname>`),
         los nombres `*.ts.net` y las IPs que no son de loopback
         (`<ip:CLASE:HHHHHHHH>`, misma IP → mismo seudónimo), incluidas las
-        líneas escritas antes de actualizar. Los logs de otros add-ons
+        líneas escritas antes de actualizar. Los logs de otras apps
         conservan sus IPs, que suelen ser justo lo que se quiere diagnosticar.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             lines: Número de líneas a devolver (default 100, máx 1000).
+            boot: Opcional (1.2.0): arranque a leer, como desplazamiento
+                entero (0 = el actual, -1 = el anterior) o un id de
+                `sv_list_boots`. Sin `boot` ni `latest`, la petición y la
+                respuesta son las de siempre.
+            latest: Opcional (1.2.0): solo las líneas desde el último arranque
+                del contenedor de la app. No se combina con `boot`.
 
         Returns:
             {"slug": "...", "lines_requested": N, "redacted": bool,
+             "secrets_redacted": bool, "network_redacted": bool,
              "logs": "texto del log"}
+            `redacted`: el texto devuelto difiere del leído.
+            `secrets_redacted`: esta llamada sustituyó al menos un secreto.
+            `network_redacted`: se aplicó la redacción de red (log de Hermes
+            con `log_redact_network` activo), aunque el texto ya viniera
+            redactado y no cambie; `false` para otras apps.
             `lines_requested` es el número pedido después de acotarlo a
-            [1, 1000]; el log devuelto puede traer menos líneas si el add-on
+            [1, 1000]; el log devuelto puede traer menos líneas si la app
             no tiene más. Si el log no cabe en `response_max_bytes`, se
             devuelven sus ÚLTIMAS líneas que caben, con `truncated: true`,
             `lines_returned` y una pista.
+            Con `boot` o `latest`, la respuesta lleva además `route` (la
+            plantilla de la ruta) y `boot` o `latest`. Un `boot` inválido, o
+            `boot` con `latest`, devuelve {"error": "invalid_argument",
+            "field", "detail"} sin llamar al Supervisor.
         """
         if (err := _bad_slug(slug)):
             return err
+        # Spec 013 (FR-007): `boot` y `latest` son opcionales y, sin ellos, la
+        # petición y la respuesta son las de la 1.1.2 (FR-020 de la 008). La
+        # validación es la de las tools de logs del sistema (`tools/_logs.py`).
+        try:
+            boot_n = normalizar_boot(boot)
+            comprobar_latest(boot_n, latest)
+        except ArgumentoInvalido as exc:
+            return exc.respuesta()
+        ruta, plantilla = ruta_de_log(f"/addons/{slug}", "/addons/{app}", boot_n, latest)
+        por_arranque = boot_n is not None or latest
         lines = min(max(1, lines), 1000)
+        # D-13: el log de Hermes (red tapada) por el slug exacto si se puede leer.
+        de_hermes = await _hermes(slug)
         try:
             raw = await ha_client.sv_request_text(
-                f"/addons/{slug}/logs",
+                ruta,
                 params={"lines": str(lines)},
             )
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            # El mensaje del Supervisor puede repetir parte de la petición o
+            # del log: se redacta como el log (FR-024 de la 013), y con la red
+            # tapada si es el de Hermes. La forma `{"error": …}` es la de la
+            # 1.1.2.
+            mensaje = redact_secrets(str(exc))
+            if de_hermes:
+                mensaje = redact_network(mensaje)
+            return {"error": mensaje}
 
         redacted = redact_secrets(raw)
-        if _es_hermes(slug):
+        secrets_redacted = redacted != raw
+        # `redacted` solo dice si el texto cambió. El log de Hermes ya se
+        # escribe con la red tapada, así que lo normal es que no cambie aunque
+        # la redacción de red se haya aplicado: sin este campo el agente leía
+        # `redacted: false` y no podía saberlo (FR-005 de la 009).
+        network_redacted = de_hermes and network_redaction_enabled()
+        if de_hermes:
             # El log de Hermes se pide para pegarlo en un issue, y las líneas
             # escritas por versiones anteriores (o con la opción recién
             # activada) traen hostname e IPs en claro. `redact_network` no
             # hace nada si la opción está desactivada.
             redacted = redact_network(redacted)
         was_redacted = redacted != raw
+        # La plantilla de la ruta, nunca el id de arranque, y solo si se pidió
+        # un arranque: sin `boot` ni `latest` el evento es el de antes.
+        extra_log: dict[str, Any] = {"route": plantilla} if por_arranque else {}
         logger.info(
             "sv_get_addon_logs",
             slug=slug,
             lines=lines,
             bytes=len(raw),
             redacted=was_redacted,
+            secrets_redacted=secrets_redacted,
+            network_redacted=network_redacted,
+            **extra_log,
         )
-        return _ultimas_lineas_que_caben(
-            {"slug": slug, "lines_requested": lines, "redacted": was_redacted},
-            redacted,
-            response_max_bytes,
-        )
+        respuesta: dict[str, Any] = {
+            "slug": slug,
+            "lines_requested": lines,
+            "redacted": was_redacted,
+            "secrets_redacted": secrets_redacted,
+            "network_redacted": network_redacted,
+        }
+        if por_arranque:
+            respuesta["route"] = plantilla
+            if boot_n is not None:
+                respuesta["boot"] = boot_n
+            if latest:
+                respuesta["latest"] = True
+        return ultimas_lineas_que_caben(respuesta, redacted, response_max_bytes)
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:
-        """Devuelve estadísticas de recursos de un add-on (CPU, RAM, red, disco).
+        """Devuelve estadísticas de recursos de una app (add-on): CPU, RAM, red, disco.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
 
         Returns:
             La respuesta del Supervisor tal cual:

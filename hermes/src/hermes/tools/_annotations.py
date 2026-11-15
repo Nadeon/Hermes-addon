@@ -65,6 +65,38 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     "ha_marketplace_list_removed",
     # Dos que parecen encajar aquí y no encajan: sv_check_core_config y
     # sv_get_job_status escriben. Ver _NOT_READ_ONLY_EXACT más abajo.
+    # Genéricas de lectura (spec 011): solo ejecutan entradas `read` de la
+    # tabla, y un test de la tabla impide que una `read` escriba o salga a
+    # internet. Por nombre exacto: ningún prefijo las cubre.
+    "ha_read_ws_command",
+    "sv_read_api",
+    # Spec 029 (CAP-049): `recorder/validate_statistics` solo calcula los
+    # problemas y los devuelve; no corrige nada ni crea avisos en Repairs (eso
+    # es `recorder/update_statistics_issues`, de la 020). Por nombre exacto:
+    # ningún prefijo de lectura la cubre, y `ha_validate_` no debe pasar a
+    # serlo (una futura `validate` podría escribir).
+    "ha_validate_statistics",
+    # Diagnóstico de Core (spec 012): validan y evalúan con los validadores de
+    # HA y no guardan nada. Su nombre no tiene prefijo de lectura.
+    "ha_validate_config",
+    "ha_test_condition",
+    # Blueprints (spec 017): HA sustituye las entradas y devuelve la
+    # configuración resultante sin guardar nada (`saved: false`).
+    "ha_preview_blueprint_substitution",
+    # Targets (spec 017, tramo C): `extract_from_target` y `explain_target`
+    # solo calculan qué abarca un target. Su nombre no tiene prefijo de
+    # lectura; las `ha_list_*_for_target` y `ha_list_device_*` ya lo tienen.
+    "ha_resolve_target",
+    "ha_explain_target",
+    # Espera de trigger (spec 017, tramo D): solo escucha. Es verdad porque
+    # solo admite triggers de una lista cerrada de los que se sabe que solo
+    # escuchan (research R-8); `webhook`, `conversation` o el `turn_on` de
+    # una tele, que hacen algo más mientras existen, se rechazan.
+    "ha_wait_for_trigger",
+    # Spec 023: analiza frases con el agente integrado y devuelve lo que
+    # reconoce, sin ejecutar ni el intent ni el disparador de frase. Su
+    # nombre no tiene prefijo de lectura.
+    "ha_debug_conversation",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -109,10 +141,14 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # escribió las consideró consecuentes. Si una herramienta se hace confirmar
     # y a la vez se anuncia inofensiva, el cliente la trata como inocua y solo
     # descubre lo contrario al llamarla. El invariante lo vigila un test.
+    # Excepción: `ha_reload_counters` ya no pide ni emite token desde la 033
+    # (Core no tiene `counter.reload`; responde `not_supported`), pero sigue
+    # aquí a propósito: FR-004 deja sus anotaciones sin cambios hasta que se
+    # retire en la 1.3.0.
     "ha_run_script",              # ejecuta lo que el script contenga
     "ha_trigger_automation",      # dispara sus acciones, sean cuales sean
     "ha_reload_automations",      # materializa lo que haya en el YAML
-    "ha_reload_counters",
+    "ha_reload_counters",         # sin token desde la 033; ver arriba
     "ha_reload_scenes",
     "ha_reload_schedules",
     "ha_reload_scripts",
@@ -135,6 +171,182 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # pendiente): quien lo descarta deja de verlo aunque el problema siga.
     "sv_dismiss_resolution_issue",
     "sv_dismiss_resolution_suggestion",
+    # Genéricas de escritura (spec 011): ejecutan cualquier entrada `confirm`
+    # de la tabla (borrar, reiniciar, reconfigurar…), así que se asume lo
+    # peor. Siempre piden confirmation_token.
+    "ha_call_ws_command",
+    "sv_call_api",
+    # Diagnóstico de Core (spec 012): piden token y ocultan rastro. Bajar un
+    # nivel de log o vaciar el log del sistema esconde lo que pasó; es la
+    # misma razón por la que `logger.set_level` y `system_log.clear` están en
+    # la denylist de `ha_call_service` («Ofuscación de rastros»).
+    "ha_set_log_level",
+    "ha_clear_system_log",
+    # Y descartar una notificación persistente borra un aviso de HA que no se
+    # recupera (`persistent_notification.dismiss` también está en la denylist).
+    "ha_dismiss_persistent_notification",
+    # Spec 033 (FR-006): `scene.create` reemplaza en silencio una escena
+    # temporal con el mismo id; la tool lo pide confirmar con token. Antes se
+    # anunciaba no destructiva (`----`, por el prefijo `ha_create_`) y su
+    # descripción decía que una colisión daba error, que no es lo que hace HA.
+    "ha_create_scene_from_current",
+    # Spec 031: cambiar la retención BORRA backups automáticos (por días al
+    # día siguiente, por copias tras el próximo automático) y
+    # `protected: false` sube la casa sin cifrar. Pide token; sin estar
+    # aquí, el prefijo `ha_update_` la dejaría sin `destructiveHint`
+    # (invariante «pide token ⇔ destructiva»).
+    "ha_update_backup_config",
+    # Spec 031, tramo 2: crear un backup ocupa GB en cada agente y, en uno
+    # remoto, sube la casa entera fuera; con los ajustes automáticos, al
+    # terminar HA aplica la retención y BORRA backups. Las dos piden token
+    # y su prefijo `ha_create_` las dejaría sin `destructiveHint`.
+    # (`ha_delete_backup` ya lo es por el prefijo `ha_delete_`.)
+    "ha_create_backup",
+    "ha_create_automatic_backup",
+    # Spec 031, tramo 3: restaurar sustituye la configuración, la base de
+    # datos, apps y carpetas por su estado en la fecha del backup y reinicia
+    # Core; lo posterior se pierde. Pide token y su prefijo `ha_restore_` no
+    # lo delata. Idempotente: repetirla deja lo mismo que la primera vez.
+    "ha_restore_backup",
+    # Spec 016: puede pedir token. Desactivar el sondeo recarga la integración
+    # y deja sus entidades sin actualizar; desactivar las entidades nuevas hace
+    # que lo que se añada entre deshabilitado. Invariante «pide token ⇔
+    # destructiva». Idempotente: repetirla deja la entrada igual.
+    "ha_update_config_entry",
+    # Spec 016, tramo B (decisión del supervisor): cada paso pide token,
+    # porque cualquier envío puede terminar el reconfigure, cambiar
+    # credenciales o datos de conexión y recargar la integración.
+    "ha_continue_reconfigure_flow",
+    # Spec 016, tramo C: cada envío de un paso pide token, porque puede
+    # aplicar el arreglo de una integración, con efectos propios de cada una,
+    # y HA no dice antes qué paso es el último.
+    "ha_continue_repair_fix",
+    # Spec 016, tramo C (decisión del supervisor): la tool de la 1.1.2 pide
+    # token en cada paso de un flujo `reauth`, que cambia las credenciales de
+    # una entrada. Invariante «pide token ⇔ destructiva»: su hint cambia a
+    # propósito (ver `_HINTS_CAMBIADOS_A_PROPOSITO` en
+    # tests/test_tools_registration.py). Sigue idempotente, como en la 1.1.2.
+    "ha_continue_config_entry_flow",
+    # Montajes del Supervisor (spec 019). Piden token y su nombre no lo
+    # delata: crear uno de backup puede pasar a ser el destino de TODOS los
+    # backups (también los safety backups); editar desmonta y puede quitar
+    # las credenciales; el montaje por defecto decide a dónde van los backups.
+    # `sv_delete_mount` ya lo cubre el prefijo `sv_delete_`.
+    "sv_create_mount",
+    "sv_update_mount",
+    "sv_set_default_backup_mount",
+    # Spec 015: actualizar Core lo para y lo arranca en otra versión; si la
+    # nueva no arranca, el Supervisor intenta volver atrás. Pide token y su
+    # nombre no lo delata.
+    "sv_update_core",
+    # Spec 015, tramo 2: actualizar el OS reescribe la ranura de arranque
+    # inactiva y se aplica al reiniciar el host; actualizar el Supervisor lo
+    # reinicia. Las dos piden token.
+    "sv_update_os", "sv_update_supervisor",
+    # Tramo 3: instalar una entidad `update` cambia el firmware de un
+    # dispositivo o la versión de una integración, sin vuelta atrás desde
+    # Hermes. Pide token y su nombre no lo delata.
+    "ha_install_update",
+    # Spec 030: piden token. Añadir un repositorio mete código de terceros
+    # sin revisar en la tienda (cadena de suministro); quitarlo deja sus apps
+    # sin poder instalarse. Ninguna lo delata con el prefijo.
+    "sv_add_store_repository",
+    "sv_remove_store_repository",
+    # Spec 030, tramo 2: reconstruir borra el contenedor y la imagen de la
+    # app; si la construcción falla, la app queda sin poder arrancar.
+    "sv_rebuild_addon",
+    # Blueprints (spec 017): guardar crea o sobrescribe un fichero de
+    # /config/blueprints y, al sobrescribir, HA recarga las automatizaciones
+    # o scripts que lo usan; pide token (invariante «pide token ⇔
+    # destructiva»). `ha_delete_blueprint` ya lo es por el prefijo
+    # `ha_delete_`: borra un fichero que solo vuelve con un backup.
+    "ha_save_blueprint",
+    # Importar (spec 017, tramo B) guarda lo descargado igual que
+    # `ha_save_blueprint`, y con `allow_override` sobrescribe y recarga.
+    "ha_import_blueprint",
+    # Spec 020 (CAP-050): reescriben el histórico de estadísticas y solo un
+    # backup lo deshace (borrar filas o metadatos, convertir todos los
+    # valores, cambiar la unidad guardada). Ningún prefijo las clasifica:
+    # `ha_clear_`, `ha_change_` y `ha_update_` no son destructivos por nombre.
+    "ha_clear_statistics",
+    "ha_change_statistics_unit",
+    "ha_update_statistics_metadata",
+    # Spec 020, tramo 2: sumar a la suma de todas las filas desde una hora y
+    # sobrescribir filas importando. Tampoco `ha_adjust_` ni `ha_import_`
+    # son prefijos destructivos.
+    "ha_adjust_statistics_sum",
+    "ha_import_statistics",
+    # Spec 020, tramo 3 (CAP-054): cada lista que recibe reemplaza ENTERA la
+    # de HA, así que quita las fuentes o dispositivos que no se reenvían.
+    # `ha_update_` no es prefijo destructivo. Repetirla con las mismas listas
+    # deja el mismo estado (idempotente).
+    "ha_update_energy_prefs",
+    # Control de Core y del Supervisor (spec 022, research R-10). Reconstruir
+    # Core y reiniciar el Supervisor cortan el servicio; reparar borra
+    # imágenes y volúmenes sin usar; `boot=false` deja Home Assistant apagado
+    # tras reiniciar el host. Arrancar Core y las opciones del Supervisor no
+    # destruyen nada, pero piden token: invariante «pide token ⇔
+    # destructiva» (desviación de R-10, que las daba no destructivas).
+    "sv_start_core",
+    "sv_rebuild_core",
+    "sv_set_core_options",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
+    "sv_set_supervisor_options",
+    # Spec 022, tramo 2 (R-10): aplicar una sugerencia puede desinstalar una
+    # app, borrar backups completos o reiniciar el host.
+    "sv_apply_resolution_suggestion",
+    # Spec 021: cambia cómo HA interpreta las horas (zona horaria) y las
+    # unidades, y mueve `zone.home` (presencia). Siempre pide token.
+    "ha_update_core_config",
+    # Spec 021, tramo b: crear un usuario puede crear un administrador, y
+    # editarlo puede desactivarlo (deja de poder entrar) o darle o quitarle
+    # el grupo de administrador. Las dos piden token; `ha_delete_user` ya es
+    # destructiva por su prefijo.
+    "ha_create_user",
+    "ha_update_user",
+    # Spec 021, tramo c: los adaptadores cambian el descubrimiento; el HTTP
+    # reinicia HA y puede cortar el acceso (puerto, SSL, proxy); promover hace
+    # de la de prueba la configuración de recuperación. Las tres piden token.
+    "ha_update_network_config",
+    "ha_update_http_config",
+    "ha_promote_http_config",
+    # Control del host (spec 032). Piden token y su nombre no lo delata:
+    # apagar deja el host sin forma de encenderlo a distancia; el hostname
+    # cambia el nombre mDNS; la swap pide reiniciar; la ranura reinicia YA
+    # en otro OS. Invariante «pide token ⇔ destructiva».
+    "sv_shutdown_host",
+    "sv_set_hostname",
+    "sv_set_swap",
+    "sv_set_boot_slot",
+    # Red del host (spec 032, tramo 2). Piden token: editar una interfaz
+    # reemplaza sus bloques y el Supervisor no revierte; crear una VLAN puede
+    # quedarse con la ruta por defecto. `sv_reload_network` NO está: solo
+    # relee el estado y no pide token (D-032-1).
+    "sv_update_network_interface",
+    "sv_create_vlan",
+    # Spec 023: procesar una frase la ejecuta como si se dijera por voz: puede
+    # abrir una cerradura o la puerta del garaje, desarmar una alarma o
+    # disparar una automatización cualquiera. Es el mismo motivo por el que la
+    # acción `conversation.process` está en la denylist. Pide token siempre.
+    "ha_process_conversation",
+    # Spec 024, tramo 2: borra la configuración guardada de un dashboard
+    # (todas sus vistas y tarjetas), irreversible salvo backup. Pide token y
+    # el prefijo `ha_reset_` no lo delata. Idempotente: repetirla no tiene
+    # más efecto (la segunda vez no hay nada que restablecer).
+    "ha_reset_lovelace_dashboard_config",
+    # Spec 026, tramo 1 (contracts/tools.md): las cuatro de escritura del
+    # Marketplace piden token (reconocer e ignorar no se pueden deshacer;
+    # quitar cambia la lista; refrescar escribe en el storage). Por nombre
+    # exacto, NUNCA por el prefijo `ha_marketplace_`, que también llevan las
+    # siete de lectura (FR-018 de la 004).
+    "ha_marketplace_acknowledge_critical",
+    "ha_marketplace_ignore_repository",
+    "ha_marketplace_remove_repository",
+    "ha_marketplace_refresh_repository",
+    # Spec 026, tramo 2: desinstalar borra ficheros de /config (con backup
+    # antes).
+    "ha_marketplace_uninstall",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -151,6 +363,84 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # tiene en memoria; antes de 1.1.0 los alias se anunciaban de mundo abierto
     # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
     "ha_marketplace_list_releases",
+    # Spec 026: refrescar hace que HA vuelva a pedir el repositorio a GitHub.
+    "ha_marketplace_refresh_repository",
+    # Y desinstalar: con GitHub conectado, HA refresca el repositorio desde
+    # GitHub antes de borrarlo (`marketplace_repository_uninstall`).
+    "ha_marketplace_uninstall",
+    # Genéricas de escritura (spec 011): algunas entradas `confirm` salen a
+    # internet (actualizar un plugin, calendarios remotos).
+    "ha_call_ws_command",
+    "sv_call_api",
+    # Y la de lectura de Core: `media_source/browse_media` y `search_media`
+    # consultan APIs externas cuando la fuente es remota (radio_browser,
+    # google_photos, immich…). Una tool no puede decir que no sale a internet
+    # si algún comando suyo lo hace (principio V; T047). `sv_read_api` no:
+    # ninguna ruta `read` del Supervisor sale. tests/test_command_table.py
+    # ata esta lista a las marcas `open_world` de la tabla.
+    "ha_read_ws_command",
+    # Spec 029 (T037): pedir `system_health/info` hace que HA ejecute los
+    # callbacks de salud, y varios llaman a `async_check_can_reach_url`, que
+    # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
+    # Es de solo lectura, pero no puede decir que no sale.
+    "ha_get_system_health",
+    # Spec 031, tramo 2: con un agente remoto (la nube, otro servicio) crear
+    # sube el backup a internet y borrar lo borra allí; quien sale es HA,
+    # pero lo provoca la tool.
+    "ha_create_backup",
+    "ha_create_automatic_backup",
+    "ha_delete_backup",
+    # Tramo 3: restaurar desde un agente remoto descarga antes el backup.
+    "ha_restore_backup",
+    # Spec 015 (contracts/tools.md): actualizar Core descarga la imagen nueva,
+    # y buscar actualizaciones descarga el registro de versiones y refresca los
+    # repositorios de la tienda. Quien sale es el Supervisor, pero lo provoca
+    # la tool (mismo criterio que sv_install_addon). `sv_check_for_updates` no
+    # es de solo lectura (su prefijo no lo es) ni destructiva: no pide token.
+    "sv_update_core", "sv_check_for_updates",
+    # Tramo 2: descargan el bundle del OS o la imagen del Supervisor.
+    "sv_update_os", "sv_update_supervisor",
+    # Tramo 3: la integración descarga el firmware o la versión nueva; y
+    # algunas piden las notas de versión a internet al leerlas.
+    "ha_install_update", "ha_get_update_release_notes",
+    # Spec 030: provocan descargas en el Supervisor. Añadir y reparar clonan
+    # el repositorio; recargar hace `git pull` de todos. Quitar y listar no
+    # salen (listar lee lo que el Supervisor ya tiene).
+    "sv_add_store_repository",
+    "sv_repair_store_repository",
+    "sv_reload_store",
+    # Reconstruir descarga la imagen base (al construir) o la imagen de la
+    # app (con `force`). Leer el changelog, la documentación o la
+    # disponibilidad no sale: el Supervisor lee su clon local.
+    "sv_rebuild_addon",
+    # Spec 017, tramo B: HA descarga el blueprint de la URL que da el agente
+    # (foro, GitHub, gist o cualquier web). No abre el socket Hermes, pero la
+    # descarga la provoca esta tool (mismo criterio que sv_install_addon).
+    "ha_import_blueprint",
+    # Spec 022 (R-10): recargar el Supervisor vuelve a pedir las versiones
+    # disponibles a internet; repararlo descarga las imágenes que falten.
+    "sv_reload_supervisor",
+    "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): algunos fixups descargan imágenes o vuelven a
+    # clonar un repositorio de la tienda.
+    "sv_apply_resolution_suggestion",
+    # Spec 021 (CAP-055): exponer a `cloud.alexa` o `cloud.google_assistant`
+    # manda las entidades a Amazon o Google a través de Home Assistant Cloud.
+    # NO son destructivas (decisión D-4 del supervisor): exponer no destruye
+    # nada y ocultar ni siquiera pide token. Exponer sí lo pide: son la única
+    # excepción documentada al invariante «token ⇒ destructiva»
+    # (tests/test_tools_registration.py, `TOKEN_SOLO_AL_AMPLIAR`).
+    "ha_set_entity_exposure",
+    "ha_set_expose_new_entities",
+    # Spec 023: con un agente que no es el integrado, el texto va a ese
+    # agente, que puede ser un LLM en la nube. La anotación es estática y dice
+    # el peor caso (principio V). `ha_debug_conversation` no: solo usa el
+    # agente integrado, que reconoce en local.
+    "ha_process_conversation",
+    # Spec 024 (research R-2): una cámara en la nube (Nest, Ring…) o una
+    # entidad `image` que descarga de una URL salen a internet cuando se pide
+    # la imagen. Son de solo lectura, pero no pueden decir que no salen.
+    "ha_get_camera_snapshot", "ha_get_image_entity",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -166,7 +456,39 @@ _NON_IDEMPOTENT_PREFIXES: tuple[str, ...] = (
 # encaja con ningún prefijo, así que hay que marcarla a mano. Un cliente que
 # reintente tras un timeout de red duplicaría el delta: es el caso de uso
 # canónico de idempotent_hint.
-_NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({"ha_change_timer"})
+_NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
+    "ha_change_timer",
+    # Genéricas de escritura (spec 011): entre lo que la tabla permite hay
+    # creaciones y acciones que se acumulan; repetir no deja el mismo estado.
+    "ha_call_ws_command",
+    "sv_call_api",
+    # Spec 016: cada llamada abre un flujo nuevo o avanza el flujo un paso;
+    # repetirla no deja el mismo estado. Las de la 1.1.2
+    # (`ha_start_config_entry_flow`, `ha_continue_*_flow`) no se tocan (D-4).
+    "ha_start_subentry_flow",
+    "ha_continue_subentry_flow",
+    "ha_start_reconfigure_flow",
+    "ha_continue_reconfigure_flow",
+    # Tramo C: abrir un flujo de reparación (algunos terminan al abrirse) y
+    # avanzarlo un paso.
+    "ha_start_repair_fix",
+    "ha_continue_repair_fix",
+    # Spec 020: `adjustment` es un DELTA, como el de `ha_change_timer`.
+    # Confirmar dos ajustes iguales suma dos veces; el token de un solo uso
+    # evita el reintento con el mismo token, pero no una segunda vista previa.
+    "ha_adjust_statistics_sum",
+    # Spec 022 (R-10): repetirlas vuelve a cortar el servicio (reconstruir
+    # Core, reiniciar o reparar el Supervisor), no deja el mismo estado.
+    "sv_rebuild_core",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): aplicar dos veces no deja el mismo estado
+    # (otro backup completo, otro reinicio).
+    "sv_apply_resolution_suggestion",
+    # Spec 023: repetir una frase repite la acción («sube el volumen»,
+    # «alterna la luz») y abre o continúa una sesión de chat.
+    "ha_process_conversation",
+})
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el
 # mismo estado). Empieza por `ha_create_`, así que hay que sacarlo a mano.
@@ -208,6 +530,18 @@ _TITLE_WORDS: dict[str, str] = {
     "id": "ID",
     "ids": "IDs",
     "ws": "WS",
+    # Spec 011: `sv_read_api` → «Read API (Supervisor)». Ninguna tool de la
+    # 1.1.2 tiene `api` como palabra, así que no cambia ningún título.
+    "api": "API",
+    # Spec 013: `sv_get_os_info` → «Get OS info (Supervisor)». Ninguna tool
+    # de la 1.1.2 tiene `os` como palabra (lo comprueba un test).
+    "os": "OS",
+    # Spec 032: `sv_shutdown_host` → «Shut down host (Supervisor)»; el verbo
+    # va en dos palabras. Ninguna tool de la 1.1.2 tiene `shutdown`.
+    "shutdown": "shut down",
+    # Spec 032 (tramo 2): `sv_create_vlan` → «Create VLAN (Supervisor)».
+    # Ninguna tool de la 1.1.2 tiene `vlan`.
+    "vlan": "VLAN",
     # «addon» es como se escribe en el código; Home Assistant lo llama add-on.
     "addon": "add-on",
     "addons": "add-ons",

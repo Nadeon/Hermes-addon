@@ -1,0 +1,318 @@
+# Configuración de Home Assistant del banco de pruebas de Core (spec 010).
+#
+# El job `banco-core` copia esta carpeta a un temporal del runner y la monta en
+# /config de un contenedor de HA Core recién creado. Es mínima a propósito:
+#
+# - No hay `default_config:`. Arrastra integraciones que buscan hardware o red
+#   (bluetooth, dhcp, ssdp, zeroconf, usb, cloud, go2rtc…): más arranque, más
+#   avisos y fallos que no tienen nada que ver con Hermes.
+# - Se cargan la API REST, la WebSocket, el panel de configuración y el
+#   onboarding (el banco lo completa sin intervención humana) y los 11 dominios
+#   de helpers, cuyos comandos `<dominio>/list|create|update|delete` solo
+#   existen si la integración está cargada.
+# - Ubicación: la de ejemplo de la configuración por defecto de HA, no la de
+#   nadie. Nombre genérico. Con la ubicación escrita aquí, HA no la intenta
+#   detectar por internet (el contenedor tampoco tiene salida).
+#
+# La 011 añade `tag:` (abajo) para las genéricas de Core.
+#
+# Las sub-features que necesiten más dominios (automation:, script:, scene:,
+# lovelace:, template:…) los añaden aquí en su propio cambio.
+
+homeassistant:
+  name: Banco de pruebas
+  latitude: 32.87336
+  longitude: -117.22743
+  elevation: 430
+  unit_system: metric
+  time_zone: Etc/UTC
+  country: US
+  currency: USD
+  # Spec 024 (tramo 1): la carpeta de medios locales es `media/` de esta
+  # misma configuración (con un JPEG gris borrable, versionado), para probar
+  # `media_source/browse_media` y `media_source/local_source/remove` sin
+  # depender de `/media` del contenedor.
+  media_dirs:
+    local: /config/media
+
+http:
+api:
+websocket_api:
+config:
+onboarding:
+
+logger:
+  default: warning
+
+input_boolean:
+input_button:
+input_datetime:
+input_number:
+input_select:
+# Spec 015 (tramo 3): dos `input_text` de apoyo para la entidad `update` de
+# plantilla de abajo. Se declaran aquí, y no los crea el test, porque la
+# plantilla los nombra por su entity_id fijo. `input_text:` sigue admitiendo
+# además los creados por WebSocket (los tests de helpers). Son `input_text` y
+# no `input_boolean` para que `input_boolean.reload` (028) siga sin YAML que
+# releer.
+input_text:
+  banco_update_instalada:
+    name: Banco update instalada
+    initial: "1.0.0"
+  banco_update_backup:
+    name: Banco update backup
+    initial: "no"
+counter:
+timer:
+schedule:
+zone:
+person:
+
+# Spec 011 (T027): las genéricas de Core se prueban con `tag/list`,
+# `tag/create` y `tag/delete`, que solo existen con la integración cargada.
+tag:
+
+# ── Spec 028 (tramo A): escrituras de automatización, ejecución y Lovelace ──
+#
+# automation:, script: y scene: con sus ficheros: las tools
+# `ha_create_or_update_*` y `ha_delete_*` de automatizaciones, scripts y
+# escenas guardan por los endpoints `/api/config/<dominio>/config/<id>` de HA,
+# que solo existen si el dominio está cargado y escriben en estos ficheros;
+# sin el `!include`, HA no recargaría lo guardado. Las recargas, el disparo,
+# la ejecución y la activación (`ha_reload_*`, `ha_trigger_automation`,
+# `ha_run_script`, `ha_activate_scene`, `ha_create_scene_from_current`)
+# necesitan además los servicios del dominio. Los tres ficheros empiezan
+# vacíos y se versionan en esta carpeta; nada sale a internet.
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+# Spec 033 (T038): una escena de YAML SIN `id`. Por su estado no se distingue
+# de una temporal de `scene.create` (ni `id` en los atributos ni entrada en el
+# registro), pero Core no la reemplaza: avisa en el log y vuelve sin error.
+# `ha_create_scene_from_current` tiene que decir que no la reemplazó aunque se
+# pidan las mismas entidades. `zone.home` existe siempre en el banco; la escena
+# no se activa nunca.
+scene sin_id:
+  - name: banco_yaml_sin_id
+    entities:
+      zone.home: zoning
+
+# frontend: registra Lovelace (dashboards y recursos por WebSocket, en modo
+# almacenamiento) y arrastra `repairs`; lo necesitan las 7 tools de Lovelace.
+# Sirve ficheros de la propia imagen: no sale a internet.
+frontend:
+
+# ── Spec 028 (tramo B): dispositivos, reparaciones y flujo de opciones ──────
+#
+# kitchen_sink: es la integración de demostración de Core. Al cargarse por
+# YAML importa su propia config entry y crea dispositivos que se pueden borrar
+# a mano (todos salvo `statistics_issues`), avisos de reparación propios y un
+# flujo de opciones (`options_1`). Es lo que necesitan `ha_update_device`,
+# `ha_remove_device`, `ha_remove_device_from_config_entry`,
+# `ha_ignore_repair`, `ha_start_options_flow` y `ha_continue_options_flow`:
+# sin ella, el banco no tiene ningún dispositivo ni aviso. Todo es local, sin
+# hardware ni internet. `uptime`, la de los flujos de configuración, no se
+# carga aquí: la crean y la borran las propias tools durante el test.
+kitchen_sink:
+
+# ── Spec 018 (tramo 2): ha_call_service_response con confirmación ───────────
+#
+# conversation: registra `conversation.process` (de la denylist, responde con
+# `SupportsResponse.OPTIONAL`) con el agente por defecto de Core. El banco no
+# tiene entidades que lo acepten, así que una frase no acciona nada: solo se
+# comprueba la confirmación en dos pasos y la forma de la respuesta. Las
+# frases de los intents vienen en la propia imagen; nada sale a internet.
+conversation:
+
+# ── Spec 023: Assist, pipelines, voz y AI Task ──────────────────────────────
+#
+# assist_pipeline: registra los comandos `assist_pipeline/*` (pipelines,
+# idiomas, dispositivos y depuración) y arrastra `tts`, `stt` y `wake_word`,
+# cuyos `*/engine/*` e `info` se leen por las genéricas. Al arrancar crea un
+# pipeline por defecto con el agente integrado y sin voz: no hay motores en
+# el banco y nada sale a internet. llm: da `llm/api/list` (no admite
+# parámetros; vacío no avisa). ai_task: da `ai_task/preferences/get|set`.
+# AI Task solo se configura por config entry, así que cargarla por YAML deja
+# en el log un error y en Repairs el aviso `config_entry_only_ai_task` del
+# dominio `homeassistant`; es el único modo de tener sus comandos sin una
+# integración de LLM, y ningún test del banco cuenta los avisos de ese
+# dominio. Los tests crean y borran lo suyo (un pipeline de prueba) y dejan
+# las preferencias como estaban.
+assist_pipeline:
+llm:
+ai_task:
+
+# ── Spec 029 (tramo 1): estado del sistema ───────────────────────────────────
+#
+# system_health: registra `system_health/info` (sin la integración, HA
+# responde `unknown_command` y la tool, `system_health_not_loaded`); lo usa
+# `ha_get_system_health`. Lee de las integraciones cargadas, sin salir a
+# internet. network: da `network` y `network/url` (tramo 2) y publica además
+# su propia salud con los adaptadores del contenedor; solo mira las
+# interfaces locales.
+system_health:
+network:
+
+# ── Spec 029 (tramo 2): recorder y auditoría ─────────────────────────────────
+#
+# recorder: registra `recorder/info`, `recorder/entity_options/get`,
+# `recorder/validate_statistics` y `recorder/get_statistics_metadata` (sin la
+# integración, HA responde `unknown_command` y las tools,
+# `recorder_not_loaded`). Graba en una SQLite dentro de esta carpeta, que es
+# una copia temporal del runner. Con el recorder cargado, `kitchen_sink`
+# importa además sus estadísticas de demostración (algunas hechas para dar
+# problemas de validación): es lo que leen `ha_validate_statistics` y
+# `ha_get_statistics_metadata`.
+# logbook: registra `logbook/get_action_calls` (auditoría de llamadas a
+# acciones, CAP-058), que lee lo que el recorder graba. Nada sale a internet.
+recorder:
+logbook:
+# ── Spec 012 (tramo A): logs de Core ────────────────────────────────────────
+#
+# system_log: registra `system_log/list` y las acciones `system_log.write` y
+# `system_log.clear`, que necesitan `ha_list_system_log` y
+# `ha_clear_system_log` (y el lector, para sembrar). Sin `default_config:` no
+# se carga sola. `logger:` (arriba) ya da `logger/log_info` y los comandos que
+# fijan niveles. Todo es local.
+system_log:
+
+# ── Spec 012 (tramo B): diagnósticos de integraciones ───────────────────────
+#
+# diagnostics: registra `diagnostics/list`, `diagnostics/get` y la descarga
+# `/api/diagnostics/…`, que necesitan `ha_list_diagnostics_handlers`,
+# `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`. Sin
+# `default_config:` no se carga sola. El test crea y borra una entrada de
+# `local_calendar` (sin red ni hardware) para tener un diagnóstico de entrada.
+# `persistent_notification` es de núcleo: no hace falta cargarla.
+diagnostics:
+
+# ── Spec 031 (tramo 1): backups de la integración `backup` ──────────────────
+#
+# backup: registra `backup/agents/info`, `backup/config/*`, `backup/info` y el
+# resto de comandos de la integración (sin `default_config:` no se carga
+# sola), que necesitan las tools de la familia `backup_integration`. Sin
+# Supervisor, el único agente es `backup.local`, que guarda en
+# /config/backups: dentro de la copia temporal de esta carpeta en el runner.
+# Nada sale a internet (no hay agentes remotos).
+backup:
+# ── Spec 016: integraciones, flujos y Repairs ──────────────────────────────
+#
+# banco_flujos: es una integración de prueba PROPIA, en
+# custom_components/banco_flujos/ (research R-9 de la 016). Es configuración
+# del banco, no código de Hermes: nunca se empaqueta ni llega al add-on. Al
+# cargarse abre un flujo de descubrimiento con unique_id y crea dos avisos
+# reparables con textos traducibles; además se configura por el flujo `user`
+# (sin red), admite `reconfigure` y subentries con un sensor cada una. Es lo
+# que necesitan las tools de descubiertos, preferencias, subentries y
+# reparación: el banco no tiene red ni hardware que descubrir. Sin requisitos
+# ni salida a internet.
+banco_flujos:
+
+# ── Spec 015 (tramo 3): una entidad `update` real ───────────────────────────
+#
+# El banco no tiene ninguna entidad `update` (no hay integración `hassio`, y
+# `kitchen_sink` no trae ninguna; `demo` se descarta: arrastra decenas de
+# plataformas y su instalación con progreso duerme por pasos, research R-12).
+# La integración `template` da una entidad `update` de verdad, con el
+# `update.install` real de Core y sus validaciones: la versión instalada se lee
+# de un `input_text`, la última es fija, admite versión concreta y backup, y
+# su acción `install` escribe la versión pedida (`specific_version`, o la
+# última si no se pidió) en ese `input_text` y si se pidió backup en el otro.
+# Así el lector independiente ve el efecto. No admite notas de versión
+# (`release_notes`): ese camino se prueba con simuladores.
+template:
+  - update:
+      - name: Banco firmware
+        unique_id: banco_update_firmware
+        device_class: firmware
+        installed_version: "{{ states('input_text.banco_update_instalada') }}"
+        latest_version: "2.0.0"
+        specific_version: true
+        backup: true
+        title: Firmware del banco
+        release_summary: Version de prueba del banco
+        install:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.banco_update_instalada
+            data:
+              value: "{{ specific_version if specific_version else '2.0.0' }}"
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.banco_update_backup
+            data:
+              value: "{{ 'si' if backup else 'no' }}"
+  # Spec 024 (tramo 2): un aspirador de plantilla con zonas (`segments` y
+  # `clean_segments`, que Core exige juntos y con `unique_id`) para
+  # `vacuum/get_segments`. No limpia nada: `start` y `clean_segments` solo
+  # disparan un evento. Sin hardware ni red.
+  - vacuum:
+      - name: Banco aspirador
+        unique_id: banco_aspirador
+        segments: "{{ [{'id': 'cocina', 'name': 'Cocina'}, {'id': 'salon', 'name': 'Salon'}] }}"
+        start:
+          - event: banco_aspirador_start
+        clean_segments:
+          - event: banco_aspirador_segmentos
+
+# ── Spec 020 (tramo 3): panel de energía ────────────────────────────────────
+#
+# energy: registra `energy/get_prefs` y `energy/save_prefs` (sin la
+# integración, HA responde `unknown_command` y las tools,
+# `energy_not_loaded`), que usan `ha_get_energy_prefs` y
+# `ha_update_energy_prefs`, y las cuatro lecturas `energy/validate`,
+# `energy/info`, `energy/solar_forecast` y `energy/fossil_energy_consumption`
+# de la genérica. Va en `default_config`, que aquí no se carga. Guarda sus
+# preferencias en `.storage` de esta copia temporal y lee las estadísticas
+# del recorder; sin hardware ni internet (la previsión solar solo devuelve lo
+# que tienen las integraciones de previsión, y aquí no hay ninguna).
+energy:
+
+# ── Spec 024 (tramo 1): cámaras, imágenes y medios ──────────────────────────
+#
+# media_source: registra `media_source/browse_media`, `search_media` y
+# `local_source/remove` (con los `media_dirs` de arriba). image_upload:
+# registra `image/list|update|delete` y la subida `/api/image/upload`, que el
+# lector usa para sembrar una imagen (es el JPEG gris de
+# `www/hermes_banco/camara.jpg`). La cámara es una entrada de `local_file`
+# que el test crea por el flujo con ese mismo fichero (no tiene YAML), y la
+# imagen, `image.qr_code` de `kitchen_sink`. El calendario y las tareas son
+# entradas de `local_calendar` y `local_todo` creadas por el lector. Nada sale
+# a internet.
+media_source:
+image_upload:
+
+# ── Spec 024 (tramo 2): webhooks y credenciales de aplicación ───────────────
+#
+# webhook: registra `webhook/list` y el disparador `webhook` de las
+# automatizaciones (el test crea una con el lector). application_credentials:
+# registra `application_credentials/config|list|config_entry`; el banco no
+# guarda ninguna credencial (crearlas es clase D). `trace/contexts` lo da
+# `trace`, que carga `automation`; `frontend/get_themes`, `frontend`; y
+# `radio_frequency/list`, el transmisor de `kitchen_sink`. Nada sale a
+# internet.
+webhook:
+application_credentials:
+
+# ── Spec 025 (tramo 3): la clase C por las genéricas ────────────────────────
+#
+# usb: registra `usb/scan`, `usb/list_serial_ports` y
+# `usb/list_serial_integrations`, que test_banco_integraciones_c.py lee por
+# `ha_read_ws_command`. Es la única integración de la clase C que arranca sin
+# hardware ni red (research R-8 de la 025): en el contenedor no hay puertos
+# serie y la lista sale vacía. No configura nada ni sale a internet. Las demás
+# (Z-Wave JS, ZHA, Matter, KNX…) necesitan una radio o un servidor y solo se
+# prueban con unitarios; `zha/devices` sirve aquí de comando de una
+# integración NO cargada (`unknown_command`).
+usb:
+
+# ── Spec 026 (tramo 1): Marketplace ─────────────────────────────────────────
+#
+# El Marketplace (`marketplace`) no se declara aquí: está en
+# DEFAULT_INTEGRATIONS de HA 2026.11 y se carga siempre. Sin internet no
+# descarga el catálogo, así que no hay repositorios sobre los que actuar.
+# `.storage/marketplace.critical` (en esta carpeta) siembra UN aviso crítico
+# ficticio sin reconocer (`ejemplo/tarjeta-critica`) para que
+# `ha_marketplace_acknowledge_critical` tenga algo que reconocer contra HA
+# real (tests/banco/test_banco_marketplace.py). HA no lo pisa al arrancar: la
+# tarea que descarga los críticos falla sin red y retorna antes de guardar.
