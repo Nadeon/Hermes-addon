@@ -112,9 +112,11 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     texto = texto.replace(
         "@TEMA_DIAGNOSTICO@",
         ", system_diagnostics" if "system_diagnostics" not in desactivadas else "")
-    # Spec 032: el tema del control del host, solo con su familia activa.
+    # Spec 032: el tema del host (control y red), salvo con sus dos familias
+    # desactivadas.
     texto = texto.replace(
-        "@TEMA_HOST@", ", host_control" if "host_control" not in desactivadas else "")
+        "@TEMA_HOST@",
+        ", host_control" if not {"host_control", "host_network"} <= desactivadas else "")
     # Spec 019: el tema de los montajes, solo con su familia activa.
     texto = texto.replace(
         "@TEMA_MONTAJES@", ", mounts" if "mounts" not in desactivadas else "")
@@ -146,7 +148,7 @@ para el detalle de un área. Temas disponibles:
 - `repair_flows`   — arreglar avisos de Repairs con su flujo de reparación
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — apps (add-ons), host y core de HAOS
-- `host_control`   — apagar el host, hostname, swap y ranura de arranque de HAOS
+- `host_control`   — apagar el host, hostname, swap, ranura de arranque y red del host (interfaces secundarias, VLAN)
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
 - `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
@@ -715,8 +717,8 @@ reversible con `fs_restore_file_backup`.
   `sv_reboot_host` (token).
 - Logs de Core, del Supervisor, de los plugins y del host:
   `hermes_guide("system_diagnostics")`.
-- Apagar el host, cambiar el hostname, la swap o la ranura de arranque:
-  `hermes_guide("host_control")`.
+- Apagar el host, cambiar el hostname, la swap, la ranura de arranque o la
+  red del host: `hermes_guide("host_control")`.
 
 Cuidado con el propio Hermes (`local_hermes`): pararlo/desinstalarlo te deja sin
 acceso; el preview lo advierte. Operaciones largas devuelven `job_id`: pollea
@@ -904,7 +906,7 @@ si el montaje cambia entre la vista previa y la confirmación, la respuesta es
   ubicaciones (p. ej., tras copiar a mano un backup al NAS) y dice cuántos ve.
 """,
     "host_control": """\
-# Control del host: apagar, hostname, swap y ranura de arranque (Supervisor)
+# Control del host: apagar, hostname, swap, ranura de arranque y red (Supervisor)
 
 Las cuatro piden confirmación en dos pasos: la vista previa enseña el estado
 real (leído del Supervisor) y lo que va a pasar. El token ata los argumentos y
@@ -942,6 +944,44 @@ vuelva a responder.
 Para leer sin cambiar nada: `sv_get_host_info` (hostname y disco),
 `sv_get_os_info` (ranuras y versiones) y `sv_get_swap` (tema
 `system_diagnostics`).
+
+## Red del host (familia `host_network`)
+
+La red se LEE con `sv_read_api("/network/info")` (todas las interfaces, cuál
+es la principal y la conectividad) y
+`sv_read_api("/network/interface/<interfaz>/info")`. Para cambiarla:
+
+- `sv_reload_network` (sin token) — el Supervisor vuelve a leer el estado de
+  NetworkManager y comprueba la conectividad. No cambia nada.
+- `sv_update_network_interface(interface, ipv4=, ipv6=, wifi=, enabled=,
+  mdns=, llmnr=)` (token) — edita una interfaz SECUNDARIA. La interfaz
+  principal (la de la ruta por defecto, por la que se llega a Home Assistant
+  y a Hermes), la única conectada, y cualquiera si no se sabe cuál es la
+  principal se rechazan SIEMPRE (`primary_interface`,
+  `only_connected_interface`, `primary_unknown`), también para un cambio
+  inocuo como `mdns`; `default` también (es la principal). Esas se cambian
+  desde la interfaz de Home Assistant, con acceso local. El Supervisor aplica
+  el cambio en el acto y NO lo revierte.
+- `sv_create_vlan(interface, vlan_id, ipv4=, ipv6=, mdns=, llmnr=)` (token) —
+  crea `<interfaz>.<id>` (1–4094) sobre una tarjeta ethernet, también la
+  principal (no la modifica). No hay tool para borrarla.
+
+Cada bloque que pasas se REEMPLAZA entero, no se funde con lo que hay:
+`ipv4`/`ipv6` llevan siempre `method` (`auto`, `static`, `disabled`);
+`static` exige `address` con prefijo (`["192.0.2.20/24"]`) y admite
+`gateway`; `auto` y `disabled` no admiten ni `address` ni `gateway`. `wifi`
+lleva siempre `mode`, `auth` (`open`, `wep`, `wpa-psk`) y `ssid`; la `psk` es
+obligatoria con `wep`/`wpa-psk` y no se admite con `open`. Un bloque
+incompleto se rechaza: el Supervisor lo rellenaría con valores por defecto
+(un `ipv4` sin `method` sería estático sin dirección; un `wifi` sin `auth`,
+una red abierta).
+
+La PSK no se devuelve nunca: la vista previa dice `"psk": "set"`, y no sale
+en respuestas, errores ni el log. Una puerta de enlace en una interfaz
+secundaria o en una VLAN (fija o por DHCP) se permite con un aviso fuerte:
+puede quedarse con la ruta por defecto y cortar el acceso. Si la conexión se
+corta después de enviar, la respuesta es `outcome: "unknown"` con
+`verify_with`: lee la interfaz antes de repetir nada.
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)
@@ -1289,6 +1329,12 @@ _ALIASES: dict[str, str] = {
     "swap": "host_control",
     "boot_slot": "host_control",
     "shutdown": "host_control",
+    # Spec 032, tramo 2: la red del host está en el mismo tema. `network`
+    # sigue siendo `system_status` (las URLs y adaptadores que ve Core).
+    "host_network": "host_control",
+    "network_config": "host_control",
+    "vlan": "host_control",
+    "wifi": "host_control",
     "backup": "backups",
     # Spec 019. `backup` sigue siendo `backups`, como en la 1.1.2.
     "cifs": "mounts",

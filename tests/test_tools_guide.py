@@ -1068,4 +1068,38 @@ class TestTemaHostControl(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("`host_control`", await self.guide())
         self.assertIn("host_control", INSTRUCTIONS)
-        self.assertNotIn("host_control", instrucciones(frozenset({"host_control"})))
+        # Desde el tramo 2 el tema cubre también la red del host: solo
+        # desaparece con las dos familias desactivadas.
+        self.assertIn("host_control", instrucciones(frozenset({"host_control"})))
+        self.assertIn("host_control", instrucciones(frozenset({"host_network"})))
+        self.assertNotIn("host_control",
+                         instrucciones(frozenset({"host_control", "host_network"})))
+
+
+class TestTemaHostNetwork(unittest.IsolatedAsyncioTestCase):
+    """Spec 032, FR-017 (tramo 2): el tema `host_control` cubre también la
+    red del host: las tres tools, la guarda de la principal, que la red se
+    lee con `sv_read_api("/network/info")`, que los bloques se reemplazan
+    enteros y que la PSK no se devuelve; con sus alias. `network` sigue
+    llevando a `system_status`."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_red_en_el_tema(self) -> None:
+        texto = await self.guide("host_control")
+        for palabra in ("sv_reload_network", "sv_update_network_interface",
+                        "sv_create_vlan", 'sv_read_api("/network/info")',
+                        "primary_interface", "only_connected_interface",
+                        "primary_unknown", '"psk": "set"', "REEMPLAZA",
+                        "NO lo revierte", "ruta por defecto", "sin token"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("host_network", "network_config", "vlan", "wifi", "WiFi"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        self.assertEqual(await self.guide("network"), _GUIDE["system_status"])
+        self.assertIn("red del host", _GUIDE["supervisor"])
+        self.assertIn("red del host", await self.guide())
