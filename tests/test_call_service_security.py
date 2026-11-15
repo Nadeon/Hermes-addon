@@ -158,6 +158,244 @@ class TestCallServiceDenylist(unittest.IsolatedAsyncioTestCase):
         self.assertIn("confirmation_token", result)
 
 
+_SLUG_PROPIO = "a1b2c3d4_hermes"
+
+
+def _cliente_con_registro(registro: dict, slug: object = _SLUG_PROPIO) -> MagicMock:
+    """Cliente simulado con registro de entidades (`get_entries`) y
+    `/addons/self/info`. `registro` es `{entity_id: entrada}`; una entidad
+    ausente sale como `None`, igual que en Core. `slug` puede ser una
+    excepción (slug propio ilegible)."""
+    client = _make_ha_client()
+
+    async def ws_send(payload: dict, timeout_seconds: int = 30) -> object:
+        client.ws_llamadas.append(payload)
+        if isinstance(registro, BaseException):
+            raise registro
+        return {e: registro.get(e) for e in payload["entity_ids"]}
+
+    async def sv_request(method: str, path: str, **kw: object) -> object:
+        if isinstance(slug, BaseException):
+            raise slug
+        return {"slug": slug}
+
+    client.ws_llamadas = []
+    client.ws_send = ws_send
+    client.sv_request = sv_request
+    return client
+
+
+def _hassio(unique_id: str) -> dict:
+    return {"platform": "hassio", "unique_id": unique_id}
+
+
+class TestUpdateInstallPorCallService(unittest.IsolatedAsyncioTestCase):
+    """Spec 015, T051 (decisión del supervisor sobre el H5 de la revisión):
+    `ha_call_service("update", "install", …)` ya no salta D-1 ni D-3.
+
+    - objetivo que no es una lista explícita de `entity_id` → rechazo sin
+      token (`use_dedicated_tool` hacia `ha_install_update`);
+    - la entidad de Hermes (registro: `hassio` + `<slug propio>_version_latest`)
+      → `self_update_not_supported`; una de `hassio` con el slug propio
+      ilegible → `self_check_unavailable`;
+    - Core, OS y Supervisor → `use_dedicated_tool` hacia su `sv_*`;
+    - el resto (otras apps, firmware…) sigue como en la 1.1.2.
+
+    Todo se comprueba en la vista previa Y en la confirmación, y nunca se
+    llama a `call_service`. Controles negativos (comprobados): (a) quitar la
+    llamada a `comprobar_update_install` de `ha_call_service` → todos los
+    rechazos en rojo (sale token); (b) aceptar `area_id` en
+    `_entidades_explicitas` → `test_objetivo_indirecto` en rojo; (c) no
+    comprobar en la confirmación → `test_registro_cambia_antes_de_confirmar`
+    en rojo.
+    """
+
+    def setUp(self) -> None:
+        import hermes.security as security
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self._parche = patch.object(security, "CONFIRMATIONS_DIR", Path(self.tmp.name))
+        self._parche.start()
+        self.registro = {
+            "update.hermes_renombrada": _hassio(f"{_SLUG_PROPIO}_version_latest"),
+            "update.core_renombrada": _hassio("home_assistant_core_version_latest"),
+            "update.os_renombrada": _hassio("home_assistant_os_version_latest"),
+            "update.sup_renombrada": _hassio("home_assistant_supervisor_version_latest"),
+            "update.otra_app": _hassio("b0c1d2e3_ejemplo_version_latest"),
+            "update.otro_hermes": _hassio("b9c8d7e6_hermes_version_latest"),
+            "update.hassio_rara": _hassio("algo_desconocido"),
+            "update.firmware": {"platform": "zha", "unique_id": "x"},
+        }
+
+    def tearDown(self) -> None:
+        self._parche.stop()
+        self.tmp.cleanup()
+
+    def herramientas(self, **kw: object) -> tuple[MagicMock, dict]:
+        cliente = _cliente_con_registro(kw.pop("registro", self.registro), **kw)
+        return cliente, _register_ha_tools(cliente)
+
+    async def rechazo(self, datos: dict, error: str, **kw: object) -> dict:
+        cliente, tools = self.herramientas(**kw)
+        r = await tools["ha_call_service"](domain="update", service="install",
+                                           service_data=datos)
+        self.assertEqual(r.get("error"), error, r)
+        self.assertNotIn("confirmation_token", r)
+        # Ni con un token: se rechaza antes de mirarlo.
+        r2 = await tools["ha_call_service"](domain="update", service="install",
+                                            service_data=datos,
+                                            confirmation_token="x" * 32)
+        self.assertEqual(r2.get("error"), error, r2)
+        cliente.call_service.assert_not_called()
+        return r
+
+    async def test_objetivo_indirecto(self) -> None:
+        for datos in ({"area_id": "salon"}, {"device_id": "abc"}, {"label_id": "l"},
+                      {"floor_id": "p"}, {"entity_id": "all"}, {"entity_id": "none"},
+                      {}, {"target": {"area_id": "salon"}},
+                      {"entity_id": "update.firmware", "area_id": "salon"},
+                      {"target": {"entity_id": "update.firmware", "device_id": "d"}},
+                      {"target": "update.firmware"}, {"entity_id": 5},
+                      {"entity_id": ["update.firmware", 3]}, {"entity_id": " , "}):
+            with self.subTest(datos=datos):
+                r = await self.rechazo(datos, "use_dedicated_tool")
+                self.assertEqual(r["tool"], "ha_install_update")
+
+    async def test_hermes(self) -> None:
+        for datos in ({"entity_id": "update.hermes_renombrada"},
+                      {"entity_id": "update.firmware, UPDATE.HERMES_RENOMBRADA"},
+                      {"target": {"entity_id": ["update.hermes_renombrada"]}},
+                      # Hermes manda aunque haya otra que se remitiría.
+                      {"entity_id": ["update.core_renombrada", "update.hermes_renombrada"]}):
+            with self.subTest(datos=datos):
+                r = await self.rechazo(datos, "self_update_not_supported")
+                self.assertEqual(r["entity_id"], "update.hermes_renombrada")
+                self.assertIn("Home Assistant UI", r["detail"])
+
+    async def test_slug_propio_ilegible(self) -> None:
+        for eid in ("update.hermes_renombrada", "update.otra_app"):
+            with self.subTest(eid=eid):
+                await self.rechazo({"entity_id": eid}, "self_check_unavailable",
+                                   slug=ConnectionError("sin supervisor"))
+
+    async def test_core_os_supervisor_a_su_tool(self) -> None:
+        for eid, tool in (("update.core_renombrada", "sv_update_core"),
+                          ("update.os_renombrada", "sv_update_os"),
+                          ("update.sup_renombrada", "sv_update_supervisor")):
+            with self.subTest(eid=eid):
+                r = await self.rechazo({"entity_id": [eid, "update.firmware"]},
+                                       "use_dedicated_tool")
+                self.assertEqual((r["tool"], r["entity_id"]), (tool, eid))
+
+    async def test_hassio_no_reconocida(self) -> None:
+        await self.rechazo({"entity_id": "update.hassio_rara"}, "unsupported_entity")
+
+    async def test_registro_ilegible(self) -> None:
+        await self.rechazo({"entity_id": "update.firmware"}, "registry_unavailable",
+                           registro=ConnectionError("caído"))
+
+    async def test_el_resto_como_en_la_1_1_2(self) -> None:
+        for datos in ({"entity_id": "update.firmware"},
+                      {"entity_id": ["update.firmware", "update.otra_app"], "backup": True},
+                      # Otra app con sufijo `_hermes`: no es Hermes.
+                      {"entity_id": "update.otro_hermes"},
+                      # Fuera del registro: no es de `hassio`.
+                      {"target": {"entity_id": "update.sin_registro"}}):
+            with self.subTest(datos=datos):
+                cliente, tools = self.herramientas()
+                r = await tools["ha_call_service"](domain="update", service="install",
+                                                   service_data=datos)
+                self.assertIn("confirmation_token", r)
+                r = await tools["ha_call_service"](
+                    domain="update", service="install", service_data=datos,
+                    confirmation_token=r["confirmation_token"])
+                self.assertEqual(r, {"result": "ok"})
+                cliente.call_service.assert_awaited_once_with(
+                    "update", "install", datos, allow_dangerous=True)
+
+    async def test_registro_cambia_antes_de_confirmar(self) -> None:
+        # Se comprueba otra vez al confirmar: el registro manda en ese momento.
+        registro = dict(self.registro)
+        cliente, tools = self.herramientas(registro=registro)
+        datos = {"entity_id": "update.firmware"}
+        r = await tools["ha_call_service"](domain="update", service="install",
+                                           service_data=datos)
+        registro["update.firmware"] = _hassio(f"{_SLUG_PROPIO}_version_latest")
+        r = await tools["ha_call_service"](domain="update", service="install",
+                                           service_data=datos,
+                                           confirmation_token=r["confirmation_token"])
+        self.assertEqual(r["error"], "self_update_not_supported")
+        cliente.call_service.assert_not_called()
+
+    async def test_otros_servicios_no_leen_el_registro(self) -> None:
+        cliente, tools = self.herramientas()
+        await tools["ha_call_service"](domain="update", service="skip",
+                                       service_data={"area_id": "salon"})
+        await tools["ha_call_service"](domain="light", service="turn_on",
+                                       service_data={"entity_id": "light.salon"})
+        self.assertEqual(cliente.ws_llamadas, [])
+
+    async def test_call_service_response_no_admite_update_install(self) -> None:
+        # T051, punto 7: `ha_call_service_response` rechaza la denylist sin
+        # flujo de token, y `update.install` está en la denylist base, que la
+        # configuración solo puede ampliar.
+        cliente, tools = self.herramientas()
+        r = await tools["ha_call_service_response"](
+            domain="update", service="install",
+            service_data={"entity_id": "update.hermes_renombrada"})
+        self.assertEqual(r["error"], "service_in_denylist")
+        cliente.call_service_response.assert_not_called()
+
+
+class TestHintUpdateInstall(unittest.IsolatedAsyncioTestCase):
+    """Spec 015, FR-015 (T037): `ha_call_service("update", "install", …)` no
+    cambia de comportamiento (sigue pidiendo token y, con él, llama igual que
+    en la 1.1.2); solo su vista previa gana una `hint` hacia
+    `ha_install_update`, que enseña versiones, notas y backup.
+
+    Control negativo (T045 f): sin la `hint` cae `test_vista_previa_con_hint`.
+    """
+
+    def setUp(self) -> None:
+        import hermes.security as security
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self._parche = patch.object(security, "CONFIRMATIONS_DIR", Path(self.tmp.name))
+        self._parche.start()
+        self.ha_client = _cliente_con_registro({})
+        self.tools = _register_ha_tools(self.ha_client)
+        self.datos = {"entity_id": "update.firmware_ficticio"}
+
+    def tearDown(self) -> None:
+        self._parche.stop()
+        self.tmp.cleanup()
+
+    async def test_vista_previa_con_hint(self) -> None:
+        r = await self.tools["ha_call_service"](
+            domain="update", service="install", service_data=self.datos)
+        self.assertIn("confirmation_token", r)
+        self.assertIn("ha_install_update", r["preview"]["hint"])
+        self.assertEqual(r["preview"]["service"], "install")
+        self.ha_client.call_service.assert_not_called()
+
+    async def test_con_token_igual_que_en_la_1_1_2(self) -> None:
+        r = await self.tools["ha_call_service"](
+            domain="update", service="install", service_data=self.datos)
+        r = await self.tools["ha_call_service"](
+            domain="update", service="install", service_data=self.datos,
+            confirmation_token=r["confirmation_token"])
+        self.assertEqual(r, {"result": "ok"})
+        self.ha_client.call_service.assert_awaited_once_with(
+            "update", "install", self.datos, allow_dangerous=True)
+
+    async def test_otro_servicio_sin_hint(self) -> None:
+        for dominio, servicio in (("homeassistant", "restart"), ("update", "skip")):
+            with self.subTest(servicio=f"{dominio}.{servicio}"):
+                r = await self.tools["ha_call_service"](domain=dominio, service=servicio)
+                if "preview" in r:
+                    self.assertNotIn("hint", r["preview"])
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. Sanitización de service_data
 # ══════════════════════════════════════════════════════════════════════════════

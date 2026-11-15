@@ -43,7 +43,19 @@ input_button:
 input_datetime:
 input_number:
 input_select:
+# Spec 015 (tramo 3): dos `input_text` de apoyo para la entidad `update` de
+# plantilla de abajo. Se declaran aquí, y no los crea el test, porque la
+# plantilla los nombra por su entity_id fijo. `input_text:` sigue admitiendo
+# además los creados por WebSocket (los tests de helpers). Son `input_text` y
+# no `input_boolean` para que `input_boolean.reload` (028) siga sin YAML que
+# releer.
 input_text:
+  banco_update_instalada:
+    name: Banco update instalada
+    initial: "1.0.0"
+  banco_update_backup:
+    name: Banco update backup
+    initial: "no"
 counter:
 timer:
 schedule:
@@ -162,3 +174,38 @@ diagnostics:
 # reparación: el banco no tiene red ni hardware que descubrir. Sin requisitos
 # ni salida a internet.
 banco_flujos:
+
+# ── Spec 015 (tramo 3): una entidad `update` real ───────────────────────────
+#
+# El banco no tiene ninguna entidad `update` (no hay integración `hassio`, y
+# `kitchen_sink` no trae ninguna; `demo` se descarta: arrastra decenas de
+# plataformas y su instalación con progreso duerme por pasos, research R-12).
+# La integración `template` da una entidad `update` de verdad, con el
+# `update.install` real de Core y sus validaciones: la versión instalada se lee
+# de un `input_text`, la última es fija, admite versión concreta y backup, y
+# su acción `install` escribe la versión pedida (`specific_version`, o la
+# última si no se pidió) en ese `input_text` y si se pidió backup en el otro.
+# Así el lector independiente ve el efecto. No admite notas de versión
+# (`release_notes`): ese camino se prueba con simuladores.
+template:
+  - update:
+      - name: Banco firmware
+        unique_id: banco_update_firmware
+        device_class: firmware
+        installed_version: "{{ states('input_text.banco_update_instalada') }}"
+        latest_version: "2.0.0"
+        specific_version: true
+        backup: true
+        title: Firmware del banco
+        release_summary: Version de prueba del banco
+        install:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.banco_update_instalada
+            data:
+              value: "{{ specific_version if specific_version else '2.0.0' }}"
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.banco_update_backup
+            data:
+              value: "{{ 'si' if backup else 'no' }}"

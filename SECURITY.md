@@ -145,10 +145,22 @@ report about one of them will be closed with a pointer to this section:
     longer calls Home Assistant, which has no `counter.reload`, and answers
     `not_supported`), and
     `ha_run_script` and `ha_trigger_automation` (only for a restricted
-    script or automation), and `ha_clear_system_log` and
+    script or automation), `ha_clear_system_log` and
     `ha_dismiss_persistent_notification` (always confirmed: clearing the
-    system log or dismissing a notification hides traces). A test walks the code and fails if any other
-    place lifts it.
+    system log or dismissing a notification hides traces), and
+    `ha_install_update` (1.2.0; always confirmed, with the token bound to
+    the from/to versions: `update.install` is in the denylist). A test walks
+    the code and fails if any other place lifts it.
+  - **`update.install` through `ha_call_service`** (1.2.0) is checked before
+    any token is issued or accepted: the target must be an explicit list of
+    `entity_id` (no area, device, label, floor or `all`), each entity is
+    resolved through the entity registry, Hermes' own update entity is
+    refused (`self_update_not_supported`; fail-closed when Hermes cannot read
+    its own app slug), and the Core, OS and Supervisor entities are sent to
+    `sv_update_core`, `sv_update_os` and `sv_update_supervisor`, which run
+    their own checks (configuration check for Core). Without this, Hermes
+    could update itself through Core, which calls the Supervisor as Core and
+    so skips the Supervisor's own self-update protection.
   - **Generic tools behind a fail-closed command table.**
     `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and
     `sv_read_api`/`sv_call_api` (Supervisor API routes) cover what no

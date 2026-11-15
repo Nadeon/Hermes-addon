@@ -63,6 +63,20 @@ atan sus 13 argumentos tal como llegan (credenciales incluidas; desde la
 cambia la acción (el montaje actual, el por defecto y los backups
 afectados) va además en el `estado` del token. Las otras cinco de la 019
 no piden token. Ningún hallazgo.
+
+Recuento: 99 desde la integración de la 015, que trae cuatro tools con
+token, comprobadas en el código (`_args_atados` en `tools/system_updates.py`):
+`sv_update_core` ata `version` y `backup`; `sv_update_os`, `version`;
+`sv_update_supervisor` no tiene argumentos; y `ha_install_update` ata
+`entity_id`, `version` y `backup`. Las cuatro atan además la versión de
+origen y la de destino que resuelven al previsualizar (`_from_version` y
+`_to_version`), releídas antes de validar al confirmar: si cambiaron, el
+token no coincide y no se envía nada. Lo que se envía al confirmar sale de
+lo atado (la versión de destino explícita, salvo en el Supervisor, que va
+sin cuerpo por diseño de la 015, y en una entidad sin `specific_version`).
+`sv_check_for_updates` no pide token. `ha_call_service` con `update.install`
+sigue atando `domain`, `service` y `service_data` como en la 1.1.2. Ningún
+hallazgo.
 """
 
 from __future__ import annotations
@@ -232,6 +246,14 @@ INVENTARIO: dict[str, dict[str, str]] = {
     # van además en el `estado`.
     "sv_delete_mount": {"name": A},
     "sv_set_default_backup_mount": {"name": A},
+    # ── actualizaciones del sistema (spec 015) ──────────────────────────
+    # Las cuatro atan, además de sus argumentos, la versión de origen y la
+    # de destino resueltas (`_args_atados`: `_from_version`, `_to_version`),
+    # releídas antes de validar al confirmar.
+    "sv_update_core": {"version": A, "backup": A},
+    "sv_update_os": {"version": A},
+    "sv_update_supervisor": {},
+    "ha_install_update": {"entity_id": A, "version": A, "backup": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -326,7 +348,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 95)
+        self.assertEqual(len(firmas_con_token(TOOLS)), 99)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -346,7 +368,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 95)
+        self.assertEqual(len(publicadas), 99)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

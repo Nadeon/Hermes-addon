@@ -456,7 +456,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 012 | Diagnóstico de Core | 040, 041, 042, 047 | hecha: familia `core_diagnostics` con 12 tools (logs, validación, diagnósticos de integraciones y notificaciones persistentes), 9 entradas de la tabla a `dedicated` y tema de la guía. En el banco, las 12 contra HA Core real (diagnóstico de entrada con `local_calendar`). Pendiente manual: el camino feliz de `ha_get_device_diagnostics`, que ninguna integración sin hardware ni nube ofrece (cubierto por unitarios) |
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (VM de la 014, después instalación real) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
-| 015 | Actualizaciones del sistema | 064, 080 | pendiente |
+| 015 | Actualizaciones del sistema | 064, 080 | hecha: familia `system_updates` con 8 tools (`sv_list_available_updates`, `sv_check_for_updates`, `sv_update_core`, `sv_update_os`, `sv_update_supervisor`, `ha_list_updates`, `ha_get_update_release_notes`, `ha_install_update`), vista previa con bloqueos y token atado a las versiones, encaminamiento de las entidades del Supervisor a las `sv_*` y Hermes sin autoactualización; 8 entradas de la tabla a `dedicated`; tema `updates`; `ha_install_update` probada en el banco de Core; prueba real de las cuatro `sv_*` que modifican pendiente manual en la VM de la 014 |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | hecha: familias `integration_flows` (descubiertos, dominios configurables, título y preferencias de una entrada, subentries y reconfigure con token en cada paso; la tool general de flujos rechaza los reconfigure y los flujos que no reconoce, y pide token en los `reauth`; ignorar, solo descubrimientos) y `repair_flows` (aviso con sus datos internos y flujo de reparación con token en cada paso); textos traducidos en `ha_list_repairs`; guía de helpers por config entry. Todo lo que modifica, probado en el banco de Core con la integración de prueba `banco_flujos`. Pendiente manual tras publicar: un descubrimiento real, subentries de una integración real, flujos de reparación reales (uno del Supervisor y uno de varios pasos), una reautenticación real y textos en un idioma distinto del inglés |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
@@ -718,6 +718,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_ignore_repair` | banco de Core | ok | |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
+| `ha_install_update` | banco de Core | ok | spec 015; entidad `update` de plantilla del banco |
 | `ha_pause_timer` | banco de Core | ok | |
 | `ha_press_input_button` | banco de Core | ok | |
 | `ha_reload_automations` | banco de Core | ok | |
@@ -763,6 +764,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_subentry` | banco de Core | ok | spec 016 |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
+| `sv_check_for_updates` | VM | pendiente | spec 015 |
 | `sv_create_backup_full` | VM | pendiente | |
 | `sv_create_backup_partial` | VM | pendiente | |
 | `sv_create_mount` | VM | pendiente | recurso CIFS y NFS de prueba |
@@ -787,7 +789,10 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |
 | `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
 | `sv_update_addon` | VM | pendiente | add-on de prueba |
+| `sv_update_core` | VM | pendiente | spec 015; instantánea antes |
 | `sv_update_mount` | VM | pendiente | instantánea antes |
+| `sv_update_os` | VM | pendiente | spec 015; instantánea antes; reinicio del host después |
+| `sv_update_supervisor` | VM | pendiente | spec 015; instantánea antes |
 <!-- matriz-pruebas:fin -->
 
 El orden no es el del número: primero 009 y 010; después 011 (la tabla y las
@@ -803,9 +808,11 @@ programa:
   rechazaba todo lo de la denylist sin aceptar `confirmation_token`, así que
   una acción peligrosa con respuesta (`conversation.process`) no podía
   devolverla ni confirmando. Desde la 1.2.0 se confirma en dos pasos.
-- **Actualizar Core, OS y Supervisor con vista previa útil** (015): versión
-  actual → destino, notas, backup y salud del sistema. Hoy solo con
-  `update.install` confirmando.
+- **Actualizar Core, OS y Supervisor con vista previa útil** (015).
+  Resuelto en 1.2.0: `sv_update_core`, `sv_update_os` y
+  `sv_update_supervisor` (versión actual → destino, backup, salud y bloqueos)
+  y `ha_install_update` para las entidades `update`; la prueba real de las
+  `sv_*`, pendiente en la VM de la 014.
 - **Banco de pruebas** (010, 028 y 014): HA Core en contenedor en el CI para
   ejecutar de verdad las escrituras de Core; para el Supervisor, una VM con
   HAOS cuyo procedimiento se documenta y que queda como prueba manual.

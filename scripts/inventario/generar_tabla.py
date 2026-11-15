@@ -176,6 +176,18 @@ class _Deny:
     motivo: str
 
 
+@dataclass(frozen=True)
+class _ConMatiz:
+    """Lo cubierto por una tool que no usa esa misma ruta o comando: el
+    motivo dice cuál usa, para que el cliente no crea que son lo mismo
+    (spec 015: `/reload_updates` y `hassio/update/core`). Sin esto, la
+    generación desde cero perdería el matiz que la tabla revisada sí tiene.
+    """
+
+    tool: str
+    matiz: str
+
+
 _INTERNO = _Deny("uso interno de Hermes")
 _SUSCRIPCION_NO_USADA = _Deny(
     "suscripción/streaming: MCP es petición-respuesta (Hermes no la usa)"
@@ -191,7 +203,7 @@ _SUSCRIPCION_NO_USADA = _Deny(
 # `use_dedicated_tool`: la tool dedicada tiene la vista previa semántica, la
 # denylist o las protecciones (dashboard principal, autoprotección de Hermes)
 # que la genérica no tiene.
-_DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
+_DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny | _ConMatiz] = {
     # Automatizaciones y scripts: la config por entity_id la dan las tools de
     # lectura (que leen por REST); el comando WS lo usan los registros por dentro.
     "automation/config": "ha_get_automation",
@@ -208,7 +220,11 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "cloud/subscribe_events": _SUSCRIPCION_NO_USADA,
     # Acciones de HA.
     "calendar/event/create": "ha_call_service",
-    "hassio/update/core": "ha_call_service",
+    # 015: actualizar Core por el Supervisor, con la vista previa de la tool.
+    "hassio/update/core": _ConMatiz(
+        "sv_update_core",
+        "la misma actualización por el Supervisor, con vista previa de "
+        "versiones, backup y bloqueos"),
     "media_player/browse_media": "ha_call_service_response",
     "media_player/search_media": "ha_call_service_response",
     "recorder/statistic_during_period": "ha_call_service_response",
@@ -377,6 +393,19 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     ("GET", "/backups/info"): "sv_get_backup_settings",
     ("POST", "/backups/options"): "sv_set_backup_settings",
     ("POST", "/backups/reload"): "sv_reload_backups",
+    # 015: actualizaciones del sistema (CAP-080) y notas de versión de las
+    # entidades `update` (CAP-064), clase A de vía D, por el mismo mecanismo.
+    # `/refresh_updates` (clase B) no entra: la clase B no consulta el mapa,
+    # y la tabla revisada la tiene `dedicated` (es la ruta que usa
+    # `sv_check_for_updates`).
+    ("GET", "/available_updates"): "sv_list_available_updates",
+    ("POST", "/reload_updates"): _ConMatiz(
+        "sv_check_for_updates",
+        "que usa /refresh_updates: recarga también la tienda"),
+    ("POST", "/core/update"): "sv_update_core",
+    ("POST", "/os/update"): "sv_update_os",
+    ("POST", "/supervisor/update"): "sv_update_supervisor",
+    "update/release_notes": "ha_get_update_release_notes",
     # 013: logs del sistema (CAP-081) y disco, host y OS (CAP-085), clase A de
     # vía D, por el mismo mecanismo que las de la 012 y la 029.
     **{("GET", f"/{origen}/logs{sufijo}"): tool
@@ -493,7 +522,11 @@ def _clasificar(
     # clase A cuya sub-feature ya creó su tool (specs 012, 013, 016 y 029;
     # research R-7): un solo constructor para las dos, para que una
     # generación desde cero dé la misma tabla que la revisada a mano.
-    def dedicada(destino: str) -> dict[str, object]:
+    def dedicada(destino: str | _ConMatiz) -> dict[str, object]:
+        matiz = ""
+        if isinstance(destino, _ConMatiz):
+            matiz = f" ({destino.matiz})"
+            destino = destino.tool
         # «(acción de HA)» solo si la cubre de verdad la acción genérica: una
         # fila cubierta por una acción que ya tiene tool dedicada (spec 012,
         # `logger/integration_log_level`) no se ejecuta como acción.
@@ -501,7 +534,8 @@ def _clasificar(
                      and destino.startswith("ha_call_service"))
         return {
             "category": "dedicated",
-            "reason": f"cubierto por {destino}" + (" (acción de HA)" if de_accion else ""),
+            "reason": (f"cubierto por {destino}" + (" (acción de HA)" if de_accion else "")
+                       + matiz),
             "family": tools[destino],
             "tool": destino,
             "cap": cap,
@@ -526,7 +560,7 @@ def _clasificar(
         # 012 y 029, research R-7): se consulta antes que la regla
         # «pendiente», con el mismo constructor que las de clase «cubierto».
         destino = _DEDICADAS_INICIALES.get(clave)
-        if isinstance(destino, str):
+        if isinstance(destino, (str, _ConMatiz)):
             return dedicada(destino)
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")

@@ -347,6 +347,158 @@ _Pendiente: la añade la sub-feature que lo implemente._
   porque la clave es otra. Se rechaza con «lost across restart» sin gastarlo,
   y basta con pedir otra vista previa (falla cerrado).
 
+#### Actualizaciones del sistema
+
+- **Saber qué hay que actualizar y buscar actualizaciones.** Familia nueva
+  `system_updates` (desactivable con `tool_families_disabled`).
+  `sv_list_available_updates` (solo lee) lista lo que tiene actualización
+  —Home Assistant Core, OS, Supervisor, apps y plugins del Supervisor— con la
+  versión instalada, la disponible y la tool con que se actualiza
+  (`update_with`), en el orden en que conviene actualizar. La app de Hermes
+  sale con `update_with: null` y una nota: Hermes no se actualiza a sí mismo,
+  se actualiza desde la interfaz de Home Assistant. Si una lectura del
+  Supervisor falla, la lista lo dice (`partial`, `unavailable`) en vez de
+  parecer vacía. `sv_check_for_updates` pide al Supervisor que busque ya
+  (descarga el registro de versiones y refresca la tienda: sale a internet)
+  y devuelve la misma lista; no pide confirmación.
+- **Actualizar Core con una vista previa que no miente.** `sv_update_core`
+  (versión opcional, `backup` activado por defecto), en dos pasos. La vista
+  previa dice de qué versión a qué versión (y si es una bajada), el backup
+  parcial de Core que hace el Supervisor antes (nombre `core_<versión>`, sin
+  apps), qué se reinicia, la salud del sistema y el resultado de la
+  comprobación de la configuración de Core, que se hace en la vista previa
+  sin levantar el bloqueo de reinicio de `sv_restart_core`. Si el Supervisor
+  la rechazaría —sistema no saludable, Supervisor con actualización
+  pendiente, plugins desactualizados con su actualización automática
+  apagada, menos de 2 GB libres— o la configuración no es válida o no se pudo
+  comprobar, responde `update_blocked` con la vista previa y **sin** token;
+  lo de la configuración no se puede saltar. El token queda atado a los
+  argumentos y a las versiones de origen y destino: si cambian entre la
+  vista previa y la confirmación (por ejemplo, tras buscar actualizaciones),
+  la confirmación responde `preview_outdated` sin enviar nada. La ejecución
+  manda siempre la versión explícita y devuelve el `job_id`, que se sigue con
+  `sv_get_job_status`. Los errores del Supervisor y el detalle de la
+  comprobación pasan por la redacción de secretos; el log de Hermes anota
+  tool, componente y versiones (`system_update_started`), nunca el texto de
+  un error.
+- **Actualizar el OS y el Supervisor.** `sv_update_os` (versión opcional) y
+  `sv_update_supervisor` (sin argumentos), en dos pasos y con el token atado a
+  las versiones igual que en Core. La vista previa del OS dice claramente que
+  instalar no reinicia nada y que el OS nuevo solo se aplica al **reiniciar el
+  host** con `sv_reboot_host`, que reinicia todo, Hermes incluido; Hermes no
+  reinicia el host por su cuenta. Tampoco hace backup: la vista previa lo dice
+  y sugiere `sv_create_backup_full` antes. Sin Home Assistant OS responde
+  `not_haos`; con esa versión ya instalada y esperando el reinicio,
+  `update_blocked` (`reboot_pending`), igual que con el sistema no saludable o
+  el Supervisor pendiente. La del Supervisor dice que se reinicia solo, que
+  Core y las apps siguen funcionando y que las `sv_*` fallan alrededor de un
+  minuto; no admite versión ni backup. Como el Supervisor responde a estas dos
+  actualizaciones cuando terminan (minutos), Hermes lanza la petición en
+  segundo plano y busca el job unos segundos: devuelve el `job_id` o
+  `status: started` con la tool con que comprobar la versión. Que la conexión
+  se corte cuando el Supervisor se reinicia no es un error; el resultado final
+  queda en el log de Hermes (`system_update_finished` o
+  `system_update_failed`, con el error redactado).
+- **Notas de la versión**: Home Assistant no tiene en local las notas de Core
+  y Hermes no las descarga de internet, así que la vista previa lo dice y da
+  la `release_url` de la entidad `update` de Core (buscada por el registro de
+  entidades, no por su nombre). Es una desviación de la spec 008, que pedía
+  las notas recortadas. Tampoco las del Supervisor ni las del OS: de este, la
+  vista previa da el aviso de reinicio que da su entidad.
+- **Entidades `update` de Home Assistant** (firmware de dispositivos,
+  integraciones, HACS…), en el módulo nuevo `update_entities` de la misma
+  familia. `ha_list_updates` (solo lee) lista las que tienen actualización
+  (todas con `include_up_to_date`) con sus versiones, qué admiten (`supports`,
+  decodificado de `supported_features`), la integración y la tool con que se
+  instalan (`install_with`). `ha_get_update_release_notes` da las notas,
+  redactadas, recortadas al tope de respuesta y marcadas como texto de
+  terceros; si la entidad no las tiene, lo dice con el resumen y la URL.
+  `ha_install_update` instala en dos pasos: la vista previa dice de qué
+  versión a qué versión, las notas (1500 caracteres) o el resumen, el backup
+  (lo hace la integración, si lo admite) y, en firmware, que no se apague el
+  dispositivo. Lo que Home Assistant rechazaría (sin actualización, versión o
+  backup que la entidad no admite, instalación ya en curso, entidad sin
+  instalación) vuelve como error y **sin** token. El token queda atado a las
+  versiones igual que en Core, y si la instalación tarda más de 30 s la
+  respuesta es `status: running` (sigue en Home Assistant) en vez de un
+  error. Si la entidad no admite versión concreta, se instala sin `version`
+  (Core la rechazaría), con el token atado a la última leída justo antes.
+- **Un camino por cosa.** Las entidades de la integración del Supervisor
+  (Core, OS, Supervisor y apps), reconocidas por el registro de entidades y no
+  por su nombre, no se instalan con `ha_install_update`: responde
+  `use_dedicated_tool` con `sv_update_core`, `sv_update_os`,
+  `sv_update_supervisor` o `sv_update_addon` y los argumentos. **Hermes no se
+  actualiza a sí mismo**: su entidad responde `self_update_not_supported` sin
+  token, con cómo hacerlo (desde la interfaz de Home Assistant o con la
+  actualización automática del add-on). Para saber que es Hermes se compara
+  con el slug exacto que el Supervisor da para el propio add-on
+  (`/addons/self/info`), no con un sufijo; si no se puede leer, se rechaza
+  igual (`self_check_unavailable`). Ese mismo criterio vale ahora en
+  `sv_list_available_updates`. Una app de otro repositorio cuyo slug también
+  termina en `_hermes` no es Hermes, pero tampoco se manda a
+  `sv_update_addon`, que rechaza todos los slugs con ese sufijo: las tres
+  tools lo dicen (`update_with`/`install_with: null` con una nota;
+  `ha_install_update` responde `unsupported_entity`) y remiten a la interfaz
+  de Home Assistant.
+- **Cambio de comportamiento de `ha_call_service` con `update.install`**
+  (tool de la 1.1.2; el esquema no cambia). Por esa vía Hermes podía
+  actualizarse a sí mismo (Core llama al Supervisor como Core, así que ni la
+  protección propia del Supervisor salta) y Core se actualizaba sin la
+  comprobación de la configuración de `sv_update_core`. Ahora, solo para
+  `update.install`, y tanto en la vista previa como al confirmar: el objetivo
+  tiene que ser una lista explícita de `entity_id` (con `area_id`,
+  `device_id`, `label_id`, `floor_id`, `all` o sin objetivo responde
+  `use_dedicated_tool` hacia `ha_install_update`); cada entidad se resuelve
+  por el registro de entidades igual que en `ha_install_update`; la de Hermes
+  responde `self_update_not_supported` (y, si el slug propio no se puede
+  leer, cualquier app del Supervisor, `self_check_unavailable`); las de Core,
+  OS y Supervisor, `use_dedicated_tool` hacia `sv_update_core`,
+  `sv_update_os` o `sv_update_supervisor`. Todo sin token y sin llegar a Home
+  Assistant. Las demás entidades `update` (otras apps, firmware, HACS…)
+  siguen exactamente igual: token y la misma llamada, con la `hint` hacia
+  `ha_install_update` en la vista previa. `ha_call_service_response` no
+  cambia: ya rechazaba `update.install` (está en la denylist y esa tool no
+  tiene confirmación).
+- **Otra actualización del OS en marcha.** Si ya hay una actualización del OS
+  en curso (lanzada desde la interfaz o por otra llamada), la vista previa de
+  `sv_update_os` responde `update_in_progress` con su `job_id` y sin token. Y
+  la confirmación nunca toma como suyo un job que ya estaba en marcha antes
+  de su petición: si el Supervisor la rechaza, la respuesta lo dice
+  (`supervisor_error`) en vez de quedar solo en el log. Core y el Supervisor
+  no tienen esa carrera (Core devuelve su propio job o el error; el
+  Supervisor comparte la actualización que ya está en curso).
+- **Notas de versión de terceros que no pasan del tope.**
+  `ha_get_update_release_notes` recorta midiendo el tamaño real del texto en
+  la respuesta, con el escape JSON (comillas, barras, saltos de línea), así
+  que unas notas llenas de esos caracteres ya no se cambian por un error.
+- **Tabla de comandos**: `GET /available_updates`, `POST /refresh_updates`,
+  `POST /reload_updates`, `POST /core/update`, `hassio/update/core`,
+  `POST /os/update`, `POST /supervisor/update` y el comando de Core
+  `update/release_notes` pasan a `dedicated` hacia estas tools: las genéricas
+  remiten a ellas y nunca son una forma de actualizar sin la vista previa.
+  `/reload_updates` va a `sv_check_for_updates` aunque la tool use
+  `/refresh_updates`, que además recarga la tienda. No queda ninguna entrada
+  «pendiente (spec 015)».
+- **Guía**: tema nuevo `hermes_guide("updates")` (alias `update`, `upgrade`)
+  con el orden recomendado (Supervisor → Core → OS y reiniciar el host), los
+  bloqueos, el token atado a las versiones y qué hacer tras el reinicio del
+  Supervisor; el tema `supervisor` remite a él.
+- `sv_check_for_updates`, `sv_update_core`, `sv_update_os` y
+  `sv_update_supervisor` se prueban con un Supervisor
+  simulado con la forma de las respuestas del 2026.11.0; su prueba contra un
+  Supervisor real queda pendiente en la VM de la 014 (matriz de pruebas de la
+  hoja de ruta).
+  `ha_install_update` se ejecuta en el banco de Core contra una entidad
+  `update` de la integración `template` (vista previa sin efecto,
+  confirmación, versión concreta y backup, comprobados por el lector
+  independiente); su encaminamiento y el rechazo de Hermes, con simuladores
+  (en el banco no hay integración del Supervisor).
+- Ocho tools en la familia `system_updates`, que se apaga entera con
+  `tool_families_disabled`. Desviaciones de la spec 008: las notas de Core,
+  OS y Supervisor no se descargan (arriba), y hay una tool más de las
+  estimadas (`ha_list_updates`, porque `sv_list_available_updates` no ve las
+  entidades `update` de dispositivos e integraciones).
+
 ### Sistema
 
 _Pendiente: la añade la sub-feature que lo implemente._

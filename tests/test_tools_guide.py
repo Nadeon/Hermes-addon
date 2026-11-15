@@ -931,6 +931,85 @@ class TestGuiaApps(unittest.TestCase):
                 self.assertIn(f"`{nombre}", _GUIDE["supervisor"])
 
 
+class TestTemaUpdates(unittest.IsolatedAsyncioTestCase):
+    """Spec 015, FR-020 (T013): tema `updates` (alias `update`, `upgrade`) con
+    las tres tools del tramo 1, el orden, los bloqueos y el token atado; el
+    tema `supervisor` remite a él; las instrucciones solo lo anuncian con la
+    familia `system_updates` activa (principio V).
+
+    Control negativo: quitar el alias `upgrade` → cae `test_tema_y_alias`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("updates")
+        self.assertIs(texto, _GUIDE["updates"])
+        for alias in ("update", "upgrade", "UPDATE", " Upgrade "):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    def test_cita_las_tools_y_lo_que_hay_que_saber(self) -> None:
+        texto = _GUIDE["updates"]
+        for palabra in ("sv_list_available_updates", "sv_check_for_updates",
+                        "sv_update_core", "sv_get_job_status", "sv_update_addon",
+                        "update_blocked", "preview_outdated", "unhealthy",
+                        "supervisor_update_pending", "plugins_outdated",
+                        "low_disk_space", "config_invalid", "config_check_failed",
+                        "Supervisor → Core → OS", "release_url", "update_with: null"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    def test_os_y_supervisor(self) -> None:
+        # Tramo 2 (T025): las dos tools, el orden con el reinicio del host,
+        # que el OS no se aplica hasta reiniciar y qué hacer tras el reinicio
+        # del Supervisor.
+        texto = _GUIDE["updates"]
+        for palabra in ("sv_update_os", "sv_update_supervisor", "sv_reboot_host",
+                        "Supervisor → Core → OS y reiniciar el host", "not_haos",
+                        "reboot_pending", "reinicia TODO", "sv_get_supervisor_info",
+                        "status: started", "verify_with", "sv_create_backup_full"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    def test_entidades_update(self) -> None:
+        # Tramo 3 (T042): las tres tools, el encaminamiento por el registro,
+        # el rechazo de Hermes y la `hint` de `ha_call_service`.
+        texto = _GUIDE["updates"]
+        for palabra in ("ha_list_updates", "ha_get_update_release_notes",
+                        "ha_install_update", "use_dedicated_tool", "registro de entidades",
+                        "self_update_not_supported", "self_check_unavailable",
+                        "status: running", "ha_call_service", "hint",
+                        "no_update_available", "texto de terceros"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    def test_las_tools_que_cita_existen(self) -> None:
+        # La guía no puede anunciar tools que el servidor no tiene (principio
+        # V): toda `sv_*`/`ha_*` citada está registrada.
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        tools = _real_registry()
+        citadas = set(re.findall(r"`((?:sv|ha)_[a-z_]+)", _GUIDE["updates"]))
+        self.assertTrue(citadas)
+        self.assertEqual(sorted(citadas - set(tools)), [])
+
+    async def test_supervisor_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn('hermes_guide("updates")', _GUIDE["supervisor"])
+        self.assertIn("`updates`", await self.guide())
+        self.assertIn(", updates,", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"system_updates"}))
+        self.assertNotIn("updates", sin.replace("ha_update_", ""))
+        self.assertNotIn("@", sin)
+
+
 if __name__ == "__main__":
     unittest.main()
 

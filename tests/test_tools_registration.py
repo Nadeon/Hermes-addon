@@ -837,6 +837,24 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_backup_settings": ("R-I-", "Get backup settings (Supervisor)"),
     "sv_set_backup_settings": ("--I-", "Set backup settings (Supervisor)"),
     "sv_reload_backups": ("--I-", "Reload backups (Supervisor)"),
+    # Spec 015 (contracts/tools.md), familia `system_updates`. La lista solo
+    # lee; buscar actualizaciones no pide token pero sale a internet y no es
+    # de solo lectura (refresca la caché del Supervisor); actualizar Core es
+    # destructiva, idempotente (repetirla a la misma versión la rechaza el
+    # Supervisor) y de mundo abierto.
+    "sv_list_available_updates": ("R-I-", "List available updates (Supervisor)"),
+    "sv_check_for_updates": ("--IO", "Check for updates (Supervisor)"),
+    "sv_update_core": ("-DIO", "Update core (Supervisor)"),
+    # Tramo 2: OS y Supervisor, mismas garantías que Core. `OS` en mayúsculas
+    # por `_TITLE_WORDS` (lo trajo la 013).
+    "sv_update_os": ("-DIO", "Update OS (Supervisor)"),
+    "sv_update_supervisor": ("-DIO", "Update supervisor (Supervisor)"),
+    # Tramo 3: entidades `update` de Core. La lista lee lo que HA tiene; las
+    # notas pueden pedirse a internet al leerlas; instalar es destructiva,
+    # idempotente y de mundo abierto como las `sv_update_*`.
+    "ha_list_updates": ("R-I-", "List updates (Home Assistant)"),
+    "ha_get_update_release_notes": ("R-IO", "Get update release notes (Home Assistant)"),
+    "ha_install_update": ("-DIO", "Install update (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -867,6 +885,11 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_delete_mount", "sv_reload_mount", "sv_set_default_backup_mount",
         "sv_get_backup_settings", "sv_set_backup_settings", "sv_reload_backups",
     },
+    "system_updates": {
+        "sv_list_available_updates", "sv_check_for_updates", "sv_update_core",
+        "sv_update_os", "sv_update_supervisor", "ha_list_updates",
+        "ha_get_update_release_notes", "ha_install_update",
+    },
 }
 
 # Las de la spec 019, tramo 1 (montajes, CAP-083).
@@ -890,6 +913,15 @@ _HOST_013 = (
     "sv_list_host_services", "sv_get_disk_usage", "sv_get_os_info",
     "sv_get_swap", "sv_list_datadisk_candidates",
 )
+
+# Las del tramo 1 de la spec 015 (actualizaciones, CAP-080).
+_UPDATES_015 = ("sv_list_available_updates", "sv_check_for_updates", "sv_update_core")
+
+# Las del tramo 2 de la spec 015 (OS y Supervisor, CAP-080).
+_UPDATES_015_T2 = ("sv_update_os", "sv_update_supervisor")
+
+# Las del tramo 3 de la spec 015 (entidades `update`, CAP-064).
+_UPDATES_015_T3 = ("ha_list_updates", "ha_get_update_release_notes", "ha_install_update")
 
 
 def _hint_code(ann) -> str:
@@ -1170,7 +1202,8 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert {"generic_commands", "system_diagnostics", "mounts"} <= set(nuevas)
+        assert {"generic_commands", "system_diagnostics", "mounts",
+                "system_updates"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1436,6 +1469,92 @@ class TestMontajes019:
         assert dedicadas == set(_MOUNTS_019 + _BACKUP_SETTINGS_019)
         # `location` es de `backups` (1.1.2): sigue aunque `mounts` se apague.
         assert "location" in tools["sv_create_backup_full"].parameters["properties"]
+
+
+# ── Spec 015, tramo 1: actualizaciones del sistema (FR-017, FR-019; T009) ─────
+
+
+class TestActualizaciones015:
+    """Las tres tools del tramo 1 se registran por defecto con las anotaciones
+    de contracts/tools.md; con `system_updates` apagada no existe ninguna y
+    las entradas de la tabla siguen apuntándolas como `dedicated`.
+
+    Control negativo (T015 g, en test_command_table): dejar `/core/update`
+    como `deny` → cae `TestActualizacionesDeLa015`.
+    """
+
+    def test_registradas_con_sus_anotaciones(self):
+        tools = _real_registry()
+        for nombre in _UPDATES_015:
+            assert nombre in tools, nombre
+        ann = {n: tools[n].annotations for n in _UPDATES_015}
+        assert ann["sv_list_available_updates"].read_only_hint is True
+        assert ann["sv_list_available_updates"].open_world_hint is False
+        # Refresca la caché del Supervisor y la tienda: ni de solo lectura ni
+        # destructiva, pero sí sale a internet.
+        assert ann["sv_check_for_updates"].read_only_hint is False
+        assert ann["sv_check_for_updates"].destructive_hint is False
+        assert ann["sv_check_for_updates"].open_world_hint is True
+        assert ann["sv_update_core"].destructive_hint is True
+        assert ann["sv_update_core"].open_world_hint is True
+        assert ann["sv_update_core"].idempotent_hint is True
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _UPDATES_015}
+        assert props == {
+            "sv_list_available_updates": set(),
+            "sv_check_for_updates": set(),
+            "sv_update_core": {"version", "backup", "confirmation_token"},
+        }
+        assert not tools["sv_update_core"].parameters.get("required")
+        assert tools["sv_update_core"].parameters["properties"]["backup"].get("default") is True
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import CORE_WS, SUPERVISOR
+
+        tools = _real_registry(["system_updates"])
+        todas = _UPDATES_015 + _UPDATES_015_T2 + _UPDATES_015_T3
+        assert [n for n in todas if n in tools] == []
+        dedicadas = [e.tool for e in (*CORE_WS.values(), *SUPERVISOR.values())
+                     if e.category == "dedicated" and e.family == "system_updates"]
+        # Las que tienen entrada en la tabla: todas salvo `ha_list_updates` y
+        # `ha_install_update` (lee estados; instala por `call_service`).
+        assert sorted(set(dedicadas)) == sorted(
+            _UPDATES_015 + _UPDATES_015_T2 + ("ha_get_update_release_notes",))
+        # 5 del tramo 1, 2 del tramo 2 y `update/release_notes` del tramo 3.
+        assert len(dedicadas) == 8
+
+    def test_tramo_2_registradas_con_sus_anotaciones(self):
+        """Tramo 2 (T024): las dos destructivas, idempotentes y de mundo
+        abierto; `sv_update_supervisor` sin argumento `version` (FR-007)."""
+        tools = _real_registry()
+        for nombre in _UPDATES_015_T2:
+            ann = tools[nombre].annotations
+            assert _hint_code(ann) == "-DIO", nombre
+        assert set(tools["sv_update_os"].parameters["properties"]) == {
+            "version", "confirmation_token"}
+        assert set(tools["sv_update_supervisor"].parameters["properties"]) == {
+            "confirmation_token"}
+        assert tools["sv_update_os"].title == "Update OS (Supervisor)"
+
+    def test_tramo_3_entidades_update(self):
+        """Tramo 3 (T036): las tres con sus anotaciones y argumentos de
+        contracts/tools.md; `ha_install_update` con backup=false por defecto
+        (el de `update.install` en Core)."""
+        tools = _real_registry()
+        codigos = {n: _hint_code(tools[n].annotations) for n in _UPDATES_015_T3}
+        assert codigos == {"ha_list_updates": "R-I-",
+                           "ha_get_update_release_notes": "R-IO",
+                           "ha_install_update": "-DIO"}
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _UPDATES_015_T3}
+        assert props == {
+            "ha_list_updates": {"include_up_to_date"},
+            "ha_get_update_release_notes": {"entity_id"},
+            "ha_install_update": {"entity_id", "version", "backup", "confirmation_token"},
+        }
+        assert tools["ha_install_update"].parameters["required"] == ["entity_id"]
+        assert tools["ha_install_update"].parameters["properties"]["backup"].get("default") is False
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

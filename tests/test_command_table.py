@@ -346,19 +346,22 @@ class TestPistasYMotivos(unittest.TestCase):
                 if ("pide confirmación" in e.reason) != (accion in CALL_SERVICE_DENYLIST):
                     problemas.append(f"{k}: {accion} y el motivo {e.reason!r}")
         self.assertEqual(problemas, [], "\n".join(problemas))
-        # Las dos que antes eran `dedicated` hacia `ha_call_service` sin decir
-        # qué acción (T046) y que el test no esté vacío.
-        self.assertTrue({"backup/generate_with_automatic_settings",
-                         "hassio/update/core"} <= vistos)
+        # La que antes era `dedicated` hacia `ha_call_service` sin decir qué
+        # acción (T046) y que el test no esté vacío. `hassio/update/core`
+        # también lo era hasta que la 015 le dio su tool (`sv_update_core`).
+        self.assertIn("backup/generate_with_automatic_settings", vistos)
 
     def test_ninguna_dedicada_a_ha_call_service_sin_accion(self) -> None:
         # Las que quedan apuntan a una acción del mismo nombre que el comando
         # (p. ej. `calendar/event/create` → `calendar.create_event`), ninguna
-        # de la denylist; las dos de T046 ya no son `dedicated`.
-        for k in ("backup/generate_with_automatic_settings", "hassio/update/core"):
-            with self.subTest(k=k):
-                self.assertEqual(ct.CORE_WS[k].category, "deny")
-                self.assertRegex(ct.CORE_WS[k].reason, r"^pendiente de tool dedicada \(spec \d{3}\)")
+        # de la denylist; las dos de T046 ya no son `dedicated` hacia
+        # `ha_call_service`: una sigue pendiente de su spec y la otra apunta
+        # desde la 015 a `sv_update_core`, su tool dedicada.
+        k = "backup/generate_with_automatic_settings"
+        self.assertEqual(ct.CORE_WS[k].category, "deny")
+        self.assertRegex(ct.CORE_WS[k].reason, r"^pendiente de tool dedicada \(spec \d{3}\)")
+        e = ct.CORE_WS["hassio/update/core"]
+        self.assertEqual((e.category, e.tool), ("dedicated", "sv_update_core"))
 
     def test_motivo_de_dns_options(self) -> None:
         # T048: `SCHEMA_OPTIONS` de supervisor/api/dns.py (2026.11.0) solo
@@ -650,6 +653,87 @@ class TestMontajesDeLa019(unittest.TestCase):
         quedan = sorted(str(k) for k, e in ct.SUPERVISOR.items()
                         if "spec 019" in e.reason)
         self.assertEqual(quedan, [])
+
+# Spec 015, tramo 1 (data-model, «Entradas de la tabla que cambian»): clave →
+# (tool, CAP). `None` donde el inventario no tiene CAP: `/refresh_updates` es
+# de clase B y `hassio/update/core` estaba «cubierto».
+_ACTUALIZACIONES_015: dict[str | tuple[str, str], tuple[str, str | None]] = {
+    ("GET", "/available_updates"): ("sv_list_available_updates", "CAP-080"),
+    ("POST", "/refresh_updates"): ("sv_check_for_updates", None),
+    ("POST", "/reload_updates"): ("sv_check_for_updates", "CAP-080"),
+    ("POST", "/core/update"): ("sv_update_core", "CAP-080"),
+    "hassio/update/core": ("sv_update_core", None),
+}
+
+
+class TestActualizacionesDeLa015(unittest.TestCase):
+    """FR-016 de la 015: las cinco entradas del tramo 1 pasan a `dedicated`
+    con su tool, la familia `system_updates` y la CAP del inventario en las de
+    clase A; los alias legados siguen `deny`.
+
+    Control negativo (T015 g): dejar `/core/update` como `deny` → cae
+    `test_cinco_entradas_dedicadas` nombrándola.
+    """
+
+    def test_cinco_entradas_dedicadas(self) -> None:
+        malas = []
+        for k, (tool, cap) in _ACTUALIZACIONES_015.items():
+            e = ct.CORE_WS[k] if isinstance(k, str) else ct.SUPERVISOR[k]
+            real = (e.category, e.tool, e.family, e.cap)
+            if real != ("dedicated", tool, "system_updates", cap):
+                malas.append(f"{k}: {real}")
+            elif not e.reason.startswith(f"cubierto por {tool}"):
+                malas.append(f"{k}: motivo {e.reason!r}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_por_que_las_que_no_son_la_ruta_de_la_tool(self) -> None:
+        # data-model: `/reload_updates` no es la ruta que usa la tool (no
+        # recarga la tienda) y `hassio/update/core` es la misma actualización
+        # por Core, sin la vista previa.
+        self.assertIn("/refresh_updates", ct.SUPERVISOR[("POST", "/reload_updates")].reason)
+        self.assertIn("vista previa", ct.CORE_WS["hassio/update/core"].reason)
+
+    def test_tramo_2_os_y_supervisor_dedicadas(self) -> None:
+        # Tramo 2 (T022): las rutas de actualizar el OS y el Supervisor, a sus
+        # tools. Control negativo (T028): con `/os/update` de vuelta a
+        # `deny`, cae nombrándola.
+        malas = []
+        for k, tool in ((("POST", "/os/update"), "sv_update_os"),
+                        (("POST", "/supervisor/update"), "sv_update_supervisor")):
+            e = ct.SUPERVISOR[k]
+            real = (e.category, e.tool, e.family, e.cap)
+            if real != ("dedicated", tool, "system_updates", "CAP-080"):
+                malas.append(f"{k}: {real}")
+            elif e.reason != f"cubierto por {tool}":
+                malas.append(f"{k}: motivo {e.reason!r}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_tramo_3_release_notes_dedicada(self) -> None:
+        # Tramo 3 (T038): `update/release_notes` a su tool, con la familia y la
+        # CAP-064. Control negativo (T045): de vuelta a `deny` → cae.
+        e = ct.CORE_WS["update/release_notes"]
+        self.assertEqual(
+            (e.category, e.tool, e.family, e.cap, e.reason),
+            ("dedicated", "ha_get_update_release_notes", "system_updates", "CAP-064",
+             "cubierto por ha_get_update_release_notes"))
+
+    def test_ninguna_pendiente_de_la_015(self) -> None:
+        # Al cerrar la 015 no queda ninguna entrada «pendiente (spec 015)».
+        pendientes = sorted(str(k) for k, e in (*ct.CORE_WS.items(), *ct.SUPERVISOR.items())
+                            if "spec 015" in e.reason)
+        self.assertEqual(pendientes, [])
+
+    def test_alias_legados_siguen_deny(self) -> None:
+        for k in (("POST", "/homeassistant/update"), ("GET", "/supervisor/available_updates")):
+            with self.subTest(k=k):
+                self.assertEqual(ct.SUPERVISOR[k].category, "deny")
+
+    def test_lo_de_otras_specs_no_cambia(self) -> None:
+        # Las apps siguen con su tool de la 1.1.2; los plugins, `confirm` (022).
+        self.assertEqual(ct.CORE_WS["hassio/update/addon"].tool, "sv_update_addon")
+        for p in ("audio", "cli", "dns", "multicast", "observer"):
+            with self.subTest(p=p):
+                self.assertEqual(ct.SUPERVISOR[("POST", f"/{p}/update")].category, "confirm")
 
 
 if __name__ == "__main__":

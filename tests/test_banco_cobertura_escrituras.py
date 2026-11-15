@@ -34,7 +34,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tests.banco import cobertura, cobertura_012 as c012, cobertura_016 as c016
+from tests.banco import cobertura, cobertura_012 as c012, cobertura_015 as c015
+from tests.banco import cobertura_016 as c016
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -72,6 +73,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 016: sus escrituras, en su propio módulo.
         "PROBADAS_016": set(c016.PROBADAS_016),
         "NO_EJECUTABLES_016": set(c016.NO_EJECUTABLES_016),
+        # Spec 015: sus escrituras, en su propio módulo.
+        "PROBADAS_015": set(c015.PROBADAS_015),
+        "NO_EJECUTABLES_015": set(c015.NO_EJECUTABLES_015),
     }
 
 
@@ -90,9 +94,12 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011, las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B), las 12 de la 016 (2 del tramo A, 7 del B y 3 del C) y
-        # las 7 de la 019 (5 de montajes y 2 de ajustes de backup).
-        self.assertEqual(len(reales), 148)
+        # del tramo B), las 5 de la 015 (`sv_check_for_updates` y
+        # `sv_update_core` del tramo 1, `sv_update_os` y `sv_update_supervisor`
+        # del 2 y `ha_install_update` del 3), las 12 de la 016 (2 del tramo A,
+        # 7 del B y 3 del C) y las 7 de la 019 (5 de montajes y 2 de ajustes
+        # de backup).
+        self.assertEqual(len(reales), 153)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -121,6 +128,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
                 ("NO_EJECUTABLES_012", c012.NO_EJECUTABLES_012),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
                 ("NO_EJECUTABLES_016", c016.NO_EJECUTABLES_016),
+                ("NO_EJECUTABLES_015", c015.NO_EJECUTABLES_015),
             )
             for tool, motivo in lista.items()
             if not str(motivo).strip()
@@ -142,7 +150,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         self.assertEqual(
             c028.TOOLS_EXIGIDAS_DEL_JOB,
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
-            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c016.PROBADAS_016,
+            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
+            | c016.PROBADAS_016,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}

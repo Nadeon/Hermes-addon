@@ -370,6 +370,35 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
     anterior) y `sv_reload_backups` (copiar a mano un backup al recurso de
     backup y ver que, tras releer, sale en `sv_list_backups` y el recuento
     sube).
+- `sv_check_for_updates` (spec 015), en la tanda 1: la lista que devuelve
+  coincide con las actualizaciones que enseña la interfaz de Home Assistant
+  (Ajustes) y con `ha core info`, `ha supervisor info` y `ha os info`; la de
+  `sv_list_available_updates` no cambia salvo por lo nuevo que encuentre el
+  Supervisor.
+- `sv_update_core` (spec 015), en la tanda 3, con una instantánea antes y
+  una versión de Core anterior instalada (`ha core update --version
+  <anterior>`): la vista previa da las versiones, el backup `core_<versión>`
+  y la comprobación de la configuración; con un error de configuración
+  introducido a propósito, `update_blocked` sin token; tras un
+  `sv_check_for_updates` que cambie la última versión, la confirmación da
+  `preview_outdated`; confirmada, `sv_get_job_status` sigue el job, Core
+  vuelve en la versión pedida (`ha core info`) y el backup aparece en
+  `ha backups list`.
+- `sv_update_os` (spec 015), en la tanda 3, con una instantánea antes y un
+  OS anterior instalado (`ha os update --version <anterior>` y reinicio): la
+  vista previa da las versiones, dice que no reinicia nada al instalar y que
+  se aplica al reiniciar el host, y no hace backup; confirmada, devuelve el
+  job `os_manager_update` (o `status: started`), `ha os info` muestra la
+  versión en `version_pending` y aparece el aviso `reboot_required`; una
+  segunda vista previa a la misma versión da `reboot_pending` sin token;
+  tras `sv_reboot_host`, `ha os info` da la versión nueva.
+- `sv_update_supervisor` (spec 015), en la tanda 3, con una instantánea antes
+  y el canal `beta` o un Supervisor anterior: la vista previa da versiones y
+  canal y dice que se reinicia solo; confirmada, devuelve el job
+  `supervisor_update` (o `status: started`), las `sv_*` fallan alrededor de un
+  minuto, Core y las apps siguen arriba y `ha supervisor info` da la versión
+  nueva; en el log de Hermes, `system_update_finished` con
+  `connection_lost` u `ok`.
 
 ## Probar hassio_role: manager
 
