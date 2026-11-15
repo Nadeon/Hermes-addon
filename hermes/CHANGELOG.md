@@ -349,7 +349,47 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Sistema
 
-_Pendiente: la añade la sub-feature que lo implemente._
+- **Host y red del host (032), tramo 1: control del host.** Familia nueva
+  `host_control` (desactivable con `tool_families_disabled`) con cuatro
+  tools, todas en dos pasos con una vista previa del estado real leído del
+  Supervisor:
+  - `sv_shutdown_host` apaga la máquina entera. La vista previa dice qué se
+    para (el host, Home Assistant, todas las apps y el propio Hermes), que
+    **nadie puede encenderla a distancia** después y que la conexión se
+    corta. No expone `force`: si Home Assistant está migrando su base de
+    datos, el error del Supervisor vuelve tal cual y no se reintenta.
+  - `sv_set_hostname` cambia el hostname (una etiqueta DNS en minúsculas,
+    validada antes de llamar); la vista previa enseña el viejo y el nuevo y
+    avisa de que cambia el nombre mDNS (`<hostname>.local`). El mismo nombre
+    que ahora, `no_change`.
+  - `sv_set_swap` cambia el tamaño y la swappiness de la swap (Home
+    Assistant OS 15 o posterior; si no, `not_supported`), enviando solo lo
+    que se pasa. La vista previa enseña el antes y el después, el disco libre
+    y que hace falta reiniciar; con `0`, que desactiva la swap. Un tamaño
+    mayor que el disco libre, `insufficient_disk`.
+  - `sv_set_boot_slot` arranca en la otra ranura de Home Assistant OS (por
+    ejemplo, para volver al OS anterior). La vista previa enseña las dos
+    ranuras con su versión, avisa de que el equipo **reinicia en el acto** en
+    ese OS, de si la ranura está marcada como mala, y cómo volver. La ranura
+    activa, `already_booted`; una sin versión, `slot_unusable`.
+  - El token ata los argumentos (`boot_slot` normalizado a mayúsculas) y la
+    huella del estado que describe la vista previa: si el hostname, la swap o
+    las ranuras cambian antes de confirmar, no se ejecuta (`state_changed`).
+    El disco libre no entra, porque cambia solo; `insufficient_disk` se
+    vuelve a comprobar al confirmar. Las cuatro están en el inventario de
+    argumentos atados de la 033 (`sv_shutdown_host`, solo con el token,
+    como `sv_reboot_host`).
+  - Si la conexión se corta después de enviar la orden (lo normal al apagar
+    o al cambiar de ranura), la respuesta no es ni «ok» ni un error:
+    `outcome: "unknown"` con `verify_with`.
+  - El log (`host_control`) lleva la tool, el resultado y los nombres de lo
+    que cambia; nunca el hostname, la swap ni las versiones.
+  - Las cuatro rutas de CAP-086 (`POST /host/shutdown`, `/host/options`,
+    `/os/config/swap` y `/os/boot-slot`) pasan de `deny` a `dedicated` en la
+    tabla de comandos; `sv_call_api` remite a su tool.
+  - Guía: tema nuevo `hermes_guide("host_control")` (alias `hostname`,
+    `swap`, `boot_slot`, `shutdown`); el tema `supervisor` remite a él.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
 
 ### Mejoras de tools existentes
 

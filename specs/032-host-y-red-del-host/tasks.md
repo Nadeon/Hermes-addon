@@ -51,25 +51,68 @@ El tramo 2 necesita el tramo 1 integrado.
 
 ### Preparación
 
-- [ ] T001 Línea base: comprobar el requisito previo, ejecutar la suite y anotar passed/skipped/failed y la punta; `grep -c "spec 032" hermes/src/hermes/command_table.py` = 7
-- [ ] T002 [P] [US4] Tests en `tests/test_tool_families.py` (`host_control` existe, `desde="1.2.0"`, desactivable, módulos `("host_control",)`, `familia_de_modulo`) y en `tests/test_config_validation.py` (`tool_families_disabled: [host_control]` válido). Después, la familia en `hermes/src/hermes/tool_families.py` con el porqué (research R-1) (FR-015)
-- [ ] T003 [P] Fixtures en `tests/fixtures/supervisor_host.py`: `GET /host/info` (`hostname: "homeassistant"`, `disk_free` en GiB), `GET /os/config/swap` (`1G`, 1) y su 404, `GET /os/info` con ranuras A (booted, good, 17.0) y B (inactive, bad, 17.1) y variantes (B sin versión, sin B), errores del Supervisor (migración de la base de datos en curso, hostname inválido) y formas inesperadas. Solo datos genéricos (FR-019)
+- [x] T001 Línea base: comprobar el requisito previo, ejecutar la suite y anotar passed/skipped/failed y la punta; `grep -c "spec 032" hermes/src/hermes/command_table.py` = 7
+- [x] T002 [P] [US4] Tests en `tests/test_tool_families.py` (`host_control` existe, `desde="1.2.0"`, desactivable, módulos `("host_control",)`, `familia_de_modulo`) y en `tests/test_config_validation.py` (`tool_families_disabled: [host_control]` válido). Después, la familia en `hermes/src/hermes/tool_families.py` con el porqué (research R-1) (FR-015)
+- [x] T003 [P] Fixtures en `tests/fixtures/supervisor_host.py`: `GET /host/info` (`hostname: "homeassistant"`, `disk_free` en GiB), `GET /os/config/swap` (`1G`, 1) y su 404, `GET /os/info` con ranuras A (booted, good, 17.0) y B (inactive, bad, 17.1) y variantes (B sin versión, sin B), errores del Supervisor (migración de la base de datos en curso, hostname inválido) y formas inesperadas. Solo datos genéricos (FR-019)
 
 ### Tests (escritos antes, en rojo)
 
-- [ ] T004 [P] [US1] [US2] `TestApagar`, `TestHostname`, `TestSwap` y `TestRanura` en `tests/test_tools_host_control.py`: (a) vistas previas con los campos y avisos de data-model, sin ninguna llamada que no sea GET; `sv_shutdown_host` dice que nadie puede encenderlo a distancia y que se corta Hermes; (b) confirmación → `POST` con la carga exacta (`/host/shutdown` con `{}` y sin `force`; `/host/options` `{"hostname"}`; `/os/config/swap` solo con lo pasado; `/os/boot-slot` `{"boot_slot": "B"}` aunque se pase `"b"`); (c) `invalid_argument` sin llamar para cada regla de FR-002…FR-004 (hostname con mayúsculas, espacio, punto, `-` al borde, 64 caracteres, vacío, no `str`; swap sin argumentos, `swap_size` `"2T"`, `"-1"`, `swappiness` 201, -1, `True`; ranura `"C"`), sin el valor en el mensaje; (d) `no_change` (hostname igual, swap igual), `insufficient_disk`, aviso de `"0"`, `not_supported` (404 en swap y en `/os/info`), `already_booted`, `slot_unusable`, aviso de ranura `bad`; (e) migración en curso → error redactado y ningún reintento con `force` (FR-001…FR-004)
-- [ ] T005 [US1] [US2] `TestTokenAtado`, `TestCorteTrasEnviar` y `TestLog` en `tests/test_tools_host_control.py`: (a) confirmar con otro hostname, otra swap u otra ranura → no se ejecuta; (b) entre vista previa y confirmación cambia el hostname, la swap o las ranuras → no se ejecuta y pide otra vista previa; si solo cambia `disk_free` el token sigue valiendo, pero `insufficient_disk` se vuelve a comprobar al confirmar; un cambio de `wifi.signal` o `ready` no invalida el token de red (lo prueba T019); (c) `HAConnectionError` tras enviar `shutdown` o `boot-slot` → `outcome: "unknown"` con `hint` y `verify_with`, token completado como fallido; en la lectura previa → `error` sin token; (d) los eventos no llevan `homeassistant`, `casa-ha`, `1G` ni versiones de OS de los fixtures y sí `tool`, `outcome`, `changed` (FR-011…FR-013)
+- [x] T004 [P] [US1] [US2] `TestApagar`, `TestHostname`, `TestSwap` y `TestRanura` en `tests/test_tools_host_control.py`: (a) vistas previas con los campos y avisos de data-model, sin ninguna llamada que no sea GET; `sv_shutdown_host` dice que nadie puede encenderlo a distancia y que se corta Hermes; (b) confirmación → `POST` con la carga exacta (`/host/shutdown` con `{}` y sin `force`; `/host/options` `{"hostname"}`; `/os/config/swap` solo con lo pasado; `/os/boot-slot` `{"boot_slot": "B"}` aunque se pase `"b"`); (c) `invalid_argument` sin llamar para cada regla de FR-002…FR-004 (hostname con mayúsculas, espacio, punto, `-` al borde, 64 caracteres, vacío, no `str`; swap sin argumentos, `swap_size` `"2T"`, `"-1"`, `swappiness` 201, -1, `True`; ranura `"C"`), sin el valor en el mensaje; (d) `no_change` (hostname igual, swap igual), `insufficient_disk`, aviso de `"0"`, `not_supported` (404 en swap y en `/os/info`), `already_booted`, `slot_unusable`, aviso de ranura `bad`; (e) migración en curso → error redactado y ningún reintento con `force` (FR-001…FR-004)
+- [x] T005 [US1] [US2] `TestTokenAtado`, `TestCorteTrasEnviar` y `TestLog` en `tests/test_tools_host_control.py`: (a) confirmar con otro hostname, otra swap u otra ranura → no se ejecuta; (b) entre vista previa y confirmación cambia el hostname, la swap o las ranuras → no se ejecuta y pide otra vista previa; si solo cambia `disk_free` el token sigue valiendo, pero `insufficient_disk` se vuelve a comprobar al confirmar; un cambio de `wifi.signal` o `ready` no invalida el token de red (lo prueba T019); (c) `HAConnectionError` tras enviar `shutdown` o `boot-slot` → `outcome: "unknown"` con `hint` y `verify_with`, token completado como fallido; en la lectura previa → `error` sin token; (d) los eventos no llevan `homeassistant`, `casa-ha`, `1G` ni versiones de OS de los fixtures y sí `tool`, `outcome`, `changed` (FR-011…FR-013)
 
 ### Implementación
 
-- [ ] T006 [US1] [US2] `hermes/src/hermes/tools/host_control.py` con las cuatro tools según contracts/tools.md: validadores, lecturas, huella como `estado=`, `create_confirmation_token` sin `omitibles`, `_enviar` con `outcome: "unknown"`, eventos `host_control`, descripciones en inglés que dicen lo que hacen (sin `force`; nadie enciende a distancia; la ranura reinicia ya). Comentarios en español con el porqué. T004–T005 en verde
-- [ ] T007 [US4] Registro y anotaciones: tests primero en `tests/test_tools_registration.py` (las 4 registradas por defecto y ninguna con `host_control` desactivada; las 4 `destructiveHint`; títulos «Shut down host (Supervisor)», «Set hostname (Supervisor)», «Set swap (Supervisor)», «Set boot slot (Supervisor)»; el invariante destructiva ⇔ token en verde); después `tools/__init__.py` (`_activa("host_control")`) y `_DESTRUCTIVE_EXACT` con comentario (FR-016)
-- [ ] T008 [US4] Tabla: tests primero en `tests/test_command_table.py` (las 4 rutas de data-model `dedicated` con su tool, familia `host_control` y `cap="CAP-086"`), `tests/test_tools_generic_commands.py` (`sv_call_api("POST", "/host/shutdown")` y `("POST", "/os/boot-slot", …)` → `use_dedicated_tool` sin llamada; con la familia desactivada, `family_disabled`) y `tests/test_generar_tabla.py` si compara el mapa. Después, las 4 claves en `_DEDICADAS_INICIALES` de `scripts/inventario/generar_tabla.py` y en `hermes/src/hermes/command_table.py`; regenerar y `git diff --exit-code` sobre la tabla. `grep -c "spec 032"` = 3 (FR-014)
-- [ ] T009 Inventario de la 033: `sv_shutdown_host` (solo `confirmation_token`, exento como en `sv_reboot_host`), `sv_set_hostname`, `sv_set_swap`, `sv_set_boot_slot` (todo `atado`; `boot_slot` normalizado) con el comentario de la huella; `test_recuento` + 4 (FR-011)
-- [ ] T010 [P] Matriz de la 014: en `docs/HOJA-DE-RUTA.md`, filas `VM` / `pendiente` (orden alfabético) de las 4 con las notas de contracts/tools.md; en `docs/BANCO-SUPERVISOR.md`, «Tools nuevas del programa», su línea (qué comprobar y en qué tanda: hostname y swap en la 3 con instantánea; ranura y apagar al final, una por instantánea). `tests/test_matriz_pruebas.py` en verde (FR-018)
-- [ ] T011 [P] Guía: tests primero en `tests/test_tools_guide.py` (tema `host_control` con los alias `hostname`, `swap`, `boot_slot`, `shutdown`; nombra las 4 tools, el aviso de encendido y la vuelta de ranura; las tools que nombra existen; el índice lo lista); después el tema en `hermes/src/hermes/tools/guide.py`. Si cambia un tema existente (`overview`, `supervisor`), actualizar su huella en el test (FR-017, parte)
-- [ ] T012 Control negativo del tramo 1, anotando recuentos: (a) quitar `estado=` → caen los de estado cambiado; (b) quitar `swap_size` del dict del hash → cae el de otra swap; (c) tratar el corte tras enviar como «ok» → cae `TestCorteTrasEnviar`; (d) añadir `hostname` al evento → cae `TestLog`; (e) aceptar hostname con punto → cae; (f) dejar `/host/shutdown` como `deny` → caen los de la tabla y la genérica. Restaurar y comprobar verde
-- [ ] T013 Documentación (parte): sección «Host y red del host (032)» en `## [1.2.0]` de `hermes/CHANGELOG.md` (tramo 1); familia `host_control` en la tabla de familias de `hermes/DOCS.md` y en la lista de `tool_families_disabled` de `README.md` y `README.es.md` (sincronizados); estado «en curso (tramo 1)» en la tabla del programa de `docs/HOJA-DE-RUTA.md`; revisar el diff buscando datos personales; commit del tramo (FR-020)
+- [x] T006 [US1] [US2] `hermes/src/hermes/tools/host_control.py` con las cuatro tools según contracts/tools.md: validadores, lecturas, huella como `estado=`, `create_confirmation_token` sin `omitibles`, `_enviar` con `outcome: "unknown"`, eventos `host_control`, descripciones en inglés que dicen lo que hacen (sin `force`; nadie enciende a distancia; la ranura reinicia ya). Comentarios en español con el porqué. T004–T005 en verde
+- [x] T007 [US4] Registro y anotaciones: tests primero en `tests/test_tools_registration.py` (las 4 registradas por defecto y ninguna con `host_control` desactivada; las 4 `destructiveHint`; títulos «Shut down host (Supervisor)», «Set hostname (Supervisor)», «Set swap (Supervisor)», «Set boot slot (Supervisor)»; el invariante destructiva ⇔ token en verde); después `tools/__init__.py` (`_activa("host_control")`) y `_DESTRUCTIVE_EXACT` con comentario (FR-016)
+- [x] T008 [US4] Tabla: tests primero en `tests/test_command_table.py` (las 4 rutas de data-model `dedicated` con su tool, familia `host_control` y `cap="CAP-086"`), `tests/test_tools_generic_commands.py` (`sv_call_api("POST", "/host/shutdown")` y `("POST", "/os/boot-slot", …)` → `use_dedicated_tool` sin llamada; con la familia desactivada, `family_disabled`) y `tests/test_generar_tabla.py` si compara el mapa. Después, las 4 claves en `_DEDICADAS_INICIALES` de `scripts/inventario/generar_tabla.py` y en `hermes/src/hermes/command_table.py`; regenerar y `git diff --exit-code` sobre la tabla. `grep -c "spec 032"` = 3 (FR-014)
+- [x] T009 Inventario de la 033: `sv_shutdown_host` (solo `confirmation_token`, exento como en `sv_reboot_host`), `sv_set_hostname`, `sv_set_swap`, `sv_set_boot_slot` (todo `atado`; `boot_slot` normalizado) con el comentario de la huella; `test_recuento` + 4 (FR-011)
+- [x] T010 [P] Matriz de la 014: en `docs/HOJA-DE-RUTA.md`, filas `VM` / `pendiente` (orden alfabético) de las 4 con las notas de contracts/tools.md; en `docs/BANCO-SUPERVISOR.md`, «Tools nuevas del programa», su línea (qué comprobar y en qué tanda: hostname y swap en la 3 con instantánea; ranura y apagar al final, una por instantánea). `tests/test_matriz_pruebas.py` en verde (FR-018)
+- [x] T011 [P] Guía: tests primero en `tests/test_tools_guide.py` (tema `host_control` con los alias `hostname`, `swap`, `boot_slot`, `shutdown`; nombra las 4 tools, el aviso de encendido y la vuelta de ranura; las tools que nombra existen; el índice lo lista); después el tema en `hermes/src/hermes/tools/guide.py`. Si cambia un tema existente (`overview`, `supervisor`), actualizar su huella en el test (FR-017, parte)
+- [x] T012 Control negativo del tramo 1, anotando recuentos: (a) quitar `estado=` → caen los de estado cambiado; (b) quitar `swap_size` del dict del hash → cae el de otra swap; (c) tratar el corte tras enviar como «ok» → cae `TestCorteTrasEnviar`; (d) añadir `hostname` al evento → cae `TestLog`; (e) aceptar hostname con punto → cae; (f) dejar `/host/shutdown` como `deny` → caen los de la tabla y la genérica. Restaurar y comprobar verde
+- [x] T013 Documentación (parte): sección «Host y red del host (032)» en `## [1.2.0]` de `hermes/CHANGELOG.md` (tramo 1); familia `host_control` en la tabla de familias de `hermes/DOCS.md` y en la lista de `tool_families_disabled` de `README.md` y `README.es.md` (sincronizados); estado «en curso (tramo 1)» en la tabla del programa de `docs/HOJA-DE-RUTA.md`; revisar el diff buscando datos personales; commit del tramo (FR-020)
+
+
+### Notas del tramo 1 (al implementar)
+
+- **T001**: base `feat/032-host-y-red-del-host` tras traer `feat/cobertura-total`
+  (019, con el HMAC de los tokens; la 015 no estaba integrada todavía) en el
+  commit de merge `947545b`: 3263 passed, 106 skipped, 6 failed (los 6
+  conocidos de Windows); `grep -c "spec 032"` = 7.
+- **Desviaciones**:
+  - `_enviar` trata como «unknown» cualquier fallo que no sea una respuesta
+    del Supervisor (sin `status` y sin «Supervisor error:»), también
+    `aiohttp.ClientError` y `TimeoutError`, que `sv_request` no envuelve en
+    `HAConnectionError`. Se aplica a las cuatro tools (FR-013 nombra apagar y
+    la ranura; para el hostname y la swap un corte tras enviar es igual de
+    incierto).
+  - Título «Shut down host (Supervisor)»: se añade `shutdown → shut down` a
+    `_TITLE_WORDS` (ninguna tool de la 1.1.2 tiene esa palabra).
+  - `tests/test_generar_tabla.py::test_clase_a_via_dedicada` usaba
+    `POST /host/shutdown` como ejemplo de «spec 032»; ahora comprueba que es
+    `dedicated` (la regla del mapa va antes).
+  - Las instrucciones del `initialize` anuncian el tema `host_control` solo
+    con la familia activa (`@TEMA_HOST@`, como `mounts`).
+  - No estaba en las tareas y lo piden los invariantes: las cuatro tools van
+    a `FUERA_DEL_BANCO` de `tests/banco/cobertura_escrituras.py` (necesitan
+    un host real; recuentos 152 y 35), y las rutas de `_leer` y `_enviar` a
+    `LLAMADAS_DECLARADAS` de `tests/test_rutas_supervisor_rol.py` (las siete
+    caben en `manager`).
+- Suite al cerrar: 3316 passed, 106 skipped, 6 failed (los 6 conocidos).
+- **T012, controles negativos** (cada uno aplicado, visto en rojo y
+  restaurado):
+  - (a) sin `estado=` en la creación y la resolución del token → 3 failed
+    (`test_estado_cambiado_no_ejecuta`: hostname, swap y ranuras);
+  - (b) sin `swap_size` en el dict del hash → 1 failed
+    (`test_otro_argumento_no_ejecuta`, otra swap);
+  - (c) corte tras enviar tratado como «ok» → 6 failed (los 5 casos de
+    `TestCorteTrasEnviar` y `TestLog::test_errores_y_cortes_sin_valores`);
+  - (d) `hostname` en el evento de la vista previa → 2 failed (`TestLog`);
+  - (e) hostname con punto aceptado → 1 failed
+    (`test_invalidos_sin_llamar`, `casa.ha`);
+  - (f) `POST /host/shutdown` como `deny` → 6 failed (2 de la tabla, 2 de la
+    genérica, la generación desde cero y el registro con la familia
+    apagada).
+- Al cerrar: `grep -c "spec 032"` = 3 (las tres de la red, tramo 2).
 
 ---
 

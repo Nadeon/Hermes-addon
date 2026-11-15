@@ -370,6 +370,22 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
     anterior) y `sv_reload_backups` (copiar a mano un backup al recurso de
     backup y ver que, tras releer, sale en `sv_list_backups` y el recuento
     sube).
+- Host y OS (spec 032, tramo 1). Hace falta una VM con Home Assistant OS ≥ 15
+  (para la swap) y con las dos ranuras de arranque con una versión de OS cada
+  una (por ejemplo, tras una actualización de OS). En todas: la vista previa
+  casa con el estado real y el log de Hermes no lleva el hostname, la swap ni
+  las versiones.
+  - Tanda 3, con instantánea antes: `sv_set_hostname` (cambiarlo, verlo en
+    `ha host info` y en `<nombre>.local`, y volver al anterior) y
+    `sv_set_swap` (cambiar el tamaño y la swappiness, ver el issue
+    `reboot_required` en `sv_get_resolution` y, tras reiniciar, el valor
+    nuevo en `ha os config swap`; volver al anterior).
+  - Al final, una por instantánea: `sv_set_boot_slot` (la vista previa
+    enseña las dos ranuras y sus versiones; al confirmar, la VM reinicia en
+    la otra ranura y `sv_get_os_info` lo dice; volver con
+    `sv_set_boot_slot` a la de antes) y `sv_shutdown_host` (la VM se apaga;
+    la respuesta es `ok` o `outcome: "unknown"`, nunca un error; encenderla
+    a mano).
 
 ## Probar hassio_role: manager
 
