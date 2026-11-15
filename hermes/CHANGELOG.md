@@ -190,12 +190,19 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   Hermes no cuenta como «algo cambió en `/addons`»; cualquier cambio
   posterior, sí. Sin `/addons` o si no se puede cambiar la fecha, la
   recarga se hace igual, pero no cuenta para las apps locales.
-- **Un `config.*` que el Supervisor salta no bloquea otras apps.** Uno sin
-  `slug` válido, que no es UTF-8, YAML o JSON válido, que no es un mapa o
-  al que le falta un campo obligatorio de su esquema (`name`, `version`,
-  `slug`, `description`, `arch`) no declara ninguna app: ya no provoca
-  `store_copy_stale` al instalar, actualizar o reconstruir otra, y sale en
-  la vista previa en `ignored_config_files` con su motivo real. Solo lo que
+- **Un `config.*` que el Supervisor salta no bloquea otras apps.** Uno que
+  no es UTF-8, YAML o JSON válido, que no es un mapa o que no tiene `name`
+  no declara ninguna app: ya no provoca `store_copy_stale` al instalar,
+  actualizar o reconstruir otra, y sale en la vista previa en
+  `ignored_config_files` con su motivo real. Solo esos: está comprobado que
+  el Supervisor los salta sin tumbar la recarga. Uno con `name` al que le
+  falta otro campo obligatorio (`version`, `slug`, `description`, `arch`) o
+  con un slug que no vale o demasiado largo también lo rechaza el
+  Supervisor, pero antes recorre sus otros campos (`devices`, `map`,
+  `arch`, `machine`…) con código que, con un tipo inesperado (`devices: 5`,
+  `map:` vacío), lanza un error que no captura y tumba la recarga entera:
+  como Hermes no puede asegurar que solo lo salte, bloquea como los del
+  punto siguiente, con el motivo. Solo lo que
   Hermes de verdad no puede leer (un symlink, algo que no es un fichero
   regular, uno de más de 1 MiB, un error de lectura) sigue bloqueando, y el
   motivo lo dice.

@@ -990,11 +990,14 @@ APPS LOCALES INSTALADAS (solo addons)
   su recarga responde bien sin releer nada; el motivo dice qué es y dónde.
   Arréglalo o quítalo y recarga. También si el Supervisor tiene una recarga
   de la tienda en curso (o su lista de jobs no responde): espera a que
-  termine y recarga. Un `config.*` que el Supervisor SALTA (sin `slug`,
-  YAML roto, sin un campo obligatorio) no bloquea: sale en
+  termine y recarga. Un `config.*` que el Supervisor SALTA seguro (sin
+  `name`, YAML roto, que no es un mapa) no bloquea: sale en
   `ignored_config_files` con su motivo. Uno que TUMBA toda recarga (por
-  ejemplo, un YAML con una fecha imposible, `2001-13-01`) sí bloquea, con
-  el motivo: arréglalo o quítalo y recarga.
+  ejemplo, un YAML con una fecha imposible, `2001-13-01`) o que PUEDE
+  tumbarla (uno con `name` al que le falta un campo obligatorio o con un
+  slug que no vale: antes de rechazarlo, el Supervisor recorre sus otros
+  campos con código que puede fallar) sí bloquea, con el motivo: arréglalo
+  o quítalo y recarga.
 
 OTRAS REGLAS
 - Lista negra por NOMBRE de fichero, la misma de /config (secrets.yaml,

@@ -353,9 +353,6 @@ class TestActualizar(_Tienda):
 # ── T055: lo que el Supervisor descartaría ────────────────────────────────────
 
 
-_CABECERA = "name: Otra\nversion: '1'\ndescription: d\narch: [amd64]\n"
-
-
 class TestDescartados(_Tienda):
     """Control negativo comprobado: con `ilegibles` volviendo a contar todo
     `config.*` sin slug (como antes) caen `test_no_bloquean_otras_apps` y
@@ -372,16 +369,15 @@ class TestDescartados(_Tienda):
         return await self.t["sv_install_addon"](_LOCAL)
 
     async def test_no_bloquean_otras_apps(self) -> None:
+        # Convergencia 4 (T062): los que tienen `name` y el esquema
+        # rechazaría (sin `slug`, slug no válido o largo) ya no son
+        # descartados: pueden tumbar la recarga y bloquean
+        # (`test_convergencia_4_034.TestClasificacionConservadora`).
         casos = {
-            "sin slug": (b"name: X\nversion: '1'\ndescription: d\narch: [amd64]\n",
-                         "it has no 'slug'"),
             "sin nada": (b"foo: 1\n", "it has no 'name'"),
             "UTF-8 roto": (b"\xff\xfe: [", "it is not valid UTF-8"),
             "YAML roto": (b"slug: [sin cerrar\n", "it is not valid YAML"),
             "lista": (b"- 1\n- 2\n", "it is not a mapping"),
-            "slug no válido": (_CABECERA.encode() + b"slug: 'a b'\n", "its 'slug' is not valid"),
-            "slug largo": (_CABECERA.encode() + b"slug: " + b"x" * 60 + b"\n",
-                           "longer than 60"),
         }
         for nombre, (contenido, motivo) in casos.items():
             with self.subTest(caso=nombre):

@@ -403,3 +403,95 @@ class TestLaProgramadaNoSeVe(_ConRecarga):
         self.assertIn("Riesgo residual: la recarga programada", entrada)
         self.assertIn("La recarga programada del Supervisor y quitar un repositorio",
                       hoja)
+
+
+# ── T062 (N3): «saltado» solo lo que el Supervisor salta seguro ──────────────
+
+
+_SIN_VERSION = "name: z\nslug: z\ndescription: d\n"
+_SLUG_MALO = "name: z\nversion: '1'\nslug: 'Z Z'\ndescription: d\narch: [amd64]\n"
+_CABECERA = "name: Otra\nversion: '1'\ndescription: d\narch: [amd64]\n"
+
+#: Con `name`, el esquema los rechazaría, pero antes `_migrate_app_config` y
+#: `_warn_app_config` (`apps/validate.py`) recorren sus campos: los siete
+#: primeros son los de la verificación (`f3_validar.py`), que en el
+#: Supervisor lanzan `TypeError` o `AttributeError` sin capturar.
+_PUEDEN_TUMBAR = {
+    "sin version/arch + devices: 5": ("config.yaml", _SIN_VERSION + "devices: 5\n"),
+    "sin version/arch + map vacío": ("config.yaml", _SIN_VERSION + "map:\n"),
+    "sin version + arch: 5": ("config.yaml", "name: z\nslug: z\ndescription: d\narch: 5\n"),
+    "sin version/arch + machine: [5]": ("config.yaml", _SIN_VERSION + "machine: [5]\n"),
+    "slug inválido + devices: [5]": ("config.yaml", _SLUG_MALO + "devices: [5]\n"),
+    "sin slug + map con type lista": (
+        "config.yaml",
+        "name: z\nversion: '1'\ndescription: d\narch: [amd64]\nmap: [{type: [1]}]\n"),
+    "json sin arch + devices: 5": (
+        "config.json",
+        '{"name": "z", "version": "1", "slug": "z", "description": "d", "devices": 5}'),
+    # Y, sin nada raro, todo lo que tiene `name` y el esquema rechazaría.
+    "sin slug": ("config.yml", _CABECERA),
+    "slug no válido": ("config.yml", _CABECERA + "slug: 'a b'\n"),
+    "slug largo": ("config.yml", _CABECERA + "slug: " + "x" * 60 + "\n"),
+}
+
+#: Lo que el Supervisor salta seguro: fallos de lectura capturados y lo que
+#: `_migrate_app_config` rechaza con `vol.Invalid` antes de mirar nada más.
+_SALTA_SEGURO = {
+    "sin name": ("config.yaml", "slug: z\ndevices: 5\nmap: 5\n"),
+    "name vacío": ("config.yaml", "name: ''\nslug: z\narch: 5\n"),
+    "no es un mapa": ("config.yaml", "- 1\n- 2\n"),
+    "YAML roto": ("config.yaml", "name: [\n"),
+    "JSON roto": ("config.json", "{"),
+}
+
+
+class TestClasificacionConservadora(_ConRecarga):
+    """Control negativo comprobado: devolviendo en `_analizar_texto` el
+    motivo del esquema como descarte (lo de antes) caen
+    `test_pueden_tumbar_bloquean` y `test_clasificacion`."""
+
+    def escribir(self, carpeta: str, nombre: str, texto: str) -> None:
+        d = self.addons / carpeta
+        d.mkdir(parents=True, exist_ok=True)
+        (d / nombre).write_text(texto, encoding="utf-8")
+
+    def test_clasificacion(self) -> None:
+        for i, (caso, (nombre, texto)) in enumerate(_PUEDEN_TUMBAR.items()):
+            self.escribir(f"t{i}", nombre, texto)
+        for i, (caso, (nombre, texto)) in enumerate(_SALTA_SEGURO.items()):
+            self.escribir(f"s{i}", nombre, texto)
+        indice = folders.indice_de_apps_locales(self.addons)
+        self.assertEqual(
+            set(indice.rompen_recarga),
+            {f"t{i}/{n}" for i, (n, _) in enumerate(_PUEDEN_TUMBAR.values())})
+        self.assertEqual(
+            set(indice.descartados),
+            {f"s{i}/{n}" for i, (n, _) in enumerate(_SALTA_SEGURO.values())})
+        for motivo in indice.rompen_recarga.values():
+            self.assertIn("cannot be sure that it only skips this file", motivo)
+
+    async def test_pueden_tumbar_bloquean(self) -> None:
+        self.app_local()
+        await self.recargar()
+        for caso, (nombre, texto) in _PUEDEN_TUMBAR.items():
+            with self.subTest(caso=caso):
+                _store._ULTIMA_RECARGA = __import__("time").time() + 60
+                self.escribir("otro", nombre, texto)
+                r = await self.t["sv_install_addon"](_LOCAL)
+                self.assertEqual(r.get("error"), "store_copy_stale", r)
+                self.assertIn("make, or can make, every store reload fail", r["reason"])
+                self.assertIn(f"otro/{nombre}", r["reason"])
+                self.assertNotIn("confirmation_token", r)
+                (self.addons / "otro" / nombre).unlink()
+
+    async def test_los_que_salta_no_bloquean(self) -> None:
+        self.app_local()
+        await self.recargar()
+        _store._ULTIMA_RECARGA = __import__("time").time() + 60
+        for i, (nombre, texto) in enumerate(_SALTA_SEGURO.values()):
+            self.escribir(f"s{i}", nombre, texto)
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertIn("confirmation_token", r, r)
+        nota = r["preview"]["ignored_config_files"]
+        self.assertEqual(nota["count"], len(_SALTA_SEGURO))
+        self.assertIn("skips each of these", nota["note"])

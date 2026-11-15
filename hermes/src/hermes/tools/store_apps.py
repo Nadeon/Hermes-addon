@@ -410,10 +410,11 @@ def register(
         sv_reload_store). Also without /addons, if it is too large to check
         in time, without the app in its index, with two valid config files
         for the same slug, with one Hermes cannot read, with one that makes
-        every store reload fail in the Supervisor (fix or remove it), or
-        while the Supervisor has a store reload still running (or its job
-        list does not answer). A config file the Supervisor skips (no slug,
-        invalid YAML…) does not block: it is listed in
+        or can make every store reload fail in the Supervisor (one with a
+        `name` that its schema would reject; fix or remove it), or while the
+        Supervisor has a store reload still running (or its job list does
+        not answer). A config file the Supervisor surely skips (no `name`,
+        invalid YAML, not a mapping…) does not block: it is listed in
         `ignored_config_files` with its reason. Checked in the
         preview and again when confirming, together with the request, with
         no Hermes write to /addons in between; if another Hermes operation

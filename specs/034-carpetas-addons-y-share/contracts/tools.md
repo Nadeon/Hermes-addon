@@ -160,7 +160,10 @@ sin token en la vista previa y al confirmar, bajo el candado de `/addons`.
   Hermes menos 2 s (T051); `reason` dice qué cambió lo último.
 - `ignored_config_files`: `{"files": [{"path", "reason"}], "count", "note"}`
   en la vista previa, con los `config.*` que el Supervisor salta (T055); no
-  bloquean. Los que tumban la recarga (una excepción que el Supervisor no
+  bloquean. Desde la convergencia 4 (T062), solo los que salta seguro: los
+  que no puede leer como YAML o JSON, los que no son un mapa y los que no
+  tienen `name`. Uno con `name` que su esquema rechazaría va con los que
+  tumban la recarga (puede tumbarla). Los que tumban la recarga (una excepción que el Supervisor no
   captura) no salen aquí: `store_copy_stale` con su ruta y la pista de
   arreglarlos o quitarlos (convergencia 3, T059).
 - Convergencia 3: `store_copy_stale` también si `GET /jobs/info` tiene un

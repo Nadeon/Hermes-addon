@@ -1066,11 +1066,12 @@ def register(
         También sin /addons, si es demasiado grande para comprobarlo a
         tiempo, sin la app en su índice, con dos `config.*` válidos para el
         mismo slug, con alguno que Hermes no puede leer, con alguno que hace
-        fallar toda recarga en el Supervisor (arréglalo o quítalo), o si el
-        Supervisor tiene una recarga de la tienda en curso (o su lista de
-        jobs no responde). Un `config.*` que el Supervisor salta (sin
-        `slug`, YAML inválido…) no bloquea: sale en `ignored_config_files`
-        con su motivo. Se comprueba en la vista previa
+        o puede hacer fallar toda recarga en el Supervisor (uno con `name`
+        que su esquema rechazaría; arréglalo o quítalo), o si el Supervisor
+        tiene una recarga de la tienda en curso (o su lista de jobs no
+        responde). Un `config.*` que el Supervisor salta seguro (sin `name`,
+        YAML inválido, que no es un mapa…) no bloquea: sale en
+        `ignored_config_files` con su motivo. Se comprueba en la vista previa
         y otra vez al confirmar, junto con la petición, sin que ninguna
         escritura de Hermes en /addons se cuele entre medias; si otra
         operación de Hermes retiene /addons más de 15 s, `folder_busy` sin

@@ -886,7 +886,11 @@ class IndiceDeApps:
       con una fecha imposible, `2001-13-01`, da `ValueError`, y
       `read_yaml_file` solo captura `YAMLError`, `AttributeError`, `OSError`
       y `UnicodeDecodeError`). Tumban la recarga entera de la tienda: no se
-      ignoran, bloquean.
+      ignoran, bloquean. Desde la convergencia 4 (T062), también los que
+      PUEDEN tumbarla: uno con `name` que el esquema rechazaría (le falta un
+      campo obligatorio, el slug no vale o es demasiado largo), porque antes
+      del esquema el Supervisor recorre sus otros campos con código que
+      puede lanzar algo que no captura.
     Un fichero que el Supervisor descartaría por otra regla de su esquema
     (un `arch` que no existe, un `map` mal escrito…) no se reconoce aquí y
     cuenta como app: fail-closed también.
@@ -1001,19 +1005,44 @@ def _analizar_texto(texto: str, sufijo: str) -> _Analisis:
                 f"reading it as YAML raises {type(exc).__name__}, which the "
                 "Supervisor does not catch: every store reload fails while "
                 "this file is there")
+    # Convergencia 4 (T062): solo se da por SALTADO lo que está comprobado
+    # en el Supervisor 2026.11.0 que se salta sin tumbar la recarga: lo de
+    # arriba (`read_yaml_file` y `read_json_file` capturan sus errores) y
+    # lo que `_migrate_app_config` (`apps/validate.py`) rechaza con
+    # `vol.Invalid` en sus dos primeras líneas, antes de mirar ningún otro
+    # campo: que no sea un mapa o que no tenga `name`. En
+    # `_process_apps_config` (`store/data.py`) el repositorio local siempre
+    # es «verbose», así que no se llega a `app.get(...)` con algo que no
+    # sea un mapa.
     if not isinstance(datos, dict):
         return None, "it is not a mapping", None, None
     slug = datos.get("slug")
     local = f"local_{slug}" if isinstance(slug, str) and slug.strip() else None
     if not datos.get("name"):
         return local, "it has no 'name'", None, None
+    # Con `name`, el resto de `_migrate_app_config` y `_warn_app_config`
+    # recorre `devices`, `map`, `arch`, `machine`, `ports`… ANTES de que el
+    # esquema mire si falta un campo o si el slug vale, y un tipo
+    # inesperado lanza `TypeError` o `AttributeError`, que no se capturan
+    # (solo `vol.Invalid`). Hermes no reimplementa esas funciones: lo que
+    # el esquema rechazaría PUEDE tumbar la recarga, y bloquea (mejor de
+    # más que de menos).
+    motivo = None
     for campo in CAMPOS_OBLIGATORIOS_CONFIG:
         if campo not in datos:
-            return local, f"it has no '{campo}'", None, None
-    if not isinstance(slug, str) or not _RE_SLUG_CAMPO.match(slug):
-        return local, "its 'slug' is not valid", None, None
-    if len(f"local_{slug}") > SLUG_MAX:
-        return local, f"its app slug is longer than {SLUG_MAX} characters", None, None
+            motivo = f"it has no '{campo}'"
+            break
+    if motivo is None and (not isinstance(slug, str) or not _RE_SLUG_CAMPO.match(slug)):
+        motivo = "its 'slug' is not valid"
+    if motivo is None and len(f"local_{slug}") > SLUG_MAX:
+        motivo = f"its app slug is longer than {SLUG_MAX} characters"
+    if motivo is not None:
+        return local, None, None, (
+            f"the Supervisor would reject it ({motivo}), but it has a 'name', "
+            "so before rejecting it the Supervisor runs checks over its other "
+            "fields that can raise errors it does not catch: Hermes cannot "
+            "be sure that it only skips this file instead of failing every "
+            "store reload")
     return local, None, None, None
 
 

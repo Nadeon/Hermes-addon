@@ -394,7 +394,7 @@ class TestTumbaLaRecarga(_ConRecarga):
         self.app_local("name: [\n", carpeta="sintaxis")
         r = await self.t["sv_install_addon"](_LOCAL)
         self.assertEqual(r.get("error"), "store_copy_stale", r)
-        self.assertIn("make every store reload fail", r["reason"])
+        self.assertIn("every store reload fail", r["reason"])
         self.assertIn("rota/config.yaml", r["reason"])
         self.assertNotIn("sintaxis", r["reason"])
         self.assertIn("Fix or remove", r["hint"])

@@ -430,13 +430,17 @@ class TestIndiceDeApps:
         assert indice.ilegibles == ["grande/config.yaml"]
         assert indice.no_legibles == {
             "grande/config.yaml": "it is larger than 1 MiB, which Hermes does not read"}
+        # Convergencia 4 (T062): solo es «descartado» lo que el Supervisor
+        # salta seguro (YAML roto, sin `name`); uno con `name` que el
+        # esquema rechazaría puede tumbar la recarga y va a `rompen_recarga`.
         assert indice.descartados == {
-            "anidada/dev/otra/config.json": "it has no 'version'",
-            "ejemplo/config.yaml": "it has no 'description'",
             "numerico/config.yaml": "it has no 'name'",
             "rota/config.yaml": "it is not valid YAML",
-            "sinslug/config.yml": "it has no 'version'",
         }
+        assert set(indice.rompen_recarga) == {
+            "anidada/dev/otra/config.json", "ejemplo/config.yaml", "sinslug/config.yml"}
+        assert "it has no 'version'" in indice.rompen_recarga["sinslug/config.yml"]
+        assert "it has no 'description'" in indice.rompen_recarga["ejemplo/config.yaml"]
         assert indice.app_de_carpeta("ejemplo") == "local_ejemplo"
         assert indice.app_de_carpeta("anidada/dev/otra") == "local_otra"
         assert indice.app_de_carpeta("anidada") is None

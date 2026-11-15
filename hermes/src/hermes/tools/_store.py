@@ -986,8 +986,9 @@ def copia_de_tienda_desfasada(slug: str) -> tuple[dict[str, Any] | None, dict[st
     if indice.rompen_recarga:
         # Convergencia 3 (T059): con uno de estos, toda recarga de la tienda
         # falla en el Supervisor: su copia no se puede poner al día.
-        rechazo = _desfasada(slug, "Some config files in /addons make every store "
-                                   "reload fail in the Supervisor ("
+        # Convergencia 4 (T062): o pueden tumbarla; Hermes no lo supone.
+        rechazo = _desfasada(slug, "Some config files in /addons make, or can make, "
+                                   "every store reload fail in the Supervisor ("
                                    + _lista_de_motivos(indice.rompen_recarga)
                                    + "), so its copy of the apps cannot be "
                                    "brought up to date.")
