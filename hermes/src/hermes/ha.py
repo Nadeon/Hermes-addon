@@ -50,6 +50,11 @@ class HAConnectionError(RuntimeError):
     `unknown_command`…): es la parte estable del protocolo de HA, mientras que
     el texto cambia entre versiones y comparar subcadenas confunde un recurso
     inexistente con un fallo real.
+
+    `sent=False` marca un error en el que la petición NO llegó a salir (el
+    cliente HTTP aún no existe): quien manda algo que cambia estado necesita
+    distinguirlo de un corte a mitad, en el que no sabe si se hizo. `None` es
+    «no se sabe» (spec 022, T032).
     """
 
     def __init__(
@@ -57,10 +62,12 @@ class HAConnectionError(RuntimeError):
         *args: Any,
         status: int | None = None,
         code: str | None = None,
+        sent: bool | None = None,
     ) -> None:
         super().__init__(*args)
         self.status = status
         self.code = code
+        self.sent = sent
 
 
 # Sentinel para señalizar reconexión/cierre de WS a los waiter de eventos
@@ -433,7 +440,7 @@ class HAClient:
     async def _connect_and_watch(self) -> None:
         """Establece la conexión WebSocket y procesa eventos de estado."""
         if self._session is None or self._session.closed:
-            raise HAConnectionError("El cliente HTTP no está inicializado.")
+            raise HAConnectionError("El cliente HTTP no está inicializado.", sent=False)
 
         # `timeout` espera un ClientWSTimeout, y hay que pasarlo como tal: un
         # ClientTimeout aquí lo trata aiohttp como el parámetro float legacy y
@@ -1267,7 +1274,7 @@ class HAClient:
     ) -> dict[str, Any] | None:
         """Helper común para los endpoints `/config/{domain}/config/{id}`."""
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         validate_path_segment(domain, field="domain")
         validate_path_segment(config_id, field="config_id")
@@ -1352,7 +1359,7 @@ class HAClient:
     ) -> Any:
         """Hace un request REST a la API de Home Assistant y parsea JSON."""
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         _assert_safe_request_path(path)
         url = f"{self._rest_base_url}{path}"
@@ -1390,7 +1397,7 @@ class HAClient:
         ruta puede ser el propio log.
         """
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
         if lines < 1:
             raise ValueError("lines must be >= 1")
 
@@ -1463,7 +1470,7 @@ class HAClient:
         directamente, o lanza HAConnectionError si result==error.
         """
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         _assert_safe_request_path(sv_path)
         url = f"{self._supervisor_base_url}{sv_path}"
@@ -1484,7 +1491,7 @@ class HAClient:
     ) -> str:
         """GET a la API del Supervisor y devuelve texto plano (logs de add-ons)."""
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
 
         _assert_safe_request_path(sv_path)
         url = f"{self._supervisor_base_url}{sv_path}"

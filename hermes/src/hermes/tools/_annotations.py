@@ -259,6 +259,21 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # `ha_update_` no es prefijo destructivo. Repetirla con las mismas listas
     # deja el mismo estado (idempotente).
     "ha_update_energy_prefs",
+    # Control de Core y del Supervisor (spec 022, research R-10). Reconstruir
+    # Core y reiniciar el Supervisor cortan el servicio; reparar borra
+    # imágenes y volúmenes sin usar; `boot=false` deja Home Assistant apagado
+    # tras reiniciar el host. Arrancar Core y las opciones del Supervisor no
+    # destruyen nada, pero piden token: invariante «pide token ⇔
+    # destructiva» (desviación de R-10, que las daba no destructivas).
+    "sv_start_core",
+    "sv_rebuild_core",
+    "sv_set_core_options",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
+    "sv_set_supervisor_options",
+    # Spec 022, tramo 2 (R-10): aplicar una sugerencia puede desinstalar una
+    # app, borrar backups completos o reiniciar el host.
+    "sv_apply_resolution_suggestion",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -316,6 +331,13 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # (foro, GitHub, gist o cualquier web). No abre el socket Hermes, pero la
     # descarga la provoca esta tool (mismo criterio que sv_install_addon).
     "ha_import_blueprint",
+    # Spec 022 (R-10): recargar el Supervisor vuelve a pedir las versiones
+    # disponibles a internet; repararlo descarga las imágenes que falten.
+    "sv_reload_supervisor",
+    "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): algunos fixups descargan imágenes o vuelven a
+    # clonar un repositorio de la tienda.
+    "sv_apply_resolution_suggestion",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -352,6 +374,14 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # Confirmar dos ajustes iguales suma dos veces; el token de un solo uso
     # evita el reintento con el mismo token, pero no una segunda vista previa.
     "ha_adjust_statistics_sum",
+    # Spec 022 (R-10): repetirlas vuelve a cortar el servicio (reconstruir
+    # Core, reiniciar o reparar el Supervisor), no deja el mismo estado.
+    "sv_rebuild_core",
+    "sv_restart_supervisor",
+    "sv_repair_supervisor",
+    # Spec 022, tramo 2 (R-10): aplicar dos veces no deja el mismo estado
+    # (otro backup completo, otro reinicio).
+    "sv_apply_resolution_suggestion",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

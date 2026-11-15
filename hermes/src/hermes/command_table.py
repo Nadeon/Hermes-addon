@@ -755,7 +755,10 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/core/logs/boots/{bootid}/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/core/logs/follow"): E("deny", "streaming del log (follow): MCP es petición-respuesta; usa el log sin follow (clase B)", "generic_commands"),
     ("GET", "/core/logs/latest"): E("dedicated", "cubierto por sv_get_core_logs", "system_diagnostics", tool="sv_get_core_logs", cap="CAP-081"),
-    ("GET", "/core/stats"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
+    # Spec 022 (research R-2): FR-076 de la 008 pide las estadísticas `read`
+    # en la tabla, sin tool dedicada. Con Core parado, el Supervisor responde
+    # un error («not running»).
+    ("GET", "/core/stats"): E("read", "CPU, memoria, red y disco del contenedor de Core; solo lee", "generic_commands", cap="CAP-084"),
     ("GET", "/core/websocket"): E("deny", "alias del WebSocket de Core: llegaría a Core saltándose las guardas de las tools ha_* (clase B)", "generic_commands"),
     ("GET", "/discovery"): E("deny", "mensajes con que las apps anuncian su integración a Core; los gestionan las apps y Core, no un cliente MCP (clase B)", "generic_commands"),
     ("GET", "/discovery/{uuid}"): E("deny", "mensajes con que las apps anuncian su integración a Core; los gestionan las apps y Core, no un cliente MCP (clase B)", "generic_commands"),
@@ -859,7 +862,8 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("GET", "/supervisor/logs/latest"): E("dedicated", "cubierto por sv_get_supervisor_logs", "system_diagnostics", tool="sv_get_supervisor_logs", cap="CAP-081"),
     # Hermes lo usa al arrancar; ninguna tool lo expone y no cambia nada.
     ("GET", "/supervisor/ping"): E("read", "comprueba que el Supervisor responde; solo lee", "generic_commands"),
-    ("GET", "/supervisor/stats"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
+    # Spec 022 (research R-2): como `/core/stats`, `read` por FR-076.
+    ("GET", "/supervisor/stats"): E("read", "CPU, memoria, red y disco del contenedor del Supervisor; solo lee", "generic_commands", cap="CAP-084"),
     ("GET", "/time/info"): E("read", "zona horaria, NTP y hora del host; solo lee", "generic_commands", cap="CAP-088"),
     ("POST", "/addons/reload"): E("deny", "Alias legado de `/store/reload` (clase B)", "generic_commands"),
     ("POST", "/addons/{app}/install"): E("deny", "alias legado de /store/addons/{app}/install (clase B)", "generic_commands"),
@@ -897,10 +901,10 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/cli/update"): E("confirm", "actualiza el plugin CLI (descarga la imagen nueva)", "generic_commands", cap="CAP-091", open_world=True),
     ("POST", "/core/api/{path}"): E("deny", "proxy de Core: llegaría a la API REST de Core saltándose la denylist y las guardas de las tools ha_* (siempre rechazado)", "generic_commands"),
     ("POST", "/core/check"): E("dedicated", "cubierto por sv_check_core_config", "supervisor", tool="sv_check_core_config"),
-    ("POST", "/core/options"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
-    ("POST", "/core/rebuild"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
+    ("POST", "/core/options"): E("dedicated", "cubierto por sv_set_core_options", "system_control", tool="sv_set_core_options", cap="CAP-084"),
+    ("POST", "/core/rebuild"): E("dedicated", "cubierto por sv_rebuild_core", "system_control", tool="sv_rebuild_core", cap="CAP-084"),
     ("POST", "/core/restart"): E("dedicated", "cubierto por sv_restart_core", "supervisor", tool="sv_restart_core"),
-    ("POST", "/core/start"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
+    ("POST", "/core/start"): E("dedicated", "cubierto por sv_start_core", "system_control", tool="sv_start_core", cap="CAP-084"),
     ("POST", "/core/stop"): E("deny", "Hermes depende del WebSocket de Core: su watchdog lo reiniciaría y el usuario queda sin UI (clase D)", "generic_commands"),
     ("POST", "/core/update"): E("dedicated", "cubierto por sv_update_core", "system_updates", tool="sv_update_core", cap="CAP-080"),
     ("POST", "/discovery"): E("deny", "Una app anuncia su integración (clase B)", "generic_commands"),
@@ -922,7 +926,9 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/homeassistant/update"): E("deny", "alias legado de /core/update (clase B)", "generic_commands"),
     ("POST", "/host/options"): E("deny", "pendiente de tool dedicada (spec 032)", "generic_commands", cap="CAP-086"),
     ("POST", "/host/reboot"): E("dedicated", "cubierto por sv_reboot_host", "supervisor", tool="sv_reboot_host"),
-    ("POST", "/host/reload"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
+    # Spec 022 (research R-2): está en CAP-084 pero FR-076 no le da tool. Solo
+    # refresca por D-Bus lo que el Supervisor sabe del host; nada se corta.
+    ("POST", "/host/reload"): E("confirm", "refresca la información del host; no corta nada", "generic_commands", cap="CAP-084"),
     ("POST", "/host/shutdown"): E("deny", "pendiente de tool dedicada (spec 032)", "generic_commands", cap="CAP-086"),
     ("POST", "/ingress/session"): E("deny", "crea la sesión con que el navegador abre la interfaz web de una app (clase B)", "generic_commands"),
     ("POST", "/ingress/validate_session"): E("deny", "valida una sesión de ingress del navegador (clase B)", "generic_commands"),
@@ -950,10 +956,15 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/os/update"): E("dedicated", "cubierto por sv_update_os", "system_updates", tool="sv_update_os", cap="CAP-080"),
     ("POST", "/refresh_updates"): E("dedicated", "cubierto por sv_check_for_updates", "system_updates", tool="sv_check_for_updates"),
     ("POST", "/reload_updates"): E("dedicated", "cubierto por sv_check_for_updates (que usa /refresh_updates: recarga también la tienda)", "system_updates", tool="sv_check_for_updates", cap="CAP-080"),
-    ("POST", "/resolution/check/{check}/options"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
-    ("POST", "/resolution/check/{check}/run"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
-    ("POST", "/resolution/healthcheck"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
-    ("POST", "/resolution/suggestion/{suggestion}"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-087"),
+    # Spec 022 (research R-2): FR-077 de la 008 deja los chequeos `confirm` en
+    # la tabla, sin tool dedicada. Desactivar uno oculta ese problema.
+    ("POST", "/resolution/check/{check}/options"): E("confirm", "activa o desactiva un chequeo (`enabled`); desactivarlo oculta ese problema", "generic_commands", cap="CAP-087"),
+    # Spec 022 (research R-2): FR-077, `confirm`; solo relanza un chequeo.
+    ("POST", "/resolution/check/{check}/run"): E("confirm", "ejecuta ya un chequeo del centro de resolución", "generic_commands", cap="CAP-087"),
+    # Spec 022 (research R-2 y R-6): FR-077, `confirm`; el healthcheck lanza
+    # `run_autofix()`, así que el motivo avisa de los arreglos automáticos.
+    ("POST", "/resolution/healthcheck"): E("confirm", "relanza todos los chequeos y puede aplicar los arreglos automáticos del Supervisor", "generic_commands", cap="CAP-087"),
+    ("POST", "/resolution/suggestion/{suggestion}"): E("dedicated", "cubierto por sv_apply_resolution_suggestion", "resolution_fixes", tool="sv_apply_resolution_suggestion", cap="CAP-087"),
     # api/security.py del Supervisor 2026.11.0: `raise APIGone(...)`.
     ("POST", "/security/integrity"): E("deny", "eliminada en el Supervisor 2026.11: responde 410 Gone (ya no hay comprobación de integridad)", "generic_commands", cap="CAP-088"),
     ("POST", "/security/options"): E("deny", "Desactivar `content_trust`/`force_security` rebaja la seguridad del sistema (clase D)", "generic_commands"),
@@ -965,10 +976,10 @@ SUPERVISOR: dict[tuple[str, str], E] = {
     ("POST", "/store/reload"): E("dedicated", "cubierto por sv_reload_store", "app_store", tool="sv_reload_store", cap="CAP-082"),
     ("POST", "/store/repositories"): E("dedicated", "cubierto por sv_add_store_repository", "app_store", tool="sv_add_store_repository", cap="CAP-082"),
     ("POST", "/store/repositories/{repository}/repair"): E("dedicated", "cubierto por sv_repair_store_repository", "app_store", tool="sv_repair_store_repository", cap="CAP-082"),
-    ("POST", "/supervisor/options"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
-    ("POST", "/supervisor/reload"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
-    ("POST", "/supervisor/repair"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
-    ("POST", "/supervisor/restart"): E("deny", "pendiente de tool dedicada (spec 022)", "generic_commands", cap="CAP-084"),
+    ("POST", "/supervisor/options"): E("dedicated", "cubierto por sv_set_supervisor_options", "system_control", tool="sv_set_supervisor_options", cap="CAP-084"),
+    ("POST", "/supervisor/reload"): E("dedicated", "cubierto por sv_reload_supervisor", "system_control", tool="sv_reload_supervisor", cap="CAP-084"),
+    ("POST", "/supervisor/repair"): E("dedicated", "cubierto por sv_repair_supervisor", "system_control", tool="sv_repair_supervisor", cap="CAP-084"),
+    ("POST", "/supervisor/restart"): E("dedicated", "cubierto por sv_restart_supervisor", "system_control", tool="sv_restart_supervisor", cap="CAP-084"),
     ("POST", "/supervisor/update"): E("dedicated", "cubierto por sv_update_supervisor", "system_updates", tool="sv_update_supervisor", cap="CAP-080"),
     ("POST", "/time/options"): E("confirm", "cambia los servidores NTP del host", "generic_commands", cap="CAP-094"),
     ("PUT", "/mounts/{mount}"): E("dedicated", "cubierto por sv_update_mount", "mounts", tool="sv_update_mount", cap="CAP-083"),
