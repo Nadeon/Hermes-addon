@@ -26,6 +26,14 @@
    `response_too_large` (revisión de 1.1.1, B-1). Esto es la red de seguridad,
    y nunca quita el `confirmation_token` de una vista previa (A-1). Las
    listas anidadas solo se recortan en las tools de `RECORTE_ANIDADO` (N-1).
+
+4. Credenciales tapadas en lo que llega (cierre de seguridad de la 1.2.0). Una
+   tool que escribe (sin `readOnlyHint`) y recibe en cualquier argumento una
+   URL con la contraseña tapada (`usuario:***@`, la forma que deja
+   `redact_secrets`) la rechaza sin llamar a la tool ni dar token
+   (`redacted_value_in_payload`): guardaría `***` como contraseña. Aquí, en
+   el único camino de `tools/call`, vale para todas (`cors_allowed_origins`,
+   `external_url`, URLs de repositorio o de montaje, `fs_write_file`…).
 """
 
 from __future__ import annotations
@@ -37,7 +45,13 @@ from mcp.server.mcpserver import MCPServer
 from mcp_types import CallToolResult, TextContent
 
 from hermes import __version__
-from hermes.tools._common import recortar_a_bytes
+from hermes.tools._annotations import classify
+from hermes.tools._common import (
+    CREDENCIAL_TAPADA,
+    error_credencial_tapada,
+    recortar_a_bytes,
+    rutas_con_marcador,
+)
 
 # Tools cuyo `{"error": …}` acompaña a un resultado útil y por eso NO deben
 # marcarse como fallo (nombre → motivo). La auditoría de la spec 003 (R-B3)
@@ -126,6 +140,15 @@ class HermesMCPServer(MCPServer):
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Any = None
     ) -> Any:
+        if not classify(name).read_only_hint and (
+            rutas := rutas_con_marcador(arguments, marcador=CREDENCIAL_TAPADA)
+        ):
+            # Antes de la tool: ni vista previa, ni token, ni petición.
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(
+                    error_credencial_tapada(rutas), ensure_ascii=False))],
+                is_error=True,
+            )
         result = await super().call_tool(name, arguments, context)
         if isinstance(result, CallToolResult) and self.response_max_bytes:
             # Antes de marcar `isError`: `response_too_large` es un fallo.

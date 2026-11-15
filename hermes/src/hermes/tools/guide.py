@@ -548,6 +548,8 @@ Receta «¿por qué falla esta integración?»:
   responde `not_supported` (deprecada, se retira en la 1.3.0). Para verlas,
   abre el flujo de opciones (muchas integraciones lo rellenan con los valores
   actuales; depende de cada una) y ciérralo con `ha_abort_config_entry_flow`.
+  Los valores sugeridos de los campos secretos salen tapados (`***REDACTED***`)
+  y `ha_continue_options_flow` rechaza un `user_input` que lleve el marcador.
 
 Los flujos `external` (OAuth de la integración) y `progress` NO son
 automatizables: Hermes los aborta y lo indica. `ha_continue_config_entry_flow`
@@ -1082,8 +1084,11 @@ sus avisos, mantener su lista y desinstalar. Las cinco van en DOS PASOS (vista p
   que Hermes no ve) y qué puede dejar de funcionar (`may_break`: HA no dice
   qué entidades o tarjetas lo usan, así que es lo que implica su categoría).
   BACKUP: al confirmar, antes de enviar nada a HA, Hermes pide al Supervisor
-  un backup PARCIAL de la configuración de HA SIN la base de datos (sin
-  cifrar) y espera a que termine; si falla o no termina, responde
+  un backup PARCIAL de la configuración de HA SIN la base de datos, cifrado
+  según `safety_backup_encryption` como un safety backup (la vista previa
+  dice si irá cifrado; restaurarlo necesita la clave del kit de emergencia;
+  con `required` y sin clave, `encryption_key_unavailable` y no se
+  desinstala nada), y espera a que termine; si falla o no termina, responde
   `backup_failed` (con `job_id` si lo hay), no se desinstala nada y el token
   queda gastado. `backup=false` lo omite, y el Marketplace no guarda copia de
   lo que desinstala. Hermes NO reinicia: si `restart_required` es true,
@@ -1685,6 +1690,8 @@ RECHAZOS (ninguno llega a Home Assistant ni al Supervisor)
   de `sv_call_api` llevan `***REDACTED***` (en un valor o en una clave), el
   texto con que Hermes tapa un secreto al leer: se guardaría en lugar del
   valor real. `paths` dice dónde; manda el valor real o quita ese campo.
+  Cualquier tool que escribe rechaza igual, sin token, una URL con la
+  contraseña tapada (`usuario:***@`, como sale al leer): guardaría `***`.
 - `path_not_allowed` — ruta con forma inválida (`rule: shape`), el proxy de
   Core del Supervisor (`core_proxy`) o dirigida al propio Hermes
   (`self_target`).

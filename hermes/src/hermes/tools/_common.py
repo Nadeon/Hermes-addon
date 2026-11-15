@@ -45,7 +45,7 @@ def redactar_datos(valor: Any) -> Any:
 _RUTAS_MARCADOR_MAX = 20
 
 
-def rutas_con_marcador(valor: Any, ruta: str = "") -> list[str]:
+def rutas_con_marcador(valor: Any, ruta: str = "", marcador: str = REDACTED_MARKER) -> list[str]:
     """Rutas (`data.zha_alarm_options.alarm_master_code`, `items[0]`) de una
     carga donde aparece el marcador de redacción, en un valor de texto o en
     una CLAVE, a cualquier profundidad. Nunca valores: es seguro devolverlo.
@@ -57,21 +57,48 @@ def rutas_con_marcador(valor: Any, ruta: str = "") -> list[str]:
     configuración entera, código maestro de la alarma incluido). Se rechaza
     antes de emitir el token y antes de llamar. Una clave con el marcador
     también: no es un nombre que nadie quiera guardar.
+
+    `marcador` es el texto que se busca; por defecto, el de la redacción
+    por clave. El cierre de seguridad de la 1.2.0 lo usa también con
+    `CREDENCIAL_TAPADA`.
     """
     rutas: list[str] = []
     if isinstance(valor, dict):
         for clave, sub in valor.items():
             nombre = str(clave)
             hija = f"{ruta}.{nombre}" if ruta else nombre
-            if REDACTED_MARKER in nombre:
+            if marcador in nombre:
                 rutas.append(hija)
-            rutas += rutas_con_marcador(sub, hija)
+            rutas += rutas_con_marcador(sub, hija, marcador)
     elif isinstance(valor, (list, tuple)):
         for i, sub in enumerate(valor):
-            rutas += rutas_con_marcador(sub, f"{ruta}[{i}]")
-    elif isinstance(valor, str) and REDACTED_MARKER in valor:
+            rutas += rutas_con_marcador(sub, f"{ruta}[{i}]", marcador)
+    elif isinstance(valor, str) and marcador in valor:
         rutas.append(ruta or "(root)")
     return rutas[:_RUTAS_MARCADOR_MAX]
+
+
+# La forma en que `redact_secrets` deja la contraseña de una URL
+# (`esquema://usuario:***@servidor`). Cierre de seguridad de la 1.2.0: una
+# URL así, copiada de una lectura (`cors_allowed_origins`, `external_url`, la
+# URL de un repositorio o de un montaje) y reenviada a una escritura, se
+# guardaría con `***` como contraseña. Se rechaza igual que el marcador.
+CREDENCIAL_TAPADA = ":***@"
+
+
+def error_credencial_tapada(rutas: list[str]) -> dict[str, Any]:
+    """El rechazo `redacted_value_in_payload` para una URL con la
+    contraseña tapada (`usuario:***@`)."""
+    return {
+        "error": "redacted_value_in_payload",
+        "detail": (
+            "A value contains a URL whose password is redacted (user:***@), the "
+            "form Hermes shows instead of the real credentials when reading. "
+            "Sending it would save '***' as the password. Send the real URL, "
+            "or leave that field out."
+        ),
+        "paths": rutas,
+    }
 
 
 def error_marcador_en_carga(rutas: list[str]) -> dict[str, Any]:

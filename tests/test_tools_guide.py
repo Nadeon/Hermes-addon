@@ -570,7 +570,10 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # (textos de los avisos y remite a `repair_flows`) y `helpers`
         # («Helpers por config entry», CAP-037); su CHANGELOG lo dice. Huellas
         # recalculadas al integrarla sobre las de la 033, la 027 y la 012.
-        "config_entries": "c5acb413e7fedf5a",
+        # El cierre de seguridad de la 1.2.0 cambia `config_entries` (las
+        # opciones salen tapadas y se rechaza el marcador) y `generic_commands`
+        # (la URL con `usuario:***@`); su CHANGELOG lo dice.
+        "config_entries": "a37e88797523ec8e",
         "data": "c77e3e6782cc89a7",
         # La 012 cambia `diagnostics` (remite a `core_diagnostics`) y la 022
         # (tramo 2) también: ya no dice que Hermes nunca aplica sugerencias,
@@ -581,7 +584,7 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "filesystem": "b5902d6d0ff666c1",
         # La convergencia de la 025 (T047) cambia `generic_commands`: el rechazo
         # `redacted_value_in_payload`; su CHANGELOG lo dice.
-        "generic_commands": "c988dedafd2834db",
+        "generic_commands": "55325dfe9602e63b",
         "helpers": "c99850e94eb5c996",
         # La 018 cambia `lovelace` (guardado por vista) y `services`
         # (`ha_call_service_response` con token); su CHANGELOG lo dice. La
@@ -1765,7 +1768,8 @@ class TestTemaMarketplaceManage(unittest.IsolatedAsyncioTestCase):
         plano = " ".join(_GUIDE["marketplace_manage"].split())
         for palabra in ("ha_marketplace_uninstall", "Las cinco", "repository_not_installed",
                         "repository_in_use", "ha_delete_config_entry",
-                        "SIN la base de datos", "sin cifrar", "backup_failed",
+                        "SIN la base de datos", "safety_backup_encryption",
+                        "encryption_key_unavailable", "backup_failed",
                         "no se desinstala nada", "backup=false", "restart_required",
                         "Hermes NO reinicia", "sv_restart_core", "may_break",
                         "desinstálalo antes con `ha_marketplace_uninstall`"):
@@ -2132,7 +2136,7 @@ class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
         # La convergencia de la 025 (T047) añade a `generic_commands` el rechazo
         # `redacted_value_in_payload` de las cargas con el marcador de redacción
         # (su CHANGELOG lo dice); huella recalculada al integrar la 025.
-        "generic_commands": "c988dedafd2834db",
+        "generic_commands": "55325dfe9602e63b",
         "app_store": "f02491e7f0e6c93c",
         "workflows": "53b81454a6708b9a",
         "supervisor": "dc38e81c61a06932",
@@ -2235,7 +2239,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "automations": "d27ee3c45bc13171",
         "backups": "3e685f47171224e7",
         "blueprints": "f0b99d3c0a4103e4",
-        "config_entries": "c5acb413e7fedf5a",
+        # El cierre de seguridad de la 1.2.0 cambia `config_entries` (las
+        # opciones salen tapadas y se rechaza el marcador) y `generic_commands`
+        # (la URL con `usuario:***@`); su CHANGELOG lo dice.
+        "config_entries": "a37e88797523ec8e",
         "core_diagnostics": "29db774e2062ebde",
         "data": "c77e3e6782cc89a7",
         "diagnostics": "838ff4a3a3eeaddb",
@@ -2244,7 +2251,7 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         # La convergencia de la 025 (T047) añade a `generic_commands` el rechazo
         # `redacted_value_in_payload` de las cargas con el marcador de redacción
         # (su CHANGELOG lo dice); huella recalculada al integrar la 025.
-        "generic_commands": "c988dedafd2834db",
+        "generic_commands": "55325dfe9602e63b",
         "helpers": "c99850e94eb5c996",
         "integration_flows": "5df1b039b66924d5",
         "lovelace": "04bebf2041d378db",

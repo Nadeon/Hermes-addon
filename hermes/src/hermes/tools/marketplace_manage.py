@@ -47,6 +47,12 @@ from __future__ import annotations
 import functools
 from typing import Any
 
+from hermes.backup_key import (
+    CIFRADO_NO,
+    CLAVE_NO_DISPONIBLE,
+    clave_para_safety_backup,
+    sin_clave_bloquea,
+)
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
@@ -58,7 +64,9 @@ from hermes.tools._common import requires_ready
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._marketplace_write import (
     ESPERA_DESINSTALAR,
+    NOTA_BACKUP_CIFRADO,
     SIN_BACKUP,
+    aviso_backup_sin_cifrar,
     ErrorMarketplace,
     backup_previo,
     buscar_por_nombre,
@@ -122,11 +130,16 @@ def register(
     ha_client: HAClient,
     *,
     response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
+    # `off` por defecto, como `backups.register`: es el valor de quien
+    # registra a mano (tests); el arranque pasa la opción del add-on.
+    safety_backup_encryption: str = CIFRADO_NO,
 ) -> None:
     """Registra las cinco tools de mantenimiento del Marketplace.
 
     `response_max_bytes` se acepta por uniformidad con el resto de
     `register`: ninguna devuelve listas que haya que recortar.
+    `safety_backup_encryption` es la opción de la 031: el backup previo de
+    `ha_marketplace_uninstall` se cifra como un safety backup.
     """
     del response_max_bytes
     ready = requires_ready(ha_client)
@@ -569,8 +582,13 @@ def register(
         working, the backup) and a confirmation_token; repeat it with the
         same arguments and the token. With backup=true (default), Hermes
         first asks the Supervisor for a partial backup of the Home Assistant
-        configuration without the database (not encrypted) and uninstalls
-        only if it finishes; if it fails, nothing is sent to Home Assistant.
+        configuration without the database and uninstalls only if it
+        finishes; if it fails, nothing is sent to Home Assistant. The backup
+        follows the safety_backup_encryption option, like safety backups: the
+        preview says whether it will be encrypted (restoring an encrypted one
+        needs the backup key from the emergency kit); with 'required' and no
+        key, there is no backup and nothing is uninstalled
+        (encryption_key_unavailable).
         Hermes does not restart Core (sv_restart_core). Does not work with
         HACS 2.x (Home Assistant 2026.10 or older).
 
@@ -581,7 +599,8 @@ def register(
 
         Returns:
             Without token: {"confirmation_token", "preview"}, or an error:
-            repository_not_found, repository_not_installed, repository_in_use.
+            repository_not_found, repository_not_installed, repository_in_use,
+            encryption_key_unavailable.
             With token: {"result": "ok", "repository", "restart_required",
             "backup"}, backup_failed (nothing sent to Home Assistant), or
             outcome_unknown (no answer in time: it may have been uninstalled;
@@ -639,6 +658,34 @@ def register(
             "local_path": repo.get("local_path"),
         }
 
+        # Cierre de seguridad de la 1.2.0: el backup previo sigue
+        # `safety_backup_encryption` (031). La clave se lee en los dos pasos,
+        # vive solo en esta llamada (va en la carga y en nada más) y el token
+        # se ata a si el backup va cifrado: si eso cambia entre la vista
+        # previa y la confirmación, el token deja de valer.
+        clave: str | None = None
+        motivo: str | None = None
+        if backup:
+            leida = await clave_para_safety_backup(ha_client, safety_backup_encryption)
+            clave = leida.clave if leida is not None else None
+            motivo = leida.motivo if leida is not None else None
+            if leida is not None and clave is None and sin_clave_bloquea(safety_backup_encryption):
+                # `required` sin clave: no hay backup, y sin backup no se
+                # desinstala. No se gasta el token: no se hizo nada.
+                return _rechazo(tool, {
+                    "error": CLAVE_NO_DISPONIBLE,
+                    "reason": motivo,
+                    "detail": (
+                        "safety_backup_encryption is 'required' and Home "
+                        "Assistant's backup encryption key is not available, so "
+                        "no backup was made and nothing was uninstalled."
+                    ),
+                    "sent_to_home_assistant": False,
+                    "hint": "Set up Home Assistant's automatic backups (that "
+                            "creates the key), or pass backup=false knowingly.",
+                }, categoria)
+            estado["backup_encrypted"] = clave is not None
+
         if not confirmation_token:
             if backup:
                 copia: dict[str, Any] = {
@@ -648,12 +695,18 @@ def register(
                         "without the database, apps or folders"
                     ),
                     "name_pattern": "hermes_marketplace_uninstall_<UTC date and time>",
-                    "encrypted": False,
+                    "encrypted": clave is not None,
                     "if_it_fails": (
                         "nothing is sent to Home Assistant, the token is spent "
                         "and the answer is backup_failed"
                     ),
                 }
+                if clave is not None:
+                    copia["restore_note"] = NOTA_BACKUP_CIFRADO
+                elif motivo is not None:
+                    # `auto` sin clave: sin cifrar, pero dicho.
+                    copia["encryption_skipped_reason"] = motivo
+                    copia["warning"] = aviso_backup_sin_cifrar(motivo)
             else:
                 copia = {
                     "will_create": False,
@@ -702,7 +755,7 @@ def register(
         if backup:
             try:
                 hecho_backup = {"created": True, **await backup_previo(
-                    ha_client, nombre_backup("uninstall"))}
+                    ha_client, nombre_backup("uninstall"), clave)}
             except ErrorMarketplace as exc:
                 # SC-005: sin backup terminado no se envía el comando de HA.
                 await complete_confirmation_token(

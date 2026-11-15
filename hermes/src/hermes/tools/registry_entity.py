@@ -386,6 +386,21 @@ def register(
                 "requires_confirmation": True,
                 "destructive": requires_token,
             }
+            # Cierre de seguridad de la 1.2.0: habilitar o mostrar el
+            # interruptor «pre-release» de un repositorio del Marketplace lo
+            # pone al alcance de `switch.turn_on`. El token ya se pide
+            # siempre; la vista previa lo avisa como `ha_call_service`.
+            from hermes.tools._marketplace_write import (
+                AVISO_HABILITAR_INTERRUPTOR_BETA,
+                habilita_interruptor_beta,
+            )
+            beta = habilita_interruptor_beta(entity_id, current_raw, normalized)
+            if beta is not False:
+                preview["warning_marketplace_beta"] = AVISO_HABILITAR_INTERRUPTOR_BETA
+                if beta is None:
+                    preview["warning_marketplace_beta_note"] = (
+                        "The registry entry could not be read: this switch may "
+                        "be a Marketplace pre-release switch.")
             token_data = await create_confirmation_token(
                 "ha_update_entity_registry", args, preview=preview
             )

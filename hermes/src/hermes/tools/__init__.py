@@ -353,7 +353,8 @@ def register_all_tools(
     # de riesgos aceptado por el usuario de Hermes, que no puede aceptarlo.
     if _activa("marketplace_manage"):
         from hermes.tools.marketplace_manage import register as register_marketplace_manage
-        register_marketplace_manage(mcp, ha_client, response_max_bytes=response_max_bytes)
+        register_marketplace_manage(mcp, ha_client, response_max_bytes=response_max_bytes,
+                                    safety_backup_encryption=safety_backup_encryption)
 
     # Diagnóstico del sistema (spec 013): logs de Core, del Supervisor, de los
     # plugins y del host, también de arranques anteriores. Solo leen. Reciben
