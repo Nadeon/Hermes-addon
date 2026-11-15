@@ -221,3 +221,15 @@ template:
 # del recorder; sin hardware ni internet (la previsión solar solo devuelve lo
 # que tienen las integraciones de previsión, y aquí no hay ninguna).
 energy:
+
+# ── Spec 025 (tramo 3): la clase C por las genéricas ────────────────────────
+#
+# usb: registra `usb/scan`, `usb/list_serial_ports` y
+# `usb/list_serial_integrations`, que test_banco_integraciones_c.py lee por
+# `ha_read_ws_command`. Es la única integración de la clase C que arranca sin
+# hardware ni red (research R-8 de la 025): en el contenedor no hay puertos
+# serie y la lista sale vacía. No configura nada ni sale a internet. Las demás
+# (Z-Wave JS, ZHA, Matter, KNX…) necesitan una radio o un servidor y solo se
+# prueban con unitarios; `zha/devices` sirve aquí de comando de una
+# integración NO cargada (`unknown_command`).
+usb:
