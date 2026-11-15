@@ -589,7 +589,7 @@ CORE_WS: dict[str, E] = {
     "tts/engine/list": E("read", "motores de texto a voz y si admiten un idioma; solo lee", "generic_commands", cap="CAP-062"),
     "tts/engine/voices": E("read", "voces de un motor de texto a voz para un idioma; solo lee", "generic_commands", cap="CAP-062"),
     "unsubscribe_events": E("deny", "cancela una suscripción, y las genéricas no abren ninguna (las esperas puntuales van por ha_wait_for_event)", "generic_commands"),
-    "update/release_notes": E("deny", "pendiente de tool dedicada (spec 015)", "generic_commands", cap="CAP-064"),
+    "update/release_notes": E("dedicated", "cubierto por ha_get_update_release_notes", "system_updates", tool="ha_get_update_release_notes", cap="CAP-064"),
     "usage_prediction/common_control": E("deny", "sugerencias de la UI (clase B)", "generic_commands"),
     "usb/list_serial_integrations": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
     "usb/list_serial_ports": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),

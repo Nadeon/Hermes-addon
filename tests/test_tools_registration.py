@@ -763,6 +763,12 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # por `_TITLE_WORDS` (lo trajo la 013).
     "sv_update_os": ("-DIO", "Update OS (Supervisor)"),
     "sv_update_supervisor": ("-DIO", "Update supervisor (Supervisor)"),
+    # Tramo 3: entidades `update` de Core. La lista lee lo que HA tiene; las
+    # notas pueden pedirse a internet al leerlas; instalar es destructiva,
+    # idempotente y de mundo abierto como las `sv_update_*`.
+    "ha_list_updates": ("R-I-", "List updates (Home Assistant)"),
+    "ha_get_update_release_notes": ("R-IO", "Get update release notes (Home Assistant)"),
+    "ha_install_update": ("-DIO", "Install update (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -782,6 +788,9 @@ _UPDATES_015 = ("sv_list_available_updates", "sv_check_for_updates", "sv_update_
 
 # Las del tramo 2 de la spec 015 (OS y Supervisor, CAP-080).
 _UPDATES_015_T2 = ("sv_update_os", "sv_update_supervisor")
+
+# Las del tramo 3 de la spec 015 (entidades `update`, CAP-064).
+_UPDATES_015_T3 = ("ha_list_updates", "ha_get_update_release_notes", "ha_install_update")
 
 
 def _hint_code(ann) -> str:
@@ -1224,12 +1233,16 @@ class TestActualizaciones015:
         from hermes.command_table import CORE_WS, SUPERVISOR
 
         tools = _real_registry(["system_updates"])
-        assert [n for n in _UPDATES_015 + _UPDATES_015_T2 if n in tools] == []
+        todas = _UPDATES_015 + _UPDATES_015_T2 + _UPDATES_015_T3
+        assert [n for n in todas if n in tools] == []
         dedicadas = [e.tool for e in (*CORE_WS.values(), *SUPERVISOR.values())
                      if e.category == "dedicated" and e.family == "system_updates"]
-        assert sorted(set(dedicadas)) == sorted(_UPDATES_015 + _UPDATES_015_T2)
-        # 5 del tramo 1 y 2 del tramo 2.
-        assert len(dedicadas) == 7
+        # Las que tienen entrada en la tabla: todas salvo `ha_list_updates` y
+        # `ha_install_update` (lee estados; instala por `call_service`).
+        assert sorted(set(dedicadas)) == sorted(
+            _UPDATES_015 + _UPDATES_015_T2 + ("ha_get_update_release_notes",))
+        # 5 del tramo 1, 2 del tramo 2 y `update/release_notes` del tramo 3.
+        assert len(dedicadas) == 8
 
     def test_tramo_2_registradas_con_sus_anotaciones(self):
         """Tramo 2 (T024): las dos destructivas, idempotentes y de mundo
@@ -1243,6 +1256,24 @@ class TestActualizaciones015:
         assert set(tools["sv_update_supervisor"].parameters["properties"]) == {
             "confirmation_token"}
         assert tools["sv_update_os"].title == "Update OS (Supervisor)"
+
+    def test_tramo_3_entidades_update(self):
+        """Tramo 3 (T036): las tres con sus anotaciones y argumentos de
+        contracts/tools.md; `ha_install_update` con backup=false por defecto
+        (el de `update.install` en Core)."""
+        tools = _real_registry()
+        codigos = {n: _hint_code(tools[n].annotations) for n in _UPDATES_015_T3}
+        assert codigos == {"ha_list_updates": "R-I-",
+                           "ha_get_update_release_notes": "R-IO",
+                           "ha_install_update": "-DIO"}
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _UPDATES_015_T3}
+        assert props == {
+            "ha_list_updates": {"include_up_to_date"},
+            "ha_get_update_release_notes": {"entity_id"},
+            "ha_install_update": {"entity_id", "version", "backup", "confirmation_token"},
+        }
+        assert tools["ha_install_update"].parameters["required"] == ["entity_id"]
+        assert tools["ha_install_update"].parameters["properties"]["backup"].get("default") is False
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

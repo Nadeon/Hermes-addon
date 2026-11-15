@@ -158,6 +158,55 @@ class TestCallServiceDenylist(unittest.IsolatedAsyncioTestCase):
         self.assertIn("confirmation_token", result)
 
 
+class TestHintUpdateInstall(unittest.IsolatedAsyncioTestCase):
+    """Spec 015, FR-015 (T037): `ha_call_service("update", "install", …)` no
+    cambia de comportamiento (sigue pidiendo token y, con él, llama igual que
+    en la 1.1.2); solo su vista previa gana una `hint` hacia
+    `ha_install_update`, que enseña versiones, notas y backup.
+
+    Control negativo (T045 f): sin la `hint` cae `test_vista_previa_con_hint`.
+    """
+
+    def setUp(self) -> None:
+        import hermes.security as security
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self._parche = patch.object(security, "CONFIRMATIONS_DIR", Path(self.tmp.name))
+        self._parche.start()
+        self.ha_client = _make_ha_client()
+        self.tools = _register_ha_tools(self.ha_client)
+        self.datos = {"entity_id": "update.firmware_ficticio"}
+
+    def tearDown(self) -> None:
+        self._parche.stop()
+        self.tmp.cleanup()
+
+    async def test_vista_previa_con_hint(self) -> None:
+        r = await self.tools["ha_call_service"](
+            domain="update", service="install", service_data=self.datos)
+        self.assertIn("confirmation_token", r)
+        self.assertIn("ha_install_update", r["preview"]["hint"])
+        self.assertEqual(r["preview"]["service"], "install")
+        self.ha_client.call_service.assert_not_called()
+
+    async def test_con_token_igual_que_en_la_1_1_2(self) -> None:
+        r = await self.tools["ha_call_service"](
+            domain="update", service="install", service_data=self.datos)
+        r = await self.tools["ha_call_service"](
+            domain="update", service="install", service_data=self.datos,
+            confirmation_token=r["confirmation_token"])
+        self.assertEqual(r, {"result": "ok"})
+        self.ha_client.call_service.assert_awaited_once_with(
+            "update", "install", self.datos, allow_dangerous=True)
+
+    async def test_otro_servicio_sin_hint(self) -> None:
+        for dominio, servicio in (("homeassistant", "restart"), ("update", "skip")):
+            with self.subTest(servicio=f"{dominio}.{servicio}"):
+                r = await self.tools["ha_call_service"](domain=dominio, service=servicio)
+                if "preview" in r:
+                    self.assertNotIn("hint", r["preview"])
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. Sanitización de service_data
 # ══════════════════════════════════════════════════════════════════════════════

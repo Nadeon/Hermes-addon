@@ -568,6 +568,17 @@ def register(
                     preview["restricted_entities"] = sorted(
                         _policy._collect_entity_ids(data) & restricted_auto
                     ) or ["(objetivo indirecto: área, dispositivo o comodín)"]
+                if (domain_lower, service_lower) == ("update", "install"):
+                    # Spec 015, FR-015: la vía de siempre sigue igual (mismo
+                    # token, misma llamada), pero esta vista previa no dice de
+                    # qué versión a qué versión ni qué notas o backup hay. Se
+                    # recomienda la tool que sí lo dice. No cambia lo que el
+                    # token ata (`args_cs`).
+                    preview["hint"] = (
+                        "Prefer ha_install_update: its preview shows the from/to "
+                        "versions, release notes and backup, binds the token to "
+                        "those versions, and sends Core, OS, Supervisor and app "
+                        "updates to their sv_* tools.")
                 return await create_confirmation_token(tool_name_cs, args_cs, preview=preview)
 
             valid, error = await validate_confirmation_token(

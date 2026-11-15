@@ -337,6 +337,12 @@ def register_all_tools(
         from hermes.tools.system_updates import register as register_system_updates
         register_system_updates(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+        # Tramo 3: las entidades `update` de Core (firmware, integraciones,
+        # HACS…), con el encaminamiento de las de la integración `hassio` a
+        # las `sv_*` y el rechazo de la de Hermes.
+        from hermes.tools.update_entities import register as register_update_entities
+        register_update_entities(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

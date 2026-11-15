@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **236 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **239 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 236 herramientas
+## Qué puede hacer — 239 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -43,7 +43,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Backups** | 13 | Completos y parciales, crear y restaurar. Además, de solo lectura, los backups de la integración `backup` de Home Assistant (HA 2025.1 o posterior) en todas sus ubicaciones (local, red, nube) y su configuración sin la contraseña de cifrado |
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
 | **Diagnóstico del sistema** | 11 | De solo lectura: logs de Home Assistant Core, del Supervisor, de los plugins (`dns`, `audio`, `multicast`) y del journal del host, también de arranques anteriores, con los secretos redactados; los identificadores y arranques del journal; servicios del host, qué llena el disco, versión y slots de Home Assistant OS, swap y discos candidatos a disco de datos |
-| **Actualizaciones del sistema** | 5 | Qué tiene actualización (Core, OS, Supervisor, apps y plugins), buscar actualizaciones y actualizar Core, el OS y el Supervisor: la vista previa dice versiones, backup, qué se reinicia (el OS solo se aplica al reiniciar el host), salud del sistema y, en Core, la comprobación de la configuración, y no da token si el Supervisor la rechazaría |
+| **Actualizaciones del sistema** | 8 | Qué tiene actualización (Core, OS, Supervisor, apps y plugins), buscar actualizaciones y actualizar Core, el OS y el Supervisor: la vista previa dice versiones, backup, qué se reinicia (el OS solo se aplica al reiniciar el host), salud del sistema y, en Core, la comprobación de la configuración, y no da token si el Supervisor la rechazaría. Entidades `update` (firmware de dispositivos, integraciones, HACS): listarlas, leer sus notas e instalarlas con versiones, notas y backup en la vista previa; las de Core, OS, Supervisor y apps se mandan a sus tools, y Hermes nunca se actualiza a sí mismo |
 | **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
 | **Diagnóstico** | 8 | Avisos de Reparaciones (listar e ignorar), trazas de automatizaciones y scripts, qué está relacionado con un elemento y el centro de resolución del Supervisor (leer y descartar issues y sugerencias; las sugerencias nunca se aplican) |
 | **Marketplace (antes HACS)** | 11 | De solo lectura: estado, repositorios, actualizaciones disponibles, versiones publicadas y repositorios críticos o retirados. Detecta en cada llamada si Home Assistant trae el Marketplace integrado (2026.11 o posterior) o HACS 2.x. Las actualizaciones se instalan con la entidad `update`, con confirmación. Las 4 tools `ha_hacs_*` siguen como alias deprecados hasta 1.3.0 |

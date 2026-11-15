@@ -585,6 +585,21 @@ class TestActualizacionesDeLa015(unittest.TestCase):
                 malas.append(f"{k}: motivo {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
 
+    def test_tramo_3_release_notes_dedicada(self) -> None:
+        # Tramo 3 (T038): `update/release_notes` a su tool, con la familia y la
+        # CAP-064. Control negativo (T045): de vuelta a `deny` → cae.
+        e = ct.CORE_WS["update/release_notes"]
+        self.assertEqual(
+            (e.category, e.tool, e.family, e.cap, e.reason),
+            ("dedicated", "ha_get_update_release_notes", "system_updates", "CAP-064",
+             "cubierto por ha_get_update_release_notes"))
+
+    def test_ninguna_pendiente_de_la_015(self) -> None:
+        # Al cerrar la 015 no queda ninguna entrada «pendiente (spec 015)».
+        pendientes = sorted(str(k) for k, e in (*ct.CORE_WS.items(), *ct.SUPERVISOR.items())
+                            if "spec 015" in e.reason)
+        self.assertEqual(pendientes, [])
+
     def test_alias_legados_siguen_deny(self) -> None:
         for k in (("POST", "/homeassistant/update"), ("GET", "/supervisor/available_updates")):
             with self.subTest(k=k):

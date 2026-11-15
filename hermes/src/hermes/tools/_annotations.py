@@ -153,6 +153,10 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # inactiva y se aplica al reiniciar el host; actualizar el Supervisor lo
     # reinicia. Las dos piden token.
     "sv_update_os", "sv_update_supervisor",
+    # Tramo 3: instalar una entidad `update` cambia el firmware de un
+    # dispositivo o la versión de una integración, sin vuelta atrás desde
+    # Hermes. Pide token y su nombre no lo delata.
+    "ha_install_update",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -188,6 +192,9 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     "sv_update_core", "sv_check_for_updates",
     # Tramo 2: descargan el bundle del OS o la imagen del Supervisor.
     "sv_update_os", "sv_update_supervisor",
+    # Tramo 3: la integración descarga el firmware o la versión nueva; y
+    # algunas piden las notas de versión a internet al leerlas.
+    "ha_install_update", "ha_get_update_release_notes",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

@@ -521,6 +521,18 @@ class TestTemaUpdates(unittest.IsolatedAsyncioTestCase):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
 
+    def test_entidades_update(self) -> None:
+        # Tramo 3 (T042): las tres tools, el encaminamiento por el registro,
+        # el rechazo de Hermes y la `hint` de `ha_call_service`.
+        texto = _GUIDE["updates"]
+        for palabra in ("ha_list_updates", "ha_get_update_release_notes",
+                        "ha_install_update", "use_dedicated_tool", "registro de entidades",
+                        "self_update_not_supported", "self_check_unavailable",
+                        "status: running", "ha_call_service", "hint",
+                        "no_update_available", "texto de terceros"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
     def test_las_tools_que_cita_existen(self) -> None:
         # La guía no puede anunciar tools que el servidor no tiene (principio
         # V): toda `sv_*`/`ha_*` citada está registrada.

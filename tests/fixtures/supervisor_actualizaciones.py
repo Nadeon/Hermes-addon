@@ -96,6 +96,11 @@ class SupervisorActualizaciones(SupervisorSimulado):
         self.notas: dict[str, str] = {}
         self.core_caido = False
         self.ws_llamadas: list[dict[str, Any]] = []
+        # Tramo 3: `update.install` por `call_service`. Cada llamada se apunta
+        # (dominio, servicio, datos, allow_dangerous); la respuesta puede ser
+        # un valor, una excepción o una función sin argumentos.
+        self.servicios: list[dict[str, Any]] = []
+        self.respuesta_servicio: Any = []
 
     async def wait_ready(self, timeout: float = 5.0) -> bool:
         return not self.core_caido
@@ -139,8 +144,39 @@ class SupervisorActualizaciones(SupervisorSimulado):
         if payload.get("type") == "config/entity_registry/get_entries":
             return {e: copy.deepcopy(self.registro.get(e)) for e in payload["entity_ids"]}
         if payload.get("type") == "update/release_notes":
-            return self.notas.get(payload["entity_id"])
+            notas = self.notas.get(payload["entity_id"])
+            if isinstance(notas, BaseException):
+                raise notas
+            return notas
         raise HAConnectionError(f"comando no simulado: {payload.get('type')}")
+
+    async def get_state(self, entity_id: str) -> dict[str, Any] | None:
+        self.ws_llamadas.append({"type": "get_state", "entity_id": entity_id})
+        if self.core_caido:
+            raise HAConnectionError("Home Assistant no responde")
+        for e in self.estados:
+            if e.get("entity_id") == entity_id:
+                return copy.deepcopy(e)
+        return None
+
+    async def call_service(
+        self,
+        domain: str,
+        service: str,
+        service_data: dict[str, Any] | None = None,
+        *,
+        allow_dangerous: bool = False,
+    ) -> Any:
+        self.servicios.append({
+            "dominio": domain, "servicio": service,
+            "datos": copy.deepcopy(service_data), "allow_dangerous": allow_dangerous,
+        })
+        valor = self.respuesta_servicio
+        if callable(valor) and not isinstance(valor, BaseException):
+            valor = valor()
+        if isinstance(valor, BaseException):
+            raise valor
+        return copy.deepcopy(valor)
 
     # ── Atajos para los tests ───────────────────────────────────────────────
 
@@ -293,3 +329,77 @@ def con_actualizaciones_de_todo(sv: SupervisorActualizaciones) -> None:
          "panel_path": f"/update-available/{SLUG_HERMES}", "version_latest": "1.2.1"},
     ]})
     con_plugin_desactualizado(sv, "dns")
+
+
+# ── Tramo 3: entidades `update` de Core (CAP-064) ────────────────────────────
+
+ENTIDAD_FIRMWARE = "update.firmware_ficticio"
+ENTIDAD_SIN_NOTAS = "update.integracion_sin_notas"
+ENTIDAD_AL_DIA = "update.integracion_al_dia"
+ENTIDAD_APP = "update.app_renombrada"
+ENTIDAD_HERMES = "update.hermes_renombrada"
+# Una app cuyo slug TAMBIÉN termina en `_hermes` pero no es este Hermes: el
+# criterio de D-1 es el slug exacto de `/addons/self/info`, no el sufijo.
+SLUG_OTRO_HERMES = "b9c8d7e6_hermes"
+ENTIDAD_OTRO_HERMES = "update.otra_app_hermes"
+FIRMWARE_ACTUAL = "1.0"
+FIRMWARE_ULTIMA = "1.1"
+CENTINELA_NOTAS = "texto-centinela-de-las-notas-NO-DEBE-SALIR-EN-EL-LOG"
+
+
+def con_entidades_update(sv: SupervisorActualizaciones) -> None:
+    """Entidades `update` de integraciones y de apps (tramo 3, T031–T034).
+
+    - firmware (plataforma `ficticia`, `device_class: firmware`) con
+      INSTALL | SPECIFIC_VERSION | BACKUP | RELEASE_NOTES (27) y notas con un
+      secreto y un centinela;
+    - otra integración solo con INSTALL (1), sin notas;
+    - una al día (`off`);
+    - la app de ejemplo, la de Hermes y otra app con sufijo `_hermes`, de la
+      plataforma `hassio`, con `entity_id` renombrados;
+    - `/addons/self/info` con el slug de Hermes.
+    """
+    for e in sv.estados:
+        if e["entity_id"] == ENTIDAD_FIRMWARE:
+            e["attributes"].update({
+                "title": "Firmware ficticio", "supported_features": 27,
+                "device_class": "firmware", "in_progress": False,
+                "auto_update": False, "skipped_version": None,
+                "update_percentage": None,
+                "release_summary": "Resumen corto de la version",
+            })
+    sv.estados += [
+        {"entity_id": ENTIDAD_SIN_NOTAS, "state": "on", "attributes": {
+            "installed_version": "2.0.0", "latest_version": "2.1.0",
+            "supported_features": 1, "in_progress": False, "title": "Integracion",
+            "release_summary": "Resumen sin notas",
+            "release_url": "https://example.invalid/sin-notas"}},
+        {"entity_id": ENTIDAD_AL_DIA, "state": "off", "attributes": {
+            "installed_version": "3.0.0", "latest_version": "3.0.0",
+            "supported_features": 1, "in_progress": False}},
+        {"entity_id": ENTIDAD_APP, "state": "on", "attributes": {
+            "installed_version": "1.0.0", "latest_version": "1.1.0",
+            "supported_features": 29, "in_progress": False}},
+        {"entity_id": ENTIDAD_HERMES, "state": "on", "attributes": {
+            "installed_version": "1.2.0", "latest_version": "1.2.1",
+            "supported_features": 29, "in_progress": False}},
+        {"entity_id": ENTIDAD_OTRO_HERMES, "state": "on", "attributes": {
+            "installed_version": "0.1.0", "latest_version": "0.2.0",
+            "supported_features": 29, "in_progress": False}},
+    ]
+    sv.registro[ENTIDAD_SIN_NOTAS] = {"entity_id": ENTIDAD_SIN_NOTAS,
+                                      "platform": "otra_ficticia", "unique_id": "x1"}
+    sv.registro[ENTIDAD_AL_DIA] = {"entity_id": ENTIDAD_AL_DIA,
+                                   "platform": "otra_ficticia", "unique_id": "x2"}
+    sv.registro[ENTIDAD_APP] = {"entity_id": ENTIDAD_APP, "platform": "hassio",
+                                "unique_id": f"{SLUG_APP}_version_latest"}
+    sv.registro[ENTIDAD_HERMES] = {"entity_id": ENTIDAD_HERMES, "platform": "hassio",
+                                   "unique_id": f"{SLUG_HERMES}_version_latest"}
+    sv.registro[ENTIDAD_OTRO_HERMES] = {"entity_id": ENTIDAD_OTRO_HERMES,
+                                        "platform": "hassio",
+                                        "unique_id": f"{SLUG_OTRO_HERMES}_version_latest"}
+    sv.notas[ENTIDAD_FIRMWARE] = (
+        f"## Cambios\n{CENTINELA_NOTAS}\npassword: {CENTINELA_PASSWORD}\n"
+        f"token {CENTINELA_JWT}\n")
+    sv.respuesta("GET", "/addons/self/info", {"slug": SLUG_HERMES, "name": "Hermes",
+                                              "version": "1.2.0"})

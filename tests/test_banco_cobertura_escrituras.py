@@ -85,8 +85,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011, las 2
         # del tramo 1 de la 015 (`sv_check_for_updates`, `sv_update_core`) y
-        # las 2 del tramo 2 (`sv_update_os`, `sv_update_supervisor`).
-        self.assertEqual(len(reales), 130)
+        # las 2 del tramo 2 (`sv_update_os`, `sv_update_supervisor`) y la del
+        # tramo 3 (`ha_install_update`).
+        self.assertEqual(len(reales), 131)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -133,7 +134,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
 
         self.assertEqual(
             c028.TOOLS_EXIGIDAS_DEL_JOB,
-            cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028,
+            cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
+            | c015.PROBADAS_015,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}

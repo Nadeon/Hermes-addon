@@ -10,8 +10,16 @@ ejecutar en el banco de Core, cuyo Supervisor solo simula y reenvía a Core
 (`tests/fixtures/supervisor_actualizaciones.py`) y su prueba real queda
 pendiente en la VM de la 014 (fila «VM / pendiente» de la matriz).
 
-El tramo 3 añade `ha_install_update` a `PROBADAS_015` (ejecutada en el banco
-con una entidad `update` de plantilla).
+Tramo 3: `ha_install_update` está en `PROBADAS_015`: se ejecuta en el banco
+(`tests/banco/test_banco_actualizaciones.py`) contra una entidad `update` de
+la integración `template` de HA real, y el plugin del job
+(`tests/banco/obligatorio.py`) exige que se llame con éxito (lo suma
+`cobertura_escrituras.TOOLS_EXIGIDAS_DEL_JOB`). Su encaminamiento a las
+`sv_*` y el rechazo de Hermes solo se prueban con simuladores: en el banco no
+hay integración `hassio`.
+
+Control negativo (T045 g): sacar `ha_install_update` de `PROBADAS_015` hace
+caer `test_todas_las_escrituras_clasificadas` nombrándola.
 """
 
 from __future__ import annotations
@@ -21,7 +29,7 @@ _SUPERVISOR_REAL = (
     "prueba manual en la VM de la 014"
 )
 
-PROBADAS_015: frozenset[str] = frozenset()
+PROBADAS_015: frozenset[str] = frozenset({"ha_install_update"})
 
 NO_EJECUTABLES_015: dict[str, str] = {
     "sv_check_for_updates": _SUPERVISOR_REAL,
