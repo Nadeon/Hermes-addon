@@ -19,21 +19,28 @@ comprobando cada efecto directamente en Core y dejando el banco como estaba:
   restaura por la propia tool (un paso con token y otro sin él), comprobado
   con `homeassistant/expose_new_entities/get` del lector, que también lo
   restaura al cerrar.
-- **Tabla**: `config/core/detect` se lee por la genérica (el contenedor no
-  tiene salida a internet: HA responde un objeto, vacío) y
-  `config/core/update` por la genérica da `use_dedicated_tool`.
+- **Tabla**: `config/core/detect` se lee por la genérica y
+  `config/core/update` por la genérica da `use_dedicated_tool`. `detect`
+  consulta un servicio externo de geolocalización y el contenedor no tiene
+  salida a internet: HA suele responder enseguida con un objeto vacío, pero a
+  veces la consulta se cuelga más que el plazo de Hermes (falló así una vez
+  en el CI). Por eso se aceptan dos resultados, los dos comprobados al
+  detalle por `comprobar_detect`: la respuesta de HA o un error limpio y
+  honesto de Hermes (plazo agotado o fallo de HA). Una excepción sin tratar o
+  un resultado que mienta hace fallar el test; no es un salto.
 
 Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras, sufijo
-from tests.banco.entorno import llamar, rechazo
+from tests.banco.entorno import _decodificar, llamar, rechazo
 
 pytestmark = pytest.mark.banco
 
@@ -183,11 +190,67 @@ class TestExposicionAAsistentes(BancoEscrituras):
                 )
 
 
+# Claves que puede devolver `websocket_detect_config` en HA 2026.11.1
+# (`homeassistant/components/config/core.py`); ninguna más.
+_CLAVES_DETECT = frozenset({"unit_system", "latitude", "longitude", "time_zone",
+                            "currency", "country"})
+# El mensaje de `HATimeoutError` de `ws_send` (`hermes/ha.py`), que la genérica
+# devuelve con la forma de siempre de un fallo de conexión: `{"error": texto}`.
+_PLAZO_DETECT = "Timeout waiting for HA WS response for command config/core/detect"
+
+
+def comprobar_detect(resultado: Any) -> str:
+    """Valida la respuesta MCP de `ha_read_ws_command(type="config/core/detect")`.
+
+    Devuelve el camino que salió (`"respuesta"`, `"plazo"` o `"fallo_ha"`) y
+    lanza `AssertionError` si no es uno de los honestos:
+
+    - sin `isError`: la forma de lectura de la genérica con un objeto de HA
+      que solo trae claves de `detect` (ni un `error` escondido dentro);
+    - con `isError`: JSON con el error genérico del plazo agotado de ESTE
+      comando, o `ha_command_failed` con el `ha_code` de HA. Un texto que no
+      es JSON es una excepción sin tratar dentro de la tool (FastMCP la
+      convierte en `Error executing tool …`): no se acepta.
+
+    Control negativo (en `tests/test_banco_detect_robusto.py`): cada rama
+    rechaza su resultado mentiroso.
+    """
+    if not getattr(resultado, "is_error", False):
+        r = _decodificar(resultado)
+        assert isinstance(r, dict), f"respuesta que no es un objeto: {r!r}"
+        assert set(r) == {"command", "category", "result"}, f"forma inesperada: {r!r}"
+        assert (r["command"], r["category"]) == ("config/core/detect", "read"), r
+        assert isinstance(r["result"], dict), f"result no es un objeto: {r!r}"
+        sobra = set(r["result"]) - _CLAVES_DETECT
+        assert not sobra, f"claves que detect no devuelve: {sorted(sobra)}"
+        return "respuesta"
+    texto = " ".join(getattr(c, "text", "") for c in resultado.content)
+    try:
+        r = json.loads(texto)
+    except ValueError:
+        raise AssertionError(f"excepción sin tratar en la tool: {texto}") from None
+    assert isinstance(r, dict) and "error" in r, f"error sin forma de error: {r!r}"
+    if r == {"error": _PLAZO_DETECT}:
+        return "plazo"
+    if r["error"] == "ha_command_failed":
+        assert set(r) == {"error", "detail", "ha_code"}, f"forma inesperada: {r!r}"
+        assert isinstance(r["ha_code"], str) and r["ha_code"], r
+        # `detect` existe en HA 2026.11.1: «no existe» sería mentira.
+        assert r["ha_code"] != "unknown_command", f"detect sí existe en HA: {r!r}"
+        return "fallo_ha"
+    raise AssertionError(f"error que no es plazo agotado ni fallo de HA: {r!r}")
+
+
 class TestTablaDeLa021(BancoEscrituras):
     async def test_detect_por_la_generica_y_update_rechazado(self) -> None:
         async with self.sesion() as s:
-            r = await llamar(s.cliente, "ha_read_ws_command", type="config/core/detect")
-            self.assertIsInstance(r["result"], dict)
+            # Ni `llamar` (convertiría el plazo agotado en fallo) ni un salto:
+            # la respuesta, sea cual sea, la valida `comprobar_detect`. No suma
+            # la tool a las probadas: `ha_read_ws_command` la exige ya
+            # `test_banco_genericas.py` (`cobertura_lecturas.py`).
+            camino = comprobar_detect(await s.cliente.call_tool(
+                "ha_read_ws_command", {"type": "config/core/detect"}))
+            self.assertIn(camino, ("respuesta", "plazo", "fallo_ha"))
             antes = await _config(s)
             r = await rechazo(s.cliente, "ha_call_ws_command", type="config/core/update",
                               payload={"radius": 1})
