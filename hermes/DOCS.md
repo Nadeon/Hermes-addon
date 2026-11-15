@@ -145,6 +145,13 @@ borrar, **siempre en dos pasos**. Las reglas:
   hardware, a Docker o a la red del host, AppArmor desactivado, carpetas con
   escritura…) y, para una app local, lo que declara su `config.yaml`. Si
   cambian antes de confirmar, no se instala ni se reconstruye nada.
+- **Recarga la tienda después de tocar una app local.** El Supervisor instala
+  y reconstruye con su propia copia del `config.yaml`, la de la última
+  recarga de la tienda. Si el fichero (o una carpeta de su camino) cambió
+  después de la última recarga que lanzó Hermes, o Hermes no ha recargado
+  desde que arrancó, instalar o reconstruir esa app se rechaza sin token
+  (`store_copy_stale`): pide a Claude que recargue la tienda
+  (`sv_reload_store`) y vuelva a empezar.
 
 Para eso Hermes monta `/addons` **con escritura** desde la 1.2.1. Usa el tipo
 de montaje `addons`, que el Supervisor da por heredado desde la 2026.07: al
@@ -272,7 +279,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `backup_integration` | 6 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear, borrar y restaurar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
 | `cameras` | 2 | Instantánea de una cámara e imagen de una entidad `image`, devueltas como imagen al cliente; solo lectura. Una cámara puede enseñar el interior de tu casa: desactívala si no quieres que Claude las vea (nueva en 1.2.0) |
 | `dashboard_reset` | 1 | Restablecer un dashboard de Lovelace al autogenerado (borra su configuración guardada), en dos pasos; el dashboard principal y el panel por defecto están protegidos (nueva en 1.2.0) |
-| `addons_share` | 7 | Ficheros de `/addons` (el código de las apps locales) y de `/share`: listar, ver metadatos y leer texto, con las mismas comprobaciones de ruta y los mismos nombres bloqueados que en `/config`; escribir, crear carpetas, mover y borrar, siempre en dos pasos, sin backup automático y sin tocar las apps locales instaladas ni los puntos de montaje (nueva en 1.2.1) |
+| `addons_share` | 7 | Ficheros de `/addons` (el código de las apps locales) y de `/share`: listar, ver metadatos y leer texto, con las mismas comprobaciones de ruta y los mismos nombres bloqueados que en `/config`; escribir, crear carpetas, mover y borrar, siempre en dos pasos, sin backup automático y sin borrar ni mover las apps locales instaladas ni los puntos de montaje (escribir dentro de una se admite, con aviso) (nueva en 1.2.1) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
