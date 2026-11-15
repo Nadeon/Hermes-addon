@@ -149,3 +149,13 @@ system_log:
 # `local_calendar` (sin red ni hardware) para tener un diagnóstico de entrada.
 # `persistent_notification` es de núcleo: no hace falta cargarla.
 diagnostics:
+
+# ── Spec 031 (tramo 1): backups de la integración `backup` ──────────────────
+#
+# backup: registra `backup/agents/info`, `backup/config/*`, `backup/info` y el
+# resto de comandos de la integración (sin `default_config:` no se carga
+# sola), que necesitan las tools de la familia `backup_integration`. Sin
+# Supervisor, el único agente es `backup.local`, que guarda en
+# /config/backups: dentro de la copia temporal de esta carpeta en el runner.
+# Nada sale a internet (no hay agentes remotos).
+backup:

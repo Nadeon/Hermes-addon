@@ -283,10 +283,13 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         # Desde la 029, también sus lecturas.
         from tests.banco.cobertura import PROBADAS_EN_BANCO_029
 
+        # Desde la 031, sus escrituras y la lectura de agentes.
+        from tests.banco.cobertura_031 import LECTURAS_EN_BANCO_031, PROBADAS_031
+
         self.assertEqual(
             plugin.tools_exigidas,
             PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029
-            | PROBADAS_012,
+            | PROBADAS_012 | PROBADAS_031 | LECTURAS_EN_BANCO_031,
         )
 
 

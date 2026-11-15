@@ -346,6 +346,11 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
   plantilla y la categoría, y la ejecución reinicia el plugin DNS
   (`ha dns info`); una ruta `deny`, una de Hermes (`local_hermes`) o el
   proxy de Core se rechazan sin llegar al Supervisor.
+- `ha_set_update_backup_settings` (spec 031), en la tanda 1: bajar
+  `add_on_backup_retain_copies` y quitar `core_backup_before_update`; la vista
+  previa enseña lo actual, lo nuevo y el aviso de las copias, y el cambio se
+  ve en Ajustes → Sistema → Backups (y con `ha_get_update_backup_settings`).
+  Dejarlo como estaba al terminar.
 
 ## Probar hassio_role: manager
 

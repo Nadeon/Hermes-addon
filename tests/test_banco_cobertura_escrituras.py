@@ -35,6 +35,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from tests.banco import cobertura, cobertura_012 as c012, cobertura_escrituras as c028
+from tests.banco import cobertura_031 as c031
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -68,6 +69,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 012 (contrato de la 028): sus escrituras, en su propio módulo.
         "PROBADAS_012": set(c012.PROBADAS_012),
         "NO_EJECUTABLES_012": set(c012.NO_EJECUTABLES_012),
+        # Spec 031: agentes y ajustes de los backups de HA (tramo 1).
+        "PROBADAS_031": set(c031.PROBADAS_031),
+        "NO_EJECUTABLES_031": set(c031.NO_EJECUTABLES_031),
     }
 
 
@@ -86,8 +90,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B).
-        self.assertEqual(len(reales), 129)
+        # del tramo B) y 2 de la 031 (tramo 1: ajustes de los backups de HA).
+        self.assertEqual(len(reales), 131)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -114,6 +118,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             for nombre, lista in (
                 ("NO_EJECUTABLES_028", c028.NO_EJECUTABLES_028),
                 ("NO_EJECUTABLES_012", c012.NO_EJECUTABLES_012),
+                ("NO_EJECUTABLES_031", c031.NO_EJECUTABLES_031),
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
             )
             for tool, motivo in lista.items()
@@ -135,7 +140,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         self.assertEqual(
             c028.TOOLS_EXIGIDAS_DEL_JOB,
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
-            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012,
+            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012
+            | c031.PROBADAS_031 | c031.LECTURAS_EN_BANCO_031,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}
