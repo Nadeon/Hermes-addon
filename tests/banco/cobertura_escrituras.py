@@ -67,6 +67,7 @@ from tests.banco.cobertura_021 import LECTURAS_021, PROBADAS_021, VISTA_PREVIA_0
 from tests.banco.cobertura_023 import LECTURAS_023, PROBADAS_023, XFAIL_PERMITIDOS_023
 from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024, PROBADAS_024
 from tests.banco.cobertura_026 import PROBADAS_026
+from tests.banco.cobertura_lecturas import LECTURAS_EN_BANCO
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -188,6 +189,9 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     | PROBADAS_024
     # Spec 026, tramo 1: reconocer un aviso crítico sembrado en el banco.
     | PROBADAS_026
+    # T031 de la 008: las lecturas nuevas de Core que ninguna sub-feature
+    # sumaba (invariante en tests/test_banco_cobertura_lecturas.py).
+    | LECTURAS_EN_BANCO
 )
 XFAIL_DEL_JOB: dict[str, str] = {
     **cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028, **XFAIL_PERMITIDOS_023,

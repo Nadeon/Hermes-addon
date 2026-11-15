@@ -296,6 +296,8 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         from tests.banco.cobertura_031 import LECTURAS_EN_BANCO_031, PROBADAS_031
         # Desde la 024, las dos de imagen (tramo 1) y restablecer (tramo 2).
         from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024, PROBADAS_024
+        # T031 de la 008: el resto de lecturas nuevas de Core.
+        from tests.banco.cobertura_lecturas import LECTURAS_EN_BANCO
 
         self.assertEqual(
             plugin.tools_exigidas,
@@ -310,7 +312,8 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
             # Spec 024: las dos de imagen y restablecer un dashboard.
             | LECTURAS_EN_BANCO_024 | PROBADAS_024
             # Spec 026: reconocer el aviso crítico sembrado.
-            | PROBADAS_026,
+            | PROBADAS_026
+            | LECTURAS_EN_BANCO,
         )
 
 

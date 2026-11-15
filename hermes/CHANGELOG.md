@@ -2097,6 +2097,13 @@ familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
   hasta probar `manager` en vivo. Un test nuevo comprueba que todas las rutas
   del Supervisor que usa Hermes caben en `manager` según el código del
   Supervisor 2026.11.0.
+- **Las lecturas nuevas de Core, también exigidas por ejecución.** Como las
+  escrituras, cada tool `ha_*` de solo lectura de una familia de la 1.2.0
+  tiene que haberse ejecutado con éxito en el job del banco, o estar en una
+  lista de no ejecutables con su motivo (hoy solo `ha_get_device_diagnostics`:
+  ninguna integración sin hardware ni nube ofrece diagnóstico de
+  dispositivo). Un test de la suite normal nombra la lectura nueva que no
+  esté en ninguna de las dos.
 
 ### Plataforma y deprecaciones
 

@@ -45,6 +45,7 @@ from tests.banco import cobertura_024 as c024
 from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024
 from tests.banco import cobertura_026 as c026
 from tests.banco import cobertura_escrituras as c028
+from tests.banco.cobertura_lecturas import LECTURAS_EN_BANCO
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -211,7 +212,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             # restablecer un dashboard modifica.
             | LECTURAS_EN_BANCO_024 | c024.PROBADAS_024
             # Spec 026: reconocer el aviso crítico sembrado.
-            | c026.PROBADAS_026,
+            | c026.PROBADAS_026
+            # T031 de la 008: el resto de lecturas nuevas de Core.
+            | LECTURAS_EN_BANCO,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028,
