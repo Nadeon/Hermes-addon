@@ -528,9 +528,10 @@ class TestRecargar(_Base):
         r = await self.t["sv_reload_mount"](name="nas_backups")
         self.assertIn("sv_get_resolution", r["hint"])
         # Al recargar, Hermes no conoce las credenciales (no las recibe):
-        # solo puede tapar lo que `redact_secrets` reconoce, como el valor
-        # tras «password».
+        # tapa el valor tras «password» (`redact_secrets`) y el usuario por
+        # su forma (019, tramo 2: la duda del tramo 1).
         self.assertNotIn(CLAVE, r["error"])
+        self.assertNotIn(USUARIO, r["error"])
         self.assertIn("Permission denied", r["error"])
 
     async def test_nombre_invalido_o_inexistente(self) -> None:
@@ -669,6 +670,62 @@ class TestSecretos(_Base):
         editar = por_evento["sv_update_mount_ok"]
         self.assertEqual(editar["changed"], ["server"])
         self.assertEqual(editar["mount"], "nas_media")
+
+
+class TestUsuarioEnErroresSinCredenciales(_Base):
+    """Spec 019, tramo 2 (petición del supervisor tras el tramo 1): un error
+    del Supervisor que repite el usuario CIFS se tapa también en las tools
+    que no reciben las credenciales (recargar, borrar, el por defecto, las
+    lecturas y editar sin credenciales), en la respuesta, el token y el log.
+
+    Control negativo comprobado: sin las tres sustituciones del usuario en
+    `_limpiar_error` → 9 failed: `test_cada_forma_del_usuario` (5 subtests),
+    `test_en_cada_tool_que_no_recibe_credenciales`,
+    `TestRecargar.test_error_redactado_con_pista` y los dos de errores de
+    `tests/test_tools_backup_settings.py`; restaurado, verde.
+    """
+
+    _FORMAS = (
+        f"mount error(13): Permission denied for user {USUARIO}",
+        f"mount.cifs: user '{USUARIO}' rejected",
+        f"options: username={USUARIO},vers=3.0",
+        f"options user: {USUARIO}; domain={USUARIO}",
+        f'{{"result": "error", "username": "{USUARIO}"}}',
+    )
+
+    def test_cada_forma_del_usuario(self) -> None:
+        from hermes.tools.mounts import _limpiar_error
+
+        for texto in self._FORMAS:
+            with self.subTest(texto=texto):
+                limpio = _limpiar_error(f"Supervisor error: {texto}", ())
+                self.assertNotIn(USUARIO, limpio)
+                self.assertIn("Supervisor error", limpio)
+
+    async def test_en_cada_tool_que_no_recibe_credenciales(self) -> None:
+        def error() -> HAConnectionError:
+            return HAConnectionError(
+                f"Supervisor error: Could not mount nas_backups: user {USUARIO} "
+                f"(username={USUARIO}) password {CLAVE}")
+
+        with capture_logs() as eventos:
+            self.sv.errores[("POST", "/mounts/nas_backups/reload")] = error()
+            recarga = await self.t["sv_reload_mount"](name="nas_backups")
+            self.sv.errores[("DELETE", "/mounts/nas_backups")] = error()
+            _, borrado = await self._confirmar("sv_delete_mount", name="nas_backups")
+            self.sv.errores[("POST", "/mounts/options")] = error()
+            _, defecto = await self._confirmar("sv_set_default_backup_mount", name=None)
+            self.sv.errores[("PUT", "/mounts/nas_backups")] = error()
+            _, editado = await self._confirmar("sv_update_mount", name="nas_backups",
+                                               server="nas3.local")
+            self.sv.errores[("GET", "/mounts")] = error()
+            lista = await self.t["sv_list_mounts"]()
+        respuestas = (recarga, borrado, defecto, editado, lista)
+        for r in respuestas:
+            self.assertIn("error", r)
+            self.assertIn("Could not mount", r["error"])
+        self._sin_centinelas(*respuestas, eventos)
+        self.assertNotIn(USUARIO, _ficheros_de_tokens())
 
 
 if __name__ == "__main__":

@@ -21,7 +21,9 @@ delicado es:
   en el log, ni en el fichero del token. Las respuestas se construyen con una
   lista PERMITIDA de claves (no basta `redact_structure`, que no tapa
   `username`), los errores del Supervisor se limpian de los dos valores
-  literales y pasan por `redact_secrets`, y el token no guarda argumentos (sin
+  literales y del usuario por su forma (también donde Hermes no recibe las
+  credenciales: recargar, borrar, el por defecto) y pasan por
+  `redact_secrets`, y el token no guarda argumentos (sin
   `omitibles`): en disco solo queda el HMAC de la acción.
 - **Editar reemplaza** (research R-4). El Supervisor sustituye la
   configuración entera y nunca devuelve las credenciales: Hermes funde lo
@@ -327,12 +329,37 @@ def _resumen_afectados(afectados: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# Usuario CIFS en un texto de error (FR-008). `redact_secrets` tapa lo que va
+# tras «password», pero no el usuario, que no es un secreto en general y sí
+# lo es aquí: con él y el servidor, solo falta la contraseña. Recargar, borrar
+# o fijar el por defecto no reciben las credenciales, así que no hay valor
+# literal que quitar y solo queda reconocerlo por su forma:
+# - `"username": "x"` (JSON), con comillas;
+# - `username=x`, `user: x`, `domain=x` (opciones de mount.cifs);
+# - `user x`, `user 'x'` (mensajes de mount.cifs y del kernel).
+# Tapar de más (un «user» seguido de una palabra cualquiera) es preferible a
+# dejar escapar un usuario.
+_USUARIO_JSON = re.compile(
+    r'("(?:user(?:name)?|login|domain)"\s*:\s*")([^"]*)(")', re.IGNORECASE)
+_USUARIO_CLAVE = re.compile(
+    r"\b(user(?:name)?|login|domain)(\s*[:=]\s*)(['\"]?)[^\s,;'\")]+\3",
+    re.IGNORECASE)
+_USUARIO_SUELTO = re.compile(
+    r"\b(user(?:name)?)([ \t]+)(?![:=])(['\"]?)[^\s,;'\")]+\3", re.IGNORECASE)
+
+
 def _limpiar_error(texto: str, secretos: tuple[Any, ...]) -> str:
     """Quita los valores literales de las credenciales (los más largos antes,
-    para no dejar trozos) y pasa por `redact_secrets` (FR-008)."""
+    para no dejar trozos), el usuario por su forma y pasa por
+    `redact_secrets` (FR-008). Todo error de las tools de montajes y de
+    ajustes de backup pasa por aquí antes de responder o guardarse en el
+    token."""
     for s in sorted((s for s in secretos if isinstance(s, str) and s),
                     key=len, reverse=True):
         texto = texto.replace(s, REDACTED_MARKER)
+    texto = _USUARIO_JSON.sub(rf"\1{REDACTED_MARKER}\3", texto)
+    texto = _USUARIO_CLAVE.sub(rf"\1\2{REDACTED_MARKER}", texto)
+    texto = _USUARIO_SUELTO.sub(rf"\1\2{REDACTED_MARKER}", texto)
     return redact_secrets(texto)
 
 
