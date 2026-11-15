@@ -209,7 +209,9 @@ class TestUnidadesYMetadatos(BancoEscrituras):
                              {"unit_of_measurement": "kWh", "unit_class": "energy"})
             self.assertEqual((await _metadatos(s, propia))["statistics_unit_of_measurement"], "kWh")
 
-            self.assertEqual(await s.confirmar(tool, vista, **args), {"updated": True})
+            hecho = await s.confirmar(tool, vista, **args)
+            self.assertIs(hecho["updated"], True)
+            self.assertEqual(hecho["not_validated"], ["statistic_in_database"])
             meta = await s.lector.esperar(
                 lambda: _metadatos(s, propia),
                 lambda m: m is not None and m["statistics_unit_of_measurement"] == "MWh",
