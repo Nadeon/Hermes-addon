@@ -289,7 +289,147 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 ### Automatización
 
-_Pendiente: la añade la sub-feature que lo implemente._
+**Automatización asistida (spec 017).** Blueprints (los que ya están en
+`/config/blueprints/`, los que escribe el cliente y los importados de una
+URL), lo que ofrece un dispositivo, targets y triggers por propósito, esperar
+a un trigger y validar al guardar una automatización o un script. Dos
+familias nuevas, `blueprints` y `automation_assist`, con 14 tools.
+Familia nueva
+`blueprints` (desactivable con `tool_families_disabled`):
+
+- `ha_list_blueprints`: los blueprints de `automation`, `script` y
+  `template` (o de uno) con su ruta, nombre, descripción, autor,
+  `source_url`, versión mínima y nombres de las entradas; los que HA no pudo
+  cargar, con su error redactado. Nombre, descripción y autor van marcados
+  como texto de terceros. Sobre común de las listas de la 1.2.0.
+- `ha_preview_blueprint_substitution`: la configuración que da un blueprint
+  con unas entradas, sin guardar nada (`saved: false`), con los valores
+  sensibles tapados.
+- `ha_save_blueprint` (token): guarda un blueprint escrito por el cliente.
+  La vista previa da la ruta final, si ya existe y quién lo usa, los
+  metadatos y entradas leídos del YAML (sin resolver `!input`), el tamaño y
+  la huella SHA-256; no repite el YAML. Una ruta ocupada da `already_exists`
+  sin token salvo con `allow_override=true`. `yaml` se puede omitir al
+  confirmar (spec 007). Solo admite la etiqueta YAML `!input`: cualquier otra
+  (`!secret`, `!env_var`, `!include`, `!include_dir_*`, también las
+  estándar `!!…`, en cualquier nivel) da `unsupported_yaml_tag` sin token,
+  porque HA la resolvería al guardar y escribiría el valor en claro en
+  `/config/blueprints/` (convergencia).
+- `ha_delete_blueprint` (token): nunca da token para un blueprint en uso
+  (`blueprint_in_use` con las automatizaciones o scripts que lo usan, según
+  `search/related`, la misma fuente que usa HA para negarse); si no se puede
+  saber quién lo usa, `preview_unavailable` sin token.
+- `ha_import_blueprint` (token, tramo B): importa un blueprint de una URL
+  `http(s)` (foro, GitHub, gist, web de HA o cualquier otra). Lo descarga
+  Home Assistant (`blueprint/import`); Hermes no abre la URL. La vista previa
+  enseña todo lo que se va a guardar: el importador que usará HA, el
+  dominio, la ruta final (la sugerida o `path`), si existe y quién lo usa,
+  metadatos, entradas y el YAML entero con su tamaño y su huella SHA-256,
+  todo marcado como texto de terceros y con los valores sensibles tapados
+  (se guarda el original). Al confirmar, HA lo descarga otra vez y solo se
+  guarda si la huella y la ruta casan con la vista previa; si no,
+  `content_changed` sin guardar. Sin token con errores de validación o un
+  dominio no admitido (`invalid_blueprint`), un YAML descargado con una
+  etiqueta que no es `!input` (`unsupported_yaml_tag`, comprobado en la
+  vista previa y otra vez al confirmar), una ruta ocupada sin
+  `allow_override` (`already_exists`) o un YAML que no cabe en la respuesta
+  (`blueprint_too_large`: no se recorta). Anotada como destructiva y de
+  mundo abierto. El fichero del token no guarda el YAML y el log no lleva la
+  URL (puede llevar credenciales).
+- Las rutas se validan antes de llegar a HA (sin `..`, absolutas ni
+  caracteres raros) y `.yaml` se añade si falta.
+- Tabla de comandos: `blueprint/list`, `blueprint/save`, `blueprint/delete`,
+  `blueprint/substitute` y `blueprint/import` pasan a `dedicated`. Tema nuevo
+  `blueprints` de `hermes_guide` (alias `blueprint`), con la parte de
+  importar.
+- Banco de Core: guardar (nuevo y sobrescrito), importar y borrar (en uso y
+  sin uso), con el efecto comprobado por el lector, más la lista y la
+  sustitución de los blueprints que trae HA. La importación se prueba sin
+  internet: la HA del banco sirve un blueprint propio desde su carpeta
+  `www` (`/local/`) y se importa desde `127.0.0.1` dentro del contenedor
+  (importador genérico); GitHub, gist y foro quedan como prueba manual.
+
+Tramo C: familia nueva `automation_assist` (desactivable), ocho tools de
+solo lectura que ayudan a escribir automatizaciones:
+
+- `ha_list_device_triggers`, `ha_list_device_conditions` y
+  `ha_list_device_actions`: lo que ofrece un dispositivo, cada elemento tal
+  como se pega en una automatización. Con `include_capabilities=true`, los
+  campos extra de cada uno (`capabilities.extra_fields`), como mucho para
+  los 50 primeros (`capabilities_truncated` si hay más); si los de uno
+  fallan, ese elemento lleva `capabilities_error` y la lista sigue. Un
+  dispositivo que no existe da `not_found`.
+- `ha_resolve_target` y `ha_explain_target`: qué entidades, dispositivos y
+  áreas abarca un target (y qué ids no existen, en `missing`), y por qué
+  entra cada entidad y qué quita cada exclusión. Listas ordenadas;
+  `expand_group` y `primary_entities_only` con los valores por defecto de HA.
+- `ha_list_triggers_for_target`, `ha_list_conditions_for_target` y
+  `ha_list_actions_for_target`: los nombres, ordenados, de los triggers,
+  condiciones y acciones que sirven para alguna entidad del target,
+  incluidos los «por propósito» (`light.turned_on`). Solo nombres, sin sus
+  opciones. En un HA sin estos comandos, `ha_version_unsupported` con la
+  versión.
+- El target se valida antes de llegar a HA (claves `entity_id`,
+  `device_id`, `area_id`, `floor_id` y `label_id`, texto o lista de textos
+  no vacíos, `exclude` con las mismas claves y al menos una fuera de él):
+  una clave desconocida da `invalid_argument` nombrándola.
+- Tabla de comandos: los seis `device_automation/*` (lista y capacidades) y
+  `extract_from_target`, `explain_target`, `get_triggers_for_target`,
+  `get_conditions_for_target` y `get_services_for_target` pasan a
+  `dedicated`. Tema nuevo `automation_assist` de `hermes_guide` (alias
+  `device_automation` y `targets`) con las recetas «automatización para un
+  dispositivo» y «target → propósito → validar».
+- Banco de Core: las ocho contra un interruptor de `kitchen_sink`,
+  contrastadas con lo que lee el lector directamente de Core.
+
+Tramo D: esperar a un trigger y validar al guardar.
+
+- `ha_wait_for_trigger` (familia `automation_assist`, solo lectura): espera
+  UNA vez a que salte un trigger escrito como en una automatización
+  (`subscribe_trigger`) y devuelve el disparo, o `timeout`, `cancelled` o
+  `ws_reconnect` como `ha_wait_for_event`. Solo admite una lista CERRADA de
+  triggers que solo escuchan: `state`, `numeric_state`, `event`, `time`,
+  `time_pattern`, `template`, `sun`, `zone`, `geo_location`,
+  `homeassistant`, `mqtt`, `tag`, `calendar`, `persistent_notification`, y
+  `<integración>.<nombre>` o `device` de integraciones incluidas en HA
+  (según `manifest/get`). Rechaza sin suscribirse (`trigger_not_allowed`)
+  `webhook`, `conversation`, el `turn_on` de `samsungtv`, `webostv`,
+  `lg_netcast` y `philips_js`, los de integraciones personalizadas (también
+  una que sobrescribe una de HA, como una `mqtt` propia: el `manifest/get` se
+  mira en todas las plataformas, con o sin punto) y todo lo que no está en la
+  lista (o si no se puede comprobar). Un trigger que HA no acepta da
+  `invalid_trigger`. El disparo sale con los valores sensibles tapados; si
+  no cabe, sin `from_state`/`to_state` y con `truncated: true`. Comparte con
+  `ha_wait_for_event` el tope de segundos y el de esperas a la vez, sale en
+  `ha_list_active_waits` con `kind: "trigger"` y se corta con
+  `ha_cancel_wait`; siempre cancela la suscripción al terminar.
+- Validación al guardar: la vista previa de `ha_create_or_update_automation`
+  y `ha_create_or_update_script` valida con HA (`validate_config`) los
+  triggers, condiciones y acciones; con `use_blueprint`, los de la
+  configuración que da el blueprint (`blueprint/substitute`). Si HA la
+  rechazaría, `invalid_config` con el error de cada parte y SIN token; si la
+  sustitución falla, `blueprint_substitution_failed` sin token; si no se
+  puede validar, `validation_unavailable` sin token. La vista previa trae
+  `validation` con lo validado, lo que HA solo comprueba al guardar
+  (`not_validated`: `alias`, `mode`…) y `via_blueprint`. La confirmación no
+  vuelve a validar (guarda lo previsualizado y HA valida al guardar). No
+  depende de que `core_diagnostics` o `blueprints` estén activas.
+  `ha_validate_config` no cambia. En un HA anterior a `validate_config` o a
+  `blueprint/substitute` (`unknown_command`), la vista previa da token como
+  en la 1.1.2, sin validar: `validation.available: false`,
+  `reason: "unsupported_by_ha_version"` y todo en `not_validated` (el
+  guardado de HA valida con las mismas funciones). Cualquier otro fallo
+  sigue sin token (convergencia).
+- Tabla de comandos e inventario: `subscribe_trigger` pasa de clase B a A
+  (CAP-038) en el inventario de la 008 y a `dedicated` hacia
+  `ha_wait_for_trigger`.
+- Guía: espera de trigger en el tema `automation_assist` (alias
+  `wait_for_trigger`), y el tema `automations` dice que la vista previa
+  valida y remite a `blueprints` y `automation_assist` (cambia su huella).
+- Banco de Core: la espera de trigger con un `input_boolean` que enciende el
+  lector, un trigger que HA rechaza y uno fuera de la lista; la vista previa
+  con un trigger inválido (sin token y sin automatización) y con un
+  blueprint al que le falta una entrada.
 
 ### Supervisor
 

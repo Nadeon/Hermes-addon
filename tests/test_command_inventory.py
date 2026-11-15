@@ -71,8 +71,11 @@ class TestInventarioCore(unittest.TestCase):
 
     def test_recuentos_por_clase_de_la_008(self) -> None:
         cuenta = collections.Counter(_clase_core(f) for f in self.filas)
+        # La 008 contó 147 A y 103 B. La 017 (tramo D, research R-13)
+        # reclasifica `subscribe_trigger` de B a A (CAP-038), como proponía la
+        # research de la 008: ahora tiene tool dedicada, `ha_wait_for_trigger`.
         self.assertEqual(dict(cuenta), {
-            "cubierto": 130, "A": 147, "B": 103, "C": 192, "D": 51,
+            "cubierto": 130, "A": 148, "B": 102, "C": 192, "D": 51,
         })
 
 

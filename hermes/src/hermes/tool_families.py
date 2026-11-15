@@ -171,6 +171,29 @@ _CATALOGO: tuple[Familia, ...] = (
             "App store: repositories, store reload, app changelog, "
             "documentation and availability, and app rebuild.",
             "1.2.0", True, ("store_repositories", "store_apps")),
+    # Spec 017 (research R-10): los blueprints van solos y no en
+    # `automations` (1.1.2), para que apagar las familias de la 1.2.0 deje la
+    # lista de la 1.1.2 (FR-010 de la 008), y no con la ayuda para automatizar
+    # (`automation_assist`) porque son otro caso de uso: estas escriben en
+    # /config (guardar, importar y borrar ficheros), aquellas solo leen. Quien
+    # no quiera que el cliente toque blueprints la apaga sin perder la ayuda.
+    Familia("blueprints",
+            "Automation, script and template blueprints: list, preview a "
+            "substitution, save and delete.",
+            "1.2.0", True, ("blueprints",)),
+    # Spec 017 (research R-10): la ayuda para escribir automatizaciones, toda
+    # de solo lectura: lo que ofrece un dispositivo (`device_automation`) y
+    # qué abarca un target y qué se puede hacer con él (`targets`). No va en
+    # `automations` (1.1.2) por FR-010 de la 008, ni con `blueprints`, que
+    # escribe en /config. `wait_for_trigger` (tramo D) va aquí y no en
+    # `events` (1.1.2) por lo mismo: FR-010 de la 008 pide familias nuevas
+    # para las tools nuevas; comparte con `ha_wait_for_event` solo el gestor
+    # de esperas.
+    Familia("automation_assist",
+            "Help to write automations: device triggers, conditions and "
+            "actions, resolving a target and what can be done with it, and "
+            "waiting once for a trigger (read only).",
+            "1.2.0", True, ("device_automation", "targets", "wait_for_trigger")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

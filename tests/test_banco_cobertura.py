@@ -280,6 +280,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         from tests.banco.cobertura_012 import PROBADAS_012
         from tests.banco.cobertura_015 import PROBADAS_015
         from tests.banco.cobertura_016 import PROBADAS_016
+        from tests.banco.cobertura_017 import PROBADAS_017
         from tests.banco.cobertura_escrituras import PROBADAS_028
 
         # Desde la 029, también sus lecturas.
@@ -288,7 +289,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         self.assertEqual(
             plugin.tools_exigidas,
             PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029
-            | PROBADAS_012 | PROBADAS_015 | PROBADAS_016,
+            | PROBADAS_012 | PROBADAS_015 | PROBADAS_016 | PROBADAS_017,
         )
 
 

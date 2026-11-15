@@ -552,8 +552,12 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # La 033 cambia `automations` (el token de una restringida ata
         # `variables`; escenas temporales), `config_entries`
         # (`ha_get_config_entry_options` da
-        # `not_supported`) y `helpers` (counters); su CHANGELOG lo dice.
-        "automations": "7792fa788da1e1cc",
+        # `not_supported`) y `helpers` (counters); su CHANGELOG lo dice. La
+        # 017 (tramo D) cambia `automations` (la vista previa valida y remite
+        # a `blueprints` y `automation_assist`; el caso de un HA anterior a
+        # los comandos); su CHANGELOG lo dice. Huella recalculada al integrar
+        # la 017 sobre la de la 033.
+        "automations": "d27ee3c45bc13171",
         # La 027 cambia `backups` (`success` y `child_errors` de los jobs) y la
         # 019 (tramo 2) también (`location` en sv_create_backup_*); sus
         # CHANGELOG lo dicen. Huella recalculada al integrar la 019.
@@ -1209,3 +1213,103 @@ class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):
                         ".cloud_backup", "sv_create_backup_full"):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
+
+
+class TestTemaBlueprints(unittest.IsolatedAsyncioTestCase):
+    """Spec 017 (FR-014, T011): el tema `blueprints` existe con su alias, el
+    índice lo lista y cada tema de una familia de la 017 (`blueprints` y,
+    cuando exista, `automation_assist`) nombra TODAS las tools registradas
+    de su familia. Genérico: los tramos B, C y D no tienen que tocar este
+    test, solo el texto de los temas.
+
+    Control negativo comprobado: quitar `ha_delete_blueprint` del tema → cae
+    `test_nombra_cada_tool_de_las_familias_de_la_017` nombrándola.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        tema = _GUIDE["blueprints"]
+        for alias in ("blueprints", "blueprint", "BLUEPRINT"):
+            self.assertEqual(await self.guide(alias), tema, alias)
+        for clave in ("use_blueprint", "fs_write_file", "blueprint_in_use",
+                      "already_exists", "allow_override", "saved: false"):
+            self.assertIn(clave, tema)
+
+    async def test_indice(self) -> None:
+        self.assertIn("`blueprints`", await self.guide())
+
+    def test_importar_avisa_de_texto_de_terceros(self) -> None:
+        """Tramo B (T022): la parte de importar dice que HA descarga, que es
+        texto de terceros y qué hacer con `content_changed`. Control negativo
+        comprobado: sin el párrafo de importar → cae."""
+        tema = _GUIDE["blueprints"]
+        for clave in ("ha_import_blueprint", "third-party", "_third_party_text",
+                      "content_changed", "content_sha256", "blueprint_too_large",
+                      "invalid_blueprint", "Hermes no abre la URL"):
+            self.assertIn(clave, tema)
+
+    def test_nombra_cada_tool_de_las_familias_de_la_017(self) -> None:
+        from hermes.tool_families import FAMILIAS
+        from tests.test_tools_registration import _do_register
+
+        completo = set(_do_register().tools)
+        for familia in ("blueprints", "automation_assist"):
+            if familia not in FAMILIAS:
+                continue
+            with self.subTest(familia=familia):
+                de_la_familia = sorted(completo - set(_do_register([familia]).tools))
+                self.assertTrue(de_la_familia)
+                faltan = [n for n in de_la_familia if f"`{n}" not in _GUIDE[familia]]
+                self.assertEqual(faltan, [])
+
+
+class TestTemaAutomationAssist(unittest.IsolatedAsyncioTestCase):
+    """Spec 017, tramo C (FR-014, T033): el tema `automation_assist` existe
+    con sus alias (el tramo D añade `wait_for_trigger`), el índice lo lista y
+    trae las dos recetas. Que nombre cada tool de la familia lo cubre
+    `TestTemaBlueprints.test_nombra_cada_tool_de_las_familias_de_la_017`.
+    Control negativo comprobado: quitar el alias `targets` → cae
+    `test_tema_y_alias`."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        tema = _GUIDE["automation_assist"]
+        for alias in ("automation_assist", "device_automation", "targets", "TARGETS"):
+            self.assertEqual(await self.guide(alias), tema, alias)
+        for clave in ("include_capabilities", "capabilities_truncated", "extra_fields",
+                      "AUTOMATIZACIÓN PARA UN DISPOSITIVO", "ha_validate_config",
+                      '"trigger": "light.turned_on", "target"', "exclude",
+                      "ha_version_unsupported", "invalid_argument"):
+            self.assertIn(clave, tema)
+
+    async def test_indice(self) -> None:
+        self.assertIn("`automation_assist`", await self.guide())
+
+    async def test_espera_de_trigger(self) -> None:
+        """Tramo D (T046): la espera de trigger con su alias, frente a
+        `ha_wait_for_event`, los rechazados y qué pasa con `events` apagada;
+        el tema `automations` dice que la vista previa valida. Control
+        negativo comprobado: sin el párrafo de la espera → cae."""
+        tema = _GUIDE["automation_assist"]
+        self.assertEqual(await self.guide("wait_for_trigger"), tema)
+        for clave in ("ha_wait_for_trigger", "ha_wait_for_event", "trigger_not_allowed",
+                      "webhook", "conversation", "samsungtv", "invalid_trigger",
+                      "ha_cancel_wait", "ha_list_active_waits", "`events`",
+                      "wait_for_event_max_seconds"):
+            self.assertIn(clave, tema)
+        automatizaciones = _GUIDE["automations"]
+        for clave in ("invalid_config", "validation_unavailable", "not_validated",
+                      "`blueprints`", "`automation_assist`"):
+            self.assertIn(clave, automatizaciones)
+
+
+if __name__ == "__main__":
+    unittest.main()

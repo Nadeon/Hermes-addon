@@ -1,0 +1,32 @@
+# Blueprint de prueba del banco de Hermes (spec 017, tramo B, T023).
+#
+# Esta en `www` porque HA sirve esa carpeta en /local/ sin autenticacion
+# (frontend), y el banco no tiene salida a internet: el test lo importa con
+# ha_import_blueprint desde http://127.0.0.1:8123/local/hermes_banco/...,
+# una descarga HTTP real por el importador generico de HA dentro del propio
+# contenedor. Escrito para el banco.
+#
+# Solo ASCII a proposito: HA lo descarga con `resp.text()` y, sin charset en
+# la respuesta, aiohttp adivina la codificacion. Con ASCII cualquier
+# adivinanza da el mismo texto y la huella del lector casa con la de HA.
+blueprint:
+  name: Luz por movimiento (banco)
+  description: Blueprint de prueba del banco de Hermes
+  domain: automation
+  input:
+    sensor:
+      name: Sensor
+      selector:
+        entity: {}
+    luz:
+      name: Luz
+      selector:
+        entity: {}
+triggers:
+  - trigger: state
+    entity_id: !input sensor
+    to: "on"
+actions:
+  - action: homeassistant.turn_on
+    target:
+      entity_id: !input luz

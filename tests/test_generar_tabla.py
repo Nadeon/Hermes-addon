@@ -240,6 +240,26 @@ class TestClaseAConToolDedicada(_Base):
         self.assertEqual(self._tabla().CORE_WS["demo/via_dt"].reason,
                          "pendiente de tool dedicada (spec 021)")
 
+    def test_subscribe_trigger_es_clase_a(self) -> None:
+        """Spec 017, T045 (research R-13): la fila de `subscribe_trigger` del
+        inventario real es clase A con CAP-038 (reclasificada desde B, como
+        proponía la research de la 008) y la generación desde cero la saca
+        `dedicated` hacia `ha_wait_for_trigger`.
+
+        Control negativo (T054, 8), comprobado y restaurado: la fila de vuelta
+        a clase B → cae este test (y la generación desde cero da `deny`)."""
+        inventario = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
+        fila = next(f for f in gt._leer_tsv(inventario / "core-ws.tsv")
+                    if f["comando"] == "subscribe_trigger")
+        self.assertEqual((fila["clase"], fila["cap"]), ("A", "CAP-038"))
+        self.salida.unlink(missing_ok=True)
+        gt.generar(inventario / "core-ws.tsv", inventario / "supervisor-rutas.tsv",
+                   self.salida, ha_core="2026.11.1", supervisor="2026.11.0")
+        e = self._tabla().CORE_WS["subscribe_trigger"]
+        self.assertEqual(
+            (e.category, e.family, e.tool, e.cap),
+            ("dedicated", "automation_assist", "ha_wait_for_trigger", "CAP-038"))
+
     def test_desde_cero_igual_que_la_tabla_real(self) -> None:
         """Integración de la 012: con los inventarios reales, la generación
         desde cero da la MISMA entrada que la tabla revisada en cada fila de

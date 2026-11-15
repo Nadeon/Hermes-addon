@@ -1197,6 +1197,116 @@ class TestTiendaDeLa030(unittest.IsolatedAsyncioTestCase):
                                          (tool, familia, apagada))
                         self.assertEqual(tool in mcp.tools, not apagada)
             ha.sv_request.assert_not_awaited()
+class TestDedicadasDeLa017(unittest.IsolatedAsyncioTestCase):
+    """Spec 017, tramo A (FR-012, T010): los comandos de blueprints pasan a
+    sus tools dedicadas; las genéricas los rechazan con `use_dedicated_tool`
+    sin ejecutarlos y, con `blueprints` desactivada, con `family_disabled:
+    true`.
+
+    Control negativo (T016, 7): dejar `blueprint/delete` en `deny` → cae
+    `test_a_su_dedicada` (`command_denied`).
+    """
+
+    async def test_a_su_dedicada(self) -> None:
+        mcp, ha = _registrar_todo([])
+        r = await mcp.tools["ha_call_ws_command"](
+            "blueprint/delete", {"domain": "automation", "path": "hermes/luz.yaml"})
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_delete_blueprint", "blueprints", False))
+        for tipo, tool in (("blueprint/list", "ha_list_blueprints"),
+                           ("blueprint/substitute", "ha_preview_blueprint_substitution")):
+            with self.subTest(tipo=tipo):
+                r = await mcp.tools["ha_read_ws_command"](tipo)
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, False))
+        r = await mcp.tools["ha_call_ws_command"]("blueprint/save", {})
+        self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_save_blueprint"))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_importar_a_su_dedicada(self) -> None:
+        """Tramo B (T021): `blueprint/import` pasa a `ha_import_blueprint`; antes
+        era `deny` («pendiente de tool dedicada»). Control negativo
+        comprobado: dejarla en `deny` → `command_denied` y cae este test."""
+        mcp, ha = _registrar_todo([])
+        url = {"url": "https://example.com/blueprints/luz.yaml"}
+        for generica in ("ha_call_ws_command", "ha_read_ws_command"):
+            with self.subTest(generica=generica):
+                r = await mcp.tools[generica]("blueprint/import", url)
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", "ha_import_blueprint", "blueprints",
+                                  False))
+        mcp, ha_off = _registrar_todo(["blueprints"])
+        r = await mcp.tools["ha_call_ws_command"]("blueprint/import", url)
+        self.assertEqual((r["tool"], r["family_disabled"]), ("ha_import_blueprint", True))
+        ha.ws_send.assert_not_awaited()
+        ha_off.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["blueprints"])
+        self.assertNotIn("ha_delete_blueprint", mcp.tools)
+        r = await mcp.tools["ha_call_ws_command"](
+            "blueprint/delete", {"domain": "automation", "path": "hermes/luz.yaml"})
+        self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_delete_blueprint", True))
+        r = await mcp.tools["ha_read_ws_command"]("blueprint/list")
+        self.assertEqual((r["error"], r["family_disabled"]), ("use_dedicated_tool", True))
+        ha.ws_send.assert_not_awaited()
+
+
+class TestDedicadasDeLa017TramoC(unittest.IsolatedAsyncioTestCase):
+    """Spec 017, tramo C (FR-012, T032): las genéricas rechazan los comandos
+    de dispositivo y de targets con `use_dedicated_tool` y el nombre de la
+    tool, sin ejecutarlos; con `automation_assist` desactivada, con
+    `family_disabled: true`.
+
+    Control negativo (T037, 4): dejar `device_automation/trigger/list` en
+    `deny` → cae `test_a_su_dedicada` (`command_denied`).
+    """
+
+    async def test_a_su_dedicada(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+            for tipo, args, tool in (
+                ("device_automation/trigger/list", {"device_id": "x"},
+                 "ha_list_device_triggers"),
+                ("get_services_for_target", {"target": {"entity_id": "light.salon"}},
+                 "ha_list_actions_for_target"),
+            ):
+                with self.subTest(generica=generica, tipo=tipo):
+                    r = await mcp.tools[generica](tipo, args)
+                    self.assertEqual(
+                        (r["error"], r["tool"], r["family"], r["family_disabled"]),
+                        ("use_dedicated_tool", tool, "automation_assist", False))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["automation_assist"])
+        self.assertNotIn("ha_resolve_target", mcp.tools)
+        r = await mcp.tools["ha_read_ws_command"](
+            "extract_from_target", {"target": {"area_id": "salon"}})
+        self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_resolve_target", True))
+        ha.ws_send.assert_not_awaited()
+
+
+class TestDedicadaDeLa017TramoD(unittest.IsolatedAsyncioTestCase):
+    """Spec 017, tramo D (FR-012, T045): `subscribe_trigger` deja de ser
+    clase B y las genéricas lo mandan a `ha_wait_for_trigger` sin ejecutarlo.
+
+    Control negativo (T054, 8): `subscribe_trigger` de vuelta a `deny` →
+    cae `test_a_su_dedicada` (`command_denied`).
+    """
+
+    async def test_a_su_dedicada(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+            with self.subTest(generica=generica):
+                r = await mcp.tools[generica](
+                    "subscribe_trigger", {"trigger": {"trigger": "state"}})
+                self.assertEqual(
+                    (r["error"], r["tool"], r["family"], r["family_disabled"]),
+                    ("use_dedicated_tool", "ha_wait_for_trigger", "automation_assist", False))
+        ha.ws_send.assert_not_awaited()
 
 
 class TestRegistro(unittest.TestCase):

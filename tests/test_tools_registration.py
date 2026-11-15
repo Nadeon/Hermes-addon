@@ -871,6 +871,31 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_addon_documentation": ("R-I-", "Get add-on documentation (Supervisor)"),
     "sv_get_addon_availability": ("R-I-", "Get add-on availability (Supervisor)"),
     "sv_rebuild_addon": ("-DIO", "Rebuild add-on (Supervisor)"),
+    # Spec 017, tramo A (contracts/tools.md): listar por prefijo; la
+    # sustitución no guarda y va en `_READ_ONLY_EXACT`; guardar pide token y
+    # va en `_DESTRUCTIVE_EXACT`; borrar es destructiva por `ha_delete_`.
+    # Ninguna sale a internet (importar, del tramo B, sí).
+    "ha_list_blueprints": ("R-I-", "List blueprints (Home Assistant)"),
+    "ha_preview_blueprint_substitution": ("R-I-", "Preview blueprint substitution (Home Assistant)"),
+    "ha_save_blueprint": ("-DI-", "Save blueprint (Home Assistant)"),
+    "ha_delete_blueprint": ("-DI-", "Delete blueprint (Home Assistant)"),
+    # Tramo B: importar pide token (`_DESTRUCTIVE_EXACT`) y es la única de
+    # la familia de mundo abierto (`_OPEN_WORLD`): HA descarga de la URL.
+    "ha_import_blueprint": ("-DIO", "Import blueprint (Home Assistant)"),
+    # Tramo C (contracts/tools.md): las ocho solo leen. Las `ha_list_*`, por
+    # prefijo; resolver y explicar, en `_READ_ONLY_EXACT`. Ninguna sale a
+    # internet.
+    "ha_list_device_triggers": ("R-I-", "List device triggers (Home Assistant)"),
+    "ha_list_device_conditions": ("R-I-", "List device conditions (Home Assistant)"),
+    "ha_list_device_actions": ("R-I-", "List device actions (Home Assistant)"),
+    "ha_resolve_target": ("R-I-", "Resolve target (Home Assistant)"),
+    "ha_explain_target": ("R-I-", "Explain target (Home Assistant)"),
+    "ha_list_triggers_for_target": ("R-I-", "List triggers for target (Home Assistant)"),
+    "ha_list_conditions_for_target": ("R-I-", "List conditions for target (Home Assistant)"),
+    "ha_list_actions_for_target": ("R-I-", "List actions for target (Home Assistant)"),
+    # Tramo D: la espera de trigger solo escucha (lista cerrada de triggers,
+    # research R-8), en `_READ_ONLY_EXACT`.
+    "ha_wait_for_trigger": ("R-I-", "Wait for trigger (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -1914,6 +1939,166 @@ class TestCoreDiagnosticsTramoBRegistration:
         from hermes.tools._annotations import classify
 
         assert [n for n in _CORE_DIAGNOSTICS_B if classify(n).open_world_hint] == []
+
+
+# ── Spec 017, tramo A: blueprints (T009) ─────────────────────────────────────
+
+_BLUEPRINTS_017 = (
+    "ha_list_blueprints", "ha_preview_blueprint_substitution",
+    "ha_save_blueprint", "ha_delete_blueprint",
+    "ha_import_blueprint",  # tramo B
+)
+
+
+class TestBlueprintsRegistration:
+    """Las cuatro tools del tramo A se registran bajo `blueprints`, con los
+    hints del contrato (`_HINTS_NUEVAS_1_2_0`); con la familia desactivada no
+    aparece ninguna y las de la 1.1.2 siguen igual.
+
+    Control negativo (T016, 6): quitar `ha_save_blueprint` de
+    `_DESTRUCTIVE_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` y el
+    invariante «pide token ⇔ destructiva»
+    (`test_every_tool_that_asks_for_a_token_says_it_is_destructive`).
+    `ha_delete_blueprint` no está en esa lista: ya es destructiva por el
+    prefijo `ha_delete_` (desviación de T009, que la ponía en las dos).
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _BLUEPRINTS_017 if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna(self):
+        mcp = _do_register(["blueprints"])
+        assert [n for n in _BLUEPRINTS_017 if n in mcp.tools] == []
+        assert "ha_create_or_update_automation" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.blueprints.register") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
+
+    def test_las_que_modifican_piden_token_y_solo_importar_sale_a_internet(self):
+        """Spec 017, tramo B (T020): `openWorldHint` verdadero solo en
+        `ha_import_blueprint` de entre las de la familia.
+
+        Control negativo (T025, 5): quitar `ha_import_blueprint` de
+        `_OPEN_WORLD` → cae este test (y `test_hints_y_titulos_de_las_nuevas`).
+        """
+        from hermes.tools._annotations import classify
+
+        for nombre in ("ha_save_blueprint", "ha_delete_blueprint", "ha_import_blueprint"):
+            ann = classify(nombre)
+            assert ann.destructive_hint and not ann.read_only_hint, nombre
+        assert classify("ha_preview_blueprint_substitution").read_only_hint
+        assert [n for n in _BLUEPRINTS_017 if classify(n).open_world_hint] == [
+            "ha_import_blueprint"]
+
+
+# ── Spec 017, tramo C: automatizaciones de dispositivo y targets (T031) ───────
+
+_AUTOMATION_ASSIST_017 = (
+    "ha_list_device_triggers", "ha_list_device_conditions", "ha_list_device_actions",
+    "ha_resolve_target", "ha_explain_target", "ha_list_triggers_for_target",
+    "ha_list_conditions_for_target", "ha_list_actions_for_target",
+)
+
+
+class TestAutomationAssistRegistration:
+    """Las ocho tools del tramo C se registran bajo `automation_assist`, con
+    los hints del contrato (`_HINTS_NUEVAS_1_2_0`); con la familia
+    desactivada no aparece ninguna y las de la 1.1.2 siguen igual.
+
+    Control negativo comprobado: quitar `ha_resolve_target` de
+    `_READ_ONLY_EXACT` → caen `test_las_ocho_solo_leen` y
+    `test_hints_y_titulos_de_las_nuevas`.
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _AUTOMATION_ASSIST_017 if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna(self):
+        mcp = _do_register(["automation_assist"])
+        assert [n for n in _AUTOMATION_ASSIST_017 if n in mcp.tools] == []
+        assert "ha_search_related" in mcp.tools
+        assert "ha_list_blueprints" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.device_automation.register") as dispositivo, \
+                patch("hermes.tools.targets.register") as targets:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert dispositivo.call_args.kwargs.get("response_max_bytes") == 54_321
+        assert targets.call_args.kwargs.get("response_max_bytes") == 54_321
+
+    def test_las_ocho_solo_leen(self):
+        from hermes.tools._annotations import classify
+
+        for nombre in _AUTOMATION_ASSIST_017:
+            ann = classify(nombre)
+            assert ann.read_only_hint and not ann.destructive_hint, nombre
+            assert not ann.open_world_hint, nombre
+
+
+class TestEsperaDeTriggerRegistration:
+    """Spec 017, tramo D (T042): `ha_wait_for_trigger` se registra en
+    `automation_assist` con el gestor de esperas compartido; solo lee; y,
+    como `ha_wait_for_event` desde la 033, `ctx` es el `Context` del SDK y no
+    sale en el esquema.
+
+    Control negativo comprobado: anotando `ctx: Any` caen
+    `test_esquema_sin_ctx` y `test_ctx_es_el_contexto_inyectado`; quitando
+    `ha_wait_for_trigger` de `_READ_ONLY_EXACT` caen `test_solo_lee` y
+    `test_hints_y_titulos_de_las_nuevas`.
+    """
+
+    def test_registrada_en_su_familia(self):
+        assert "ha_wait_for_trigger" in _register_all().tools
+        mcp = _do_register(["automation_assist"])
+        assert "ha_wait_for_trigger" not in mcp.tools
+        assert "ha_wait_for_event" in mcp.tools
+
+    def test_solo_lee(self):
+        from hermes.tools._annotations import classify
+
+        ann = classify("ha_wait_for_trigger")
+        assert ann.read_only_hint and not ann.destructive_hint
+        assert not ann.open_world_hint
+
+    def test_esquema_sin_ctx(self):
+        esquema = _real_registry()["ha_wait_for_trigger"].parameters
+        assert sorted(esquema["properties"]) == ["timeout_seconds", "trigger", "variables"]
+        assert esquema.get("required", []) == ["trigger"]
+
+    def test_ctx_es_el_contexto_inyectado(self):
+        assert _real_registry()["ha_wait_for_trigger"].context_kwarg == "ctx"
+
+    def test_gestor_compartido_y_mismo_tope(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.wait_for_event.register") as evento,                 patch("hermes.tools.wait_for_trigger.register") as trigger:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                wait_for_event_max_seconds=77, wait_for_event_max_concurrent=3,
+                tool_families_disabled=[],
+            )
+        gestor = evento.call_args.kwargs["manager"]
+        assert trigger.call_args.kwargs["manager"] is gestor
+        assert gestor.max_concurrent == 3
+        assert trigger.call_args.kwargs["wait_for_event_max_seconds"] == 77
+        assert trigger.call_args.kwargs["response_max_bytes"] == 54_321
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────
