@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.0] — <fecha de publicación>
+## [1.2.0] — 2026-11-15
 
 Programa de cobertura total de Home Assistant 2026.11 (Core 2026.11.1,
 Supervisor 2026.11.0): todo lo que el programa añade sale en esta única
@@ -2393,6 +2393,27 @@ Revisión de seguridad de todo el programa, con las 359 tools ya integradas.
   (las familias que añade la 1.2.0 y las tools del Supervisor de la matriz).
   El contrato de la matriz de pruebas de la 014 recoge el resultado
   `no ejecutable`.
+
+#### Revisión final
+
+- **Con el Supervisor caído, cada tool que lleva la clave de backups da su
+  error.** Al tapar la clave en un error de conexión rechazada (el de
+  aiohttp), la copia de la excepción no se podía ni escribir y salía un
+  error falso. Ahora conserva su clase y sus datos: `ha_marketplace_uninstall`
+  responde `backup_failed` y gasta el token, el safety backup automático de
+  las `fs_*` dice que no pudo conectar, y `sv_create_safety_backup`,
+  `sv_restore_backup_full` y `sv_restore_backup_partial` responden ese error
+  (las de restaurar cierran el token como fallido) en vez del genérico.
+- **`ha_get_core_config` tapa la contraseña de una URL.** Una `internal_url`
+  o `external_url` con `usuario:clave@` salía en claro; ahora sale
+  `usuario:***@`, también en la vista previa y la confirmación de
+  `ha_update_core_config`. Reenviarla así ya se rechaza.
+- **Las instrucciones del servidor no nombran tools de familias
+  desactivadas.** Con `tool_families_disabled`, solo los temas de las
+  familias de la 1.2.0 desaparecían; ahora tampoco salen las tools ni los
+  temas de las familias de la 1.1.2 (cómo reiniciar Core, guardar un
+  dashboard o seguir un job). Con todas las familias activas el texto no
+  cambia.
 
 ## [1.1.2] — 2026-11-14
 

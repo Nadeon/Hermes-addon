@@ -1039,11 +1039,48 @@ Cambios de comportamiento de tools de la 1.1.2, sacados de la entrada
 - **Redacción en todas las respuestas** (025): un valor bajo una clave
   sensible se tapa entero, sea texto, número, objeto o lista (`null`,
   booleanos y vacíos se conservan).
+- **Cierres de seguridad transversal y de robustez, y revisión final**:
+  - toda tool sin `readOnlyHint` rechaza sin token, con
+    `redacted_value_in_payload` y antes de ejecutarse, un valor con
+    `usuario:***@` (la forma en que sale al leer una URL con credenciales):
+    alcanza a `fs_write_file`, `fs_set_secret`, `ha_call_service`,
+    `sv_set_addon_options` y las demás tools de escritura de la 1.1.2;
+  - `ha_start_options_flow` y `ha_continue_options_flow`: el formulario sale
+    redactado, también dentro de las secciones (`type: expandable`), y
+    `ha_continue_options_flow` rechaza un `user_input` con `***REDACTED***`
+    (`redacted_value_in_payload`);
+  - los errores de las `sv_*` de la 1.1.2 que mandan datos tuyos (crear y
+    restaurar backups, `sv_create_safety_backup` y el safety backup
+    automático, `sv_set_addon_options`) salen sin el eco del Supervisor
+    (`sin_eco_del_supervisor`: nada desde «Got» ni ningún valor enviado);
+  - D-13: `sv_update_addon`, `sv_get_addon_logs` y los avisos de las `sv_*`
+    de apps reconocen a Hermes por su slug exacto (`/addons/self/info`):
+    otra app `<algo>_hermes` deja de bloquearse; si no se puede leer el slug,
+    sigue el criterio del sufijo, que bloquea de más;
+  - un plazo agotado de Core, del Supervisor o del WebSocket sale como
+    `HATimeoutError` (un `HAConnectionError`): las tools de la 1.1.2 que solo
+    capturaban `HAConnectionError` dan su error en vez del genérico del SDK;
+  - `ha_update_entity_registry`: `warning_marketplace_beta` en la vista
+    previa al habilitar o mostrar el interruptor «pre-release» del
+    Marketplace;
+  - un número que no cabe en coma flotante ya no lanza: el `timeout` de
+    `ha_render_template` cae al mínimo, un filtro numérico de
+    `ha_wait_for_event` no casa y `ha_statistics_during_period` lo devuelve
+    tal cual;
+  - la redacción en texto reconoce las claves de red (`psk`, `network_key`,
+    claves S0/S2 de Z-Wave) dentro de un JSON, de un `repr()` o sin comillas;
+  - con el Supervisor caído (conexión rechazada), `sv_create_safety_backup`,
+    `sv_restore_backup_full`, `sv_restore_backup_partial` y el safety backup
+    automático de las `fs_*` responden su error con el texto de aiohttp, y
+    las de restaurar cierran el token como fallido (revisión final).
 - **Solo descripción o log, sin cambio de comportamiento**:
   `ha_list_configured_domains` (016), `sv_get_resolution` y
   `sv_dismiss_resolution_suggestion` (022), los nombres «app (add-on)» de las
-  tools de apps (027) y los eventos `*_ok` de las `ha_marketplace_*` y de
-  `sv_get_resolution` (009).
+  tools de apps (027), los eventos `*_ok` de las `ha_marketplace_*` y de
+  `sv_get_resolution` (009) y el log de Hermes: sin los hosts de las URLs de
+  HA, con los nombres `ip-a-b-c-d` seudonimizados, sin `entity_id` en la
+  clasificación automática (009) y con las estructuras bajo una clave
+  sensible tapadas enteras (cierre de seguridad).
 
 ## Fuera de alcance
 
