@@ -471,7 +471,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
-| 024 | Menores de Core | 059, 065–067, 070–073 | en curso: tramo 1 hecho (familia `cameras` con `ha_get_camera_snapshot` y `ha_get_image_entity`, preferencias de cámara por la tabla, miniaturas de `browse_media`/`search_media` tapadas, 17 entradas fijadas por test, temas `cameras` y `core_minor`); falta el tramo 2 (restablecer un dashboard y CAP-070, 071 y 073) |
+| 024 | Menores de Core | 059, 065–067, 070–073 | hecha: familia `cameras` con `ha_get_camera_snapshot` y `ha_get_image_entity` (imagen MCP, tope de 2 MiB, sin Pillow) y familia `dashboard_reset` con `ha_reset_lovelace_dashboard_config` (dos pasos, token atado a la configuración leída, principal y panel por defecto protegidos); `lovelace/config/delete` a `dedicated`; preferencias de cámara y cinco lecturas de la UI (`trace/contexts`, `frontend/get_themes`, `webhook/list` con el `webhook_id` tapado, `vacuum/get_segments`, `radio_frequency/list`) por la tabla; miniaturas de `browse_media`/`search_media` tapadas (hallazgo); motivo de `application_credentials/config_entry` corregido; las 33 entradas fijadas por test; temas `cameras` y `core_minor` y sección «Restablecer» en `lovelace`; todo probado en el banco de Core, sin hallazgos. Pendiente manual: una cámara real JPEG y otra en la nube (reducción y tope) |
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
@@ -741,6 +741,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_remove_device_from_config_entry` | banco de Core | ok | |
 | `ha_remove_entity_registry` | banco de Core | ok | |
 | `ha_reset_counter` | banco de Core | ok | |
+| `ha_reset_lovelace_dashboard_config` | banco de Core | ok | |
 | `ha_run_script` | banco de Core | ok | |
 | `ha_save_blueprint` | banco de Core | ok | |
 | `ha_save_lovelace_dashboard` | banco de Core | ok | |
