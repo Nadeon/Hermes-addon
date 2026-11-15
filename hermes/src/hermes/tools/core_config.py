@@ -41,7 +41,6 @@ confirmación solo relee los campos pedidos.
 
 from __future__ import annotations
 
-import math
 import re
 from typing import Any
 from urllib.parse import urlsplit
@@ -57,6 +56,7 @@ from hermes.security import (
     redact_structure,
     resolve_confirmation_token,
 )
+from hermes.tools._validation import es_numero_finito
 from hermes.tools._common import requires_ready
 
 logger = structlog.get_logger(__name__)
@@ -162,8 +162,9 @@ def _url_valida(valor: str) -> bool:
 
 
 def _es_numero(valor: Any) -> bool:
-    return (isinstance(valor, (int, float)) and not isinstance(valor, bool)
-            and math.isfinite(valor))
+    # Un entero enorme no es una coordenada: lanzaba `OverflowError` en vez de
+    # dar `invalid_argument` (cierre de robustez de la 1.2.0).
+    return es_numero_finito(valor)
 
 
 def _es_entero(valor: Any) -> bool:

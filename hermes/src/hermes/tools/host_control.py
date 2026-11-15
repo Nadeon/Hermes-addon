@@ -69,6 +69,7 @@ from hermes.security import (
     redact_structure,
     resolve_confirmation_token,
 )
+from hermes.tools._validation import es_numero_finito
 from hermes.tools._logs import ArgumentoInvalido
 
 logger = structlog.get_logger(__name__)
@@ -392,7 +393,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
         valores = []
         for clave in ("disk_free", "disk_total"):
             v = datos.get(clave) if isinstance(datos, dict) else None
-            if isinstance(v, bool) or not isinstance(v, (int, float)):
+            # Un entero enorme lanzaba `OverflowError` en `float()` (cierre
+            # 1.2.0): tampoco es una forma válida.
+            if not es_numero_finito(v):
                 raise _forma("/host/info")
             valores.append(float(v))
         return valores[0], valores[1]

@@ -37,7 +37,6 @@ Ninguna modifica nada ni pide token. Lo que tienen en común:
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -46,6 +45,7 @@ import structlog
 
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import es_clave_sensible, REDACTED_MARKER, redact_secrets, tapar_entero
+from hermes.tools._validation import es_numero_finito
 from hermes.tools._common import (
     ajustar_lista_a_bytes,
     requires_ready,
@@ -115,9 +115,9 @@ def _es_dominio(valor: Any) -> bool:
 
 
 def _es_numero(valor: Any) -> bool:
-    # `bool` es un `int` en Python: `True` no es un número de segundos.
-    return (isinstance(valor, (int, float)) and not isinstance(valor, bool)
-            and math.isfinite(valor))
+    # `bool` es un `int` en Python: `True` no es un número de segundos. Un
+    # entero enorme tampoco (lanzaba `OverflowError`; cierre de la 1.2.0).
+    return es_numero_finito(valor)
 
 
 def _invalido(tool: str, campo: str, detalle: str) -> dict[str, Any]:

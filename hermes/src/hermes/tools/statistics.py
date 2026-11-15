@@ -22,6 +22,7 @@ import structlog
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.ha_version import ha_at_least
+from hermes.tools._validation import es_numero_finito
 from hermes.tools._common import recortar_grupos_a_bytes, requires_ready, tam_json
 
 logger = structlog.get_logger(__name__)
@@ -52,7 +53,11 @@ def _ts_to_iso(ts: float | None) -> str | None:
         return None
     if ts > _TS_MS_THRESHOLD:
         ts = ts / 1000.0
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    try:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    except (OverflowError, OSError, ValueError):
+        # Fuera del rango de fechas: quien llama deja el valor tal cual.
+        return None
 
 
 def _clean_float(val: Any) -> Any:
@@ -70,10 +75,11 @@ def _expand_stat_point(point: dict[str, Any]) -> dict[str, Any]:
     """Convierte campos start/end de float Unix a ISO y limpia NaN/Inf."""
     result: dict[str, Any] = {}
     for key, val in point.items():
-        if key in ("start", "end") and isinstance(val, (int, float)) and math.isfinite(val):
-            result[key] = _ts_to_iso(val)
-        else:
-            result[key] = _clean_float(val)
+        # `es_numero_finito` y no `math.isfinite` a secas: un entero enorme
+        # que devuelva HA lanzaba `OverflowError` y tumbaba la tool entera
+        # (cierre de robustez de la 1.2.0). Si no es una fecha, va tal cual.
+        iso = _ts_to_iso(val) if key in ("start", "end") and es_numero_finito(val) else None
+        result[key] = iso if iso is not None else _clean_float(val)
     return result
 
 

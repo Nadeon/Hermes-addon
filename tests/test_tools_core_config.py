@@ -183,6 +183,8 @@ class TestValidacion(_Base):
             ({"latitude": 91}, "latitude"),
             ({"longitude": -181.5}, "longitude"),
             ({"latitude": True}, "latitude"),
+            # Cierre 1.2.0: lanzaba `OverflowError` (control negativo comprobado).
+            ({"latitude": 10**400}, "latitude"),
             ({"elevation": 1.5}, "elevation"),
             ({"radius": -1}, "radius"),
             ({"unit_system": "imperial"}, "unit_system"),

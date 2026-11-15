@@ -41,6 +41,7 @@ from hermes.security import (
     redact_secrets,
     validate_confirmation_token,
 )
+from hermes.tools._validation import es_numero_finito
 from hermes.tools._common import (
     _LIMIT_HINT,
     ajustar_lista_a_bytes,
@@ -215,7 +216,8 @@ def _entrada(raw: dict[str, Any], tracebacks: bool) -> dict[str, Any]:
 
 def _marca_tiempo(raw: dict[str, Any]) -> float:
     ts = raw.get("timestamp")
-    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+    # Un entero enorme lanzaba `OverflowError` en `float()` (cierre 1.2.0).
+    if not es_numero_finito(ts):
         return float("-inf")
     return float(ts)
 

@@ -249,6 +249,10 @@ class TestSalud(unittest.IsolatedAsyncioTestCase):
             {"timeout_seconds": 0.5}, {"timeout_seconds": 31}, {"timeout_seconds": True},
             {"timeout_seconds": "5"}, {"domain": "Cloud"}, {"domain": "a/b"},
             {"domain": ""}, {"domain": "x" * 65},
+            # Cierre de robustez 1.2.0: un entero enorme lanzaba
+            # `OverflowError`. Control negativo comprobado: con
+            # `math.isfinite` sin proteger en `_es_numero`, falla.
+            {"timeout_seconds": 10**400},
         )
         for kw in casos:
             with self.subTest(kw=kw):
@@ -448,11 +452,20 @@ class TestTiemposDeArranque(unittest.IsolatedAsyncioTestCase):
 
     async def test_argumentos_invalidos(self) -> None:
         for kw in ({"limit": 0}, {"limit": 501}, {"limit": True}, {"limit": 1.5},
-                   {"min_seconds": -1}, {"min_seconds": "1"}):
+                   {"min_seconds": -1}, {"min_seconds": "1"},
+                   {"min_seconds": 10**400}):
             with self.subTest(kw=kw):
                 r = await self.t["ha_list_integration_setup_times"](**kw)
                 self.assertEqual(r["error"], "invalid_argument")
         self.c.ws_send.assert_not_awaited()
+
+    async def test_segundos_enormes_de_ha_se_ignoran(self) -> None:
+        # Cierre de robustez 1.2.0: una fila con un entero enorme no tumba
+        # la tool; no es un número de segundos y no se lista.
+        self.c.ws_send.return_value = [{"domain": "zha", "seconds": 10**400},
+                                       {"domain": "met", "seconds": 0.5}]
+        r = await self.t["ha_list_integration_setup_times"]()
+        self.assertEqual([i["domain"] for i in r["items"]], ["met"])
 
     async def test_tope_de_bytes(self) -> None:
         self.c.ws_send.return_value = [{"domain": f"dominio_{i:03d}", "seconds": i}

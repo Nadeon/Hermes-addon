@@ -13,6 +13,9 @@ olvide validar aquí.
 
 from __future__ import annotations
 
+import math as _math
+from typing import Any as _Any
+
 import structlog as _structlog
 
 # La definición vive en `hermes.identifiers`, un módulo neutral, porque
@@ -32,6 +35,23 @@ from hermes.identifiers import (  # noqa: F401
 def identifier_error(exc: InvalidIdentifier) -> dict[str, str]:
     """Construye la respuesta de error estándar para un identificador inválido."""
     return {"error": "invalid_identifier", "detail": str(exc)}
+
+
+def es_numero_finito(valor: _Any) -> bool:
+    """`int` o `float` finito que cabe en un float; `bool` no cuenta.
+
+    Un entero enorme (`10**400`, JSON válido que puede mandar el cliente MCP
+    o devolver HA) no cabe en un float: `math.isfinite` y `float()` lanzan
+    `OverflowError`, que reventaba la tool en vez de dar un error de
+    argumento. Aquí cuenta como no numérico (cierre de robustez de la 1.2.0;
+    el mismo criterio que `statistics_maintenance._numero_finito`, T054).
+    """
+    if not isinstance(valor, (int, float)) or isinstance(valor, bool):
+        return False
+    try:
+        return _math.isfinite(valor)
+    except OverflowError:
+        return False
 
 
 # ── Sobre de los comandos WebSocket ──────────────────────────────────────────
