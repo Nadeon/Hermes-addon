@@ -99,6 +99,9 @@ CLAVES_DE_CASILLAS = (
     "Funnel en el 8443",
     "fs_write_file",
     "trazas de un script",
+    # Las once tools de solo lectura de la 013: no tienen fila en la matriz
+    # (solo lleva las que modifican), así que su prueba en vivo vive aquí.
+    "Diagnóstico del Supervisor (spec 013)",
 )
 
 
@@ -304,7 +307,18 @@ class TestMatrizDePruebas(unittest.TestCase):
         matriz = _matriz()
         errores = []
 
+        registro = _registro_de_produccion()
+        modifican = _que_modifican()
+
         def fila(tool: str) -> tuple[str, str, str] | None:
+            # La matriz es solo de las tools que modifican. Una de solo
+            # lectura puede estar en un inventario del banco (las de la 029:
+            # el job las exige por ejecución) sin tener fila. Una que no está
+            # en el registro sí cae: sería una errata del inventario.
+            # Control negativo (integración de la 029): sin este `if`, caen
+            # las ocho de `PROBADAS_EN_BANCO_029`.
+            if tool in registro and tool not in modifican:
+                return None
             if tool not in matriz:
                 errores.append(f"{tool}: está en un inventario y no tiene fila")
                 return None

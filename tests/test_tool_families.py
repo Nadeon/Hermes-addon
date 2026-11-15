@@ -132,6 +132,64 @@ class TestCatalogo(unittest.TestCase):
         self.assertTrue(familia.desactivable)
         self.assertEqual(familia.modulos, ("generic_commands",))
 
+    def test_system_diagnostics_es_de_la_1_2_0(self) -> None:
+        # Spec 013, FR-021 (research R-1): las tools de logs del sistema van
+        # en una familia propia de la 1.2.0 para que apagarla devuelva la
+        # lista de la 1.1.2. El tramo 2 añade a la misma familia el módulo
+        # `host_system` (disco, host y OS; data-model).
+        familia = FAMILIAS["system_diagnostics"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_logs", "host_system"))
+        self.assertEqual(familia_de_modulo("system_logs"), "system_diagnostics")
+        self.assertEqual(familia_de_modulo("host_system"), "system_diagnostics")
+
+    def test_system_status_es_de_la_1_2_0(self) -> None:
+        """Spec 029, T009 (FR-015): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las cinco tools de CAP-043."""
+        familia = FAMILIAS["system_status"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("system_status",))
+        self.assertEqual(
+            familia.descripcion,
+            "System health, pending restart state, integration setup times and "
+            "manifests (read only).")
+        self.assertEqual(familia_de_modulo("system_status"), "system_status")
+
+    def test_recorder_es_de_la_1_2_0(self) -> None:
+        """Spec 029, T020 (FR-015): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las tres tools de CAP-049. Es la del recorder entero:
+        la 020 añadirá aquí el mantenimiento de estadísticas."""
+        familia = FAMILIAS["recorder"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("recorder_status",))
+        self.assertEqual(
+            familia.descripcion,
+            "Recorder status and long-term statistics: validation and metadata "
+            "(read only).")
+        self.assertEqual(familia_de_modulo("recorder_status"), "recorder")
+        # Las dos de estadísticas de la 1.1.2 siguen en `data` (FR-010 de la 008).
+        self.assertEqual(familia_de_modulo("statistics"), "data")
+    def test_core_diagnostics_de_la_1_2_0(self) -> None:
+        """Spec 012 (FR-013, T002): la familia del diagnóstico de Core, nueva,
+        desactivable y con exactamente sus cuatro módulos (tramo A:
+        `core_logs`; tramo B, T026: los otros tres). Control negativo (T018
+        h): sacar `core_logs` de la familia → cae este test (y
+        `test_cada_modulo_con_tools_en_una_familia`).
+        """
+        familia = FAMILIAS["core_diagnostics"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("core_logs", "core_validation",
+                                           "integration_diagnostics",
+                                           "persistent_notifications"))
+        for modulo in familia.modulos:
+            self.assertEqual(familia_de_modulo(modulo), "core_diagnostics")
+        self.assertEqual(validar_desactivadas(["core_diagnostics"]),
+                         frozenset({"core_diagnostics"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

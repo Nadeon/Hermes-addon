@@ -8,10 +8,12 @@ estado en tiempo real.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import re
 import time
 from datetime import datetime
+from collections.abc import Callable
 from typing import Any
 
 import aiohttp
@@ -26,6 +28,7 @@ from hermes.service_policy import (
 )
 from hermes.health import HealthServer
 from hermes.identifiers import validate_path_segment
+from hermes.security import quitar_secreto_abierto
 from urllib.parse import unquote, urlsplit
 
 from hermes.logging_setup import set_ha_url_hosts
@@ -332,8 +335,13 @@ class HAClient:
         que estar aquí, donde pasa todo.
 
         Quien necesite de verdad ejecutar un servicio vetado tiene que pedirlo
-        explícitamente, y el único camino que lo hace es la tool
-        `ha_call_service`, después de validar su `confirmation_token`.
+        explícitamente, y solo lo hacen las tools con confirmación en dos
+        pasos, después de validar su `confirmation_token`: `ha_call_service`,
+        las recargas (`guarded_reload`), las de atajo sobre una entidad
+        restringida (`guarded_entity_invoke`) y, desde la spec 012,
+        `ha_clear_system_log` y `ha_dismiss_persistent_notification`. La lista
+        exacta la vigila
+        `tests/test_allow_dangerous_inventario.py`.
         """
         if not allow_dangerous and is_in_denylist(
             domain.strip().lower(), service.strip().lower(), CALL_SERVICE_DENYLIST
@@ -358,8 +366,27 @@ class HAClient:
         domain: str,
         service: str,
         service_data: dict[str, Any] | None = None,
+        *,
+        allow_dangerous: bool = False,
     ) -> Any:
-        """Llama un servicio de Home Assistant con return_response=1."""
+        """Llama un servicio de Home Assistant con return_response=1.
+
+        Misma guarda de denylist que `call_service`, y por lo mismo (spec
+        018): es otra puerta al mismo endpoint REST, y desde la 1.2.0 la tool
+        `ha_call_service_response` ejecuta servicios vetados tras confirmar.
+        La tool ya comprueba la denylist antes de llegar aquí; esta guarda es
+        defensa en profundidad para cualquier camino futuro que llame a este
+        método sin pasar por ella. El único que pasa `allow_dangerous=True` es
+        `ha_call_service_response`, después de validar su `confirmation_token`.
+        """
+        if not allow_dangerous and is_in_denylist(
+            domain.strip().lower(), service.strip().lower(), CALL_SERVICE_DENYLIST
+        ):
+            raise DangerousServiceError(
+                f"El servicio {domain}.{service} exige confirmación explícita. "
+                f"Usa la tool ha_call_service_response, que emite un preview y "
+                f"un confirmation_token."
+            )
         validate_path_segment(domain, field="domain")
         validate_path_segment(service, field="service")
         if service_data is None:
@@ -866,6 +893,110 @@ class HAClient:
             # Siempre cancelar la suscripción al salir (con o sin error)
             await self._ws_unsubscribe(request_id)
 
+    async def ws_collect_subscription(
+        self,
+        payload: dict[str, Any],
+        *,
+        terminado: Callable[[Any], bool],
+        timeout_seconds: float,
+        confirmacion_timeout_seconds: float | None = None,
+    ) -> tuple[list[Any], bool]:
+        """Envía un comando WS de suscripción, recoge sus eventos y cancela.
+
+        Para suscripciones de VARIOS mensajes con final, como
+        `system_health/info` (spec 029, FR-002): HA confirma con un `result`
+        y manda eventos hasta uno que cierra (`finish`). Devuelve
+        `(eventos, completo)`: los eventos en orden, incluido el que hace
+        verdadero a `terminado`, y `completo=False` si venció el plazo antes.
+
+        POR QUÉ un método aparte: `ws_one_shot_subscription` termina en el
+        primer evento y la usan otras tools; cambiar su contrato las tocaría
+        a todas (FR-020 de la 008).
+
+        - El plazo es TOTAL, no por evento: un HA que gotea actualizaciones
+          sin llegar nunca al final no puede alargar la espera sin tope y
+          dejar la tool colgada.
+        - Sin `confirmacion_timeout_seconds`, la confirmación cuenta dentro
+          de `timeout_seconds`. Con él, la confirmación tiene ese plazo
+          propio y `timeout_seconds` empieza a contar al confirmar (T038):
+          `system_health/info` no confirma hasta que HA reúne la información
+          rápida (hasta 5 s por callback en HA), y con un plazo corto la
+          tool fallaría entera en vez de devolver lo que llegó. La espera
+          sigue acotada: como mucho, la suma de los dos.
+        - La suscripción se cancela SIEMPRE en el `finally` (fin, plazo, error
+          de HA, caída de la WS y cancelación de la tarea): abierta, HA
+          seguiría mandando eventos por la WebSocket compartida sin nadie que
+          los lea.
+
+        Raises:
+            HAConnectionError: WS no disponible o caída a mitad (sin código),
+                rechazo de HA en el `result` (con su `code`) o sin
+                confirmación dentro del plazo.
+        """
+        if self._ws is None or self._ws.closed:
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+
+        loop = asyncio.get_running_loop()
+        limite = loop.time() + timeout_seconds
+        limite_confirmacion = (
+            limite if confirmacion_timeout_seconds is None
+            else loop.time() + confirmacion_timeout_seconds)
+
+        async with self._ws_request_lock:
+            ws = self._ws
+            if ws is None or ws.closed:
+                raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+            request_id = self._next_ws_request_id
+            self._next_ws_request_id += 1
+
+            result_future: asyncio.Future[Any] = loop.create_future()
+            # Cola y no future: llegan varios eventos, a veces antes de que
+            # se empiece a esperar (HA manda `initial` y `finish` seguidos
+            # cuando no hay nada pendiente). La caída de la WS la avisa el
+            # sentinel de `_fail_pending_requests`.
+            cola: asyncio.Queue[Any] = asyncio.Queue()
+            self._pending_ws_responses[request_id] = result_future
+            self._event_subscription_queues[request_id] = cola
+
+            try:
+                await ws.send_json({**payload, "id": request_id})
+            except BaseException:
+                self._pending_ws_responses.pop(request_id, None)
+                self._event_subscription_queues.pop(request_id, None)
+                raise
+
+        eventos: list[Any] = []
+        try:
+            try:
+                await asyncio.wait_for(
+                    result_future, timeout=max(limite_confirmacion - loop.time(), 0))
+            except asyncio.TimeoutError as exc:
+                raise HAConnectionError(
+                    f"Timeout waiting for subscription confirmation: {payload.get('type')}"
+                ) from exc
+            if confirmacion_timeout_seconds is not None:
+                limite = loop.time() + timeout_seconds
+            while True:
+                restante = limite - loop.time()
+                if restante <= 0:
+                    return eventos, False
+                try:
+                    item = await asyncio.wait_for(cola.get(), timeout=restante)
+                except asyncio.TimeoutError:
+                    return eventos, False
+                if item is _WS_CLOSED_SENTINEL:
+                    raise HAConnectionError(
+                        "WebSocket connection lost while collecting "
+                        f"subscription events: {payload.get('type')}"
+                    )
+                eventos.append(item)
+                if terminado(item):
+                    return eventos, True
+        finally:
+            self._pending_ws_responses.pop(request_id, None)
+            # `_ws_unsubscribe` también retira la cola del registro.
+            await self._ws_unsubscribe(request_id)
+
     async def ws_subscribe_events_queue(
         self,
         event_type: str,
@@ -1214,6 +1345,84 @@ class HAClient:
             timeout=ClientTimeout(total=30),
         ) as resp:
             return await self._parse_response(resp)
+
+    async def rest_get_text_tail(
+        self,
+        path: str,
+        *,
+        lines: int,
+        max_line_bytes: int = 4096,
+    ) -> list[str]:
+        """GET de texto a la API de Core; devuelve sus ÚLTIMAS `lines` líneas.
+
+        Existe por `/api/error_log` (spec 012, research R-2): es el fichero de
+        log de Core entero, que crece hasta el siguiente reinicio y puede
+        ocupar cientos de MB. Leerlo con `resp.text()` lo cargaría completo en
+        memoria del add-on para quedarse con cien líneas. Aquí se lee en flujo
+        y solo se conservan las últimas (`deque(maxlen=lines)`); una línea
+        más larga que `max_line_bytes` se recorta y se dice en la propia línea.
+
+        No se pide un `Range`: no consta que el proxy del Supervisor lo
+        reenvíe, y un cuerpo comprimido al vuelo no da posiciones estables.
+
+        Un estado HTTP de error se lanza como `HAConnectionError(status=…)`
+        para que quien llama distinga el 404 («no hay fichero de log») de una
+        caída real. El cuerpo del error no se incluye en el mensaje: en esta
+        ruta puede ser el propio log.
+        """
+        if self._session is None:
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+        if lines < 1:
+            raise ValueError("lines must be >= 1")
+
+        _assert_safe_request_path(path)
+        url = f"{self._rest_base_url}{path}"
+        marca = " …[line truncated]"
+        cola: deque[str] = deque(maxlen=lines)
+
+        def guardar(crudo: bytes) -> None:
+            if crudo.endswith(b"\r"):
+                crudo = crudo[:-1]
+            recortada = len(crudo) > max_line_bytes
+            texto = crudo[:max_line_bytes].decode("utf-8", errors="replace")
+            if recortada:
+                # La redacción viene después (quien llama redacta cada
+                # línea) y no puede ver el final de un secreto que el corte
+                # dejó abierto: `"password": "hunter2` sin su comilla no lo
+                # reconoce. Se quita ese trozo aquí (spec 012, T035).
+                texto = quitar_secreto_abierto(texto) + marca
+            cola.append(texto)
+
+        async with self._session.get(url, timeout=ClientTimeout(total=30)) as resp:
+            if resp.status >= 400:
+                raise HAConnectionError(
+                    f"HA REST GET {path} failed {resp.status}",
+                    status=resp.status,
+                )
+            # Pendiente de la línea en curso. Solo guarda hasta
+            # `max_line_bytes + 1` bytes: con eso ya se sabe que hay que
+            # recortarla, y una línea de un giga no se acumula en memoria.
+            pendiente = bytearray()
+            desbordada = False
+            async for trozo in resp.content.iter_chunked(64 * 1024):
+                inicio = 0
+                while True:
+                    fin = trozo.find(b"\n", inicio)
+                    pedazo = trozo[inicio:] if fin < 0 else trozo[inicio:fin]
+                    if not desbordada:
+                        pendiente += pedazo
+                        if len(pendiente) > max_line_bytes:
+                            del pendiente[max_line_bytes + 1:]
+                            desbordada = True
+                    if fin < 0:
+                        break
+                    guardar(bytes(pendiente))
+                    pendiente.clear()
+                    desbordada = False
+                    inicio = fin + 1
+            if pendiente or desbordada:
+                guardar(bytes(pendiente))
+        return list(cola)
 
     # ── Supervisor REST API ───────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 220 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 251 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -172,6 +172,10 @@ usar, ni directamente ni a través de las tools genéricas.
 | `lovelace` | 10 | Dashboards y recursos de Lovelace |
 | `marketplace` | 11 | Marketplace y alias `ha_hacs_*` (solo lectura) |
 | `generic_commands` | 4 | Las tools genéricas (nueva en 1.2.0, ver abajo) |
+| `system_diagnostics` | 11 | Logs de Core, del Supervisor, de los plugins y del journal del host, también de arranques anteriores; servicios del host, uso de disco, Home Assistant OS y swap (nueva en 1.2.0, solo lectura) |
+| `system_status` | 5 | Salud del sistema, reinicio pendiente, tiempos de arranque y manifiestos de las integraciones; solo lectura (nueva en 1.2.0) |
+| `recorder` | 3 | Estado del recorder, validación y metadatos de las estadísticas de largo plazo; hoy solo lectura (nueva en 1.2.0). El mantenimiento de estadísticas se sumará a esta familia |
+| `core_diagnostics` | 12 | Log del sistema, log de errores y niveles de log, validación de configuración, diagnósticos de integraciones y notificaciones persistentes de Home Assistant (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -183,8 +187,10 @@ tool_families_disabled:
 
 Un nombre que no esté en la tabla, o `base`, impide arrancar: el log dice qué
 valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
-familias desactivadas y cuántas tools quedan. Con `generic_commands`
-desactivada, la lista de tools es exactamente la de la 1.1.2.
+familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
+1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
+`recorder` y `core_diagnostics`) desactivadas, la lista de tools es
+exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

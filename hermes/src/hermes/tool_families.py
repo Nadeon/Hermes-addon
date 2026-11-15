@@ -87,6 +87,41 @@ _CATALOGO: tuple[Familia, ...] = (
             "Generic tools that run Core WebSocket commands and Supervisor API "
             "routes allowed by Hermes' classification table.",
             "1.2.0", True, ("generic_commands",)),
+    # Spec 013 (research R-1): logs de Core, del Supervisor, de los plugins y
+    # del host, también de arranques anteriores. Una sola familia para todo el
+    # diagnóstico del sistema porque es un mismo caso de uso y cabe en un tema
+    # de la guía; va aparte de `supervisor` para que apagar las familias de la
+    # 1.2.0 deje exactamente la lista de la 1.1.2 (FR-010 de la 008). El
+    # módulo `host_system` (tramo 2: servicios del host, uso de disco, OS y
+    # swap) es el otro lado del mismo diagnóstico y también solo lee.
+    Familia("system_diagnostics",
+            "Supervisor, Core, host and plugin logs; host services, disk "
+            "usage, OS and swap (read only).",
+            "1.2.0", True, ("system_logs", "host_system")),
+    # Spec 029 (CAP-043): todo de solo lectura.
+    Familia("system_status",
+            "System health, pending restart state, integration setup times and "
+            "manifests (read only).",
+            "1.2.0", True, ("system_status",)),
+    # Spec 029 (CAP-049). La familia es la del recorder entero, no solo de
+    # estas lecturas: la 020 (CAP-050) añadirá aquí el mantenimiento de
+    # estadísticas, que escribe. Ese día la descripción deja de decir «read
+    # only» (principio V) y quien apague `recorder` apaga lo que lee y lo que
+    # escribe en la base de estadísticas.
+    Familia("recorder",
+            "Recorder status and long-term statistics: validation and metadata "
+            "(read only).",
+            "1.2.0", True, ("recorder_status",)),
+    # Spec 012: una sola familia para el diagnóstico de Core y no una por
+    # módulo (research R-9): es un área y un tema de la guía, y partirla
+    # daría opciones que nadie pediría. No es `diagnostics` (1.1.2: Repairs,
+    # trazas, relaciones y resolución del Supervisor), que no cambia.
+    Familia("core_diagnostics",
+            "Home Assistant system log, error log and log levels, configuration "
+            "validation, integration diagnostics and persistent notifications.",
+            "1.2.0", True,
+            ("core_logs", "core_validation", "integration_diagnostics",
+             "persistent_notifications")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

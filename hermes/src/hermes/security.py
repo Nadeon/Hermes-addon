@@ -202,6 +202,27 @@ def is_valid_confirmation_token_format(token: object) -> bool:
     return isinstance(token, str) and _TOKEN_RE.match(token) is not None
 
 
+# Mensaje de `resolve_confirmation_token` cuando el objetivo cambió desde la
+# vista previa (spec 018, FR-003). Público para que la tool lo distinga de un
+# token que no casa y responda con su propio código (`dashboard_changed`): no es
+# un error del cliente, solo tiene que pedir otra vista previa.
+ESTADO_CAMBIADO = (
+    "The target changed since the preview. Nothing was done; request a new "
+    "preview."
+)
+
+
+def _huella_de_estado(estado: Any) -> str:
+    """Huella del estado leído en la vista previa (spec 018, research R-2).
+
+    La misma canonicalización que el action_hash: el orden de las claves no
+    cuenta y un 1.0 es un 1. Solo se escribe la huella: el estado (el
+    dashboard entero) puede llevar datos de la casa y /data entra en los
+    backups (principio II).
+    """
+    return compute_action_hash("estado", {"estado": estado})
+
+
 def _bytes_guardados(guardados: dict[str, Any]) -> int:
     """Tamaño de lo guardado tal como se escribe en el fichero del token."""
     return len(json.dumps(guardados, ensure_ascii=False).encode("utf-8"))
@@ -249,8 +270,16 @@ async def create_confirmation_token(
     preview: dict[str, Any] | None = None,
     *,
     omitibles: tuple[str, ...] = (),
+    estado: Any = None,
 ) -> dict[str, Any]:
     """Crea un token de confirmación vinculado a una acción.
+
+    `estado` (opcional, spec 018) ata además el token al estado del objetivo
+    leído en la vista previa: se guarda su huella (`state_hash`) y
+    `resolve_confirmation_token` exige el mismo estado. Es para las vistas
+    previas que prometen conservar algo que puede cambiar en los 60 s del
+    token (el resto de un dashboard al guardar una sola vista). No entra en
+    el action_hash ni en `confirm_with`: el cliente no lo manda ni lo conoce.
 
     `omitibles` son los argumentos que la tool deja omitir al confirmar (su
     documento grande). Se guardan junto al token para que la confirmación no
@@ -277,6 +306,8 @@ async def create_confirmation_token(
         "created_at": time.time(),
         "retries": 0,
     }
+    if estado is not None:
+        token_data["state_hash"] = _huella_de_estado(estado)
 
     # Solo los omitibles de la tool presentes en la vista previa, con el valor
     # que entró en el hash. Nada más: guardar todos los argumentos escribiría
@@ -356,8 +387,16 @@ async def resolve_confirmation_token(
     args: dict[str, Any],
     *,
     omitibles: tuple[str, ...] = (),
+    estado: Any = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     """Valida un token y devuelve los argumentos con los que se ejecuta.
+
+    `estado` (opcional, spec 018): el estado actual del objetivo. Si el token
+    se emitió con estado, o llega uno ahora, las dos huellas tienen que
+    coincidir; si no, `ESTADO_CAMBIADO` sin tocar el token (el cliente puede
+    pedir otra vista previa, y un token emitido sin estado no vale para una
+    tool que lo exige: fail-closed). Sin `estado` en ninguno de los dos
+    lados, igual que en la 1.1.2.
 
     Un omitible ausente (o `None`) en `args` se toma de lo guardado en la
     vista previa; uno presente se usa tal cual. El action_hash se comprueba
@@ -427,6 +466,14 @@ async def resolve_confirmation_token(
     actual_hash = compute_action_hash(tool_name, resueltos)
     if expected_hash != actual_hash:
         return False, "confirmation_token does not match this action.", {}
+
+    # Estado del objetivo (spec 018): después del action_hash, para que un
+    # token de otra acción siga dando «does not match», y antes de
+    # `executing`, sin ningún `await` entre medias, para no gastar el token.
+    huella_token = token_data.get("state_hash")
+    if huella_token is not None or estado is not None:
+        if estado is None or huella_token != _huella_de_estado(estado):
+            return False, ESTADO_CAMBIADO, {}
 
     # Marcar como executing
     token_data["state"] = "executing"
@@ -786,3 +833,74 @@ def redact_structure(value: Any, _key: str = "") -> Any:
     if isinstance(value, str) and value and _looks_sensitive(_key):
         return _STRUCT_REDACTED
     return value
+
+
+# ── Recorte sin secreto a medias (spec 012, T035) ─────────────────────────
+#
+# `HAClient.rest_get_text_tail` corta las líneas de log de más de
+# `max_line_bytes` para no acumular en memoria una línea de un giga, y la
+# redacción viene DESPUÉS (no se puede redactar la línea entera sin tenerla
+# entera). Si el corte cae dentro de un secreto, lo que queda es un secreto
+# abierto que `redact_secrets` no reconoce porque le falta el final: la
+# comilla de cierre en JSON (`"password": "hunter2 …[line truncated]`) o la
+# `@` de una URL con contraseña (`mqtt://user:hunter2…`). Esta función quita
+# del FINAL del texto ese trozo de valor abierto; las formas `clave: valor` y
+# `clave valor` no lo necesitan, porque su valor se redacta aunque esté
+# cortado.
+
+# Caracteres de un JWT (base64url y puntos).
+_CARACTERES_JWT = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-."
+)
+
+
+def _inicio_racha_final(texto: str, dentro: Any) -> int:
+    """Posición donde empieza la racha final de caracteres que cumplen `dentro`.
+
+    Recorrido hacia atrás: lineal. Una expresión anclada al final con
+    `search` probaría cada posición de cada racha hasta su final
+    (cuadrático en una racha larga).
+    """
+    i = len(texto)
+    while i > 0 and dentro(texto[i - 1]):
+        i -= 1
+    return i
+
+
+def quitar_secreto_abierto(texto: str) -> str:
+    """Quita del final de un texto recortado un secreto que quedó abierto.
+
+    Para usar justo después de cortar una línea por su longitud y antes de
+    `redact_secrets`. Solo mira el final: todo lo anterior al corte está
+    completo y lo redacta `redact_secrets` como siempre. Lineal en la
+    longitud del texto (se llama con textos acotados, de unos KB).
+    """
+    if not texto:
+        return texto
+
+    # 1. Valor JSON sin comilla de cierre: con la comilla añadida, la última
+    # coincidencia de `_JSON_SECRET_RE` acabaría justo al final del texto.
+    # Se corta al principio del valor; la clave se conserva.
+    ultima = None
+    for m in _JSON_SECRET_RE.finditer(texto + '"'):
+        ultima = m
+    if ultima is not None and ultima.end() == len(texto) + 1:
+        texto = texto[:ultima.start(2)]
+
+    # 2. Contraseña de una URL sin la `@` final. `scheme://user:clave` no
+    # lleva espacios ni `@`, así que, si la contraseña llega al final, todo
+    # está en la última racha sin espacio ni `@`: basta buscar ahí (lineal).
+    # Se corta tras `scheme://user:` de la primera coincidencia de la racha.
+    if "://" in texto:
+        inicio = _inicio_racha_final(texto, lambda c: c != "@" and not c.isspace())
+        m = _BASIC_AUTH_PREFIJO_RE.search(texto, inicio)
+        if m is not None:
+            texto = texto[:m.end()]
+
+    # 3. JWT cortado: sin la firma no sirve, pero la cabecera y parte de la
+    # carga (o un trozo de firma) no se dejan a la vista.
+    jwt = texto.find("eyJ", _inicio_racha_final(texto, _CARACTERES_JWT.__contains__))
+    if jwt >= 0:
+        texto = texto[:jwt]
+
+    return texto

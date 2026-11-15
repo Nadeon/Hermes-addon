@@ -236,6 +236,51 @@ class TestDedicadas(unittest.TestCase):
                     f"{k}: familia {e.family!r}, la de {e.tool} es {familias[e.tool]!r}")
         self.assertEqual(problemas, [], "\n".join(problemas))
 
+    def test_dedicadas_de_la_029(self) -> None:
+        """Spec 029, T014 (FR-016): los cinco comandos de CAP-043 son
+        `dedicated` hacia su tool de `system_status`, con la forma que escribe
+        el generador, y el mapa del generador los nombra (una tabla generada
+        desde cero sale igual). Tramo 2 (T027): lo mismo con los cuatro de
+        CAP-049 hacia su tool de `recorder`, y ya no queda ninguna entrada
+        «pendiente (spec 029)».
+        Controles negativos: `manifest/get` en `deny` (T018 e) o
+        `recorder/info` en `deny` (T034 f) → cae."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        cinco = {
+            "system_health/info": "ha_get_system_health",
+            "subscribe_system_state": "ha_get_system_state",
+            "integration/setup_info": "ha_list_integration_setup_times",
+            "manifest/list": "ha_list_integration_manifests",
+            "manifest/get": "ha_get_integration_manifest",
+        }
+        for comando, tool in cinco.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "system_status", tool, "CAP-043"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        # Tramo 2 (T027): los cuatro de CAP-049, hacia su tool de `recorder`.
+        cuatro = {
+            "recorder/info": "ha_get_recorder_info",
+            "recorder/entity_options/get": "ha_get_recorder_info",
+            "recorder/validate_statistics": "ha_validate_statistics",
+            "recorder/get_statistics_metadata": "ha_get_statistics_metadata",
+        }
+        for comando, tool in cuatro.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "recorder", tool, "CAP-049"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        # Y ya no queda nada «pendiente (spec 029)» en ninguna de las dos
+        # tablas (FR-016; control negativo T034 f: `recorder/info` en `deny`
+        # -> cae).
+        pendientes = sorted(str(k) for k, e in _todas() if "(spec 029)" in e.reason)
+        self.assertEqual(pendientes, [])
+
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
         otras = sorted(str(k) for k, e in _todas()
@@ -327,6 +372,33 @@ class TestPistasYMotivos(unittest.TestCase):
             self.assertNotIn(otra, motivo)
 
 
+# Clase A de una CAP de vía dedicada que su sub-feature deja por la tabla:
+# «dentro de una CAP dedicada, sus lecturas menores pueden ir por la tabla si
+# la sub-spec lo justifica» (regla de reparto de la 008). Clave → «spec NNN:
+# porqué». Dejarlo aquí hace visible la justificación y obliga a la siguiente
+# sub-feature a dar la suya.
+# Tools de la 1.1.2 que una sub-feature amplía para cubrir una entrada de vía
+# D, en vez de crear una tool nueva. Fuera de esta lista, una entrada
+# `dedicated` de vía D tiene que ir a una tool de una familia de la 1.2.0
+# (029, T002). Integración de la 029 con la 013: sin esta excepción caen
+# `/addons/{app}/logs/latest` y `/addons/{app}/logs/boots/{bootid}`.
+_DE_LA_1_1_2_AMPLIADAS: dict[str, str] = {
+    "sv_get_addon_logs": "spec 013 (CAP-081): `boot` y `latest`",
+}
+
+_POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
+    ("GET", "/jobs/info"): (
+        "spec 013: FR-046 de la 008 lo pide en la tabla; es una lectura de "
+        "prioridad media y su forma (objeto con una lista) la recorta bien el tope"),
+    ("GET", "/resolution/issue/{issue}/suggestions"): (
+        "spec 013: sv_get_resolution ya trae las sugerencias; esta ruta solo "
+        "filtra las de un issue"),
+    ("GET", "/host/disks"): (
+        "spec 013: lectura menor de CAP-085 (discos con particiones montables, "
+        "para los montajes de la 019); sin tool en el research de la 008"),
+}
+
+
 class TestReglasDeLaClasificacionInicial(unittest.TestCase):
     def test_proxy_de_core_siempre_deny(self) -> None:
         abiertas = sorted(
@@ -345,6 +417,18 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
         self.assertEqual(malas, [])
 
     def test_clase_a_de_via_dedicada_pendiente_de_su_spec(self) -> None:
+        """Clase A de vía D/D+T/D+X: `deny` «pendiente de tool dedicada (spec
+        NNN)» con NNN de la matriz, `dedicated` hacia una tool de una familia
+        de la 1.2.0 cuando su sub-feature ya la ha hecho (specs 012 y 029,
+        research R-7), o `read`/`confirm` si la clave está en `_POR_LA_TABLA`
+        con su spec y su porqué (research R-5 de la 013). Que la tool exista y
+        su familia coincida lo comprueba `test_tool_existe_y_familia_coincide`.
+
+        Control negativo (T018 g de la 012), comprobado: pasar
+        `system_log/list` a `read` → cae este test nombrándola. Dejarla en
+        `deny` «pendiente (spec 012)» no lo hace caer (era el estado anterior
+        y sigue siendo válido aquí): eso lo vigila el test de la genérica
+        (`TestDedicadasDeLaSpec012` de test_tools_generic_commands.py)."""
         matriz = _matriz_008()
         malas = []
         for inventario, tabla in ((_CORE, ct.CORE_WS), (_SV, ct.SUPERVISOR)):
@@ -355,10 +439,162 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                 if via not in {"D", "D+T", "D+X"}:
                     continue
                 e = tabla[k]
+                # Spec 029, T002 (research R-7, mismo diseño que la 012):
+                # cuando su sub-feature crea la tool, la entrada pasa a
+                # `dedicated` hacia ella, y esa tool es de una familia de la
+                # 1.2.0 (no de la 1.1.2 ni una genérica). `read` o `confirm`
+                # siguen siendo un error: la vía D exige tool dedicada.
+                if e.category == "dedicated":
+                    familia = FAMILIAS.get(_tool_a_familia().get(e.tool, ""))
+                    if e.tool in _DE_LA_1_1_2_AMPLIADAS:
+                        continue
+                    if (familia is None or familia.desde != "1.2.0"
+                            or familia.nombre == "generic_commands"):
+                        malas.append(f"{k} ({f['cap']}): dedicated hacia {e.tool!r}")
+                    continue
+                if k in _POR_LA_TABLA and e.category in {"read", "confirm"}:
+                    spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])
+                    if spec and spec.group(1) in subs:
+                        continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)
                 if e.category != "deny" or not m or m.group(1) not in subs:
                     malas.append(f"{k} ({f['cap']}, {via}, {subs}): {e.category} {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
+
+
+# Spec 013 (data-model, «A dedicated»): las rutas de logs de CAP-081 y su tool.
+_LOGS_013: dict[tuple[str, str], tuple[str, str]] = {
+    **{("GET", f"/core/logs{s}"): ("sv_get_core_logs", "system_diagnostics")
+       for s in ("", "/latest", "/boots/{bootid}")},
+    **{("GET", f"/supervisor/logs{s}"): ("sv_get_supervisor_logs", "system_diagnostics")
+       for s in ("", "/latest", "/boots/{bootid}")},
+    **{("GET", f"/{p}/logs{s}"): ("sv_get_plugin_logs", "system_diagnostics")
+       for p in ("dns", "audio", "multicast") for s in ("", "/latest", "/boots/{bootid}")},
+    **{("GET", r): ("sv_get_host_logs", "system_diagnostics") for r in (
+        "/host/logs", "/host/logs/boots/{bootid}", "/host/logs/identifiers/{identifier}",
+        "/host/logs/boots/{bootid}/identifiers/{identifier}")},
+    ("GET", "/host/logs/identifiers"): ("sv_list_host_log_identifiers", "system_diagnostics"),
+    ("GET", "/host/logs/boots"): ("sv_list_boots", "system_diagnostics"),
+    ("GET", "/addons/{app}/logs/latest"): ("sv_get_addon_logs", "supervisor"),
+    ("GET", "/addons/{app}/logs/boots/{bootid}"): ("sv_get_addon_logs", "supervisor"),
+}
+
+
+class TestLogsDeLa013(unittest.TestCase):
+    """FR-017 de la 013: las 23 rutas de logs pasan a `dedicated` en el mismo
+    cambio que sus tools, con su CAP-081; `follow` (streaming) y el alias
+    legado `/homeassistant/logs*` siguen `deny`.
+
+    Control negativo (T013 f): dejar `/core/logs/latest` como `deny` → cae
+    `test_rutas_de_logs_dedicadas` nombrándola.
+    """
+
+    def test_rutas_de_logs_dedicadas(self) -> None:
+        self.assertEqual(len(_LOGS_013), 23)
+        malas = []
+        for k, (tool, familia) in _LOGS_013.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, familia, "CAP-081", f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_follow_y_alias_legado_siguen_deny(self) -> None:
+        abiertas = sorted(
+            str(k) for k, e in ct.SUPERVISOR.items()
+            if "/logs" in k[1]
+            and (k[1].endswith("/follow") or k[1].startswith("/homeassistant/"))
+            and e.category != "deny")
+        self.assertEqual(abiertas, [])
+        self.assertGreaterEqual(
+            sum(1 for k in ct.SUPERVISOR if "/logs" in k[1] and k[1].endswith("/follow")), 15)
+
+    def test_ninguna_ruta_de_logs_pendiente_de_la_013(self) -> None:
+        pendientes = sorted(
+            str(k) for k, e in ct.SUPERVISOR.items()
+            if "/logs" in k[1] and e.reason == "pendiente de tool dedicada (spec 013)")
+        self.assertEqual(pendientes, [])
+
+
+
+# Spec 013, tramo 2 (data-model): disco, host y OS (CAP-085) a `dedicated`.
+_HOST_013: dict[tuple[str, str], str] = {
+    ("GET", "/host/services"): "sv_list_host_services",
+    ("GET", "/host/disks/{disk}/usage"): "sv_get_disk_usage",
+    ("GET", "/os/info"): "sv_get_os_info",
+    ("GET", "/os/config/swap"): "sv_get_swap",
+    ("GET", "/os/datadisk/list"): "sv_list_datadisk_candidates",
+}
+
+# Las que pasan a `read` (FR-018 de la 013) con su CAP.
+_READ_013: dict[tuple[str, str], str] = {
+    ("GET", "/jobs/info"): "CAP-087",
+    ("GET", "/resolution/issue/{issue}/suggestions"): "CAP-087",
+    ("GET", "/host/disks"): "CAP-085",
+}
+
+# Las de CAP-088 y CAP-089 que siguen `read` (FR-019, FR-020 de la 013).
+_READ_SIN_CAMBIO_013: dict[tuple[str, str], str] = {
+    **{("GET", r): "CAP-088" for r in (
+        "/hardware/info", "/hardware/audio", "/security/info", "/docker/info",
+        "/time/info")},
+    **{("GET", r): "CAP-089" for r in (
+        "/network/info", "/network/interface/{interface}/info",
+        "/network/interface/{interface}/accesspoints")},
+}
+
+
+class TestDiscoHostYOsDeLa013(unittest.TestCase):
+    """FR-017…FR-019 de la 013: las cinco rutas de CAP-085 son `dedicated`
+    con su tool; `/jobs/info`, las sugerencias de un issue y `/host/disks`
+    pasan a `read` con su porqué en `_POR_LA_TABLA`; las de hardware, Docker,
+    hora, seguridad y red siguen `read`, y la comprobación de integridad
+    sigue `deny` (desviación de FR-047 de la 008: el Supervisor 2026.11.0
+    responde 410).
+
+    Controles negativos (T027): (d) dejar `/jobs/info` como `deny` → cae
+    `test_tres_rutas_a_read`; (e) pasar `/security/integrity` a `confirm` →
+    cae `test_integridad_sigue_deny`.
+    """
+
+    def test_cinco_rutas_dedicadas(self) -> None:
+        malas = []
+        for k, tool in _HOST_013.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "system_diagnostics", "CAP-085",
+                        f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_tres_rutas_a_read(self) -> None:
+        malas = []
+        for k, cap in _READ_013.items():
+            e = ct.SUPERVISOR[k]
+            if (e.category, e.family, e.cap, e.tool) != ("read", "generic_commands", cap, None):
+                malas.append(f"{k}: {(e.category, e.family, e.cap, e.tool)}")
+            elif "solo lee" not in e.reason:
+                malas.append(f"{k}: el motivo no dice que solo lee: {e.reason!r}")
+        self.assertEqual(malas, [], "\n".join(malas))
+        self.assertEqual(set(_READ_013), set(_POR_LA_TABLA))
+
+    def test_hardware_y_red_siguen_read(self) -> None:
+        malas = sorted(
+            str(k) for k, cap in _READ_SIN_CAMBIO_013.items()
+            if (ct.SUPERVISOR[k].category, ct.SUPERVISOR[k].cap) != ("read", cap))
+        self.assertEqual(malas, [])
+
+    def test_integridad_sigue_deny(self) -> None:
+        e = ct.SUPERVISOR[("POST", "/security/integrity")]
+        self.assertEqual(e.category, "deny")
+        self.assertIn("410", e.reason)
+
+    def test_ninguna_entrada_pendiente_de_la_013(self) -> None:
+        pendientes = sorted(
+            str(k) for k, e in _todas() if "spec 013" in e.reason)
+        self.assertEqual(pendientes, [])
 
 
 if __name__ == "__main__":

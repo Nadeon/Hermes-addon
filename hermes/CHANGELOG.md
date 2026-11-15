@@ -9,7 +9,152 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 ### Diagnóstico
 
-_Pendiente: la añade la sub-feature que lo implemente._
+#### Diagnóstico del Supervisor (spec 013)
+
+- **Diagnóstico del Supervisor: los logs de todo el sistema, también de
+  arranques anteriores.** Seis tools nuevas de solo lectura en la familia
+  nueva `system_diagnostics` (desactivable con `tool_families_disabled`):
+  `sv_get_core_logs` (Home Assistant Core), `sv_get_supervisor_logs`,
+  `sv_get_plugin_logs` (`dns`, `audio` o `multicast`), `sv_get_host_logs`
+  (journal del host, entero o de un identificador de syslog como `kernel`),
+  `sv_list_host_log_identifiers` y `sv_list_boots` (arranques del journal,
+  del actual al más antiguo). Las de log aceptan `lines` (1–1000), `boot`
+  (desplazamiento: 0 el actual, -1 el anterior…; o un id de `sv_list_boots`)
+  y, salvo la del host, `latest` (solo desde el último arranque del
+  contenedor); `boot` y `latest` no se combinan. Un argumento inválido se
+  rechaza con `invalid_argument` sin llegar al Supervisor. Los logs pasan por
+  la misma redacción de secretos que `sv_get_addon_logs`, y el del propio
+  Hermes leído por el journal del host lleva también la redacción de red. Si
+  un log no cabe en `response_max_bytes`, llegan sus últimas líneas. El log
+  de Hermes anota cada lectura (`system_diagnostics_read`) con la plantilla
+  de la ruta y recuentos, nunca el contenido, un id de arranque ni el
+  identificador pedido.
+- **`sv_get_addon_logs` gana `boot` y `latest`**, opcionales: el log de un
+  add-on en un arranque anterior o desde que arrancó su contenedor. Sin
+  ellos, la petición y la respuesta son las de la 1.1.2, salvo que su
+  mensaje de error pasa ahora por la redacción de secretos, como el log.
+- **Tabla de comandos**: las 23 rutas de logs del Supervisor que cubren estas
+  tools pasan de «pendiente de tool dedicada» a `dedicated`; `sv_read_api`
+  remite a la tool. Las variantes `follow` (streaming) y el alias legado
+  `/homeassistant/logs*` siguen rechazadas.
+- **Disco, host y OS.** Cinco tools más de solo lectura en
+  `system_diagnostics`: `sv_list_host_services` (servicios systemd del host;
+  `state="failed"` enseña los que han fallado), `sv_get_disk_usage` (qué
+  ocupa el disco del sistema o un montaje de red, con `max_depth` de 0 a 3
+  y los niveles que da el Supervisor, que en un montaje son uno menos; en
+  cada nivel quedan las 20 carpetas que más ocupan, si aun así no cabe en
+  `response_max_bytes` se pliegan las más pequeñas de todo el árbol, y lo
+  quitado se resume en `children_omitted` y `omitted_bytes` para que la
+  suma cuadre),
+  `sv_get_os_info` (versión de Home Assistant OS, actualización, placa y
+  slots), `sv_get_swap` (tamaño y swappiness, OS 15 o posterior) y
+  `sv_list_datadisk_candidates` (discos que podrían ser el disco de datos;
+  solo los lista). Las de OS, sin Home Assistant OS, devuelven el error del
+  Supervisor con una pista que lo dice. Las respuestas pasan por la
+  redacción de secretos; el número de serie de un disco sí sale en la
+  respuesta (no es un secreto), pero nunca en el log de Hermes.
+- **Tabla de comandos**: las 23 rutas de logs del Supervisor que cubren estas
+  tools y las 5 de disco, host y OS pasan de «pendiente de tool dedicada» a
+  `dedicated`; `sv_read_api` remite a la tool. Las variantes `follow`
+  (streaming) y el alias legado `/homeassistant/logs*` siguen rechazadas.
+  Tres rutas de lectura pasan a `read` y se leen con `sv_read_api`:
+  `/jobs/info` (todos los jobs del Supervisor),
+  `/resolution/issue/{issue}/suggestions` y `/host/disks` (discos con
+  particiones montables). Las de hardware, audio, seguridad, Docker, hora y
+  red del host ya eran `read` y ahora tienen test.
+  `POST /security/integrity` sigue denegada: el Supervisor 2026.11 eliminó la
+  comprobación de integridad y la ruta responde 410 (la spec 008 la preveía
+  con confirmación).
+- **Guía**: tema nuevo `hermes_guide("system_diagnostics")` (alias
+  `system_logs`, `supervisor_logs`, `host_logs`, `boots`, `disk`, `storage`,
+  `os`, `jobs`), con las once tools y las rutas de diagnóstico que se leen
+  por `sv_read_api`; el tema `supervisor` explica `boot` y `latest` en los
+  logs de add-ons.
+- La prueba en vivo contra un Supervisor real queda pendiente, para las once
+  tools y las rutas `read`: en la VM del procedimiento de la 014
+  (`docs/BANCO-SUPERVISOR.md`) y después en una instalación real, con su
+  casilla en las pruebas manuales de la hoja de ruta. En los tests se prueban
+  con un Supervisor simulado con la forma de las respuestas del 2026.11.0.
+  Como solo leen, no tienen fila en la matriz de pruebas, que es de las tools
+  que modifican.
+
+#### Diagnóstico de Core (spec 012)
+
+- **Familia nueva `core_diagnostics`** (desactivable con
+  `tool_families_disabled`), con 12 tools. Cinco de logs de Core:
+  - `ha_list_system_log`: el log del sistema (Ajustes > Sistema > Registros)
+    tal como lo agrupa Home Assistant, con `count`, primera y última vez
+    (ISO 8601) y origen; filtra por nivel y por integración (sus sub-loggers
+    incluidos). Mensajes y trazas, redactados y marcados como texto de
+    terceros; de cada traza, solo su última línea salvo
+    `include_tracebacks=true`. HA solo guarda ahí WARNING, ERROR y CRITICAL:
+    `level` acepta también DEBUG e INFO, que nunca devuelven nada, y entonces
+    la respuesta trae una `note` que remite al log de Core
+    (`sv_get_core_logs` o `ha_get_error_log`), igual que la guía.
+  - `ha_get_error_log(lines)`: las últimas líneas (1 a 1000) del fichero de
+    log de Core, leído en flujo sin cargarlo entero, con los secretos
+    redactados. Una línea de más de 4 KB se corta, y si el corte cae dentro de
+    un secreto (valor JSON, contraseña de URL o JWT) ese trozo se quita: nunca
+    sale un secreto a medias. En HA OS y Supervised ese fichero solo existe con la opción de
+    Core `duplicate_log_file`; sin él, `error_log_unavailable`, que remite a
+    leer el log de Core por el Supervisor (`sv_get_core_logs`).
+  - `ha_get_log_levels`: el nivel efectivo de cada integración.
+  - `ha_set_log_level`: fija el nivel de una integración o de un logger de
+    Python, con persistencia `none`, `once` o `permanent`; `NOTSET` lo quita.
+    En dos pasos: la vista previa da el nivel actual de la integración y lo
+    que hará la persistencia (con `NOTSET` no aplica; `none` borra también un
+    nivel guardado antes para ese objetivo, como hace Home Assistant).
+  - `ha_clear_system_log`: vacía el log del sistema, en dos pasos (no toca el
+    fichero de log ni el journal).
+- Dos de validación, que no guardan nada:
+  - `ha_validate_config`: valida disparadores, condiciones y acciones con los
+    validadores de Home Assistant, sueltos o desde una automatización o un
+    script entero (`trigger`/`triggers`, `condition`/`conditions`,
+    `action`/`actions`/`sequence`). Las demás claves salen en
+    `not_validated`: HA no las comprueba.
+  - `ha_test_condition`: evalúa una condición contra el estado actual, con
+    sus errores de plantilla si los hay.
+- Tres de diagnósticos de integraciones:
+  - `ha_list_diagnostics_handlers`: qué integraciones ofrecen diagnóstico de
+    entrada o de dispositivo.
+  - `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`: lo
+    mismo que «Descargar diagnóstico», comprobando antes que la entrada, el
+    dispositivo y el diagnóstico existen (sin descargar nada si no), con la
+    redacción de Hermes encima de la de la integración, sin la información del
+    sistema salvo que se pida, y filtrable por `keys`. Si no cabe,
+    `response_too_large` con el tamaño de cada clave, nunca JSON cortado. El
+    de dispositivo se pide a la integración dueña (`config_entry_id`).
+- Dos de notificaciones persistentes:
+  - `ha_list_persistent_notifications`: los avisos de la campana, el más
+    reciente primero, redactados y marcados como texto de terceros.
+  - `ha_dismiss_persistent_notification`: descarta uno, en dos pasos; al
+    confirmar vuelve a leer y, si ya no estaba, responde `already_dismissed`.
+- `ha_set_log_level`, `ha_clear_system_log` y
+  `ha_dismiss_persistent_notification` se anuncian destructivas: bajar un
+  nivel, vaciar un log o descartar un aviso oculta rastros, la misma razón por
+  la que sus acciones están en la denylist. `ha_validate_config` y
+  `ha_test_condition` se anuncian de solo lectura.
+- **`logger.set_default_level` entra en la denylist** de `ha_call_service`:
+  por ahí pide confirmación, igual que `logger.set_level`.
+- Tabla de comandos: nueve entradas pasan de `deny` a `dedicated`
+  (`system_log/list`, `logger/log_info`, `logger/log_level`,
+  `logger/integration_log_level`, `validate_config`, `test_condition`,
+  `diagnostics/list`, `diagnostics/get` y `persistent_notification/get`); las
+  genéricas responden `use_dedicated_tool` con su tool.
+- Tema nuevo de la guía, `hermes_guide("core_diagnostics")` (alias `logs`,
+  `log`, `notifications` y `validation`), con la receta «¿por qué falla esta
+  integración?»; el tema `diagnostics` remite a él.
+- `ha_list_system_log`, `ha_list_persistent_notifications` y
+  `ha_list_diagnostics_handlers` (y `ha_get_log_levels`, que también es una
+  lista) devuelven el sobre común de las listas de la 1.2.0: `count` es
+  cuántos `items` vienen y, si la lista se cortó, `_response_limit` dice
+  cuántos había.
+- Probadas contra HA Core real en el banco de pruebas: las 12, con las tres
+  que modifican comprobadas por el lector independiente. El diagnóstico de
+  entrada se prueba con una entrada de `local_calendar`; el de dispositivo,
+  solo en su camino `diagnostics_not_supported`: ninguna integración sin
+  hardware ni nube lo ofrece, así que su camino feliz queda en los unitarios
+  y como prueba manual pendiente.
 
 ### Integraciones
 
@@ -26,6 +171,44 @@ _Pendiente: la añade la sub-feature que lo implemente._
 ### Sistema
 
 _Pendiente: la añade la sub-feature que lo implemente._
+
+### Mejoras de tools existentes
+
+- **Guardar una sola vista de un dashboard**: `ha_save_lovelace_dashboard`
+  acepta `view_index` (un entero JSON: `true`, `"1"` o `1.0` se rechazan,
+  no se convierten) y `view` (opcionales). Con ellos sustituye solo esa
+  vista del dashboard actual y conserva exactamente las demás vistas y las
+  claves de nivel superior, así que en un dashboard grande ya no hay que
+  reescribirlo entero (ni arriesgarse a perder tarjetas). Va en dos pasos: la
+  vista previa dice qué vista cambia (`view_before`, `view_after`,
+  `view_unchanged`), qué vistas se conservan (`views_kept`) y qué claves
+  (`top_level_keys_kept`), y al confirmar no hace falta reenviar `view` (se
+  guarda junto al token, como `config`). El token queda atado también al
+  estado del dashboard: si cambia entre la vista previa y la confirmación, se
+  rechaza con `dashboard_changed` y no se guarda nada. Mezclarlo con `config`
+  o `remove_top_level_keys` es `invalid_argument`. Sin los argumentos nuevos,
+  el guardado completo es exactamente el de la 1.1.2.
+- **Servicios con respuesta de la denylist, con confirmación**:
+  `ha_call_service_response` acepta `confirmation_token` (opcional). Los
+  servicios de la denylist (por ejemplo `conversation.process`) y los que
+  alcanzan un script o una automatización restringidos ya no quedan
+  bloqueados sin remedio: sin token siguen sin ejecutarse y devuelven el mismo
+  `error` que en la 1.1.2 (`service_in_denylist` o `entity_restricted`), y
+  además el `confirmation_token` y una vista previa como la de
+  `ha_call_service`; repitiendo la llamada con el token se ejecutan una vez y
+  devuelven su respuesta. Como toda vista previa con token, esa primera
+  respuesta ya no va marcada `isError`. La respuesta no se guarda junto al token. Fuera de
+  la denylist, todo igual que antes. Como defensa en profundidad, la capa de
+  cliente que llama a HA aplica también la denylist a los servicios con
+  respuesta, y solo la levanta esta tool tras validar el token.
+- **Sobre común de las listas nuevas**: toda tool de lista nueva de la 1.2.0
+  (y las genéricas) devuelve `{..., "count", "items", "truncated"}`; un test
+  lo exige a cada `ha_list_*` y `sv_list_*` nueva. Las tools de lista
+  anteriores conservan su forma, para no romper a sus clientes. Las cuatro
+  listas del diagnóstico del Supervisor (`sv_list_host_log_identifiers`,
+  `sv_list_boots`, `sv_list_host_services` y `sv_list_datadisk_candidates`)
+  lo usan: `count` es cuántos `items` vienen y, si la lista se cortó,
+  `total` dice cuántos había.
 
 ### Política y genéricas
 
@@ -50,8 +233,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 115 y 29), `read` (36 y 26),
-  `confirm` (20 y 25) o `deny` (452 y 174, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 115 y 57), `read` (36 y 29),
+  `confirm` (20 y 25) o `deny` (452 y 143, con su motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -60,7 +243,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   apaga grupos enteros de tools para ahorrar contexto al cliente. Las familias
   de la 1.1.2 son `services`, `automations`, `helpers`, `events`, `data`,
   `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`,
-  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade `generic_commands`.
+  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade `generic_commands` y
+  `system_diagnostics`.
   `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre
   desconocido, o `base`, impide arrancar con un mensaje que nombra el valor y
   los válidos. Con las familias de la 1.2.0 desactivadas, la lista de tools es
@@ -84,6 +268,72 @@ _Pendiente: la añade la sub-feature que lo implemente._
 - **Constitución 1.2.0**: enmiendas E-1…E-4 (vista previa de las genéricas,
   honestidad atada a la tabla, banco de Core en las comprobaciones y fecha de
   publicación pendiente en el CHANGELOG mientras la versión se desarrolla).
+
+### Estado del sistema y estadísticas
+
+Spec 029: ocho tools nuevas de solo lectura en dos familias nuevas,
+`system_status` y `recorder`, y cuatro comandos de Core que siguen por la
+genérica de lectura. Con las dos familias desactivadas (y `generic_commands`),
+la lista de tools es la de la 1.1.2.
+
+- **Cinco tools nuevas de solo lectura, familia `system_status`**: ninguna
+  modifica nada ni pide token, y se pueden apagar con
+  `tool_families_disabled`.
+  - `ha_get_system_health`: lo que enseña «Información del sistema» de HA,
+    por dominio. Los valores lentos se esperan hasta `timeout_seconds` (de 1
+    a 30, 10 por defecto), contados desde que HA confirma la petición; los
+    que no llegan salen en `pending` y los que HA da por fallidos (también
+    los que da como valor, como un Supervisor «Unhealthy»), en `failed`. Si no cabe en el tope de respuesta, quita
+    dominios enteros por el final y los nombra en `omitted_domains`; `domain`
+    pide uno solo. La suscripción de HA se cancela siempre. Se anuncia de
+    mundo abierto: algunas comprobaciones de salud de HA consultan servicios
+    de internet.
+  - `ha_get_system_state`: si HA o el host piden reinicio, por qué y si el
+    aviso se pospuso. No lo descarta.
+  - `ha_list_integration_setup_times`: cuánto tardó cada integración en
+    arrancar, de la más lenta a la más rápida.
+  - `ha_list_integration_manifests` y `ha_get_integration_manifest`: resumen
+    de diez campos por integración y manifiesto entero. El texto de una
+    integración que no es de HA va marcado como de terceros
+    (`_third_party_text`).
+  Las dos listas usan el sobre común de las listas nuevas (`count`, `items`
+  y `truncated`), con `total` y `total_seconds`, o `missing`, delante.
+  Las respuestas pasan por la redacción de secretos y el log solo lleva
+  recuentos, nunca valores, URLs ni direcciones. Un comando que HA no conoce
+  se explica por su causa: `system_health_not_loaded` o
+  `unsupported_by_ha_version`.
+- **Tres tools nuevas de solo lectura, familia `recorder`**: la familia del
+  recorder y las estadísticas de largo plazo; el mantenimiento de
+  estadísticas (spec 020) se sumará a ella.
+  - `ha_get_recorder_info`: si el recorder graba, su cola y si migra la base;
+    con `entity_id` (que tiene que existir), si esa entidad se graba y quién
+    lo desactivó.
+  - `ha_validate_statistics`: los problemas que HA ve en las estadísticas
+    (unidad cambiada, sin `state_class`, entidad que ya no está…), uno por
+    fila, con recuento por tipo y filtros por estadística y por tipo. Solo
+    valida: no corrige nada ni crea avisos en Repairs.
+  - `ha_get_statistics_metadata`: los metadatos de hasta 100 estadísticas, y
+    `missing` con las que HA no conoce.
+  Sin el recorder cargado responden `recorder_not_loaded`. El log no lleva
+  ids de estadísticas ni nombres de entidades.
+- **Por la genérica de lectura** (`ha_read_ws_command`), sin tool nueva:
+  `logbook/get_action_calls` (auditoría de las acciones llamadas en un
+  intervalo, con los `code` de alarmas y cerraduras tapados y un ejemplo de
+  carga en la tabla), y `network`, `network/url` y `http/config` (red, URLs y
+  servidor HTTP de Core; el log no lleva ninguna URL ni dirección).
+- **Tabla de comandos**: `system_health/info`, `subscribe_system_state`,
+  `integration/setup_info`, `manifest/list`, `manifest/get`, `recorder/info`,
+  `recorder/entity_options/get`, `recorder/validate_statistics` y
+  `recorder/get_statistics_metadata` pasan de `deny` a `dedicated` hacia su
+  tool; las genéricas los rechazan con `use_dedicated_tool`.
+- **Guía**: tema `system_status` (alias `health`, `system_health`,
+  `system_state`, `manifest`, `manifests`, `setup_times`, `urls`, `network`),
+  con la red, las URLs y el HTTP de Core; tema `recorder` (alias
+  `recorder_info`, `statistics_validation`, `action_calls`, `audit`), con la
+  auditoría de llamadas a acciones.
+- **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
+  también la auditoría y la red por la genérica. La configuración del banco
+  carga `system_health:`, `network:`, `recorder:` y `logbook:`.
 
 ### Banco de pruebas
 

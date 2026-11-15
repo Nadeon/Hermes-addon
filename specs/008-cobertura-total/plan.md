@@ -202,11 +202,11 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-016 | media | 009 | FR-031 | X | `TestRetiradosConFiltros` (`tests/test_tools_marketplace.py`) |
 | CAP-017 | baja | 009 | FR-032 | X | `TestEventosOk` (`tests/test_tools_marketplace.py`), `TestEventoOk` (`tests/test_tools_resolution.py`) |
 | CAP-018 | baja | 009 | FR-033 | X | `TestBarridoAcotado` (`tests/test_security.py`) |
-| CAP-019 | alta | 018 | FR-063 | X | guardado por vistas (unitario y banco) |
-| CAP-020 | media-alta | 018 | FR-064 | X | denylist con token en `ha_call_service_response` |
+| CAP-019 | alta | 018 | FR-063 | X | `ha_save_lovelace_dashboard` con `view_index` y `view`: `TestGuardarPorVista` (`tests/test_tools_lovelace.py`), `TestTokenAtadoAlEstado` (`tests/test_security.py`); banco: `TestGuardadoPorVista` (`tests/banco/test_banco_mejoras.py`) |
+| CAP-020 | media-alta | 018 | FR-064 | X | `ha_call_service_response` con `confirmation_token`: `TestCallServiceResponseConfirmacion` y `TestGuardaDeClienteConRespuesta` (`tests/test_call_service_security.py`); banco: `TestRespuestaConfirmada` (`tests/banco/test_banco_mejoras.py`) |
 | CAP-021 | media | 009 | FR-034 | X | `TestNoSeActualizaASiMismo` (`tests/test_tools_supervisor.py`) |
 | CAP-022 | alta | 014 | FR-017 | X+M | `tests/test_addon_manifest.py` (`TestComentarioDelRol`), `tests/test_rutas_supervisor_rol.py`; prueba manual de `manager` (pendiente) |
-| CAP-023 | media | 018 | FR-018, FR-065 | X | sobre común en tools nuevas |
+| CAP-023 | media | 018 | FR-018, FR-065 | X | `sobre_de_lista` (`tools/_common.py`): `TestConstructor`, `TestGenericasSinCambios`, `TestTransversal` y `TestControlSintetico` (`tests/test_sobre_de_lista.py`) |
 | CAP-024 | baja | 009 | FR-035 | X | `TestApagadoSinTraza` (`tests/test_boot_shutdown_diagnostics.py`) |
 | CAP-025 | baja | 027 | FR-092 | M | descripción y guía |
 | CAP-026 | baja | 027 | FR-093 | M | hoja de ruta |
@@ -222,16 +222,16 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
 | CAP-038 | baja | 017 | FR-061 | D | espera de trigger (banco) |
-| CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | validación (banco) |
-| CAP-041 | alta | 012 | FR-037 | D | logs y niveles (banco) |
-| CAP-042 | alta | 012 | FR-038 | D | diagnósticos (banco) |
-| CAP-043 | alta | 029 | FR-040 | D | salud y estado (banco) |
+| CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | `ha_validate_config`, `ha_test_condition` (012): `tests/test_tools_core_validation.py`; banco: `TestValidacion` (`tests/banco/test_banco_core_diagnostico.py`) |
+| CAP-041 | alta | 012 | FR-037 | D | `ha_list_system_log`, `ha_get_error_log`, `ha_get_log_levels`, `ha_set_log_level`, `ha_clear_system_log`: `tests/test_tools_core_logs.py`, `tests/test_ha_rest_text_tail.py`; banco: `tests/banco/test_banco_core_logs.py` |
+| CAP-042 | alta | 012 | FR-038 | D | `ha_list_diagnostics_handlers`, `ha_get_config_entry_diagnostics`, `ha_get_device_diagnostics`: `tests/test_tools_integration_diagnostics.py`; banco: `TestDiagnosticos` (`tests/banco/test_banco_core_diagnostico.py`, entrada de `local_calendar`); camino feliz del de dispositivo, prueba manual pendiente (ninguna integración sin hardware ni nube lo ofrece) |
+| CAP-043 | alta | 029 | FR-040 | D | `ha_get_system_health`, `ha_get_system_state`, `ha_list_integration_setup_times`, `ha_list_integration_manifests`, `ha_get_integration_manifest` (familia `system_status`; entradas `dedicated` de `system_health/info`, `subscribe_system_state`, `integration/setup_info`, `manifest/list`, `manifest/get`): `tests/test_tools_system_status.py`, `tests/test_ha_ws_collect_subscription.py`, `TestDedicadasDeLa029` (`tests/test_tools_generic_commands.py`), `test_dedicadas_de_la_029` (`tests/test_command_table.py`); banco: `tests/banco/test_banco_estado_sistema.py` |
 | CAP-044 | alta | 016 | FR-053 | D | descubiertas y preferencias (banco) |
 | CAP-045 | alta | 016 | FR-054 | D | subentries y reconfigure (banco) |
 | CAP-046 | alta | 017 | FR-058 | D | blueprints (banco) |
-| CAP-047 | alta | 012 | FR-039 | D | notificaciones (banco) |
+| CAP-047 | alta | 012 | FR-039 | D | `ha_list_persistent_notifications`, `ha_dismiss_persistent_notification`: `tests/test_tools_persistent_notifications.py`; banco: `TestNotificaciones` (`tests/banco/test_banco_core_diagnostico.py`) |
 | CAP-048 | media-alta | 016 | FR-055 | D | flujos de reparación (unitario; banco si hay issue reproducible) |
-| CAP-049 | media-alta | 029 | FR-041 | D | estadísticas de lectura (banco) |
+| CAP-049 | media-alta | 029 | FR-041 | D | `ha_get_recorder_info`, `ha_validate_statistics`, `ha_get_statistics_metadata` (familia `recorder`; entradas `dedicated` de `recorder/info`, `recorder/entity_options/get`, `recorder/validate_statistics`, `recorder/get_statistics_metadata`): `tests/test_tools_recorder_status.py`, `TestDedicadasDeLa029Recorder` (`tests/test_tools_generic_commands.py`), `test_dedicadas_de_la_029` (`tests/test_command_table.py`); banco: `tests/banco/test_banco_recorder.py` |
 | CAP-050 | media-alta | 020 | FR-069 | D | mantenimiento de estadísticas (banco) |
 | CAP-051 | media-alta | 017 | FR-059 | D | automatizaciones de dispositivo (banco) |
 | CAP-052 | media-alta | 017 | FR-060 | D | targets (banco) |
@@ -240,7 +240,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-055 | media | 021 | FR-072 | D | exposición (banco) |
 | CAP-056 | media | 021 | FR-073 | D | usuarios (banco; protecciones con control negativo) |
 | CAP-057 | media | 031 | FR-067 | D+T | backups de la integración (banco) |
-| CAP-058 | media | 029 | FR-042 | T | entrada `read` (banco) |
+| CAP-058 | media | 029 | FR-042 | T | entrada `read` de `logbook/get_action_calls` con `redact_extra=("code",)` y ejemplo: `test_action_calls_tapa_el_code`, `test_action_calls_sin_code_en_el_log`, `test_action_calls_tiene_ejemplo` (`tests/test_tools_generic_commands.py`), tema `recorder` (`tests/test_tools_guide.py`); banco: `test_auditoria_de_llamadas` (`tests/banco/test_banco_recorder.py`) |
 | CAP-059 | media | 024 | FR-085 | D+T | instantánea con cámara simulada (banco) |
 | CAP-060 | media-alta | 023 | FR-083 | D | conversación (banco) |
 | CAP-061 | baja | 023 | FR-084 | T | entradas de pipelines (banco) |
@@ -250,7 +250,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-065 | baja | 024 | FR-087 | T | calendario y tareas (banco con `local_calendar`/`local_todo`) |
 | CAP-066 | baja | 024 | FR-087 | T | tags (banco) |
 | CAP-067 | baja | 024 | FR-087 | T | medios (banco) |
-| CAP-068 | media | 029 | FR-043 | T | red y HTTP lectura (banco) |
+| CAP-068 | media | 029 | FR-043 | T | entradas `read` de `network`, `network/url` y `http/config`: `test_red_y_http_sin_urls_ni_ips_en_el_log` (`tests/test_tools_generic_commands.py`), tema `system_status` (`tests/test_tools_guide.py`); banco: `test_red_y_http_por_la_generica` (`tests/banco/test_banco_recorder.py`) |
 | CAP-069 | baja | 021 | FR-074 | D | red y HTTP escritura (unitario; banco solo vista previa) |
 | CAP-070 | baja | 024 | FR-087 | T | registros (banco) |
 | CAP-071 | baja | 024 | FR-086 | D+T | restablecer dashboard (banco; protección del principal) |
@@ -259,15 +259,15 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-074 | baja | 021 | FR-075 | T | analytics y labs (banco) |
 | CAP-075 | baja | 026 | FR-091 | D | Marketplace escritura (unitario; en vivo pendiente) |
 | CAP-080 | alta | 015 | FR-049 | D | actualizaciones (simulador; VM pendiente) |
-| CAP-081 | alta | 013 | FR-044 | D | logs del sistema (simulador) |
+| CAP-081 | alta | 013 | FR-044 | D | `sv_get_core_logs`, `sv_get_supervisor_logs`, `sv_get_plugin_logs`, `sv_get_host_logs`, `sv_list_host_log_identifiers`, `sv_list_boots` y `boot`/`latest` en `sv_get_addon_logs`, con Supervisor simulado: `tests/test_tools_system_logs.py`, `TestLogsDeAddonPorArranque` (`tests/test_tools_supervisor.py`); tabla: `TestLogsDeLa013` (`tests/test_command_table.py`); registro: `TestLogsDelSistema013` (`tests/test_tools_registration.py`); guía: `TestTemaSystemDiagnostics` (`tests/test_tools_guide.py`); en vivo, pendiente (VM de la 014, después instalación real) |
 | CAP-082 | alta | 030 | FR-051 | D | tienda (simulador) |
 | CAP-083 | alta | 019 | FR-066 | D | montajes (simulador; centinela CIFS) |
 | CAP-084 | media | 022 | FR-076 | D+T | control de Core y Supervisor (simulador) |
-| CAP-085 | media-alta | 013 | FR-045 | D | disco y OS (simulador) |
+| CAP-085 | media-alta | 013 | FR-045 | D | `sv_list_host_services`, `sv_get_disk_usage`, `sv_get_os_info`, `sv_get_swap`, `sv_list_datadisk_candidates`, con Supervisor simulado: `tests/test_tools_host_system.py`; `GET /host/disks` por la tabla (`read`, justificada en `_POR_LA_TABLA`): `tests/test_tools_diagnostico_tabla.py`; tabla: `TestDiscoHostYOsDeLa013` (`tests/test_command_table.py`); registro: `TestHostSystem013` (`tests/test_tools_registration.py`); guía: `TestTemaSystemDiagnostics` (`tests/test_tools_guide.py`); en vivo, pendiente (VM de la 014, después instalación real) |
 | CAP-086 | media | 032 | FR-081 | D | host y OS escritura (simulador) |
-| CAP-087 | media | 013, 022 | FR-046, FR-077 | D+T | jobs y resolución (simulador) |
-| CAP-088 | media | 013 | FR-047 | T | entradas de hardware (simulador) |
-| CAP-089 | media | 013 | FR-048 | T | entradas de red del host (simulador) |
+| CAP-087 | media | 013, 022 | FR-046, FR-077 | D+T | lectura (013): `GET /jobs/info` y `GET /resolution/issue/{issue}/suggestions` por la tabla (`read`, justificadas en `_POR_LA_TABLA`), con Supervisor simulado: `tests/test_tools_diagnostico_tabla.py`, `TestDiscoHostYOsDeLa013` (`tests/test_command_table.py`); escritura, 022; en vivo, pendiente (VM de la 014, después instalación real) |
+| CAP-088 | media | 013 | FR-047 | T | `GET /hardware/info`, `/hardware/audio`, `/security/info`, `/docker/info`, `/time/info` (`read`) por `sv_read_api`, con Supervisor simulado: `tests/test_tools_diagnostico_tabla.py`; **desviación de FR-047**: `POST /security/integrity` sigue `deny` y no `confirm`, porque el Supervisor 2026.11.0 eliminó la comprobación y responde 410 (research R-6 de la 013); test: `test_integridad_no_llega_al_supervisor` y `TestDiscoHostYOsDeLa013.test_integridad_sigue_deny`; en vivo, pendiente (VM de la 014, después instalación real) |
+| CAP-089 | media | 013 | FR-048 | T | `GET /network/info`, `/network/interface/{interface}/info`, `/network/interface/{interface}/accesspoints` (`read`) por `sv_read_api`, con Supervisor simulado y el log sin IPs, MAC ni SSID: `tests/test_tools_diagnostico_tabla.py`; en vivo, pendiente (VM de la 014, después instalación real) |
 | CAP-090 | baja | 032 | FR-082 | D | red del host escritura (simulador; interfaz propia rechazada) |
 | CAP-091 | baja | 022 | FR-078 | T | plugins (simulador) |
 | CAP-092 | baja | 022 | FR-079 | T | registros Docker (centinela) |

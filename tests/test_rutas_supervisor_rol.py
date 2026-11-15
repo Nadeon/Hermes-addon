@@ -67,6 +67,10 @@ import re
 import unittest
 from pathlib import Path
 
+# Los plugins con log de la 013, de su propia lista: si se añade uno, sus
+# rutas de log entran solas en LLAMADAS_DECLARADAS.
+from hermes.tools._logs import PLUGINS as _PLUGINS_CON_LOG
+
 RAIZ = Path(__file__).resolve().parent.parent
 CODIGO = RAIZ / "hermes" / "src"
 
@@ -151,6 +155,35 @@ RUTAS_DEL_ARRANQUE: tuple[str, ...] = ("/supervisor/ping", "/core/info")
 # las demás.
 LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
     ("hermes.tools.addons", "sv_list_addons"): ("/addons", "/store/addons"),
+    # Spec 013: las rutas de log se construyen en `tools/_logs.py`
+    # (`ruta_de_log`, `ruta_de_plugin`, `ruta_de_host`) con el slug, el plugin,
+    # el arranque y el identificador ya validados; aquí, cada forma posible
+    # con sus huecos como `x`.
+    ("hermes.tools.addons", "sv_get_addon_logs"): (
+        "/addons/x/logs",
+        "/addons/x/logs/latest",
+        "/addons/x/logs/boots/x",
+    ),
+    ("hermes.tools.system_logs", "_leer_log"): tuple(
+        f"/{base}/logs{cola}"
+        for base in ("core", "supervisor", *_PLUGINS_CON_LOG)
+        for cola in ("", "/latest", "/boots/x")
+    )
+    + (
+        "/host/logs",
+        "/host/logs/boots/x",
+        "/host/logs/identifiers/x",
+        "/host/logs/boots/x/identifiers/x",
+    ),
+    ("hermes.tools.system_logs", "sv_list_host_log_identifiers"): ("/host/logs/identifiers",),
+    ("hermes.tools.system_logs", "sv_list_boots"): ("/host/logs/boots",),
+    ("hermes.tools.host_system", "_leer"): (
+        "/host/services",
+        "/host/disks/x/usage",
+        "/os/info",
+        "/os/config/swap",
+        "/os/datadisk/list",
+    ),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.
@@ -397,7 +430,8 @@ class TestRutasSupervisorRol(unittest.TestCase):
             "/host/reboot",
             "/core/restart",
             "/jobs/x",
-            "/addons/x/logs",
+            # `/addons/x/logs` ya no: desde la 013 la ruta se construye en
+            # `tools/_logs.py` y está en LLAMADAS_DECLARADAS.
         ):
             with self.subTest(ruta=ruta):
                 self.assertIn(ruta, rutas)

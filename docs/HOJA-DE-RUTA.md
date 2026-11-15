@@ -99,7 +99,7 @@ detalle está en el CHANGELOG.
 | 18 | La guía enseña sintaxis heredada de automatizaciones (`platform:`, `service:`) | Cosmética | Hermes | Corregido |
 | 19 | Defectos menores de las tools de HACS (categorías, cálculo de actualizaciones, mensaje de error poco claro) | Cosmética | Hermes | Corregido; en 1.1.0 las `ha_hacs_*` pasan a ser alias de las `ha_marketplace_*` |
 | 20 | Un `not_found` del registro de entidades llega como texto crudo de HA | Cosmética | Hermes | Corregido |
-| 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Pendiente (1.2.0, spec 008: sobre común en las tools nuevas) |
+| 21 | Las tools de lista devuelven formas distintas (lista suelta, bloques sueltos, `{count, items}`) | Cosmética | Hermes | Parcial (1.2.0: sobre común en las tools nuevas; las existentes, duda D-07) |
 | 22 | `period: "year"` en estadísticas se acepta sin comprobar que HA sea ≥ 2026.3 | Cosmética | Hermes | Corregido |
 | 23 | El log muestra un traceback inofensivo al apagar y no redacta direcciones de red | Cosmética | Hermes | Resuelto en 1.2.0 (009); la redacción de red, resuelta en 1.1.0 (`log_redact_network`) |
 
@@ -381,6 +381,32 @@ un cliente contra la instalación real.
   VM para las del Supervisor).
 - [ ] (VM) **`sv_update_addon` sobre Hermes**, tras el rechazo previo de la
   spec 009 (CAP-021).
+- [ ] (VM, después instalación real) **Diagnóstico del Supervisor (spec 013), en
+  vivo**: las once tools de `system_diagnostics` (los logs con
+  `boot=-1` y `latest`, `sv_get_disk_usage` con `max_depth` 3 y con un
+  montaje, y las tres de OS) y las rutas `read` de la tabla (`/jobs/info`,
+  `/resolution/issue/{issue}/suggestions`, `/host/disks`, hardware, Docker,
+  hora y red) por `sv_read_api`. Solo leen; en la suite se prueban con un
+  Supervisor simulado.
+- [ ] (VM, después instalación real con nube) **Estado del sistema y
+  estadísticas (spec 029), en vivo**: las ocho tools de `system_status` y
+  `recorder`. Solo leen, así que no tienen fila en la matriz de pruebas; el
+  banco de Core ya las ejecuta contra HA Core real, y lo que este no tiene
+  queda aquí. En la VM: `ha_get_system_health` con el dominio `hassio`
+  completo o con pendientes, y `ha_get_system_state` con un reinicio
+  pendiente tras instalar una integración. En la instalación real: la salud
+  con `cloud` (hace falta la nube de Home Assistant) y
+  `ha_validate_statistics` con estadísticas que tienen problemas reales.
+- [ ] (VM, después instalación real) **Diagnóstico de Core (spec 012), en
+  vivo**: lo que el banco de Core no tiene, porque sus 12 tools ya se
+  ejecutan ahí contra HA Core real (y las tres que modifican tienen su fila
+  «ok» en la matriz de pruebas). En la VM (HA OS): `ha_get_error_log`
+  responde `error_log_unavailable` con `duplicate_log_file` desactivado y da
+  líneas con la opción activada, y `ha_set_log_level` con `persistence`
+  `once` y `permanent` sobrevive a un reinicio como dice la vista previa. En
+  la instalación real: el camino feliz de `ha_get_device_diagnostics` con un
+  dispositivo de una integración con diagnóstico de dispositivo (Z-Wave, ZHA,
+  Matter, MQTT…); en el banco solo se prueba `diagnostics_not_supported`.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -400,13 +426,13 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 009 | Correcciones pendientes y versión 1.2.0 | 010–018, 021, 024 | hecha |
 | 010 | Banco de pruebas de Core (infraestructura y helpers) | 005, 034 | hecha |
 | 011 | Política de comandos: tabla, genéricas, familias, deriva, guía | 001–004, 007, 008 | hecha: tabla, cuatro genéricas, familias y `tool_families_disabled`, tema `generic_commands` con `search`, extractor y generador; convergencia tras la revisión independiente cerrada (T044–T049); prueba de las genéricas en el banco de Core (T027) activada al integrarla con la 010 |
-| 012 | Diagnóstico de Core | 040, 041, 042, 047 | pendiente |
-| 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | pendiente |
+| 012 | Diagnóstico de Core | 040, 041, 042, 047 | hecha: familia `core_diagnostics` con 12 tools (logs, validación, diagnósticos de integraciones y notificaciones persistentes), 9 entradas de la tabla a `dedicated` y tema de la guía. En el banco, las 12 contra HA Core real (diagnóstico de entrada con `local_calendar`). Pendiente manual: el camino feliz de `ha_get_device_diagnostics`, que ninguna integración sin hardware ni nube ofrece (cubierto por unitarios) |
+| 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (VM de la 014, después instalación real) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
-| 018 | Mejoras de tools existentes | 019, 020, 023 | pendiente |
+| 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
@@ -417,7 +443,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
-| 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | pendiente |
+| 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
 | 030 | Tienda de apps | 082, 093 | pendiente |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
@@ -592,6 +618,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_cancel_timer` | banco de Core | ok | |
 | `ha_cancel_wait` | banco de Core | ok | |
 | `ha_change_timer` | banco de Core | ok | |
+| `ha_clear_system_log` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
 | `ha_create_area` | banco de Core | ok | |
@@ -641,6 +668,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
 | `ha_disable_config_entry` | banco de Core | ok | |
+| `ha_dismiss_persistent_notification` | banco de Core | ok | |
 | `ha_enable_automation` | banco de Core | ok | |
 | `ha_enable_config_entry` | banco de Core | ok | |
 | `ha_finish_timer` | banco de Core | ok | |
@@ -671,6 +699,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_set_input_select` | banco de Core | ok | |
 | `ha_set_input_select_options` | banco de Core | ok | |
 | `ha_set_input_text` | banco de Core | ok | |
+| `ha_set_log_level` | banco de Core | ok | |
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
 | `ha_start_timer` | banco de Core | ok | |
@@ -716,9 +745,10 @@ programa:
 
 - **Guardar un dashboard por vistas** (018). En la prueba en vivo de la 1.1.2
   el cliente se dejó tarjetas al reescribir 134 KB; la vista previa lo mostró.
-- **`ha_call_service_response` y la denylist** (018): hoy rechaza todo lo de la
-  denylist y no acepta `confirmation_token`, así que una acción peligrosa con
-  respuesta (`conversation.process`) no puede devolverla ni confirmando.
+- **`ha_call_service_response` y la denylist** (018, hecho): en la 1.1.2
+  rechazaba todo lo de la denylist sin aceptar `confirmation_token`, así que
+  una acción peligrosa con respuesta (`conversation.process`) no podía
+  devolverla ni confirmando. Desde la 1.2.0 se confirma en dos pasos.
 - **Actualizar Core, OS y Supervisor con vista previa útil** (015): versión
   actual → destino, notas, backup y salud del sistema. Hoy solo con
   `update.install` confirmando.

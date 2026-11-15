@@ -428,22 +428,22 @@ class TestDestructiveToolsAskBeforeActing:
 
     Al escribir este test había dos que la rompían. Una se corrigió
     —`ha_disable_config_entry`, que deja una integración fuera de servicio— y la
-    otra queda documentada abajo como excepción deliberada.
+    otra, `ha_call_service_response`, fue excepción deliberada hasta la spec
+    018, que le dio `confirmation_token` (ver abajo).
 
     El invariante inverso también se vigila: una herramienta que pide token es,
     por definición, consecuente, y debe declararse como tal. Si no, el cliente
     la trata como inofensiva y solo descubre lo contrario al llamarla.
     """
 
-    # Única excepción admitida, y por qué.
+    # Excepciones admitidas: ninguna.
     #
-    # `ha_call_service_response` invoca servicios que devuelven datos
-    # (`calendar.get_events`, `weather.get_forecasts`…). Va marcada como
-    # destructiva porque el servicio lo elige quien llama y hay que asumir lo
-    # peor, pero su guarda no es el token: es la denylist, que la rechaza de
-    # plano ante cualquier servicio peligroso. Añadirle el token obligaría a dos
-    # pasos para leer el tiempo.
-    SIN_TOKEN_A_PROPOSITO = {"ha_call_service_response"}
+    # Hasta la 1.1.2 lo era `ha_call_service_response`, que rechazaba de plano
+    # la denylist sin flujo de confirmación. Desde la spec 018 (FR-008, FR-016)
+    # acepta `confirmation_token` para la denylist y las entidades
+    # restringidas, así que la excepción deja de hacer falta. Fuera de ellas
+    # sigue respondiendo a la primera: leer el tiempo no pide dos pasos.
+    SIN_TOKEN_A_PROPOSITO: set[str] = set()
 
     @staticmethod
     def _firmas() -> dict:
@@ -489,8 +489,9 @@ class TestDestructiveToolsAskBeforeActing:
             "piden confirmación pero se anuncian inofensivas: " + str(incumplen))
 
     def test_the_documented_exception_is_still_only_one(self):
-        """Si mañana hay dos, que haya que justificar la segunda a mano."""
-        assert len(self.SIN_TOKEN_A_PROPOSITO) == 1
+        """Ya no queda ninguna (spec 018): si mañana aparece una, que haya
+        que justificarla a mano."""
+        assert len(self.SIN_TOKEN_A_PROPOSITO) == 0
 
 
 # ── title (spec 003, FR-040) e hints intactos (FR-043) ───────────────────────
@@ -737,7 +738,66 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_call_ws_command": ("-D-O", "Call WS command (Home Assistant)"),
     "sv_read_api": ("R-I-", "Read API (Supervisor)"),
     "sv_call_api": ("-D-O", "Call API (Supervisor)"),
+    # Spec 013 (contracts/tools.md): logs del sistema, familia
+    # `system_diagnostics`. Solo leen, son idempotentes y no salen a internet.
+    "sv_get_core_logs": ("R-I-", "Get core logs (Supervisor)"),
+    "sv_get_supervisor_logs": ("R-I-", "Get supervisor logs (Supervisor)"),
+    "sv_get_plugin_logs": ("R-I-", "Get plugin logs (Supervisor)"),
+    "sv_get_host_logs": ("R-I-", "Get host logs (Supervisor)"),
+    "sv_list_host_log_identifiers": ("R-I-", "List host log identifiers (Supervisor)"),
+    "sv_list_boots": ("R-I-", "List boots (Supervisor)"),
+    # Spec 013, tramo 2: disco, host y OS, misma familia y mismas garantías.
+    "sv_list_host_services": ("R-I-", "List host services (Supervisor)"),
+    "sv_get_disk_usage": ("R-I-", "Get disk usage (Supervisor)"),
+    "sv_get_os_info": ("R-I-", "Get OS info (Supervisor)"),
+    "sv_get_swap": ("R-I-", "Get swap (Supervisor)"),
+    "sv_list_datadisk_candidates": ("R-I-", "List datadisk candidates (Supervisor)"),
+    # Spec 029 (CAP-043, familia `system_status`): solo leen; el prefijo
+    # `ha_get_`/`ha_list_` da el `readOnlyHint` (FR-017). La salud es además
+    # de mundo abierto (T037): HA comprueba si llega a servicios de internet
+    # al pedirla. Control negativo comprobado: quitarla de `_OPEN_WORLD` →
+    # cae `test_hints_y_titulos_de_las_nuevas` (sale `R-I-`).
+    "ha_get_system_health": ("R-IO", "Get system health (Home Assistant)"),
+    "ha_get_system_state": ("R-I-", "Get system state (Home Assistant)"),
+    "ha_list_integration_setup_times": ("R-I-", "List integration setup times (Home Assistant)"),
+    "ha_list_integration_manifests": ("R-I-", "List integration manifests (Home Assistant)"),
+    "ha_get_integration_manifest": ("R-I-", "Get integration manifest (Home Assistant)"),
+    # Spec 029 (CAP-049, familia `recorder`): solo leen. `ha_validate_statistics`
+    # no tiene prefijo de lectura: va por nombre exacto en `_READ_ONLY_EXACT`
+    # (T034 e: sin esa línea, este hint cae).
+    "ha_validate_statistics": ("R-I-", "Validate statistics (Home Assistant)"),
+    "ha_get_statistics_metadata": ("R-I-", "Get statistics metadata (Home Assistant)"),
+    "ha_get_recorder_info": ("R-I-", "Get recorder info (Home Assistant)"),
+    # Spec 012, tramo A (contracts/tools.md): las de lectura por su prefijo;
+    # fijar el nivel y limpiar piden token y van en `_DESTRUCTIVE_EXACT`.
+    "ha_list_system_log": ("R-I-", "List system log (Home Assistant)"),
+    "ha_get_error_log": ("R-I-", "Get error log (Home Assistant)"),
+    "ha_get_log_levels": ("R-I-", "Get log levels (Home Assistant)"),
+    "ha_set_log_level": ("-DI-", "Set log level (Home Assistant)"),
+    "ha_clear_system_log": ("-DI-", "Clear system log (Home Assistant)"),
+    # Spec 012, tramo B: validar y probar una condición no guardan nada y van
+    # en `_READ_ONLY_EXACT` (no tienen prefijo de lectura); descartar una
+    # notificación pide token y va en `_DESTRUCTIVE_EXACT`.
+    "ha_validate_config": ("R-I-", "Validate config (Home Assistant)"),
+    "ha_test_condition": ("R-I-", "Test condition (Home Assistant)"),
+    "ha_list_diagnostics_handlers": ("R-I-", "List diagnostics handlers (Home Assistant)"),
+    "ha_get_config_entry_diagnostics": ("R-I-", "Get config entry diagnostics (Home Assistant)"),
+    "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
+    "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
+    "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
 }
+
+# Las tools de la spec 013 en este tramo (logs, CAP-081).
+_LOGS_013 = (
+    "sv_get_core_logs", "sv_get_supervisor_logs", "sv_get_plugin_logs",
+    "sv_get_host_logs", "sv_list_host_log_identifiers", "sv_list_boots",
+)
+
+# Las del tramo 2 de la spec 013 (disco, host y OS, CAP-085).
+_HOST_013 = (
+    "sv_list_host_services", "sv_get_disk_usage", "sv_get_os_info",
+    "sv_get_swap", "sv_list_datadisk_candidates",
+)
 
 
 def _hint_code(ann) -> str:
@@ -834,6 +894,15 @@ class TestToolTitles:
         con_api = sorted(n for n in _HINTS_SNAPSHOT if "api" in n.split("_"))
         assert con_api == [], con_api
 
+    def test_os_no_cambia_ningun_titulo_existente(self):
+        """Spec 013 (T021): `"os": "OS"` da `Get OS info (Supervisor)` y no
+        toca ningún título de la 1.1.2: ninguna tiene `os` como palabra."""
+        from hermes.tools._annotations import title_for
+
+        assert title_for("sv_get_os_info") == "Get OS info (Supervisor)"
+        con_os = sorted(n for n in _HINTS_SNAPSHOT if "os" in n.split("_"))
+        assert con_os == [], con_os
+
     def test_esquemas_de_la_1_1_2(self):
         """Las tools de la 1.1.2 conservan los argumentos (nombres y
         obligatorios) de su esquema de entrada (FR-021).
@@ -869,6 +938,34 @@ class TestToolTitles:
             "properties": sorted([*esperado["ha_marketplace_list_removed"]["properties"],
                                   "installed_only", "limit"]),
             "required": esperado["ha_marketplace_list_removed"]["required"],
+        }
+        # Tercera diferencia permitida, de la spec 013 (FR-007; research R-3):
+        # `sv_get_addon_logs` gana `boot` y `latest`, OPCIONALES. Sin ellos la
+        # petición y la respuesta son las de la 1.1.2 (lo comprueba
+        # `test_tools_supervisor.TestLogsDeAddonPorArranque`).
+        esperado["sv_get_addon_logs"] = {
+            "properties": sorted([*esperado["sv_get_addon_logs"]["properties"],
+                                  "boot", "latest"]),
+            "required": esperado["sv_get_addon_logs"]["required"],
+        }
+        # Cuarta diferencia permitida, de la spec 018 (FR-016 de la 018,
+        # FR-063 de la 008): `ha_save_lovelace_dashboard` gana `view_index` y
+        # `view`, OPCIONALES, para guardar una sola vista. Sin ellos el
+        # guardado completo es el de la 1.1.2; `required` no cambia.
+        esperado["ha_save_lovelace_dashboard"] = {
+            "properties": sorted([*esperado["ha_save_lovelace_dashboard"]["properties"],
+                                  "view", "view_index"]),
+            "required": esperado["ha_save_lovelace_dashboard"]["required"],
+        }
+        # Quinta diferencia permitida, de la spec 018 (FR-016 de la 018,
+        # FR-064 de la 008): `ha_call_service_response` gana
+        # `confirmation_token`, OPCIONAL, para confirmar la denylist y las
+        # entidades restringidas. Sin él responde como en la 1.1.2 (el mismo
+        # `error`, con el token añadido); `required` no cambia.
+        esperado["ha_call_service_response"] = {
+            "properties": sorted([*esperado["ha_call_service_response"]["properties"],
+                                  "confirmation_token"]),
+            "required": esperado["ha_call_service_response"]["required"],
         }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
@@ -938,7 +1035,7 @@ class TestRegistroPorFamilias:
         from hermes.tool_families import FAMILIAS
 
         nuevas = [n for n, f in FAMILIAS.items() if f.desde == "1.2.0"]
-        assert "generic_commands" in nuevas
+        assert {"generic_commands", "system_diagnostics"} <= set(nuevas)
         tools = _real_registry(nuevas)
         assert set(tools) == set(_HINTS_SNAPSHOT), (
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
@@ -1028,6 +1125,97 @@ class TestRegistroPorFamilias:
             _do_register(["base"])
 
 
+# ── Spec 013: logs del sistema (FR-021, FR-022; T011) ─────────────────────────
+
+
+class TestLogsDelSistema013:
+    """Las seis tools de logs se registran por defecto, solo leen y no piden
+    token; con `system_diagnostics` apagada no existe ninguna, y
+    `sv_get_addon_logs` (familia `supervisor`) conserva `boot` y `latest`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _LOGS_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _LOGS_013}
+        assert props["sv_get_core_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_supervisor_logs"] == {"lines", "boot", "latest"}
+        assert props["sv_get_plugin_logs"] == {"plugin", "lines", "boot", "latest"}
+        assert props["sv_get_host_logs"] == {"lines", "boot", "identifier"}
+        assert props["sv_list_host_log_identifiers"] == {"search"}
+        assert props["sv_list_boots"] == set()
+        assert tools["sv_get_plugin_logs"].parameters.get("required") == ["plugin"]
+
+    def test_con_la_familia_apagada(self):
+        tools = _real_registry(["system_diagnostics"])
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+        esquema = tools["sv_get_addon_logs"].parameters
+        assert {"boot", "latest"} <= set(esquema["properties"])
+        assert sorted(esquema.get("required", [])) == ["slug"]
+
+
+# ── Spec 013, tramo 2: disco, host y OS (FR-021; T020, T024) ─────────────────
+
+
+class TestHostSystem013:
+    """Las cinco tools de disco, host y OS se registran por defecto, solo leen
+    y no piden token; con `system_diagnostics` apagada no existe ninguna y la
+    tabla sigue apuntándolas como `dedicated`."""
+
+    def test_registradas_y_de_solo_lectura(self):
+        tools = _real_registry()
+        for nombre in _HOST_013:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is True, nombre
+            assert ann.destructive_hint is False, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert ann.open_world_hint is False, nombre
+            assert "confirmation_token" not in tools[nombre].parameters.get(
+                "properties", {}), nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _HOST_013}
+        assert props == {
+            "sv_list_host_services": {"state"},
+            "sv_get_disk_usage": {"disk", "max_depth"},
+            "sv_get_os_info": set(),
+            "sv_get_swap": set(),
+            "sv_list_datadisk_candidates": set(),
+        }
+        assert not tools["sv_get_disk_usage"].parameters.get("required")
+
+    def test_con_la_familia_apagada_la_tabla_sigue_igual(self):
+        """T024 (FR-021; FR-012 de la 008): apagar la familia quita las tools
+        pero no cambia la tabla: sus 28 entradas siguen `dedicated` y apuntan
+        a tools de `system_diagnostics` o de `supervisor`."""
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["system_diagnostics"])
+        dedicadas = {
+            k: e for k, e in SUPERVISOR.items()
+            if e.category == "dedicated" and e.family == "system_diagnostics"
+        }
+        assert len(dedicadas) == 26
+        assert {e.tool for e in dedicadas.values()} == set(_LOGS_013 + _HOST_013)
+        con_boot = [k for k, e in SUPERVISOR.items()
+                    if e.category == "dedicated" and e.cap == "CAP-081"
+                    and e.family == "supervisor"]
+        assert len(con_boot) == 2
+        assert [n for n in _LOGS_013 + _HOST_013 if n in tools] == []
+
+
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────
 
 _MARKETPLACE_TOOLS = (
@@ -1040,6 +1228,58 @@ _HACS_ALIASES = (
     "ha_hacs_info", "ha_hacs_list_repositories",
     "ha_hacs_get_repository", "ha_hacs_list_updates",
 )
+
+
+class TestSystemStatusRegistration:
+    """Spec 029, T010 (FR-015, FR-017, SC-001): las cinco de CAP-043 se
+    registran, ninguna pide `confirmation_token` y con `system_status`
+    desactivada no queda ninguna y el resto no cambia."""
+
+    _CINCO = {
+        "ha_get_system_health", "ha_get_system_state",
+        "ha_list_integration_setup_times", "ha_list_integration_manifests",
+        "ha_get_integration_manifest",
+    }
+
+    def test_registradas_y_sin_token(self):
+        tools = _real_registry()
+        assert self._CINCO <= set(tools)
+        for nombre in self._CINCO:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" not in props, nombre
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status"]))
+        assert completo - sin == self._CINCO
+        assert sin <= completo
+
+
+class TestRecorderRegistration:
+    """Spec 029, T020 (FR-015, FR-017, SC-001): las tres de CAP-049 se
+    registran sin `confirmation_token`; con `recorder` desactivada no queda
+    ninguna, y con `system_status` y `recorder` desactivadas la lista es
+    exactamente la de antes de la 029."""
+
+    _TRES = {"ha_validate_statistics", "ha_get_statistics_metadata", "ha_get_recorder_info"}
+
+    def test_registradas_y_sin_token(self):
+        tools = _real_registry()
+        assert self._TRES <= set(tools)
+        for nombre in self._TRES:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" not in props, nombre
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["recorder"]))
+        assert completo - sin == self._TRES
+
+    def test_sin_las_dos_familias_es_la_lista_de_antes_de_la_029(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status", "recorder"]))
+        assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
+        assert sin <= completo
 
 
 class TestMarketplaceRegistration:
@@ -1140,6 +1380,107 @@ class TestOrganizationAndDiagnosticsRegistration:
         from hermes.tools._annotations import classify
 
         assert [n for n in _ORGANIZACION_Y_DIAGNOSTICO if classify(n).open_world_hint] == []
+
+
+# ── Spec 012, tramo A: logs de Core (FR-013, FR-015, FR-020; T012) ──────────
+
+_CORE_LOGS = (
+    "ha_list_system_log", "ha_get_error_log", "ha_get_log_levels",
+    "ha_set_log_level", "ha_clear_system_log",
+)
+
+
+class TestCoreLogsRegistration:
+    """Las cinco tools de `core_logs` se registran bajo `core_diagnostics`,
+    con los hints del contrato (`_HINTS_NUEVAS_1_2_0`) y desaparecen con la
+    familia desactivada.
+
+    Control negativo (T018 h): quitar `ha_set_log_level` de
+    `_DESTRUCTIVE_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` y el
+    invariante «pide token ⇔ destructiva»
+    (`test_every_tool_that_asks_for_a_token_says_it_is_destructive`).
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _CORE_LOGS if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna(self):
+        mcp = _do_register(["core_diagnostics"])
+        assert [n for n in _CORE_LOGS if n in mcp.tools] == []
+        assert "ha_list_repairs" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.core_logs.register") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
+
+    def test_ninguna_sale_a_internet(self):
+        from hermes.tools._annotations import classify
+
+        assert [n for n in _CORE_LOGS if classify(n).open_world_hint] == []
+
+
+# ── Spec 012, tramo B: validación, diagnósticos y notificaciones (T026) ─────
+
+_CORE_DIAGNOSTICS_B = (
+    "ha_validate_config", "ha_test_condition",
+    "ha_list_diagnostics_handlers", "ha_get_config_entry_diagnostics",
+    "ha_get_device_diagnostics",
+    "ha_list_persistent_notifications", "ha_dismiss_persistent_notification",
+)
+
+
+class TestCoreDiagnosticsTramoBRegistration:
+    """Las siete tools del tramo B se registran bajo `core_diagnostics`, con
+    los hints del contrato (`_HINTS_NUEVAS_1_2_0`); con la familia
+    desactivada no aparece ninguna de las 12.
+
+    Control negativo (T033 f): quitar `ha_validate_config` de
+    `_READ_ONLY_EXACT` → cae `test_hints_y_titulos_de_las_nuevas` (y
+    `test_validar_y_probar_son_de_lectura`).
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _CORE_DIAGNOSTICS_B if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna_de_las_12(self):
+        mcp = _do_register(["core_diagnostics"])
+        assert [n for n in _CORE_LOGS + _CORE_DIAGNOSTICS_B if n in mcp.tools] == []
+        assert "ha_list_repairs" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        for modulo in ("integration_diagnostics", "persistent_notifications"):
+            with patch(f"hermes.tools.{modulo}.register") as reg:
+                register_all_tools(
+                    _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                    response_max_bytes=54_321, call_service_auto_classify=False,
+                    tool_families_disabled=[],
+                )
+            assert reg.call_args.kwargs.get("response_max_bytes") == 54_321, modulo
+
+    def test_validar_y_probar_son_de_lectura(self):
+        from hermes.tools._annotations import classify
+
+        for nombre in ("ha_validate_config", "ha_test_condition"):
+            ann = classify(nombre)
+            assert ann.read_only_hint and not ann.destructive_hint, nombre
+        ann = classify("ha_dismiss_persistent_notification")
+        assert ann.destructive_hint and not ann.read_only_hint
+
+    def test_ninguna_sale_a_internet(self):
+        from hermes.tools._annotations import classify
+
+        assert [n for n in _CORE_DIAGNOSTICS_B if classify(n).open_world_hint] == []
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────
@@ -1302,3 +1643,18 @@ class TestArgumentosCambiadosAnteLaValidacionDelSdk:
             args = meta.validate_arguments({destino: "ficticio", "config": {"a": 1}})
             assert args["config"] == {"a": 1}, nombre
             assert meta.validate_arguments({destino: "ficticio"})["config"] is None, nombre
+
+    def test_view_se_preparsea_como_config(self):
+        """Spec 018 (FR-016): `view` de `ha_save_lovelace_dashboard` es
+        `dict | None` como `config`: un objeto mandado como texto JSON llega
+        como dict y omitido llega None (se puede omitir al confirmar)."""
+        meta = _real_registry()["ha_save_lovelace_dashboard"].fn_metadata
+        base = {"url_path": "panel-prueba", "view_index": 1}
+        args = meta.validate_arguments({**base, "view": '{"title": "Cocina"}'})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments({**base, "view": {"title": "Cocina"}})
+        assert args["view"] == {"title": "Cocina"}
+        args = meta.validate_arguments(base)
+        assert args["view"] is None
+        assert args["view_index"] == 1
+        assert meta.validate_arguments({"url_path": "panel-prueba"})["view_index"] is None

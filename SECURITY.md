@@ -121,9 +121,32 @@ report about one of them will be closed with a pointer to this section:
     that document in the add-on storage next to the token, so the
     confirmation does not have to resend it. It is deleted when the token is
     completed (successfully or not) or, if the token expires unconfirmed, at
-    most 60 s after it expires; it is never written to the log.
+    most 60 s after it expires; it is never written to the log. The same goes
+    for the single view of `ha_save_lovelace_dashboard` (`view_index` +
+    `view`). Saving a single view also binds the token to the state of the
+    dashboard read in the preview (only its hash is stored): if the dashboard
+    changes before the confirmation, it is refused (`dashboard_changed`) and
+    nothing is saved.
   - Service denylist + recursive `service_data` sanitisation + automatic
-    classification of dangerous scripts and automations.
+    classification of dangerous scripts and automations. The denylist asks
+    for confirmation in both `ha_call_service` and
+    `ha_call_service_response`: a denylisted service, or one that reaches a
+    restricted script or automation, only runs with a `confirmation_token`
+    bound to that tool and its arguments (the response tool stores only
+    `{"called": true}` next to the token, never the response). The HA client
+    enforces the same denylist on both service endpoints, so no other code
+    path can run a denylisted service. Only tools with two-step confirmation
+    lift it, and only after validating their token: `ha_call_service` and
+    `ha_call_service_response` (a denylisted service or a restricted script
+    or automation), the reload tools `ha_reload_automations`,
+    `ha_reload_counters`, `ha_reload_scenes`, `ha_reload_schedules`,
+    `ha_reload_scripts`, `ha_reload_timers` and `ha_reload_zones` (always
+    confirmed, since a reload applies whatever YAML is in `/config`), and
+    `ha_run_script` and `ha_trigger_automation` (only for a restricted
+    script or automation), and `ha_clear_system_log` and
+    `ha_dismiss_persistent_notification` (always confirmed: clearing the
+    system log or dismissing a notification hides traces). A test walks the code and fails if any other
+    place lifts it.
   - **Generic tools behind a fail-closed command table.**
     `ha_read_ws_command`/`ha_call_ws_command` (Core WebSocket commands) and
     `sv_read_api`/`sv_call_api` (Supervisor API routes) cover what no

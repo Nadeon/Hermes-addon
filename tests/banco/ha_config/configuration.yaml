@@ -86,3 +86,56 @@ frontend:
 # hardware ni internet. `uptime`, la de los flujos de configuración, no se
 # carga aquí: la crean y la borran las propias tools durante el test.
 kitchen_sink:
+
+# ── Spec 018 (tramo 2): ha_call_service_response con confirmación ───────────
+#
+# conversation: registra `conversation.process` (de la denylist, responde con
+# `SupportsResponse.OPTIONAL`) con el agente por defecto de Core. El banco no
+# tiene entidades que lo acepten, así que una frase no acciona nada: solo se
+# comprueba la confirmación en dos pasos y la forma de la respuesta. Las
+# frases de los intents vienen en la propia imagen; nada sale a internet.
+conversation:
+
+# ── Spec 029 (tramo 1): estado del sistema ───────────────────────────────────
+#
+# system_health: registra `system_health/info` (sin la integración, HA
+# responde `unknown_command` y la tool, `system_health_not_loaded`); lo usa
+# `ha_get_system_health`. Lee de las integraciones cargadas, sin salir a
+# internet. network: da `network` y `network/url` (tramo 2) y publica además
+# su propia salud con los adaptadores del contenedor; solo mira las
+# interfaces locales.
+system_health:
+network:
+
+# ── Spec 029 (tramo 2): recorder y auditoría ─────────────────────────────────
+#
+# recorder: registra `recorder/info`, `recorder/entity_options/get`,
+# `recorder/validate_statistics` y `recorder/get_statistics_metadata` (sin la
+# integración, HA responde `unknown_command` y las tools,
+# `recorder_not_loaded`). Graba en una SQLite dentro de esta carpeta, que es
+# una copia temporal del runner. Con el recorder cargado, `kitchen_sink`
+# importa además sus estadísticas de demostración (algunas hechas para dar
+# problemas de validación): es lo que leen `ha_validate_statistics` y
+# `ha_get_statistics_metadata`.
+# logbook: registra `logbook/get_action_calls` (auditoría de llamadas a
+# acciones, CAP-058), que lee lo que el recorder graba. Nada sale a internet.
+recorder:
+logbook:
+# ── Spec 012 (tramo A): logs de Core ────────────────────────────────────────
+#
+# system_log: registra `system_log/list` y las acciones `system_log.write` y
+# `system_log.clear`, que necesitan `ha_list_system_log` y
+# `ha_clear_system_log` (y el lector, para sembrar). Sin `default_config:` no
+# se carga sola. `logger:` (arriba) ya da `logger/log_info` y los comandos que
+# fijan niveles. Todo es local.
+system_log:
+
+# ── Spec 012 (tramo B): diagnósticos de integraciones ───────────────────────
+#
+# diagnostics: registra `diagnostics/list`, `diagnostics/get` y la descarga
+# `/api/diagnostics/…`, que necesitan `ha_list_diagnostics_handlers`,
+# `ha_get_config_entry_diagnostics` y `ha_get_device_diagnostics`. Sin
+# `default_config:` no se carga sola. El test crea y borra una entrada de
+# `local_calendar` (sin red ni hardware) para tener un diagnóstico de entrada.
+# `persistent_notification` es de núcleo: no hace falta cargarla.
+diagnostics:

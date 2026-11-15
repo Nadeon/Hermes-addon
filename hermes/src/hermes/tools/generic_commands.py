@@ -58,7 +58,12 @@ from hermes.security import (
     redact_secrets,
     resolve_confirmation_token,
 )
-from hermes.tools._common import ajustar_lista_a_bytes, requires_ready, tam_json
+from hermes.tools._common import (
+    ajustar_lista_a_bytes,
+    requires_ready,
+    sobre_de_lista,
+    tam_json,
+)
 from hermes.tools.addons import _es_hermes
 
 logger = structlog.get_logger(__name__)
@@ -165,8 +170,7 @@ def _respuesta(cabecera: dict[str, Any], resultado: Any) -> dict[str, Any]:
     """Una lista va con el sobre común para que el tope central la recorte;
     un objeto o un escalar, en `result` (R-6)."""
     if isinstance(resultado, list):
-        return {**cabecera, "count": len(resultado), "items": resultado,
-                "truncated": False}
+        return sobre_de_lista(resultado, **cabecera)
     return {**cabecera, "result": resultado}
 
 
