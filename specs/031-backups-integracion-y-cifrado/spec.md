@@ -218,7 +218,7 @@ confirmar manda a HA exactamente los cambios previsualizados.
    `invalid_argument` sin llamar a HA y sin repetir el valor.
 6. **Dado** que la configuración de HA cambia entre la vista previa y la
    confirmación, **entonces** no se aplica nada y se pide otra vista previa.
-7. **Dado** HA OS, **cuando** se pide `ha_get_update_backup_settings`,
+7. (**DESVIACIÓN DV-1: no aplica**; ver «Requisitos».) **Dado** HA OS, **cuando** se pide `ha_get_update_backup_settings`,
    **entonces** devuelve si se hace backup antes de actualizar Core y las apps
    y cuántas copias se guardan; y `ha_set_update_backup_settings` cambia esos
    tres valores con confirmación. Sin la integración `hassio`, las dos
@@ -384,6 +384,22 @@ anotación de la retención, `pending_jobs.json` y el log no contienen la clave.
 
 ## Requisitos *(obligatorio)*
 
+> **DESVIACIÓN DV-1 (HALLAZGO del tramo 1, decisión del supervisor del
+> programa)**: `ha_get_update_backup_settings` y
+> `ha_set_update_backup_settings` NO existen. Hermes es una app y habla con
+> Core por el proxy WebSocket del Supervisor, que en 2026.11.0 rechaza con
+> «Unauthorized» todo comando `hassio/*` y `supervisor/*` de las apps
+> (`DENIED_WS_TYPE_PREFIXES` de `supervisor/api/proxy.py`): esas dos tools no
+> podrían funcionar nunca, y una tool que no puede funcionar viola el
+> principio V. Se quitaron (eran nuevas de la 1.2.0: no hay compatibilidad
+> que guardar). `hassio/update/config/info` y `hassio/update/config/update`
+> quedan en `deny` con el motivo del proxy, y un test impide que una entrada
+> `hassio/*` o `supervisor/*` quede en `read`/`confirm` o como `dedicated`
+> hacia una tool que la mande por WebSocket. Donde esta spec dice «ocho»
+> tools o comandos, son **seis**; FR-004 y el escenario 7 de la historia 1
+> no se cumplen por diseño; en FR-017, esas dos entradas van a `deny` y no a
+> `dedicated`; en FR-018, FR-020 y FR-022 lo de esas dos tools no aplica.
+
 ### Requisitos funcionales
 
 #### Agentes y configuración (CAP-057)
@@ -414,7 +430,8 @@ anotación de la retención, `pending_jobs.json` y el log no contienen la clave.
   que se borrarían (id, nombre, fecha, agentes) y cuándo: `within_24h` por
   días y `after_next_automatic_backup` por copias. Se presenta como
   estimación (FR-067; CAP-057).
-- **FR-004**: `ha_get_update_backup_settings` (lectura) y
+- **FR-004** (**DESVIACIÓN DV-1: no se implementa**; el proxy WebSocket del
+  Supervisor rechaza `hassio/*` a las apps): `ha_get_update_backup_settings` (lectura) y
   `ha_set_update_backup_settings` (con confirmación) leen y cambian
   `core_backup_before_update`, `add_on_backup_before_update` y
   `add_on_backup_retain_copies` (entero ≥ 1). La vista previa enseña lo actual
@@ -599,8 +616,10 @@ anotación de la retención, `pending_jobs.json` y el log no contienen la clave.
 
 ### Resultados medibles
 
-- **SC-001**: Los ocho comandos de CAP-057 tienen tool dedicada y ninguna
-  entrada de la tabla dice «pendiente de tool dedicada (spec 031)».
+- **SC-001**: Los seis comandos de CAP-057 que una app puede mandar tienen
+  tool dedicada, los dos de `hassio/update/config/*` están en `deny` con el
+  motivo del proxy del Supervisor (DV-1), y ninguna entrada de la tabla dice
+  «pendiente de tool dedicada (spec 031)».
 - **SC-002**: Un valor centinela puesto como clave de cifrado en HA no aparece
   en ninguna respuesta, vista previa, error, fichero de token, fichero de
   estado ni log de ninguna tool de esta sub-feature ni de los safety backups

@@ -358,24 +358,24 @@ Spec 031 (en curso; tramo 1: agentes y ajustes). Familia nueva
   ESTIMACIÓN, con las reglas de HA, de los backups automáticos que la
   retención borraría y cuándo. El token ata además la configuración leída y
   esa estimación: si cambian antes de confirmar, `state_changed`.
-- **`ha_get_update_backup_settings`** y **`ha_set_update_backup_settings`**
-  (esta en dos pasos): si HA hace un backup antes de actualizar Core o una
-  app, y cuántos guarda de cada app (de 1 a 100; la vista previa avisa al
-  bajarlo). Solo con Supervisor: sin él, `supervisor_integration_unavailable`.
-  HALLAZGO abierto: el proxy WebSocket del Supervisor rechaza todo `hassio/*`
-  que mande una app («Unauthorized»), así que desde Hermes estas dos no
-  llegan a HA; queda pendiente de decidir qué se hace con ellas.
-- **Tabla de comandos**: `backup/agents/info`, `backup/config/update` y
-  `hassio/update/config/*` pasan de «pendiente de tool dedicada (spec 031)» a
-  sus tools; las genéricas los rechazan con `use_dedicated_tool`.
+- **Sin tools para el backup previo a actualizar**: si HA hace un backup
+  antes de actualizar Core o una app se ajusta con `hassio/update/config/*`,
+  y el proxy WebSocket del Supervisor rechaza todo `hassio/*` y
+  `supervisor/*` que mande una app («Unauthorized»). Hermes es una app, así
+  que esos ajustes se cambian en la interfaz de HA.
+- **Tabla de comandos**: `backup/agents/info` y `backup/config/update` pasan
+  de «pendiente de tool dedicada (spec 031)» a sus tools (las genéricas los
+  rechazan con `use_dedicated_tool`), y `hassio/update/config/*` a `deny`
+  con el motivo del proxy del Supervisor. Un test nuevo impide que un
+  comando `hassio/*` o `supervisor/*` quede en `read` o `confirm`, o como
+  `dedicated` hacia una tool que lo mande por WebSocket.
 - **Guía**: tema nuevo `backup_integration` (alias `backup_agents`,
   `backup_config`, `backup_schedule`, `backup_retention`); `backup` sigue
   llevando a `backups`.
 - **Banco de Core**: la configuración carga `backup:` (agente
   `backup.local`); `ha_list_backup_agents` y `ha_update_backup_config` se
   ejecutan contra HA real, con el efecto leído por el lector y la vista
-  previa sin cambiar nada. `ha_set_update_backup_settings` necesita el
-  Supervisor: matriz de pruebas, VM pendiente.
+  previa sin cambiar nada.
 
 ### Banco de pruebas
 

@@ -711,7 +711,6 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_set_input_select_options` | banco de Core | ok | |
 | `ha_set_input_text` | banco de Core | ok | |
 | `ha_set_log_level` | banco de Core | ok | |
-| `ha_set_update_backup_settings` | VM | pendiente | HALLAZGO de la 031: el proxy WebSocket del Supervisor rechaza `hassio/*` a las apps («Unauthorized»), así que se espera que falle también en la VM; el banco de Core no tiene la integración `hassio` |
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
 | `ha_start_timer` | banco de Core | ok | |
