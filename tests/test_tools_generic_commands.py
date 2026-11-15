@@ -1305,23 +1305,53 @@ class TestAssistPorLaTabla(_Base):
             {"type": "assist_satellite/set_wake_words", **carga})
 
     async def test_pipeline_debug_tapa_el_audio(self) -> None:
-        url = "/api/tts_proxy/centinela-023.mp3"
+        # Las formas REALES de Core 2026.11.1: el token es
+        # `secrets.token_urlsafe(16)` + extensión (`SpeechManager`), y el mismo
+        # token va en tres sitios del `tts_output`: `token`, `url`
+        # (`ResultStream.url`) y `media_id` (`ResultStream.media_source_id`, el
+        # evento `tts-end` de `default_pipeline.py`); `run-start` (`run.py`)
+        # lleva `token` y `url`.
+        # Control negativo (T019): con la regex solo para `/api/tts_proxy/`,
+        # el `media_id` sale con el centinela y el test cae; restaurada, pasa.
+        token = "Cn7tInElA023xYzAbCdEfG.mp3"
+        url = f"/api/tts_proxy/{token}"
         self.ha.ws_send.return_value = {"events": [
-            {"type": "run-start", "data": {"pipeline": "01JPIPELINE"}},
+            {"type": "run-start", "data": {"pipeline": "01JPIPELINE", "tts_output": {
+                "token": token, "url": url, "mime_type": "audio/mpeg",
+                "stream_response": False}}},
             {"type": "tts-end", "data": {"tts_output": {
-                "media_id": "media-source://tts/x", "token": "centinela-023.mp3",
+                "media_id": f"media-source://tts/-stream-/{token}", "token": token,
                 "url": url, "mime_type": "audio/mpeg"}}},
         ]}
         with capture_logs() as logs:
             r = await self.t["ha_read_ws_command"](
                 "assist_pipeline/pipeline_debug/get",
                 {"pipeline_id": "01JPIPELINE", "pipeline_run_id": "01JRUN"})
-        self.assertNotIn("centinela-023", json.dumps(r))
+        self.assertNotIn("Cn7tInElA023", json.dumps(r))
         salida = r["result"]["events"][1]["data"]["tts_output"]
         self.assertEqual(salida["url"], security.REDACTED_MARKER)
         self.assertEqual(salida["token"], security.REDACTED_MARKER)
+        self.assertEqual(salida["media_id"],
+                         f"media-source://tts/-stream-/{security.REDACTED_MARKER}")
         self.assertEqual(salida["mime_type"], "audio/mpeg")
-        self.assertNotIn("centinela-023", json.dumps(logs, default=str))
+        self.assertNotIn("Cn7tInElA023", json.dumps(logs, default=str))
+
+    async def test_media_id_del_audio_tapado_en_cualquier_respuesta(self) -> None:
+        # Fuera de `pipeline_debug/get` (sin `redact_extra`), un id de media
+        # source del audio en una respuesta de las genéricas también se tapa:
+        # es el mismo token que abre `/api/tts_proxy/` sin autenticación. Un id
+        # de media source de TTS que no es un stream (motor y mensaje) no lleva
+        # token y se deja como está.
+        self.ha.ws_send.return_value = {"provider": {
+            "engine_id": "tts.ejemplo",
+            "ultimo": "media-source://tts/-stream-/Cn7tInElA023xYzAbCdEfG.wav",
+            "otro": "media-source://tts/tts.ejemplo?message=hola"}}
+        r = await self.t["ha_read_ws_command"]("tts/engine/get", {"engine_id": "tts.ejemplo"})
+        texto = json.dumps(r)
+        self.assertNotIn("Cn7tInElA023", texto)
+        self.assertIn("media-source://tts/-stream-/***REDACTED***", texto)
+        self.assertEqual(r["result"]["provider"]["otro"],
+                         "media-source://tts/tts.ejemplo?message=hola")
 
     async def test_tts_proxy_tapado_en_cualquier_respuesta(self) -> None:
         # Una lectura sin `redact_extra` (`tts/engine/get`) cuya respuesta

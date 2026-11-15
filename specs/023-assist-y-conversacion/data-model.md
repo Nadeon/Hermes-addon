@@ -131,7 +131,7 @@ redactado), y el de Core caído de siempre.
 Cambios en CAP-061 y CAP-062 (research R-5):
 
 ```python
-"assist_pipeline/pipeline_debug/get": E("read", "eventos de depuración de una ejecución de pipeline (incluye el texto reconocido); la `url` del audio (/api/tts_proxy/…, sin autenticación en HA) y el `token` salen tapados; solo lee", "generic_commands", cap="CAP-061", redact_extra=("url",)),
+"assist_pipeline/pipeline_debug/get": E("read", "eventos de depuración de una ejecución de pipeline (incluye el texto reconocido); el `token` del audio, su `url` (/api/tts_proxy/…, sin autenticación en HA) y su `media_id` (media-source://tts/-stream-/…, el mismo token) salen tapados; solo lee", "generic_commands", cap="CAP-061", redact_extra=("url",)),
 "ai_task/preferences/set": E("confirm", "cambia las entidades por defecto de AI Task y `allow_automatic_evaluation`, que deja a HA usar por su cuenta el modelo de decisión (un LLM, quizá en la nube)", "generic_commands", cap="CAP-062"),
 "assist_pipeline/pipeline/create": E("confirm", "crea un pipeline de Assist", "generic_commands", cap="CAP-061", example={"name": "Pipeline de ejemplo", "language": "es", "conversation_engine": "conversation.home_assistant", "conversation_language": "es", "stt_engine": None, "stt_language": None, "tts_engine": None, "tts_language": None, "tts_voice": None, "wake_word_entity": None, "wake_word_id": None}),
 ```

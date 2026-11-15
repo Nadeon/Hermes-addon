@@ -92,7 +92,16 @@ _TAPADO = "***"
 # de un texto), así que se tapa en cualquier respuesta de las genéricas,
 # además del `redact_extra` de `assist_pipeline/pipeline_debug/get`. Se tapa
 # solo la parte secreta, para que se vea qué era.
-_RE_TTS_PROXY = re.compile(r"(/api/tts_proxy/)[^\s\"'<>]+")
+#
+# El MISMO token va también en el id de media source del audio
+# (`ResultStream.media_source_id` = `media-source://tts/-stream-/<token>`, que
+# Core manda como `tts_output.media_id` en el evento `tts-end`): con él se
+# rehace la URL del proxy, así que se tapa igual (T019). Son las dos únicas
+# formas en que Core 2026.11 (componentes `tts` y `assist_pipeline`) expone
+# ese token fuera de la clave `token`, que ya se tapa por su nombre. El audio
+# de STT no tiene URL ni id: `stt-end` solo trae el texto.
+_RE_TTS_PROXY = re.compile(
+    r"(/api/tts_proxy/|media-source://tts/-stream-/)[^\s\"'<>]+")
 
 # Longitud de un token emitido (UUID): para medir la vista previa ANTES de
 # crear el token, con el mismo tamaño que tendrá.

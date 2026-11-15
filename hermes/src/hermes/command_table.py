@@ -51,7 +51,7 @@ CORE_WS: dict[str, E] = {
     "assist_pipeline/pipeline/set_preferred": E("confirm", "cambia el pipeline de Assist preferido", "generic_commands", cap="CAP-061"),
     "assist_pipeline/pipeline/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "assist_pipeline/pipeline/update": E("confirm", "modifica un pipeline de Assist", "generic_commands", cap="CAP-061"),
-    "assist_pipeline/pipeline_debug/get": E("read", "eventos de depuración de una ejecución de pipeline (incluye el texto reconocido); la `url` del audio (/api/tts_proxy/…, sin autenticación en HA) y el `token` salen tapados; solo lee", "generic_commands", cap="CAP-061", redact_extra=("url",)),
+    "assist_pipeline/pipeline_debug/get": E("read", "eventos de depuración de una ejecución de pipeline (incluye el texto reconocido); el `token` del audio, su `url` (/api/tts_proxy/…, sin autenticación en HA) y su `media_id` (media-source://tts/-stream-/…, el mismo token) salen tapados; solo lee", "generic_commands", cap="CAP-061", redact_extra=("url",)),
     "assist_pipeline/pipeline_debug/list": E("read", "ejecuciones de un pipeline con datos de depuración; solo lee", "generic_commands", cap="CAP-061"),
     "assist_pipeline/run": E("deny", "streaming de audio/STT/TTS en tiempo real: no automatizable por MCP (clase D)", "generic_commands"),
     "assist_satellite/get_configuration": E("read", "palabras de activación disponibles y activas de un satélite; solo lee", "generic_commands", cap="CAP-063"),
