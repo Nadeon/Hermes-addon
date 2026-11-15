@@ -193,6 +193,13 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
         "/os/config/swap",
         "/os/boot-slot",
     ),
+    # Spec 032, tramo 2: las escrituras de la red del host; la ruta es un
+    # f-string con la interfaz (validada como nombre de interfaz) y el id
+    # (entero de 1 a 4094).
+    ("hermes.tools.host_network", "_enviar"): (
+        "/network/interface/x/update",
+        "/network/interface/x/vlan/1",
+    ),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.

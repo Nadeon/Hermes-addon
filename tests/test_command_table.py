@@ -680,16 +680,47 @@ class TestHostControlDeLa032(unittest.TestCase):
                 malas.append(f"{k}: {real}")
         self.assertEqual(malas, [], "\n".join(malas))
 
-    def test_quedan_solo_las_de_la_red(self) -> None:
+    def test_no_queda_ninguna_de_la_032(self) -> None:
+        # Desde el tramo 2 tampoco quedan las tres de la red (FR-014).
         quedan = sorted(k for k, e in ct.SUPERVISOR.items() if "spec 032" in e.reason)
-        self.assertEqual(quedan, [
-            ("POST", "/network/interface/{interface}/update"),
-            ("POST", "/network/interface/{interface}/vlan/{vlan}"),
-            ("POST", "/network/reload"),
-        ])
+        self.assertEqual(quedan, [])
         # Las lecturas que usan las vistas previas no cambian.
         for k in (("GET", "/host/info"), ("GET", "/os/info"), ("GET", "/os/config/swap")):
             self.assertEqual(ct.SUPERVISOR[k].category, "dedicated", k)
+
+
+# Spec 032, tramo 2 (data-model): las tres rutas de la red del host (CAP-090).
+_HOST_NETWORK_032: dict[tuple[str, str], str] = {
+    ("POST", "/network/reload"): "sv_reload_network",
+    ("POST", "/network/interface/{interface}/update"): "sv_update_network_interface",
+    ("POST", "/network/interface/{interface}/vlan/{vlan}"): "sv_create_vlan",
+}
+
+
+class TestHostNetworkDeLa032(unittest.TestCase):
+    """FR-014 de la 032 (tramo 2): las tres rutas de CAP-090 pasan de `deny`
+    «spec 032» a `dedicated` con su tool, familia `host_network` y CAP-090;
+    las lecturas de la red siguen `read` (013).
+
+    Control negativo (T026 h): dejar `POST /network/reload` como `deny` →
+    cae `test_rutas_dedicadas` nombrándola.
+    """
+
+    def test_rutas_dedicadas(self) -> None:
+        malas = []
+        for k, tool in _HOST_NETWORK_032.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "host_network", "CAP-090", f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_las_lecturas_de_red_siguen_read(self) -> None:
+        for k in (("GET", "/network/info"),
+                  ("GET", "/network/interface/{interface}/info"),
+                  ("GET", "/network/interface/{interface}/accesspoints")):
+            self.assertEqual(ct.SUPERVISOR[k].category, "read", k)
 
 
 if __name__ == "__main__":

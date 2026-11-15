@@ -324,6 +324,9 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         self._cfg(["mounts"]).validate()
         # Spec 032: y la del control del host.
         self._cfg(["host_control"]).validate()
+        # Spec 032 (tramo 2): y la de la red del host, sola o con la otra.
+        self._cfg(["host_network"]).validate()
+        self._cfg(["host_control", "host_network"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

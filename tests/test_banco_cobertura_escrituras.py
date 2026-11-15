@@ -92,8 +92,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
         # del tramo B), las 12 de la 016 (2 del tramo A, 7 del B y 3 del C) y
         # las 7 de la 019 (5 de montajes y 2 de ajustes de backup) y las 4
-        # de la 032 (tramo 1, control del host).
-        self.assertEqual(len(reales), 152)
+        # de la 032 (tramo 1, control del host) y las 3 de su tramo 2 (red
+        # del host).
+        self.assertEqual(len(reales), 155)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -132,8 +133,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         total = len(c028.PROBADAS_028) + len(c028.NO_EJECUTABLES_028)
         self.assertEqual(total, 53, f"las listas de la 028 suman {total}, no 53")
         # 24 de la 1.1.2, 7 de la 019 (5 de montajes y 2 de ajustes) y 4 de
-        # la 032 (control del host).
-        self.assertEqual(len(c028.FUERA_DEL_BANCO), 35)
+        # la 032 (control del host) y 3 de su tramo 2 (red del host).
+        self.assertEqual(len(c028.FUERA_DEL_BANCO), 38)
 
     def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
         # El plugin del job (010) solo exige lo que le pasa el conftest. Si la

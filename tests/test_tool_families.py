@@ -237,6 +237,18 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("host_control"), "host_control")
         self.assertEqual(validar_desactivadas(["host_control"]), frozenset({"host_control"}))
 
+    def test_host_network_es_de_la_1_2_0(self) -> None:
+        # Spec 032, FR-015 (tramo 2, research R-1): la red del host, en su
+        # propia familia de la 1.2.0, separada del control del host.
+        familia = FAMILIAS["host_network"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("host_network",))
+        self.assertEqual(familia_de_modulo("host_network"), "host_network")
+        self.assertEqual(validar_desactivadas(["host_network"]), frozenset({"host_network"}))
+        self.assertEqual(validar_desactivadas(["host_control", "host_network"]),
+                         frozenset({"host_control", "host_network"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

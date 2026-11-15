@@ -802,6 +802,25 @@ class TestSupervisorTablaReal(_Base):
         self.assertEqual(r["tool"], "sv_set_swap")
         self.ha.sv_request.assert_not_awaited()
 
+    async def test_host_network_por_su_tool(self) -> None:
+        """Spec 032, tramo 2 (FR-014): editar una interfaz, crear una VLAN o
+        recargar la red llevan a su tool dedicada, sin llamar ni emitir
+        token; la lectura de la red sigue por `sv_read_api` (013)."""
+        r = await self.t["sv_call_api"](
+            "POST", "/network/interface/eth0/update", {"mdns": "off"})
+        self.assertEqual((r["error"], r["tool"]),
+                         ("use_dedicated_tool", "sv_update_network_interface"))
+        self.assertNotIn("confirmation_token", r)
+        r = await self.t["sv_call_api"]("POST", "/network/interface/eth0/vlan/20", {})
+        self.assertEqual(r["tool"], "sv_create_vlan")
+        r = await self.t["sv_call_api"]("POST", "/network/reload")
+        self.assertEqual(r["tool"], "sv_reload_network")
+        self.ha.sv_request.assert_not_awaited()
+        self.ha.sv_request.return_value = {"interfaces": []}
+        r = await self.t["sv_read_api"]("/network/info")
+        self.assertEqual(r["category"], "read")
+        self.ha.sv_request.assert_awaited_once_with("GET", "/network/info")
+
     async def test_ajustes_de_backup_por_su_tool(self) -> None:
         """Spec 019, tramo 2 (FR-015): las rutas de ajustes de backup
         llevan a su tool dedicada sin llamar al Supervisor."""
@@ -975,6 +994,18 @@ class TestFamiliasDesdeElRegistro(unittest.IsolatedAsyncioTestCase):
         r = await mcp.tools["sv_call_api"]("POST", "/host/shutdown")
         self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
                          ("use_dedicated_tool", "sv_shutdown_host", "host_control", True))
+        ha.sv_request.assert_not_awaited()
+
+    async def test_host_network_con_su_familia_apagada(self) -> None:
+        """Spec 032, tramo 2: con `host_network` apagada, la genérica tampoco
+        toca la red (sigue `dedicated`, con `family_disabled`)."""
+        mcp, ha = _registrar_todo(["host_network"])
+        self.assertNotIn("sv_update_network_interface", mcp.tools)
+        r = await mcp.tools["sv_call_api"]("POST", "/network/interface/wlan0/update",
+                                           {"mdns": "off"})
+        self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                         ("use_dedicated_tool", "sv_update_network_interface",
+                          "host_network", True))
         ha.sv_request.assert_not_awaited()
 
     def test_sin_generic_commands_no_se_registran(self) -> None:

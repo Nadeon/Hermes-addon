@@ -405,6 +405,11 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     ("POST", "/host/options"): "sv_set_hostname",
     ("POST", "/os/config/swap"): "sv_set_swap",
     ("POST", "/os/boot-slot"): "sv_set_boot_slot",
+    # 032 (tramo 2): la red del host (CAP-090). Las lecturas de red siguen
+    # `read` por `sv_read_api` (013): no están en el mapa.
+    ("POST", "/network/reload"): "sv_reload_network",
+    ("POST", "/network/interface/{interface}/update"): "sv_update_network_interface",
+    ("POST", "/network/interface/{interface}/vlan/{vlan}"): "sv_create_vlan",
 }
 
 # Colecciones de helpers: list/create/update/delete con el mismo patrón de

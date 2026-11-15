@@ -72,6 +72,14 @@ los dos aunque no se pasen) y `sv_set_boot_slot` (`boot_slot`, normalizado
 a mayúsculas antes del hash). Las tres últimas atan además la huella del
 estado que describe la vista previa (hostname actual, swap actual, ranuras),
 no el disco libre, que cambia solo.
+
+Recuento: 101 desde la 032 (tramo 2), que trae dos tools más con token:
+`sv_update_network_interface` (`interface` y los seis bloques, la PSK
+dentro de `wifi`) y `sv_create_vlan` (`interface`, `vlan_id` y los cuatro
+bloques). Atan todo lo que envían, ya normalizado, y la huella de la
+interfaz y su papel (sin la señal Wi-Fi ni `ready`). La PSK entra en el
+hash y nunca en el fichero del token: no hay `omitibles` y el hash es el
+HMAC de la 019. `sv_reload_network` no tiene token (D-032-1).
 """
 
 from __future__ import annotations
@@ -250,6 +258,18 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "sv_set_hostname": {"hostname": A},
     "sv_set_swap": {"swap_size": A, "swappiness": A},
     "sv_set_boot_slot": {"boot_slot": A},
+    # ── red del host (spec 032, tramo 2) ────────────────────────────────
+    # Todo atado tal como se envía (bloques normalizados). La PSK va dentro
+    # de `wifi`: entra en el HMAC del token y no se guarda (sin omitibles).
+    # El `estado` del token es la huella de la interfaz, la principal y las
+    # conectadas.
+    "sv_update_network_interface": {
+        "interface": A, "ipv4": A, "ipv6": A, "wifi": A, "enabled": A,
+        "mdns": A, "llmnr": A,
+    },
+    "sv_create_vlan": {
+        "interface": A, "vlan_id": A, "ipv4": A, "ipv6": A, "mdns": A, "llmnr": A,
+    },
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -343,8 +363,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
-        # cuatro de montajes de la 019 + las cuatro del host de la 032.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 99)
+        # cuatro de montajes de la 019 + las cuatro del host de la 032 + las
+        # dos de la red de la 032 (tramo 2).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 101)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -364,7 +385,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 99)
+        self.assertEqual(len(publicadas), 101)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

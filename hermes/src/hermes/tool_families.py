@@ -159,6 +159,15 @@ _CATALOGO: tuple[Familia, ...] = (
             "Shut down the host and change its hostname, swap and Home "
             "Assistant OS boot slot (all with confirmation).",
             "1.2.0", True, ("host_control",)),
+    # Spec 032, tramo 2 (research R-1): la red del host (recargar, editar una
+    # interfaz que no sea la de acceso, crear una VLAN). Familia propia porque
+    # un error aquí puede dejar la casa sin acceso y el Supervisor no revierte:
+    # quien no quiera darle la red al agente la quita sin perder el resto.
+    Familia("host_network",
+            "Host network: reload the network state, edit a secondary "
+            "interface (never the primary one) and create VLANs (changes "
+            "with confirmation).",
+            "1.2.0", True, ("host_network",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

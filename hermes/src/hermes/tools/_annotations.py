@@ -208,6 +208,12 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "sv_set_hostname",
     "sv_set_swap",
     "sv_set_boot_slot",
+    # Red del host (spec 032, tramo 2). Piden token: editar una interfaz
+    # reemplaza sus bloques y el Supervisor no revierte; crear una VLAN puede
+    # quedarse con la ruta por defecto. `sv_reload_network` NO está: solo
+    # relee el estado y no pide token (D-032-1).
+    "sv_update_network_interface",
+    "sv_create_vlan",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -323,6 +329,9 @@ _TITLE_WORDS: dict[str, str] = {
     # Spec 032: `sv_shutdown_host` → «Shut down host (Supervisor)»; el verbo
     # va en dos palabras. Ninguna tool de la 1.1.2 tiene `shutdown`.
     "shutdown": "shut down",
+    # Spec 032 (tramo 2): `sv_create_vlan` → «Create VLAN (Supervisor)».
+    # Ninguna tool de la 1.1.2 tiene `vlan`.
+    "vlan": "VLAN",
     # «addon» es como se escribe en el código; Home Assistant lo llama add-on.
     "addon": "add-on",
     "addons": "add-ons",

@@ -288,6 +288,12 @@ def register_all_tools(
         from hermes.tools.host_control import register as register_host_control
         register_host_control(mcp, ha_client)
 
+    # Spec 032, tramo 2: la red del host (familia `host_network`, 1.2.0):
+    # recargar (sin token), editar una interfaz secundaria y crear una VLAN.
+    if _activa("host_network"):
+        from hermes.tools.host_network import register as register_host_network
+        register_host_network(mcp, ha_client)
+
     # Centro de resolución del Supervisor (lee y descarta; nunca aplica
     # sugerencias) y backups de la integración `backup` de HA, que ven todas
     # las ubicaciones y no solo las locales del Supervisor.

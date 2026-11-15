@@ -290,8 +290,9 @@ class TestClaseAConToolDedicada(_Base):
         # 013, 9 de la 029 y, desde la integración de la 019, sus 9 rutas de
         # CAP-083 (`/mounts` y `/backups/info|options|reload`), que entran en
         # el mapa del generador: si baja, el test ha dejado de mirarlas. La
-        # 032 (tramo 1) suma sus 4 rutas de CAP-086.
-        self.assertGreaterEqual(n, 58)
+        # 032 suma sus 4 rutas de CAP-086 (tramo 1) y sus 3 de CAP-090
+        # (tramo 2).
+        self.assertGreaterEqual(n, 61)
 
     def test_dedicada_con_la_familia_de_su_tool(self) -> None:
         """Spec 016 (T010): la familia sale de la tool del mapa, aquí una de
