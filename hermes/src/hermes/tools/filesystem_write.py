@@ -22,11 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import shutil
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -34,15 +32,14 @@ import structlog
 
 import hermes.fs as _fs
 from hermes.fs import (
-    BlacklistedPathError,
     PathTraversalError,
     check_blacklisted,
-    check_path_readable,
     normalize_path,
 )
 from hermes.fs_write import (
     BACKUPS_NORMAL_DIR,
-    BACKUPS_SENSITIVE_DIR,
+    # Sin uso aquí, pero los tests lo parchean también en este módulo.
+    BACKUPS_SENSITIVE_DIR,  # noqa: F401
     MANAGED_PATH_ERROR,
     RateLimitError,
     _decode_rel,

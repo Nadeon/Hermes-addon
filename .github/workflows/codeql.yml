@@ -38,6 +38,12 @@ jobs:
         with:
           languages: python
           queries: security-and-quality
+          # Los árboles de tests/fixtures/inventario imitan el código de HA y
+          # del Supervisor para el extractor, que los lee con `ast` y nunca los
+          # importa: empiezan con un `raise` a propósito y no son código.
+          config: |
+            paths-ignore:
+              - tests/fixtures/inventario
 
       - name: Analizar
         uses: github/codeql-action/analyze@v3

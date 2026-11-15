@@ -235,6 +235,7 @@ class HealthServer:
             try:
                 await self._server_task
             except asyncio.CancelledError:
+                # La cancelación la acabamos de pedir: es el final esperado.
                 pass
 
 

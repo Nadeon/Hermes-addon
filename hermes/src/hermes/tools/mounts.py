@@ -59,7 +59,6 @@ from hermes.security import (
     REDACTED_MARKER,
     complete_confirmation_token,
     create_confirmation_token,
-    redact_secrets,
     redact_structure,
     resolve_confirmation_token,
 )

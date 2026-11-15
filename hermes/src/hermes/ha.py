@@ -12,7 +12,6 @@ import contextlib
 from collections import deque
 import json
 import re
-import time
 from datetime import datetime
 from collections.abc import Callable, Iterator
 from typing import Any

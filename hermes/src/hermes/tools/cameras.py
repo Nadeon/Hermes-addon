@@ -136,6 +136,7 @@ def _dimensiones(datos: bytes) -> tuple[int | None, int | None]:
                     return None, None
                 i += 2 + largo
     except (struct.error, IndexError):
+        # JPEG truncado o corrupto: sin dimensiones, como si no tuviera SOF.
         pass
     return None, None
 

@@ -17,7 +17,6 @@ bloquea el restart. Si el fichero no existe no hay nada pendiente, y permite.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import structlog

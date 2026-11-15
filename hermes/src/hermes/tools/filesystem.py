@@ -21,7 +21,6 @@ import asyncio
 import datetime
 import json
 import multiprocessing
-import os
 import queue as _queue
 import re
 import time

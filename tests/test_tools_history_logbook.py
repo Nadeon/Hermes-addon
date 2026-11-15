@@ -112,7 +112,6 @@ class TestGetHistory(unittest.IsolatedAsyncioTestCase):
         # Con lc diferente → last_changed distinto
         points2 = [{"s": "on", "lu": 1_712_000_060.0, "lc": 1_712_000_000.0}]
         client2 = self._make_client({"light.test": points2})
-        raw2 = await mcp.tools["ha_get_history"](["light.test"])
         # Recrear con nuevo client
         mcp2 = DummyMCP()
         hist_mod.register(mcp2, client2)
