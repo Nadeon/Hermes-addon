@@ -21,20 +21,38 @@ Dos mecanismos para que el cliente (Claude) sepa qué herramientas usar y cuánd
 from __future__ import annotations
 
 import json
+import textwrap
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 # ── Resumen entregado al conectar (initialize) ────────────────────────────────
 
-_INSTRUCCIONES_BASE = """\
+# Las instrucciones se montan por piezas: cada viñeta y cada tema que cita
+# tools de una familia sale solo con esa familia activa. Con
+# `tool_families_disabled` esas tools no existen, y las instrucciones no
+# pueden anunciar lo que el servidor no ofrece (principio V; T049 de la 011).
+# Al principio solo eran condicionales las de la 1.2.0; la revisión final de
+# la 1.2.0 hizo lo mismo con las de la 1.1.2 (`sv_restart_core`,
+# `ha_save_lovelace_dashboard`, `sv_get_job_status`…). Con todas las familias
+# activas el texto es idéntico al de antes.
+
+_CABECERA = """\
 Controlas Home Assistant a través de Hermes: tools con prefijo `ha_` (Home
 Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: apps (add-ons),
 host, backups). Los nombres son predecibles —`ha_list_*`, `ha_get_*`,
 `ha_update_*`, `sv_restart_*`, `fs_read_*`…— así que normalmente sabrás cuál
 usar leyendo la lista. Lo que sigue es lo que NO se deduce del nombre.
-@GENERICAS@
+"""
 
-1) CONFIRMACIÓN EN DOS PASOS
+# Párrafo de las genéricas: solo se anuncia con su familia activa.
+_PARRAFO_GENERICAS = """\
+Para lo que ninguna tool cubre están las genéricas `ha_read_ws_command`,
+`ha_call_ws_command`, `sv_read_api` y `sv_call_api`: solo ejecutan lo que
+permite la tabla de comandos de Hermes, y las de escritura siempre en dos pasos.
+"""
+
+_CONFIRMACION = """\
+CONFIRMACIÓN EN DOS PASOS
 Las acciones destructivas devuelven, en la primera llamada, un `preview` y un
 `confirmation_token` en vez de ejecutarse. Eso NO es un error: es el paso de
 revisión. Repite la llamada añadiendo `confirmation_token` para ejecutar. Si la
@@ -44,59 +62,112 @@ reenvíes tiene que ser idéntico al preview. Caduca en ~60 s y sirve una sola
 vez.
 Enseña al usuario lo que dice el `preview` antes de confirmar algo grave
 (borrados, reinicios, restauración de backups).
+"""
 
-2) TRAMPAS QUE CUESTAN CARO
+_CREAR_O_EDITAR = """\
 - `ha_create_or_update_*` sirve para crear Y para editar (automatizaciones,
   scripts, escenas y helpers). Al crear un helper, HA deriva su id de
   slugify(name): pasa el `name` que quieras como identificador.
-- `ha_update_*` (área, planta, etiqueta, categoría, dispositivo, entidad,
-  persona, recurso Lovelace) solo edita algo que YA existe; no lo crea.
+"""
+
+# Lo que edita `ha_update_*` en la 1.1.2, con la familia de cada tool.
+_EDITA_LO_QUE_EXISTE: tuple[tuple[str, str], ...] = (
+    ("área", "registries"), ("planta", "registries"), ("etiqueta", "registries"),
+    ("categoría", "registries"), ("dispositivo", "registries"),
+    ("entidad", "registries"), ("persona", "helpers"), ("recurso Lovelace", "lovelace"),
+)
+
+# (familias que hacen falta, TODAS activas; texto de la viñeta), en el orden
+# de siempre, detrás de las dos de arriba.
+_TRAMPAS_FIJAS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("supervisor", "services"), """\
 - Para reiniciar HA usa `sv_restart_core`, NO `ha_call_service`
   ("homeassistant","restart"): sv_restart_core comprueba antes que la
   configuración esté validada.
+"""),
+    (("lovelace",), """\
 - `ha_save_lovelace_dashboard` REEMPLAZA el dashboard entero: lee antes con
   `ha_get_lovelace_dashboard`, modifica el documento y guárdalo completo. Para
   cambiar una sola vista, pasa `view_index` y `view` (sin `config`): el resto
   del dashboard se conserva tal cual.
+"""),
+    (("config_entries",), """\
 - Para quitar una integración, `ha_disable_config_entry` es reversible;
   `ha_delete_config_entry` borra también sus entidades y dispositivos.
+"""),
+    (("automations", "filesystem"), """\
 - Edita automatizaciones con `ha_create_or_update_automation`, no escribiendo
   `automations.yaml` con `fs_write_file` (te saltas validación y recarga).
+"""),
+    (("config_entries",), """\
 - Los flujos de integración que piden login externo (OAuth) no son
   automatizables: Hermes los aborta e informa.
+"""),
+    (("events",), """\
 - `ha_wait_for_event` espera UNA vez en esta conversación; para un aviso
   permanente, crea una automatización.
+"""),
+)
 
-3) NO GASTES CONTEXTO
-- `ha_get_states` SIEMPRE con `domain`; sin filtro devuelve la casa entera.
+_CONTEXTO: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("services",), "- `ha_get_states` SIEMPRE con `domain`; sin filtro devuelve la casa entera.\n"),
+    (("data",), """\
 - Para contar o agregar, `ha_render_template` resuelve dentro de HA y devuelve
   solo el resultado.
-- Acota history, logbook y estadísticas por entidad y por fechas.
-- Si una respuesta llega truncada, filtra más; no repitas la misma llamada.
+"""),
+    (("data",), "- Acota history, logbook y estadísticas por entidad y por fechas.\n"),
+    ((), "- Si una respuesta llega truncada, filtra más; no repitas la misma llamada.\n"),
+)
 
-4) OPERACIONES LARGAS
-Instalar/actualizar apps (add-ons) y crear/restaurar backups devuelven
-`job_id`. Consulta el progreso con `sv_get_job_status(job_id)` en vez de
-reintentar. `done` es true también si falla: cualquier entrada en `errors` da
-`success: false`, y los errores de los sub-jobs (`child_errors`) también.
+_JOBS_COLA = (
+    " Consulta el progreso con `sv_get_job_status(job_id)` en vez de "
+    "reintentar. `done` es true también si falla: cualquier entrada en "
+    "`errors` da `success: false`, y los errores de los sub-jobs "
+    "(`child_errors`) también."
+)
 
-5) SI DUDAS
-`hermes_guide(tema)` da la guía de un área (services, automations, helpers,
-events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_CONTROL@@TEMA_HOST@@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
-backups@TEMA_MONTAJES@, lovelace@TEMA_CAMARAS@, marketplace@TEMA_MARKETPLACE@@TEMA_TIENDA@@TEMA_CONVERSACION@, security@TEMA_GENERICAS@) y
-`hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
-índice.
-"""
+# Temas de la guía en el orden de siempre, con la familia de cada uno (con
+# varias, basta con que quede una activa). `None` marca el salto de línea
+# del texto de siempre.
+_SALTO = None
+_TEMAS: tuple[tuple[str, tuple[str, ...]] | None, ...] = (
+    ("services", ("services",)), ("automations", ("automations",)),
+    ("helpers", ("helpers",)),
+    _SALTO,
+    ("events", ("events",)), ("data", ("data",)), ("registries", ("registries",)),
+    ("diagnostics", ("diagnostics",)), ("config_entries", ("config_entries",)),
+    ("filesystem", ("filesystem",)), ("supervisor", ("supervisor",)),
+    # Spec 022: el control de Core y del Supervisor.
+    ("system_control", ("system_control",)),
+    # Spec 032: el host (control y red), salvo con sus dos familias apagadas.
+    ("host_control", ("host_control", "host_network")),
+    # Spec 013: los logs del sistema.
+    ("system_diagnostics", ("system_diagnostics",)),
+    # Spec 015: las actualizaciones.
+    ("updates", ("system_updates",)),
+    _SALTO,
+    ("backups", ("backups",)),
+    # Spec 019: los montajes.
+    ("mounts", ("mounts",)),
+    ("lovelace", ("lovelace",)),
+    # Spec 024: las cámaras (sin la familia no hay tools de imagen).
+    ("cameras", ("cameras",)),
+    ("marketplace", ("marketplace",)),
+    # Spec 026: el mantenimiento del Marketplace.
+    ("marketplace_manage", ("marketplace_manage",)),
+    # Spec 030: la tienda de apps.
+    ("app_store", ("app_store",)),
+    # Spec 023: Assist y conversación.
+    ("conversation", ("conversation",)),
+    # `security` no tiene familia: el token, la denylist y los límites.
+    ("security", ()),
+    ("generic_commands", ("generic_commands",)),
+)
 
-# Párrafo de las genéricas: solo se anuncia con su familia activa. Con
-# `generic_commands` en `tool_families_disabled` esas tools no existen, y las
-# instrucciones no pueden anunciar lo que el servidor no ofrece (principio V;
-# T049 de la 011).
-_PARRAFO_GENERICAS = """\
-Para lo que ninguna tool cubre están las genéricas `ha_read_ws_command`,
-`ha_call_ws_command`, `sv_read_api` y `sv_call_api`: solo ejecutan lo que
-permite la tabla de comandos de Hermes, y las de escritura siempre en dos pasos.
-"""
+
+def _vineta(texto: str) -> str:
+    """Una viñeta partida a 78 columnas con la sangría de las demás."""
+    return textwrap.fill(texto, width=78, subsequent_indent="  ") + "\n"
 
 
 def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
@@ -105,45 +176,76 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     `familias_desactivadas` son nombres ya validados (`validar_desactivadas`).
     """
     desactivadas = set(familias_desactivadas)
-    activas = "generic_commands" not in desactivadas
-    texto = _INSTRUCCIONES_BASE.replace(
-        "@GENERICAS@\n", _PARRAFO_GENERICAS if activas else "")
-    # Spec 013: el tema de los logs del sistema, solo con su familia activa.
-    texto = texto.replace(
-        "@TEMA_DIAGNOSTICO@",
-        ", system_diagnostics" if "system_diagnostics" not in desactivadas else "")
-    # Spec 022: el tema del control de Core y del Supervisor, igual.
-    texto = texto.replace(
-        "@TEMA_CONTROL@",
-        ", system_control" if "system_control" not in desactivadas else "")
-    # Spec 032: el tema del host (control y red), salvo con sus dos familias
-    # desactivadas.
-    texto = texto.replace(
-        "@TEMA_HOST@",
-        ", host_control" if not {"host_control", "host_network"} <= desactivadas else "")
-    # Spec 019: el tema de los montajes, solo con su familia activa.
-    texto = texto.replace(
-        "@TEMA_MONTAJES@", ", mounts" if "mounts" not in desactivadas else "")
-    # Spec 015: y el de las actualizaciones, igual.
-    texto = texto.replace(
-        "@TEMA_ACTUALIZACIONES@",
-        ", updates" if "system_updates" not in desactivadas else "")
-    # Spec 026: el del mantenimiento del Marketplace, igual.
-    texto = texto.replace(
-        "@TEMA_MARKETPLACE@",
-        ", marketplace_manage" if "marketplace_manage" not in desactivadas else "")
-    # Spec 030: el de la tienda de apps, igual.
-    texto = texto.replace(
-        "@TEMA_TIENDA@", ", app_store" if "app_store" not in desactivadas else "")
-    # Spec 023: el de Assist y conversación, igual.
-    texto = texto.replace(
-        "@TEMA_CONVERSACION@",
-        ", conversation" if "conversation" not in desactivadas else "")
-    # Spec 024: el de las cámaras, igual (sin la familia no hay tools de
-    # imagen que anunciar).
-    texto = texto.replace(
-        "@TEMA_CAMARAS@", ", cameras" if "cameras" not in desactivadas else "")
-    return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
+
+    def activa(*familias: str) -> bool:
+        return not set(familias) & desactivadas
+
+    cabecera = _CABECERA
+    if not activa("filesystem"):
+        cabecera = cabecera.replace(
+            "`ha_` (Home\nAssistant), `fs_` (ficheros de /config) y `sv_`",
+            "`ha_` (Home\nAssistant) y `sv_`").replace(", `fs_read_*`", "")
+    if not activa("supervisor") and not activa("system_control"):
+        cabecera = cabecera.replace(", `sv_restart_*`", "")
+    if activa("generic_commands"):
+        cabecera += _PARRAFO_GENERICAS
+
+    trampas: list[str] = []
+    automatizaciones, helpers = activa("automations"), activa("helpers")
+    if automatizaciones and helpers:
+        trampas.append(_CREAR_O_EDITAR)
+    elif automatizaciones:
+        trampas.append(_vineta("- `ha_create_or_update_*` sirve para crear Y para editar "
+                               "(automatizaciones, scripts y escenas)."))
+    elif helpers:
+        trampas.append(_vineta("- `ha_create_or_update_*` sirve para crear Y para editar "
+                               "helpers. Al crear un helper, HA deriva su id de "
+                               "slugify(name): pasa el `name` que quieras como "
+                               "identificador."))
+    edita = [que for que, familia in _EDITA_LO_QUE_EXISTE if activa(familia)]
+    if edita:
+        trampas.append(_vineta(f"- `ha_update_*` ({', '.join(edita)}) solo edita algo "
+                               "que YA existe; no lo crea."))
+    trampas.extend(t for familias, t in _TRAMPAS_FIJAS if activa(*familias))
+
+    contexto = [t for familias, t in _CONTEXTO if activa(*familias)]
+
+    apartados = [_CONFIRMACION]
+    if trampas:
+        apartados.append("TRAMPAS QUE CUESTAN CARO\n" + "".join(trampas))
+    apartados.append("NO GASTES CONTEXTO\n" + "".join(contexto))
+    # `sv_get_job_status` es de la familia `backups`: sin ella no hay con qué
+    # consultar el job.
+    if activa("backups"):
+        if activa("supervisor"):
+            jobs = ("Instalar/actualizar apps (add-ons) y crear/restaurar backups "
+                    "devuelven `job_id`." + _JOBS_COLA)
+        else:
+            jobs = "Crear/restaurar backups devuelven `job_id`." + _JOBS_COLA
+        apartados.append("OPERACIONES LARGAS\n" + textwrap.fill(jobs, width=78) + "\n")
+
+    temas = ""
+    salto = False
+    for tema in _TEMAS:
+        if tema is _SALTO:
+            salto = True
+            continue
+        nombre, familias = tema
+        if familias and set(familias) <= desactivadas:
+            continue
+        if temas:
+            temas += ",\n" if salto else ", "
+        temas += nombre
+        salto = False
+    apartados.append(
+        "SI DUDAS\n"
+        f"`hermes_guide(tema)` da la guía de un área ({temas}) y\n"
+        '`hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el\n'
+        "índice.\n")
+
+    # Los apartados se numeran al final: sin uno, los demás no dejan hueco.
+    cuerpo = "\n".join(f"{i}) {a}" for i, a in enumerate(apartados, start=1))
+    return cabecera + "\n" + cuerpo
 
 
 # Con todas las familias activas: la referencia de los tests.

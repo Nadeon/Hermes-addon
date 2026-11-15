@@ -203,7 +203,11 @@ class TestInstructions(unittest.TestCase):
             self.assertNotIn(nombre, sin)
         self.assertIn("security) y", sin)
         self.assertEqual(instrucciones(), INSTRUCTIONS)
-        self.assertEqual(instrucciones(frozenset({"lovelace"})), INSTRUCTIONS)
+        # Desde la revisión final de la 1.2.0, sin `lovelace` tampoco se cita
+        # `ha_save_lovelace_dashboard` (antes este texto no cambiaba).
+        sin_lovelace = instrucciones(frozenset({"lovelace"}))
+        self.assertNotIn("ha_save_lovelace_dashboard", sin_lovelace)
+        self.assertIn("generic_commands", sin_lovelace)
         self.assertNotIn("@", INSTRUCTIONS)
 
     def test_instructions_accepted_and_exposed_by_fastmcp(self) -> None:
@@ -2402,6 +2406,100 @@ class TestTemasDeLa024Tramo2(unittest.IsolatedAsyncioTestCase):
             set(_do_register().tools) - set(_do_register(["dashboard_reset"]).tools))
         self.assertEqual(de_la_familia, ["ha_reset_lovelace_dashboard_config"])
         self.assertIn(f"`{de_la_familia[0]}", _GUIDE["lovelace"])
+
+
+class TestInstruccionesSinFamiliasDeLa112(unittest.TestCase):
+    """Revisión final de la 1.2.0 (BAJO-3, principio V): con una familia de
+    la 1.1.2 desactivada, las instrucciones del `initialize` no citan sus
+    tools ni su tema, igual que ya pasaba con las de la 1.2.0. Con todas
+    las familias activas el texto no cambia (las huellas de los temas de
+    `hermes_guide` tampoco: este cambio no toca `_GUIDE`).
+
+    Control negativo comprobado: con `guide.py` de 001cc6c (solo los temas
+    de la 1.2.0 condicionales) caen tres de esta clase (en la de cada
+    familia, las 13 familias desactivables de la 1.1.2) y
+    `test_instrucciones_sin_la_familia_generic_commands` (lovelace); la de
+    «todas activas» sigue en verde, que es lo que tiene que pasar."""
+
+    _VARIAS = frozenset({"supervisor", "lovelace", "backups", "filesystem",
+                         "events", "services"})
+
+    @staticmethod
+    def _temas(texto: str) -> list[str]:
+        import re
+
+        m = re.search(r"da la guía de un área \(([^)]*)\)", texto)
+        assert m is not None
+        return [t.strip() for t in m.group(1).replace("\n", " ").split(",")]
+
+    @staticmethod
+    def _cita(texto: str, tool: str) -> bool:
+        import re
+
+        return re.search(rf"(?<!\w){re.escape(tool)}(?!\w)", texto) is not None
+
+    def test_varias_familias_de_la_1_1_2(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        texto = instrucciones(self._VARIAS)
+        for tool in ("sv_restart_core", "ha_call_service", "ha_save_lovelace_dashboard",
+                     "ha_get_lovelace_dashboard", "sv_get_job_status", "fs_write_file",
+                     "ha_wait_for_event", "ha_get_states"):
+            with self.subTest(tool=tool):
+                self.assertIn(tool, INSTRUCTIONS)
+                self.assertFalse(self._cita(texto, tool), tool)
+        self.assertNotIn("fs_", texto)
+        self.assertNotIn("recurso Lovelace", texto)
+        for tema in self._VARIAS:
+            self.assertNotIn(tema, self._temas(texto))
+        # Lo de las familias activas sigue.
+        for tool in ("ha_disable_config_entry", "ha_render_template", "hermes_guide",
+                     "ha_read_ws_command"):
+            self.assertIn(tool, texto)
+        self.assertIn("automations", self._temas(texto))
+
+    def test_cada_familia_de_la_1_1_2_por_separado(self) -> None:
+        from hermes.tool_families import FAMILIAS
+        from hermes.tools.guide import instrucciones
+        from tests.test_tool_families import _tools_por_modulo
+
+        por_modulo = _tools_por_modulo()
+        for nombre, familia in FAMILIAS.items():
+            if familia.desde != "1.1.2" or not familia.desactivable:
+                continue
+            texto = instrucciones(frozenset({nombre}))
+            with self.subTest(familia=nombre):
+                self.assertNotIn(nombre, self._temas(texto))
+                for modulo in familia.modulos:
+                    for tool in por_modulo.get(modulo, ()):
+                        self.assertFalse(self._cita(texto, tool), f"{nombre}: {tool}")
+
+    def test_todas_desactivadas_y_apartados_seguidos(self) -> None:
+        import re
+
+        from hermes.tool_families import FAMILIAS
+        from hermes.tools.guide import instrucciones
+
+        todas = frozenset(n for n, f in FAMILIAS.items() if f.desactivable)
+        texto = instrucciones(todas)
+        self.assertEqual(self._temas(texto), ["security"])
+        for tool in ("sv_restart_core", "ha_get_states", "ha_render_template",
+                     "sv_get_job_status", "ha_create_or_update_automation"):
+            self.assertFalse(self._cita(texto, tool), tool)
+        self.assertNotIn("sv_restart_*", texto)
+        numeros = [int(n) for n in re.findall(r"^(\d)\) ", texto, flags=re.M)]
+        self.assertEqual(numeros, list(range(1, len(numeros) + 1)))
+        self.assertNotIn("@", texto)
+
+    def test_con_todas_activas_no_cambia(self) -> None:
+        import hashlib
+
+        from hermes.tools.guide import instrucciones
+
+        self.assertEqual(instrucciones(), INSTRUCTIONS)
+        # Huella del texto de 001cc6c: con todas activas es el mismo.
+        self.assertEqual(hashlib.sha256(INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
+                         "6ce3dfc48e813d80")
 
 
 if __name__ == "__main__":
