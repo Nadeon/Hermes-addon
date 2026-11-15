@@ -148,8 +148,11 @@ class TestListarEntidades(_Base):
         # Hermes: null con la nota de cómo hacerlo (D-1).
         self.assertIsNone(por_id[ENTIDAD_HERMES]["install_with"])
         self.assertIn("Home Assistant UI", por_id[ENTIDAD_HERMES]["note"])
-        # Otra app con sufijo `_hermes` NO es Hermes (criterio estricto).
-        self.assertEqual(por_id[ENTIDAD_OTRO_HERMES]["install_with"], "sv_update_addon")
+        # Otra app con sufijo `_hermes` NO es Hermes (criterio estricto), pero
+        # tampoco se remite a `sv_update_addon`, que la rechazaría (T048, D-13).
+        self.assertIsNone(por_id[ENTIDAD_OTRO_HERMES]["install_with"])
+        self.assertIn("sv_update_addon refuses", por_id[ENTIDAD_OTRO_HERMES]["note"])
+        self.assertNotIn("cannot update itself", por_id[ENTIDAD_OTRO_HERMES]["note"])
         # Una sola lectura del registro, con todos los entity_id.
         registro = [c for c in self.sv.ws_llamadas
                     if c["type"] == "config/entity_registry/get_entries"]
@@ -224,6 +227,34 @@ class TestNotas(_Base):
         self.assertIs(r["truncated"], True)
         self.assertLessEqual(len(json.dumps(r, ensure_ascii=False).encode("utf-8")),
                              self.max_bytes)
+
+    async def test_notas_con_escapes_no_pasan_del_tope(self) -> None:
+        """T049: lo que viaja es JSON. Comillas, barras, saltos de línea,
+        tabuladores y controles ocupan el doble (o seis veces) al escaparse;
+        medir bytes crudos dejaba la respuesta en ~254 KB con tope de 128 KB y
+        el guardián central la cambiaba por un error. Control negativo:
+        `_recortar_bytes` midiendo `texto.encode()` en vez de `_bytes_json`
+        pone este test en rojo (respuesta > tope)."""
+        for relleno in ('"' * 200_000, "\\" * 200_000, "\n\t" * 100_000,
+                        "\x01" * 200_000, 'a"ñ\\\n' * 50_000):
+            with self.subTest(relleno=repr(relleno[:6])):
+                self.sv.notas[ENTIDAD_FIRMWARE] = relleno
+                r = await self.t["ha_get_update_release_notes"](ENTIDAD_FIRMWARE)
+                self.assertIs(r["truncated"], True)
+                tam = len(json.dumps(r, ensure_ascii=False).encode("utf-8"))
+                self.assertLessEqual(tam, self.max_bytes)
+                # Y no se recorta de más: el texto aprovecha casi todo el tope.
+                self.assertGreater(tam, self.max_bytes - 2 * mod._MARGEN_NOTAS)
+                self.assertTrue(relleno.startswith(r["text"]))
+
+    def test_recorte_exacto(self) -> None:
+        texto = 'x"' * 10
+        recortado, corto = mod._recortar_bytes(texto, 12)
+        self.assertIs(corto, True)
+        self.assertLessEqual(mod._bytes_json(recortado), 12)
+        # Un carácter más ya no cabría.
+        self.assertGreater(mod._bytes_json(texto[:len(recortado) + 1]), 12)
+        self.assertEqual(mod._recortar_bytes("abc", 100), ("abc", False))
 
     async def test_sin_release_notes_no_llama(self) -> None:
         r = await self.t["ha_get_update_release_notes"](ENTIDAD_SIN_NOTAS)
@@ -416,8 +447,29 @@ class TestEncaminar(_Base):
         self.assertEqual(r["error"], "self_update_not_supported")
 
     async def test_otra_app_con_sufijo_hermes_no_es_hermes(self) -> None:
+        # No es Hermes (no es `self_update_not_supported`), pero tampoco se
+        # remite a `sv_update_addon`, que la rechaza por el sufijo (T048,
+        # D-13): antes salía `use_dedicated_tool` hacia un rechazo seguro.
         r = await self._encaminada(ENTIDAD_OTRO_HERMES)
-        self.assertEqual(r["arguments"], {"slug": SLUG_OTRO_HERMES})
+        self.assertEqual(r["error"], "unsupported_entity")
+        self.assertNotIn("tool", r)
+        self.assertIn("sv_update_addon refuses", r["detail"])
+        self.assertIn("Home Assistant UI", r["detail"])
+
+    async def test_otra_app_con_sufijo_hermes_es_un_rechazo_real(self) -> None:
+        # Lo que dice la nota es verdad: `sv_update_addon` (009) la rechaza.
+        from hermes.tools import addons as addons_mod
+        self.assertTrue(addons_mod._es_hermes(SLUG_OTRO_HERMES))
+
+    async def test_otra_app_sin_slug_propio_no_remite_a_sv_update_addon(self) -> None:
+        self.sv.respuesta("GET", "/addons/self/info", error_404("GET", "/addons/self/info"))
+        r = await self._encaminada(ENTIDAD_OTRO_HERMES)
+        self.assertEqual(r["error"], "self_check_unavailable")
+        self.assertNotIn("update it with sv_update_addon", r["detail"])
+        r = await self.t["ha_list_updates"]()
+        item = next(i for i in r["items"] if i["entity_id"] == ENTIDAD_OTRO_HERMES)
+        self.assertIsNone(item["install_with"])
+        self.assertNotIn("use sv_update_addon", item["note"])
 
     async def test_sin_slug_propio_fail_closed(self) -> None:
         self.sv.respuesta("GET", "/addons/self/info", error_404("GET", "/addons/self/info"))

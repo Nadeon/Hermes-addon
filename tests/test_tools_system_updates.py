@@ -279,6 +279,59 @@ class TestListar(_Base):
         self.assertIsNone(hermes["update_with"])
         self.assertIn("Home Assistant UI", hermes["note"])
 
+    async def test_hermes_por_el_slug_exacto(self) -> None:
+        """T048: el criterio de Hermes es el de `ha_install_update` (slug
+        exacto de `/addons/self/info`), y una app `*_hermes` que no es Hermes
+        no se manda a `sv_update_addon`, que la rechazaría (D-13). Control
+        negativo (comprobado): volver a `_es_hermes(slug)` como único criterio
+        pone este test en rojo (la nota de la otra app dice «cannot update
+        itself»)."""
+        con_actualizaciones_de_todo(self.sv)
+        self.sv.respuesta("GET", "/addons/self/info", {"slug": SLUG_HERMES})
+        otra = "b9c8d7e6_hermes"
+        info = dict(self.sv.json[("GET", "/supervisor/info")])
+        info["addons"] = [*info["addons"], {"name": "Otra", "slug": otra, "version": "0.1.0"}]
+        self.sv.respuesta("GET", "/supervisor/info", info)
+        actual = self.sv.json[("GET", "/available_updates")]["available_updates"]
+        self.sv.respuesta("GET", "/available_updates", {"available_updates": [
+            *actual, {"update_type": "addon", "name": "Otra",
+                      "panel_path": f"/update-available/{otra}", "version_latest": "0.2.0"}]})
+        r = await self.t["sv_list_available_updates"]()
+        por_slug = {i["slug"]: i for i in r["items"] if i["type"] == "addon"}
+        self.assertIsNone(por_slug[SLUG_HERMES]["update_with"])
+        self.assertIn("cannot update itself", por_slug[SLUG_HERMES]["note"])
+        self.assertIsNone(por_slug[otra]["update_with"])
+        self.assertIn("sv_update_addon refuses", por_slug[otra]["note"])
+        self.assertNotIn("cannot update itself", por_slug[otra]["note"])
+        self.assertEqual(por_slug[SLUG_APP]["update_with"], "sv_update_addon")
+
+    async def test_hermes_con_slug_sin_sufijo(self) -> None:
+        # Si el slug propio no termina en `_hermes` (copia local), cuenta él.
+        con_actualizaciones_de_todo(self.sv)
+        self.sv.respuesta("GET", "/addons/self/info", {"slug": SLUG_APP})
+        r = await self.t["sv_list_available_updates"]()
+        por_slug = {i["slug"]: i for i in r["items"] if i["type"] == "addon"}
+        self.assertIsNone(por_slug[SLUG_APP]["update_with"])
+        self.assertIn("cannot update itself", por_slug[SLUG_APP]["note"])
+        self.assertIsNone(por_slug[SLUG_HERMES]["update_with"])
+        self.assertIn("sv_update_addon refuses", por_slug[SLUG_HERMES]["note"])
+
+    async def test_sin_slug_propio_cae_al_sufijo(self) -> None:
+        # Fail-closed: sin `/addons/self/info`, cualquier `*_hermes` puede ser
+        # Hermes, y se dice.
+        con_actualizaciones_de_todo(self.sv)
+        self.sv.respuesta("GET", "/addons/self/info", error_404("GET", "/addons/self/info"))
+        r = await self.t["sv_list_available_updates"]()
+        por_slug = {i["slug"]: i for i in r["items"] if i["type"] == "addon"}
+        self.assertIsNone(por_slug[SLUG_HERMES]["update_with"])
+        self.assertIn("could not read its own app slug", por_slug[SLUG_HERMES]["note"])
+        self.assertEqual(por_slug[SLUG_APP]["update_with"], "sv_update_addon")
+
+    async def test_sin_apps_no_lee_el_slug_propio(self) -> None:
+        self.sv.respuesta("GET", "/available_updates", {"available_updates": []})
+        await self.t["sv_list_available_updates"]()
+        self.assertNotIn(("GET", "/addons/self/info"), self.sv.rutas())
+
     async def test_orden_con_supervisor_y_os(self) -> None:
         con_actualizaciones_de_todo(self.sv)
         info = dict(self.sv.json[("GET", "/supervisor/info")])
@@ -727,8 +780,19 @@ class _BaseOsSup(_Base):
             return {}
         self.sv.respuesta("POST", ruta, lenta)
 
-    def jobs(self, *lista: dict[str, Any]) -> None:
-        self.sv.respuesta("GET", "/jobs/info", {"ignore_conditions": [], "jobs": list(lista)})
+    def jobs(self, *lista: dict[str, Any], previos: tuple[dict[str, Any], ...] = ()) -> None:
+        """`/jobs/info`: `previos` están desde el principio (otra
+        actualización ya en marcha); `lista` aparece solo DESPUÉS de que
+        Hermes mande la petición de actualización, como en el Supervisor real
+        (el job nace con la petición). Así la vista previa y la lectura de
+        antes de lanzar (T047) no los ven."""
+        def responder() -> dict[str, Any]:
+            lanzada = any(c["metodo"] == "POST" and c["ruta"] in ("/os/update",
+                                                                  "/supervisor/update")
+                          for c in self.sv.llamadas)
+            return {"ignore_conditions": [],
+                    "jobs": [*previos, *(lista if lanzada else ())]}
+        self.sv.respuesta("GET", "/jobs/info", responder)
 
     def posts_de(self, ruta: str) -> list[dict[str, Any]]:
         return [c for c in self.sv.llamadas if c["metodo"] == "POST" and c["ruta"] == ruta]
@@ -1049,7 +1113,11 @@ class TestSegundoPlano(_BaseOsSup):
         self.assertIn("rechazada", r["detail"])
         self.assertNotIn(CENTINELA_PASSWORD, json.dumps(r) + repr(logs))
         self.assertEqual(self.estado_token(token), "failed")
-        self.assertEqual([c["ruta"] for c in self.sv.llamadas if c["ruta"] == "/jobs/info"], [])
+        # Solo la lectura de ANTES de lanzar (T047): el rechazo se ve antes de
+        # buscar el job.
+        rutas = [c["ruta"] for c in self.sv.llamadas]
+        self.assertEqual([r for r in rutas if r == "/jobs/info"], ["/jobs/info"])
+        self.assertLess(rutas.index("/jobs/info"), rutas.index("/os/update"))
 
     async def test_version_del_os_cambiada(self) -> None:
         sin_supervisor_pendiente(self.sv)
@@ -1084,6 +1152,149 @@ class TestSegundoPlano(_BaseOsSup):
         _token, r = await self.confirmar_os(version="15.2")
         self.assertEqual(r["to_version"], "15.2")
         self.assertEqual(self.posts_de("/os/update")[0]["cuerpo"], {"version": "15.2"})
+
+
+_JOB_AJENO = "aaaa1111aaaa1111aaaa1111aaaa1111"
+_RECHAZO_OCUPADO = HAConnectionError(
+    "Supervisor REST POST http://supervisor/os/update failed 400: "
+    '{"result": "error", "message": "Another job is running"}', status=400)
+
+
+class TestJobAjeno(_BaseOsSup):
+    """T047: otra actualización del OS ya en marcha (de la interfaz o de otra
+    llamada). Antes, la vista previa daba token y la confirmación tomaba el
+    job ajeno por el suyo (`status: running` con el `to_version` de SU vista
+    previa) mientras el Supervisor rechazaba su petición
+    (`JobConcurrency.REJECT`), cosa que solo quedaba en el log.
+
+    Controles negativos (comprobados): (a) quitar el bloqueo de la vista
+    previa → los dos `test_vista_previa_bloquea*` en rojo (sale token); (b)
+    no excluir los jobs previos (`excluir_previos=False` en `sv_update_os`) →
+    `test_rechazo_que_tarda_un_poco` (el escenario de la revisión),
+    `test_job_ajeno_y_peticion_lenta`, `test_job_ajeno_sin_el_propio_es_started`
+    y `test_jobs_ilegibles_antes` en rojo (`job_id` ajeno); (c) adoptar jobs
+    cuando no se pudieron leer antes → `test_jobs_ilegibles_antes` en rojo.
+    Con el rechazo inmediato del Supervisor
+    (`test_confirmacion_no_adopta_el_job_ajeno`) la respuesta ya era
+    `supervisor_error` aun sin (b): la tarea de fondo se mira antes que los
+    jobs."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        sin_supervisor_pendiente(self.sv)
+
+    async def test_vista_previa_bloquea(self) -> None:
+        self.jobs(previos=(job("os_manager_update", _JOB_AJENO),))
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "update_in_progress")
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual((r["job_id"], r["poll_with"]), (_JOB_AJENO, "sv_get_job_status"))
+        self.assertEqual(self.sv.posts(), [])
+
+    async def test_vista_previa_bloquea_con_el_job_entre_los_hijos(self) -> None:
+        self.jobs(previos=(job("padre", "bbbb", hijos=[job("os_manager_update", _JOB_AJENO)]),))
+        r = await self.t["sv_update_os"]()
+        self.assertEqual(r["error"], "update_in_progress")
+
+    async def test_job_terminado_u_otro_no_bloquea(self) -> None:
+        self.jobs(previos=(job("os_manager_update", _JOB_AJENO, done=True),
+                           job("supervisor_update", "cccc")))
+        r = await self.t["sv_update_os"]()
+        self.assertIn("confirmation_token", r)
+        self.assertFalse(any("/jobs/info" in a for a in r["preview"]["warnings"]))
+
+    async def test_jobs_ilegibles_en_la_vista_previa_avisa(self) -> None:
+        self.sv.respuesta("GET", "/jobs/info", HAConnectionError("caído", status=502))
+        r = await self.t["sv_update_os"]()
+        self.assertIn("confirmation_token", r)
+        self.assertTrue(any("/jobs/info" in a for a in r["preview"]["warnings"]))
+
+    async def test_confirmacion_no_adopta_el_job_ajeno(self) -> None:
+        # El job ajeno aparece entre la vista previa y la confirmación; el
+        # Supervisor rechaza la petición de Hermes al momento.
+        r = await self.t["sv_update_os"]()
+        token = r["confirmation_token"]
+        self.jobs(previos=(job("os_manager_update", _JOB_AJENO),))
+        self.sv.respuesta("POST", "/os/update", _RECHAZO_OCUPADO)
+        r = await self.t["sv_update_os"](confirmation_token=token)
+        self.assertEqual(r["error"], "supervisor_error")
+        self.assertIn("Another job is running", r["detail"])
+        self.assertNotIn("job_id", r)
+        self.assertNotIn("status", r)
+        self.assertEqual(self.estado_token(token), "failed")
+        self.assertFalse(addons_mod._PENDING_JOBS_PATH.exists())
+
+    async def test_rechazo_que_tarda_un_poco(self) -> None:
+        # El escenario de la revisión: el rechazo del Supervisor vuelve
+        # después de que Hermes ya haya leído `/jobs/info` (con el job ajeno
+        # dentro). La respuesta tiene que ser el rechazo, no `running`.
+        r = await self.t["sv_update_os"]()
+        token = r["confirmation_token"]
+        self.jobs(previos=(job("os_manager_update", _JOB_AJENO),))
+
+        async def rechazo_tardio() -> Any:
+            # `soltar` (lo pone el tearDown) evita colgarse si la tool ya
+            # respondió y el reloj falso no avanza más.
+            while self.ahora < 2 and not self.soltar.is_set():
+                await asyncio.sleep(0)
+            raise _RECHAZO_OCUPADO
+
+        self.sv.respuesta("POST", "/os/update", rechazo_tardio)
+        r = await self.t["sv_update_os"](confirmation_token=token)
+        self.assertEqual(r["error"], "supervisor_error", r)
+        self.assertIn("Another job is running", r["detail"])
+        self.assertEqual(self.estado_token(token), "failed")
+        lecturas = [c for c in self.sv.llamadas if c["ruta"] == "/jobs/info"]
+        self.assertGreater(len(lecturas), 2)
+
+    async def test_job_ajeno_y_peticion_lenta(self) -> None:
+        # Aunque la petición tarde, el job ajeno nunca es el de Hermes: se
+        # devuelve el suyo cuando aparece.
+        r = await self.t["sv_update_os"]()
+        token = r["confirmation_token"]
+        self.peticion_lenta("/os/update")
+        self.jobs(job("os_manager_update", _JOB_OS),
+                  previos=(job("os_manager_update", _JOB_AJENO),))
+        r = await self.t["sv_update_os"](confirmation_token=token)
+        self.assertEqual(r["job_id"], _JOB_OS)
+
+    async def test_job_ajeno_sin_el_propio_es_started(self) -> None:
+        r = await self.t["sv_update_os"]()
+        token = r["confirmation_token"]
+        self.peticion_lenta("/os/update")
+        self.jobs(previos=(job("os_manager_update", _JOB_AJENO),))
+        r = await self.t["sv_update_os"](confirmation_token=token)
+        self.assertEqual((r["status"], r["verify_with"]), ("started", "sv_get_os_info"))
+        self.assertNotIn("job_id", r)
+
+    async def test_jobs_ilegibles_antes(self) -> None:
+        # Si no se pudieron leer los jobs ANTES de lanzar, no se sabe cuál es
+        # el de Hermes: no se adopta ninguno.
+        r = await self.t["sv_update_os"]()
+        token = r["confirmation_token"]
+        self.peticion_lenta("/os/update")
+
+        def responder() -> dict[str, Any]:
+            if not self.posts_de("/os/update"):
+                raise HAConnectionError("caído", status=502)
+            return {"ignore_conditions": [], "jobs": [job("os_manager_update", _JOB_AJENO)]}
+
+        self.sv.respuesta("GET", "/jobs/info", responder)
+        r = await self.t["sv_update_os"](confirmation_token=token)
+        self.assertEqual(r["status"], "started")
+        self.assertNotIn("job_id", r)
+
+    async def test_supervisor_comparte_el_job_en_curso(self) -> None:
+        # En el Supervisor no hay carrera: su API comparte la tarea en curso
+        # (`detach`), así que el job que ya corría ES el que la petición de
+        # Hermes espera. Ni bloqueo ni exclusión.
+        con_os_y_supervisor_desactualizados(self.sv)
+        self.jobs(previos=(job("supervisor_update", _JOB_SUP),))
+        r = await self.t["sv_update_supervisor"]()
+        token = r["confirmation_token"]
+        self.peticion_lenta("/supervisor/update")
+        r = await self.t["sv_update_supervisor"](confirmation_token=token)
+        self.assertEqual(r["job_id"], _JOB_SUP)
 
 
 if __name__ == "__main__":

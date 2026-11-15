@@ -43,11 +43,30 @@ sigue siendo cosa de `sv_check_core_config`.
 Secretos (FR-018): los errores del Supervisor y el detalle de `/core/check`
 (que es el log de `check_config` y puede citar valores de la configuración)
 pasan por `redact_secrets` y se recortan a 500 caracteres. Al log de Hermes
-van la tool, el componente, las versiones y el resultado; nunca el texto de un
-error ni un `version` inválido.
+van la tool, el componente, las versiones y el resultado; nunca el detalle de
+`/core/check` ni un `version` inválido. La única excepción es la tarea de fondo
+de OS y Supervisor: si el Supervisor rechaza la petición, el error va al log
+(`system_update_failed`, campo `detail`) igual que a la respuesta, ya
+redactado con `redact_secrets` y recortado a 500 caracteres; si el rechazo
+llega cuando la tool ya respondió, es lo único que queda de él.
 
 Hermes no se actualiza a sí mismo (D-1): en la lista, su app sale con
-`update_with: null` y una nota; `sv_update_addon` ya lo rechaza (009).
+`update_with: null` y una nota; `sv_update_addon` ya lo rechaza (009). Hermes
+es el slug EXACTO que da el Supervisor en `/addons/self/info`
+(`lector_slug_propio`, el mismo criterio que `ha_install_update`); si no se
+puede leer, se cae al sufijo `_hermes` (fail-closed). Una app `*_hermes` que no
+es Hermes tampoco tiene tool: `sv_update_addon` rechaza todos los slugs con ese
+sufijo (duda D-13), y la lista lo dice en vez de remitir a ella.
+
+OS (T047): si ya hay un job `os_manager_update` sin terminar (lanzado desde la
+interfaz o por otra llamada), la vista previa no da token
+(`update_in_progress`); y la confirmación nunca toma como suyo un job que ya
+estaba en marcha antes de su petición (el Supervisor rechaza la segunda con
+`JobConcurrency.REJECT`, y ese rechazo va en la respuesta). Core no tiene esa
+carrera: su `/core/update` con `background` devuelve SU job o el error. El
+Supervisor tampoco: su `update` es `detach` y la API comparte la tarea en
+curso, así que el job que aparece es justo el que la petición de Hermes
+espera.
 
 OS y Supervisor (tramo 2, research R-7): sus rutas no admiten `background` y
 responden cuando termina la descarga e instalación (minutos; el OS, el bundle
@@ -64,6 +83,7 @@ import asyncio
 import json
 import re
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiohttp
@@ -177,6 +197,24 @@ _REINICIO_HOST = (
     "Rebooting the host restarts EVERYTHING: Home Assistant Core, every app and "
     "Hermes itself; the system is unreachable for several minutes."
 )
+
+
+# Lectura del slug propio en `/addons/self/info`.
+_ESPERA_SLUG_S = 10
+
+_NOTA_HERMES = ("Hermes cannot update itself: update Hermes from the Home "
+                "Assistant UI.")
+_NOTA_HERMES_SIN_SLUG = (
+    "Hermes could not read its own app slug (/addons/self/info), so this app "
+    "(its slug ends in _hermes) may be Hermes itself, which cannot update "
+    "itself; sv_update_addon also refuses slugs ending in _hermes. Update it "
+    "from the Home Assistant UI.")
+# D-13: `sv_update_addon` (009) rechaza CUALQUIER slug `*_hermes`. Remitir a
+# ella sería remitir a un rechazo seguro (principio V).
+NOTA_OTRO_HERMES = (
+    "sv_update_addon refuses every app whose slug ends in _hermes (it cannot "
+    "tell them from Hermes itself), so Hermes has no tool for this app: update "
+    "it from the Home Assistant UI.")
 
 
 # ── Funciones puras ───────────────────────────────────────────────────────────
@@ -335,6 +373,40 @@ def _error(codigo: str, detalle: str, **extra: Any) -> dict[str, Any]:
 
 
 # ── Lecturas ──────────────────────────────────────────────────────────────────
+
+
+def lector_slug_propio(ha_client: HAClient) -> Callable[[], Awaitable[str | None]]:
+    """Devuelve una función que lee el slug del propio add-on según el
+    Supervisor (`GET /addons/self/info`, campo `slug`).
+
+    Es el criterio ESTRICTO de D-1, común a la familia (T048) y a
+    `ha_call_service` con `update.install` (T051): el Supervisor sabe qué
+    add-on hace la llamada y devuelve su slug exacto. No es `_es_hermes`
+    (cualquier `*_hermes`) ni el HOSTNAME. La función devuelve `None` si no se
+    puede leer: quien la usa tiene que tratarlo como «puede ser Hermes»
+    (fail-closed).
+
+    El slug no cambia mientras Hermes está en marcha: se lee una vez con éxito
+    y se guarda; un fallo no se guarda (se reintenta la próxima vez).
+    """
+    propio: dict[str, str] = {}
+
+    async def leer() -> str | None:
+        if "slug" in propio:
+            return propio["slug"]
+        try:
+            info = await ha_client.sv_request("GET", "/addons/self/info",
+                                              timeout_seconds=_ESPERA_SLUG_S)
+        except _EXC_DE_LECTURA as exc:
+            logger.info("update_self_slug_unavailable", error_type=type(exc).__name__)
+            return None
+        slug = info.get("slug") if isinstance(info, dict) else None
+        if not isinstance(slug, str) or not slug:
+            return None
+        propio["slug"] = slug
+        return slug
+
+    return leer
 
 
 async def _leer(ha_client: HAClient, ruta: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -506,9 +578,10 @@ def _lanzar_en_segundo_plano(
     return tarea
 
 
-def _job_en_curso(datos: dict[str, Any] | None, nombre: str) -> str | None:
-    """`uuid` del primer job no terminado con ese nombre en `/jobs/info`
-    (también entre los hijos)."""
+def _jobs_en_curso(datos: dict[str, Any] | None, nombre: str) -> list[str]:
+    """`uuid` de los jobs no terminados con ese nombre en `/jobs/info`
+    (también entre los hijos), en orden."""
+    encontrados: list[str] = []
     pendientes = list((datos or {}).get("jobs") or [])
     while pendientes:
         job = pendientes.pop(0)
@@ -516,13 +589,26 @@ def _job_en_curso(datos: dict[str, Any] | None, nombre: str) -> str | None:
             continue
         if (job.get("name") == nombre and not job.get("done")
                 and isinstance(job.get("uuid"), str) and job["uuid"]):
-            return job["uuid"]
+            encontrados.append(job["uuid"])
         pendientes.extend(job.get("child_jobs") or [])
+    return encontrados
+
+
+def _job_en_curso(
+    datos: dict[str, Any] | None, nombre: str, excluir: frozenset[str] = frozenset(),
+) -> str | None:
+    """`uuid` del primer job no terminado con ese nombre en `/jobs/info` que
+    no esté en `excluir`: los que ya estaban en marcha ANTES de la petición de
+    Hermes no son suyos (T047)."""
+    for uuid in _jobs_en_curso(datos, nombre):
+        if uuid not in excluir:
+            return uuid
     return None
 
 
 async def _buscar_job(
     ha_client: HAClient, nombre: str, tarea: asyncio.Task[dict[str, Any]],
+    excluir: frozenset[str] | None = frozenset(),
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Busca el job en `/jobs/info` durante `_BUSQUEDA_JOB_S` como mucho.
 
@@ -530,6 +616,11 @@ async def _buscar_job(
     fondo terminó antes (por ejemplo, el Supervisor la rechazó al momento); y
     (None, None) si no aparece a tiempo: la actualización puede estar en
     marcha igual, y la respuesta dice con qué tool comprobarla.
+
+    `excluir` son los jobs con ese nombre que ya estaban en curso antes de
+    lanzar la petición (T047). Con `None` (no se pudieron leer antes) no se
+    adopta NINGÚN job, porque no se sabría cuál es el de Hermes: solo cuenta el
+    final de la petición o, si no llega a tiempo, `started`.
     """
     # Ceder el turno una vez: la tarea de fondo envía su petición antes de
     # mirar los jobs.
@@ -538,10 +629,11 @@ async def _buscar_job(
     while True:
         if tarea.done():
             return None, tarea.result()
-        datos, _motivo = await _leer(ha_client, "/jobs/info")
-        job_id = _job_en_curso(datos, nombre)
-        if job_id:
-            return job_id, None
+        if excluir is not None:
+            datos, _motivo = await _leer(ha_client, "/jobs/info")
+            job_id = _job_en_curso(datos, nombre, excluir)
+            if job_id:
+                return job_id, None
         if _reloj() - inicio >= _BUSQUEDA_JOB_S:
             return None, None
         await _dormir(_INTERVALO_JOB_S)
@@ -589,6 +681,7 @@ def register(
 ) -> None:
     """Registra las tools de actualizaciones del sistema."""
     max_bytes = response_max_bytes or RESPONSE_MAX_BYTES_DEFAULT
+    slug_propio = lector_slug_propio(ha_client)
 
     async def _listar() -> dict[str, Any]:
         rutas = ("/available_updates", "/core/info", "/supervisor/info", "/os/info")
@@ -610,6 +703,13 @@ def register(
         apps = {a.get("slug"): a for a in sup.get("addons") or [] if isinstance(a, dict)}
         instaladas = {"core": core.get("version"), "supervisor": sup.get("version"),
                       "os": os_info.get("version")}
+
+        # D-1 con el criterio de toda la familia (T048): el slug exacto de
+        # `/addons/self/info`, leído solo si hay apps en la lista.
+        propio = None
+        if any(isinstance(u, dict) and u.get("update_type") == "addon"
+               for u in disponibles.get("available_updates") or []):
+            propio = await slug_propio()
 
         items: list[dict[str, Any]] = []
         for u in disponibles.get("available_updates") or []:
@@ -636,11 +736,17 @@ def register(
                     "latest_version": u.get("version_latest"),
                     "update_with": "sv_update_addon",
                 }
-                if slug and _es_hermes(slug):
+                if slug and propio is not None and slug == propio:
                     # D-1: Hermes no se actualiza a sí mismo (009).
                     item["update_with"] = None
-                    item["note"] = ("Hermes cannot update itself: update Hermes "
-                                    "from the Home Assistant UI.")
+                    item["note"] = _NOTA_HERMES
+                elif slug and _es_hermes(slug):
+                    # Sin el slug propio, cualquier `*_hermes` puede ser Hermes
+                    # (fail-closed). Con él, es otra app que `sv_update_addon`
+                    # rechazaría igual (D-13): no se remite a ella.
+                    item["update_with"] = None
+                    item["note"] = (_NOTA_HERMES_SIN_SLUG if propio is None
+                                    else NOTA_OTRO_HERMES)
                 items.append(item)
         for p, (info, _m) in plugins.items():
             if info and info.get("update_available"):
@@ -680,7 +786,9 @@ def register(
         `slug` (apps and plugins), `installed_version`, `latest_version` and
         `update_with`: the tool that updates it (sv_update_core, sv_update_os,
         sv_update_supervisor, sv_update_addon), the table route for plugins,
-        or null for Hermes itself (update it from the Home Assistant UI).
+        or null with a `note` for Hermes itself and for any other app whose
+        slug ends in _hermes (sv_update_addon refuses those): update them
+        from the Home Assistant UI.
         Ordered as it is best to update: Supervisor, then Core, then OS (and
         reboot the host), then plugins and apps.
 
@@ -952,19 +1060,30 @@ def register(
         destino: str,
         extra: dict[str, Any],
         nota_job: str | None = None,
+        excluir_previos: bool = False,
     ) -> dict[str, Any]:
         """Confirmación de OS y Supervisor: token, petición en segundo plano y
-        búsqueda del job (FR-008, FR-009)."""
+        búsqueda del job (FR-008, FR-009).
+
+        Con `excluir_previos` (el OS, T047) se apuntan ANTES de lanzar los
+        jobs con ese nombre ya en curso, y la búsqueda no los toma por el de
+        Hermes. El Supervisor no lo necesita: su API comparte la tarea en
+        curso, así que ese job SÍ es el que la petición espera."""
         # Las versiones se han vuelto a leer ANTES de validar (R-3), como en
         # Core: si cambiaron, el token no coincide y no se envía nada.
         valido, error = await validate_confirmation_token(token, tool_name, atados)
         if not valido:
             logger.info("system_update_rejected", tool=tool_name, reason="token")
             return _respuesta_token_invalido(error)
+        excluir: frozenset[str] | None = frozenset()
+        if excluir_previos:
+            previos, _motivo = await _leer(ha_client, "/jobs/info")
+            excluir = (frozenset(_jobs_en_curso(previos, nombre_job))
+                       if previos is not None else None)
         tarea = _lanzar_en_segundo_plano(
             ha_client, tool=tool_name, componente=componente, ruta=ruta,
             cuerpo=cuerpo, origen=origen, destino=destino)
-        job_id, fin = await _buscar_job(ha_client, nombre_job, tarea)
+        job_id, fin = await _buscar_job(ha_client, nombre_job, tarea, excluir)
         versiones = {"from_version": origen, "to_version": destino}
         if fin is not None and fin["outcome"] == "failed":
             # El Supervisor la rechazó antes de que apareciera el job (una
@@ -1014,8 +1133,10 @@ def register(
         restarts and when, the system health and what blocks the update
         (unhealthy system, Supervisor update pending, that version already
         installed and waiting for a reboot). If anything blocks, `error:
-        update_blocked` with the preview and NO confirmation_token. Without
-        Home Assistant OS: `error: not_haos`.
+        update_blocked` with the preview and NO confirmation_token. If another
+        OS update is already running, `error: update_in_progress` with its
+        `job_id` and NO confirmation_token. Without Home Assistant OS:
+        `error: not_haos`.
 
         With confirmation_token: same arguments. The token is bound to the
         arguments AND to the from/to versions of the preview; if they changed
@@ -1023,7 +1144,9 @@ def register(
         download and install take minutes, so Hermes starts them in the
         background and returns the `job_id` (follow it with
         sv_get_job_status) or, if the job does not show up in a few seconds,
-        `status: started` with `verify_with: sv_get_os_info`.
+        `status: started` with `verify_with: sv_get_os_info`. If the
+        Supervisor refuses the request in those seconds, `error:
+        supervisor_error` with its reason.
 
         Update the Supervisor first, then Core, then the OS and reboot.
 
@@ -1060,16 +1183,34 @@ def register(
                 confirmation_token, atados, tool_name=tool_name, componente="os",
                 ruta="/os/update", cuerpo={"version": destino},
                 nombre_job="os_manager_update", verify_with="sv_get_os_info",
-                origen=origen, destino=destino, extra={"after": despues})
+                origen=origen, destino=destino, extra={"after": despues},
+                excluir_previos=True)
 
-        (salud_d, _), (sup_d, _), (url, texto, motivo_url) = await asyncio.gather(
+        (salud_d, _), (sup_d, _), (jobs_d, _), (url, texto, motivo_url) = await asyncio.gather(
             _leer(ha_client, "/resolution/info"),
             _leer(ha_client, "/supervisor/info"),
+            _leer(ha_client, "/jobs/info"),
             _notas_con_texto(ha_client, "os"),
         )
+        # T047: con otra actualización del OS en marcha (de la interfaz o de
+        # otra llamada), el Supervisor rechazaría esta (`JobConcurrency.REJECT`)
+        # y una confirmación podría confundir su job con el de Hermes. Sin
+        # token (fail-closed); se dice qué job es para seguirlo.
+        en_curso = _jobs_en_curso(jobs_d, "os_manager_update")
+        if en_curso:
+            logger.info("system_update_rejected", tool=tool_name,
+                        reason="update_in_progress")
+            return _error("update_in_progress",
+                          "an OS update is already running; wait for it to finish "
+                          "(sv_get_job_status) and check the OS version with "
+                          "sv_get_os_info before asking again",
+                          job_id=en_curso[0], poll_with="sv_get_job_status")
         bloqueos, avisos = _bloqueos(
             "os", salud=salud_d, supervisor=sup_d, plugins={}, host=None,
             os_info=info, to_version=destino)
+        if jobs_d is None:
+            avisos.append("running jobs could not be read (/jobs/info): if another "
+                          "OS update is running, the Supervisor will refuse this one")
         downgrade, avisos_version = _avisos_de_version(origen, destino, "the OS")
         pendiente = info.get("version_pending")
         if pendiente and pendiente != destino:

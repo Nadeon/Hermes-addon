@@ -13,6 +13,8 @@ instala; el lector independiente, directo a Core, comprueba.
   `update.install` en el bus y la versión sigue igual); la confirmación
   instala la última (el lector ve 2.0.0 y la entidad `off`); con `version`
   concreta y `backup=true`, esa versión y el backup.
+- `ha_call_service` con `update.install` (T051): por área se rechaza sin
+  tocar HA; con la entidad nombrada sigue como en la 1.1.2 e instala.
 
 Cada test deja los `input_text` como estaban al cerrar (limpieza del lector),
 pase lo que pase. Solo corre en el job `banco-core` del CI.
@@ -181,3 +183,33 @@ class TestEntidadesUpdate(BancoEscrituras):
             r = await _rechazo(s, "ha_install_update", entity_id=ENTIDAD)
             self.assertEqual(r.get("error"), "no_update_available", r)
             self.assertNotIn("confirmation_token", r)
+
+    async def test_call_service_update_install(self) -> None:
+        """T051: `ha_call_service("update", "install", …)` por área se
+        rechaza sin tocar HA (`use_dedicated_tool` hacia `ha_install_update`):
+        ni token, ni `update.install` en el bus, ni cambio de versión. Con la
+        entidad nombrada (no es de `hassio`) sigue como en la 1.1.2: token y
+        la misma llamada, que instala. El registro de entidades que consulta
+        Hermes es el de Core real."""
+        tool = "ha_call_service"
+        async with self.sesion() as s:
+            await _preparar(s)
+            await s.preparar_barrera()
+            async with s.lector.servicios_llamados() as vistos:
+                r = await _rechazo(s, tool, domain="update", service="install",
+                                   service_data={"area_id": "banco_area_inexistente"})
+                self.assertEqual((r.get("error"), r.get("tool")),
+                                 ("use_dedicated_tool", "ha_install_update"), r)
+                self.assertNotIn("confirmation_token", r)
+                await s.barrera(vistos)
+                self.assertNotIn(("update", "install"), vistos)
+                estado = await s.lector.estado(INSTALADA)
+                self.assertEqual(estado["state"], INICIAL)
+
+                datos = {"entity_id": ENTIDAD}
+                vista = await s.vista(tool, domain="update", service="install",
+                                      service_data=datos)
+                await s.confirmar(tool, vista, domain="update", service="install",
+                                  service_data=datos)
+            await s.esperar_estado(INSTALADA, lambda e: e is not None and e["state"] == ULTIMA,
+                                   f"versión {ULTIMA} por ha_call_service")

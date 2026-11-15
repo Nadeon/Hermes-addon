@@ -375,6 +375,14 @@ def register(
 
     ready = requires_ready(ha_client)
 
+    # Spec 015, T051: `update.install` reutiliza el encaminamiento de
+    # `ha_install_update`. Import aquí para no cargar la familia de
+    # actualizaciones al importar este módulo.
+    from hermes.tools.system_updates import lector_slug_propio
+    from hermes.tools.update_entities import comprobar_update_install
+
+    slug_propio = lector_slug_propio(ha_client)
+
     # Construir denylist efectiva
     effective_denylist: frozenset[str] = CALL_SERVICE_DENYLIST
     if call_service_denylist_extra:
@@ -508,6 +516,12 @@ def register(
         homeassistant.reload_*, homeassistant.restart, mqtt.publish,
         lock.unlock, alarm_control_panel.alarm_disarm, y más.
 
+        update.install: solo con una lista explícita de entity_id (sin
+        area_id, device_id, label_id, floor_id ni 'all'). La entidad de Hermes
+        se rechaza (self_update_not_supported) y las de Core, OS y Supervisor
+        se remiten a sv_update_core, sv_update_os y sv_update_supervisor
+        (use_dedicated_tool). Mejor ha_install_update, con versiones y notas.
+
         Args:
             domain (str): Dominio del servicio. Ej: 'light', 'switch'.
             service (str): Nombre del servicio. Ej: 'turn_on', 'set_temperature'.
@@ -525,6 +539,19 @@ def register(
         safe, san_err = sanitize_service_data(data)
         if not safe:
             return {"error": "unsafe_service_data", "detail": san_err}
+
+        if (domain_lower, service_lower) == ("update", "install"):
+            # Spec 015, T051 (D-1 y D-3, decisión del supervisor): por esta vía
+            # Hermes se actualizaba a sí mismo (Core llama al Supervisor como
+            # Core, así que ni su protección salta) y Core se actualizaba sin
+            # comprobar la configuración. Se comprueba en la vista previa Y en
+            # la confirmación (el registro puede cambiar entre las dos), antes
+            # de emitir o validar el token; lo que pasa sigue como en la 1.1.2
+            # (mismo token, misma llamada: `args_cs` no cambia).
+            rechazo = await comprobar_update_install(
+                ha_client, data if isinstance(data, dict) else {}, slug_propio)
+            if rechazo is not None:
+                return rechazo
 
         # Check denylist
         in_denylist = _is_in_denylist(domain_lower, service_lower, effective_denylist)

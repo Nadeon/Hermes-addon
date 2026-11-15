@@ -31,7 +31,15 @@ entidad de app es la de Hermes NO se compara por subcadena ni por sufijo del
 slug (`_es_hermes` de `addons.py` da por Hermes cualquier `*_hermes`, duda
 D-13): se compara EXACTAMENTE con el slug que el Supervisor da para el propio
 add-on en `GET /addons/self/info` (campo `slug`). Si ese slug no se puede leer,
-no se sabe con certeza y se rechaza igual, sin token (fail-closed).
+no se sabe con certeza y se rechaza igual, sin token (fail-closed). Ese
+criterio (`lector_slug_propio`) es el mismo en toda la familia (T048). Otra app
+con slug `*_hermes` no se remite a `sv_update_addon`, que la rechazaría (D-13):
+se dice que no tiene tool.
+
+`ha_call_service("update", "install", …)` pasa por `comprobar_update_install`
+(T051): sin ese cierre, esa vía saltaba D-1 y D-3. Reutiliza el
+encaminamiento de aquí; las demás entidades (otras apps, firmware, HACS…)
+siguen como en la 1.1.2.
 
 Secretos (FR-018): las notas y los errores de Core pasan por `redact_secrets`
 y se recortan; las respuestas, por `redact_structure`. Al log van la tool, la
@@ -44,6 +52,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiohttp
@@ -58,11 +67,15 @@ from hermes.security import (
     redact_structure,
     validate_confirmation_token,
 )
+from hermes.service_policy import _INDIRECT_TARGET_KEYS
 from hermes.tools._common import ajustar_lista_a_bytes
+from hermes.tools.addons import _es_hermes
 from hermes.tools.system_updates import (
+    NOTA_OTRO_HERMES,
     _args_atados,
     _comparar,
     _respuesta_token_invalido,
+    lector_slug_propio,
 )
 
 logger = structlog.get_logger(__name__)
@@ -171,12 +184,34 @@ def _error(codigo: str, detalle: str, **extra: Any) -> dict[str, Any]:
     return {"error": codigo, "detail": detalle, **extra}
 
 
+def _bytes_json(texto: str) -> int:
+    """Bytes que ocupa `texto` dentro de la respuesta: ya escapado como
+    cadena JSON (comillas, barras, saltos de línea, tabuladores y controles
+    ocupan más) y en UTF-8, como lo serializa el guardián central
+    (`ensure_ascii=False`)."""
+    return len(json.dumps(texto, ensure_ascii=False).encode("utf-8"))
+
+
 def _recortar_bytes(texto: str, maximo: int) -> tuple[str, bool]:
-    """Recorta `texto` a `maximo` bytes UTF-8 sin partir un carácter."""
-    datos = texto.encode("utf-8")
-    if len(datos) <= maximo:
+    """Recorta `texto` para que, serializado como cadena JSON, ocupe como
+    mucho `maximo` bytes (T049), sin partir un carácter.
+
+    Se mide lo que viaja, no los bytes crudos: unas notas de terceros llenas
+    de comillas o barras casi duplican su tamaño al escaparse, y una
+    respuesta que pasa del tope la cambia el guardián central por un error
+    (no se vería nada de las notas). Búsqueda binaria sobre el número de
+    caracteres: el tamaño escapado crece con el prefijo.
+    """
+    if _bytes_json(texto) <= maximo:
         return texto, False
-    return datos[:max(0, maximo)].decode("utf-8", errors="ignore"), True
+    bajo, alto = 0, len(texto)
+    while bajo < alto:
+        medio = (bajo + alto + 1) // 2
+        if _bytes_json(texto[:medio]) <= maximo:
+            bajo = medio
+        else:
+            alto = medio - 1
+    return texto[:bajo], True
 
 
 def _destino_hassio(entrada: dict[str, Any] | None) -> tuple[str, str | None] | None:
@@ -204,6 +239,196 @@ def _destino_hassio(entrada: dict[str, Any] | None) -> tuple[str, str | None] | 
     return "unknown", None
 
 
+# ── Encaminamiento de `hassio` (compartido con `ha_call_service`, T051) ───────
+
+
+async def _leer_registro(ha_client: HAClient, entity_ids: list[str]) -> dict[str, Any]:
+    """Una sola petición `config/entity_registry/get_entries` (R-9). Ese
+    comando es `deny` para las genéricas (clase B), pero la tabla solo
+    gobierna las genéricas: una tool dedicada puede usarlo dentro."""
+    if not entity_ids:
+        return {}
+    entradas = await ha_client.ws_send(
+        {"type": "config/entity_registry/get_entries", "entity_ids": entity_ids},
+        timeout_seconds=_ESPERA_CORE_S,
+    )
+    if not isinstance(entradas, dict):
+        raise HAConnectionError("entity registry: unexpected answer")
+    return entradas
+
+
+async def _rechazo_por_hermes(
+    slug: str | None,
+    slug_propio: Callable[[], Awaitable[str | None]],
+    tool: str,
+) -> dict[str, Any] | None:
+    """D-1 para la entidad `update` de una app de `hassio`: el error sin token
+    si es Hermes o no se puede descartar (slug propio ilegible, fail-closed);
+    `None` si es otra app."""
+    propio = await slug_propio()
+    if propio is None:
+        logger.info("update_install_rejected", tool=tool, reason="self_check_unavailable")
+        otra = (NOTA_OTRO_HERMES if slug is not None and _es_hermes(slug)
+                else "If this app is not Hermes, update it with sv_update_addon.")
+        return _error(
+            "self_check_unavailable",
+            "Hermes could not read its own app slug from the Supervisor "
+            "(/addons/self/info), so it cannot rule out that this entity is "
+            f"Hermes itself; nothing was done. {otra} " + _COMO_ACTUALIZAR_HERMES)
+    if slug == propio:
+        logger.info("update_install_rejected", tool=tool, reason="self_update_not_supported")
+        return _error("self_update_not_supported", _COMO_ACTUALIZAR_HERMES)
+    return None
+
+
+async def _encaminar_hassio(
+    destino: tuple[str, str | None],
+    version: str | None,
+    backup: bool,
+    slug_propio: Callable[[], Awaitable[str | None]],
+    tool: str,
+) -> dict[str, Any]:
+    """Respuesta sin token para una entidad de `hassio` (FR-014, D-1)."""
+    tipo, dato = destino
+    if tipo == "core":
+        return _error("use_dedicated_tool",
+                      "Home Assistant Core is updated with sv_update_core, which "
+                      "checks what the Supervisor would refuse first",
+                      tool="sv_update_core",
+                      arguments={"version": version, "backup": backup})
+    if tipo == "os":
+        r = _error("use_dedicated_tool",
+                   "the Home Assistant OS is updated with sv_update_os",
+                   tool="sv_update_os", arguments={"version": version})
+        if backup:
+            r["note"] = ("sv_update_os does not make a backup; make one first "
+                         "with sv_create_backup_full")
+        return r
+    if tipo == "supervisor":
+        r = _error("use_dedicated_tool",
+                   "the Supervisor is updated with sv_update_supervisor",
+                   tool="sv_update_supervisor", arguments={})
+        if version is not None or backup:
+            r["note"] = ("the Supervisor always updates to its latest version "
+                         "and makes no backup")
+        return r
+    if tipo == "addon":
+        rechazo = await _rechazo_por_hermes(dato, slug_propio, tool)
+        if rechazo is not None:
+            return rechazo
+        if dato is not None and _es_hermes(dato):
+            # D-13 (T048): `sv_update_addon` rechaza cualquier `*_hermes`;
+            # remitir a ella sería remitir a un rechazo seguro.
+            return _error("unsupported_entity", NOTA_OTRO_HERMES)
+        return _error("use_dedicated_tool",
+                      "apps are updated with sv_update_addon",
+                      tool="sv_update_addon", arguments={"slug": dato})
+    return _error("unsupported_entity",
+                  "this entity belongs to the Supervisor integration but Hermes "
+                  "does not recognise it; nothing was done")
+
+
+def _entidades_explicitas(data: dict[str, Any]) -> list[str] | None:
+    """Los `entity_id` de un `service_data` si el objetivo es SOLO una lista
+    explícita de entidades; `None` si no (T051).
+
+    Normaliza como `cv.entity_ids` de Home Assistant (comas, espacios,
+    minúsculas), igual que `service_policy._collect_entity_ids`. Cualquier
+    otra forma de apuntar (`area_id`, `device_id`, `label_id`, `floor_id`,
+    `all`, `none`, un `target` que no es un objeto, sin objetivo) da `None`:
+    alcanzaría entidades sin nombrarlas, y no se pueden comprobar.
+    """
+    contenedores: list[dict[str, Any]] = [data]
+    if "target" in data:
+        if not isinstance(data["target"], dict):
+            return None
+        contenedores.append(data["target"])
+    ids: set[str] = set()
+    for c in contenedores:
+        if any(k in c for k in _INDIRECT_TARGET_KEYS):
+            return None
+        raw = c.get("entity_id")
+        if raw is None:
+            continue
+        valores = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
+        if valores is None:
+            return None
+        for v in valores:
+            if not isinstance(v, str):
+                return None
+            ids.update(p.strip().lower() for p in v.split(",") if p.strip())
+    if not ids or ids & {"all", "none"}:
+        return None
+    return sorted(ids)
+
+
+async def comprobar_update_install(
+    ha_client: HAClient,
+    data: dict[str, Any],
+    slug_propio: Callable[[], Awaitable[str | None]],
+    tool: str = "ha_call_service",
+) -> dict[str, Any] | None:
+    """`update.install` por `ha_call_service` (T051, decisión del supervisor
+    sobre D-1 y D-3). Devuelve el error sin token o `None` si la llamada puede
+    seguir exactamente como en la 1.1.2.
+
+    Hasta aquí, esa vía saltaba dos reglas: Hermes se podía actualizar a sí
+    mismo (Core llama al Supervisor como Core, no como add-on, así que ni la
+    protección propia del Supervisor salta) y Core se actualizaba sin la
+    comprobación de configuración de `sv_update_core`. Fail-closed:
+
+    1. el objetivo tiene que ser una lista explícita de `entity_id`; si no,
+       `use_dedicated_tool` hacia `ha_install_update`;
+    2. cada entidad se resuelve por el REGISTRO (como `ha_install_update`);
+       registro ilegible → `registry_unavailable`;
+    3. la de Hermes → `self_update_not_supported`; una app de `hassio` con el
+       slug propio ilegible → `self_check_unavailable`;
+    4. Core, OS y Supervisor → `use_dedicated_tool` hacia su `sv_*`; una de
+       `hassio` que no se reconoce → `unsupported_entity`;
+    5. las demás (otras apps, firmware, HACS…) siguen igual: `None`.
+    """
+    ids = _entidades_explicitas(data)
+    if ids is None:
+        logger.info("update_install_rejected", tool=tool, reason="indirect_target")
+        return _error(
+            "use_dedicated_tool",
+            "update.install through ha_call_service needs an explicit list of "
+            "entity_id (no area_id, device_id, label_id, floor_id, 'all' or empty "
+            "target): Hermes has to check each entity before installing. Use "
+            "ha_install_update, one entity at a time",
+            tool="ha_install_update")
+    try:
+        registro = await _leer_registro(ha_client, ids)
+    except Exception as exc:  # noqa: BLE001 — fail-closed
+        logger.info("update_install_rejected", tool=tool, reason="registry_unavailable",
+                    error_type=type(exc).__name__)
+        return _error("registry_unavailable",
+                      "the entity registry could not be read, so Hermes cannot "
+                      "tell which integration owns these entities; nothing was done")
+    version = data.get("version") if isinstance(data.get("version"), str) else None
+    backup = data.get("backup") is True
+    rechazos: list[dict[str, Any]] = []
+    for eid in ids:
+        destino = _destino_hassio(registro.get(eid))
+        if destino is None:
+            continue
+        if destino[0] == "addon":
+            # Otra app sigue como en la 1.1.2; solo se para la de Hermes.
+            r = await _rechazo_por_hermes(destino[1], slug_propio, tool)
+        else:
+            r = await _encaminar_hassio(destino, version, backup, slug_propio, tool)
+        if r is not None:
+            rechazos.append({**r, "entity_id": eid})
+    if not rechazos:
+        return None
+    # El rechazo por Hermes manda sobre el resto: es el que no tiene arreglo.
+    prioridad = {"self_update_not_supported": 0, "self_check_unavailable": 1}
+    rechazos.sort(key=lambda r: prioridad.get(r["error"], 2))
+    if rechazos[0]["error"] == "use_dedicated_tool":
+        logger.info("update_install_routed", tool=tool, to=rechazos[0].get("tool"))
+    return rechazos[0]
+
+
 # ── Registro de tools ─────────────────────────────────────────────────────────
 
 
@@ -215,45 +440,11 @@ def register(
 ) -> None:
     """Registra las tools de las entidades `update`."""
     max_bytes = response_max_bytes or RESPONSE_MAX_BYTES_DEFAULT
-    # El slug propio no cambia mientras Hermes está en marcha: se lee una vez
-    # con éxito y se guarda. Un fallo no se guarda (se reintenta la próxima).
-    propio: dict[str, str] = {}
-
-    async def _slug_propio() -> str | None:
-        """Slug del propio add-on según el Supervisor (`/addons/self/info`).
-
-        Es el criterio ESTRICTO de D-1: el Supervisor sabe qué add-on hace la
-        llamada y devuelve su slug exacto. No se usa `_es_hermes` (cualquier
-        `*_hermes`) ni el HOSTNAME. `None` si no se puede leer: quien lo usa
-        tiene que tratarlo como «puede ser Hermes» (fail-closed).
-        """
-        if "slug" in propio:
-            return propio["slug"]
-        try:
-            info = await ha_client.sv_request("GET", "/addons/self/info",
-                                              timeout_seconds=_ESPERA_CORE_S)
-        except _EXC_DE_LECTURA as exc:
-            logger.info("update_self_slug_unavailable", error_type=type(exc).__name__)
-            return None
-        slug = info.get("slug") if isinstance(info, dict) else None
-        if not isinstance(slug, str) or not slug:
-            return None
-        propio["slug"] = slug
-        return slug
+    # Criterio común de D-1 (T048): el slug exacto de `/addons/self/info`.
+    _slug_propio = lector_slug_propio(ha_client)
 
     async def _registro(entity_ids: list[str]) -> dict[str, Any]:
-        """Una sola petición `config/entity_registry/get_entries` (R-9). Ese
-        comando es `deny` para las genéricas (clase B), pero la tabla solo
-        gobierna las genéricas: una tool dedicada puede usarlo dentro."""
-        if not entity_ids:
-            return {}
-        entradas = await ha_client.ws_send(
-            {"type": "config/entity_registry/get_entries", "entity_ids": entity_ids},
-            timeout_seconds=_ESPERA_CORE_S,
-        )
-        if not isinstance(entradas, dict):
-            raise HAConnectionError("entity registry: unexpected answer")
-        return entradas
+        return await _leer_registro(ha_client, entity_ids)
 
     def _instalar_con(destino: tuple[str, str | None] | None, slug_propio: str | None,
                       soporta_install: bool) -> tuple[str | None, str | None]:
@@ -267,11 +458,16 @@ def register(
             return dato, None
         if tipo == "addon":
             if slug_propio is None:
-                return None, ("Hermes could not read its own app slug, so it cannot "
-                              "rule out that this is Hermes itself; if it is not, "
-                              "use sv_update_addon")
+                nota = ("Hermes could not read its own app slug, so it cannot "
+                        "rule out that this is Hermes itself")
+                if dato is not None and _es_hermes(dato):
+                    return None, f"{nota}. {NOTA_OTRO_HERMES}"
+                return None, f"{nota}; if it is not, use sv_update_addon"
             if dato == slug_propio:
                 return None, _COMO_ACTUALIZAR_HERMES
+            if dato is not None and _es_hermes(dato):
+                # D-13 (T048): `sv_update_addon` la rechazaría; no se remite.
+                return None, NOTA_OTRO_HERMES
             return "sv_update_addon", None
         return None, "entity of the Supervisor integration not recognised by Hermes"
 
@@ -292,8 +488,9 @@ def register(
         characters), `release_url`, `platform` (the integration) and
         `install_with`: ha_install_update, the sv_* tool for Core, OS,
         Supervisor and apps (sv_update_core, sv_update_os,
-        sv_update_supervisor, sv_update_addon), or null (Hermes itself, or an
-        entity that cannot be installed) with a `note`.
+        sv_update_supervisor, sv_update_addon), or null (Hermes itself, any
+        other app whose slug ends in _hermes, which sv_update_addon refuses,
+        or an entity that cannot be installed) with a `note`.
 
         Returns:
             {"count", "items", "truncated", "_third_party_text"}
@@ -449,52 +646,8 @@ def register(
         entity_id: str, destino: tuple[str, str | None],
         version: str | None, backup: bool,
     ) -> dict[str, Any]:
-        """Respuesta sin token para una entidad de `hassio` (FR-014, D-1)."""
-        tipo, dato = destino
-        if tipo == "core":
-            return _error("use_dedicated_tool",
-                          "Home Assistant Core is updated with sv_update_core, which "
-                          "checks what the Supervisor would refuse first",
-                          tool="sv_update_core",
-                          arguments={"version": version, "backup": backup})
-        if tipo == "os":
-            r = _error("use_dedicated_tool",
-                       "the Home Assistant OS is updated with sv_update_os",
-                       tool="sv_update_os", arguments={"version": version})
-            if backup:
-                r["note"] = ("sv_update_os does not make a backup; make one first "
-                             "with sv_create_backup_full")
-            return r
-        if tipo == "supervisor":
-            r = _error("use_dedicated_tool",
-                       "the Supervisor is updated with sv_update_supervisor",
-                       tool="sv_update_supervisor", arguments={})
-            if version is not None or backup:
-                r["note"] = ("the Supervisor always updates to its latest version "
-                             "and makes no backup")
-            return r
-        if tipo == "addon":
-            slug_propio = await _slug_propio()
-            if slug_propio is None:
-                # D-1: sin el slug propio no se puede descartar que sea Hermes.
-                logger.info("update_install_rejected", tool="ha_install_update",
-                            reason="self_check_unavailable")
-                return _error(
-                    "self_check_unavailable",
-                    "Hermes could not read its own app slug from the Supervisor "
-                    "(/addons/self/info), so it cannot rule out that this entity "
-                    "is Hermes itself; nothing was done. If this app is not "
-                    "Hermes, update it with sv_update_addon. " + _COMO_ACTUALIZAR_HERMES)
-            if dato == slug_propio:
-                logger.info("update_install_rejected", tool="ha_install_update",
-                            reason="self_update_not_supported")
-                return _error("self_update_not_supported", _COMO_ACTUALIZAR_HERMES)
-            return _error("use_dedicated_tool",
-                          "apps are updated with sv_update_addon",
-                          tool="sv_update_addon", arguments={"slug": dato})
-        return _error("unsupported_entity",
-                      "this entity belongs to the Supervisor integration but Hermes "
-                      "does not recognise it; nothing was done")
+        return await _encaminar_hassio(destino, version, backup, _slug_propio,
+                                       "ha_install_update")
 
     async def _notas_vista(entity_id: str, attrs: dict[str, Any],
                            supports: dict[str, bool]) -> dict[str, Any]:
@@ -545,7 +698,9 @@ def register(
         not installed here: the answer is `use_dedicated_tool` with the sv_*
         tool and its arguments. Hermes never updates itself:
         `self_update_not_supported` (update it from the Home Assistant UI or
-        with the add-on's automatic update).
+        with the add-on's automatic update). Another app whose slug ends in
+        _hermes has no tool either (sv_update_addon refuses those):
+        `unsupported_entity`.
 
         With confirmation_token: same arguments. The token is bound to the
         arguments AND to the from/to versions of the preview; if they changed
