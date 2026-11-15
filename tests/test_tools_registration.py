@@ -837,6 +837,14 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_get_backup_settings": ("R-I-", "Get backup settings (Supervisor)"),
     "sv_set_backup_settings": ("--I-", "Set backup settings (Supervisor)"),
     "sv_reload_backups": ("--I-", "Reload backups (Supervisor)"),
+    # Spec 032, tramo 1 (contracts/tools.md): control del host, familia
+    # `host_control`. Las cuatro piden token y se anuncian destructivas;
+    # repetir cualquiera deja el mismo estado (idempotentes). Ninguna sale a
+    # internet.
+    "sv_shutdown_host": ("-DI-", "Shut down host (Supervisor)"),
+    "sv_set_hostname": ("-DI-", "Set hostname (Supervisor)"),
+    "sv_set_swap": ("-DI-", "Set swap (Supervisor)"),
+    "sv_set_boot_slot": ("-DI-", "Set boot slot (Supervisor)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -866,6 +874,9 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_list_mounts", "sv_create_mount", "sv_update_mount",
         "sv_delete_mount", "sv_reload_mount", "sv_set_default_backup_mount",
         "sv_get_backup_settings", "sv_set_backup_settings", "sv_reload_backups",
+    },
+    "host_control": {
+        "sv_shutdown_host", "sv_set_hostname", "sv_set_swap", "sv_set_boot_slot",
     },
 }
 
@@ -1436,6 +1447,56 @@ class TestMontajes019:
         assert dedicadas == set(_MOUNTS_019 + _BACKUP_SETTINGS_019)
         # `location` es de `backups` (1.1.2): sigue aunque `mounts` se apague.
         assert "location" in tools["sv_create_backup_full"].parameters["properties"]
+
+
+# ── Spec 032, tramo 1: control del host (FR-015, FR-016, SC-001; T007) ───────
+
+_HOST_CONTROL_032 = ("sv_shutdown_host", "sv_set_hostname", "sv_set_swap",
+                     "sv_set_boot_slot")
+
+
+class TestHostControl032:
+    """Las cuatro tools de `host_control` se registran por defecto, piden
+    token y se anuncian destructivas, con sus argumentos y sus títulos; con la
+    familia apagada no existe ninguna y sus rutas siguen `dedicated`."""
+
+    def test_registradas_y_sus_hints(self):
+        tools = _real_registry()
+        for nombre in _HOST_CONTROL_032:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert "confirmation_token" in tools[nombre].parameters.get(
+                "properties", {}), nombre
+            assert (ann.read_only_hint, ann.destructive_hint,
+                    ann.open_world_hint) == (False, True, False), nombre
+            assert tools[nombre].title == _HINTS_NUEVAS_1_2_0[nombre][1], nombre
+        assert tools["sv_shutdown_host"].title == "Shut down host (Supervisor)"
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {}))
+                 for n in _HOST_CONTROL_032}
+        assert props == {
+            # Sin `force` (research R-5).
+            "sv_shutdown_host": {"confirmation_token"},
+            "sv_set_hostname": {"hostname", "confirmation_token"},
+            "sv_set_swap": {"swap_size", "swappiness", "confirmation_token"},
+            "sv_set_boot_slot": {"boot_slot", "confirmation_token"},
+        }
+        assert tools["sv_set_hostname"].parameters["required"] == ["hostname"]
+        assert tools["sv_set_boot_slot"].parameters["required"] == ["boot_slot"]
+        assert not tools["sv_set_swap"].parameters.get("required")
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["host_control"])
+        assert [n for n in _HOST_CONTROL_032 if n in tools] == []
+        dedicadas = {e.tool for e in SUPERVISOR.values()
+                     if e.category == "dedicated" and e.family == "host_control"}
+        assert dedicadas == set(_HOST_CONTROL_032)
+        # `sv_reboot_host` es de `supervisor` (1.1.2): sigue.
+        assert "sv_reboot_host" in tools
 
 
 # ── Spec 004: Marketplace y alias `ha_hacs_*` (FR-018, FR-021, SC-006) ───────

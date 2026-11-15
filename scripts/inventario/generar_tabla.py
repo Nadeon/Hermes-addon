@@ -399,6 +399,12 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     ("GET", "/os/info"): "sv_get_os_info",
     ("GET", "/os/config/swap"): "sv_get_swap",
     ("GET", "/os/datadisk/list"): "sv_list_datadisk_candidates",
+    # 032 (tramo 1): control del host y del OS (CAP-086), clase A de vía D,
+    # por el mismo mecanismo que las de la 012, la 013 y la 019.
+    ("POST", "/host/shutdown"): "sv_shutdown_host",
+    ("POST", "/host/options"): "sv_set_hostname",
+    ("POST", "/os/config/swap"): "sv_set_swap",
+    ("POST", "/os/boot-slot"): "sv_set_boot_slot",
 }
 
 # Colecciones de helpers: list/create/update/delete con el mismo patrón de

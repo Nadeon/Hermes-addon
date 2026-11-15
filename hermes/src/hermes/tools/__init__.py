@@ -282,6 +282,12 @@ def register_all_tools(
         from hermes.tools.backup_settings import register as register_backup_settings
         register_backup_settings(mcp, ha_client)
 
+    # Spec 032, tramo 1: apagar el host, hostname, swap y ranura de arranque
+    # (familia `host_control`, 1.2.0). Todas confirman en dos pasos.
+    if _activa("host_control"):
+        from hermes.tools.host_control import register as register_host_control
+        register_host_control(mcp, ha_client)
+
     # Centro de resolución del Supervisor (lee y descarta; nunca aplica
     # sugerencias) y backups de la integración `backup` de HA, que ven todas
     # las ubicaciones y no solo las locales del Supervisor.

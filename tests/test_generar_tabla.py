@@ -127,8 +127,11 @@ class TestPrimeraGeneracion(_Base):
                 self.assertEqual(
                     (e.category, e.reason),
                     ("deny", f"pendiente de tool dedicada (spec {spec})"))
+        # Era el ejemplo de «spec 032»; desde su tramo 1 la tool existe y la
+        # fila está en el mapa: dedicada (la regla del mapa va antes).
         e = self.t.SUPERVISOR[("POST", "/host/shutdown")]
-        self.assertEqual(e.reason, "pendiente de tool dedicada (spec 032)")
+        self.assertEqual((e.category, e.tool, e.family),
+                         ("dedicated", "sv_shutdown_host", "host_control"))
         # CAP-087 se reparte: la lectura es de 013 y la escritura de 022.
         self.assertEqual(self.t.SUPERVISOR[("GET", "/jobs/info")].reason,
                          "pendiente de tool dedicada (spec 013)")
@@ -286,8 +289,9 @@ class TestClaseAConToolDedicada(_Base):
         # 9 de la 012 menos `logger/integration_log_level` (cubierto), 28 de la
         # 013, 9 de la 029 y, desde la integración de la 019, sus 9 rutas de
         # CAP-083 (`/mounts` y `/backups/info|options|reload`), que entran en
-        # el mapa del generador: si baja, el test ha dejado de mirarlas.
-        self.assertGreaterEqual(n, 54)
+        # el mapa del generador: si baja, el test ha dejado de mirarlas. La
+        # 032 (tramo 1) suma sus 4 rutas de CAP-086.
+        self.assertGreaterEqual(n, 58)
 
     def test_dedicada_con_la_familia_de_su_tool(self) -> None:
         """Spec 016 (T010): la familia sale de la tool del mapa, aquí una de

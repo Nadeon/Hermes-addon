@@ -149,6 +149,16 @@ _CATALOGO: tuple[Familia, ...] = (
             "Supervisor network mounts (CIFS/NFS) and local disk mounts for "
             "backups, media and share, and the Supervisor's backup settings.",
             "1.2.0", True, ("mounts", "backup_settings")),
+    # Spec 032 (research R-1): apagar el host, el hostname, la swap y la
+    # ranura de arranque. Una familia aparte de la red del host (tramo 2,
+    # `host_network`) porque el riesgo es de otro orden: quien quiere que el
+    # agente cambie la swap no tiene por qué darle la red. No va en
+    # `supervisor` (1.1.2: FR-010 de la 008 pide familias nuevas) ni en
+    # `system_diagnostics`, que solo lee y dejaría de decir verdad.
+    Familia("host_control",
+            "Shut down the host and change its hostname, swap and Home "
+            "Assistant OS boot slot (all with confirmation).",
+            "1.2.0", True, ("host_control",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

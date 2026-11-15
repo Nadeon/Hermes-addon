@@ -184,6 +184,15 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
         "/os/config/swap",
         "/os/datadisk/list",
     ),
+    # Spec 032, tramo 1: lecturas de las vistas previas y escrituras del
+    # control del host, con la ruta como constante en cada tool.
+    ("hermes.tools.host_control", "_leer"): ("/host/info", "/os/config/swap", "/os/info"),
+    ("hermes.tools.host_control", "_enviar"): (
+        "/host/shutdown",
+        "/host/options",
+        "/os/config/swap",
+        "/os/boot-slot",
+    ),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.

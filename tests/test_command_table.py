@@ -652,5 +652,45 @@ class TestMontajesDeLa019(unittest.TestCase):
         self.assertEqual(quedan, [])
 
 
+# Spec 032, tramo 1 (data-model): las cuatro rutas del host y del OS (CAP-086).
+_HOST_CONTROL_032: dict[tuple[str, str], str] = {
+    ("POST", "/host/shutdown"): "sv_shutdown_host",
+    ("POST", "/host/options"): "sv_set_hostname",
+    ("POST", "/os/config/swap"): "sv_set_swap",
+    ("POST", "/os/boot-slot"): "sv_set_boot_slot",
+}
+
+
+class TestHostControlDeLa032(unittest.TestCase):
+    """FR-014 de la 032 (tramo 1): las cuatro rutas de CAP-086 pasan de
+    `deny` «spec 032» a `dedicated` con su tool, familia `host_control` y
+    CAP-086; quedan solo las tres de la red (tramo 2).
+
+    Control negativo (T012 f): dejar `POST /host/shutdown` como `deny` → cae
+    `test_rutas_dedicadas` nombrándola.
+    """
+
+    def test_rutas_dedicadas(self) -> None:
+        malas = []
+        for k, tool in _HOST_CONTROL_032.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "host_control", "CAP-086", f"cubierto por {tool}")
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_quedan_solo_las_de_la_red(self) -> None:
+        quedan = sorted(k for k, e in ct.SUPERVISOR.items() if "spec 032" in e.reason)
+        self.assertEqual(quedan, [
+            ("POST", "/network/interface/{interface}/update"),
+            ("POST", "/network/interface/{interface}/vlan/{vlan}"),
+            ("POST", "/network/reload"),
+        ])
+        # Las lecturas que usan las vistas previas no cambian.
+        for k in (("GET", "/host/info"), ("GET", "/os/info"), ("GET", "/os/config/swap")):
+            self.assertEqual(ct.SUPERVISOR[k].category, "dedicated", k)
+
+
 if __name__ == "__main__":
     unittest.main()
