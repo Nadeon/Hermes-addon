@@ -22,7 +22,7 @@ import unittest
 from typing import Any
 
 from hermes.ha import HAConnectionError
-from hermes.security import REDACTED_MARKER, create_confirmation_token
+from hermes.security import create_confirmation_token
 from hermes.tools.addons import _LONG_OP_TIMEOUT, register
 from hermes.tools.marketplace import _THIRD_PARTY_WARNING
 from tests.fixtures.supervisor_tienda import (
@@ -129,8 +129,11 @@ class TestInstalar(_Base):
         n = len(self.sv.llamadas)
         r = await self.t["sv_install_addon"](_SLUG, confirmation_token=prev["confirmation_token"])
         self.assertEqual(r["job_id"], "abc123")
-        # Una sola petición: ni ficha ni disponibilidad al confirmar.
-        [post] = self.sv.llamadas[n:]
+        # La misma petición que en la 1.1.2. Antes, solo se relee la ficha
+        # para comprobar la versión atada al token (T031); la disponibilidad
+        # no se vuelve a pedir.
+        [ficha_, post] = self.sv.llamadas[n:]
+        self.assertEqual((ficha_["metodo"], ficha_["ruta"]), ("GET", f"/store/addons/{_SLUG}"))
         self.assertEqual((post["metodo"], post["ruta"], post["json"], post["timeout"]),
                          ("POST", f"/store/addons/{_SLUG}/install", {"background": True},
                           _LONG_OP_TIMEOUT))
@@ -142,7 +145,7 @@ class TestInstalar(_Base):
 class TestActualizar(_Base):
     def info(self, slug: str = _SLUG, **campos: Any) -> None:
         base = {"slug": slug, "version": "1.0.0", "version_latest": "2.0.0",
-                "update_available": True}
+                "update_available": True, "detached": False}
         base.update(campos)
         self.sv.respuesta("GET", f"/addons/{slug}/info", base)
 
@@ -220,18 +223,26 @@ class TestActualizar(_Base):
         n = len(self.sv.llamadas)
         r = await self.t["sv_update_addon"](_SLUG, confirmation_token=prev["confirmation_token"])
         self.assertEqual(r["job_id"], "def456")
-        [post] = self.sv.llamadas[n:]
+        # La misma petición que en la 1.1.2, precedida de la relectura de la
+        # versión atada al token (T031).
+        [info, post] = self.sv.llamadas[n:]
+        self.assertEqual((info["metodo"], info["ruta"]), ("GET", f"/addons/{_SLUG}/info"))
         self.assertEqual((post["metodo"], post["ruta"], post["json"], post["timeout"]),
                          ("POST", f"/store/addons/{_SLUG}/update", {"background": True},
                           _LONG_OP_TIMEOUT))
 
-    async def test_un_token_de_la_1_1_2_sigue_valiendo(self) -> None:
-        # El token se ata a los mismos argumentos que en la 1.1.2.
+    async def test_un_token_sin_version_ya_no_vale(self) -> None:
+        # Convergencia (T031): un token emitido sin la versión atada (el de
+        # una vista previa de la 1.1.2) no dice qué versión se vio, así que
+        # ya no vale: `preview_outdated` y nada se envía. Los argumentos son
+        # los mismos; basta con pedir otra vista previa.
+        self.info()
         tok = await create_confirmation_token("sv_update_addon", {"slug": _SLUG},
                                               preview={"slug": _SLUG})
         self.sv.respuesta("POST", f"/store/addons/{_SLUG}/update", {})
         r = await self.t["sv_update_addon"](_SLUG, confirmation_token=tok["confirmation_token"])
-        self.assertEqual(r, {"result": "ok", "slug": _SLUG})
+        self.assertIs(r.get("preview_outdated"), True, r)
+        self.assertEqual(self.sv.escrituras(), [])
 
 
 # ── Validar opciones (FR-013) ─────────────────────────────────────────────────
@@ -271,7 +282,8 @@ class TestValidarOpciones(_Base):
         r = await self.t["sv_set_addon_options"](_SLUG, '{"a": "dos"}')
         self.assertEqual(r["error"], "invalid_options")
         self.assertIn("expected int", r["message"])
-        self.assertIn(REDACTED_MARKER, r["message"])
+        # Desde la convergencia (T029) no sale nada desde «Got».
+        self.assertIn("values not shown", r["message"])
         self.assertEqual(r["changed_paths"], ["a"])
         self.assertNotIn("confirmation_token", r)
         self.assertSin(r, CENTINELA_OPCION)

@@ -113,6 +113,11 @@ def validar_url_repositorio(valor: Any) -> tuple[str, str | None]:
     try:
         partes = urlsplit(m.group("url"))
         servidor = partes.hostname
+        # `https://u:p/ss@servidor/r`: `urlsplit` toma `u` como servidor y
+        # `p` como puerto (no numérico), y la vista previa enseñaba un
+        # servidor falso con el usuario a la vista. Un puerto que no es un
+        # número no es una URL válida (convergencia de la 030, T034).
+        _ = partes.port  # lanza ValueError si no es un número
     except ValueError:
         raise ArgumentoInvalido("repository", DETALLE_URL) from None
     if partes.scheme not in ("http", "https") or not servidor:

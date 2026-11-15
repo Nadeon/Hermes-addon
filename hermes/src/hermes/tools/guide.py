@@ -387,11 +387,14 @@ reversible con `fs_restore_file_backup`.
   incluidos, se conserva. Objetos anidados clave a clave, listas enteras,
   `null` quita una opción. No reenvíes valores `***REDACTED***`: se rechazan.
   Se aplica al reiniciar el add-on. La vista previa VALIDA las opciones
-  finales con el Supervisor: si no valen, `invalid_options` sin token.
+  finales con el Supervisor: si no valen, `invalid_options` sin token. Su
+  mensaje nunca lleva valores: solo dice qué opción falla.
 - `sv_install_addon` comprueba en la vista previa si la app está disponible
   en este sistema (si no, `addon_not_available` sin token) y
   `sv_update_addon` enseña el principio del changelog. Las dos llevan a la
-  versión de la tienda; no se puede elegir otra.
+  versión de la tienda; no se puede elegir otra. Su token se ata a la
+  `version_latest` de la vista previa: si la tienda cambia antes de
+  confirmar, `preview_outdated` y no se hace nada (pide otra vista previa).
 - Tienda (repositorios, changelog, documentación, disponibilidad,
   reconstruir una app): `hermes_guide("app_store")`.
 - Supervisor/host/core: `sv_get_supervisor_info`, `sv_get_host_info`,
@@ -798,7 +801,11 @@ FICHA DE UNA APP (antes de instalarla o actualizarla)
 - Las vistas previas de `sv_install_addon` (disponibilidad, ya instalada,
   repositorio de terceros) y `sv_update_addon` (disponibilidad y el principio
   del changelog) lo comprueban solas. `sv_update_addon` de una app que ya
-  está al día responde `already_up_to_date`, sin token.
+  está al día responde `already_up_to_date`, sin token; de una app que ya no
+  está en la tienda (desligada), la vista previa dice `in_store: false` y
+  que el Supervisor no la actualizará. Si la tienda no se puede leer al
+  instalar, `store_check.checked` es false y la vista previa avisa de que no
+  se sabe si la app está disponible ni si es de terceros.
 
 VERSIÓN CONCRETA: NO SE PUEDE ELEGIR
 Instalar y actualizar llevan SIEMPRE a la versión que ofrece la tienda: el

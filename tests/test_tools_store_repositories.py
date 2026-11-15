@@ -212,6 +212,15 @@ class TestAnadir(_Base):
                     self.assertNotIn(url.strip(), r["detail"])
         self.assertEqual(self.sv.llamadas, [])
 
+    async def test_puerto_que_no_es_un_numero(self) -> None:
+        # Convergencia (T034): `urlsplit` toma `u` como servidor y `p` como
+        # puerto; la vista previa enseñaba `host: "u"` y el usuario a la vista.
+        r = await self.t["sv_add_store_repository"]("https://u:p/ss@example.com/r")
+        self.assertEqual(r["error"], "invalid_argument")
+        self.assertNotIn("confirmation_token", r)
+        self.assertNotIn("p/ss", json.dumps(r))
+        self.assertEqual(self.sv.llamadas, [])
+
     async def test_ya_anadida_sin_token(self) -> None:
         # La del repositorio privado en mayúsculas (el Supervisor compara sin
         # distinguirlas: el slug es el hash de la URL en minúsculas) y las dos

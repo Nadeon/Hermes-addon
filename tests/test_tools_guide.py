@@ -644,9 +644,11 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
 
     # sha256 (16 hex) de temas que la 030 no toca, más `supervisor`, que el
     # tramo 2 cambia a propósito (remite a `app_store`, validación de
-    # opciones y vistas previas de instalar y actualizar; FR-020).
+    # opciones y vistas previas de instalar y actualizar; FR-020) y el
+    # converge vuelve a cambiar (mensajes sin valores y versión atada al
+    # token, T029-T031).
     _HUELLAS = {
-        "supervisor": "3a4f0a54e6dd454e",
+        "supervisor": "76416ea0fcc306ba",
         "marketplace": "f83ec233a87ad95b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",

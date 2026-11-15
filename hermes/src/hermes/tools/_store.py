@@ -68,12 +68,15 @@ def slug_de_repositorio(url: str) -> str:
     return hashlib.sha1(clave, usedforsecurity=False).hexdigest()[:8]  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
 
 
-# `esquema://<lo que sea sin espacios, barras ni arroba>@`: la parte de
-# usuario de una URL dentro de cualquier texto (un error del Supervisor, un
-# nombre de repositorio). Sirve también para `https://<token>@servidor/…`, que
-# la redacción general no reconoce porque no lleva `:`.
+# `esquema://<lo que sea sin espacios ni barras>@`: la parte de usuario de
+# una URL dentro de cualquier texto (un error del Supervisor, un nombre de
+# repositorio). Sirve también para `https://<token>@servidor/…`, que la
+# redacción general no reconoce porque no lleva `:`. Llega hasta la ÚLTIMA
+# `@` antes del servidor, como `urlsplit`: con una `@` sin codificar en la
+# contraseña (`https://u:p@ss@servidor/…`), parar en la primera dejaba `ss@`
+# a la vista (convergencia de la 030, T034).
 _RE_USUARIO_EN_TEXTO = re.compile(
-    r"(?i)\b([a-z][a-z0-9+.\-]*://)[^\s/@'\"<>]+@")
+    r"(?i)\b([a-z][a-z0-9+.\-]*://)[^\s/'\"<>]+@")
 
 # Por debajo de este largo, un trozo de las credenciales no se sustituye
 # LITERALMENTE en un texto (sí dentro de una URL, siempre): un usuario como

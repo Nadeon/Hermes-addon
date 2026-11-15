@@ -105,6 +105,21 @@ class TestTaparEnTexto(unittest.TestCase):
         self.assertIn(f"git+ssh://{REDACTED_MARKER}@example.com/b", out)
         self.assertIn("https://example.com/c", out)
 
+    def test_arroba_sin_codificar_en_la_contrasena(self) -> None:
+        # Convergencia (T034): se tapa hasta la ÚLTIMA `@` antes del
+        # servidor; parar en la primera dejaba `ss@` a la vista.
+        for texto in ("fallo con https://u:centinela@clave@example.com/r ya",
+                      "fallo con https://u:p@centinela@clave@example.com/r ya"):
+            with self.subTest(texto=texto):
+                out = _store.tapar_usuario_en_texto(texto)
+                self.assertNotIn("centinela", out)
+                self.assertNotIn("clave@", out)
+                self.assertIn(f"https://{REDACTED_MARKER}@example.com/r ya", out)
+
+    def test_no_se_come_lo_que_va_detras_de_la_url(self) -> None:
+        texto = "ver https://example.com/r y escribe a alguien@example.com"
+        self.assertEqual(_store.tapar_usuario_en_texto(texto), texto)
+
     def test_estructura(self) -> None:
         valor = {"a": ["x https://centinela-token-9@example.com/r", 3, None],
                  "https://k@example.com": {"b": "nada"}}
