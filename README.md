@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **289 tools**: turn on lights, write automations,
+external systems). It ships **290 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 289 tools
+## What it can do — 290 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -53,7 +53,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Core diagnostics** | 12 | Home Assistant's system log (grouped errors, and clear it), the raw error log when HA writes one, log levels (read them, and raise an integration to DEBUG to troubleshoot it), validating automations and scripts before saving them, testing a condition, integration and device diagnostics, and persistent notifications (list and dismiss) |
 | **Integration flows** | 12 | Discovered integrations (list and ignore), the domains that can be set up with a config flow, an integration's title and system options (polling and new entities; disabling them asks for confirmation), config subentries (add, reconfigure, rename; deleting asks for confirmation) and reconfiguring an integration (every step asks for confirmation) |
 | **Repair flows** | 4 | One Repairs issue with its internal data (redacted), and its fix flow: open it, submit each step (every step asks for confirmation) or abort it |
-| **Home Assistant backups** | 5 | Where Home Assistant can store its backups (local, network storage, cloud) with their encryption and retention; the automatic backup schedule, retention and content; and creating backups (custom or with the automatic settings, encrypted with Home Assistant's key) and deleting them from every location. Everything that changes goes in two steps, with an estimate of the backups the retention would delete. The encryption key never leaves Home Assistant and is not changed here. Family `backup_integration`, new in 1.2.0 |
+| **Home Assistant backups** | 6 | Where Home Assistant can store its backups (local, network storage, cloud) with their encryption and retention; the automatic backup schedule, retention and content; and creating backups (custom or with the automatic settings, encrypted with Home Assistant's key) deleting them from every location, and restoring them from any location (with a full preview of what is overwritten; an encrypted backup without a password uses Home Assistant's key). Everything that changes goes in two steps, with an estimate of the backups the retention would delete. The encryption key never leaves Home Assistant and is not changed here. Family `backup_integration`, new in 1.2.0 |
 | **Generic commands** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` and `sv_call_api`: what no other tool covers, and only what Hermes' command table allows (writes always in two steps) |
 
 There is one more, auxiliary, tool that is only registered with `HERMES_DEV=1`

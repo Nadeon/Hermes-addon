@@ -668,7 +668,7 @@ la lista de tools es la de la 1.1.2.
 
 ### Backups de Home Assistant
 
-Spec 031 (en curso; tramos 1 y 2: agentes, ajustes, crear y borrar). Familia nueva
+Spec 031 (en curso; tramos 1 a 3: agentes, ajustes, crear, borrar y restaurar). Familia nueva
 `backup_integration`, desactivable: con ella apagada (y las demás de la
 1.2.0), la lista de tools es la de la 1.1.2.
 
@@ -713,6 +713,34 @@ Spec 031 (en curso; tramos 1 y 2: agentes, ajustes, crear y borrar). Familia nue
   sus ubicaciones; si un agente no se puede leer no hay token
   (`backup_locations_unreadable`). La respuesta dice dónde se borró y dónde
   falló (`result: partial`), con los errores enmascarados.
+- **`ha_restore_backup`** (dos pasos): restaura un backup desde cualquier
+  ubicación (`backup/restore`), con una vista previa al menos tan completa
+  como la de `sv_restore_backup_full`: el backup, la ubicación elegida (la
+  local si el backup está en ella; si solo está en remotas,
+  `agent_id_required`) con su cifrado y dónde más está, de dónde sale la
+  contraseña (`password_source`, nunca el valor), qué se sobrescribe (cada
+  app con su versión, cada carpeta), qué hay en el backup que no se
+  restaura, y los avisos (lo posterior se pierde, Core se reinicia, se
+  descarga de una ubicación remota, se sustituye el propio Hermes). Valida
+  antes lo que HA rechazaría a mitad de camino (`not_in_backup`, base de
+  datos distinta de la del backup con Supervisor, apps o carpetas sin
+  Supervisor). El token ata los argumentos (también `password`, con el HMAC
+  de la 019) y la huella del backup en esa ubicación: si cambia, no se
+  restaura. Sin respuesta de HA tras enviar la orden (Core reiniciándose),
+  responde `restore_started` con cómo comprobarlo, nunca `completed`; si la
+  orden no llegó a salir, error. Una vista previa que no cabe en
+  `response_max_bytes` no da token. Sin `password`, un backup cifrado usa la
+  clave de los backups de HA, que no sale en ninguna respuesta, error ni log.
+- **`sv_restore_backup_full` y `sv_restore_backup_partial`**: sin
+  `password`, un backup protegido se restaura con la clave de los backups de
+  HA (la del kit de emergencia), y la vista previa dice `password_source`
+  (`provided`, `backup_encryption_key`, `backup_encryption_key_unavailable`,
+  `not_needed` o `unknown` si no se pudo leer el backup). El token ata esa
+  fuente. Si el Supervisor rechaza la clave, el error sugiere que el backup
+  puede ser de una clave anterior. Con `password`, nada cambia.
+- **Cliente de HA**: `HAConnectionError` lleva `sent` (si la orden salió por
+  el WebSocket antes de fallar la espera), y un fallo al escribir en el
+  socket llega como `HAConnectionError` en vez de la excepción de aiohttp.
 - **`ha_list_backups`** añade `last_action_event` (`manager_state`, `state`,
   `stage`, `reason`, por lista blanca) para ver si un backup creado terminó
   bien o falló; el resto de la respuesta no cambia.
@@ -729,10 +757,12 @@ Spec 031 (en curso; tramos 1 y 2: agentes, ajustes, crear y borrar). Familia nue
   `dedicated` hacia una tool que lo mande por WebSocket. `backup/generate`,
   `backup/generate_with_automatic_settings` y `backup/delete` pasan de `deny`
   a sus tools (antes la de los ajustes automáticos remitía a
-  `ha_call_service`).
+  `ha_call_service`), y `backup/restore` a `ha_restore_backup`: ya no queda
+  ninguna entrada pendiente de la 031.
 - **Guía**: tema nuevo `backup_integration` (alias `backup_agents`,
   `backup_config`, `backup_schedule`, `backup_retention`, `create_backup`,
-  `delete_backup`), con crear, crear con los ajustes automáticos y borrar;
+  `delete_backup`, `restore_backup`, `restore`), con crear, crear con los
+  ajustes automáticos, borrar y restaurar (y cómo leer `restore_started`);
   `backup` sigue llevando a `backups`.
 - **Banco de Core**: la configuración carga `backup:` (agente
   `backup.local`); `ha_list_backup_agents`, `ha_update_backup_config`,
@@ -740,7 +770,10 @@ Spec 031 (en curso; tramos 1 y 2: agentes, ajustes, crear y borrar). Familia nue
   (con la retención borrando de verdad) y `ha_delete_backup` se ejecutan
   contra HA real, con el efecto leído por el lector y la vista previa sin
   cambiar nada; la clave de cifrado se lee de HA real y no sale en ninguna
-  respuesta ni en el log.
+  respuesta ni en el log. De `ha_restore_backup` se prueban la vista previa
+  de un backup cifrado, el rechazo de apps sin Supervisor y la contraseña
+  incorrecta (HA la rechaza sin reiniciarse); la restauración con éxito
+  reinicia Core y queda para la VM de la 014.
 
 ### Banco de pruebas
 

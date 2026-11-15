@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 289 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 290 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -182,7 +182,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `integration_flows` | 12 | Integraciones descubiertas, dominios configurables por flujo, título y opciones de sistema de una integración, subentries y reconfigure de una integración (nueva en 1.2.0) |
 | `repair_flows` | 4 | Un aviso de Repairs con sus datos internos y su flujo de reparación (nueva en 1.2.0) |
 | `system_updates` | 8 | Qué tiene actualización (Core, OS, Supervisor, apps y plugins), buscar actualizaciones, actualizar Core, el OS y el Supervisor con vista previa, y las entidades `update` de Core (listar, notas de versión e instalar) (nueva en 1.2.0) |
-| `backup_integration` | 5 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear y borrar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
+| `backup_integration` | 6 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear, borrar y restaurar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
