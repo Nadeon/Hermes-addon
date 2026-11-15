@@ -119,5 +119,32 @@ se sigue en un segundo commit; el tramo no se cierra con la suite en rojo.
 Añadida por la revisión independiente y `speckit-converge` sobre la punta de la
 rama (`f7551e4`). Severidad entre corchetes.
 
-- [ ] T019 [ALTO] El token de `/api/tts_proxy/<token>` sale sin tapar por `media_id`: en `assist_pipeline/pipeline_debug/get` el evento `tts-end` trae `tts_output.media_id = "media-source://tts/-stream-/<token>"` (`assist_pipeline/default_pipeline.py` y `tts/__init__.py`, `ResultStream.media_source_id` de Core 2026.11.1), con el MISMO token que la `url`, y ni `redact_extra=("url",)` ni `_RE_TTS_PROXY` (`tools/generic_commands.py`, `_redactar`) lo cubren: con el `media_id` cualquiera reconstruye la URL que HA sirve sin autenticación (comprobado con `_redactar` y la entrada real de la tabla: `token` y `url` tapados, `media_id` con el token en claro). El test de T010 no lo ve porque usa un `media_id` ficticio (`media-source://tts/x`). Así, el motivo de la tabla, el tema `conversation` de la guía y el CHANGELOG («la url y el token salen tapados») prometen más de lo que hace el código. Arreglo mínimo: tapar también la parte secreta de `media-source://tts/-stream-/<token>` en `_redactar` (otra regex junto a `_RE_TTS_PROXY`, o `media_id` en `redact_extra` de la entrada); test con el `media_id` real y el centinela, con control negativo per FR-009, FR-011, US4/AC4, principio V (partial)
-- [ ] T020 [BAJO] `ha_process_conversation` (`tools/conversation.py`, rama `exc.code is None` al confirmar) responde `outcome_unknown` («may have been processed anyway») también cuando `HAClient.ws_send` falla ANTES de enviar nada («WebSocket no disponible para envío de comandos.», `ha.py`), y gasta el token: la frase seguro que no se mandó. Arreglo mínimo: distinguir el fallo previo al envío (por ejemplo, comprobar la conexión antes de validar el token, o una excepción/atributo propio en `ws_send` para «no enviado») y responder el error de conexión normal en ese caso; test de los dos caminos per FR-005, principio V (partial)
+- [x] T019 [ALTO] El token de `/api/tts_proxy/<token>` sale sin tapar por `media_id`: en `assist_pipeline/pipeline_debug/get` el evento `tts-end` trae `tts_output.media_id = "media-source://tts/-stream-/<token>"` (`assist_pipeline/default_pipeline.py` y `tts/__init__.py`, `ResultStream.media_source_id` de Core 2026.11.1), con el MISMO token que la `url`, y ni `redact_extra=("url",)` ni `_RE_TTS_PROXY` (`tools/generic_commands.py`, `_redactar`) lo cubren: con el `media_id` cualquiera reconstruye la URL que HA sirve sin autenticación (comprobado con `_redactar` y la entrada real de la tabla: `token` y `url` tapados, `media_id` con el token en claro). El test de T010 no lo ve porque usa un `media_id` ficticio (`media-source://tts/x`). Así, el motivo de la tabla, el tema `conversation` de la guía y el CHANGELOG («la url y el token salen tapados») prometen más de lo que hace el código. Arreglo mínimo: tapar también la parte secreta de `media-source://tts/-stream-/<token>` en `_redactar` (otra regex junto a `_RE_TTS_PROXY`, o `media_id` en `redact_extra` de la entrada); test con el `media_id` real y el centinela, con control negativo per FR-009, FR-011, US4/AC4, principio V (partial)
+- [x] T020 [BAJO] `ha_process_conversation` (`tools/conversation.py`, rama `exc.code is None` al confirmar) responde `outcome_unknown` («may have been processed anyway») también cuando `HAClient.ws_send` falla ANTES de enviar nada («WebSocket no disponible para envío de comandos.», `ha.py`), y gasta el token: la frase seguro que no se mandó. Arreglo mínimo: distinguir el fallo previo al envío (por ejemplo, comprobar la conexión antes de validar el token, o una excepción/atributo propio en `ws_send` para «no enviado») y responder el error de conexión normal en ese caso; test de los dos caminos per FR-005, principio V (partial)
+
+Notas de los arreglos de convergencia:
+
+- T019: `_RE_TTS_PROXY` tapa ahora lo que va tras `/api/tts_proxy/` y tras
+  `media-source://tts/-stream-/` en cualquier texto de las genéricas (lecturas
+  y respuestas confirmadas, `pipeline_debug/get` incluido). Revisados `tts` y
+  `assist_pipeline` de Core 2026.11.1: el token solo sale en `token` (tapado
+  por su nombre), `url` y `media_id`; un id `media-source://tts/<motor>?message=…`
+  no lleva token y se deja. El audio de STT no tiene URL ni id (`stt-end` solo
+  trae el texto). Fuera de esos componentes, `/api/assist_satellite/connection_test/<id>`
+  también va sin autenticación, pero sirve un sonido fijo de prueba y su id
+  solo sale de `assist_satellite/test_connection`, que sigue en `deny`. El
+  test centinela usa las formas reales de `run-start` y `tts-end`; control
+  negativo comprobado (sin la forma `media-source`, cae). `research.md` y
+  `spec.md` quedan como estaban (decisión original); el motivo de la tabla,
+  `data-model.md`, la guía, el CHANGELOG y la hoja de ruta dicen ya lo que se tapa.
+- T020: `HAConnectionError` lleva `sent` (`True`/`False`/`None`). Desviación
+  del encargo: el defecto es `None` y no `True`, porque es el valor del
+  atributo de la spec 022 ya integrado en `feat/cobertura-total` (su
+  docstring exige que el defecto siga siendo `None`); así la integración une
+  los dos sin cambiar nada. `ws_send` y las suscripciones marcan `sent=False`
+  cuando no hay WebSocket. `ha_process_conversation` responde entonces el
+  error con `sent: false` y una nota, y devuelve el token a `pending` con
+  `security.release_confirmation_token` (nuevo), sin tocar su caducidad. Para
+  la integración con la 031: su `ws_send` marca `sent=True` tras enviar y
+  convierte el fallo de `send_json` en `HAConnectionError`; al unir, mantener
+  los `sent=False` explícitos de las comprobaciones previas al envío.

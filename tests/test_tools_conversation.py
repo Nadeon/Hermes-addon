@@ -496,6 +496,27 @@ class TestProcesarConfirmado(_Base):
         self.assertNotIn("success", otra)
         self.assertEqual(self.tipos().count("conversation/process"), 1)
 
+    async def test_sin_conexion_antes_de_enviar_no_gasta_el_token(self) -> None:
+        # T020: la conexión falla ANTES de enviar (`ws_send` sin WebSocket,
+        # `sent=False`): la frase seguro que no salió. Ni `outcome_unknown`
+        # ni token gastado: el mismo token sirve cuando vuelve la conexión.
+        # Control negativo comprobado: sin la rama `exc.sent is False`, la
+        # respuesta es `outcome_unknown` y el reintento da «failed»; sin
+        # `release_confirmation_token`, el reintento da «executing».
+        self.fallos["conversation/process"] = HAConnectionError(
+            "WebSocket no disponible para envío de comandos.", sent=False)
+        args = {"text": "abre la puerta"}
+        v = await self.t["ha_process_conversation"](**args)
+        token = v["confirmation_token"]
+        r = await self.t["ha_process_conversation"](**args, confirmation_token=token)
+        self.assertNotEqual(r.get("error"), "outcome_unknown")
+        self.assertIn("WebSocket no disponible", r["error"])
+        self.assertIs(r["sent"], False)
+        self.assertEqual(r["note"], mod.NOTA_NO_ENVIADO)
+        del self.fallos["conversation/process"]
+        otra = await self.t["ha_process_conversation"](**args, confirmation_token=token)
+        self.assertIs(otra["success"], True)
+
     async def test_error_de_ha(self) -> None:
         self.fallos["conversation/process"] = HAConnectionError(
             f"Agent fallo token={_CENTINELA}", code="home_assistant_error")

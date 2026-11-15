@@ -34,7 +34,9 @@ El token ata los cinco argumentos que cambian el efecto (`text`, `agent_id`,
 llega a `/data`, que entra en los backups del add-on. Un plazo vencido no se
 presenta como «no ejecutado»: HA puede seguir procesando la frase, así que la
 respuesta lo dice (`outcome_unknown`) y el token queda consumido, para que un
-reintento no la ejecute dos veces (research R-4).
+reintento no la ejecute dos veces (research R-4). Si la conexión falla ANTES
+de enviar nada (`HAConnectionError.sent is False`), la frase seguro que no
+salió: error de conexión con `sent: false` y el token sigue valiendo (T020).
 
 Las respuestas pasan por `redactar_datos` (un LLM puede repetir cualquier
 texto). El log nunca lleva frases, respuestas, `conversation_id`, ids de
@@ -53,6 +55,7 @@ from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
     redact_secrets,
+    release_confirmation_token,
     validate_confirmation_token,
 )
 from hermes.tools._common import (
@@ -112,6 +115,10 @@ _NOTA_OTRO_AGENTE = (
 DETALLE_RESULTADO_DESCONOCIDO = (
     "The sentence may have been processed anyway; check the affected entities "
     "or ha_get_logbook."
+)
+NOTA_NO_ENVIADO = (
+    "The sentence was not sent: Hermes had no connection to Home Assistant. "
+    "Nothing was done; the confirmation_token is still valid until it expires."
 )
 _IDIOMA_POR_DEFECTO = "default (Home Assistant's language)"
 
@@ -600,8 +607,9 @@ def register(
             "speech_truncated", "data", "language", "conversation_id",
             "continue_conversation"}; {"error": "agent_not_found",
             "available_agents"}; {"error": "outcome_unknown"} if Home
-            Assistant did not answer in time (it may have run anyway); or
-            {"error": ...}.
+            Assistant did not answer in time (it may have run anyway);
+            {"error", "sent": false} if nothing was sent (the token stays
+            valid); or {"error": ...}.
         """
         invalido = _primero(_validar_texto(text), _validar_agente(agent_id),
                             _validar_idioma(language), _validar_conversacion(conversation_id),
@@ -677,6 +685,15 @@ def register(
         try:
             resultado = await ha_client.ws_send(mensaje, timeout_seconds=_PLAZO_PROCESO_S)
         except HAConnectionError as exc:
+            if exc.sent is False:
+                # La conexión falló ANTES de enviar: la frase seguro que no
+                # salió. Decir `outcome_unknown` sería mentir, y gastar el
+                # token obligaría a repetir la vista previa por nada (T020).
+                await release_confirmation_token(confirmation_token)
+                logger.warning("conversation_processed", is_default_agent=integrado,
+                               ok=False, outcome="not_sent")
+                return {"error": redact_secrets(str(exc)), "sent": False,
+                        "note": NOTA_NO_ENVIADO}
             if exc.code is None:
                 # Plazo vencido o conexión caída esperando: HA puede haberla
                 # procesado igualmente. El token queda consumido para que un

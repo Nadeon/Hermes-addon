@@ -50,6 +50,13 @@ class HAConnectionError(RuntimeError):
     `unknown_command`…): es la parte estable del protocolo de HA, mientras que
     el texto cambia entre versiones y comparar subcadenas confunde un recurso
     inexistente con un fallo real.
+
+    `sent` dice si la petición llegó a salir: quien manda algo que cambia
+    estado necesita distinguir «no se hizo nada» de un corte a mitad. `False`
+    solo donde se sabe que NO salió (aquí, `ws_send` sin WebSocket); `True` si
+    salió; `None` (por defecto) si no se sabe o no aplica. Es el mismo
+    atributo, con el mismo nombre y defecto, que el de la spec 022 ya
+    integrado: la integración los une sin duplicar (spec 023, T020).
     """
 
     def __init__(
@@ -57,10 +64,12 @@ class HAConnectionError(RuntimeError):
         *args: Any,
         status: int | None = None,
         code: str | None = None,
+        sent: bool | None = None,
     ) -> None:
         super().__init__(*args)
         self.status = status
         self.code = code
+        self.sent = sent
 
 
 # Sentinel para señalizar reconexión/cierre de WS a los waiter de eventos
@@ -736,7 +745,8 @@ class HAClient:
     async def ws_send(self, payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
         """Envía un comando al WebSocket de Home Assistant y espera su resultado."""
         if self._ws is None or self._ws.closed:
-            raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
 
         # El lock protege SOLO la sección crítica —reservar el id, registrar el
         # future y escribir en el socket—, nunca la espera de la respuesta.
@@ -753,7 +763,8 @@ class HAClient:
             # haber sido sustituido por el de una reconexión.
             ws = self._ws
             if ws is None or ws.closed:
-                raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+                raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
 
             request_id = self._next_ws_request_id
             self._next_ws_request_id += 1
@@ -808,7 +819,8 @@ class HAClient:
                                o timeout esperando el evento.
         """
         if self._ws is None or self._ws.closed:
-            raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
 
         loop = asyncio.get_running_loop()
 
@@ -934,7 +946,8 @@ class HAClient:
                 confirmación dentro del plazo.
         """
         if self._ws is None or self._ws.closed:
-            raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+            raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
 
         loop = asyncio.get_running_loop()
         limite = loop.time() + timeout_seconds
@@ -945,7 +958,8 @@ class HAClient:
         async with self._ws_request_lock:
             ws = self._ws
             if ws is None or ws.closed:
-                raise HAConnectionError("WebSocket no disponible para envío de comandos.")
+                raise HAConnectionError("WebSocket no disponible para envío de comandos.",
+                                    sent=False)
             request_id = self._next_ws_request_id
             self._next_ws_request_id += 1
 

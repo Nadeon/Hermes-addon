@@ -1399,6 +1399,8 @@ PROCESAR UNA FRASE (la EJECUTA)
 - `outcome_unknown`: HA no contestó a tiempo (90 s). La frase PUDO
   ejecutarse igualmente: comprueba las entidades o `ha_get_logbook` antes de
   repetirla. El token ya no vale.
+- `sent: false`: Hermes no tenía conexión con HA y la frase NO se envió; no
+  se hizo nada y el mismo token sigue valiendo hasta que caduque.
 - Assist solo controla las entidades EXPUESTAS a Assist (por defecto, luces,
   interruptores, persianas, climatización, reproductores…). La exposición se
   decide en Home Assistant (Ajustes → Asistentes de voz → Exponer).
@@ -1409,8 +1411,10 @@ PROCESAR UNA FRASE (la EJECUTA)
 PIPELINES, VOZ, AI TASK Y SATÉLITES (por las genéricas)
 - Leer, con `ha_read_ws_command`: `assist_pipeline/pipeline/list` y
   `pipeline/get`, `assist_pipeline/language/list`, `device/list`,
-  `pipeline_debug/list` y `pipeline_debug/get` (la `url` y el `token` del
-  audio salen tapados: HA sirve ese audio sin autenticación), `tts/engine/list`,
+  `pipeline_debug/list` y `pipeline_debug/get` (el `token` del audio, su
+  `url` y su `media_id` salen tapados: HA sirve ese audio sin autenticación;
+  en cualquier respuesta de las genéricas se tapa lo que va tras
+  `/api/tts_proxy/` y `media-source://tts/-stream-/`), `tts/engine/list`,
   `tts/engine/get`, `tts/engine/voices`, `stt/engine/list`, `wake_word/info`,
   `llm/api/list`, `ai_task/preferences/get` y
   `assist_satellite/get_configuration`.

@@ -820,14 +820,19 @@ lista de tools es la de la 1.1.2.
     "unknown"`). El token se ata al texto, el agente, el idioma, la
     conversación y el dispositivo, y solo guarda su hash. Si HA no contesta
     en 90 s, la respuesta es `outcome_unknown`: la frase pudo ejecutarse
-    igualmente, y el token queda gastado. Se anuncia destructiva, no
+    igualmente, y el token queda gastado. Si la conexión falla antes de
+    enviar nada, responde el error con `sent: false` y el token sigue
+    valiendo (`HAConnectionError` lleva el atributo `sent`, el mismo de la
+    spec 022). Se anuncia destructiva, no
     idempotente y de mundo abierto.
 - **Tabla de comandos**: los cinco comandos de CAP-060 pasan a `dedicated`
   (las genéricas ya no llegan a `conversation/process` sin la vista previa).
   Pipelines, motores de voz, AI Task y satélites siguen por las genéricas,
-  revisados: la `url` del audio de `assist_pipeline/pipeline_debug/get` sale
-  tapada, igual que cualquier `/api/tts_proxy/<token>` en las respuestas de
-  las genéricas (HA sirve ese audio sin autenticación); el motivo de
+  revisados: en `assist_pipeline/pipeline_debug/get` el `token` del audio, su
+  `url` y su `media_id` salen tapados, y en cualquier respuesta de las
+  genéricas se tapa el token de `/api/tts_proxy/<token>` y de
+  `media-source://tts/-stream-/<token>`, que es el mismo (HA sirve ese audio
+  sin autenticación; el audio de STT no tiene URL); el motivo de
   `ai_task/preferences/set` dice que la evaluación automática deja a HA usar
   por su cuenta un LLM; `assist_pipeline/pipeline/create` trae un ejemplo
   con sus once campos. `assist_pipeline/run` sigue rechazado.
