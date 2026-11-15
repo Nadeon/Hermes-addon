@@ -162,7 +162,36 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Automatización
 
-_Pendiente: la añade la sub-feature que lo implemente._
+**Automatización asistida (spec 017).** En curso: tramo A, blueprints que ya
+están en `/config/blueprints/` o que escribe el cliente. Familia nueva
+`blueprints` (desactivable con `tool_families_disabled`):
+
+- `ha_list_blueprints`: los blueprints de `automation`, `script` y
+  `template` (o de uno) con su ruta, nombre, descripción, autor,
+  `source_url`, versión mínima y nombres de las entradas; los que HA no pudo
+  cargar, con su error redactado. Nombre, descripción y autor van marcados
+  como texto de terceros. Sobre común de las listas de la 1.2.0.
+- `ha_preview_blueprint_substitution`: la configuración que da un blueprint
+  con unas entradas, sin guardar nada (`saved: false`), con los valores
+  sensibles tapados.
+- `ha_save_blueprint` (token): guarda un blueprint escrito por el cliente.
+  La vista previa da la ruta final, si ya existe y quién lo usa, los
+  metadatos y entradas leídos del YAML (sin resolver `!input`), el tamaño y
+  la huella SHA-256; no repite el YAML. Una ruta ocupada da `already_exists`
+  sin token salvo con `allow_override=true`. `yaml` se puede omitir al
+  confirmar (spec 007).
+- `ha_delete_blueprint` (token): nunca da token para un blueprint en uso
+  (`blueprint_in_use` con las automatizaciones o scripts que lo usan, según
+  `search/related`, la misma fuente que usa HA para negarse); si no se puede
+  saber quién lo usa, `preview_unavailable` sin token.
+- Las rutas se validan antes de llegar a HA (sin `..`, absolutas ni
+  caracteres raros) y `.yaml` se añade si falta.
+- Tabla de comandos: `blueprint/list`, `blueprint/save`, `blueprint/delete` y
+  `blueprint/substitute` pasan a `dedicated` (`blueprint/import`, con el
+  tramo B). Tema nuevo `blueprints` de `hermes_guide` (alias `blueprint`).
+- Banco de Core: guardar (nuevo y sobrescrito) y borrar (en uso y sin uso),
+  con el efecto comprobado por el lector, más la lista y la sustitución de
+  los blueprints que trae HA.
 
 ### Supervisor
 
