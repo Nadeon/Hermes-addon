@@ -434,7 +434,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | pendiente |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
-| 030 | Tienda de apps | 082, 093 | en curso: tramo 1 hecho (familia `app_store`, cinco tools de repositorios y recarga, siete rutas a `dedicated`, guía y matriz; las cuatro que modifican, en la VM pendientes); falta el tramo 2 (changelog, documentación, disponibilidad, reconstrucción y vistas previas de instalar, actualizar y opciones) |
+| 030 | Tienda de apps | 082, 093 | hecha: nueve tools en la familia `app_store` (repositorios: listar, añadir y quitar en dos pasos, reparar y recargar; apps: changelog y documentación de la versión de la tienda por trozos, disponibilidad y reconstrucción en dos pasos); vistas previas nuevas en `sv_install_addon` (disponibilidad), `sv_update_addon` (changelog; `already_up_to_date` sin token) y `sv_set_addon_options` (validación del Supervisor); credenciales de las URL tapadas enteras; 15 rutas a `dedicated`; sin versión concreta (el Supervisor 2026.11 ignora `{version}`: desviación de FR-051); prueba en vivo de las cinco que modifican pendiente (VM de la 014, después instalación real) |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
 
@@ -713,6 +713,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_get_job_status` | VM | pendiente | |
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_rebuild_addon` | VM | pendiente | app local de prueba |
 | `sv_reload_store` | VM | pendiente | |
 | `sv_remove_store_repository` | VM | pendiente | repositorio de prueba |
 | `sv_repair_store_repository` | VM | pendiente | repositorio de prueba |
