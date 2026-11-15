@@ -12,8 +12,8 @@ independiente comprobando cada efecto directamente en Core:
   La vista previa de un cambio de `cors_allowed_origins` trae el documento
   fundido sobre la configuración real con la que HA funciona, el aviso de
   reinicio y su aviso `cors`, y el lector ve `http/config` idéntico antes y
-  después. Un `server_host` sin el Supervisor se rechaza de verdad
-  (`supervisor_lockout`, decisión D-3) sin tocar nada.
+  después. Un `server_host` que deja fuera a las apps se rechaza de verdad
+  (`apps_lockout`, decisión D-3) sin tocar nada.
 - **Promover**: el banco no tiene pendiente: `nothing_to_promote` real.
 - **Tabla**: `http/config/configure` por la genérica da `use_dedicated_tool`.
 
@@ -115,7 +115,7 @@ class TestHttpDeCore(BancoEscrituras):
             self.assertIn("5 minutes", p["restart"])
             # Ni la vista previa ni el rechazo han cambiado nada.
             r = await rechazo(s.cliente, tool, changes={"server_host": ["192.0.2.10"]})
-            self.assertEqual(r["error"], "supervisor_lockout")
+            self.assertEqual(r["error"], "apps_lockout")
             self.assertEqual(await _http(s), antes)
 
     async def test_promover_sin_pendiente(self) -> None:

@@ -1299,7 +1299,7 @@ class TestTemaDeRedYHttp(unittest.IsolatedAsyncioTestCase):
                         "ha_promote_http_config", "5 minutos", "REINICIA",
                         'ha_read_ws_command(type="network")',
                         'ha_read_ws_command(type="http/config")',
-                        "access_risk", "supervisor_lockout", "172.30.32.1",
+                        "access_risk", "apps_lockout", "172.30.32.1",
                         "restart_blocked", "sv_check_core_config",
                         "nothing_to_promote", "discard_pending",
                         "unsupported_by_ha_version", "dos pasos"):

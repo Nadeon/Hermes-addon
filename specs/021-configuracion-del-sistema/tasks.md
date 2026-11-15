@@ -356,3 +356,11 @@ Revisión independiente del rango `c4a57bf..c9679b4`. Severidad entre corchetes.
   3 (con subtests); sin la vuelta a la estable, 2; con el texto viejo de
   D-3, 1; sin los avisos de red, 2; con la guía de antes, 1 en
   `tests/test_tools_guide.py`.
+
+- *Nota posterior (integración en la rama del programa, ajuste del
+  supervisor)*: el código de error `supervisor_lockout` que citan T053 y la
+  desviación D-3 de arriba (texto histórico) pasa a llamarse `apps_lockout`
+  en el código, los tests, la guía, el CHANGELOG y los README: lo que se
+  corta son las apps que conectan directamente, no el Supervisor. Test:
+  `test_el_codigo_dice_que_se_corta_a_las_apps` en
+  `tests/test_tools_core_network.py`.

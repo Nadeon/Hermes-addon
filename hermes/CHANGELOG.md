@@ -836,7 +836,7 @@ desactivar), y analytics y labs por la tabla.
     HA reinicia, que hay que promover en 5 minutos y que con
     `configuration.yaml` inválida no reinicia.
   - Un `server_host` sin `0.0.0.0` ni `172.30.32.1` se rechaza sin token
-    (`supervisor_lockout`), también al promover: las apps que conectan
+    (`apps_lockout`), también al promover: las apps que conectan
     directamente a `homeassistant:8123` llegan a Core desde la red interna
     del Supervisor (172.30.32.0/23) por la pasarela `172.30.32.1`, en IPv4, y
     se quedarían fuera. El Supervisor, y Hermes a través de él, hablan con
@@ -873,7 +873,7 @@ desactivar), y analytics y labs por la tabla.
 - Banco de Core: `ha_update_network_config` cambia y restaura los adaptadores,
   comprobado por el lector; de las dos de HTTP, su vista previa sobre la
   configuración real (el lector ve `http/config` igual) y sus rechazos reales
-  (`supervisor_lockout`, `nothing_to_promote`), porque confirmar reiniciaría
+  (`apps_lockout`, `nothing_to_promote`), porque confirmar reiniciaría
   la HA del banco; su confirmación queda para la VM. Las cuatro de analytics y
   labs, por las genéricas, sin activar ningún envío.
 

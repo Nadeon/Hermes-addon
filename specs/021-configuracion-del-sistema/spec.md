@@ -631,6 +631,13 @@ Cada FR cita el FR y la CAP de la 008 que cumple.
   Core deja sin acceso a Hermes y a todas las apps. Hoy se avisa y la prueba
   de 5 minutos de HA lo revierte si nadie lo promueve. ¿Se rechaza en vez de
   avisar?
+  - *Nota posterior (integración en la rama del programa)*: decidida como
+    rechazo (fail-closed). El texto de arriba es el histórico: desde Core
+    2026.4 el Supervisor, y Hermes a través de él, llegan a Core por un
+    socket Unix; lo que se corta son las apps que conectan directamente a
+    `homeassistant:8123`. Por eso el código de error, que se llamó
+    `supervisor_lockout`, pasa a ser `apps_lockout` (la tool es nueva de la
+    1.2.0: no hay compatibilidad que guardar).
 - **D-4**: Quitar la exposición también confirma (FR-072 pide confirmación en
   lote). ¿Se permite ocultar sin token, que reduce lo expuesto?
 - **D-5**: `users` y `core_network` (riesgo alto) quedan activas por defecto

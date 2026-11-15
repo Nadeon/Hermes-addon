@@ -227,15 +227,16 @@ class TestHttpValidacion(_Base):
 
 
 class TestServerHost(_Base):
-    """D-3 (decidida: fail-closed): sin la dirección por la que el Supervisor
-    llega a Core, `supervisor_lockout` sin token y sin escribir."""
+    """D-3 (decidida: fail-closed): sin la dirección por la que las apps que
+    conectan directamente llegan a Core, `apps_lockout` sin token y sin
+    escribir."""
 
     async def test_rechaza_sin_el_supervisor(self) -> None:
         for hosts in ([_IP], ["::"], ["homeassistant.local"], ["172.30.33.5"],
                       ["192.0.2.10", "::1"]):
             with self.subTest(hosts=hosts):
                 r = await self.t["ha_update_http_config"](changes={"server_host": hosts})
-                self.assertEqual(r["error"], "supervisor_lockout")
+                self.assertEqual(r["error"], "apps_lockout")
                 self.assertNotIn("confirmation_token", r)
                 self.assertIn("172.30.32.0/23", r["detail"])
                 self.assertIn("Hermes", r["detail"])
@@ -259,7 +260,24 @@ class TestServerHost(_Base):
         # La base ya deja fuera al Supervisor: cualquier cambio se rechaza.
         self.http["stable"]["server_host"] = [_IP]
         r = await self.t["ha_update_http_config"](changes={"server_port": 8443})
-        self.assertEqual(r["error"], "supervisor_lockout")
+        self.assertEqual(r["error"], "apps_lockout")
+
+    async def test_el_codigo_dice_que_se_corta_a_las_apps(self) -> None:
+        """Ajuste del supervisor tras integrar la 021: el código es
+        `apps_lockout`, no `supervisor_lockout`. Desde Core 2026.4 el
+        Supervisor (y Hermes a través de él) llega por un socket Unix; lo que
+        se corta son las apps que conectan directamente. Ni el error ni las
+        descripciones de las dos tools nombran el código viejo.
+        Control negativo comprobado: con el código viejo en
+        `ha_update_http_config` → cae este test (y los de arriba)."""
+        r = await self.t["ha_update_http_config"](changes={"server_host": [_IP]})
+        self.assertEqual(r["error"], "apps_lockout")
+        self.assertEqual(r["field"], "server_host")
+        for tool in ("ha_update_http_config", "ha_promote_http_config"):
+            with self.subTest(tool=tool):
+                doc = self.t[tool].__doc__ or ""
+                self.assertIn("apps_lockout", doc)
+                self.assertNotIn("supervisor_lockout", doc)
 
 
 class TestHttpVistaPrevia(_Base):
@@ -512,7 +530,7 @@ class TestPromover(_Base):
 #   `test_avisa_del_acceso`.
 # - T059: sin `_vuelta_a_estable` (siempre "no") → caen
 #   `test_igual_a_la_estable` y `test_dudoso_da_las_dos`.
-# - T060: con el texto viejo de `_SIN_SUPERVISOR` → cae `test_porque_de_d3`.
+# - T060: con el texto viejo de `_SIN_APPS` → cae `test_porque_de_d3`.
 # - T061: sin `_avisos_red` (lista vacía) → caen `test_sin_ipv4` y
 #   `test_sin_el_adaptador_por_defecto`.
 
@@ -646,7 +664,7 @@ class TestConvergenciaPromover(_Base):
     async def test_rechaza_d3_al_promover(self) -> None:
         self._pendiente(server_host=[_IP])
         r = await self.t["ha_promote_http_config"]()
-        self.assertEqual(r["error"], "supervisor_lockout")
+        self.assertEqual(r["error"], "apps_lockout")
         self.assertNotIn("confirmation_token", r)
         self.assertIn("discard_pending", r["detail"])
         # Tampoco con un token de antes (la pendiente pasaba D-3 al pedirlo).
@@ -656,7 +674,7 @@ class TestConvergenciaPromover(_Base):
         self.escrituras_esperadas = 1
         r = await self.t["ha_promote_http_config"](
             confirmation_token=vista["confirmation_token"])
-        self.assertEqual(r["error"], "supervisor_lockout")
+        self.assertEqual(r["error"], "apps_lockout")
         self.assertEqual(self.escrituras(), [])
 
 

@@ -1956,7 +1956,7 @@ AVISOS Y RECHAZOS
   `http://` deja de funcionar), `reverse_proxy` (un proxy fuera de
   `trusted_proxies` queda rechazado), `ip_ban`, `ssl_profile`, `cors`,
   `x_frame_options` y `pending_replaced`.
-- `supervisor_lockout`: un `server_host` sin `0.0.0.0` ni `172.30.32.1` se
+- `apps_lockout`: un `server_host` sin `0.0.0.0` ni `172.30.32.1` se
   rechaza, también al promover: `172.30.32.1` es la pasarela por la que llegan
   las apps que conectan directamente a `homeassistant:8123`, y se quedarían
   fuera. El Supervisor (y Hermes a través de él) habla con Core por un socket

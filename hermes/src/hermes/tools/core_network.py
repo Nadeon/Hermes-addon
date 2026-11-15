@@ -49,7 +49,10 @@ El rechazo se mantiene (conservador): solo valen `0.0.0.0` (todas las IPv4) o
 la propia `172.30.32.1`. `::` sola NO vale: HA enlaza con
 `loop.create_server`, que pone `IPV6_V6ONLY` en los sockets IPv6, así que `::`
 no acepta conexiones IPv4. Sin `server_host`, HA escucha en `0.0.0.0` y `::`.
-El código de error sigue siendo `supervisor_lockout` por compatibilidad.
+El código de error es `apps_lockout`: dice lo que de verdad se corta (las
+apps que conectan directamente). Hasta la integración de la 021 se llamó
+`supervisor_lockout`; la tool es nueva de la 1.2.0, así que no había
+compatibilidad que guardar.
 
 Al revés, un `server_host` que SOLO tenga direcciones internas (la pasarela o
 loopback) pasa D-3 pero deja fuera a la red de casa: se avisa aparte
@@ -478,7 +481,7 @@ def _avisos(cambios: dict[str, Any], hosts: Any) -> tuple[list[dict[str, str]], 
     return avisos, any(_AVISOS_HTTP[g][1] for g in grupos)
 
 
-def _supervisor_llega(hosts: Any) -> bool:
+def _apps_llegan(hosts: Any) -> bool:
     """Si Core seguiría escuchando donde le llegan las apps (D-3)."""
     if hosts is None:
         return True  # sin server_host, HA escucha en 0.0.0.0 y ::
@@ -492,7 +495,7 @@ def _supervisor_llega(hosts: Any) -> bool:
     return False
 
 
-_SIN_SUPERVISOR = (
+_SIN_APPS = (
     "server_host must keep the address the apps use to reach Home Assistant. "
     "Apps that call Home Assistant directly at homeassistant:8123 come from the "
     f"Supervisor's internal Docker network ({_RED_SUPERVISOR}) through the gateway "
@@ -659,7 +662,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         to the stable one (if the result equals the stable configuration,
         Home Assistant just goes back to it, with no trial). A server_host
         without "0.0.0.0" or "172.30.32.1", the address apps use to reach
-        Home Assistant at homeassistant:8123, is rejected (supervisor_lockout).
+        Home Assistant at homeassistant:8123, is rejected (apps_lockout).
         Refused while Hermes' restart block is on (call sv_check_core_config
         first). To read: ha_read_ws_command(type="http/config").
 
@@ -736,10 +739,10 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                 return _invalido(tool, "trusted_proxies",
                                  "use_x_forwarded_for needs at least one trusted proxy "
                                  "in the result (Home Assistant rejects it)")
-            if not _supervisor_llega(nuevo.get("server_host")):
-                logger.warning(f"{tool}_failed", error="supervisor_lockout")
-                return {"error": "supervisor_lockout", "field": "server_host",
-                        "detail": _SIN_SUPERVISOR + " Nothing was done."}
+            if not _apps_llegan(nuevo.get("server_host")):
+                logger.warning(f"{tool}_failed", error="apps_lockout")
+                return {"error": "apps_lockout", "field": "server_host",
+                        "detail": _SIN_APPS + " Nothing was done."}
             cambios = _diff(doc_base, nuevo, defecto)
             if not cambios:
                 logger.info(f"{tool}_ok", step="preview", result="no_changes", fields=claves)
@@ -824,7 +827,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         becomes the stable one, which recovery mode uses, and Home Assistant
         no longer goes back by itself: promote only after the user checked
         they can reach Home Assistant. A pending server_host without
-        "0.0.0.0" or "172.30.32.1" is rejected (supervisor_lockout). Two
+        "0.0.0.0" or "172.30.32.1" is rejected (apps_lockout). Two
         steps: without confirmation_token returns a preview (diff from stable
         to pending, the same access-loss warnings as ha_update_http_config,
         and revert_at, when Home Assistant would go back by itself) and a token;
@@ -862,10 +865,10 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         # D-3 también al promover (T058): una pendiente que deja fuera a las
         # apps no se hace permanente, venga de donde venga. Antes del token,
         # así que vale para la vista previa y para la confirmación.
-        if not _supervisor_llega(pendiente.get("server_host")):
-            logger.warning(f"{tool}_failed", error="supervisor_lockout")
-            return {"error": "supervisor_lockout", "field": "server_host",
-                    "detail": _SIN_SUPERVISOR + " Nothing was promoted: drop it with "
+        if not _apps_llegan(pendiente.get("server_host")):
+            logger.warning(f"{tool}_failed", error="apps_lockout")
+            return {"error": "apps_lockout", "field": "server_host",
+                    "detail": _SIN_APPS + " Nothing was promoted: drop it with "
                               "ha_update_http_config(discard_pending=true), or Home "
                               "Assistant goes back to the stable configuration by "
                               "itself."}
