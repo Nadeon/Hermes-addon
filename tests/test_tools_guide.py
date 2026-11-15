@@ -558,8 +558,9 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # 019 (tramo 2) también (`location` en sv_create_backup_*); sus
         # CHANGELOG lo dicen. Huella recalculada al integrar la 019. La 031
         # (tramo 4, T055) añade el cifrado de los safety backups; su
-        # CHANGELOG lo dice.
-        "backups": "4638cb5b7d7d079c",
+        # CHANGELOG lo dice. La convergencia (T062) dice que `required` no
+        # reutiliza uno sin cifrar; también en el CHANGELOG.
+        "backups": "3e685f47171224e7",
         # La 016 cambia `config_entries` (remite a `integration_flows`; el
         # reconfigure va por su tool y el `reauth` pide token), `diagnostics`
         # (textos de los avisos y remite a `repair_flows`) y `helpers`

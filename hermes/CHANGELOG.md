@@ -693,7 +693,13 @@ con ella apagada (y las demás de la 1.2.0), la lista de tools es la de la
   podando los cifrados: la anotación guarda `encrypted: true` en los que
   Hermes cifró, y solo esos se podan estando protegidos; un backup protegido
   que no anotó así (tuyo, o de antes de la 1.2.0) sigue sin tocarse. La
-  ventana, el límite duro y el lock no cambian. **Desviación de FR-068 de la
+  ventana, el límite duro y el lock no cambian, salvo con `required`: un
+  safety backup reciente SIN cifrar (hecho antes con `auto` sin clave o con
+  `off`) no se reutiliza ni cubre una escritura, y se hace uno nuevo cifrado
+  (o, sin clave, no hay backup ni escritura; si es de hace menos de 60 s,
+  `safety_backup_rate_limited`). `last_safety_backup.json` guarda si el
+  último iba cifrado, y la respuesta de reutilizar también dice
+  `encrypted`. **Desviación de FR-068 de la
   spec 008** (que pedía una contraseña generada y guardada en `/data`): solo
   Hermes podría abrir esos backups y la contraseña viajaría dentro del propio
   backup que cifra; la clave de HA cumple su intención (cifrados, nunca
@@ -765,6 +771,17 @@ con ella apagada (y las demás de la 1.2.0), la lista de tools es la de la
   `not_needed` o `unknown` si no se pudo leer el backup). El token ata esa
   fuente. Si el Supervisor rechaza la clave, el error sugiere que el backup
   puede ser de una clave anterior. Con `password`, nada cambia.
+- **La clave no sale en ningún texto**: si HA o el Supervisor la citaran en
+  un error (con o sin `password=` delante, escapada en JSON o `repr`, entera
+  o recortada), se tapa en un único punto, la llamada que la lleva, antes de
+  llegar a la respuesta, el log, el fichero del token o `/data`.
+- **Avisos honestos sin clave**: si no hay clave porque HA no respondió o la
+  integración no está, la vista previa de restaurar y el error de
+  `ha_create_backup` dicen que no se pudo leer, no que HA no la tiene; y si
+  HA no responde al confirmar una `sv_restore_*`, el error es
+  `ha_unreachable` (nada se restaura y el token sigue valiendo), no
+  `state_changed`. `ha_create_automatic_backup` ata además los agentes
+  disponibles: si cambian antes de confirmar, `state_changed`.
 - **Cliente de HA**: `HAConnectionError` lleva `sent` (si la orden salió por
   el WebSocket antes de fallar la espera), y un fallo al escribir en el
   socket llega como `HAConnectionError` en vez de la excepción de aiohttp.

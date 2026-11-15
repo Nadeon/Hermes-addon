@@ -771,7 +771,9 @@ siempre `encrypted`. Con `auto` y HA sin clave (backups automáticos sin
 configurar, HA anterior a 2025.1 o caído) el backup sale SIN cifrar, con
 `encryption_skipped_reason`, y el log lo avisa; con `required` no se crea
 (`encryption_key_unavailable`) y la escritura en /config no se hace; con
-`off`, sin cifrar, como antes. Restaurar uno cifrado: `sv_restore_backup_full`
+`off`, sin cifrar, como antes. Con `required`, un safety backup reciente sin
+cifrar (de antes de cambiar la opción) no se reutiliza ni cubre una escritura:
+se hace uno nuevo cifrado. Restaurar uno cifrado: `sv_restore_backup_full`
 sin `password` usa la clave de HA (la vista previa lo dice en
 `password_source`); desde la interfaz o la CLI de HA, con el kit de
 emergencia. Si se cambió la clave en HA después, hace falta la anterior

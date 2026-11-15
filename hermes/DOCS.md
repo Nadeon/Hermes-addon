@@ -87,7 +87,7 @@ la interfaz o la CLI de Home Assistant aunque Hermes esté roto; desde Claude,
 | Valor | Con clave en Home Assistant | Sin clave (backups automáticos sin configurar, HA anterior a 2025.1 o caído) |
 |---|---|---|
 | `auto` (por defecto) | cifrado | **sin cifrar**: la respuesta lo dice (`encrypted: false`, `encryption_skipped_reason`) y el log lo avisa (`safety_backup_unencrypted`) |
-| `required` | cifrado | no se hace el backup: `encryption_key_unavailable`, y la escritura en `/config` no se hace |
+| `required` | cifrado; un safety backup reciente sin cifrar no cuenta y se hace uno nuevo cifrado | no se hace el backup: `encryption_key_unavailable`, y la escritura en `/config` no se hace |
 | `off` | sin cifrar, como antes de la 1.2.0 | sin cifrar |
 
 Si cambias la clave en Home Assistant, los safety backups anteriores se abren
