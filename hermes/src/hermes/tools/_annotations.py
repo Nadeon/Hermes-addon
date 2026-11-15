@@ -80,6 +80,9 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # HA y no guardan nada. Su nombre no tiene prefijo de lectura.
     "ha_validate_config",
     "ha_test_condition",
+    # Blueprints (spec 017): HA sustituye las entradas y devuelve la
+    # configuración resultante sin guardar nada (`saved: false`).
+    "ha_preview_blueprint_substitution",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -164,6 +167,12 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Y descartar una notificación persistente borra un aviso de HA que no se
     # recupera (`persistent_notification.dismiss` también está en la denylist).
     "ha_dismiss_persistent_notification",
+    # Blueprints (spec 017): guardar crea o sobrescribe un fichero de
+    # /config/blueprints y, al sobrescribir, HA recarga las automatizaciones
+    # o scripts que lo usan; pide token (invariante «pide token ⇔
+    # destructiva»). `ha_delete_blueprint` ya lo es por el prefijo
+    # `ha_delete_`: borra un fichero que solo vuelve con un backup.
+    "ha_save_blueprint",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

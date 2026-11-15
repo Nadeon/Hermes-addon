@@ -122,6 +122,16 @@ _CATALOGO: tuple[Familia, ...] = (
             "1.2.0", True,
             ("core_logs", "core_validation", "integration_diagnostics",
              "persistent_notifications")),
+    # Spec 017 (research R-10): los blueprints van solos y no en
+    # `automations` (1.1.2), para que apagar las familias de la 1.2.0 deje la
+    # lista de la 1.1.2 (FR-010 de la 008), y no con la ayuda para automatizar
+    # (`automation_assist`) porque son otro caso de uso: estas escriben en
+    # /config (guardar, importar y borrar ficheros), aquellas solo leen. Quien
+    # no quiera que el cliente toque blueprints la apaga sin perder la ayuda.
+    Familia("blueprints",
+            "Automation, script and template blueprints: list, preview a "
+            "substitution, save and delete.",
+            "1.2.0", True, ("blueprints",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

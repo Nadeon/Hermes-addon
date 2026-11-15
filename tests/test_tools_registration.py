@@ -785,6 +785,14 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
     "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
     "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
+    # Spec 017, tramo A (contracts/tools.md): listar por prefijo; la
+    # sustitución no guarda y va en `_READ_ONLY_EXACT`; guardar pide token y
+    # va en `_DESTRUCTIVE_EXACT`; borrar es destructiva por `ha_delete_`.
+    # Ninguna sale a internet (importar, del tramo B, sí).
+    "ha_list_blueprints": ("R-I-", "List blueprints (Home Assistant)"),
+    "ha_preview_blueprint_substitution": ("R-I-", "Preview blueprint substitution (Home Assistant)"),
+    "ha_save_blueprint": ("-DI-", "Save blueprint (Home Assistant)"),
+    "ha_delete_blueprint": ("-DI-", "Delete blueprint (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1481,6 +1489,57 @@ class TestCoreDiagnosticsTramoBRegistration:
         from hermes.tools._annotations import classify
 
         assert [n for n in _CORE_DIAGNOSTICS_B if classify(n).open_world_hint] == []
+
+
+# ── Spec 017, tramo A: blueprints (T009) ─────────────────────────────────────
+
+_BLUEPRINTS_017 = (
+    "ha_list_blueprints", "ha_preview_blueprint_substitution",
+    "ha_save_blueprint", "ha_delete_blueprint",
+)
+
+
+class TestBlueprintsRegistration:
+    """Las cuatro tools del tramo A se registran bajo `blueprints`, con los
+    hints del contrato (`_HINTS_NUEVAS_1_2_0`); con la familia desactivada no
+    aparece ninguna y las de la 1.1.2 siguen igual.
+
+    Control negativo (T016, 6): quitar `ha_save_blueprint` de
+    `_DESTRUCTIVE_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` y el
+    invariante «pide token ⇔ destructiva»
+    (`test_every_tool_that_asks_for_a_token_says_it_is_destructive`).
+    `ha_delete_blueprint` no está en esa lista: ya es destructiva por el
+    prefijo `ha_delete_` (desviación de T009, que la ponía en las dos).
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _BLUEPRINTS_017 if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna(self):
+        mcp = _do_register(["blueprints"])
+        assert [n for n in _BLUEPRINTS_017 if n in mcp.tools] == []
+        assert "ha_create_or_update_automation" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.blueprints.register") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
+
+    def test_las_que_modifican_piden_token_y_ninguna_sale_a_internet(self):
+        from hermes.tools._annotations import classify
+
+        for nombre in ("ha_save_blueprint", "ha_delete_blueprint"):
+            ann = classify(nombre)
+            assert ann.destructive_hint and not ann.read_only_hint, nombre
+        assert classify("ha_preview_blueprint_substitution").read_only_hint
+        assert [n for n in _BLUEPRINTS_017 if classify(n).open_world_hint] == []
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────

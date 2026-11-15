@@ -361,6 +361,14 @@ def register_all_tools(
         )
         register_persistent_notifications(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Blueprints (spec 017, CAP-046): listar, ver la sustitución, guardar y
+    # borrar. Guardar y borrar piden token. Reciben `response_max_bytes` la
+    # lista (un blueprint por fichero, sin tope en HA) y la sustitución (una
+    # configuración cortada no sirve: si no cabe, `response_too_large`).
+    if _activa("blueprints"):
+        from hermes.tools.blueprints import register as register_blueprints
+        register_blueprints(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

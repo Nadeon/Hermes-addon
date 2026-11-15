@@ -689,5 +689,47 @@ class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(faltan, [])
 
 
+class TestTemaBlueprints(unittest.IsolatedAsyncioTestCase):
+    """Spec 017 (FR-014, T011): el tema `blueprints` existe con su alias, el
+    índice lo lista y cada tema de una familia de la 017 (`blueprints` y,
+    cuando exista, `automation_assist`) nombra TODAS las tools registradas
+    de su familia. Genérico: los tramos B, C y D no tienen que tocar este
+    test, solo el texto de los temas.
+
+    Control negativo comprobado: quitar `ha_delete_blueprint` del tema → cae
+    `test_nombra_cada_tool_de_las_familias_de_la_017` nombrándola.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        tema = _GUIDE["blueprints"]
+        for alias in ("blueprints", "blueprint", "BLUEPRINT"):
+            self.assertEqual(await self.guide(alias), tema, alias)
+        for clave in ("use_blueprint", "fs_write_file", "blueprint_in_use",
+                      "already_exists", "allow_override", "saved: false"):
+            self.assertIn(clave, tema)
+
+    async def test_indice(self) -> None:
+        self.assertIn("`blueprints`", await self.guide())
+
+    def test_nombra_cada_tool_de_las_familias_de_la_017(self) -> None:
+        from hermes.tool_families import FAMILIAS
+        from tests.test_tools_registration import _do_register
+
+        completo = set(_do_register().tools)
+        for familia in ("blueprints", "automation_assist"):
+            if familia not in FAMILIAS:
+                continue
+            with self.subTest(familia=familia):
+                de_la_familia = sorted(completo - set(_do_register([familia]).tools))
+                self.assertTrue(de_la_familia)
+                faltan = [n for n in de_la_familia if f"`{n}" not in _GUIDE[familia]]
+                self.assertEqual(faltan, [])
+
+
 if __name__ == "__main__":
     unittest.main()

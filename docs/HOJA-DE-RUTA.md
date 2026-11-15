@@ -431,7 +431,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
-| 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
+| 017 | Automatización asistida | 038, 040, 046, 051, 052 | en curso (tramo A): familia `blueprints` con `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint` y `ha_delete_blueprint`; 4 entradas `blueprint/*` a `dedicated`; guardar y borrar probados en el banco de Core |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
@@ -647,6 +647,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_decrement_input_number` | banco de Core | ok | |
 | `ha_delete_area` | banco de Core | ok | |
 | `ha_delete_automation` | banco de Core | ok | |
+| `ha_delete_blueprint` | banco de Core | ok | |
 | `ha_delete_category` | banco de Core | ok | |
 | `ha_delete_config_entry` | banco de Core | ok | |
 | `ha_delete_counter` | banco de Core | ok | |
@@ -691,6 +692,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_remove_entity_registry` | banco de Core | ok | |
 | `ha_reset_counter` | banco de Core | ok | |
 | `ha_run_script` | banco de Core | falla | seguridad: con una entidad restringida, el token no cubre `variables`; el camino normal funciona (spec 033) |
+| `ha_save_blueprint` | banco de Core | ok | |
 | `ha_save_lovelace_dashboard` | banco de Core | ok | |
 | `ha_set_counter_value` | banco de Core | ok | |
 | `ha_set_input_boolean` | banco de Core | ok | |
