@@ -4,7 +4,10 @@
 
 **Creada**: 2026-11-14
 
-**Estado**: Borrador
+**Estado**: Implementada: sub-features 009–033 integradas y converge del
+programa (T026) hecho. Quedan el cierre (T027–T029) y la fase de
+convergencia de [tasks.md](tasks.md). Desviaciones aceptadas: ver
+«Desviaciones aceptadas en la implementación».
 
 **Tipo**: especificación paraguas de un programa. No se implementa por sí
 misma: define qué significa «cobertura total», las reglas comunes y el
@@ -482,6 +485,10 @@ Cubiertos por FR-013 a FR-015 (CAP-005, CAP-034).
 - **FR-040**: Leer la salud del sistema (primer mensaje y pendientes con tope
   de tiempo), el estado del sistema, los tiempos de arranque de integraciones y
   los manifiestos (CAP-043).
+
+  > **Desviación aceptada DA-01** (ver «Desviaciones aceptadas en la
+  > implementación»): `ha_get_system_health` se anuncia de mundo abierto,
+  > porque `system_health/info` hace salir a HA a internet (FR-017 de la 029).
 - **FR-041**: Validar estadísticas y leer sus metadatos y la información del
   recorder (CAP-049).
 - **FR-042**: La auditoría de llamadas a acciones (`logbook/get_action_calls`)
@@ -503,6 +510,10 @@ Cubiertos por FR-013 a FR-015 (CAP-005, CAP-034).
   resolución quedan `read` en la tabla (CAP-087, lectura).
 - **FR-047**: Hardware, seguridad, Docker y hora quedan `read` en la tabla y la
   comprobación de integridad, `confirm` (CAP-088).
+
+  > **Desviación aceptada DA-02** (ver «Desviaciones aceptadas en la
+  > implementación»): `POST /security/integrity` queda `deny`, no `confirm`:
+  > el Supervisor 2026.11.0 eliminó la comprobación y responde 410 Gone (013).
 - **FR-048**: La red del host queda `read` en la tabla, con las direcciones
   fuera del log (CAP-089).
 
@@ -518,6 +529,11 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   terceros, si habrá backup, el estado de `/resolution/info` y el resultado de
   la comprobación de configuración de Core; la ejecución devuelve el job para
   seguirlo (CAP-080).
+
+  > **Desviación aceptada DA-03** (ver «Desviaciones aceptadas en la
+  > implementación»): las notas de versión de Core, OS y Supervisor no
+  > van recortadas en la vista previa: HA no las tiene en local y Hermes no
+  > las descarga; la vista previa da la `release_url` (015).
 - **FR-050**: Leer las notas de versión de una entidad `update` e instalarla
   con confirmación y vista previa (versión instalada → destino, notas
   recortadas, backup si la entidad lo admite). Las entidades `update` de Core,
@@ -530,6 +546,10 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   reparar repositorios de la tienda; recargarla; leer changelog, documentación
   (como texto de terceros) y disponibilidad de una app; e instalar o actualizar
   una versión concreta (CAP-082).
+
+  > **Desviación aceptada DA-04** (ver «Desviaciones aceptadas en la
+  > implementación»): no se instala ni actualiza una versión concreta: el
+  > Supervisor 2026.11.0 ignora `{version}` (030).
 - **FR-052**: Reconstruir una app con confirmación, y validar las opciones de
   una app en la vista previa de `sv_set_addon_options` antes de emitir el token
   (CAP-093).
@@ -588,9 +608,20 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   actualización; cambiar la configuración de backups (programación, retención,
   agentes) y crear un backup eligiendo agentes, con confirmación; la contraseña
   de cifrado nunca se devuelve (CAP-057).
+
+  > **Desviación aceptada DA-05** (ver «Desviaciones aceptadas en la
+  > implementación»): los ajustes del backup previo a una actualización
+  > (`hassio/update/config/*`) no tienen tool: el proxy WebSocket del
+  > Supervisor rechaza los comandos `hassio/*` y `supervisor/*` de las apps
+  > (DV-1 de la 031).
 - **FR-068**: Los safety backups se crean cifrados con una contraseña generada,
   guardada en el almacenamiento del add-on y nunca devuelta ni registrada; la
   restauración sigue funcionando (CAP-027).
+
+  > **Desviación aceptada DA-06** (ver «Desviaciones aceptadas en la
+  > implementación»): se cifran con la clave de los backups de HA (la del
+  > kit de emergencia), no con una contraseña generada y guardada en `/data`;
+  > opción `safety_backup_encryption`, `auto` por defecto (D-031-1 de la 031).
 
 #### 020 — estadísticas y energía
 
@@ -612,6 +643,11 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
 - **FR-073**: Listar usuarios y sus sesiones (solo metadatos), crear usuarios
   sin credenciales, editarlos y borrarlos, con confirmación; nunca el
   propietario ni el usuario del propio Hermes (CAP-056).
+
+  > **Desviación aceptada DA-07** (ver «Desviaciones aceptadas en la
+  > implementación»): no se listan las sesiones de los usuarios (no hay
+  > `ha_list_user_sessions`): `auth/refresh_tokens` solo da las de la propia
+  > conexión (D-1 de la 021).
 - **FR-074**: Cambiar la configuración de red y HTTP de Core con confirmación y
   un aviso de pérdida de acceso de la interfaz (CAP-069).
 - **FR-075**: Analytics y funciones de labs: lectura `read` y cambios `confirm`
@@ -645,6 +681,10 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   con confirmación y un aviso fuerte; nunca sobre la interfaz por la que entra
   Hermes, porque el Supervisor no revierte solo (CAP-090).
 
+  > **Desviación aceptada DA-08** (ver «Desviaciones aceptadas en la
+  > implementación»): `sv_reload_network` va sin token, porque solo relee
+  > el estado (D-032-1 de la 032).
+
 #### 023 — Assist y conversación
 
 - **FR-083**: Listar agentes de conversación y frases, analizar una frase sin
@@ -664,6 +704,11 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
 - **FR-087**: Calendario y tareas, tags, navegación de medios, orden e ids de
   los registros e imágenes subidas: lectura `read` y escritura `confirm` en la
   tabla (CAP-065, CAP-066, CAP-067, CAP-070, CAP-072).
+
+  > **Desviación aceptada DA-09** (ver «Desviaciones aceptadas en la
+  > implementación»): `media_source/resolve_media` queda `deny` (firma
+  > URLs: es una credencial temporal) e `image/create`, `deny` (por WebSocket
+  > HA no lo implementa) (024).
 - **FR-088**: Credenciales de aplicación: lectura `read` en la tabla con
   `client_secret` siempre fuera de la respuesta (CAP-073).
 
@@ -674,6 +719,10 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   `read`; escrituras `confirm` tras revisarlas; lo que devuelve secretos, borra
   la red, restaura firmware o necesita una acción física o un PIN, `deny`;
   suscripciones, `deny` salvo las de un solo mensaje (CAP-100 a CAP-106).
+
+  > **Desviación aceptada DA-10** (ver «Desviaciones aceptadas en la
+  > implementación»): nueve comandos se clasifican distinto de lo que
+  > decían las notas de CAP de research (research R-3 de la 025).
 - **FR-090**: La guía tiene un tema por grupo de integraciones con los comandos
   más útiles y sus cargas (CAP-100 a CAP-106).
 
@@ -684,6 +733,12 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   Marketplace, con confirmación, backup previo y textos de terceros marcados;
   nunca conectar GitHub ni aceptar el aviso de riesgos; anotaciones por nombre
   exacto, nunca por el prefijo `ha_marketplace_` (CAP-075).
+
+  > **Desviación aceptada DA-11** (ver «Desviaciones aceptadas en la
+  > implementación»): cumplido en parte. Instalar, fijar versión, betas,
+  > añadir repositorios y detectarlos no se publican: HA exige que el usuario
+  > que manda el comando haya aceptado el aviso de riesgos (DV-1 de la 026,
+  > duda D-29).
 
 #### 027 — plataforma y deprecaciones
 
@@ -734,6 +789,11 @@ Cubierto por FR-016 y FR-017 (CAP-006, CAP-022, CAP-034, CAP-035).
   opcional y `destructiveHint` (la anotación anterior no decía la verdad).
   Cada arreglo tiene su test en la suite y, si toca HA, en el banco; los
   `xfail` `HALLAZGO` de estas tools desaparecen (033).
+
+  > **Desviación aceptada DA-12** (ver «Desviaciones aceptadas en la
+  > implementación»): además de las dos excepciones de FR-099,
+  > `ha_continue_config_entry_flow` cambia de anotación (016). Los cambios de
+  > comportamiento de las tools de la 1.1.2 están listados en esa sección.
 
 #### Cierre del programa
 
@@ -837,6 +897,153 @@ No bloquean el programa; las decide el mantenedor al cerrarlo.
   fija los definitivos dentro de las convenciones de FR-018.
 - **S-06**: Medido en research: la lista de las 216 tools ocupa unos 215 KB de
   JSON (~1 KB por tool).
+
+## Desviaciones aceptadas en la implementación
+
+Recogidas en el converge del programa (T026). Cada una la decidió la
+sub-feature que se indica, al leer el código de Home Assistant 2026.11, y la
+aceptó el supervisor del programa. Cada FR afectado lleva una nota que remite
+aquí. La matriz de trazabilidad de [plan.md](plan.md) y la entrada `## [1.2.0]`
+de `hermes/CHANGELOG.md` las repiten donde toca.
+
+| Id | FR | Sub-feature | Qué se hizo en lugar de lo que pedía el FR | Por qué |
+|---|---|---|---|---|
+| DA-01 | FR-040 (y FR-018) | 029 (FR-017 de la 029, T037) | `ha_get_system_health` se anuncia de mundo abierto (`R-IO`, en `_OPEN_WORLD`), aunque la 029 decía que ninguna de sus tools lo era | pedir `system_health/info` hace que HA salga a internet (`async_check_can_reach_url`): la anotación tiene que decir la verdad (principio V) |
+| DA-02 | FR-047 | 013 (research R-6) | `POST /security/integrity` queda `deny`, no `confirm` | el Supervisor 2026.11.0 eliminó la comprobación y la ruta responde 410 Gone: un `confirm` daría un token para algo que siempre falla |
+| DA-03 | FR-049 | 015 | la vista previa de `sv_update_core`, `sv_update_os` y `sv_update_supervisor` no trae las notas de la versión recortadas: da la `release_url` de la entidad `update` de Core y, del OS, el aviso de reinicio. Además, hay una tool más de las estimadas (`ha_list_updates`) | HA no tiene en local las notas de Core, OS ni Supervisor y Hermes no descarga nada de internet; `sv_list_available_updates` no ve las entidades `update` de dispositivos e integraciones |
+| DA-04 | FR-051 | 030 (research R-2) | no se instala ni actualiza una versión concreta; las rutas con `{version}` son `dedicated` hacia la tool sin versión | el Supervisor 2026.11.0 ignora `{version}` (`api/store.py`): una tool con `version` mentiría |
+| DA-05 | FR-067 | 031 (DV-1) | los ajustes del backup previo a una actualización (`hassio/update/config/*`) no tienen tool y quedan `deny` con el motivo del proxy | el proxy WebSocket del Supervisor 2026.11.0 rechaza los comandos `hassio/*` y `supervisor/*` que manda una app (`DENIED_WS_TYPE_PREFIXES`); se cambian en la interfaz de HA. Lo vigila `TestProxyDelSupervisor` |
+| DA-06 | FR-068 | 031 (D-031-1) | los safety backups se cifran con la clave de los backups de HA (la del kit de emergencia), que Hermes lee en cada uso y no guarda, en vez de con una contraseña generada y guardada en `/data`. Opción nueva `safety_backup_encryption`: `auto` (por defecto; sin clave en HA, sin cifrar y se dice), `required` u `off` | una contraseña que solo conoce Hermes viajaría dentro del propio backup y se perdería con él; con la clave de HA se restauran desde la interfaz aunque Hermes esté roto. Cumple la intención: cifrados, clave nunca devuelta ni registrada, restaurables |
+| DA-07 | FR-073 | 021 (research R-5, D-1) | no hay `ha_list_user_sessions`: las sesiones de los usuarios no se listan y `auth/refresh_tokens` queda `deny` revisado | `auth/refresh_tokens` solo devuelve las sesiones del usuario de la propia conexión (el de Hermes); no hay comando para las de otro usuario |
+| DA-08 | FR-082 | 032 (D-032-1) | `sv_reload_network` va sin token | solo vuelve a leer el estado de la red; no cambia nada. Editar una interfaz y crear una VLAN siguen en dos pasos y con la guarda de la interfaz principal |
+| DA-09 | FR-087 | 024 (y 011) | `media_source/resolve_media` queda `deny`; `image/create` también | `resolve_media` devuelve una URL firmada (`authSig`) con la caducidad que pida quien llama: es una credencial temporal, como `auth/sign_path`. `image/create` va por REST multipart y por WebSocket HA responde `NotImplementedError` |
+| DA-10 | FR-089 | 025 (research R-3) | nueve comandos de la clase C se clasifican distinto de lo que decía la nota de su CAP en research (resumen abajo) | FR-089 y lo que hace el handler de verdad mandan sobre la nota orientativa de la CAP |
+| DA-11 | FR-091 | 026 (DV-1, duda D-29) | parcial: hay reconocer avisos críticos, ignorar, quitar, refrescar y desinstalar; **no** se publican instalar, fijar versión, betas, añadir repositorios ni detectarlos (`repository/install`, `repository/version`, `repository/beta`, `repositories/add` y `repositories/detect` quedan `deny` con ese motivo) | HA 2026.11.1 exige que el usuario que manda el comando haya aceptado el aviso de riesgos del Marketplace, y el de Hermes (el del Supervisor) no puede aceptarlo; FR-091 prohíbe además aceptarlo por el usuario. Que una persona lo acepte en la interfaz no lo cambia |
+| DA-12 | FR-020, FR-099, SC-005 | 016 (tramo C) | tercera excepción de anotación, además de las dos de FR-099: `ha_continue_config_entry_flow` pasa a destructiva (`-DI-`) y gana `confirmation_token` opcional | cada paso de un flujo `reauth` cambia credenciales y pide token («pide token ⇔ destructiva»). Está en `_HINTS_CAMBIADOS_A_PROPOSITO` de `tests/test_tools_registration.py` |
+
+### Resumen de DA-10 (research R-3 de la 025)
+
+- `zwave_js/refresh_node_info`: `deny` (la nota pedía dos pasos): deja una
+  suscripción de progreso abierta. `refresh_node_values` y
+  `refresh_node_cc_values` sí van en `confirm`.
+- `zha/devices/permit` y `zha/devices/reconfigure`: `deny` (la nota pedía dos
+  pasos): suscripción que la genérica no cierra; para permitir uniones queda
+  la acción `zha.permit` por `ha_call_service`.
+- `matter/open_commissioning_window`: `deny` (la nota pedía dos pasos):
+  devuelve el código de emparejamiento, un secreto.
+- `thread/discover_routers`: `deny` (la nota decía lectura): suscripción mDNS
+  sin primer mensaje.
+- `thread/get_dataset_tlv`: `deny` (la nota dejaba elegir entre `deny` y
+  redactar): redactado, la respuesta quedaría vacía.
+- `usb/scan`: `read`: solo pide un escaneo, no configura nada.
+- `notify/html5/appkey`: `read` (la nota lo daba por secreto): devuelve la
+  clave pública VAPID, no la privada.
+- Sin nota en la 008: `matter/network_topology` queda `read` y
+  `zwave_js/network_neighbors`, `confirm`.
+- Las tools dedicadas de Z-Wave que la 008 citaba como opcionales no se
+  hacen: la genérica cubre lo mismo.
+
+### Compatibilidad con la 1.1.2 (FR-020, SC-005)
+
+Ninguna tool de la 1.1.2 cambia de nombre ni se quita, y ningún argumento
+existente pasa a ser obligatorio. Con todas las familias de la 1.2.0
+desactivadas la lista es exactamente la de las 216 tools
+(`test_sc005_sin_las_de_la_1_2_0_queda_la_1_1_2`). Cambian de anotación solo
+`ha_create_scene_from_current` (FR-099) y `ha_continue_config_entry_flow`
+(DA-12), y de esquema, además de `ctx` de `ha_wait_for_event` (FR-099), solo
+con argumentos nuevos opcionales (`test_esquemas_de_la_1_1_2`).
+
+Cambios de comportamiento de tools de la 1.1.2, sacados de la entrada
+`## [1.2.0]` del CHANGELOG (entre paréntesis, la sub-feature):
+
+- **Confirmación**:
+  - todos los tokens: dejan de valer tras reiniciar Hermes, porque el
+    `action_hash` es un HMAC con una clave que solo vive en memoria; se
+    rechazan con «lost across restart» sin gastarse (019);
+  - `ha_continue_config_entry_flow`: pide token en cada paso de un `reauth`,
+    se anuncia destructiva, y rechaza con `unknown_flow` los flujos que no
+    abrió Hermes en la sesión ni son descubiertos o de reautenticación (y si
+    no puede leer los flujos en curso); un `reconfigure` remite a su tool
+    (016);
+  - `ha_run_script` y `ha_trigger_automation`: con una entidad restringida,
+    el token ata también `variables` y la vista previa las enseña (033);
+  - `ha_call_service_response`: acepta `confirmation_token` para la denylist y
+    las entidades restringidas; sin token responde el mismo `error` que en la
+    1.1.2, pero con vista previa y token, y sin `isError` (018).
+- **`ha_call_service`**:
+  - `update.install` exige una lista explícita de `entity_id`: la entidad de
+    Hermes responde `self_update_not_supported`; las de Core, OS y
+    Supervisor, `use_dedicated_tool`; un objetivo indirecto,
+    `use_dedicated_tool` hacia `ha_install_update`, todo sin token (015);
+  - `switch` u `homeassistant` `turn_on`/`turn_off`/`toggle` sobre un
+    interruptor «pre-release» del Marketplace pide token con
+    `warning_marketplace_beta`; un objetivo indirecto que pueda alcanzarlo
+    responde `use_entity_ids`, y un registro ilegible,
+    `registry_unavailable` (026);
+  - `logger.set_default_level` entra en la denylist y pide confirmación (012).
+- **Automatizaciones y scripts**: `ha_create_or_update_automation` y
+  `ha_create_or_update_script` validan con HA en la vista previa
+  (`invalid_config` sin token) (017), avisan con
+  `warning_marketplace_install` si llaman a `update.install` (026) y
+  clasifican lo peligroso también con `call_service_denylist_extra` (027).
+- **Escenas y counters (033)**: `ha_create_scene_from_current` responde
+  `name_not_supported` con `name`, pide token para reemplazar una escena
+  temporal y responde `scene_exists`, `entity_not_found` o
+  `scene_not_created`; `ha_increment_counter` y `ha_decrement_counter` con
+  `amount` responden `invalid_amount`, y `ha_set_counter_value`,
+  `invalid_value`, sin llamar a HA; `ha_reload_counters` y
+  `ha_get_config_entry_options` responden siempre `not_supported` y quedan
+  deprecadas hasta la 1.3.0; `ha_wait_for_event` ya no publica `ctx` y manda
+  el aviso de progreso; las descripciones de `ha_get_scene`,
+  `ha_create_or_update_scene` y `ha_delete_scene` dicen `scenes.yaml`; la
+  vista previa de deshabilitar o borrar una integración cuenta las entidades
+  por id exacto.
+- **Apps (add-ons)**:
+  - `sv_update_addon`: sobre el propio Hermes, `self_update_not_supported`
+    sin token (009); vista previa con disponibilidad y changelog,
+    `already_up_to_date` sin token, `in_store: false` en una app desligada y
+    el token atado a `version_latest` (`preview_outdated`; un token sin
+    versión atada ya no vale) (030);
+  - `sv_install_addon`: `addon_not_found`, `already_installed` y
+    `addon_not_available` sin token, aviso de terceros y token atado a
+    `version_latest` (030);
+  - `sv_set_addon_options`: valida con `options/validate` antes del token
+    (`invalid_options`), avisa de contraseñas filtradas y redacta mejor sus
+    errores (030, 025);
+  - `sv_get_addon_options`: las claves S0 y S2 de Z-Wave salen tapadas (025);
+  - `sv_get_addon_logs`: `secrets_redacted` y `network_redacted` (009),
+    `boot` y `latest` opcionales y el error redactado (013).
+- **Backups**:
+  - `sv_create_safety_backup` y el safety backup automático de las
+    escrituras `fs_*`: cifrados por defecto con la clave de HA (DA-06); con
+    `required` y sin clave no se escribe (031); un safety backup con sub-jobs
+    fallidos ya no deja escribir y se poda el primero (027);
+  - `sv_restore_backup_full` y `sv_restore_backup_partial`: sin `password`,
+    un backup protegido usa la clave de HA; `password_source` en la vista
+    previa y atado al token (031);
+  - `sv_create_backup_full` y `sv_create_backup_partial`: `location`
+    opcional y errores redactados (019);
+  - `ha_list_backups`: añade `last_action_event` (031).
+- **Lecturas**:
+  - `sv_get_job_status`: `child_errors` y `success: false` con sub-jobs
+    fallidos; `child_jobs` y los mensajes, redactados antes de recortar (027);
+  - `ha_get_history`: `_response_limit` cuando recorta (009);
+  - `ha_marketplace_list_removed`: `installed_only`, `limit`,
+    `by_removal_type` y `removal_type` recortado como texto de terceros (009);
+  - `ha_list_repairs` trae `title` y `description` traducidos y la vista
+    previa de `ha_ignore_repair`, el título (016);
+  - `ha_save_lovelace_dashboard`: `view_index` y `view` opcionales; sin ellos,
+    como en la 1.1.2 (018);
+  - `ha_remove_device_from_config_entry`: si HA retira su comando, responde
+    `command_removed_in_ha` (027).
+- **Redacción en todas las respuestas** (025): un valor bajo una clave
+  sensible se tapa entero, sea texto, número, objeto o lista (`null`,
+  booleanos y vacíos se conservan).
+- **Solo descripción o log, sin cambio de comportamiento**:
+  `ha_list_configured_domains` (016), `sv_get_resolution` y
+  `sv_dismiss_resolution_suggestion` (022), los nombres «app (add-on)» de las
+  tools de apps (027) y los eventos `*_ok` de las `ha_marketplace_*` y de
+  `sv_get_resolution` (009).
 
 ## Fuera de alcance
 

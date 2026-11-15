@@ -508,6 +508,18 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 032 | Host y red del host | 086, 090 | hecha; prueba en la VM pendiente: familia `host_control` con `sv_shutdown_host`, `sv_set_hostname`, `sv_set_swap` y `sv_set_boot_slot`, y familia `host_network` con `sv_reload_network` (sin token: solo relee), `sv_update_network_interface` y `sv_create_vlan`; dos pasos con el token atado a los argumentos y al estado, la interfaz principal, la única conectada o una principal desconocida rechazadas siempre, la PSK del Wi-Fi que entra y nunca sale, y sus siete rutas a `dedicated` |
 | 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | hecha: tramo 1 (el token de `ha_run_script` y `ha_trigger_automation` ata `variables`; inventario de argumentos atados) y tramo 2 (`ha_reload_counters` y `ha_get_config_entry_options` dicen `not_supported` y quedan deprecadas; `ha_wait_for_event` sin `ctx`; `ha_create_scene_from_current` con escena temporal, token para reemplazar y `name` rechazado; descripciones de escenas con `scenes.yaml`; `amount` y `ha_set_counter_value` validados); banco sin ningún `xfail` |
 
+**Cierre del programa** (T026 de la 008, converge): las 25 sub-features
+están hechas e integradas en `feat/cobertura-total`: 359 tools (las 216 de
+la 1.1.2 y 143 nuevas), tabla completa (623 comandos de Core y 254 rutas del
+Supervisor) sin ninguna entrada «pendiente» ni «sin revisar», y la matriz de
+trazabilidad de `specs/008-cobertura-total/plan.md` completa y vigilada por
+`tests/test_trazabilidad_008.py`. Las desviaciones aceptadas (DA-01…DA-12)
+y los cambios de comportamiento de las tools de la 1.1.2 están en
+`specs/008-cobertura-total/spec.md`. Pendiente: la fase de convergencia de
+`specs/008-cobertura-total/tasks.md` (T031–T034), la documentación final, la
+fecha de la versión y el PR a `main` (T027–T029); fusionar y publicar los
+decide el mantenedor.
+
 #### Banco de Core: helpers (010)
 
 El job `banco de Core` del workflow `Tests` arranca HA Core 2026.11.1 (imagen
