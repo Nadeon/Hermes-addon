@@ -574,11 +574,9 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_create_or_update_timer": "-DI-",
     "ha_create_or_update_zone": "-DI-",
     "ha_create_person": "----",
-    # Spec 033 (FR-011 de la 033, FR-099 de la 008): pasa de `----` a `-D--`.
-    # Puede reemplazar una escena temporal (lo pide confirmar con token), y
-    # anunciarse no destructiva era la mentira; un cliente que confiara en
-    # `----` solo pierde un aviso que debió tener.
-    "ha_create_scene_from_current": "-D--",
+    # Lo que prometía la 1.1.2; la 033 lo cambia a propósito (ver
+    # `_HINTS_CAMBIADOS_A_PROPOSITO`).
+    "ha_create_scene_from_current": "----",
     "ha_cycle_input_select": "----",
     "ha_decrement_counter": "----",
     "ha_decrement_input_number": "----",
@@ -1053,6 +1051,12 @@ _HINTS_CAMBIADOS_A_PROPOSITO: dict[str, str] = {
     # Spec 016, tramo C (decisión del supervisor): pide token en cada paso de
     # un flujo `reauth` (cambia credenciales); «pide token ⇔ destructiva».
     "ha_continue_config_entry_flow": "-DI-",
+    # Spec 033 (FR-011 de la 033, FR-099 de la 008): pasa de `----` a `-D--`.
+    # Puede reemplazar una escena temporal (lo pide confirmar con token), y
+    # anunciarse no destructiva era la mentira; un cliente que confiara en
+    # `----` solo pierde un aviso que debió tener. Va aquí y no en la tabla de
+    # arriba para que esa siga siendo literalmente la 1.1.2 (T033 de la 008).
+    "ha_create_scene_from_current": "-D--",
 }
 
 # Tools de cada familia nueva de la 1.2.0 (sus contratos). Con la familia
