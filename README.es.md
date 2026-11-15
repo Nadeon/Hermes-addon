@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **244 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **248 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 244 herramientas
+## Qué puede hacer — 248 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -50,7 +50,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Utilidades** | 2 | `ping` y `hermes_guide` |
 | **Estado del sistema** | 5 | De solo lectura: el informe de salud del sistema (lo que enseña Ajustes → Sistema → Reparaciones → Información del sistema), si Home Assistant o el host piden reinicio, cuánto tardó cada integración en arrancar y los manifiestos de las integraciones. Familia `system_status`, nueva en 1.2.0 |
 | **Recorder** | 3 | De solo lectura: si el recorder está grabando (y si se graba una entidad), los problemas que Home Assistant ve en las estadísticas de largo plazo y los metadatos de las estadísticas que nombres. Familia `recorder`, nueva en 1.2.0; el mantenimiento de estadísticas se le sumará |
-| **Tienda de apps** | 5 | Los repositorios de la tienda de apps del Supervisor: listarlos (con sus apps y cuáles están instaladas), añadir uno (código de terceros: en dos pasos, con la URL exacta en la vista previa y la contraseña de la URL tapada), quitar uno (en dos pasos; se rechaza si es integrado o tiene apps instaladas), repararlo y recargar la tienda. Familia `app_store`, nueva en 1.2.0 |
+| **Tienda de apps** | 9 | Los repositorios de la tienda de apps del Supervisor: listarlos (con sus apps y cuáles están instaladas), añadir uno (código de terceros: en dos pasos, con la URL exacta en la vista previa y las credenciales de la URL tapadas), quitar uno (en dos pasos; se rechaza si es integrado o tiene apps instaladas), repararlo y recargar la tienda. El changelog y la documentación de la versión de la tienda de una app (texto de terceros, redactado, por trozos), si se puede instalar en este sistema y reconstruir una app instalada (en dos pasos). Instalar, actualizar y cambiar opciones comprueban antes: disponibilidad, changelog y validación de las opciones por el Supervisor. Familia `app_store`, nueva en 1.2.0 |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 
 Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y

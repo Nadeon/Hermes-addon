@@ -777,13 +777,23 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "sv_remove_store_repository": ("-DI-", "Remove store repository (Supervisor)"),
     "sv_repair_store_repository": ("--IO", "Repair store repository (Supervisor)"),
     "sv_reload_store": ("--IO", "Reload store (Supervisor)"),
+    # Spec 030, tramo 2: las tres de lectura heredan `readOnlyHint` del
+    # prefijo `sv_get_` (leen el clon local, no salen); reconstruir pide token
+    # (destructiva) y descarga imágenes (mundo abierto).
+    "sv_get_addon_changelog": ("R-I-", "Get add-on changelog (Supervisor)"),
+    "sv_get_addon_documentation": ("R-I-", "Get add-on documentation (Supervisor)"),
+    "sv_get_addon_availability": ("R-I-", "Get add-on availability (Supervisor)"),
+    "sv_rebuild_addon": ("-DIO", "Rebuild add-on (Supervisor)"),
 }
 
-# Las cinco de la spec 030, tramo 1 (repositorios y recarga, CAP-082).
+# Las nueve de la spec 030: tramo 1 (repositorios y recarga, CAP-082) y
+# tramo 2 (fichas, disponibilidad y reconstrucción, CAP-082 y CAP-093).
 _TIENDA_030 = (
     "sv_list_store_repositories", "sv_add_store_repository",
     "sv_remove_store_repository", "sv_repair_store_repository",
     "sv_reload_store",
+    "sv_get_addon_changelog", "sv_get_addon_documentation",
+    "sv_get_addon_availability", "sv_rebuild_addon",
 )
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1282,10 +1292,10 @@ class TestRecorderRegistration:
 
 
 class TestTiendaDeApps030:
-    """Spec 030, T008 (FR-015, FR-016): las cinco tools de repositorios se
-    registran por defecto con las anotaciones de contracts/tools.md; añadir y
-    quitar llevan `confirmation_token`, reparar y recargar no; con `app_store`
-    desactivada no queda ninguna y el resto no cambia.
+    """Spec 030, T008 y T023 (FR-015, FR-016): las nueve tools de la tienda
+    se registran por defecto con las anotaciones de contracts/tools.md;
+    añadir, quitar y reconstruir llevan `confirmation_token`, el resto no;
+    con `app_store` desactivada no queda ninguna y el resto no cambia.
 
     Control negativo comprobado: quitar `sv_remove_store_repository` de
     `_DESTRUCTIVE_EXACT` → caen `test_anotaciones` y el invariante de
@@ -1308,10 +1318,31 @@ class TestTiendaDeApps030:
             "sv_remove_store_repository": {"repository", "confirmation_token"},
             "sv_repair_store_repository": {"repository"},
             "sv_reload_store": set(),
+            "sv_get_addon_changelog": {"slug", "offset", "max_chars"},
+            "sv_get_addon_documentation": {"slug", "offset", "max_chars"},
+            "sv_get_addon_availability": {"slug"},
+            "sv_rebuild_addon": {"slug", "force", "confirmation_token"},
         }
         for nombre in ("sv_add_store_repository", "sv_remove_store_repository",
                        "sv_repair_store_repository"):
             assert tools[nombre].parameters.get("required") == ["repository"], nombre
+        for nombre in ("sv_get_addon_changelog", "sv_get_addon_documentation",
+                       "sv_get_addon_availability", "sv_rebuild_addon"):
+            assert tools[nombre].parameters.get("required") == ["slug"], nombre
+
+    def test_las_tres_de_la_1_1_2_no_cambian(self):
+        """T023 (SC-005): `sv_install_addon`, `sv_update_addon` y
+        `sv_set_addon_options` ganan vista previa, no argumentos ni
+        anotaciones."""
+        tools = _real_registry()
+        for nombre in ("sv_install_addon", "sv_update_addon", "sv_set_addon_options"):
+            assert _hint_code(tools[nombre].annotations) == _HINTS_SNAPSHOT[nombre], nombre
+        assert set(tools["sv_install_addon"].parameters["properties"]) == {
+            "slug", "confirmation_token"}
+        assert set(tools["sv_update_addon"].parameters["properties"]) == {
+            "slug", "confirmation_token"}
+        assert set(tools["sv_set_addon_options"].parameters["properties"]) == {
+            "slug", "options", "confirmation_token"}
 
     def test_con_la_familia_apagada(self):
         completo = set(_real_registry())

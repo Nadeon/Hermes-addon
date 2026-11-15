@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **244 tools**: turn on lights, write automations,
+external systems). It ships **248 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 244 tools
+## What it can do — 248 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -48,7 +48,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Utilities** | 2 | `ping` and `hermes_guide` |
 | **System status** | 5 | Read only: the system health report (what Settings > System > Repairs > System information shows), whether Home Assistant or the host needs a restart, how long each integration took to set up, and integration manifests. Family `system_status`, new in 1.2.0 |
 | **Recorder** | 3 | Read only: whether the recorder is recording (and whether one entity is recorded), the problems Home Assistant finds in long-term statistics, and the metadata of the statistics you name. Family `recorder`, new in 1.2.0; statistics maintenance will join it |
-| **App store** | 5 | The Supervisor app store repositories: list them (with their apps and which are installed), add one (third-party code: two steps, the exact URL in the preview, a password in the URL hidden), remove one (two steps; refused if it is built-in or has installed apps), repair one and reload the store. Family `app_store`, new in 1.2.0 |
+| **App store** | 9 | The Supervisor app store repositories: list them (with their apps and which are installed), add one (third-party code: two steps, the exact URL in the preview, the credentials in the URL hidden), remove one (two steps; refused if it is built-in or has installed apps), repair one and reload the store. The changelog and documentation of the store version of an app (third-party text, redacted, in chunks), whether it can be installed on this system, and rebuilding an installed app (two steps). Installing, updating and changing options now check first: availability, the changelog and the Supervisor's validation of the options. Family `app_store`, new in 1.2.0 |
 | **Generic commands** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` and `sv_call_api`: what no other tool covers, and only what Hermes' command table allows (writes always in two steps) |
 
 There is one more, auxiliary, tool that is only registered with `HERMES_DEV=1`

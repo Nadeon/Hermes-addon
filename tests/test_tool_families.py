@@ -174,19 +174,20 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("statistics"), "data")
 
     def test_app_store_es_de_la_1_2_0(self) -> None:
-        """Spec 030, T002 (FR-015): familia nueva de la 1.2.0, desactivable.
-        El tramo 1 la crea con el módulo de repositorios y recarga, y su
-        descripción solo nombra eso (principio V); el tramo 2 añadirá
-        `store_apps` y la completará."""
+        """Spec 030, T002 y T020 (FR-015): familia nueva de la 1.2.0,
+        desactivable, con el módulo de repositorios y recarga (tramo 1) y el
+        de fichas, disponibilidad y reconstrucción (tramo 2), y una
+        descripción que nombra las dos cosas (principio V)."""
         familia = FAMILIAS["app_store"]
         self.assertEqual(familia.desde, "1.2.0")
         self.assertTrue(familia.desactivable)
-        self.assertEqual(familia.modulos, ("store_repositories",))
+        self.assertEqual(familia.modulos, ("store_repositories", "store_apps"))
         self.assertEqual(
             familia.descripcion,
-            "App store: add, remove, repair and list store repositories, and "
-            "reload the store.")
+            "App store: repositories, store reload, app changelog, "
+            "documentation and availability, and app rebuild.")
         self.assertEqual(familia_de_modulo("store_repositories"), "app_store")
+        self.assertEqual(familia_de_modulo("store_apps"), "app_store")
         # Las tools de apps de la 1.1.2 siguen en `supervisor` (FR-010 de la 008).
         self.assertEqual(familia_de_modulo("addons"), "supervisor")
         self.assertEqual(validar_desactivadas(["app_store"]), frozenset({"app_store"}))

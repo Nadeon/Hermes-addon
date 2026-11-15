@@ -15,7 +15,7 @@ POR QUÉ
 Añadir un repositorio es la vía de entrada de código de terceros: sus apps
 pasan a poder instalarse y, una vez instaladas, se ejecutan con los permisos
 que declaren. Por eso va en dos pasos, la vista previa dice la URL EXACTA que
-se enviará (con la contraseña de una URL con credenciales tapada) y Hermes no
+se enviará (con la parte de usuario de una URL con credenciales tapada) y Hermes no
 descarga nada para enseñarla: quien clona es el Supervisor, al confirmar
 (research R-4).
 
@@ -36,6 +36,7 @@ privados) ni textos del repositorio.
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any
 from urllib.parse import urlsplit
@@ -55,11 +56,12 @@ from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._store import (
     URLS_DE_CORE,
-    contrasena_de_url,
+    credenciales_de_url,
     es_integrado,
     redactar_mensaje,
     slug_de_repositorio,
     tapar_credenciales,
+    tapar_en_estructura,
     texto_de_terceros,
 )
 from hermes.tools._validation import InvalidIdentifier, validate_slug
@@ -98,7 +100,7 @@ def validar_url_repositorio(valor: Any) -> tuple[str, str | None]:
     Más estricta que el Supervisor en un punto (research R-4): exige `http`
     o `https` y un servidor, aunque `vol.Url` admita otros esquemas; es lo que
     usa un repositorio de apps y deja fuera `file://` y similares. El
-    `detail` del error nunca copia el valor (puede llevar una contraseña).
+    `detail` del error nunca copia el valor (puede llevar credenciales).
     """
     if not isinstance(valor, str):
         raise ArgumentoInvalido("repository", DETALLE_URL)
@@ -190,6 +192,18 @@ def register(
         _log(tool, f"rejected:{respuesta['error']}", **campos)
         return respuesta
 
+    def _redactar(texto: str, repos: list[dict[str, Any]]) -> str:
+        """`texto` con las credenciales de las URL de `repos` tapadas
+        LITERALMENTE (también un token suelto, fuera de la URL) y después la
+        redacción general. Para los errores en los que el Supervisor pudo
+        nombrar cualquier repositorio (recargar, el catálogo)."""
+        for repo in repos:
+            for campo in ("source", "url"):
+                valor = repo.get(campo)
+                if isinstance(valor, str):
+                    texto = redactar_mensaje(texto, valor)
+        return redactar_mensaje(texto)
+
     def _error(tool: str, exc: Exception, url: str | None = None, **campos: Any) -> dict[str, Any]:
         _log(tool, "error", **campos)
         return {"error": redactar_mensaje(str(exc), url)}
@@ -235,9 +249,26 @@ def register(
             key=lambda a: a["slug"],
         )
 
+    def _tapar_salida(fn: Any) -> Any:
+        """Última capa de cada tool de repositorios (extra b del supervisor
+        del programa): ningún texto de lo que devuelve lleva la parte de
+        usuario de una URL (`esquema://algo@`), venga de la lista, de una
+        vista previa, de un error o de un mensaje del Supervisor. Las
+        funciones de dentro ya tapan lo que conocen; esto cubre lo que no
+        (un nombre o un mantenedor con una URL, un error de otra URL).
+
+        `functools.wraps` conserva el nombre, la firma y las anotaciones: el
+        esquema MCP y las anotaciones de la tool no cambian.
+        """
+        @functools.wraps(fn)
+        async def envoltura(*args: Any, **kwargs: Any) -> Any:
+            return tapar_en_estructura(await fn(*args, **kwargs))
+        return envoltura
+
     # ── Listar ──
 
     @mcp.tool()
+    @_tapar_salida
     async def sv_list_store_repositories(repository: str | None = None) -> object:
         """List the repositories of the Supervisor app (add-on) store: each
         one offers apps that can be installed (read only).
@@ -245,8 +276,9 @@ def register(
         `builtin` repositories come with the Supervisor and cannot be
         removed; a repository with `installed_apps` cannot be removed until
         those apps are uninstalled. `name`, `url` and `maintainer` are written
-        by third parties (see `_third_party_text`). A password in a
-        repository URL is shown as ***REDACTED***. To list the apps
+        by third parties (see `_third_party_text`). The credentials of a
+        repository URL (user, password or token before `@`) are shown as
+        ***REDACTED***. To list the apps
         themselves, use sv_list_addons(installed_only=false).
 
         Args:
@@ -274,7 +306,7 @@ def register(
                     await _apps()).get(repository, [])
                 sin_apps = None
             except HAConnectionError as exc:
-                apps, sin_apps = None, redactar_mensaje(str(exc))
+                apps, sin_apps = None, _redactar(str(exc), [repo])
             out: dict[str, Any] = {
                 "repository": _resumen_repositorio(repo, apps),
                 "_third_party_text": texto_de_terceros(_CAMPOS_REPO),
@@ -297,7 +329,7 @@ def register(
             por_repo: dict[str, list[dict[str, Any]]] | None = _apps_por_repositorio(await _apps())
         except HAConnectionError as exc:
             por_repo = None
-            cabecera["apps_unavailable"] = redactar_mensaje(str(exc))
+            cabecera["apps_unavailable"] = _redactar(str(exc), repos)
         items = sorted(
             (_resumen_repositorio(
                 r, None if por_repo is None else por_repo.get(str(r.get("slug")), []))
@@ -316,6 +348,7 @@ def register(
     # ── Añadir ──
 
     @mcp.tool()
+    @_tapar_salida
     async def sv_add_store_repository(
         repository: str,
         confirmation_token: str | None = None,
@@ -328,7 +361,8 @@ def register(
         nor by Hermes; once added, its apps become installable. Adding it
         does not install any app (use sv_install_addon for that, after
         reviewing them). The preview downloads nothing: it shows the exact
-        URL that will be sent (a password in it is shown as ***REDACTED***),
+        URL that will be sent (its credentials, the user part before `@`,
+        are shown as ***REDACTED***; the confirmation sends them unchanged),
         the server and the branch. The Supervisor clones the repository when
         you confirm and rejects it if it is not a valid app repository.
 
@@ -370,7 +404,7 @@ def register(
                 "repository": tapar_credenciales(url),
                 "host": servidor,
                 "branch": rama,
-                "credentials_hidden": contrasena_de_url(url) is not None,
+                "credentials_hidden": credenciales_de_url(url) is not None,
                 "warning": _AVISO_TERCEROS,
                 "note": (
                     "Nothing is downloaded until you confirm. Review the "
@@ -442,6 +476,7 @@ def register(
         return None, repo, apps
 
     @mcp.tool()
+    @_tapar_salida
     async def sv_remove_store_repository(
         repository: str,
         confirmation_token: str | None = None,
@@ -520,8 +555,7 @@ def register(
                 timeout_seconds=_LONG_OP_TIMEOUT,
             )
         except HAConnectionError as exc:
-            mensaje = redactar_mensaje(str(exc), repo.get("source"))
-            mensaje = redactar_mensaje(mensaje, repo.get("url"))
+            mensaje = _redactar(str(exc), [repo])
             await complete_confirmation_token(confirmation_token, success=False, error=mensaje)
             _log(tool, "error", repository=repository)
             return {"error": mensaje}
@@ -533,6 +567,7 @@ def register(
     # ── Reparar y recargar ──
 
     @mcp.tool()
+    @_tapar_salida
     async def sv_repair_store_repository(repository: str) -> object:
         """Repair a repository of the Supervisor app (add-on) store whose
         local copy is broken: the Supervisor clones it again into a temporary
@@ -568,14 +603,14 @@ def register(
                 timeout_seconds=_LONG_OP_TIMEOUT,
             )
         except HAConnectionError as exc:
-            mensaje = redactar_mensaje(redactar_mensaje(str(exc), repo.get("source")),
-                                       repo.get("url"))
+            mensaje = _redactar(str(exc), [repo])
             _log(tool, "error", repository=repository)
             return {"error": mensaje}
         _log(tool, "ok", repository=repository)
         return {"result": "ok", "repository": repository}
 
     @mcp.tool()
+    @_tapar_salida
     async def sv_reload_store() -> object:
         """Reload the Supervisor app (add-on) store: updates every repository
         (git pull) and re-reads the app catalog, so new apps and new versions
@@ -589,7 +624,15 @@ def register(
             await ha_client.sv_request(
                 "POST", "/store/reload", timeout_seconds=_LONG_OP_TIMEOUT)
         except HAConnectionError as exc:
-            return _error(tool, exc)
+            # El error puede nombrar cualquier repositorio (y su token suelto):
+            # se leen para tapar sus credenciales. Si tampoco se pueden leer,
+            # queda el tapado de toda URL del texto.
+            try:
+                repos = await _repositorios()
+            except HAConnectionError:
+                repos = []
+            _log(tool, "error")
+            return {"error": _redactar(str(exc), repos)}
         _log(tool, "ok")
         return {
             "result": "ok",

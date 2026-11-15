@@ -71,10 +71,15 @@ class SupervisorSimulado:
 
     def __init__(self) -> None:
         self.json: dict[tuple[str, str], Any] = {}
+        self.textos: dict[str, Any] = {}
         self.llamadas: list[dict[str, Any]] = []
 
     def respuesta(self, metodo: str, ruta: str, valor: Any) -> None:
         self.json[(metodo.upper(), ruta)] = valor
+
+    def texto(self, ruta: str, valor: Any) -> None:
+        """Respuesta de `sv_request_text` (texto o excepción) para `ruta`."""
+        self.textos[ruta] = valor
 
     def secuencia(self, metodo: str, ruta: str, valores: list[Any]) -> None:
         self.json[(metodo.upper(), ruta)] = _Secuencia(valores)
@@ -105,7 +110,12 @@ class SupervisorSimulado:
                               timeout_seconds: float = 60.0) -> str:
         self.llamadas.append({"metodo": "GET", "ruta": sv_path, "texto": True,
                               "timeout": timeout_seconds})
-        raise no_encontrado("GET", sv_path)
+        valor = self.textos.get(sv_path)
+        if valor is None:
+            raise no_encontrado("GET", sv_path)
+        if isinstance(valor, Exception):
+            raise valor
+        return valor
 
     # ── Ayudas para los tests ──
 
@@ -114,6 +124,9 @@ class SupervisorSimulado:
 
     def rutas(self) -> list[tuple[str, str]]:
         return [(c["metodo"], c["ruta"]) for c in self.llamadas]
+
+    def textos_pedidos(self) -> list[str]:
+        return [c["ruta"] for c in self.llamadas if c.get("texto")]
 
 
 class _Secuencia:
@@ -140,3 +153,63 @@ def apps_con_instalada(slug: str) -> list[dict[str, Any]]:
             app["installed"] = True
             app["version"] = app["version_latest"]
     return out
+
+
+# ── Fichas y textos de una app (tramo 2) ──────────────────────────────────────
+#
+# `GET /store/addons/{slug}` (`_generate_app_information`), `…/changelog` y
+# `…/documentation` (texto plano con 200 SIEMPRE, también para «no tiene» y
+# «no existe»: `api/store.py`), `…/availability` (`api_process`: `{}` o 400
+# con el mensaje de `validate_availability`), `GET /addons/{slug}/info` y
+# `POST /addons/{slug}/options/validate` (`{message, valid, pwned}`).
+
+CENTINELA_DOC = "centinela-clave-2"
+CENTINELA_OPCION = "centinela-clave-3"
+LARGO_TEXTO = 50_000
+# El centinela, escrito como lo redacta `redact_secrets` (`password: …`),
+# cruzando el corte por defecto de 20 000 caracteres: si se redactara por
+# trozos, cada uno llevaría media clave que ninguna regla reconoce.
+_POS_CENTINELA = 19_990
+
+
+def texto_largo() -> str:
+    """50 000 caracteres de texto de una app con un secreto cerca del corte."""
+    secreto = f"\npassword: {CENTINELA_DOC}\n"
+    relleno = ("## 1.0.0\n- Linea de cambios de ejemplo.\n" * 2000)
+    texto = relleno[:_POS_CENTINELA] + secreto
+    texto += relleno[: LARGO_TEXTO - len(texto)]
+    return texto[:LARGO_TEXTO]
+
+
+def ficha(slug: str, **campos: Any) -> dict[str, Any]:
+    """Ficha de una app en la tienda, forma del Supervisor 2026.11.0."""
+    base: dict[str, Any] = {
+        "slug": slug, "name": "Ejemplo", "repository": slug.split("_", 1)[0],
+        "available": True, "arch": ["amd64", "aarch64"], "homeassistant": None,
+        "stage": "stable", "advanced": False, "build": False,
+        "installed": False, "version": None, "version_latest": "2.0.0",
+        "documentation": True, "changelog": True, "state": "unknown",
+        "detached": False,
+    }
+    base.update(campos)
+    return base
+
+
+def error_400(ruta: str, mensaje: str) -> HAConnectionError:
+    """Un `APIError` del Supervisor (`api_process`): 400 con `message`."""
+    import json as _json
+    cuerpo = _json.dumps({"result": "error", "message": mensaje})
+    return HAConnectionError(
+        f"Supervisor REST GET http://supervisor{ruta} failed 400: {cuerpo}", status=400)
+
+
+def no_changelog(slug: str) -> str:
+    return f"No changelog found for app {slug}!"
+
+
+def no_documentacion(slug: str) -> str:
+    return f"No documentation found for app {slug}!"
+
+
+def app_inexistente(slug: str) -> str:
+    return f"App {slug} does not exist in the store"

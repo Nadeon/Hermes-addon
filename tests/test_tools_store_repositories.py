@@ -111,7 +111,7 @@ class TestListar(_Base):
         r = await self.t["sv_list_store_repositories"]()
         self.assertSinCentinela(r)
         privado = next(i for i in r["items"] if i["slug"] == "abcd1234")
-        tapada = f"https://usuario:{REDACTED_MARKER}@example.com/repo-ficticio"
+        tapada = f"https://{REDACTED_MARKER}@example.com/repo-ficticio"
         self.assertEqual(privado["source"], tapada)
         self.assertEqual(privado["url"], tapada)
 
@@ -234,7 +234,7 @@ class TestAnadir(_Base):
         p = r["preview"]
         self.assertEqual(p["action"], "add_store_repository")
         self.assertEqual(p["repository"],
-                         f"https://usuario:{REDACTED_MARKER}@example.com/nuevo#main")
+                         f"https://{REDACTED_MARKER}@example.com/nuevo#main")
         self.assertEqual(p["host"], "example.com")
         self.assertEqual(p["branch"], "main")
         self.assertIs(p["credentials_hidden"], True)
@@ -265,7 +265,7 @@ class TestAnadir(_Base):
         self.assertEqual(r["result"], "ok")
         self.assertEqual(r["repository"]["slug"], "ffff0001")
         self.assertEqual(r["repository"]["url"],
-                         f"https://usuario:{REDACTED_MARKER}@example.com/nuevo")
+                         f"https://{REDACTED_MARKER}@example.com/nuevo")
         self.assertEqual(r["_third_party_text"]["fields"],
                          ["repository.name", "repository.url", "repository.maintainer"])
         self.assertIn("sv_install_addon", r["next"])
@@ -508,6 +508,142 @@ class TestLog(_Base):
             self.assertNotIn(prohibido, texto)
         for e in eventos:
             self.assertRegex(e.get("repository", ""), r"^[0-9a-z]+$")
+
+
+# ── Parte de usuario de la URL, entera (extra b del supervisor, tramo 2) ──────
+
+
+_TOKEN = "centinela-token-9"
+_URL_TOKEN = f"https://{_TOKEN}@example.com/privado"
+
+
+class TestParteDeUsuarioEntera(_Base):
+    """`https://token@servidor/…` y `https://usuario:clave@…` se tapan
+    ENTEROS en vistas previas, respuestas, errores (también el texto del
+    Supervisor) y log, en las cinco tools; solo la petición real lleva la URL
+    completa, y el token de confirmación se ata a la URL COMPLETA.
+
+    Control negativo (T026, recuentos en `tasks.md`): quitar
+    `@_tapar_salida` → cae `test_listar_con_texto_de_terceros_que_lleva_una_url`.
+    Tapar solo la contraseña en `tapar_credenciales` lo cazan los de
+    `tests/test_store_comun.py`; aquí la última capa lo sigue tapando
+    (defensa en profundidad), así que esta clase no cae.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        privado = {"slug": "ffff0003", "name": "Privado", "source": _URL_TOKEN,
+                   "url": _URL_TOKEN, "maintainer": "Alguien"}
+        self.repos = REPOSITORIOS + [privado]
+        self.sv.respuesta("GET", "/store/repositories", self.repos)
+        self.sv.respuesta("GET", "/store/repositories/ffff0003", privado)
+
+    def assertSinToken(self, valor: Any) -> None:  # noqa: N802
+        texto = json.dumps(valor, ensure_ascii=False)
+        self.assertNotIn(_TOKEN, texto)
+        self.assertNotIn("usuario", texto)
+        self.assertNotIn(CENTINELA_CLAVE, texto)
+
+    async def test_listar(self) -> None:
+        r = await self.t["sv_list_store_repositories"]()
+        self.assertSinToken(r)
+        privado = next(i for i in r["items"] if i["slug"] == "ffff0003")
+        self.assertEqual(privado["source"], f"https://{REDACTED_MARKER}@example.com/privado")
+        r = await self.t["sv_list_store_repositories"](repository="ffff0003")
+        self.assertSinToken(r)
+
+    async def test_listar_con_texto_de_terceros_que_lleva_una_url(self) -> None:
+        # Un nombre o un mantenedor también puede llevar una URL con
+        # credenciales: la última capa la tapa.
+        raro = {"slug": "ffff0004", "name": f"Ver {_URL_TOKEN}", "source": "x",
+                "url": "x", "maintainer": f"git+ssh://{_TOKEN}@example.com/m"}
+        self.sv.respuesta("GET", "/store/repositories", self.repos + [raro])
+        r = await self.t["sv_list_store_repositories"]()
+        self.assertSinToken(r)
+
+    async def test_vista_previa_de_anadir(self) -> None:
+        for url in ("https://otro-token-8@example.com/nuevo",
+                    "https://usuario:otra-clave-2@example.com/nuevo"):
+            with self.subTest(url=url):
+                r = await self.t["sv_add_store_repository"](url)
+                p = r["preview"]
+                self.assertEqual(p["repository"], f"https://{REDACTED_MARKER}@example.com/nuevo")
+                self.assertIs(p["credentials_hidden"], True)
+                texto = json.dumps(r)
+                for trozo in ("otro-token-8", "otra-clave-2", "usuario"):
+                    self.assertNotIn(trozo, texto)
+        self.assertEqual(self.sv.escrituras(), [])
+
+    async def test_ya_anadido_y_respuesta_con_token(self) -> None:
+        r = await self.t["sv_add_store_repository"](_URL_TOKEN.upper().replace("HTTPS", "https"))
+        self.assertEqual(r["error"], "repository_already_added")
+        self.assertSinToken(r)
+        url = "https://otro-token-8@example.com/nuevo"
+        prev = await self.t["sv_add_store_repository"](url)
+        self.sv.respuesta("POST", "/store/repositories", {})
+        nuevo = {"slug": "ffff0005", "name": "Nuevo", "source": url, "url": url,
+                 "maintainer": "x"}
+        self.sv.respuesta("GET", "/store/repositories", self.repos + [nuevo])
+        r = await self.t["sv_add_store_repository"](url, prev["confirmation_token"])
+        self.assertEqual(r["result"], "ok")
+        self.assertNotIn("otro-token-8", json.dumps(r))
+        # La petición real sí lleva la URL completa.
+        self.assertEqual(self.sv.escrituras()[0]["json"], {"repository": url})
+
+    async def test_errores_del_supervisor(self) -> None:
+        # El Supervisor repite la URL, y a veces el token suelto.
+        error = HAConnectionError(
+            f"failed 400: Can't retrieve data from {_URL_TOKEN} ({_TOKEN})", status=400)
+        url = "https://otro-token-8@example.com/nuevo"
+        prev = await self.t["sv_add_store_repository"](url)
+        self.sv.respuesta("POST", "/store/repositories", HAConnectionError(
+            f"failed 400: Can't retrieve data from {url} (otro-token-8)", status=400))
+        r = await self.t["sv_add_store_repository"](url, prev["confirmation_token"])
+        self.assertIn("Can't retrieve data", r["error"])
+        self.assertNotIn("otro-token-8", json.dumps(r))
+        # Quitar, reparar, recargar y listar, con el texto del Supervisor.
+        prev = await self.t["sv_remove_store_repository"]("ffff0003")
+        self.sv.respuesta("DELETE", "/store/repositories/ffff0003", error)
+        r = await self.t["sv_remove_store_repository"]("ffff0003", prev["confirmation_token"])
+        self.assertSinToken(r)
+        self.sv.respuesta("POST", "/store/repositories/ffff0003/repair", error)
+        self.assertSinToken(await self.t["sv_repair_store_repository"]("ffff0003"))
+        self.sv.respuesta("POST", "/store/reload", error)
+        r = await self.t["sv_reload_store"]()
+        self.assertIn("Can't retrieve data", r["error"])
+        self.assertSinToken(r)
+        self.sv.respuesta("GET", "/store/addons", error)
+        self.assertSinToken(await self.t["sv_list_store_repositories"]())
+        self.assertSinToken(await self.t["sv_list_store_repositories"](repository="ffff0003"))
+        # Si falla la propia lista de repositorios, Hermes no conoce ningún
+        # token suelto: se tapa toda URL del texto.
+        self.sv.respuesta("GET", "/store/repositories", HAConnectionError(
+            f"failed 500: {_URL_TOKEN}", status=500))
+        self.assertSinToken(await self.t["sv_list_store_repositories"]())
+
+    async def test_log(self) -> None:
+        url = "https://otro-token-8@example.com/nuevo"
+        self.sv.respuesta("POST", "/store/repositories", {})
+        with capture_logs() as logs:
+            prev = await self.t["sv_add_store_repository"](url)
+            await self.t["sv_add_store_repository"](url, prev["confirmation_token"])
+            await self.t["sv_list_store_repositories"]()
+            await self.t["sv_remove_store_repository"]("ffff0003")
+        texto = json.dumps(logs, default=str)
+        self.assertNotIn("otro-token-8", texto)
+        self.assertNotIn(_TOKEN, texto)
+
+    async def test_token_atado_a_la_url_completa(self) -> None:
+        # La vista previa enseña lo mismo para dos credenciales distintas; el
+        # token de una no vale para la otra.
+        prev = await self.t["sv_add_store_repository"]("https://token-a-1234@example.com/nuevo")
+        otra = await self.t["sv_add_store_repository"]("https://token-b-5678@example.com/nuevo")
+        self.assertEqual(prev["preview"]["repository"], otra["preview"]["repository"])
+        self.sv.respuesta("POST", "/store/repositories", {})
+        r = await self.t["sv_add_store_repository"](
+            "https://token-b-5678@example.com/nuevo", prev["confirmation_token"])
+        self.assertIn("does not match", r["error"])
+        self.assertEqual(self.sv.escrituras(), [])
 
 
 class TestSinNombresDeApps(_Base):

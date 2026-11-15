@@ -156,6 +156,9 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # sin poder instalarse. Ninguna lo delata con el prefijo.
     "sv_add_store_repository",
     "sv_remove_store_repository",
+    # Spec 030, tramo 2: reconstruir borra el contenedor y la imagen de la
+    # app; si la construcción falla, la app queda sin poder arrancar.
+    "sv_rebuild_addon",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -194,6 +197,10 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     "sv_add_store_repository",
     "sv_repair_store_repository",
     "sv_reload_store",
+    # Reconstruir descarga la imagen base (al construir) o la imagen de la
+    # app (con `force`). Leer el changelog, la documentación o la
+    # disponibilidad no sale: el Supervisor lee su clon local.
+    "sv_rebuild_addon",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

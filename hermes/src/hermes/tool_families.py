@@ -116,14 +116,13 @@ _CATALOGO: tuple[Familia, ...] = (
     # `supervisor` (familia de la 1.1.2) para que apagar las familias de la
     # 1.2.0 deje exactamente la lista de la 1.1.2 (FR-010 de la 008), y es una
     # sola familia para repositorios y fichas de apps porque es un mismo caso
-    # de uso y un tema de la guía. El tramo 1 trae el módulo de repositorios y
-    # recarga; el tramo 2 añadirá `store_apps` (changelog, documentación,
-    # disponibilidad y reconstrucción) y completará la descripción, que hoy
-    # solo puede nombrar lo que hay (principio V).
+    # de uso y un tema de la guía. Dos módulos, uno por tramo:
+    # `store_repositories` (repositorios y recarga) y `store_apps` (changelog,
+    # documentación, disponibilidad y reconstrucción).
     Familia("app_store",
-            "App store: add, remove, repair and list store repositories, and "
-            "reload the store.",
-            "1.2.0", True, ("store_repositories",)),
+            "App store: repositories, store reload, app changelog, "
+            "documentation and availability, and app rebuild.",
+            "1.2.0", True, ("store_repositories", "store_apps")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}
