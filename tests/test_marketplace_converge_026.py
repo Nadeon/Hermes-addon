@@ -38,7 +38,7 @@ from aioresponses import aioresponses
 import hermes.security as security
 import hermes.tools.automations as automations_module
 import hermes.tools.scripts as scripts_module
-from hermes.ha import HAConnectionError
+from hermes.ha import HAConnectionError, HATimeoutError
 from hermes.tools import marketplace_manage as mm
 from hermes.tools.ha import menciona_update_install
 from tests._ha_fixture import make_ready_client
@@ -380,6 +380,17 @@ class TestBajos(_BaseMarketplace):
     async def test_plazo_agotado_timeouterror(self) -> None:
         hecho = await self._desinstalar_con(TimeoutError())
         self.assertEqual(hecho["error"], "outcome_unknown")
+
+    # Cierre de robustez 1.2.0: el plazo agotado sale del cliente como
+    # `HATimeoutError` (`HAConnectionError` y `TimeoutError` a la vez, `sent`
+    # en `None`). Tiene que seguir leyéndose como plazo, no como error. Aquí
+    # también pasaría sin `TimeoutError` en sus bases (sin `status` ni `code`
+    # ya se lee como corte); el control negativo de esa herencia lo dan
+    # `sv_update_core` y `ha_install_update`.
+    async def test_plazo_agotado_con_el_plazo_del_cliente(self) -> None:
+        hecho = await self._desinstalar_con(HATimeoutError("plazo"))
+        self.assertEqual(hecho["error"], "outcome_unknown")
+        self.assertIsNone(hecho["sent"])
 
     async def test_no_enviado_no_es_desconocido(self) -> None:
         hecho = await self._desinstalar_con(HAConnectionError("no salió", sent=False))

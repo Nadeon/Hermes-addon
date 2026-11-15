@@ -59,7 +59,12 @@ from hermes.security import (
     validate_confirmation_token,
 )
 from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
-from hermes.tools._validation import InvalidIdentifier, validate_identifier, validate_slug
+from hermes.tools._validation import (
+    InvalidIdentifier,
+    es_numero_finito,
+    validate_identifier,
+    validate_slug,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -122,7 +127,8 @@ def _leer_marca(state: dict[str, Any]) -> float:
     """
     for clave in (_MARCA, *_MARCAS_ANTIGUAS):
         valor = state.get(clave)
-        if isinstance(valor, (int, float)) and valor > 0:
+        # Un entero enorme no cabe en un float (`OverflowError`): se ignora.
+        if es_numero_finito(valor) and valor > 0:
             return float(valor)
         if isinstance(valor, str) and valor:
             try:
@@ -169,10 +175,12 @@ def _size_mb(backup: dict[str, Any]) -> float | None:
     precisión y se cae a `size` —interpretado como MB— si no viene.
     """
     size_bytes = backup.get("size_bytes")
-    if isinstance(size_bytes, (int, float)) and not isinstance(size_bytes, bool):
+    # `es_numero_finito`: un entero enorme lanzaba `OverflowError` al
+    # dividir o pasar a float (cierre de robustez de la 1.2.0).
+    if es_numero_finito(size_bytes):
         return round(size_bytes / (1024 * 1024), 2)
     size = backup.get("size")
-    if isinstance(size, (int, float)) and not isinstance(size, bool):
+    if es_numero_finito(size):
         return round(float(size), 2)
     return None
 

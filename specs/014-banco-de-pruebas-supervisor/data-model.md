@@ -11,8 +11,8 @@ Formato exacto en [contracts/matriz.md](contracts/matriz.md).
 |---|---|---|
 | Tool | nombre registrado, entre comillas invertidas | una fila por tool que modifica; sin repetir |
 | Entorno | `banco de Core`, `VM`, `instalación real` | dónde se prueba contra el software real |
-| Resultado | `ok`, `falla`, `pendiente` | el último resultado en ese entorno |
-| Nota | texto libre, puede ir vacía | obligatoria con `falla` (causa o hallazgo) y con `ok` fuera del banco (versión de Hermes y fecha) |
+| Resultado | `ok`, `falla`, `pendiente`, `no ejecutable` | el último resultado en ese entorno; `no ejecutable` (desde la 033) solo con `banco de Core` y para una tool de un `NO_EJECUTABLES*` |
+| Nota | texto libre, puede ir vacía | obligatoria con `falla` (causa o hallazgo), con `no ejecutable` (motivo) y con `ok` fuera del banco (versión de Hermes y fecha) |
 
 Reglas de coherencia (FR-003), con `I` = inventarios del banco descubiertos:
 
@@ -20,7 +20,7 @@ Reglas de coherencia (FR-003), con `I` = inventarios del banco descubiertos:
 |---|---|---|
 | está en algún `PROBADAS*` de `I` | `banco de Core` | `ok` |
 | está en algún `FALLAN*` de `I` | `banco de Core` | `falla` (nota obligatoria) |
-| está en algún `NO_EJECUTABLES*` de `I` | ≠ `banco de Core` | cualquiera |
+| está en algún `NO_EJECUTABLES*` de `I` | `banco de Core`, u otro si se prueba fuera | `no ejecutable` en el banco (motivo en la nota); fuera, cualquiera |
 | está en `FUERA_DEL_BANCO` de `I` | `VM` | cualquiera |
 | es `sv_*` o `fs_*` | `VM` | cualquiera |
 | no está en ningún inventario y es `ha_*` | `banco de Core` | `pendiente` |

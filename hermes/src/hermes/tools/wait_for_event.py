@@ -78,7 +78,9 @@ def _compare_value(actual: Any, expected_str: str) -> bool:
             rhs = expected_str[len(op):]
             try:
                 return fn(actual, rhs)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
+                # `OverflowError`: un entero enorme no cabe en un float y el
+                # filtro no casa, en vez de tumbar la espera (cierre 1.2.0).
                 return False
 
     # Igualdad (default)

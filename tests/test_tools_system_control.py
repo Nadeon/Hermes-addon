@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 import aiohttp
 from structlog.testing import capture_logs
 
-from hermes.ha import HAConnectionError
+from hermes.ha import HAConnectionError, HATimeoutError
 from hermes.tools.system_control import register
 from tests.fixtures.supervisor_control import (
     CENTINELA_SV,
@@ -191,6 +191,19 @@ class TestOperacionesLargas(_Base):
         self.sv.errores[("POST", "/supervisor/repair")] = TimeoutError()
         _, r = await self._confirmar("sv_repair_supervisor")
         self.assertEqual((r["status"], r["verify_with"]), ("started", "sv_get_resolution"))
+
+    # Cierre de robustez 1.2.0: el plazo agotado sale del cliente como
+    # `HATimeoutError` (`HAConnectionError` y `TimeoutError` a la vez, `sent`
+    # en `None`). Tiene que seguir leyéndose como plazo, no como error. Aquí
+    # también pasaría sin `TimeoutError` en sus bases (sin `status` ni `code`
+    # ya se lee como corte); el control negativo de esa herencia lo dan
+    # `sv_update_core` y `ha_install_update`.
+    async def test_start_vencido_con_el_plazo_del_cliente(self) -> None:
+        self.sv.core_corre = False
+        self.sv.errores[("POST", "/core/start")] = HATimeoutError("plazo")
+        _, r = await self._confirmar("sv_start_core")
+        self.assertEqual((r["status"], r["verify_with"]), ("started", "sv_get_core_info"))
+        self.assertNotIn("error", r)
 
     async def test_restart_con_la_conexion_cortada(self) -> None:
         self.sv.errores[("POST", "/supervisor/restart")] = (

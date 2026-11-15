@@ -273,6 +273,15 @@ class TestSwap(_Base):
                 self.assertNotIn("confirmation_token", r)
         self.assertEqual(self.sv.escrituras, [])
 
+    async def test_disco_con_un_entero_enorme(self) -> None:
+        # Cierre 1.2.0: `float()` de un entero enorme lanzaba `OverflowError`;
+        # ahora es una forma inesperada, sin token. Control negativo
+        # comprobado: con la comprobación de antes, la tool revienta.
+        self.sv.host.update({"disk_free": 10**400})
+        r = await self.t["sv_set_swap"](swap_size="2G")
+        self.assertIn("unexpected", r["error"].lower())
+        self.assertNotIn("confirmation_token", r)
+
     async def test_disco_insuficiente(self) -> None:
         r = await self.t["sv_set_swap"](swap_size="21G")
         self.assertEqual(r["error"], "insufficient_disk")

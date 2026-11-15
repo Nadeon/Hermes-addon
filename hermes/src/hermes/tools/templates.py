@@ -33,7 +33,8 @@ def _clamp_timeout(timeout: float) -> float:
     """Acota el timeout al rango admitido; los valores no numéricos caen al mínimo."""
     try:
         value = float(timeout)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # `OverflowError`: un entero enorme no cabe en un float (cierre 1.2.0).
         return _RENDER_TIMEOUT_MIN
     if math.isnan(value):
         return _RENDER_TIMEOUT_MIN

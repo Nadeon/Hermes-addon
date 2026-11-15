@@ -33,10 +33,6 @@ argumento existente cambia ni pasa a ser obligatorio.
   add-on en un arranque anterior o desde que arrancó su contenedor. Sin
   ellos, la petición y la respuesta son las de la 1.1.2, salvo que su
   mensaje de error pasa ahora por la redacción de secretos, como el log.
-- **Tabla de comandos**: las 23 rutas de logs del Supervisor que cubren estas
-  tools pasan de «pendiente de tool dedicada» a `dedicated`; `sv_read_api`
-  remite a la tool. Las variantes `follow` (streaming) y el alias legado
-  `/homeassistant/logs*` siguen rechazadas.
 - **Disco, host y OS.** Cinco tools más de solo lectura en
   `system_diagnostics`: `sv_list_host_services` (servicios systemd del host;
   `state="failed"` enseña los que han fallado), `sv_get_disk_usage` (qué
@@ -1080,8 +1076,8 @@ desactivar), y analytics y labs por la tabla.
   apaga grupos enteros de tools para ahorrar contexto al cliente. Las familias
   de la 1.1.2 son `services`, `automations`, `helpers`, `events`, `data`,
   `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`,
-  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade `generic_commands` y
-  `system_diagnostics`.
+  `backups`, `lovelace` y `marketplace`; la 1.2.0 añade 26 más, una o
+  varias por sub-feature (la lista completa, con sus tools, en `DOCS.md`).
   `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre
   desconocido, o `base`, impide arrancar con un mensaje que nombra el valor y
   los válidos. Con las familias de la 1.2.0 desactivadas, la lista de tools es
@@ -1110,8 +1106,8 @@ desactivar), y analytics y labs por la tabla.
 
 Spec 029: ocho tools nuevas de solo lectura en dos familias nuevas,
 `system_status` y `recorder`, y cuatro comandos de Core que siguen por la
-genérica de lectura. Con las dos familias desactivadas (y `generic_commands`),
-la lista de tools es la de la 1.1.2.
+genérica de lectura. Con las dos familias desactivadas (y las demás de la
+1.2.0), la lista de tools es la de la 1.1.2.
 
 - **Cinco tools nuevas de solo lectura, familia `system_status`**: ninguna
   modifica nada ni pide token, y se pueden apagar con
@@ -2061,7 +2057,8 @@ familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
   creada por las propias tools (abrir, abortar y completar el flujo,
   recargar, deshabilitar, habilitar y borrar). De las 100, 99 funcionan
   contra HA real; `ha_reload_counters` falla (hallazgo de arriba). Solo quedan
-  fuera del banco las 5 `fs_*` y las 19 `sv_*`, cada una con su motivo.
+  fuera del banco las 5 `fs_*` y las 19 `sv_*` de la 1.1.2, cada una con su
+  motivo.
 - **Hallazgo: `ha_create_scene_from_current` con `name` falla siempre.** El
   servicio `scene.create` de HA Core 2026.11.1 no admite `name` y Core
   responde 400; la descripción de la tool dice que «HA decide». Tampoco es
@@ -2081,9 +2078,10 @@ familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
   onboarding, reglas de salto, comprobaciones del workflow, inventario de
   cobertura) se prueban en la suite normal. Sin cambios en el código del
   add-on.
-- **Banco del Supervisor: procedimiento y matriz de pruebas.** Las 25 tools
-  del Supervisor y de ficheros que modifican (24 y `sv_call_api`) no se pueden ejecutar en el banco
-  de Core. `docs/BANCO-SUPERVISOR.md` documenta cómo probarlas en una máquina
+- **Banco del Supervisor: procedimiento y matriz de pruebas.** Las tools
+  del Supervisor y de ficheros que modifican (25 cuando se hizo: las 24 de la
+  1.1.2 y `sv_call_api`; 56 con la 1.2.0 completa) no se pueden ejecutar en
+  el banco de Core. `docs/BANCO-SUPERVISOR.md` documenta cómo probarlas en una máquina
   virtual con Home Assistant OS (Core 2026.11.1 fijado y la versión real
   del Supervisor anotada, porque no se puede fijar; instantánea antes de cada prueba destructiva, Hermes como add-on
   local) y la prueba de `hassio_role: manager`; nadie la ha ejecutado todavía
@@ -2295,6 +2293,43 @@ familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
 - El banco de pruebas queda sin ningún fallo esperado: los tres hallazgos
   (el de la 010 y los dos de la 028) están arreglados y sus tests prueban el
   comportamiento nuevo contra HA real.
+
+### Cierre: robustez
+
+- **Un plazo agotado ya no se escapa como error genérico.** Cuando Home
+  Assistant o el Supervisor no contestaban a tiempo, el error de aiohttp no
+  era un error de conexión de Hermes: las tools que solo esperan ese no lo
+  recogían y el cliente veía un fallo sin explicar. Ahora todas las
+  peticiones (REST de Core, Supervisor y WebSocket) lo convierten en un
+  error de conexión que sigue diciendo que fue un plazo agotado. Mantiene la
+  regla de `sent`: en REST no se sabe si la petición llegó a salir (`null`),
+  en el WebSocket se sabe que salió (`true`), y nunca dice «no se hizo nada»
+  (`false`). Las tools que ya distinguían el plazo siguen diciendo lo mismo:
+  `ha_install_update` responde `running`, `sv_update_core` da el
+  `config_check` como `timeout` (no como configuración inválida), las de
+  control del Supervisor y la de aplicar un arreglo responden `started`, y
+  la de desinstalar del Marketplace, `outcome_unknown`.
+- **Un entero enorme ya no tumba una tool.** Un número como `10**400` es
+  JSON válido pero no cabe en un número de coma flotante, y varias tools
+  lanzaban una excepción. Ahora, como argumento, da `invalid_argument`
+  (`timeout_seconds` y `min_seconds` de las de estado del sistema, latitud y
+  longitud de `ha_update_core_config`); el timeout de `ha_render_template`
+  cae al mínimo y un filtro numérico de `ha_wait_for_event` no casa. Si lo
+  devuelve Home Assistant o el Supervisor, se trata como no numérico: las
+  estadísticas lo devuelven tal cual (y una fecha fuera de rango también),
+  los tiempos de arranque de integraciones lo omiten, el disco del host da
+  una forma inesperada sin token, y el tamaño de un backup y el orden del
+  log del sistema lo ignoran.
+- **Recuentos de la documentación al día y vigilados.** Un test nuevo
+  cuenta en el registro real las tools de cada familia y comprueba la tabla
+  de familias de `DOCS.md`, la suma de las tablas de los README, la lista de
+  `tool_families_disabled` y la de las familias nuevas de la 1.2.0 (ya
+  cuadraban: 359 tools, más la auxiliar de `HERMES_DEV`). En este
+  CHANGELOG se quita una viñeta repetida de la tabla de comandos en la
+  sección de la 013 y se corrigen recuentos que se habían quedado viejos
+  (las familias que añade la 1.2.0 y las tools del Supervisor de la matriz).
+  El contrato de la matriz de pruebas de la 014 recoge el resultado
+  `no ejecutable`.
 
 ## [1.1.2] — 2026-11-14
 
