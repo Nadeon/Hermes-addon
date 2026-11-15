@@ -33,7 +33,9 @@ CORE_WS: dict[str, E] = {
     # como `read`.
     "analytics/preferences": E("confirm", "guarda qué datos de uso se envían a Home Assistant (analytics) y reprograma el envío", "generic_commands", cap="CAP-074"),
     "application_credentials/config": E("read", "dominios que admiten credenciales de aplicación OAuth y su configuración; solo lee", "generic_commands", cap="CAP-073"),
-    "application_credentials/config_entry": E("read", "id de la credencial de aplicación que usa una integración; solo lee", "generic_commands", cap="CAP-073"),
+    # Responde `{"application_credentials_id": …}`: la clave contiene
+    # «credential» y redact_structure la tapa (research R-7 de la 024).
+    "application_credentials/config_entry": E("read", "dice si una integración usa una credencial de aplicación; el id sale tapado por la redacción general; solo lee", "generic_commands", cap="CAP-073"),
     "application_credentials/create": E("deny", "introduce o cambia client_secret OAuth de terceros (clase D)", "generic_commands"),
     "application_credentials/delete": E("deny", "introduce o cambia client_secret OAuth de terceros (clase D)", "generic_commands"),
     # La lista de la colección devuelve `client_secret` en claro: lo tapa el
@@ -247,7 +249,7 @@ CORE_WS: dict[str, E] = {
     # Hermes lo lee por dentro para proteger el dashboard principal, pero
     # ha_list_lovelace_dashboards no expone estos datos.
     "frontend/get_system_data": E("read", "datos de sistema del frontend por clave (p. ej. `core`: panel por defecto); solo lee", "generic_commands"),
-    "frontend/get_themes": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "frontend/get_themes": E("read", "temas del frontend y los temas claro y oscuro por defecto; solo lee", "generic_commands", cap="CAP-071"),
     # Hermes lo usa por dentro para los textos de los avisos de Repairs
     # (spec 016, CAP-036: `tools/_translations.py`); para las genéricas sigue
     # `deny` (clase B).
@@ -412,7 +414,7 @@ CORE_WS: dict[str, E] = {
     "lorawan/devices/list": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "lorawan/devices/subscribe": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "lovelace/config": E("dedicated", "cubierto por ha_get_lovelace_dashboard", "lovelace", tool="ha_get_lovelace_dashboard"),
-    "lovelace/config/delete": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "lovelace/config/delete": E("dedicated", "cubierto por ha_reset_lovelace_dashboard_config", "dashboard_reset", tool="ha_reset_lovelace_dashboard_config", cap="CAP-071"),
     "lovelace/config/save": E("dedicated", "cubierto por ha_save_lovelace_dashboard", "lovelace", tool="ha_save_lovelace_dashboard"),
     "lovelace/dashboards/create": E("dedicated", "cubierto por ha_create_lovelace_dashboard", "lovelace", tool="ha_create_lovelace_dashboard"),
     "lovelace/dashboards/delete": E("dedicated", "cubierto por ha_delete_lovelace_dashboard", "lovelace", tool="ha_delete_lovelace_dashboard"),
@@ -496,7 +498,7 @@ CORE_WS: dict[str, E] = {
     "person/update": E("dedicated", "cubierto por ha_update_person", "helpers", tool="ha_update_person"),
     "person/update_own_profile": E("deny", "perfil del usuario conectado (Hermes no es una persona) (clase B)", "generic_commands"),
     "ping": E("deny", "keepalive del protocolo (clase B)", "generic_commands"),
-    "radio_frequency/list": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "radio_frequency/list": E("read", "transmisores y receptores de radiofrecuencia con sus rangos y modulaciones; solo lee", "generic_commands", cap="CAP-071"),
     "recorder/adjust_sum_statistics": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
     "recorder/change_statistics_unit": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
     "recorder/clear_statistics": E("deny", "pendiente de tool dedicada (spec 020)", "generic_commands", cap="CAP-050"),
@@ -582,7 +584,7 @@ CORE_WS: dict[str, E] = {
     "todo/item/list": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
     "todo/item/move": E("confirm", "cambia el orden de una tarea en su lista; si la lista es remota, el cambio sale a internet", "generic_commands", cap="CAP-065", open_world=True),
     "todo/item/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "trace/contexts": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "trace/contexts": E("read", "contextos con traza guardada (enlaza una traza con lo que la disparó: run_id, dominio e id); solo lee", "generic_commands", cap="CAP-071"),
     "trace/debug/breakpoint/clear": E("deny", "depurador paso a paso interactivo de la UI (clase B)", "generic_commands"),
     "trace/debug/breakpoint/list": E("deny", "depurador paso a paso interactivo de la UI (clase B)", "generic_commands"),
     "trace/debug/breakpoint/set": E("deny", "depurador paso a paso interactivo de la UI (clase B)", "generic_commands"),
@@ -602,14 +604,19 @@ CORE_WS: dict[str, E] = {
     "usb/list_serial_integrations": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
     "usb/list_serial_ports": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
     "usb/scan": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
-    "vacuum/get_segments": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    # `async_get_segments` lo implementa cada integración: alguna (Roborock)
+    # refresca el mapa del aspirador por red o por su nube al leer.
+    "vacuum/get_segments": E("read", "zonas (segmentos) que puede limpiar un aspirador; algunas integraciones las piden al aspirador o a su nube; solo lee", "generic_commands", cap="CAP-071", open_world=True),
     "validate_config": E("dedicated", "cubierto por ha_validate_config", "core_diagnostics", tool="ha_validate_config", cap="CAP-040"),
     "wake_word/info": E("read", "palabras de activación que admite una entidad wake_word; solo lee", "generic_commands", cap="CAP-062"),
     "weather/convertible_units": E("deny", "ayudas de formulario de la UI (unidades convertibles) (clase B)", "generic_commands"),
     "weather/subscribe_forecast": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
     "web_rtc/ice_servers": E("deny", "token o configuración para que el navegador cargue recursos (clase B)", "generic_commands"),
     "webhook/handle": E("deny", "dispara webhooks como si viniera de fuera; sin valor y con riesgo (clase D)", "generic_commands"),
-    "webhook/list": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    # Un `webhook_id` basta para disparar la automatización o integración
+    # desde fuera, sin autenticación: lo tapa el marcador `webhook_id` de
+    # redact_structure (security.py), sin redact_extra.
+    "webhook/list": E("read", "webhooks registrados (dominio, nombre, local_only, métodos); el webhook_id sale tapado; solo lee", "generic_commands", cap="CAP-071"),
     "wyoming/info": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "zeroconf/subscribe_discovery": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "zha/configuration": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-101"),

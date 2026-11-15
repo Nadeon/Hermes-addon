@@ -652,6 +652,126 @@ class TestMenoresDeCoreDeLa024(_Base):
         self.ha.ws_send.assert_not_awaited()
 
 
+class TestMenoresDeCoreDeLa024Tramo2(_Base):
+    """Spec 024, tramo 2 (T017; FR-008, FR-011, FR-012, FR-014), con la tabla
+    real y respuestas con la forma REAL de Core 2026.11.1:
+
+    - `webhook/list` (`components/webhook/__init__.py`, `websocket_list`):
+      lista de `{webhook_id, domain, name, local_only, allowed_methods}`.
+    - `application_credentials/list`: la colección guarda `id`, `domain`,
+      `client_id`, `client_secret`, `auth_domain` y `name`.
+    - `application_credentials/config_entry` (`handle_config_entry`):
+      `{"application_credentials_id": …}` o `{}`.
+
+    Controles negativos (T029): (f) sacar `webhook_id` de los marcadores de
+    `security._SENSITIVE_KEY_MARKERS` → cae `test_webhook_list_tapa_el_id`
+    (restaurado enseguida); (e) dejar `lovelace/config/delete` en `deny` →
+    caen `test_restablecer_va_a_la_tool_dedicada` y
+    `test_restablecer_con_la_familia_desactivada`.
+    """
+
+    inyectadas = False
+    _CENTINELA_024 = "centinela-024"
+
+    async def test_webhook_list_tapa_el_id(self) -> None:
+        # Un `webhook_id` basta para disparar la automatización sin
+        # autenticación: con la forma real de la respuesta de Core.
+        self.ha.ws_send.return_value = [
+            {"webhook_id": self._CENTINELA_024, "domain": "automation",
+             "name": "Automatización del garaje", "local_only": True,
+             "allowed_methods": ["POST", "PUT"]},
+            {"webhook_id": f"otro-{self._CENTINELA_024}", "domain": "mobile_app",
+             "name": "Mobile App: teléfono", "local_only": False,
+             "allowed_methods": ["POST"]},
+        ]
+        r = await self.t["ha_read_ws_command"]("webhook/list")
+        texto = json.dumps(r, ensure_ascii=False)
+        self.assertNotIn(self._CENTINELA_024, texto)
+        primero = r["items"][0]
+        self.assertEqual(primero["webhook_id"], security.REDACTED_MARKER)
+        self.assertEqual(
+            (primero["domain"], primero["name"], primero["local_only"],
+             primero["allowed_methods"]),
+            ("automation", "Automatización del garaje", True, ["POST", "PUT"]))
+        self.ha.ws_send.assert_awaited_once_with({"type": "webhook/list"})
+
+    async def test_credenciales_de_aplicacion_sin_secretos(self) -> None:
+        self.ha.ws_send.return_value = [
+            {"id": "spotify_cliente", "domain": "spotify", "client_id": "cliente-publico",
+             "client_secret": self._CENTINELA_024, "auth_domain": "spotify",
+             "name": "Spotify"},
+        ]
+        r = await self.t["ha_read_ws_command"]("application_credentials/list")
+        self.assertNotIn(self._CENTINELA_024, json.dumps(r))
+        self.assertEqual(r["items"][0]["client_id"], "cliente-publico")
+
+        self.ha.ws_send.return_value = {"application_credentials_id": self._CENTINELA_024}
+        r = await self.t["ha_read_ws_command"](
+            "application_credentials/config_entry", {"config_entry_id": "01ABC"})
+        self.assertNotIn(self._CENTINELA_024, json.dumps(r))
+        self.assertEqual(r["result"], {"application_credentials_id": security.REDACTED_MARKER})
+        # Y el motivo de la entrada lo dice (H2 de la revisión de la spec).
+        from hermes.command_table import CORE_WS
+
+        self.assertIn("el id sale tapado",
+                      CORE_WS["application_credentials/config_entry"].reason)
+
+    async def test_segmentos_de_mundo_abierto(self) -> None:
+        from hermes.command_table import CORE_WS
+
+        e = CORE_WS["vacuum/get_segments"]
+        self.assertEqual((e.category, e.open_world), ("read", True))
+        self.ha.ws_send.return_value = {"segments": [
+            {"id": "cocina", "name": "Cocina", "group": None}]}
+        r = await self.t["ha_read_ws_command"](
+            "vacuum/get_segments", {"entity_id": "vacuum.banco"})
+        self.assertEqual(r["result"]["segments"][0]["id"], "cocina")
+
+    async def test_lecturas_de_cap_071(self) -> None:
+        for comando in ("trace/contexts", "frontend/get_themes", "radio_frequency/list"):
+            with self.subTest(comando=comando):
+                self.ha.ws_send.reset_mock()
+                self.ha.ws_send.return_value = {}
+                r = await self.t["ha_read_ws_command"](comando)
+                self.assertEqual((r["command"], r["category"]), (comando, "read"))
+                self.ha.ws_send.assert_awaited_once_with({"type": comando})
+
+    async def test_restablecer_va_a_la_tool_dedicada(self) -> None:
+        for tool in ("ha_call_ws_command", "ha_read_ws_command"):
+            with self.subTest(tool=tool):
+                r = await self.t[tool]("lovelace/config/delete", {})
+                self.assertEqual(
+                    (r["error"], r["tool"], r["family"], r["family_disabled"]),
+                    ("use_dedicated_tool", "ha_reset_lovelace_dashboard_config",
+                     "dashboard_reset", False))
+                self.assertNotIn("confirmation_token", r)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_restablecer_con_la_familia_desactivada(self) -> None:
+        mcp = DummyMCP()
+        mod.register(mcp, self.ha, response_max_bytes=self.max_bytes,
+                     familias_desactivadas=frozenset({"dashboard_reset"}))
+        r = await mcp.tools["ha_call_ws_command"]("lovelace/config/delete", {})
+        self.assertEqual((r["error"], r["family_disabled"]), ("use_dedicated_tool", True))
+        self.assertIn("family_disabled", json.dumps(r))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_orden_de_areas_en_dos_pasos(self) -> None:
+        carga = {"area_ids": ["cocina", "salon"]}
+        vista = await self.t["ha_call_ws_command"]("config/area_registry/reorder", carga)
+        self.assertIn("confirmation_token", vista)
+        self.assertEqual((vista["preview"]["category"], vista["preview"]["cap"]),
+                         ("confirm", "CAP-070"))
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_send.return_value = None
+        r = await self.t["ha_call_ws_command"](
+            "config/area_registry/reorder", carga,
+            confirmation_token=vista["confirmation_token"])
+        self.assertTrue(r["executed"])
+        self.ha.ws_send.assert_awaited_once_with(
+            {"type": "config/area_registry/reorder", **carga})
+
+
 # ── Supervisor (T021) ────────────────────────────────────────────────────────
 
 _RUTAS_MALAS = (

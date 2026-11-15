@@ -385,6 +385,10 @@ _DEDICADAS_INICIALES: dict[
     # clase B a A con CAP-038 en el inventario (research R-13); un solo
     # disparo, con lista cerrada de triggers.
     "subscribe_trigger": "ha_wait_for_trigger",
+    # Restablecer un dashboard (spec 024, tramo 2), clase A de vía D+T
+    # (CAP-071): la tool dedicada protege el principal y el panel por
+    # defecto, que la genérica no puede.
+    "lovelace/config/delete": "ha_reset_lovelace_dashboard_config",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
