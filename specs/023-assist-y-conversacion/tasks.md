@@ -113,3 +113,11 @@ se sigue en un segundo commit; el tramo no se cierra con la suite en rojo.
 
 - T002–T007 antes de T008–T009; T010 antes de T011; T012 tras T008; T013–T015 tras T008–T011; T016–T018 al final.
 - [P]: T002–T007 entre sí; T010 con T012 (ficheros distintos).
+
+## Fase 2: Convergencia
+
+Añadida por la revisión independiente y `speckit-converge` sobre la punta de la
+rama (`f7551e4`). Severidad entre corchetes.
+
+- [ ] T019 [ALTO] El token de `/api/tts_proxy/<token>` sale sin tapar por `media_id`: en `assist_pipeline/pipeline_debug/get` el evento `tts-end` trae `tts_output.media_id = "media-source://tts/-stream-/<token>"` (`assist_pipeline/default_pipeline.py` y `tts/__init__.py`, `ResultStream.media_source_id` de Core 2026.11.1), con el MISMO token que la `url`, y ni `redact_extra=("url",)` ni `_RE_TTS_PROXY` (`tools/generic_commands.py`, `_redactar`) lo cubren: con el `media_id` cualquiera reconstruye la URL que HA sirve sin autenticación (comprobado con `_redactar` y la entrada real de la tabla: `token` y `url` tapados, `media_id` con el token en claro). El test de T010 no lo ve porque usa un `media_id` ficticio (`media-source://tts/x`). Así, el motivo de la tabla, el tema `conversation` de la guía y el CHANGELOG («la url y el token salen tapados») prometen más de lo que hace el código. Arreglo mínimo: tapar también la parte secreta de `media-source://tts/-stream-/<token>` en `_redactar` (otra regex junto a `_RE_TTS_PROXY`, o `media_id` en `redact_extra` de la entrada); test con el `media_id` real y el centinela, con control negativo per FR-009, FR-011, US4/AC4, principio V (partial)
+- [ ] T020 [BAJO] `ha_process_conversation` (`tools/conversation.py`, rama `exc.code is None` al confirmar) responde `outcome_unknown` («may have been processed anyway») también cuando `HAClient.ws_send` falla ANTES de enviar nada («WebSocket no disponible para envío de comandos.», `ha.py`), y gasta el token: la frase seguro que no se mandó. Arreglo mínimo: distinguir el fallo previo al envío (por ejemplo, comprobar la conexión antes de validar el token, o una excepción/atributo propio en `ws_send` para «no enviado») y responder el error de conexión normal en ese caso; test de los dos caminos per FR-005, principio V (partial)
