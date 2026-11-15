@@ -79,6 +79,9 @@ class TestRedDeCore(BancoEscrituras):
             self.assertEqual(p["configured_adapters"],
                              {"before": original, "after": objetivo})
             self.assertIn("does not change the address or port", p["note"])
+            # T061: los avisos de red salen con la forma real de `network`.
+            self.assertTrue({a["code"] for a in p["warnings"]}
+                            <= {"no_ipv4", "default_adapter_excluded"}, p["warnings"])
             self.assertEqual((await _red(s))["configured_adapters"], original)
 
             r = await s.confirmar(tool, vista, configured_adapters=objetivo)

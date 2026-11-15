@@ -271,15 +271,28 @@ desactivar), y analytics y labs por la tabla.
     `sv_restart_core` en la vista previa y al confirmar. La respuesta dice si
     HA reinicia, que hay que promover en 5 minutos y que con
     `configuration.yaml` inválida no reinicia.
-  - Un `server_host` que deje fuera al Supervisor se rechaza sin token
-    (`supervisor_lockout`): el Supervisor, y con él Hermes y todas las apps,
-    llega a Core desde su red interna (172.30.32.0/23) por la dirección
-    `172.30.32.1`, en IPv4. Valen `0.0.0.0` o `172.30.32.1`; `::` sola no,
-    porque no acepta IPv4.
+  - Un `server_host` sin `0.0.0.0` ni `172.30.32.1` se rechaza sin token
+    (`supervisor_lockout`), también al promover: las apps que conectan
+    directamente a `homeassistant:8123` llegan a Core desde la red interna
+    del Supervisor (172.30.32.0/23) por la pasarela `172.30.32.1`, en IPv4, y
+    se quedarían fuera. El Supervisor, y Hermes a través de él, hablan con
+    Core por un socket Unix desde Core 2026.4, que no depende de
+    `server_host`. `::` sola no vale, porque no acepta IPv4. Un `server_host`
+    con solo direcciones internas pasa el rechazo pero deja fuera a la red de
+    casa: aviso de acceso `server_host_internal_only`.
+  - Si los `changes` dejan el resultado igual que la estable, HA descarta la
+    pendiente y reinicia con la estable: la vista previa y la respuesta lo
+    dicen (`trial: false`, sin prueba ni nada que promover); si Hermes no lo
+    puede saber seguro, dan las dos posibilidades (`trial: null`).
   - `ha_promote_http_config`: confirma la configuración de prueba, que pasa a
     ser la de recuperación; solo con una pendiente sin error con la que HA ya
     funcione (si no, `nothing_to_promote` con el motivo). Su vista previa
-    sirve de estado de la prueba (diff y `revert_at`).
+    sirve de estado de la prueba (diff y `revert_at`) y repite los avisos y
+    el `access_risk` de aplicar, porque promover hace permanente una
+    configuración que puede haber dejado la casa fuera.
+  - `ha_update_network_config` avisa en la vista previa si los adaptadores
+    elegidos no tienen ninguna IPv4 o dejan fuera el adaptador por defecto
+    (`no_ipv4`, `default_adapter_excluded`): el descubrimiento se degrada.
   - En un Home Assistant anterior a 2026.11, sin la configuración HTTP en
     almacenamiento: `unsupported_by_ha_version`. El log no lleva puertos,
     hosts, rutas de certificados, proxies ni nombres de adaptador.

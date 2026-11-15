@@ -501,5 +501,164 @@ class TestPromover(_Base):
         self.assertEqual(self.escrituras(), [])
 
 
+# ── Convergencia (T058-T061) ─────────────────────────────────────────────────
+#
+# Controles negativos, comprobados (rojo con la parte revertida, verde al
+# restaurarla):
+# - T058: sin `warnings`/`access_risk` en la vista previa de promover → caen
+#   `test_avisa_del_acceso` y `test_sin_riesgo_sin_access_risk`; sin el
+#   rechazo D-3 al promover → cae `test_rechaza_d3_al_promover`; sin el aviso
+#   `server_host_internal_only` → caen `test_solo_internas_avisa` y
+#   `test_avisa_del_acceso`.
+# - T059: sin `_vuelta_a_estable` (siempre "no") → caen
+#   `test_igual_a_la_estable` y `test_dudoso_da_las_dos`.
+# - T060: con el texto viejo de `_SIN_SUPERVISOR` → cae `test_porque_de_d3`.
+# - T061: sin `_avisos_red` (lista vacía) → caen `test_sin_ipv4` y
+#   `test_sin_el_adaptador_por_defecto`.
+
+
+def _codigos(preview: dict[str, Any]) -> list[str]:
+    return [a["code"] for a in preview["warnings"]]
+
+
+class TestConvergenciaRed(_Base):
+    """T061: la vista previa avisa si el descubrimiento se degrada."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.adaptadores.append({"name": "hassio", "index": 5, "enabled": False,
+                                 "auto": False, "default": False,
+                                 "ipv4": [], "ipv6": []})
+
+    async def test_sin_ipv4(self) -> None:
+        r = await self.t["ha_update_network_config"](configured_adapters=["hassio"])
+        self.assertEqual(_codigos(r["preview"]), ["no_ipv4", "default_adapter_excluded"])
+        self.assertEqual(self.escrituras(), [])
+
+    async def test_sin_el_adaptador_por_defecto(self) -> None:
+        r = await self.t["ha_update_network_config"](configured_adapters=["wlan0"])
+        self.assertEqual(_codigos(r["preview"]), ["default_adapter_excluded"])
+
+    async def test_sin_avisos(self) -> None:
+        for elegidos in (["eth0"], ["eth0", "hassio"]):
+            with self.subTest(elegidos=elegidos):
+                r = await self.t["ha_update_network_config"](configured_adapters=elegidos)
+                self.assertEqual(r["preview"]["warnings"], [])
+        # [] = los automáticos (eth0 y wlan0): tampoco avisa.
+        self.configurados = ["wlan0"]
+        r = await self.t["ha_update_network_config"](configured_adapters=[])
+        self.assertEqual(r["preview"]["warnings"], [])
+
+
+class TestConvergenciaHttp(_Base):
+    """T058 (aviso de solo internas), T059 y T060 en `ha_update_http_config`."""
+
+    async def test_solo_internas_avisa(self) -> None:
+        for hosts in (["172.30.32.1"], ["172.30.32.1", "127.0.0.1"]):
+            with self.subTest(hosts=hosts):
+                r = await self.t["ha_update_http_config"](changes={"server_host": hosts})
+                self.assertEqual(_codigos(r["preview"]),
+                                 ["server_host", "server_host_internal_only"])
+                self.assertIn("access_risk", r["preview"])
+        for hosts in (["0.0.0.0"], ["172.30.32.1", _IP]):
+            with self.subTest(hosts=hosts):
+                r = await self.t["ha_update_http_config"](changes={"server_host": hosts})
+                self.assertEqual(_codigos(r["preview"]), ["server_host"])
+
+    async def test_porque_de_d3(self) -> None:
+        r = await self.t["ha_update_http_config"](changes={"server_host": [_IP]})
+        d = r["detail"]
+        self.assertIn("homeassistant:8123", d)
+        self.assertIn("Unix socket", d)
+        self.assertIn("does not depend on server_host", d)
+        self.assertNotIn("Hermes and every app", d)
+        self.assertNotIn("so Hermes and the apps", mod._AVISOS_HTTP["server_host"][0])
+
+    def _pendiente_en_prueba(self) -> None:
+        self.http["pending"] = {**_ESTABLE, "server_port": 8443,
+                                "created_at": "2026-11-15T10:00:00+00:00"}
+        self.http["active_config_type"] = "pending"
+
+    async def test_igual_a_la_estable(self) -> None:
+        self._pendiente_en_prueba()
+        vista = await self.t["ha_update_http_config"](changes={"server_port": 8123})
+        p = vista["preview"]
+        self.assertIs(p["trial"], False)
+        self.assertEqual(p["restart"], mod._VUELVE_ESTABLE)
+        self.assertNotIn("pending_replaced", _codigos(p))
+        self.assertEqual(p["access_risk"], mod._RIESGO_VUELVE)
+        self.escrituras_esperadas = 1
+        r = await self.t["ha_update_http_config"](
+            changes={"server_port": 8123}, confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["next"], mod._SIGUIENTE_ESTABLE)
+        self.assertNotIn("promote it", r["next"])
+
+    async def test_dudoso_da_las_dos(self) -> None:
+        # La estable no guarda `use_x_frame_options`; el resultado sí, con el
+        # valor de `default`: igual contando defectos, distinto literalmente.
+        self.http["stable"].pop("use_x_frame_options")
+        self._pendiente_en_prueba()
+        cambios = {"server_port": 8123}
+        vista = await self.t["ha_update_http_config"](changes=cambios)
+        p = vista["preview"]
+        self.assertIsNone(p["trial"])
+        self.assertEqual(p["restart"], mod._REINICIO_DUDOSO)
+        self.escrituras_esperadas = 1
+        r = await self.t["ha_update_http_config"](
+            changes=cambios, confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["next"], mod._SIGUIENTE_DUDOSO)
+
+    async def test_prueba_normal_sigue_igual(self) -> None:
+        self._pendiente_en_prueba()
+        vista = await self.t["ha_update_http_config"](changes={"server_port": 8444})
+        self.assertIs(vista["preview"]["trial"], True)
+        self.assertEqual(vista["preview"]["restart"], mod._REINICIO)
+        self.assertIn("pending_replaced", _codigos(vista["preview"]))
+        self.escrituras_esperadas = 1
+        r = await self.t["ha_update_http_config"](
+            changes={"server_port": 8444}, confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["next"], mod._SIGUIENTE)
+
+
+class TestConvergenciaPromover(_Base):
+    """T058: promover avisa del acceso y aplica D-3."""
+
+    def _pendiente(self, **cambios: Any) -> None:
+        self.http["pending"] = {**_ESTABLE, **cambios}
+        self.http["active_config_type"] = "pending"
+        self.http["revert_at"] = "2026-11-15T10:05:00+00:00"
+
+    async def test_avisa_del_acceso(self) -> None:
+        self._pendiente(server_host=["172.30.32.1"])
+        vista = await self.t["ha_promote_http_config"]()
+        p = vista["preview"]
+        self.assertEqual(_codigos(p), ["server_host", "server_host_internal_only"])
+        self.assertEqual(p["access_risk"], mod._RIESGO_PROMOVER)
+        self.assertIn("checked", p["access_risk"])
+        self.assertEqual(self.escrituras(), [])
+
+    async def test_sin_riesgo_sin_access_risk(self) -> None:
+        self._pendiente(cors_allowed_origins=[])
+        p = (await self.t["ha_promote_http_config"]())["preview"]
+        self.assertEqual(_codigos(p), ["cors"])
+        self.assertNotIn("access_risk", p)
+
+    async def test_rechaza_d3_al_promover(self) -> None:
+        self._pendiente(server_host=[_IP])
+        r = await self.t["ha_promote_http_config"]()
+        self.assertEqual(r["error"], "supervisor_lockout")
+        self.assertNotIn("confirmation_token", r)
+        self.assertIn("discard_pending", r["detail"])
+        # Tampoco con un token de antes (la pendiente pasaba D-3 al pedirlo).
+        self._pendiente(server_host=["0.0.0.0"])
+        vista = await self.t["ha_promote_http_config"]()
+        self._pendiente(server_host=[_IP])
+        self.escrituras_esperadas = 1
+        r = await self.t["ha_promote_http_config"](
+            confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["error"], "supervisor_lockout")
+        self.assertEqual(self.escrituras(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,16 +29,48 @@ vuelve a lo estable y reinicia otra vez. Promover lo convierte en la
 configuración de recuperación. Por eso todo confirma y la vista previa avisa
 de cada cambio que puede dejar HA inaccesible.
 
-POR QUÉ SE RECHAZA UN `server_host` SIN EL SUPERVISOR (D-3, fail-closed)
-------------------------------------------------------------------------
-Core corre con la red del host y el Supervisor le llega por la pasarela de su
-red interna de Docker (`hassio`, 172.30.32.0/23): `api_url` del Supervisor es
-`http://172.30.32.1:<puerto>` (`DOCKER_IPV4_NETWORK_MASK[1]`, IPv4). Hermes y
-todas las apps entran a Core a través del Supervisor. Si Core deja de escuchar
-en esa dirección, todos se quedan fuera. Solo valen `0.0.0.0` (todas las IPv4)
-o la propia `172.30.32.1`. `::` sola NO vale: HA enlaza con
+POR QUÉ SE RECHAZA UN `server_host` SIN LA PASARELA DE LAS APPS (D-3, fail-closed)
+---------------------------------------------------------------------------------
+Core corre con la red del host. Las apps viven en la red interna de Docker del
+Supervisor (`hassio`, 172.30.32.0/23) y las que llaman a Core directamente
+usan `homeassistant:8123`: el DNS del Supervisor resuelve `homeassistant` a la
+pasarela de esa red, `172.30.32.1` (`plugins/dns.py`), en IPv4. Si Core deja de
+escuchar en esa dirección, esas apps se quedan fuera.
+
+El Supervisor YA NO va por ahí: con Core >= 2026.4
+(`CORE_UNIX_SOCKET_MIN_VERSION` de `supervisor/homeassistant/api.py`) habla con
+Core por el socket Unix `SUPERVISOR_CORE_API_SOCKET`
+(`async_start_supervisor_unix_socket` de `http/__init__.py`), que no depende de
+`server_host`, del puerto ni del SSL. Hermes entra por el proxy del Supervisor
+(`http://supervisor/core/...`), así que tampoco depende de `server_host`. Solo
+con un Core anterior el Supervisor iría por TCP a `172.30.32.1`.
+
+El rechazo se mantiene (conservador): solo valen `0.0.0.0` (todas las IPv4) o
+la propia `172.30.32.1`. `::` sola NO vale: HA enlaza con
 `loop.create_server`, que pone `IPV6_V6ONLY` en los sockets IPv6, así que `::`
 no acepta conexiones IPv4. Sin `server_host`, HA escucha en `0.0.0.0` y `::`.
+El código de error sigue siendo `supervisor_lockout` por compatibilidad.
+
+Al revés, un `server_host` que SOLO tenga direcciones internas (la pasarela o
+loopback) pasa D-3 pero deja fuera a la red de casa: se avisa aparte
+(`server_host_internal_only`), también al promover.
+
+POR QUÉ PROMOVER REPITE LOS AVISOS (T058)
+-----------------------------------------
+Sin promover, HA vuelve sola a la estable a los 5 minutos. Promover hace
+permanente lo pendiente y lo convierte en la configuración de recuperación:
+es el paso que de verdad puede dejar la casa fuera. Por eso su vista previa
+lleva los mismos avisos que `ha_update_http_config` y `access_risk`, y una
+pendiente que no pase D-3 se rechaza también aquí.
+
+POR QUÉ SE DETECTA LA VUELTA A LA ESTABLE (T059)
+------------------------------------------------
+Si lo fundido es igual a la estable, HA no guarda un pendiente
+(`async_set_pending`: igual a `stable` → `None`) y reinicia con la estable: no
+hay prueba ni nada que promover. HA compara el documento ya validado por su
+esquema (con sus valores por defecto puestos); si Hermes solo lo ve igual
+contando los valores de `default`, no puede estar seguro y la respuesta da
+las dos posibilidades sin afirmar ninguna.
 
 POR QUÉ EL PUERTO NO CORTA A HERMES
 -----------------------------------
@@ -103,8 +135,9 @@ _CLAVES_HTTP: dict[str, str] = {
 }
 _META = ("created_at", "error", "error_message")
 
-# La pasarela de la red interna del Supervisor: por donde llega a Core (ver
-# el docstring). Red completa, para el mensaje.
+# La pasarela de la red interna del Supervisor: por donde le llegan a Core las
+# apps que usan `homeassistant:8123` (ver el docstring). Red completa, para el
+# mensaje y para reconocer las direcciones internas.
 _RED_SUPERVISOR = ipaddress.ip_network("172.30.32.0/23")
 _PASARELA_SUPERVISOR = ipaddress.ip_address("172.30.32.1")
 _TODAS_IPV4 = ipaddress.ip_address("0.0.0.0")
@@ -128,6 +161,44 @@ _SIGUIENTE = (
     "proxy) and promote it with ha_promote_http_config within 5 minutes of the "
     "restart; otherwise it goes back to the stable configuration."
 )
+# T058: promover hace permanente lo que la prueba deshacía sola.
+_RIESGO_PROMOVER = (
+    "WARNING: promoting makes this configuration permanent and the one recovery "
+    "mode uses; Home Assistant no longer goes back to the stable one by itself. "
+    "It can leave Home Assistant unreachable from browsers, the mobile apps, a "
+    "reverse proxy or remote access. Promote only once the user has checked that "
+    "they can reach Home Assistant with it. Hermes keeps access through the "
+    "Supervisor, so Hermes still working proves nothing."
+)
+# T059: los `changes` dejan el resultado igual a la estable.
+_VUELVE_ESTABLE = (
+    "The result equals the stable configuration: Home Assistant drops the "
+    "pending configuration and restarts with the stable one. There is no 5-minute "
+    "trial and nothing to promote afterwards."
+)
+_RIESGO_VUELVE = (
+    "WARNING: this goes back to the stable configuration with no trial: URLs, "
+    "apps or proxies set up for the pending configuration stop working."
+)
+_SIGUIENTE_ESTABLE = (
+    "Home Assistant dropped the pending configuration (the result equals the "
+    "stable one) and restarts with the stable configuration; there is nothing to "
+    "promote."
+)
+_REINICIO_DUDOSO = (
+    "Home Assistant restarts to apply this. The result only differs from the "
+    "stable configuration in keys left to their defaults, and Hermes cannot tell "
+    "how Home Assistant fills them. Either Home Assistant sees it as equal to the "
+    "stable one, drops the pending configuration and restarts with the stable one "
+    "(no trial, nothing to promote); or it runs it on trial and goes back to the "
+    "stable one if nobody promotes it with ha_promote_http_config within 5 minutes."
+)
+_SIGUIENTE_DUDOSO = (
+    "Hermes cannot tell which one happened: read the state with "
+    "ha_promote_http_config() after the restart. If it answers nothing_to_promote, "
+    "Home Assistant went back to the stable configuration; otherwise check that "
+    "Home Assistant works and promote it within 5 minutes of the restart."
+)
 _CONFIG_CHECK = (
     "If configuration.yaml is invalid, Home Assistant refuses to restart: the "
     "new configuration stays pending and applies on the next restart. Validate "
@@ -143,8 +214,14 @@ _AVISOS_HTTP: dict[str, tuple[str, bool]] = {
              "learns the new port when Home Assistant starts.", True),
     "server_host": ("Home Assistant will only listen on these addresses: devices "
                     "that reach it through other addresses or networks lose access. "
-                    "The Supervisor's address is included, so Hermes and the apps "
-                    "keep working.", True),
+                    "The apps' gateway address is included, so apps that call "
+                    "homeassistant:8123 keep working; Hermes and the Supervisor do "
+                    "not depend on server_host.", True),
+    "server_host_internal_only": ("server_host only has internal addresses (the "
+                                  "apps' gateway 172.30.32.1 or loopback): nothing "
+                                  "on the home network (browsers, the mobile apps, "
+                                  "a reverse proxy on another machine) can reach "
+                                  "Home Assistant.", True),
     "ssl": ("Certificate settings change. With a certificate, HTTPS is mandatory "
             "and http:// stops working; a certificate browsers or the apps do not "
             "accept, or a missing file, blocks access. With ssl_peer_certificate, "
@@ -176,8 +253,8 @@ _GRUPO_HTTP: dict[str, str] = {
     "cors_allowed_origins": "cors",
     "use_x_frame_options": "x_frame_options",
 }
-_ORDEN_AVISOS = ("port", "server_host", "ssl", "reverse_proxy", "ip_ban",
-                 "ssl_profile", "cors", "x_frame_options")
+_ORDEN_AVISOS = ("port", "server_host", "server_host_internal_only", "ssl",
+                 "reverse_proxy", "ip_ban", "ssl_profile", "cors", "x_frame_options")
 
 _EXPLICACIONES = {
     "bind_failed": ("Home Assistant could not bind the new address or port (in use "
@@ -260,6 +337,31 @@ def _habilitados(adaptadores: list[dict[str, Any]], configurados: list[str]) -> 
     if not nombres:
         nombres = [a["name"] for a in adaptadores if a.get("auto")]
     return sorted(nombres)
+
+
+def _avisos_red(adaptadores: list[dict[str, Any]],
+                despues: list[str]) -> list[dict[str, str]]:
+    """Avisos si lo que queda habilitado degrada el descubrimiento (T061).
+
+    Sin ninguna IPv4, o sin el adaptador `default` (el de la ruta por
+    defecto), el descubrimiento (zeroconf, SSDP) y la IP de origen que HA
+    deduce (`async_get_source_ip`, la URL interna si no hay `internal_url`)
+    se degradan, y HA lo acepta sin decir nada.
+    """
+    habilitados = [a for a in adaptadores if a.get("name") in despues]
+    avisos = []
+    if not any(a.get("ipv4") for a in habilitados):
+        avisos.append({"code": "no_ipv4", "detail": (
+            "None of the enabled adapters has an IPv4 address: discovery (zeroconf, "
+            "SSDP) and the source address Home Assistant uses to guess its internal "
+            "URL degrade.")})
+    por_defecto = [a["name"] for a in adaptadores if a.get("default")]
+    if por_defecto and not any(n in despues for n in por_defecto):
+        avisos.append({"code": "default_adapter_excluded", "detail": (
+            "The default adapter (the one with the default route) is left out: "
+            "discovery on the home network and the source address Home Assistant "
+            "uses to guess its internal URL degrade.")})
+    return avisos
 
 
 async def _leer_red(ha_client: HAClient) -> tuple[list[dict[str, Any]], list[str]]:
@@ -345,8 +447,39 @@ def _validar_http(changes: Any) -> tuple[str, str] | None:
     return None
 
 
+def _solo_internas(hosts: Any) -> bool:
+    """Si `server_host` solo tiene direcciones que la red de casa no alcanza.
+
+    La red interna del Supervisor y loopback. Solo con direcciones IP
+    reconocidas: un nombre no se sabe a qué resuelve y ya lo rechaza D-3.
+    """
+    if not isinstance(hosts, list) or not hosts:
+        return False
+    for h in hosts:
+        try:
+            ip = ipaddress.ip_address(str(h).strip())
+        except ValueError:
+            return False
+        if not (ip.is_loopback or ip in _RED_SUPERVISOR):
+            return False
+    return True
+
+
+def _avisos(cambios: dict[str, Any], hosts: Any) -> tuple[list[dict[str, str]], bool]:
+    """Avisos del diff y si alguno es de acceso (activa `access_risk`).
+
+    Lo comparten la vista previa de aplicar y la de promover (T058).
+    """
+    grupos = {_GRUPO_HTTP[k] for k in cambios}
+    if "server_host" in grupos and _solo_internas(hosts):
+        grupos.add("server_host_internal_only")
+    avisos = [{"code": g, "detail": _AVISOS_HTTP[g][0]}
+              for g in _ORDEN_AVISOS if g in grupos]
+    return avisos, any(_AVISOS_HTTP[g][1] for g in grupos)
+
+
 def _supervisor_llega(hosts: Any) -> bool:
-    """Si Core seguiría escuchando donde le llega el Supervisor (D-3)."""
+    """Si Core seguiría escuchando donde le llegan las apps (D-3)."""
     if hosts is None:
         return True  # sin server_host, HA escucha en 0.0.0.0 y ::
     for h in hosts if isinstance(hosts, list) else [hosts]:
@@ -360,13 +493,14 @@ def _supervisor_llega(hosts: Any) -> bool:
 
 
 _SIN_SUPERVISOR = (
-    "server_host must let the Supervisor reach Home Assistant. Home Assistant "
-    "runs on the host network and the Supervisor, through which Hermes and every "
-    "app reach it, calls it from its internal Docker network "
-    f"({_RED_SUPERVISOR}) at the gateway {_PASARELA_SUPERVISOR} over IPv4. "
-    "Include \"0.0.0.0\" (every IPv4 address) or \"172.30.32.1\". \"::\" alone "
-    "does not accept IPv4 connections, and a host name cannot be checked. "
-    "Nothing was done."
+    "server_host must keep the address the apps use to reach Home Assistant. "
+    "Apps that call Home Assistant directly at homeassistant:8123 come from the "
+    f"Supervisor's internal Docker network ({_RED_SUPERVISOR}) through the gateway "
+    f"{_PASARELA_SUPERVISOR}, over IPv4, and would lose access. (The Supervisor "
+    "itself, and Hermes through it, talk to Home Assistant over a Unix socket "
+    "that does not depend on server_host.) Include \"0.0.0.0\" (every IPv4 "
+    "address) or \"172.30.32.1\". \"::\" alone does not accept IPv4 connections, "
+    "and a host name cannot be checked."
 )
 
 
@@ -375,6 +509,26 @@ async def _leer_http(ha_client: HAClient) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise HAConnectionError("unexpected response from http/config: not an object")
     return raw
+
+
+def _vuelta_a_estable(http: dict[str, Any], nuevo: dict[str, Any],
+                      defecto: dict[str, Any]) -> str:
+    """Si HA descartaría el pendiente por ser igual a la estable (T059).
+
+    `"yes"`: el documento es igual a la estable sin metadatos (lo que compara
+    `async_set_pending`). `"maybe"`: solo es igual contando los valores de
+    `default`; HA compara tras rellenar los suyos con el esquema y Hermes no
+    lo puede reproducir. `"no"`: en otro caso. Sin pendiente, lo igual a la
+    estable ya sale como `no_changes`.
+    """
+    estable = http.get("stable")
+    if http.get("pending") is None or not isinstance(estable, dict):
+        return "no"
+    if _sin_meta(estable) == nuevo:
+        return "yes"
+    if not _diff(_sin_meta(estable), nuevo, defecto):
+        return "maybe"
+    return "no"
 
 
 def _estado_http(http: dict[str, Any]) -> dict[str, Any]:
@@ -403,7 +557,9 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         detection. It does NOT change the address or port Home Assistant
         listens on (that is ha_update_http_config). Two steps: without
         confirmation_token returns a preview (configured and enabled adapters
-        before and after) and a token; repeat the same call with the token to
+        before and after, warnings if none has IPv4 or the default adapter
+        is left out, which degrades discovery) and a token; repeat the same
+        call with the token to
         apply. To read the adapters first: ha_read_ws_command(type="network").
 
         Args:
@@ -453,6 +609,7 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                 "note": ("Changes discovery and the addresses Home Assistant "
                          "announces; it does not change the address or port Home "
                          "Assistant listens on."),
+                "warnings": _avisos_red(adaptadores, despues),
             }
             logger.info(f"{tool}_ok", step="preview", count=len(configured_adapters))
             return await create_confirmation_token(tool, args, preview=preview, estado=estado)
@@ -499,10 +656,12 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         repeat the same call with the token to apply. Applying RESTARTS Home
         Assistant and runs the new configuration on trial: promote it with
         ha_promote_http_config within 5 minutes or Home Assistant goes back
-        to the stable one. A server_host that leaves out the Supervisor
-        (and with it Hermes and every app) is rejected. Refused while Hermes'
-        restart block is on (call sv_check_core_config first). To read:
-        ha_read_ws_command(type="http/config").
+        to the stable one (if the result equals the stable configuration,
+        Home Assistant just goes back to it, with no trial). A server_host
+        without "0.0.0.0" or "172.30.32.1", the address apps use to reach
+        Home Assistant at homeassistant:8123, is rejected (supervisor_lockout).
+        Refused while Hermes' restart block is on (call sv_check_core_config
+        first). To read: ha_read_ws_command(type="http/config").
 
         Args:
             changes: Keys of the HTTP configuration: server_host (list),
@@ -580,15 +739,14 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
             if not _supervisor_llega(nuevo.get("server_host")):
                 logger.warning(f"{tool}_failed", error="supervisor_lockout")
                 return {"error": "supervisor_lockout", "field": "server_host",
-                        "detail": _SIN_SUPERVISOR}
+                        "detail": _SIN_SUPERVISOR + " Nothing was done."}
             cambios = _diff(doc_base, nuevo, defecto)
             if not cambios:
                 logger.info(f"{tool}_ok", step="preview", result="no_changes", fields=claves)
                 return {"result": "no_changes"}
-            grupos = {_GRUPO_HTTP[k] for k in cambios}
-            avisos = [{"code": g, "detail": _AVISOS_HTTP[g][0]}
-                      for g in _ORDEN_AVISOS if g in grupos]
-            if pendiente is not None:
+            avisos, riesgo = _avisos(cambios, nuevo.get("server_host"))
+            vuelta = _vuelta_a_estable(http, nuevo, defecto)
+            if pendiente is not None and vuelta != "yes":
                 avisos.append({"code": "pending_replaced",
                                "detail": _AVISOS_HTTP["pending_replaced"][0]})
             preview = {
@@ -597,11 +755,16 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                 "pending_replaced": pendiente is not None,
                 "new_config": redact_structure(nuevo),
                 "changes": redact_structure(cambios),
-                "restart": _REINICIO,
+                # T059: si el resultado es la estable, no hay prueba; si no
+                # se puede saber, se dicen las dos cosas.
+                "restart": {"no": _REINICIO, "yes": _VUELVE_ESTABLE,
+                            "maybe": _REINICIO_DUDOSO}[vuelta],
+                "trial": {"no": True, "yes": False, "maybe": None}[vuelta],
                 "warnings": avisos,
             }
-            if any(_AVISOS_HTTP[g][1] for g in grupos):
-                preview["access_risk"] = _RIESGO_ACCESO
+            if riesgo:
+                preview["access_risk"] = (_RIESGO_VUELVE if vuelta == "yes"
+                                          else _RIESGO_ACCESO)
 
         if not confirmation_token:
             logger.info(f"{tool}_ok", step="preview", fields=claves,
@@ -633,8 +796,15 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
                     discard_pending=discard_pending, restart=reinicia)
         out: dict[str, Any] = {"result": "ok", "restart": reinicia,
                                "config_check": _CONFIG_CHECK}
+        # T059: con `http` releído al confirmar (el token lo ata), igual que
+        # en la vista previa.
+        vuelta = "no" if nuevo is None else _vuelta_a_estable(http, nuevo, defecto)
         if discard_pending:
             out["next"] = "Home Assistant restarts with the stable configuration."
+        elif vuelta == "yes":
+            out["next"] = _SIGUIENTE_ESTABLE
+        elif vuelta == "maybe":
+            out["next"] = _SIGUIENTE_DUDOSO
         elif reinicia:
             out["next"] = _SIGUIENTE
         else:
@@ -651,9 +821,13 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
 
         Only when Home Assistant is running with a pending configuration set by
         ha_update_http_config that has not failed. The promoted configuration
-        becomes the stable one, which recovery mode uses. Two steps: without
-        confirmation_token returns a preview (diff from stable to pending and
-        revert_at, when Home Assistant would go back by itself) and a token;
+        becomes the stable one, which recovery mode uses, and Home Assistant
+        no longer goes back by itself: promote only after the user checked
+        they can reach Home Assistant. A pending server_host without
+        "0.0.0.0" or "172.30.32.1" is rejected (supervisor_lockout). Two
+        steps: without confirmation_token returns a preview (diff from stable
+        to pending, the same access-loss warnings as ha_update_http_config,
+        and revert_at, when Home Assistant would go back by itself) and a token;
         repeat with the token to promote. The preview doubles as the status
         of the trial. Nothing to promote: {"error": "nothing_to_promote",
         "reason"} and no token.
@@ -685,16 +859,30 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
         if motivo is not None:
             logger.info(f"{tool}_failed", error="nothing_to_promote")
             return {"error": "nothing_to_promote", "reason": motivo}
+        # D-3 también al promover (T058): una pendiente que deja fuera a las
+        # apps no se hace permanente, venga de donde venga. Antes del token,
+        # así que vale para la vista previa y para la confirmación.
+        if not _supervisor_llega(pendiente.get("server_host")):
+            logger.warning(f"{tool}_failed", error="supervisor_lockout")
+            return {"error": "supervisor_lockout", "field": "server_host",
+                    "detail": _SIN_SUPERVISOR + " Nothing was promoted: drop it with "
+                              "ha_update_http_config(discard_pending=true), or Home "
+                              "Assistant goes back to the stable configuration by "
+                              "itself."}
 
         if not confirmation_token:
             defecto = _sin_meta(http.get("default"))
+            cambios = _diff(_sin_meta(http.get("stable")), _sin_meta(pendiente), defecto)
+            avisos, riesgo = _avisos(cambios, pendiente.get("server_host"))
             preview = {
                 "action": "promote_http_config",
-                "changes": redact_structure(
-                    _diff(_sin_meta(http.get("stable")), _sin_meta(pendiente), defecto)),
+                "changes": redact_structure(cambios),
                 "revert_at": http.get("revert_at"),
                 "note": "The promoted configuration becomes the one recovery mode uses.",
+                "warnings": avisos,
             }
+            if riesgo:
+                preview["access_risk"] = _RIESGO_PROMOVER
             logger.info(f"{tool}_ok", step="preview")
             return await create_confirmation_token(
                 tool, args, preview=preview, estado=_estado_http(http))

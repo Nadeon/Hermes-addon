@@ -1013,8 +1013,10 @@ CONFIRMAN en dos pasos: enseña la vista previa al usuario antes de confirmar.
 - `ha_update_network_config(configured_adapters)` — qué adaptadores usa HA
   para descubrir dispositivos y qué direcciones anuncia. `[]` = automático.
   Un nombre que no existe da `invalid_argument` con `available`. La vista
-  previa dice los habilitados antes y después. NO cambia dónde escucha la
-  interfaz web.
+  previa dice los habilitados antes y después, y avisa (`warnings`:
+  `no_ipv4`, `default_adapter_excluded`) si ninguno tiene IPv4 o queda fuera
+  el adaptador por defecto, porque el descubrimiento se degrada. NO cambia
+  dónde escucha la interfaz web.
 - `ha_update_http_config(changes=None, discard_pending=False)` — el servidor
   HTTP: `server_port`, `server_host`, `ssl_certificate`, `ssl_key`,
   `ssl_peer_certificate`, `ssl_profile`, `use_x_forwarded_for`,
@@ -1024,9 +1026,12 @@ CONFIRMAN en dos pasos: enseña la vista previa al usuario antes de confirmar.
   documento entero (`new_config` en la vista previa, con `changes` y
   `warnings`). `discard_pending=true` tira una pendiente sin promover.
 - `ha_promote_http_config()` — confirma que la configuración de prueba
-  funciona: pasa a ser la estable, la que usa el modo de recuperación. Su
-  vista previa sirve de estado de la prueba (diff y `revert_at`). Sin una
-  pendiente con la que HA ya funcione: `nothing_to_promote` con `reason`.
+  funciona: pasa a ser la estable, la que usa el modo de recuperación, y HA
+  ya no vuelve sola atrás. Su vista previa sirve de estado de la prueba (diff
+  y `revert_at`) y repite los `warnings` y el `access_risk` de aplicar:
+  promueve solo cuando el usuario haya comprobado que llega a HA (que Hermes
+  siga funcionando no prueba nada). Sin una pendiente con la que HA ya
+  funcione: `nothing_to_promote` con `reason`.
 
 LA PRUEBA DE 5 MINUTOS
 Aplicar un cambio de HTTP REINICIA Home Assistant, que arranca con la
@@ -1041,9 +1046,19 @@ AVISOS Y RECHAZOS
   `http://` deja de funcionar), `reverse_proxy` (un proxy fuera de
   `trusted_proxies` queda rechazado), `ip_ban`, `ssl_profile`, `cors`,
   `x_frame_options` y `pending_replaced`.
-- `supervisor_lockout`: un `server_host` sin `0.0.0.0` ni `172.30.32.1` (la
-  dirección por la que el Supervisor llega a Core) se rechaza, porque dejaría
-  fuera a Hermes y a todas las apps. `::` sola no vale (no acepta IPv4).
+- `supervisor_lockout`: un `server_host` sin `0.0.0.0` ni `172.30.32.1` se
+  rechaza, también al promover: `172.30.32.1` es la pasarela por la que llegan
+  las apps que conectan directamente a `homeassistant:8123`, y se quedarían
+  fuera. El Supervisor (y Hermes a través de él) habla con Core por un socket
+  Unix desde Core 2026.4, que no depende de `server_host`. `::` sola no vale
+  (no acepta IPv4).
+- `server_host_internal_only`: un `server_host` con solo direcciones internas
+  (`172.30.32.1`, loopback) pasa ese rechazo pero deja fuera a toda la red de
+  casa; es aviso de acceso.
+- Si los `changes` dejan el resultado igual que la estable, HA descarta la
+  pendiente y reinicia con la estable: sin prueba y sin nada que promover
+  (`trial: false`). Si Hermes no lo puede saber seguro, `trial: null` y la
+  respuesta da las dos posibilidades.
 - `restart_blocked`: si Hermes escribió configuración sin validarla, se niega
   como `sv_restart_core`; llama antes a `sv_check_core_config`.
 - `use_x_forwarded_for: true` exige `trusted_proxies` en el resultado.

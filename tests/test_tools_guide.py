@@ -867,6 +867,20 @@ class TestTemaDeRedYHttp(unittest.IsolatedAsyncioTestCase):
             with self.subTest(alias=alias):
                 self.assertEqual(await self.guide(alias), texto)
 
+    async def test_convergencia_t058_t061(self) -> None:
+        """T058-T061: el porqué de D-3 dice la verdad en 2026.11 (socket Unix
+        del Supervisor; se cortan las apps que van a `homeassistant:8123`),
+        promover repite los avisos, la vuelta a la estable y los avisos de
+        red. Control negativo: con el texto viejo («dejaría fuera a Hermes y a
+        todas las apps») cae."""
+        texto = await self.guide("core_network")
+        for palabra in ("socket", "homeassistant:8123", "server_host_internal_only",
+                        "`trial: false`", "`no_ipv4`", "`default_adapter_excluded`",
+                        "repite los `warnings`"):
+            self.assertIn(palabra, texto)
+        self.assertNotIn("dejaría\n  fuera a Hermes", texto)
+        self.assertNotIn("fuera a Hermes y a todas las apps", texto.replace("\n  ", " "))
+
     async def test_analytics_y_labs_en_core_config(self) -> None:
         texto = _GUIDE["core_config"]
         for palabra in ('ha_read_ws_command(type="analytics")',
