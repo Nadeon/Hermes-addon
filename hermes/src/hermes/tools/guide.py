@@ -138,7 +138,7 @@ para el detalle de un área. Temas disponibles:
 - `supervisor`     — add-ons, host y core de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
-- `backup_integration` — agentes y ajustes de los backups de Home Assistant (programación, retención)
+- `backup_integration` — backups de Home Assistant: agentes, ajustes (programación, retención), crear y borrar
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
@@ -538,12 +538,13 @@ aunque se llame `hermes-safety-…`, ni protegidos, parciales o copiados a otra
 ubicación. Los anteriores a 1.1.0 no se podan: bórralos con `sv_delete_backup`.
 """,
     "backup_integration": """\
-# Backups de Home Assistant: agentes y ajustes (familia `backup_integration`)
+# Backups de Home Assistant (familia `backup_integration`)
 
 La integración `backup` de Home Assistant (HA 2025.1+) guarda sus backups en
 «agentes»: el local, los montajes de red del Supervisor y ubicaciones remotas
-como la nube. Estas tools leen y cambian sus ajustes. Para crear, restaurar o
-borrar backups del Supervisor, las `sv_*` del tema `backups`; para listar los
+como la nube. Estas tools leen y cambian sus ajustes, y crean y borran
+backups en cualquier agente. Las `sv_*` del tema `backups` trabajan solo con
+los backups del Supervisor (y los safety backups de Hermes); para listar los
 backups que ve HA, `ha_list_backups`.
 
 - `ha_list_backup_agents()` — cada agente con `kind` (`local`, `mount` para un
@@ -557,6 +558,32 @@ backups que ve HA, `ha_list_backups`.
   automáticos); un `null` explícito sí se manda. La vista previa trae
   `current`, `resulting`, `sends` (lo que se manda a HA), `changed`,
   `warnings` y `retention_effect`.
+- `ha_create_backup(agent_ids=[…], include_homeassistant=…, include_database=…,
+  include_addons=… o include_all_addons=…, include_folders=…, name=…,
+  encrypt=True)` — un backup a medida, en dos pasos. La vista previa dice qué
+  se guarda, en qué agentes (`kind`) y si cada copia va cifrada (`encrypted`:
+  HA descifra la de un agente con `protected: false`), y avisa si una copia
+  sin cifrar sale a un agente remoto. Apps y carpetas necesitan el
+  Supervisor (agente `hassio.local`). Al confirmar devuelve `backup_job_id` y
+  `follow_with`: corre en segundo plano; síguelo con `ha_list_backups` hasta
+  que `state` vuelva a `idle` y `last_action_event.state` diga `completed` o
+  `failed`.
+- `ha_create_automatic_backup()` — un backup ahora con los ajustes
+  automáticos, en dos pasos. Al terminar, HA aplica la retención y BORRA los
+  automáticos que sobren: la vista previa trae la estimación
+  (`retention_effect`, solo por copias). Sin agentes en los ajustes,
+  `automatic_backups_not_configured`.
+- `ha_delete_backup(backup_id)` — borra el backup de TODAS sus ubicaciones
+  (local, red, nube), en dos pasos y sin vuelta atrás. La vista previa dice
+  el backup, su fecha, cada ubicación con tamaño y cifrado, lo que se pierde
+  (`lost`) y avisa si es el único con la configuración de HA o un safety
+  backup de Hermes. Si un agente no se puede leer, no hay token
+  (`backup_locations_unreadable`). La respuesta dice `deleted_from` y
+  `failed` (`result: partial` si falló en alguna).
+
+En las tres, el token ata los argumentos y lo que enseñó la vista previa
+(agentes y cifrado; ajustes y retención; el backup y sus ubicaciones): si
+cambia antes de confirmar, `state_changed`.
 
 Si HA hace un backup antes de actualizar Core o una app (y cuántos guarda) NO
 se lee ni se cambia desde Hermes: el proxy del Supervisor no deja a las apps
@@ -575,13 +602,16 @@ vista previa.
 
 LA CLAVE DE CIFRADO
 La clave que cifra los backups (la del kit de emergencia) NUNCA sale: solo
-`password_set`. Tampoco se cambia aquí: `password` se rechaza en cualquier
+`password_set`. `ha_create_backup` con `encrypt` cifra con ella (sin clave en
+HA, `no_encryption_key`; o pasa `encrypt=false`): no acepta contraseñas, y el
+backup se restaura desde la interfaz de HA con el kit. Tampoco se cambia aquí: `password` se rechaza en cualquier
 sitio; se cambia en la interfaz de HA (Ajustes → Sistema → Backups), que
 entrega el kit. `agents.<id>.protected: false` guarda esa copia SIN cifrar
 (con `secrets.yaml`): la vista previa lo avisa.
 
-Errores: `invalid_argument` (con `field`), `ha_version_unsupported` (HA
-anterior a 2025.1), `backup_integration_unavailable`.
+Errores: `invalid_argument` (con `field`), `unknown_agent` (con `available`),
+`not_found`, `ha_version_unsupported` (HA anterior a 2025.1),
+`backup_integration_unavailable`.
 """,
     "lovelace": """\
 # Lovelace (dashboards y recursos)
@@ -1006,6 +1036,9 @@ _ALIASES: dict[str, str] = {
     "backup_config": "backup_integration",
     "backup_schedule": "backup_integration",
     "backup_retention": "backup_integration",
+    # Tramo 2: crear y borrar.
+    "create_backup": "backup_integration",
+    "delete_backup": "backup_integration",
     "dashboards": "lovelace",
     "dashboard": "lovelace",
     "hacs": "marketplace",

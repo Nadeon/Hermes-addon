@@ -737,6 +737,23 @@ class TestTemaBackupIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_backup_sigue_en_backups(self) -> None:
         self.assertEqual(await self.guide("backup"), _GUIDE["backups"])
 
+    async def test_crear_y_borrar_del_tramo_2(self) -> None:
+        """Tramo 2 (T028): crear (con `encrypt`, `follow_with` y
+        `ha_list_backups`), crear con los ajustes automáticos (la retención
+        borra) y borrar (todas las ubicaciones), con sus alias.
+        Control negativo, comprobado: sin el alias `delete_backup` cae."""
+        texto = await self.guide("backup_integration")
+        for palabra in ("ha_create_backup", "encrypt", "follow_with", "ha_list_backups",
+                        "last_action_event", "ha_create_automatic_backup", "BORRA",
+                        "ha_delete_backup", "TODAS sus ubicaciones",
+                        "backup_locations_unreadable", "no_encryption_key",
+                        "unknown_agent"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("create_backup", "delete_backup"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
 
 if __name__ == "__main__":
     unittest.main()
