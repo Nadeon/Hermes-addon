@@ -1,7 +1,7 @@
 """La clase C de la tabla: comandos de integraciones concretas (spec 025).
 
-FR-001…FR-004 (FR-005 y FR-006 en el tramo 3), FR-007, FR-009 y FR-011 de
-la 025; FR-089 de la 008. La clasificación comando a comando, con el handler
+FR-001…FR-007, FR-009, FR-011 y FR-012 de la 025; FR-089 de la 008. Tras el
+tramo 3 cubre las 192 filas de la clase C del inventario. La clasificación comando a comando, con el handler
 leído y el motivo, está en `specs/025-integraciones-especificas/research.md`,
 R-1; aquí se fija para que una edición de la tabla no la cambie en silencio.
 
@@ -10,12 +10,19 @@ Reglas:
   (`one_shot`, `open_world`, `redact_extra`, `example`) de R-1.
 - `test_esperado_completo`: cada fila de clase C del inventario de un prefijo
   revisado está en `_ESPERADO`, y al revés (una integración se revisa entera).
-- `test_ninguna_pendiente_de_la_025`: ninguna entrada de un prefijo revisado
-  dice «spec 025». En el tramo 3, sin filtro: la tabla entera.
-- `test_motivos_concretos`: ningún motivo de lo revisado dice «pendiente» ni
-  «sin revisar» (FR-007).
+- `test_ninguna_pendiente_de_la_025`: ninguna entrada de la tabla entera
+  dice «spec 025».
+- `test_ninguna_c_sin_revisar`: ninguna fila C dice «sin revisar» ni
+  «pendiente de revisión» (lo nuevo de una versión futura de HA cae aquí).
+- `test_motivos_concretos`: ningún motivo de lo revisado es un texto
+  provisional («sin revisar», «pendiente de revisión/tool») (FR-007).
 - `test_ningun_proxy`: ninguna entrada `hassio/*` ni `supervisor/*` de clase C
   en `read`/`confirm` (el proxy del Supervisor las rechaza).
+
+Control negativo comprobado (tramo 3): devolver `wyoming/info` a «pendiente
+de revisión (spec 025)» → caen `test_clasificacion`,
+`test_ninguna_pendiente_de_la_025`, `test_ninguna_c_sin_revisar` y
+`test_motivos_concretos` nombrándola.
 
 Control negativo comprobado (tramo 2): pasar `thread/get_dataset_tlv` a
 `read` → caen `test_clasificacion` y `test_recuento_del_tramo_2`; quitar
@@ -32,6 +39,7 @@ from __future__ import annotations
 
 import csv
 import pathlib
+import re
 import unittest
 
 from hermes import command_table as ct
@@ -39,10 +47,14 @@ from hermes import command_table as ct
 _RAIZ = pathlib.Path(__file__).resolve().parents[1]
 _INVENTARIO = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
 
-# Prefijos de las integraciones ya revisadas. Crece por tramos: el 2 añade
-# `zha/`, `matter/`, `thread/` y `otbr/`; el 3, el resto.
-_REVISADAS: frozenset[str] = frozenset(
-    {"zwave_js/", "zha/", "matter/", "thread/", "otbr/"})
+# Prefijos de las integraciones revisadas: tras el tramo 3, todos los de la
+# clase C del inventario (`test_revisadas_cubre_el_inventario` lo vigila).
+_REVISADAS: frozenset[str] = frozenset({
+    "bluetooth/", "dhcp/", "dynalite/", "esphome/", "generic_camera/",
+    "insteon/", "knx/", "lcn/", "lorawan/", "matter/", "mobile_app/",
+    "modbus/", "mqtt/", "notify/", "otbr/", "sendspin/", "ssdp/", "thread/",
+    "usb/", "wyoming/", "zeroconf/", "zha/", "zwave_js/",
+})
 
 # Comando → (categoría, marcas distintas del valor por defecto). R-1.
 _ESPERADO: dict[str, tuple[str, set[str]]] = {
@@ -154,7 +166,102 @@ _ESPERADO: dict[str, tuple[str, set[str]]] = {
     "thread/list_datasets": ("read", set()),
     "thread/set_preferred_border_agent": ("confirm", set()),
     "thread/set_preferred_dataset": ("confirm", {"example"}),
+    # Tramo 3 — MQTT (CAP-104): 1 read, 0 confirm, 1 deny.
+    "mqtt/device/debug_info": ("read", {"redact_extra", "example"}),
+    "mqtt/subscribe": ("deny", set()),
+    # USB y Bluetooth (CAP-105): 4 read, 0 confirm, 3 deny.
+    "bluetooth/subscribe_advertisements": ("read", {"one_shot"}),
+    "bluetooth/subscribe_connection_allocations": ("deny", set()),
+    "bluetooth/subscribe_scanner_details": ("deny", set()),
+    "bluetooth/subscribe_scanner_state": ("deny", set()),
+    "usb/list_serial_integrations": ("read", set()),
+    "usb/list_serial_ports": ("read", {"example"}),
+    "usb/scan": ("read", set()),
+    # El resto (CAP-106): 32 read, 31 confirm, 15 deny.
+    "dhcp/subscribe_discovery": ("read", {"one_shot"}),
+    "dynalite/get-config": ("read", set()),
+    "dynalite/save-config": ("confirm", set()),
+    "esphome/get_device_capabilities": ("read", set()),
+    "esphome/get_device_wizard": ("read", set()),
+    "esphome/get_encryption_key": ("deny", set()),
+    "generic_camera/start_preview": ("deny", set()),
+    "insteon/aldb/add_default_links": ("confirm", set()),
+    "insteon/aldb/change": ("confirm", set()),
+    "insteon/aldb/create": ("confirm", set()),
+    "insteon/aldb/get": ("read", set()),
+    "insteon/aldb/load": ("confirm", set()),
+    "insteon/aldb/notify": ("deny", set()),
+    "insteon/aldb/notify_all": ("read", {"one_shot"}),
+    "insteon/aldb/reset": ("confirm", set()),
+    "insteon/aldb/write": ("confirm", set()),
+    "insteon/config/device_override/add": ("confirm", set()),
+    "insteon/config/device_override/remove": ("confirm", set()),
+    "insteon/config/get": ("read", set()),
+    "insteon/config/get_broken_links": ("read", set()),
+    "insteon/config/get_modem_schema": ("deny", set()),
+    "insteon/config/get_unknown_devices": ("read", set()),
+    "insteon/config/update_modem_config": ("deny", set()),
+    "insteon/device/add": ("deny", set()),
+    "insteon/device/add/cancel": ("confirm", set()),
+    "insteon/device/add_x10": ("confirm", set()),
+    "insteon/device/get": ("read", set()),
+    "insteon/device/remove": ("confirm", set()),
+    "insteon/properties/change": ("confirm", set()),
+    "insteon/properties/get": ("read", set()),
+    "insteon/properties/load": ("confirm", set()),
+    "insteon/properties/reset": ("confirm", set()),
+    "insteon/properties/write": ("confirm", set()),
+    "insteon/scene/delete": ("confirm", set()),
+    "insteon/scene/get": ("read", set()),
+    "insteon/scene/save": ("confirm", set()),
+    "insteon/scenes/get": ("read", set()),
+    "knx/create_device": ("confirm", set()),
+    "knx/create_entity": ("confirm", set()),
+    "knx/delete_entity": ("confirm", set()),
+    "knx/delete_expose": ("confirm", set()),
+    "knx/get_base_data": ("read", set()),
+    "knx/get_entities_by_group": ("read", set()),
+    "knx/get_entity_config": ("read", set()),
+    "knx/get_expose_config": ("read", set()),
+    "knx/get_expose_groups": ("read", set()),
+    "knx/get_knx_project": ("read", set()),
+    "knx/get_schema": ("read", set()),
+    "knx/get_time_server_config": ("read", set()),
+    "knx/group_monitor_info": ("read", set()),
+    "knx/group_telegrams": ("read", set()),
+    "knx/project_file_process": ("deny", set()),
+    "knx/project_file_remove": ("confirm", set()),
+    "knx/query_telegrams": ("read", set()),
+    "knx/subscribe_telegrams": ("deny", set()),
+    "knx/update_entity": ("confirm", set()),
+    "knx/update_expose": ("confirm", set()),
+    "knx/update_time_server_config": ("confirm", set()),
+    "knx/validate_entity": ("read", set()),
+    "knx/validate_expose": ("read", set()),
+    "lcn/devices": ("read", set()),
+    "lcn/devices/add": ("confirm", set()),
+    "lcn/devices/delete": ("confirm", set()),
+    "lcn/devices/scan": ("confirm", set()),
+    "lcn/entities": ("read", set()),
+    "lcn/entities/add": ("confirm", set()),
+    "lcn/entities/delete": ("confirm", set()),
+    "lorawan/devices/list": ("read", set()),
+    "lorawan/devices/subscribe": ("deny", set()),
+    "mobile_app/push_notification_channel": ("deny", set()),
+    "mobile_app/push_notification_confirm": ("deny", set()),
+    "modbus/connections/list": ("read", set()),
+    "notify/html5/appkey": ("read", set()),
+    "sendspin/get_pairing_token": ("deny", set()),
+    "sendspin/subscribe_clients": ("deny", set()),
+    "ssdp/subscribe_discovery": ("deny", set()),
+    "wyoming/info": ("read", set()),
+    "zeroconf/subscribe_discovery": ("deny", set()),
 }
+
+
+# Textos de lo que aún no se ha clasificado a mano: «sin revisar» (generador),
+# «pendiente de revisión» (la 025 y la vía T) y «pendiente de tool dedicada».
+_PROVISIONAL = re.compile(r"sin revisar|pendiente de (revisión|tool)")
 
 
 def _filas_c() -> dict[str, dict[str, str]]:
@@ -193,18 +300,37 @@ class TestClaseC(unittest.TestCase):
         filas = {k for k in _filas_c() if revisada(k)}
         self.assertEqual(sorted(filas - set(_ESPERADO)), [], "revisadas sin _ESPERADO")
         self.assertEqual(sorted(set(_ESPERADO) - filas), [], "_ESPERADO fuera de clase C")
-        self.assertEqual(len(_ESPERADO), 105)
+        self.assertEqual(len(_ESPERADO), 192)
+
+    def test_revisadas_cubre_el_inventario(self) -> None:
+        """Cada fila de clase C del inventario cae en un prefijo revisado."""
+        self.assertEqual(sorted(k for k in _filas_c() if not revisada(k)), [])
 
     def test_ninguna_pendiente_de_la_025(self) -> None:
-        malas = sorted(k for k, e in ct.CORE_WS.items()
-                       if revisada(k) and "spec 025" in e.reason)
+        """FR-007, tras el tramo 3: ninguna entrada de la tabla ENTERA (Core y
+        Supervisor, de cualquier clase) remite ya a la 025.
+
+        Control negativo comprobado: devolver `wyoming/info` a «pendiente de
+        revisión (spec 025)» → cae nombrándola (y también
+        `test_clasificacion` y `test_motivos_concretos`)."""
+        malas = sorted(str(k) for tabla in (ct.CORE_WS, ct.SUPERVISOR)
+                       for k, e in tabla.items() if "spec 025" in e.reason)
+        self.assertEqual(malas, [])
+
+    def test_ninguna_c_sin_revisar(self) -> None:
+        """FR-012: ninguna fila de clase C queda «sin revisar» ni «pendiente
+        de revisión» (lo que una versión nueva de HA añada entra así y cae
+        aquí nombrándolo)."""
+        malas = sorted(k for k in _filas_c() if _PROVISIONAL.search(ct.CORE_WS[k].reason))
         self.assertEqual(malas, [])
 
     def test_motivos_concretos(self) -> None:
+        # «pendiente de» y no «pendiente» a secas: varios motivos de Insteon
+        # dicen, con razón, que un cambio queda pendiente hasta escribirlo
+        # (`insteon/aldb/change`, «pendiente hasta aldb/write»).
         malas = sorted(
             f"{k}: {e.reason!r}" for k, e in ct.CORE_WS.items()
-            if k in _ESPERADO and ("pendiente" in e.reason or "sin revisar" in e.reason
-                                   or len(e.reason) < 15))
+            if k in _ESPERADO and (_PROVISIONAL.search(e.reason) or len(e.reason) < 15))
         self.assertEqual(malas, [])
 
     def test_ningun_proxy(self) -> None:
@@ -237,6 +363,29 @@ class TestClaseC(unittest.TestCase):
             "thread": {"read": 2, "confirm": 2, "deny": 7},
         })
 
+    def test_recuento_del_tramo_3(self) -> None:
+        """R-1: MQTT 1/0/1, USB y Bluetooth 4/0/3, el resto 32/31/15
+        (FR-005, FR-006)."""
+        cuenta: dict[str, dict[str, int]] = {}
+        for k, fila in _filas_c().items():
+            if fila["cap"] in ("CAP-104", "CAP-105", "CAP-106"):
+                c = cuenta.setdefault(fila["cap"], {})
+                cat = ct.CORE_WS[k].category
+                c[cat] = c.get(cat, 0) + 1
+        self.assertEqual(cuenta, {
+            "CAP-104": {"read": 1, "deny": 1},
+            "CAP-105": {"read": 4, "deny": 3},
+            "CAP-106": {"read": 32, "confirm": 31, "deny": 15},
+        })
+
+    def test_recuento_total(self) -> None:
+        """R-1: las 192 de la clase C, 73 `read`, 57 `confirm` y 62 `deny`."""
+        cuenta: dict[str, int] = {}
+        for k in _filas_c():
+            cat = ct.CORE_WS[k].category
+            cuenta[cat] = cuenta.get(cat, 0) + 1
+        self.assertEqual(cuenta, {"read": 73, "confirm": 57, "deny": 62})
+
     def test_redact_extra_de_las_claves(self) -> None:
         """R-6: qué claves tapa cada entrada; el valor ENTERO (FR-008)."""
         claves_zha = ("network_key", "tc_link_key", "key_table", "stack_specific")
@@ -247,6 +396,7 @@ class TestClaseC(unittest.TestCase):
             "zha/configuration": ("alarm_master_code",),
             "zha/configuration/update": ("alarm_master_code",),
             "otbr/info": ("active_dataset_tlvs",),
+            "mqtt/device/debug_info": ("code", "transmitted"),
         }
         for comando, claves in esperado.items():
             with self.subTest(comando=comando):

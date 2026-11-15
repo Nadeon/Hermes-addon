@@ -541,19 +541,8 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
         self.assertGreaterEqual(
             sum(1 for k in ct.SUPERVISOR if k[1].startswith(_PROXY_CORE)), 10)
 
-    def test_clase_c_pendiente_de_la_025(self) -> None:
-        """Mientras dura la 025, la clase C de las integraciones aún no
-        revisadas sigue en `deny` «pendiente»; las revisadas (los prefijos de
-        `_REVISADAS` de test_command_table_clase_c.py) las vigila ese fichero.
-        El tramo 3 borra este test."""
-        from tests.test_command_table_clase_c import revisada
-
-        malas = sorted(
-            str(k) for k, f in _CORE.items() if f["clase"] == "C"
-            and not revisada(k)
-            and (ct.CORE_WS[k].category, ct.CORE_WS[k].reason)
-            != ("deny", "pendiente de revisión (spec 025)"))
-        self.assertEqual(malas, [])
+    # La clase C ya no está «pendiente»: la vigila entera
+    # tests/test_command_table_clase_c.py (spec 025, tramo 3).
 
     def test_clase_a_de_via_dedicada_pendiente_de_su_spec(self) -> None:
         """Clase A de vía D/D+T/D+X: `deny` «pendiente de tool dedicada (spec

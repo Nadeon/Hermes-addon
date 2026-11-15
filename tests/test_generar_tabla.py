@@ -149,9 +149,16 @@ class TestPrimeraGeneracion(_Base):
             self.assertEqual(e.family, "generic_commands")
 
     def test_clase_c(self) -> None:
+        """Spec 025 (FR-012, tramo 3): una fila C fuera del mapa revisado sale
+        `deny` «sin revisar», para que el test de la clase C la nombre.
+
+        Control negativo comprobado: volver el texto del generador a
+        «pendiente de revisión (spec 025)» → cae este test. El desde cero
+        real no cae con eso solo, porque las 192 filas están en el mapa; su
+        comprobación de «spec 025» la cubre si, además, una fila sale del
+        mapa (comprobado quitando `wyoming/info`)."""
         e = self.t.CORE_WS["demo/radio/reset"]
-        self.assertEqual((e.category, e.reason, e.cap),
-                         ("deny", "pendiente de revisión (spec 025)", "CAP-100"))
+        self.assertEqual((e.category, e.reason, e.cap), ("deny", "sin revisar", "CAP-100"))
 
     def test_clase_c_del_mapa_revisado(self) -> None:
         """Spec 025 (R-4): una fila C que está en `CLASE_C` sale con la
@@ -339,9 +346,12 @@ class TestClaseAConToolDedicada(_Base):
         Una entrada revisada en la tabla y no en `scripts/inventario/clase_c.py`
         (o con otro texto) cae aquí nombrándola.
 
+        Desde el tramo 3 compara las 192 filas y comprueba además que ninguna
+        entrada generada desde cero (Core ni Supervisor) dice «spec 025».
+
         Control negativo comprobado (tramo 1): quitar `zwave_js/node_status`
         de `CLASE_C` → cae nombrándola; cambiar su motivo en el mapa → cae
-        igual."""
+        igual. Tramo 3: quitar `wyoming/info` del mapa → cae nombrándola."""
         from hermes import command_table as real
         from tests.test_command_table_clase_c import revisada
 
@@ -365,9 +375,12 @@ class TestClaseAConToolDedicada(_Base):
                 malas.append(f"{k}: desde cero {campos(cero.CORE_WS[k])}, "
                              f"tabla {campos(real.CORE_WS[k])}")
         self.assertEqual(malas, [], "\n".join(malas))
-        # Tramo 1: las 55 de `zwave_js/`; tramo 2, más las 50 de ZHA, Matter,
-        # Thread y OTBR. Sube con cada tramo.
-        self.assertEqual(n, 105)
+        # Las 192 de la clase C: 55 de `zwave_js/` (tramo 1), 50 de ZHA,
+        # Matter, Thread y OTBR (tramo 2) y 87 del resto (tramo 3).
+        self.assertEqual(n, 192)
+        con_025 = sorted(str(k) for tabla in (cero.CORE_WS, cero.SUPERVISOR)
+                         for k, e in tabla.items() if "spec 025" in e.reason)
+        self.assertEqual(con_025, [])
 
     def test_desde_cero_las_de_la_030_con_su_motivo(self) -> None:
         """Integración de la 030: las rutas cuyo motivo no sigue la forma

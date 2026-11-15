@@ -1,6 +1,6 @@
 """La clase C por las genéricas de Core (spec 025; FR-001, FR-008, FR-009).
 
-Dos partes:
+Partes:
 - `TestRedaccionValorEntero` (FR-008): una clave de `redact_extra` tapa su
   valor ENTERO, sea del tipo que sea, con una tabla inyectada. Desde la D-2
   del supervisor, lo mismo vale para las claves sensibles por nombre
@@ -10,11 +10,15 @@ Dos partes:
 - `TestZha` y `TestMatterThread` (FR-002…FR-004, FR-009; tramo 2): una
   lectura, una escritura en dos pasos, los rechazos y los centinelas de las
   claves de red Zigbee y Thread y del código de la alarma de ZHA.
+- `TestResto` (FR-005, FR-006, FR-009; tramo 3): MQTT, USB, Bluetooth y el
+  resto, con los centinelas de la contraseña del hub Insteon y del código de
+  alarma de MQTT.
 
 Datos ficticios (`<device_id>`, `<entry_id>`, centinelas `…025…`). La forma
 de las respuestas es la de los handlers de HA Core 2026.11.1
 (`homeassistant/components/zwave_js/api.py`, `zha/websocket_api.py`,
-`matter/api.py`, `thread/websocket_api.py` y `otbr/websocket_api.py`).
+`matter/api.py`, `thread/websocket_api.py` y `otbr/websocket_api.py`; las
+del tramo 3, en el docstring de `TestResto`).
 
 Controles negativos comprobados:
 - quitar en `_redactar` el tapado entero de objetos y listas → caen
@@ -469,3 +473,167 @@ class TestMatterThread(_Base):
         for trozo in (tlvs, pskc, clave_red, "c0ffee025025"):
             self.assertNotIn(trozo, json.dumps(r))
             self.assertNotIn(trozo, json.dumps(logs, default=str))
+
+
+
+# ── Tramo 3: MQTT, USB, Bluetooth y el resto (FR-005, FR-006, FR-009) ─────────
+
+
+class TestResto(_Base):
+    """FR-005 y FR-006 (CAP-104…CAP-106). Formas de los handlers de HA Core
+    2026.11.1: `mqtt/__init__.py` y `mqtt/debug_info.py`, `usb/__init__.py`,
+    `bluetooth/websocket_api.py`, `dhcp/websocket_api.py`,
+    `insteon/api/*.py`, `knx/websocket.py`, `lcn/websocket.py` y
+    `dynalite/panel.py`.
+
+    Controles negativos comprobados: pasar `esphome/get_encryption_key` a
+    `read` → cae `test_rechazos_sin_llamar_a_ha` (y la clasificación de la
+    tabla); renombrar `password` del centinela de Insteon a `pass_hub`, que no
+    es marcador → cae `test_insteon_config_tapa_la_contrasena_del_hub` (lo tapa
+    el marcador y no otra cosa); quitar `transmitted` de `redact_extra` de
+    `mqtt/device/debug_info` → cae `test_mqtt_debug_info_tapa_el_codigo`."""
+
+    inyectadas = False
+
+    async def test_usb_list_serial_ports_con_su_ejemplo(self) -> None:
+        from hermes import command_table as ct
+
+        ejemplo = ct.CORE_WS["usb/list_serial_ports"].example
+        self.assertEqual(ejemplo, {"include_usage": True})
+        # Forma de `_async_serialize_port` más `consumers` y
+        # `discovery_flows` (con include_usage).
+        self.ha.ws_send.return_value = [{
+            "device": "/dev/ttyUSB0", "resolved_device": "/dev/ttyUSB0",
+            "serial_number": "0001", "manufacturer": "ficticio",
+            "description": "dongle", "interface_description": None,
+            "interface_num": None, "matching_integrations": ["zha"],
+            "present": True, "vid": "10C4", "pid": "EA60",
+            "consumers": [], "discovery_flows": [],
+        }]
+        r = await self.t["ha_read_ws_command"]("usb/list_serial_ports", ejemplo)
+        self.ha.ws_send.assert_awaited_once_with(
+            {"type": "usb/list_serial_ports", "include_usage": True})
+        self.assertEqual(r["category"], "read")
+        self.assertEqual(r["items"][0]["device"], "/dev/ttyUSB0")
+
+    async def test_suscripciones_de_un_solo_mensaje(self) -> None:
+        for comando, primero in (
+            ("bluetooth/subscribe_advertisements", {"add": []}),
+            ("dhcp/subscribe_discovery", {"add": [{
+                "mac_address": "00:11:22:33:44:55", "hostname": "ficticio",
+                "ip_address": "192.0.2.10"}]}),
+            ("insteon/aldb/notify_all", {"type": "status", "is_loading": False}),
+        ):
+            with self.subTest(comando=comando):
+                self.ha.ws_one_shot_subscription.reset_mock()
+                self.ha.ws_one_shot_subscription.return_value = primero
+                r = await self.t["ha_read_ws_command"](comando)
+                self.ha.ws_one_shot_subscription.assert_awaited_once()
+                self.assertEqual(self.ha.ws_one_shot_subscription.await_args.args[0],
+                                 {"type": comando})
+                self.assertEqual(r["result"], primero)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_escrituras_en_dos_pasos(self) -> None:
+        for comando, carga in (
+            ("insteon/aldb/write", {"device_address": "1a2b3c"}),
+            ("knx/create_entity", {"platform": "switch", "data": {
+                "entity": {"name": "ficticio"},
+                "knx": {"ga_switch": {"write": "1/1/1"}}}}),
+            ("lcn/devices/scan", {"entry_id": "<entry_id>"}),
+            ("dynalite/save-config", {"entry_id": "<entry_id>", "config": {
+                "host": "192.0.2.10", "port": 12345}}),
+        ):
+            with self.subTest(comando=comando):
+                self.ha.ws_send.reset_mock()
+                vista = await self.t["ha_call_ws_command"](comando, carga)
+                self.assertIn("preview", vista)
+                self.assertIn("confirmation_token", vista)
+                self.ha.ws_send.assert_not_awaited()
+                self.ha.ws_send.return_value = None
+                r = await self.t["ha_call_ws_command"](
+                    comando, carga, confirmation_token=vista["confirmation_token"])
+                self.ha.ws_send.assert_awaited_once_with({"type": comando, **carga})
+                self.assertTrue(r["executed"])
+
+    async def test_rechazos_sin_llamar_a_ha(self) -> None:
+        for comando in (
+            "esphome/get_encryption_key", "sendspin/get_pairing_token",
+            "insteon/config/get_modem_schema", "insteon/config/update_modem_config",
+            "knx/project_file_process", "mobile_app/push_notification_channel",
+            "generic_camera/start_preview", "ssdp/subscribe_discovery",
+            "mqtt/subscribe",
+        ):
+            for tool in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, tool=tool):
+                    r = await self.t[tool](comando, {"entry_id": "<entry_id>"})
+                    self.assertEqual(r["error"], "command_denied")
+                    self.assertTrue(r["reason"])
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_one_shot_subscription.assert_not_awaited()
+        self.assertEqual(list(Path(self.temp_dir.name).glob("*")), [])
+
+    async def test_insteon_config_tapa_la_contrasena_del_hub(self) -> None:
+        # Forma REAL de `websocket_get_config` (`insteon/api/config.py`):
+        # `modem_config` es `config_entry.data`; en un hub v2, las claves de
+        # `build_hub_schema` (`host`, `port`, `hub_version`, `username`,
+        # `password`). La contraseña la tapa el marcador `password` de la
+        # redacción por nombre, sin `redact_extra`.
+        self.ha.ws_send.return_value = {
+            "modem_config": {"host": "192.0.2.10", "port": 25105, "hub_version": 2,
+                             "username": "usuario-ficticio", "password": _CENTINELA},
+            "x10_config": [{"housecode": "a", "unitcode": 1, "platform": "light"}],
+            "override_config": [{"address": "1a2b3c", "cat": 2, "subcat": 0}],
+        }
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"]("insteon/config/get")
+        modem = r["result"]["modem_config"]
+        self.assertEqual(modem["password"], "***REDACTED***")
+        self.assertEqual((modem["hub_version"], modem["port"]), (2, 25105))
+        self.assertEqual(r["result"]["override_config"][0]["cat"], 2)
+        self.assertNotIn(_CENTINELA, json.dumps(r))
+        self.assertNotIn(_CENTINELA, json.dumps(logs, default=str))
+
+    async def test_mqtt_debug_info_tapa_el_codigo(self) -> None:
+        # Forma REAL de `info_for_device` (`mqtt/debug_info.py`): por entidad,
+        # `subscriptions` y `transmitted` (topic y mensajes con `payload` en
+        # texto) y `discovery_data` (`topic` y el `payload` de descubrimiento,
+        # un objeto). El de una alarma MQTT lleva `code`
+        # (`alarm_control_panel.py`, `CONF_CODE`) y, si su
+        # `command_template` usa `code`, el mensaje de armar que HA publica lo
+        # lleva dentro del texto (`variables = {"action": …, "code": …}`).
+        codigo = "20250258"
+        self.ha.ws_send.return_value = {
+            "entities": [{
+                "entity_id": "alarm_control_panel.ficticia",
+                "subscriptions": [{"topic": "casa/alarma/estado", "messages": [{
+                    "payload": "armed_away", "qos": 0, "retain": True,
+                    "time": "2026-11-15T00:00:00+00:00",
+                    "topic": "casa/alarma/estado"}]}],
+                "discovery_data": {
+                    "topic": "homeassistant/alarm_control_panel/ficticia/config",
+                    "payload": {"name": "ficticia", "state_topic": "casa/alarma/estado",
+                                "command_topic": "casa/alarma/set", "code": codigo,
+                                "command_template":
+                                    '{"action": "{{ action }}", "code": "{{ code }}"}'},
+                },
+                "transmitted": [{"topic": "casa/alarma/set", "messages": [{
+                    "payload": '{"action": "ARM_AWAY", "code": "' + codigo + '"}',
+                    "qos": 0, "retain": False, "time": "2026-11-15T00:00:00+00:00",
+                    "topic": "casa/alarma/set"}]}],
+            }],
+            "triggers": [],
+        }
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"](
+                "mqtt/device/debug_info", {"device_id": "<device_id>"})
+        entidad = r["result"]["entities"][0]
+        self.assertEqual(entidad["discovery_data"]["payload"]["code"], "***REDACTED***")
+        self.assertEqual(entidad["transmitted"], "***REDACTED***")
+        # Lo recibido, que es lo útil para depurar, sigue visible.
+        self.assertEqual(entidad["subscriptions"][0]["messages"][0]["payload"],
+                         "armed_away")
+        self.assertEqual(entidad["discovery_data"]["payload"]["state_topic"],
+                         "casa/alarma/estado")
+        self.assertNotIn(codigo, json.dumps(r))
+        self.assertNotIn(codigo, json.dumps(logs, default=str))

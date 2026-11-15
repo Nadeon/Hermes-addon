@@ -43,8 +43,8 @@ Primera generación (sin tabla previa), por fila (research R-4):
 - clase A de vía T → `read` o `confirm` por verbo y método, PROVISIONAL hasta
   la revisión manual comando a comando (las suscripciones, `deny`);
 - clase C → la clasificación revisada de `scripts/inventario/clase_c.py`
-  (spec 025, research R-4); fuera del mapa, `deny` «pendiente de revisión
-  (spec 025)»;
+  (spec 025, research R-4); fuera del mapa, `deny` «sin revisar» (una fila C
+  nueva la nombra el test de la clase C hasta que alguien lea su handler);
 - `/core/api*` y `/homeassistant/api*` → `deny`, por encima de todo lo demás.
 
 Solo lee texto (TSV y la tabla previa, por AST) y el árbol de tools por AST:
@@ -662,10 +662,11 @@ def _clasificar(
         return deny(f"{nota or 'excluido por diseño'} (clase D)")
     if clase == "C":
         # La clasificación revisada a mano de la 025 (research R-4): la que
-        # está en el mapa, tal cual; lo que no, `deny` hasta revisarlo.
+        # está en el mapa, tal cual; lo que no, `deny` «sin revisar» hasta
+        # leer su handler (las 192 de 2026.11.1 están todas en el mapa).
         if isinstance(clave, str) and clave in CLASE_C:
             return {**base, **CLASE_C[clave]}
-        return deny("pendiente de revisión (spec 025)")
+        return deny("sin revisar")
     if clase.startswith("A") and cap in MATRIZ:
         # Una fila A cuya sub-feature ya creó su tool está en el mapa (specs
         # 012 y 029, research R-7): se consulta antes que la regla
