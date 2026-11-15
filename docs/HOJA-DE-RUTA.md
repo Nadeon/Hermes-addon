@@ -11,6 +11,10 @@ las pruebas en vivo de la 1.1.0 y la 1.1.2, lo que encontraron las de la
 1.1.1). La 1.0.12 no se publicó por separado: llega a los usuarios dentro de la
 1.1.0.
 
+**1.2.0, publicada el 2026-11-15:** el programa de cobertura total (más abajo)
+lleva Hermes de 216 a 359 tools. Los recuentos de este apartado son los de la
+1.1.2; los de la 1.2.0 están en «Programa de cobertura total».
+
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
 y la especificación MCP **2026-07-28**. El código de Core y del Supervisor se
 leyó en esos tags; las tools de lectura se probaron en una instalación de prueba
@@ -476,9 +480,8 @@ genéricas (WebSocket de Core y API del Supervisor, separadas en lectura y
 escritura) gobernadas por una tabla de clasificación fail-closed para la cola
 larga y la gestión de integraciones concretas; familias de tools que se pueden
 desactivar (todas activas por defecto); banco de pruebas con HA Core real en el
-CI. Todo sale como **una sola versión 1.2.0**; fusionar y publicar los decide
-el mantenedor. Spec, plan, tareas, investigación e inventarios en
-`specs/008-cobertura-total/`.
+CI. Todo sale como **una sola versión 1.2.0**, publicada el 2026-11-15. Spec,
+plan, tareas, investigación e inventarios en `specs/008-cobertura-total/`.
 
 | N.º | Sub-feature | CAP | Estado |
 |---|---|---|---|
@@ -516,16 +519,17 @@ trazabilidad de `specs/008-cobertura-total/plan.md` completa y vigilada por
 `tests/test_trazabilidad_008.py`. Las desviaciones aceptadas (DA-01…DA-12)
 y los cambios de comportamiento de las tools de la 1.1.2 están en
 `specs/008-cobertura-total/spec.md`. La fase de convergencia de
-`specs/008-cobertura-total/tasks.md` (T031–T034) está hecha. Pendiente: la
-documentación final, la fecha de la versión y el PR a `main` (T027–T029);
-fusionar y publicar los decide el mantenedor.
+`specs/008-cobertura-total/tasks.md` (T031–T034) y la de cierre
+(T027–T029) están hechas: la PR #26 se fusionó en `main` y la 1.2.0 se
+publicó el 2026-11-15.
 
 #### Dudas abiertas para el mantenedor (1.2.0)
 
 Decisiones que el programa no toma por su cuenta (FR-098 de la spec 008). Las
 D-01…D-10 vienen de la spec 008 («Dudas para el final»); las demás, de las
 sub-features y del cierre. La D-13 (Hermes por su slug exacto) y la D-24 ya
-están resueltas.
+están resueltas, y la D-26 (publicar antes una 1.1.3 con algunos arreglos de
+seguridad de la 1.2.0) quedó sin objeto al publicarse la 1.2.0.
 
 - **D-01** — Comandos de clase D que se podrían abrir con salvaguardas fuertes:
   - `cloud/status` y `cloud/subscription`, la exposición vía la nube y `cloud/remote`;
@@ -555,7 +559,6 @@ están resueltas.
 - **D-22** — `ha_validate_config` no detecta un `mode` inválido, porque la validación de HA no lo mira.
 - **D-23** — Revisar en cada versión de HA la lista cerrada de triggers de `ha_wait_for_trigger`.
 - **D-25** — Si `safety_backup_encryption: auto` es el valor por defecto adecuado.
-- **D-26** — Valorar publicar antes una 1.1.3 con algunos arreglos de seguridad de la 1.2.0.
 - **D-27** — Permitir `ha_create_user` con credenciales opcionales.
 - **D-28** — Una marca «cerrar tras el resultado» para las escrituras de integraciones que se suscriben al progreso.
 - **D-29** (026) — Marketplace: instalar, fijar versión, betas, añadir y detectar repositorios exigen el aviso de riesgos aceptado por el usuario que manda el comando, y el usuario de Hermes no puede aceptarlo. Además, por diseño de HA, las automatizaciones pueden instalar si alguna persona lo aceptó; hoy Hermes solo avisa.

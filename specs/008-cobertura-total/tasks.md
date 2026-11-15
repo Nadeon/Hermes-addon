@@ -74,9 +74,9 @@ diagnóstico, US5 qué está probado, US6 deriva, US7 familias.
 ## Fase 7: Cierre del programa
 
 - [X] T026 Converge del programa sobre `specs/008-cobertura-total/plan.md`: matriz de trazabilidad completa (cada CAP con tool o entrada de la tabla y test), ninguna entrada «pendiente de tool dedicada» en la tabla, test de deriva y de verbos en verde, comprobación de SC-001…SC-006 y SC-012 (FR-098)
-- [ ] T027 [P] Documentación final: `README.md` y `README.es.md` sincronizados, `hermes/DOCS.md` (familias), `SECURITY.md` (tabla y genéricas), `hermes/CHANGELOG.md` con todos los bloques, y en `docs/HOJA-DE-RUTA.md` la tabla del programa a «hecha», la matriz de pruebas, los pendientes manuales y las dudas D-01…D-10 (FR-023, SC-009, SC-011)
-- [ ] T028 Versión: comprobar 1.2.0 en `hermes/config.yaml`, `hermes/src/hermes/__init__.py` y `hermes/src/hermes/config.py`, y poner la fecha de publicación en `hermes/CHANGELOG.md` cuando el mantenedor la decida (FR-022, SC-009)
-- [ ] T029 Suite completa y CI en verde (tests, banco de Core, Semgrep, CodeQL) en la punta de la rama; revisión del diff entero buscando datos personales e identificadores de modelos; PR de `feat/cobertura-total` a `main` con los recuentos de controles negativos de todas las sub-features y la lista de dudas para el final. Fusionar y publicar los decide el mantenedor (SC-007, SC-010)
+- [X] T027 [P] Documentación final: `README.md` y `README.es.md` sincronizados, `hermes/DOCS.md` (familias), `SECURITY.md` (tabla y genéricas), `hermes/CHANGELOG.md` con todos los bloques, y en `docs/HOJA-DE-RUTA.md` la tabla del programa a «hecha», la matriz de pruebas, los pendientes manuales y las dudas D-01…D-10 (FR-023, SC-009, SC-011)
+- [X] T028 Versión: comprobar 1.2.0 en `hermes/config.yaml`, `hermes/src/hermes/__init__.py` y `hermes/src/hermes/config.py`, y poner la fecha de publicación en `hermes/CHANGELOG.md` cuando el mantenedor la decida (FR-022, SC-009)
+- [X] T029 Suite completa y CI en verde (tests, banco de Core, Semgrep, CodeQL) en la punta de la rama; revisión del diff entero buscando datos personales e identificadores de modelos; PR de `feat/cobertura-total` a `main` con los recuentos de controles negativos de todas las sub-features y la lista de dudas para el final. Fusionar y publicar los decide el mantenedor (SC-007, SC-010)
 
 ## Dependencias
 
