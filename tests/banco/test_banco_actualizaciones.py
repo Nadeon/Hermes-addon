@@ -20,11 +20,14 @@ pase lo que pase. Solo corre en el job `banco-core` del CI.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 import pytest
 
 from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras
 from tests.banco.base_helpers import _devolver
-from tests.banco.entorno import confirmar, llamar
+from tests.banco.entorno import llamar
 
 pytestmark = pytest.mark.banco
 
@@ -59,6 +62,15 @@ async def _preparar(s: SesionEscrituras) -> None:
         f"instalada {INICIAL} y con actualización",
     )
     await _hermes_ve(s, INICIAL)
+
+
+async def _rechazo(s: SesionEscrituras, tool: str, **args: Any) -> dict[str, Any]:
+    """Una llamada que DEBE rechazarse: Hermes marca con `isError` toda
+    respuesta `{"error": …}` y `llamar` la convertiría en fallo (mismo patrón
+    que `test_banco_genericas._rechazo`)."""
+    resultado = await s.cliente.call_tool(tool, args)
+    assert getattr(resultado, "is_error", False), f"{tool}: se esperaba un rechazo"
+    return json.loads(resultado.content[0].text)
 
 
 async def _hermes_ve(s: SesionEscrituras, instalada: str) -> None:
@@ -146,7 +158,8 @@ class TestEntidadesUpdate(BancoEscrituras):
             self.assertEqual(estado["state"], INICIAL)
             # El token está atado a los argumentos: con otra versión no vale y
             # no se instala nada (ni se gasta el token).
-            otra = await confirmar(s.cliente, tool, vista, **{**args, "version": "1.6.0"})
+            otra = await _rechazo(s, tool, **{**args, "version": "1.6.0"},
+                                  confirmation_token=vista["confirmation_token"])
             self.assertIs(otra.get("preview_outdated"), True, otra)
             estado = await s.lector.estado(INSTALADA)
             self.assertEqual(estado["state"], INICIAL)
@@ -165,6 +178,6 @@ class TestEntidadesUpdate(BancoEscrituras):
             await s.esperar_estado(ENTIDAD, lambda e: e is not None and e["state"] == "off",
                                    "al día")
             await _hermes_ve(s, ULTIMA)
-            r = await llamar(s.cliente, "ha_install_update", entity_id=ENTIDAD)
+            r = await _rechazo(s, "ha_install_update", entity_id=ENTIDAD)
             self.assertEqual(r.get("error"), "no_update_available", r)
             self.assertNotIn("confirmation_token", r)
