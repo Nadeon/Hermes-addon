@@ -220,10 +220,49 @@ Revisión independiente y converge (2026-11-15) sobre la punta `0faa885`.
 Severidad entre corchetes. Cada hallazgo se verificó con un script fuera del
 repositorio contra el Supervisor simulado y el código del Supervisor 2026.11.0.
 
-- [ ] T029 [CRÍTICO] `sv_set_addon_options`: la vista previa deja extraer el valor de una opción secreta (también la `auth_password` del propio Hermes) sin token. El validador del Supervisor (`vol.Schema(vol.All(dict, AppOptions))`, `apps/options.py`) lanza `vol.Invalid` en la RAÍZ, así que `humanize_error` responde «<error>. Got <repr() de TODAS las opciones>», cortado a 497 caracteres + `...`; `_sin_valores_secretos` (`tools/addons.py`) solo sustituye el valor COMPLETO y literal, de modo que (a) un cliente alarga una opción anterior al secreto e invalida otra para que el corte caiga dentro y recibe el secreto menos su último carácter en `invalid_options.message`, y (b) un secreto con `\`, salto de línea o las dos comillas sale escapado por `repr()` y tampoco se encuentra. Quitar del mensaje (y de `validation.reason`) todo lo que va desde «. Got » hasta el final de cada línea, conservando el texto del error del Supervisor, la sustitución literal y `redact_secrets`; tests con el corte dentro del secreto y con `\`/`\n`/comillas, con su control negativo, per FR-013, FR-018 y Constitución II (contradicts)
-- [ ] T030 [ALTO, código de la 1.1.2, fuera del diff de la 030: decide el supervisor del programa] `sv_set_addon_options` con token: si el guardado falla (`AppConfigurationInvalidError`, «App … has invalid options: <humanize_error>» y `validation_error` en el cuerpo), devuelve `{"error": str(exc)}` y lo guarda como `cached_error` en el fichero del token, con el `repr()` de todas las opciones EN CLARO. Tras la 030 solo pasa si la validación de la vista previa no se pudo hacer, pero el docstring nuevo se apoya en que «el guardado vuelve a validar». Pasar el error por la misma limpieza de T029, sin cambiar la forma `{"error": …}`, con test, per FR-013, FR-018 y Constitución II (partial)
-- [ ] T031 [MEDIO] `sv_update_addon`: la vista previa enseña `version_latest` y el principio del changelog de ESA versión, pero el token solo ata `slug`; si la tienda publica otra versión en los 60 s del token (recarga automática o `sv_reload_store`), la confirmación actualiza a una versión que nadie vio. Atar el token también a `version_latest` con `estado` (spec 018: `create_confirmation_token(..., estado={"version_latest": latest})` y, al confirmar, releer `/addons/{slug}/info` y `resolve_confirmation_token(..., estado=…)`, fail-closed si no se puede leer), sin cambiar argumentos ni la petición; lo mismo en `sv_install_addon` con la `version_latest` de la ficha. Ajustar `test_un_token_de_la_1_1_2_sigue_valiendo` y añadir el test de la carrera con su control negativo, per FR-009, FR-010 y principio V (partial)
-- [ ] T032 [BAJO] `sv_update_addon` de una app desligada de la tienda (`detached`: el Supervisor da `update_available: false`) responde `already_up_to_date` («already at the version the store offers»), que es falso; con `detached: true` responder `addon_not_in_store` sin token (el Supervisor rechazaría con `AppNotInStoreError`), con test, per FR-010 y principio V (contradicts)
-- [ ] T033 [BAJO] `hermes/DOCS.md`: la fila de `app_store` en la tabla de familias dice 5 tools y solo repositorios; son 9 (fichas, disponibilidad y reconstrucción), como ya dicen `README.md` y `README.es.md`, per FR-023 (partial)
-- [ ] T034 [BAJO] Formas raras de URL de repositorio: `https://u:p/ss@servidor/r` pasa la validación (`urlsplit` toma `u` como servidor y `p` como puerto), la vista previa enseña `host: "u"`, `credentials_hidden: false` y el usuario sin tapar; y en un texto con una URL desconocida, `https://u:p@ss@servidor/…` deja `ss@` sin tapar porque `_RE_USUARIO_EN_TEXTO` para en la primera `@`. Rechazar en `validar_url_repositorio` la URL cuyo `partes.port` lance `ValueError` y dejar que el patrón llegue hasta la última `@` antes de la `/` (`[^\s/'"<>]+@`), con tests, per FR-002 y FR-018 (partial)
-- [ ] T035 [BAJO] `sv_install_addon` con la tienda ilegible: el token sale con `store_check: {checked: false, reason}` (aceptable, como la 1.1.2 y `validation.checked: false`), pero la vista previa no dice que tampoco se sabe si la app es de un repositorio de terceros, y la descripción promete que «lo avisa». Añadir a `store_check` una nota de que no se comprobaron disponibilidad, instalación previa ni origen del repositorio, con test, per FR-009 y principio V (partial)
+- [x] T029 [CRÍTICO] `sv_set_addon_options`: la vista previa deja extraer el valor de una opción secreta (también la `auth_password` del propio Hermes) sin token. El validador del Supervisor (`vol.Schema(vol.All(dict, AppOptions))`, `apps/options.py`) lanza `vol.Invalid` en la RAÍZ, así que `humanize_error` responde «<error>. Got <repr() de TODAS las opciones>», cortado a 497 caracteres + `...`; `_sin_valores_secretos` (`tools/addons.py`) solo sustituye el valor COMPLETO y literal, de modo que (a) un cliente alarga una opción anterior al secreto e invalida otra para que el corte caiga dentro y recibe el secreto menos su último carácter en `invalid_options.message`, y (b) un secreto con `\`, salto de línea o las dos comillas sale escapado por `repr()` y tampoco se encuentra. Quitar del mensaje (y de `validation.reason`) todo lo que va desde «. Got » hasta el final de cada línea, conservando el texto del error del Supervisor, la sustitución literal y `redact_secrets`; tests con el corte dentro del secreto y con `\`/`\n`/comillas, con su control negativo, per FR-013, FR-018 y Constitución II (contradicts)
+- [x] T030 [ALTO, código de la 1.1.2, fuera del diff de la 030: decide el supervisor del programa] `sv_set_addon_options` con token: si el guardado falla (`AppConfigurationInvalidError`, «App … has invalid options: <humanize_error>» y `validation_error` en el cuerpo), devuelve `{"error": str(exc)}` y lo guarda como `cached_error` en el fichero del token, con el `repr()` de todas las opciones EN CLARO. Tras la 030 solo pasa si la validación de la vista previa no se pudo hacer, pero el docstring nuevo se apoya en que «el guardado vuelve a validar». Pasar el error por la misma limpieza de T029, sin cambiar la forma `{"error": …}`, con test, per FR-013, FR-018 y Constitución II (partial)
+- [x] T031 [MEDIO] `sv_update_addon`: la vista previa enseña `version_latest` y el principio del changelog de ESA versión, pero el token solo ata `slug`; si la tienda publica otra versión en los 60 s del token (recarga automática o `sv_reload_store`), la confirmación actualiza a una versión que nadie vio. Atar el token también a `version_latest` con `estado` (spec 018: `create_confirmation_token(..., estado={"version_latest": latest})` y, al confirmar, releer `/addons/{slug}/info` y `resolve_confirmation_token(..., estado=…)`, fail-closed si no se puede leer), sin cambiar argumentos ni la petición; lo mismo en `sv_install_addon` con la `version_latest` de la ficha. Ajustar `test_un_token_de_la_1_1_2_sigue_valiendo` y añadir el test de la carrera con su control negativo, per FR-009, FR-010 y principio V (partial)
+- [x] T032 [BAJO] `sv_update_addon` de una app desligada de la tienda (`detached`: el Supervisor da `update_available: false`) responde `already_up_to_date` («already at the version the store offers»), que es falso; con `detached: true` responder `addon_not_in_store` sin token (el Supervisor rechazaría con `AppNotInStoreError`), con test, per FR-010 y principio V (contradicts)
+- [x] T033 [BAJO] `hermes/DOCS.md`: la fila de `app_store` en la tabla de familias dice 5 tools y solo repositorios; son 9 (fichas, disponibilidad y reconstrucción), como ya dicen `README.md` y `README.es.md`, per FR-023 (partial)
+- [x] T034 [BAJO] Formas raras de URL de repositorio: `https://u:p/ss@servidor/r` pasa la validación (`urlsplit` toma `u` como servidor y `p` como puerto), la vista previa enseña `host: "u"`, `credentials_hidden: false` y el usuario sin tapar; y en un texto con una URL desconocida, `https://u:p@ss@servidor/…` deja `ss@` sin tapar porque `_RE_USUARIO_EN_TEXTO` para en la primera `@`. Rechazar en `validar_url_repositorio` la URL cuyo `partes.port` lance `ValueError` y dejar que el patrón llegue hasta la última `@` antes de la `/` (`[^\s/'"<>]+@`), con tests, per FR-002 y FR-018 (partial)
+- [x] T035 [BAJO] `sv_install_addon` con la tienda ilegible: el token sale con `store_check: {checked: false, reason}` (aceptable, como la 1.1.2 y `validation.checked: false`), pero la vista previa no dice que tampoco se sabe si la app es de un repositorio de terceros, y la descripción promete que «lo avisa». Añadir a `store_check` una nota de que no se comprobaron disponibilidad, instalación previa ni origen del repositorio, con test, per FR-009 y principio V (partial)
+
+### Notas del converge (arreglos)
+
+Decisiones del supervisor del programa, aplicadas tal cual. Tests en
+`tests/test_tools_addons_convergencia_030.py` (nuevo), `tests/test_store_comun.py`
+y `tests/test_tools_store_repositories.py`; controles negativos comprobados
+(revertir un momento la parte del código, ver el rojo, restaurar):
+
+- T029 y T030: `_sin_valores_secretos` (`tools/addons.py`) corta en «Got»,
+  tapa los valores de TODAS las opciones (enteros, escapados por `repr()` y
+  JSON, cortados al final) y, si queda un trozo de 6 caracteres de un
+  secreto, devuelve un mensaje genérico con solo `data['clave']`. Se aplica
+  al mensaje y a `validation.reason` de la validación, al error del guardado
+  (respuesta y `cached_error` del fichero del token) y al error de leer las
+  opciones. El error del guardado no se escribe en el log. Controles: la
+  limpieza de antes → 50 rojos (con subtests: corte en cada punto del secreto
+  y escapes); sin cortar en «Got» → 29; sin el genérico → 4; el error del
+  guardado en claro → 1 (respuesta, log y disco).
+- T031: el token de `sv_update_addon` y el de `sv_install_addon` atan
+  `estado={"version_latest": …}` (spec 018); al confirmar se relee
+  (`/addons/{slug}/info` o la ficha de la tienda; `None` si no se puede) y,
+  si no casa, `preview_outdated: true` con la versión nueva, sin gastar el
+  token ni enviar nada. Argumentos y petición, los de la 1.1.2; la
+  confirmación hace ahora una lectura antes del POST. Un token sin versión
+  atada ya no vale (`test_un_token_sin_version_ya_no_vale` sustituye a
+  `test_un_token_de_la_1_1_2_sigue_valiendo`). Control: aceptar el estado
+  cambiado → 4 rojos.
+- T032: `already_up_to_date` solo con `detached: false`. Desligada: como la
+  1.1.2, con token, pero la vista previa dice `in_store: false`,
+  `update_status: "not_in_store"` y que el Supervisor no la actualizará; sin
+  `detached`, `in_store: null`. Control → 2 rojos.
+- T033: fila de `app_store` en `hermes/DOCS.md` con 9 tools (los README ya lo
+  decían).
+- T034: `validar_url_repositorio` rechaza un puerto no numérico
+  (`https://u:p/ss@servidor/r`), y `_RE_USUARIO_EN_TEXTO` llega hasta la
+  última `@` antes de la `/`. Controles → 1 y 2 rojos.
+- T035: con la tienda ilegible, `store_check.note` dice que no se sabe si la
+  app está disponible, instalada ni si es de terceros, y
+  `third_party_repository: null`. Control → 1 rojo.

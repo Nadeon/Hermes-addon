@@ -175,7 +175,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `system_diagnostics` | 11 | Logs de Core, del Supervisor, de los plugins y del journal del host, también de arranques anteriores; servicios del host, uso de disco, Home Assistant OS y swap (nueva en 1.2.0, solo lectura) |
 | `system_status` | 5 | Salud del sistema, reinicio pendiente, tiempos de arranque y manifiestos de las integraciones; solo lectura (nueva en 1.2.0) |
 | `recorder` | 3 | Estado del recorder, validación y metadatos de las estadísticas de largo plazo; hoy solo lectura (nueva en 1.2.0). El mantenimiento de estadísticas se sumará a esta familia |
-| `app_store` | 5 | Repositorios de la tienda de apps del Supervisor: listar, añadir y quitar (en dos pasos), reparar y recargar la tienda (nueva en 1.2.0) |
+| `app_store` | 9 | Tienda de apps del Supervisor: repositorios (listar, añadir y quitar en dos pasos, reparar y recargar la tienda), changelog y documentación de la versión de la tienda de una app, si se puede instalar en este sistema y reconstruir una app instalada (en dos pasos) (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 

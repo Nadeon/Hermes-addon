@@ -316,12 +316,30 @@ de la 1.1.2.
     del changelog de la versión de la tienda (redactados, texto de terceros).
     Una app que ya está en la versión de la tienda responde
     `already_up_to_date` con la versión instalada, **sin token**: no hay nada
-    que confirmar.
+    que confirmar. Una app desligada de la tienda no se da por al día: la
+    vista previa dice `in_store: false` y que el Supervisor no la actualizará.
+  - En `sv_install_addon` y `sv_update_addon`, el token se ata también a la
+    `version_latest` de la vista previa: si la tienda publica otra antes de
+    confirmar, `preview_outdated` sin instalar ni actualizar nada. Los
+    argumentos y la petición, los de la 1.1.2; un token sin versión atada ya
+    no vale.
+  - Si la tienda no se puede leer al instalar, `store_check` dice que no se
+    sabe si la app está disponible, si ya está instalada ni si es de un
+    repositorio de terceros (`third_party_repository: null`).
   - `sv_set_addon_options` valida las opciones finales con el Supervisor
     (`options/validate`) antes del token: si no valen, `invalid_options` sin
-    token, con el mensaje redactado (y sin los valores secretos que el
-    Supervisor repite en él); si no se pudo validar, se dice y el token sale
-    como antes. Avisa también de una contraseña filtrada (`pwned`).
+    token; si no se pudo validar, se dice y el token sale como antes. Avisa
+    también de una contraseña filtrada (`pwned`).
+  - **Seguridad (también en código de la 1.1.2)**: el Supervisor repite en
+    sus mensajes de opciones inválidas («… Got {…}») TODAS las opciones en
+    claro, cortadas a 500 caracteres; la sustitución literal de los secretos
+    no encontraba uno cortado ni uno escapado (barras, saltos de línea,
+    comillas). Ahora, del mensaje de validación y del error del guardado
+    nunca sale nada desde «Got», se tapan los valores de todas las opciones
+    (enteros, escapados o cortados) y, si aun así quedara un trozo de un
+    secreto, el mensaje es genérico con solo las claves que fallan. El error
+    del guardado, que además se escribía en claro en el fichero del token en
+    `/data`, pasa por la misma limpieza.
 - **Sin versión concreta (desviación de FR-051 de la 008)**: el Supervisor
   2026.11.0 ignora `{version}` en `install/{version}`, `update/{version}` y
   `GET /store/addons/{app}/{version}`, así que ninguna tool acepta una
@@ -337,7 +355,9 @@ de la 1.1.2.
   (`app_store_action`) solo lleva el `slug` del repositorio o de la app,
   nunca la URL, textos ni opciones. Nombres, URL, mantenedores, changelog y
   documentación van marcados como texto de terceros (`_third_party_text`),
-  con el aviso del Marketplace.
+  con el aviso del Marketplace. Con una `@` sin codificar en la contraseña
+  se tapa hasta la última `@` antes del servidor, y una URL con un puerto que
+  no es un número (`https://u:p/ss@servidor/…`) se rechaza al validar.
 - **Anotaciones**: añadir, quitar y reconstruir son destructivas (piden
   token); añadir, reparar, recargar y reconstruir, de mundo abierto (el
   Supervisor descarga). Las de la 1.1.2 no cambian.
