@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **307 tools**: turn on lights, write automations,
+external systems). It ships **309 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 307 tools
+## What it can do — 309 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -56,6 +56,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **App store** | 9 | The Supervisor app store repositories: list them (with their apps and which are installed), add one (third-party code: two steps, the exact URL in the preview, the credentials in the URL hidden), remove one (two steps; refused if it is built-in or has installed apps), repair one and reload the store. The changelog and documentation of the store version of an app (third-party text, redacted, in chunks), whether it can be installed on this system, and rebuilding an installed app (two steps). Installing, updating and changing options now check first: availability, the changelog and the Supervisor's validation of the options. Family `app_store`, new in 1.2.0 |
 | **Blueprints** | 5 | List the automation, script and template blueprints, preview the config a blueprint gives with some inputs, save a blueprint you write, import one from a URL (Home Assistant downloads it; the preview shows the whole YAML and it is saved only if it has not changed) and delete one nobody uses (saving, importing and deleting, with confirmation). Family `blueprints`, new in 1.2.0 |
 | **Automation assist** | 9 | Read only: the device triggers, conditions and actions a device offers (ready to paste into an automation, with their extra fields), what a target (entities, devices, areas, floors, labels) really covers and why, the names of the triggers, conditions and actions that apply to it, and waiting once for a trigger to fire (only triggers known to just listen). Family `automation_assist`, new in 1.2.0 |
+| **Cameras** | 2 | Read only: a still image of what a camera sees right now and the current image of an `image` entity, returned as an image to the client (privacy: a camera may show the inside of your home). Home Assistant is asked for a smaller camera image (it only scales JPEG); images over 2 MiB are not returned. Family `cameras`, new in 1.2.0 |
 | **Generic commands** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` and `sv_call_api`: what no other tool covers, and only what Hermes' command table allows (writes always in two steps) |
 
 There is one more, auxiliary, tool that is only registered with `HERMES_DEV=1`
@@ -67,7 +68,8 @@ the `tool_families_disabled` option (for example `lovelace` or
 and `hermes_guide` are always on, and switching off the families new in 1.2.0
 (`generic_commands`, `system_diagnostics`, `system_status`, `recorder`,
 `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`,
-`system_updates`, `app_store`, `blueprints` and `automation_assist`) gives you
+`system_updates`, `app_store`, `blueprints`, `automation_assist` and `cameras`)
+gives you
 exactly the tool list of 1.1.2.
 
 On their first call, destructive tools return a preview and a
@@ -469,7 +471,7 @@ is below.
 | `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
 | `trusted_proxy_ips` | `[]` | Proxies whose `X-Forwarded-For` is trusted, as plain IPs or CIDR ranges (`172.30.32.0/23` is the HAOS bridge network). Empty means only `127.0.0.1` is trusted, which under `reverse_proxy` turns every per-IP limit into a single global bucket. Anybody inside a trusted range can forge the client IP (rate limits and logs only — never authorization) |
 | `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints` and `automation_assist`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
+| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist` and `cameras`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
 | `log_redact_network` | `true` | Replaces your `public_hostname`, the hosts of Home Assistant's `external_url` and `internal_url`, any `*.ts.net` name and every non-loopback IP (also when written as `ip-a-b-c-d`) in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
 | `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |

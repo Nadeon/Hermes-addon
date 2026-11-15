@@ -704,8 +704,9 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 124 y 72), `read` (36 y 29),
-  `confirm` (20 y 25) o `deny` (443 y 128, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 159 y 87), `read` (37 y 29),
+  `confirm` (21 y 25) o `deny` (406 y 113, con su motivo); recuentos con las
+  sub-features integradas hasta la 024 (tramo 1). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -933,6 +934,54 @@ de la 1.1.2.
   Supervisor es un simulado): quedan en la matriz como `VM` / `pendiente` y
   en la tanda 2 del procedimiento de la VM. La prueba en vivo de toda la
   sub-feature queda pendiente (VM de la 014, después instalación real).
+
+### Menores de Core
+
+Spec 024 (tramo 1): cámaras e imágenes, y lo menor de Core por la tabla.
+
+- **`ha_get_camera_snapshot` y `ha_get_image_entity`** (familia nueva
+  `cameras`, activa por defecto y desactivable): la instantánea de una
+  entidad `camera.*` y la imagen de una entidad `image.*`, devueltas como un
+  bloque de imagen MCP junto a sus metadatos (`content_type`, `bytes`,
+  `width`, `height`). Solo leen; se anuncian de mundo abierto porque una
+  cámara en la nube o una entidad `image` que descarga de una URL salen a
+  internet. Privacidad: una cámara puede enseñar el interior de la casa y la
+  imagen se manda al cliente MCP; lo dicen las descripciones y la guía. No
+  devuelven nunca el `access_token` de la entidad ni una URL firmada: Hermes
+  pide la imagen por la API REST de Core con su propio token, y el log solo
+  lleva la entidad, los bytes y el resultado.
+- **Tope de 2 MiB, sin Pillow**: la imagen se lee en flujo
+  (`HAClient.rest_get_image`) y, si pasa de 2 MiB, se deja de leer y la tool
+  responde `image_too_large`; nunca se devuelve una imagen a medias. A Home
+  Assistant se le pide la imagen de la cámara de unos `max_width` píxeles (64
+  a 1920, 640 por defecto), pero solo escala JPEG. Solo se devuelve algo cuyo
+  `Content-Type` sea una imagen (`unsupported_content_type` si no). Errores:
+  `not_found`, `camera_unavailable`/`image_unavailable`, `snapshot_failed`
+  (con el estado de Home Assistant) y `ha_unavailable`.
+- **Preferencias de cámara por la tabla**: `camera/get_prefs` pasa a `read` y
+  `camera/update_prefs` a `confirm` (precarga del stream y orientación, en
+  dos pasos; de mundo abierto, porque precargar el stream de una cámara en la
+  nube mantiene tráfico hacia internet).
+- **Miniaturas tapadas** (hallazgo de la especificación):
+  `media_source/browse_media` y `media_source/search_media` siguen `read`,
+  pero tapan la `thumbnail` de cada elemento, porque alguna fuente de medios
+  (motionEye) la firma con `authSig`, una credencial temporal que da acceso al
+  medio sin token.
+- **Clasificación fijada por tests** de las 17 entradas de cámaras,
+  calendario y tareas, tags, medios e imágenes subidas (`media_source/
+  resolve_media` e `image/create` siguen `deny`).
+- **Guía**: tema nuevo `cameras` (alias `camera`, `cámaras`, `camaras`,
+  `snapshot`, `image`, `imagen`), que las instrucciones del servidor nombran
+  solo con la familia activa, y tema nuevo `core_minor` (alias `minor`,
+  `menores`) con calendario y tareas, tags, medios e imágenes subidas.
+- **Banco de Core**: las dos tools contra HA Core 2026.11.1 real (una cámara
+  `local_file` con un JPEG gris generado por el propio banco, sin fotos, y la
+  entidad `image` de `kitchen_sink`), y una ejecución por las genéricas de
+  calendario y tareas (`local_calendar`, `local_todo`), imágenes subidas,
+  medios locales y preferencias de cámara, con el efecto comprobado por el
+  lector y la vista previa sin efecto. La configuración del banco carga
+  `media_source:` e `image_upload:` y apunta `media_dirs` a su carpeta
+  `media/`.
 
 ### Banco de pruebas
 
