@@ -463,7 +463,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 019 | Montajes y ajustes de backup | 083 | hecha; prueba en la VM pendiente: familia `mounts` con nueve tools (seis de montajes CIFS, NFS y disco local, con crear, editar, borrar y el por defecto con token atado también al estado; tres de ajustes de backup sin token), `location` opcional en `sv_create_backup_full` y `sv_create_backup_partial`, credenciales (también el usuario en los errores del Supervisor) que entran y nunca salen, las nueve rutas de CAP-083 a `dedicated` y el `action_hash` de los tokens con HMAC |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
-| 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
+| 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | en curso (tramo 1 hecho): familia `system_control` con siete tools (arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor), 7 rutas a `dedicated`, estadÃ­sticas `read` y `/host/reload` `confirm`; prueba en la VM pendiente. Falta el tramo 2: aplicar sugerencias y lo que va por la tabla |
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
@@ -774,16 +774,23 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_get_job_status` | VM | pendiente | |
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_rebuild_core` | VM | pendiente | instantánea antes |
 | `sv_reload_backups` | VM | pendiente | |
 | `sv_reload_mount` | VM | pendiente | |
+| `sv_reload_supervisor` | VM | pendiente | |
+| `sv_repair_supervisor` | VM | pendiente | instantánea antes |
 | `sv_restart_addon` | VM | pendiente | add-on de prueba |
 | `sv_restart_core` | VM | pendiente | instantánea antes |
+| `sv_restart_supervisor` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_full` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
 | `sv_set_addon_options` | VM | pendiente | add-on de prueba |
 | `sv_set_backup_settings` | VM | pendiente | |
+| `sv_set_core_options` | VM | pendiente | |
 | `sv_set_default_backup_mount` | VM | pendiente | |
+| `sv_set_supervisor_options` | VM | pendiente | |
 | `sv_start_addon` | VM | pendiente | add-on de prueba |
+| `sv_start_core` | VM | pendiente | instantánea antes; Core parado |
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |
 | `sv_uninstall_addon` | VM | pendiente | add-on de prueba |
 | `sv_update_addon` | VM | pendiente | add-on de prueba |

@@ -370,6 +370,23 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
     anterior) y `sv_reload_backups` (copiar a mano un backup al recurso de
     backup y ver que, tras releer, sale en `sv_list_backups` y el recuento
     sube).
+- Control de Core y del Supervisor (spec 022). En todas: la vista previa dice
+  qué se corta, cuánto y qué le pasa a Hermes, y el log de Hermes lleva los
+  nombres de las opciones pero nunca sus valores.
+  - Tanda 1: `sv_set_core_options` (`watchdog=false` y de vuelta; `ha core
+    info` lo confirma; `image`, `port` y `ssl` se rechazan sin llamar),
+    `sv_set_supervisor_options` (`logging=debug` y de vuelta a `info`;
+    `channel` se rechaza) y `sv_reload_supervisor` (sin token; `ha supervisor
+    info` sigue respondiendo).
+  - Tanda 3, cada una con instantánea antes: `sv_start_core` (parar Core
+    con `ha core stop` desde la consola, ver `core_state: "stopped"` en la
+    vista previa, confirmar y ver que Hermes recupera Core; con Core en
+    marcha responde `already_running`), `sv_rebuild_core` (con y sin
+    `safe_mode`; con una escritura en `/config` sin `sv_check_core_config`,
+    bloqueado), `sv_restart_supervisor` (Hermes pierde Core y las `sv_*`
+    durante el reinicio y vuelve solo; con un backup en curso responde
+    `jobs_in_progress`) y `sv_repair_supervisor` (la respuesta llega al
+    terminar o dice `started`; después, `sv_get_resolution`).
 
 ## Probar hassio_role: manager
 

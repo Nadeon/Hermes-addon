@@ -346,6 +346,51 @@ _Pendiente: la añade la sub-feature que lo implemente._
   de 60 s) seguía valiendo después de reiniciar Hermes; ahora deja de valer,
   porque la clave es otra. Se rechaza con «lost across restart» sin gastarlo,
   y basta con pedir otra vista previa (falla cerrado).
+- **Control de Core y del Supervisor (022, tramo 1).** Familia nueva
+  `system_control` (desactivable con `tool_families_disabled`) con siete
+  tools. Todo lo que corta algo va en dos pasos y la vista previa dice qué se
+  corta, cuánto y qué le pasa a Hermes:
+  - `sv_start_core` arranca Core cuando está parado (Hermes sigue
+    funcionando con Core caído: sus `sv_*` hablan con el Supervisor). Con
+    Core en marcha responde `already_running` sin token, también al
+    confirmar. Las escrituras en `/config` sin validar se avisan, no
+    bloquean: arrancar es recuperar.
+  - `sv_rebuild_core` reconstruye el contenedor de Core (Home Assistant se
+    corta unos minutos); `safe_mode` arranca sin integraciones propias ni
+    YAML, y el token lo ata. Mismo bloqueo que `sv_restart_core` con
+    escrituras sin validar. Nunca manda `force`.
+  - `sv_set_core_options`: solo `boot`, `watchdog`,
+    `backups_exclude_database`, `duplicate_log_file`, `audio_input` y
+    `audio_output`, con el valor actual y el nuevo por clave y avisos
+    (`boot=false` deja Home Assistant apagado tras reiniciar el host;
+    `watchdog=false`; lo que se aplica en el próximo arranque). `image`,
+    `refresh_token`, `port` y `ssl` se rechazan (`not_allowed`) sin llamar.
+  - `sv_reload_supervisor` (sin token: no corta nada), `sv_restart_supervisor`
+    (la API del Supervisor y la conexión de Hermes con Core se cortan unos
+    30-90 s; Core y las apps siguen) y `sv_repair_supervisor` (borra
+    contenedores parados, imágenes, caché de builds y volúmenes sin usar, y
+    descarga lo que falte; minutos). Reiniciar y reparar se rechazan
+    (`jobs_in_progress`) si hay jobs del Supervisor sin terminar, o si no se
+    puede saber.
+  - `sv_set_supervisor_options`: solo `timezone` (también la del host),
+    `country`, `logging`, `auto_update` y `diagnostics`, validadas antes de
+    llamar, con avisos de `auto_update=false` y `diagnostics=true`
+    (informes a un tercero). `channel` y las opciones de desarrollo se
+    rechazan.
+  - Si Hermes no puede saber si una operación terminó (tiempo vencido o
+    conexión cortada), responde `status: "started"` con la tool con la que
+    comprobarlo, nunca un «ok» ni un error inventados.
+  - Las opciones atan `options` y, como estado, los valores actuales: si
+    cambian antes de confirmar, no se ejecuta. Al log van los nombres de las
+    claves, nunca sus valores.
+  - Las siete rutas pasan de `deny` a `dedicated` en la tabla de comandos;
+    las estadísticas (`GET /core/stats`, `GET /supervisor/stats`) se leen por
+    `sv_read_api` y `POST /host/reload` va por `sv_call_api` con token.
+    `POST /core/stop` y el `channel` del Supervisor siguen cerrados por
+    cualquier vía.
+  - Anotaciones: las seis con token se anuncian destructivas; recargar y
+    reparar, de mundo abierto.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
 
 ### Sistema
 
