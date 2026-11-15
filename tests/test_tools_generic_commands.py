@@ -1248,8 +1248,9 @@ class TestAssistPorLaTabla(_Base):
     CAP-063 solo se prueba aquí: el banco no tiene satélites.
 
     Control negativo (T016 d): quitar `redact_extra=("url",)` de
-    `assist_pipeline/pipeline_debug/get` → cae `test_revisadas` de la tabla;
-    quitar `_RE_TTS_PROXY` de `_redactar` → cae
+    `assist_pipeline/pipeline_debug/get` → caen `test_revisadas` de la tabla y
+    `test_pipeline_debug_tapa_el_audio` (la `url` sale solo con el token
+    tapado, no entera); quitar `_RE_TTS_PROXY` de `_redactar` → cae
     `test_tts_proxy_tapado_en_cualquier_respuesta`."""
 
     inyectadas = False

@@ -49,6 +49,7 @@ from __future__ import annotations
 from tests.banco import cobertura, cobertura_016
 from tests.banco.cobertura_012 import PROBADAS_012
 from tests.banco.cobertura_015 import PROBADAS_015
+from tests.banco.cobertura_023 import LECTURAS_023, PROBADAS_023, XFAIL_PERMITIDOS_023
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -150,8 +151,12 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     | PROBADAS_012
     | PROBADAS_015
     | cobertura_016.PROBADAS_016
+    # Spec 023: la escritura y, como en la 029, también sus tres lecturas.
+    | PROBADAS_023
+    | LECTURAS_023
 )
-XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
+XFAIL_DEL_JOB: dict[str, str] = {
+    **cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028, **XFAIL_PERMITIDOS_023}
 
 # `ha_*` que no se pueden ejecutar en el banco → motivo concreto (qué falta:
 # hardware, internet, nube o Supervisor). Vacío: todas se ejecutan.

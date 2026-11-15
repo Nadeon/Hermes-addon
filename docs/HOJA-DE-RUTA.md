@@ -464,7 +464,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
-| 023 | Assist y conversación | 060–063 | pendiente |
+| 023 | Assist y conversación | 060–063 | hecha: familia `conversation` con cuatro tools (agentes, frases de los disparadores, análisis sin ejecutar y `ha_process_conversation`, siempre en dos pasos, con lo que reconoce el agente integrado o el aviso del agente externo, y `outcome_unknown` si vence el plazo); 5 entradas de la tabla a `dedicated`; pipelines, motores, AI Task y satélites por las genéricas, con la URL del audio de `pipeline_debug/get` (y cualquier `/api/tts_proxy/…`) tapada; tema `conversation`; en el banco de Core, `ha_process_conversation` con un disparador de frase y pipelines y AI Task por las genéricas. Solo en unitarios: otro agente (un LLM) y los satélites, que el banco no tiene |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
 | 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
@@ -721,6 +721,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_install_update` | banco de Core | ok | spec 015; entidad `update` de plantilla del banco |
 | `ha_pause_timer` | banco de Core | ok | |
 | `ha_press_input_button` | banco de Core | ok | |
+| `ha_process_conversation` | banco de Core | ok | spec 023; disparador de frase del banco |
 | `ha_reload_automations` | banco de Core | ok | |
 | `ha_reload_config_entry` | banco de Core | ok | |
 | `ha_reload_counters` | banco de Core | no ejecutable | `counter.reload` no existe en Core 2026.11.1: responde `not_supported` sin llamar a HA y está deprecada hasta la 1.3.0 (spec 033); su test del banco es un canario |

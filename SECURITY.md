@@ -202,6 +202,25 @@ report about one of them will be closed with a pointer to this section:
     a built-in one, or one with installed apps, is refused without a token,
     and the token is bound to the repository and its installed apps read
     in the preview.
+  - **Sending a sentence to Assist** (`ha_process_conversation`): it executes
+    the sentence as if it were spoken (it can open a lock, disarm an alarm or
+    run an automation with a sentence trigger), so it always takes two steps,
+    although the WebSocket command it uses, `conversation/process`, does not
+    go through the service denylist (which only guards actions such as
+    `conversation.process`). The preview says which agent gets the text and,
+    with Home Assistant's built-in agent, what it recognizes, without
+    executing anything; with any other agent it warns that the text is sent
+    to it, maybe to a cloud service, and that Hermes cannot predict what it
+    will do. The token is bound to the text, the agent, the language, the
+    conversation and the device, and stores only their hash: the sentence is
+    never written to `/data`. If Home Assistant does not answer in time, the
+    answer says the sentence may have run anyway and the token is spent. The
+    generic tools cannot reach `conversation/process` (`dedicated`). The log
+    never records sentences, answers, conversation ids or agent ids.
+  - **Assist audio URLs**: Home Assistant serves `/api/tts_proxy/<token>`
+    without authentication, so anyone with that URL can download the audio.
+    The generic tools hide any such URL in their answers (for example in
+    `assist_pipeline/pipeline_debug/get`).
   - **Tool families** (`tool_families_disabled`): whole groups of tools can
     be left unregistered. An unknown family name, or `base`, stops the add-on
     from starting rather than silently leaving tools on.
