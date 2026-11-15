@@ -337,7 +337,9 @@ la lista de tools es la de la 1.1.2.
 
 ### Estadísticas y energía
 
-Spec 020 (en curso). Tramo 1: tres tools nuevas que ESCRIBEN en la base de
+Spec 020: siete tools nuevas (cinco de mantenimiento de estadísticas en la
+familia `recorder` y dos del panel de energía en la familia nueva `energy`)
+y seis comandos más por la tabla. Tramo 1: tres tools nuevas que ESCRIBEN en la base de
 estadísticas de largo plazo, en la familia `recorder` de la 029. Las tres en
 dos pasos (vista previa sin efecto y confirmación con token), y solo un
 backup que incluya la base de HA deshace lo que hacen.
@@ -412,6 +414,50 @@ avisos de Repairs de las estadísticas por la genérica de escritura.
 - **Banco de Core**: las dos se ejecutan contra HA Core real (ajustar +5 kWh
   desde una hora; importar 6 filas y sobrescribir una), y también los avisos
   por la genérica; el lector comprueba cada efecto con un sondeo acotado.
+
+Tramo 3: el panel de energía, en una familia nueva `energy` (desactivable con
+`tool_families_disabled`).
+
+- **`ha_get_energy_prefs`**: lee la configuración del panel de energía: las
+  fuentes (red, solar, batería, gas, agua, casa), los dispositivos eléctricos
+  y los de agua. `configured: false` y las tres listas vacías si nunca se
+  configuró. Solo lee. Unas preferencias que no caben en el tope de
+  respuesta dan `response_too_large`: un documento de configuración no se
+  recorta.
+- **`ha_update_energy_prefs`**: guarda en dos pasos. Como en HA, cada lista
+  que llega (`energy_sources`, `device_consumption`,
+  `device_consumption_water`) reemplaza ENTERA la suya y las que no llegan se
+  conservan; la descripción y la vista previa lo dicen. La vista previa lee
+  las preferencias actuales y da, por cada lista que cambia, cómo está y cómo
+  quedará (`current` y `new`), los elementos que entran, salen y cambian
+  (por su tipo y sus estadísticas), las listas que se conservan, un aviso
+  por cada lista de la que se quitan elementos y otro expreso si se quitan
+  todas las fuentes, y las estadísticas que el recorder no conoce (HA no lo
+  comprueba al guardar). El token ata el documento que se enviará y las
+  preferencias leídas: si alguien guarda el panel entre medias,
+  `energy_prefs_changed` y no se guarda nada; si no se pueden leer, no hay
+  token ni se ejecuta. Rechaza, sin llamar a HA, listas mal formadas y un
+  `***REDACTED***` reenviado desde una lectura. El esquema completo lo valida
+  HA (`invalid_format` → `ha_command_failed` redactado). Sin la integración,
+  `energy_not_loaded`. El log lleva solo recuentos por lista.
+- **Por la genérica de lectura** (`ha_read_ws_command`), sin tool nueva:
+  `energy/validate` (problemas de configuración del panel),
+  `energy/info` (sensores de coste y dominios con previsión solar),
+  `energy/solar_forecast` (la previsión que ya tienen las integraciones; no
+  la descarga) y `energy/fossil_energy_consumption` (consumo de origen fósil
+  calculado con estadísticas, con un ejemplo de carga en la tabla). Ninguna
+  sale a internet.
+- **Tabla de comandos**: `energy/get_prefs` y `energy/save_prefs` pasan a
+  `dedicated`; las cuatro lecturas, a `read`. Ya no queda ninguna entrada
+  pendiente de la 020.
+- **Guía**: tema nuevo `energy` (alias `energy_prefs`, `energy_dashboard`,
+  `energia`) con el ciclo leer → editar → guardar y la llamada exacta de las
+  cuatro lecturas.
+- **Banco de Core**: la configuración del banco carga `energy:`. Las dos se
+  ejecutan contra HA Core real con el lector independiente (vista previa sin
+  efecto, dispositivo guardado con las fuentes intactas, preferencias
+  cambiadas entre medias rechazadas, preferencias de antes restauradas al
+  final), y también las cuatro lecturas por la genérica.
 
 ### Banco de pruebas
 

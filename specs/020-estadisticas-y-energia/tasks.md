@@ -180,38 +180,80 @@ separado (uno o varios commits; el tramo no se cierra con la suite en rojo).
 
 ### Tests (antes del código)
 
-- [ ] T036 [P] [US6] Tests en `tests/test_tool_families.py` (familia `energy`, `desde="1.2.0"`, desactivable, módulo `energy`, descripción de data-model) y en `tests/test_tools_registration.py` (`ha_get_energy_prefs` `R-I-` y `ha_update_energy_prefs` `-DI-` en `_HINTS_NUEVAS_1_2_0`; la segunda toma `confirmation_token`; con `energy` desactivada no aparece ninguna y el resto no cambia; con `recorder` y `energy` desactivadas, el conjunto es exactamente el de antes de la 029) (FR-014, FR-016, SC-001)
-- [ ] T037 [P] [US5] Tests en `tests/test_tools_energy.py`, `ha_get_energy_prefs`: preferencias de HA devueltas con `configured: true`; `not_found` de HA → `configured: false` y tres listas vacías; `unknown_command` → `energy_not_loaded`; un secreto en un nombre → redactado; documento mayor que el tope → `response_too_large`; Core caído → error de siempre; log sin el documento (FR-010, FR-017…FR-019)
-- [ ] T038 [P] [US5] Tests de `ha_update_energy_prefs`: ninguna lista → `invalid_argument`; lista que no es de objetos, fuente con `type` desconocido, dispositivo sin `stat_consumption` → `invalid_argument` sin llamar a HA; vista previa (sin enviar `energy/save_prefs`) con `changes` por lista (`before_count`, `after_count`, `added`, `removed`, `changed` identificados por `type` y `stat_*`), `kept` con las listas no recibidas, `removes_all_sources` al mandar `energy_sources: []` con fuentes, `warnings` con las estadísticas que `recorder/get_statistics_metadata` no devuelve (y el aviso de que no se pudo comprobar si el recorder no está), `current` de las listas que cambian; preferencias sin configurar → `before_count: 0`; confirmación que envía SOLO las listas recibidas y devuelve lo que HA guardó; cualquier lista distinta al confirmar → «does not match»; preferencias cambiadas por otro entre medias → `ESTADO_CAMBIADO` y nada enviado; sin preferencias en la vista previa y guardadas por otro antes de confirmar → `ESTADO_CAMBIADO` (el estado es `{"configured": false}`, no `None`); `invalid_format` de HA → `ha_command_failed` redactado; log con recuentos por lista y sin estadísticas (FR-011, FR-012, FR-017, FR-018, SC-003)
+- [x] T036 [P] [US6] Tests en `tests/test_tool_families.py` (familia `energy`, `desde="1.2.0"`, desactivable, módulo `energy`, descripción de data-model) y en `tests/test_tools_registration.py` (`ha_get_energy_prefs` `R-I-` y `ha_update_energy_prefs` `-DI-` en `_HINTS_NUEVAS_1_2_0`; la segunda toma `confirmation_token`; con `energy` desactivada no aparece ninguna y el resto no cambia; con `recorder` y `energy` desactivadas, el conjunto es exactamente el de antes de la 029) (FR-014, FR-016, SC-001)
+- [x] T037 [P] [US5] Tests en `tests/test_tools_energy.py`, `ha_get_energy_prefs`: preferencias de HA devueltas con `configured: true`; `not_found` de HA → `configured: false` y tres listas vacías; `unknown_command` → `energy_not_loaded`; un secreto en un nombre → redactado; documento mayor que el tope → `response_too_large`; Core caído → error de siempre; log sin el documento (FR-010, FR-017…FR-019)
+- [x] T038 [P] [US5] Tests de `ha_update_energy_prefs`: ninguna lista → `invalid_argument`; lista que no es de objetos, fuente con `type` desconocido, dispositivo sin `stat_consumption` → `invalid_argument` sin llamar a HA; vista previa (sin enviar `energy/save_prefs`) con `changes` por lista (`before_count`, `after_count`, `added`, `removed`, `changed` identificados por `type` y `stat_*`), `kept` con las listas no recibidas, `removes_all_sources` al mandar `energy_sources: []` con fuentes, `warnings` con las estadísticas que `recorder/get_statistics_metadata` no devuelve (y el aviso de que no se pudo comprobar si el recorder no está), `current` de las listas que cambian; preferencias sin configurar → `before_count: 0`; confirmación que envía SOLO las listas recibidas y devuelve lo que HA guardó; cualquier lista distinta al confirmar → «does not match»; preferencias cambiadas por otro entre medias → `ESTADO_CAMBIADO` y nada enviado; sin preferencias en la vista previa y guardadas por otro antes de confirmar → `ESTADO_CAMBIADO` (el estado es `{"configured": false}`, no `None`); `invalid_format` de HA → `ha_command_failed` redactado; log con recuentos por lista y sin estadísticas (FR-011, FR-012, FR-017, FR-018, SC-003)
 
 ### Implementación
 
-- [ ] T039 [US5] Revisar el doble de HA de `tests/test_tools_energy.py` contra `energy/websocket_api.py` y `data.py` (respuesta de `get_prefs`, `save_prefs` devuelve `manager.data`, `not_found` «No prefs»); anotar en el fichero de test el código de HA consultado
-- [ ] T040 [US5] `hermes/src/hermes/tools/energy.py` con las dos tools de contracts/tools.md (`estado` = preferencias actuales leídas con `energy/get_prefs`; sin omitibles); descripciones en inglés (reemplaza cada lista que llega, conserva las otras; HA valida el esquema). T037 y T038 en verde (FR-010…FR-012, FR-017…FR-019)
-- [ ] T041 [US6] `tool_families.py` (familia `energy`), `tools/__init__.py` (registro bajo `if _activa("energy")`), `_annotations.py` (`ha_update_energy_prefs` en `_DESTRUCTIVE_EXACT` con el porqué; las dos en `_HINTS_NUEVAS_1_2_0`). T036 en verde (FR-014, FR-016)
-- [ ] T042 [US5] `tests/test_confirmation_args_inventory.py`: fila de `ha_update_energy_prefs` (tres listas atadas) y recuento (FR-012)
+- [x] T039 [US5] Revisar el doble de HA de `tests/test_tools_energy.py` contra `energy/websocket_api.py` y `data.py` (respuesta de `get_prefs`, `save_prefs` devuelve `manager.data`, `not_found` «No prefs»); anotar en el fichero de test el código de HA consultado
+- [x] T040 [US5] `hermes/src/hermes/tools/energy.py` con las dos tools de contracts/tools.md (`estado` = preferencias actuales leídas con `energy/get_prefs`; sin omitibles); descripciones en inglés (reemplaza cada lista que llega, conserva las otras; HA valida el esquema). T037 y T038 en verde (FR-010…FR-012, FR-017…FR-019)
+- [x] T041 [US6] `tool_families.py` (familia `energy`), `tools/__init__.py` (registro bajo `if _activa("energy")`), `_annotations.py` (`ha_update_energy_prefs` en `_DESTRUCTIVE_EXACT` con el porqué; las dos en `_HINTS_NUEVAS_1_2_0`). T036 en verde (FR-014, FR-016)
+- [x] T042 [US5] `tests/test_confirmation_args_inventory.py`: fila de `ha_update_energy_prefs` (tres listas atadas) y recuento (FR-012)
 
 ### Tabla
 
-- [ ] T043 [P] [US5] [US6] Tests: en `tests/test_tools_generic_commands.py`, `energy/get_prefs` y `energy/save_prefs` → `use_dedicated_tool`; `ha_read_ws_command` con `energy/validate`, `energy/info`, `energy/solar_forecast` (sin carga) y `energy/fossil_energy_consumption` (con la carga del `example`) → se envían y vuelven redactadas; con `energy` desactivada, las dos dedicadas → `family_disabled: true`. En `tests/test_command_table.py`, las cuatro claves en `_POR_LA_TABLA` con «spec 020: …» y un test nuevo: ninguna entrada con «(spec 020)» y las doce de CAP-050/CAP-054 con la categoría de data-model (FR-013, FR-015, SC-002)
-- [ ] T044 [US5] [US6] `command_table.py`: `energy/get_prefs` y `energy/save_prefs` a `dedicated` (familia `energy`, CAP-054) con sus claves en `_DEDICADAS_INICIALES`; las cuatro lecturas a `read` a mano con el motivo de data-model y el `example` de consumo fósil (revisado contra `energy/websocket_api.py`); regenerar y comprobar que no cambia nada. T043 en verde (FR-013, FR-015)
+- [x] T043 [P] [US5] [US6] Tests: en `tests/test_tools_generic_commands.py`, `energy/get_prefs` y `energy/save_prefs` → `use_dedicated_tool`; `ha_read_ws_command` con `energy/validate`, `energy/info`, `energy/solar_forecast` (sin carga) y `energy/fossil_energy_consumption` (con la carga del `example`) → se envían y vuelven redactadas; con `energy` desactivada, las dos dedicadas → `family_disabled: true`. En `tests/test_command_table.py`, las cuatro claves en `_POR_LA_TABLA` con «spec 020: …» y un test nuevo: ninguna entrada con «(spec 020)» y las doce de CAP-050/CAP-054 con la categoría de data-model (FR-013, FR-015, SC-002)
+- [x] T044 [US5] [US6] `command_table.py`: `energy/get_prefs` y `energy/save_prefs` a `dedicated` (familia `energy`, CAP-054) con sus claves en `_DEDICADAS_INICIALES`; las cuatro lecturas a `read` a mano con el motivo de data-model y el `example` de consumo fósil (revisado contra `energy/websocket_api.py`); regenerar y comprobar que no cambia nada. T043 en verde (FR-013, FR-015)
 
 ### Guía
 
-- [ ] T045 [P] [US5] Tests en `tests/test_tools_guide.py`: tema `energy` con las dos tools, la semántica de reemplazo por lista, el ciclo leer → editar → guardar, las cuatro lecturas con su llamada exacta a `ha_read_ws_command`; alias `energy_prefs`, `energy_dashboard`, `energia` resuelven a él; el índice lo menciona; `hermes_guide(topic="generic_commands", search="fossil")` muestra el ejemplo de la tabla (FR-020)
-- [ ] T046 [US5] `guide.py`: tema `energy`, alias e índice. T045 en verde (FR-020)
+- [x] T045 [P] [US5] Tests en `tests/test_tools_guide.py`: tema `energy` con las dos tools, la semántica de reemplazo por lista, el ciclo leer → editar → guardar, las cuatro lecturas con su llamada exacta a `ha_read_ws_command`; alias `energy_prefs`, `energy_dashboard`, `energia` resuelven a él; el índice lo menciona; `hermes_guide(topic="generic_commands", search="fossil")` muestra el ejemplo de la tabla (FR-020)
+- [x] T046 [US5] `guide.py`: tema `energy`, alias e índice. T045 en verde (FR-020)
 
 ### Banco de Core
 
-- [ ] T047 [US5] `tests/banco/ha_config/configuration.yaml`: `energy:` con comentario del porqué; `tests/banco/test_banco_energia.py`: el lector lee `energy/get_prefs` antes (o `not_found`); `ha_get_energy_prefs` da lo mismo; `ha_update_energy_prefs(device_consumption=[{"stat_consumption": <estadística sembrada por el lector>}])`: vista previa sin efecto (el lector ve lo de antes), confirmación → el lector ve el dispositivo y las fuentes intactas; segunda vista previa con las preferencias cambiadas por el lector entre medias → la confirmación da `ESTADO_CAMBIADO`; las cuatro lecturas por `ha_read_ws_command` responden (`fossil_energy_consumption` con una estadística sembrada y su `co2`); al final el lector restaura las preferencias de antes (FR-013, FR-021)
-- [ ] T048 [US6] `cobertura_020.py`: `ha_update_energy_prefs` en `PROBADAS_020` (seis) y `LECTURAS_020 = frozenset({"ha_get_energy_prefs"})` (nombre fuera de la convención `PROBADAS*`, que es solo de escrituras) sumado a `TOOLS_EXIGIDAS_DEL_JOB`; tests de inventario en verde (FR-021, SC-005)
-- [ ] T049 [US6] Matriz de pruebas: una fila más (`ha_update_energy_prefs`); documentación final: `hermes/DOCS.md` (familia `energy` en la lista de `tool_families_disabled`, recuento), `README.md` y `README.es.md` sincronizados (+2 y fila de la familia), sección «Estadísticas y energía» completa en el CHANGELOG, 020 «hecha» en la tabla del programa de `docs/HOJA-DE-RUTA.md` (FR-022)
+- [x] T047 [US5] `tests/banco/ha_config/configuration.yaml`: `energy:` con comentario del porqué; `tests/banco/test_banco_energia.py`: el lector lee `energy/get_prefs` antes (o `not_found`); `ha_get_energy_prefs` da lo mismo; `ha_update_energy_prefs(device_consumption=[{"stat_consumption": <estadística sembrada por el lector>}])`: vista previa sin efecto (el lector ve lo de antes), confirmación → el lector ve el dispositivo y las fuentes intactas; segunda vista previa con las preferencias cambiadas por el lector entre medias → la confirmación da `ESTADO_CAMBIADO`; las cuatro lecturas por `ha_read_ws_command` responden (`fossil_energy_consumption` con una estadística sembrada y su `co2`); al final el lector restaura las preferencias de antes (FR-013, FR-021)
+- [x] T048 [US6] `cobertura_020.py`: `ha_update_energy_prefs` en `PROBADAS_020` (seis) y `LECTURAS_020 = frozenset({"ha_get_energy_prefs"})` (nombre fuera de la convención `PROBADAS*`, que es solo de escrituras) sumado a `TOOLS_EXIGIDAS_DEL_JOB`; tests de inventario en verde (FR-021, SC-005)
+- [x] T049 [US6] Matriz de pruebas: una fila más (`ha_update_energy_prefs`); documentación final: `hermes/DOCS.md` (familia `energy` en la lista de `tool_families_disabled`, recuento), `README.md` y `README.es.md` sincronizados (+2 y fila de la familia), sección «Estadísticas y energía» completa en el CHANGELOG, 020 «hecha» en la tabla del programa de `docs/HOJA-DE-RUTA.md` (FR-022)
 
 ### Cierre
 
-- [ ] T050 Control negativo del tramo 3, anotando recuentos: (a) no pasar `estado` en energía → cae el de `ESTADO_CAMBIADO`; (b) enviar las tres listas aunque solo llegue una → cae el de «solo las listas recibidas»; (c) no tratar `not_found` → cae el de `configured: false`; (d) quitar `warnings` → cae; (e) dejar `energy/validate` en `deny` → cae T043; (f) quitar `ha_get_energy_prefs` de `LECTURAS_020` → cae el test de inventario; (g) quitar `ha_update_energy_prefs` de la matriz → cae `test_matriz_pruebas.py`. Restaurar y comprobar verde
-- [ ] T051 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-050 y CAP-054 con estado `X`, las tools y entradas definitivas y los ficheros de test (`test_tools_statistics_maintenance.py`, `test_tools_energy.py`, `test_tools_generic_commands.py`, `tests/banco/test_banco_estadisticas.py`, `tests/banco/test_banco_energia.py`) (FR-022)
+- [x] T050 Control negativo del tramo 3, anotando recuentos: (a) no pasar `estado` en energía → cae el de `ESTADO_CAMBIADO`; (b) enviar las tres listas aunque solo llegue una → cae el de «solo las listas recibidas»; (c) no tratar `not_found` → cae el de `configured: false`; (d) quitar `warnings` → cae; (e) dejar `energy/validate` en `deny` → cae T043; (f) quitar `ha_get_energy_prefs` de `LECTURAS_020` → cae el test de inventario; (g) quitar `ha_update_energy_prefs` de la matriz → cae `test_matriz_pruebas.py`. Restaurar y comprobar verde
+- [x] T051 Matriz de trazabilidad de `specs/008-cobertura-total/plan.md`: filas CAP-050 y CAP-054 con estado `X`, las tools y entradas definitivas y los ficheros de test (`test_tools_statistics_maintenance.py`, `test_tools_energy.py`, `test_tools_generic_commands.py`, `tests/banco/test_banco_estadisticas.py`, `tests/banco/test_banco_energia.py`) (FR-022)
 - [ ] T052 Cierre del tramo 3: suite completa (los 6 fallos conocidos y ninguno más), CI en verde con el banco, revisión del diff (principio VIII), commit con los recuentos de T050 y el resultado de la regeneración de T044
+
+### Notas del tramo 3 (implementación)
+
+- Línea base (punta `a6b18a6`): 2996 passed, 101 skipped, 6 failed (los 6 de
+  Windows). Al cerrar: 3042 passed, 102 skipped (los del banco), los mismos 6.
+- Decisiones del supervisor aplicadas: la vista previa de
+  `ha_update_energy_prefs` da `current` (antes) y `new` (después) de cada
+  lista que llega, y en `warnings` un `removes_items` por cada lista de la
+  que se quitan elementos (además de `unknown_statistic` y
+  `statistics_not_checked`). El token ata las tres listas (`None` las que no
+  llegan) y el estado leído; un cambio entre medias da
+  `energy_prefs_changed` con el detalle `ESTADO_CAMBIADO` (mismo patrón que
+  `statistics_changed`). Si las preferencias no se pueden leer, falla
+  cerrado (sin token; en la confirmación, el token sigue pendiente).
+- Extra: se rechaza un `***REDACTED***` reenviado desde una lectura
+  (guardarlo pisaría el valor real), como `sv_set_addon_options`. La
+  confirmación devuelve `prefs` sin `configured`; si no caben en el tope,
+  `prefs_omitted: true` (guardado, sin recortar).
+- Las cuatro lecturas, revisadas en `energy/websocket_api.py`: solo leen y
+  ninguna sale a internet (`solar_forecast` devuelve los datos que la
+  integración de previsión ya tiene en memoria). Quedan `read` sin
+  `open_world`.
+- T044: el generador, sobre la tabla editada, la deja idéntica (0 entradas
+  nuevas, 0 quitadas, sin diferencias); `test_desde_cero_igual_que_la_tabla_real`
+  en verde con `energy/get_prefs` y `energy/save_prefs` en el mapa.
+- T047, banco: si el banco no tenía preferencias, la limpieza guarda las tres
+  listas vacías (HA no tiene comando para borrarlas).
+- T050, controles negativos (comprobados y restaurados): (a) sin `estado` en
+  la vista previa y en la confirmación → 2 en rojo (los de `ESTADO_CAMBIADO`);
+  quitarlo solo de la confirmación hace caer 5 (todo token deja de valer);
+  (b) enviar las tres listas → 1; (c) sin tratar `not_found` → 4; (d) sin
+  `warnings` → 3; (e) `energy/validate` en `deny` → 1
+  (`test_las_cuatro_lecturas`); (f) sin `ha_get_energy_prefs` en
+  `LECTURAS_020` → 1 (`TestCoberturaDeLa020::test_inventario_exacto`); (g)
+  sin su fila en la matriz → 2 de `test_matriz_pruebas.py`.
+- Desviaciones: T051 pedía «estado `X`» en las filas CAP-050 y CAP-054, pero
+  esa columna es la VÍA (D, D+T) y la leen `test_command_table.py` y la copia
+  del generador; se dejan su vía y se completa la columna de tests, como en
+  CAP-049. Tests nuevos fuera de los nombrados: `TestCoberturaDeLa020` en
+  `tests/test_banco_cobertura.py` (inventario exacto de `MODULOS_020`);
+  `test_banco_cobertura_escrituras.py` pasa de 134 a 135 y suma
+  `LECTURAS_020` a la unión del job.
 
 ---
 

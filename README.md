@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **256 tools**: turn on lights, write automations,
+external systems). It ships **258 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 256 tools
+## What it can do — 258 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -48,6 +48,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Utilities** | 2 | `ping` and `hermes_guide` |
 | **System status** | 5 | Read only: the system health report (what Settings > System > Repairs > System information shows), whether Home Assistant or the host needs a restart, how long each integration took to set up, and integration manifests. Family `system_status`, new in 1.2.0 |
 | **Recorder** | 8 | Whether the recorder is recording (and whether one entity is recorded), the problems Home Assistant finds in long-term statistics and the metadata of the statistics you name (read only); and statistics maintenance with a preview and confirmation: clear statistics (whole or a time range), convert their unit, fix their stored unit, adjust a sum, import hourly statistics. Family `recorder`, new in 1.2.0 |
+| **Energy** | 2 | Read the energy dashboard configuration (sources, electricity devices and water devices) and save it with a preview and confirmation: each list you pass replaces that list, the others are kept, and the preview shows what goes in and out. Family `energy`, new in 1.2.0 |
 | **Core diagnostics** | 12 | Home Assistant's system log (grouped errors, and clear it), the raw error log when HA writes one, log levels (read them, and raise an integration to DEBUG to troubleshoot it), validating automations and scripts before saving them, testing a condition, integration and device diagnostics, and persistent notifications (list and dismiss) |
 | **Generic commands** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` and `sv_call_api`: what no other tool covers, and only what Hermes' command table allows (writes always in two steps) |
 
@@ -58,8 +59,8 @@ If your client struggles with this many tools, switch off whole groups with
 the `tool_families_disabled` option (for example `lovelace` or
 `marketplace`); see [DOCS.md](hermes/DOCS.md) for the list of families. `ping`
 and `hermes_guide` are always on, and switching off the families new in 1.2.0
-(`generic_commands`, `system_diagnostics`, `system_status`, `recorder`
-and `core_diagnostics`) gives you exactly the tool list of 1.1.2.
+(`generic_commands`, `system_diagnostics`, `system_status`, `recorder`,
+`energy` and `core_diagnostics`) gives you exactly the tool list of 1.1.2.
 
 On their first call, destructive tools return a preview and a
 `confirmation_token`. They do nothing until they are called again with that
@@ -460,7 +461,7 @@ is below.
 | `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
 | `trusted_proxy_ips` | `[]` | Proxies whose `X-Forwarded-For` is trusted, as plain IPs or CIDR ranges (`172.30.32.0/23` is the HAOS bridge network). Empty means only `127.0.0.1` is trusted, which under `reverse_proxy` turns every per-IP limit into a single global bucket. Anybody inside a trusted range can forge the client IP (rate limits and logs only — never authorization) |
 | `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder` and `core_diagnostics`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
+| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `energy` and `core_diagnostics`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
 | `log_redact_network` | `true` | Replaces your `public_hostname`, the hosts of Home Assistant's `external_url` and `internal_url`, any `*.ts.net` name and every non-loopback IP (also when written as `ip-a-b-c-d`) in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
 | `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |

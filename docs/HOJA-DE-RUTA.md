@@ -452,7 +452,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
-| 020 | Estadísticas y energía | 050, 054 | en curso: tramo 1 (borrar estadísticas, cambiar la unidad y editar los metadatos, con dos pasos y prueba en el banco de Core); faltan ajustar sumas, importar y la energía |
+| 020 | Estadísticas y energía | 050, 054 | hecha: cinco tools de mantenimiento de estadísticas en `recorder` (borrar, cambiar la unidad, editar los metadatos, ajustar sumas, importar) y la familia nueva `energy` (leer y guardar las preferencias del panel), todas las que escriben en dos pasos; `recorder/update_statistics_issues` `confirm` y cuatro lecturas de energía `read` por la tabla; las siete y las genéricas, contra HA Core real en el banco |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
@@ -738,6 +738,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_area` | banco de Core | ok | |
 | `ha_update_category` | banco de Core | ok | |
 | `ha_update_device` | banco de Core | ok | |
+| `ha_update_energy_prefs` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
 | `ha_update_label` | banco de Core | ok | |
