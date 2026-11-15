@@ -282,6 +282,35 @@ principio IV se enmienda en el mismo cambio.
   `latest` apunta a la 1.1.1. La 1.0.7 y la 1.0.12 no se etiquetaron y no
   tienen imagen.
 
+### Pruebas manuales hechas en una instalación real (1.1.2)
+
+Sobre un dashboard de prueba, creado para la prueba y borrado al terminar,
+con HA 2026.11.1 y desde un cliente que aún tenía cacheado el esquema de la
+1.1.1 (con `config` obligatorio): la llamada sin `config` llegó igual y
+Hermes la aceptó.
+
+- [x] **Publicación**: `v1.1.2` publicó las dos arquitecturas a la primera;
+  las imágenes se descargan enteras de GHCR con el sha256 de cada capa
+  verificado, y `latest` apunta a la 1.1.2. El Supervisor actualizó a la
+  1.1.2 sin problemas.
+- [x] **Confirmar sin el documento**: el dashboard de unos 41 KB que caducaba
+  en la 1.1.1 se guarda confirmando solo con `url_path` y
+  `confirmation_token`, unos 4 s después de la vista previa (en la 1.1.1, la
+  confirmación llegaba a los 104 s y caducaba). La vista previa trae
+  `confirm_with`, `omit_on_confirm: ["config"]` y `confirm_hint`. El log no
+  contiene el documento.
+- [x] **Dashboards grandes**: uno de unos 134 KB (más que los 128 KiB de
+  `response_max_bytes`) se guarda confirmando solo con el token. Leído entero
+  da `too_large` con `total_size_bytes`, `views_count` y `top_level` con sus
+  tres claves y valores; leído por vistas, cada una trae el mismo `top_level`
+  y `views_total`. Sin las claves de nivel superior, el guardado da
+  `top_level_keys_missing` con las tres y sin token. Reconstruido como
+  `{**top_level, "views": [...]}` y guardado de nuevo, conserva las tres
+  claves. Al reescribir a mano los 134 KB, el cliente se dejó tarjetas; la
+  vista previa lo mostró (cuenta las tarjetas antes y después), así que la
+  salvaguarda funciona, pero reconstruir un dashboard grande entero es
+  propenso a errores del cliente (ver 1.2.x, guardado por vistas).
+
 ### Pruebas manuales pendientes en una instalación real
 
 La suite no puede cubrir esto; anota aquí el resultado:
@@ -304,23 +333,21 @@ La suite no puede cubrir esto; anota aquí el resultado:
   `public_hostname: homeassistant.tailXXXX.ts.net:8443`, con
   `share_homeassistant: funnel` en el 443, y pasar una instalación existente
   del 443 al 8443 siguiendo los README.
-- [ ] **Confirmar sin el documento (1.1.2)**: en un dashboard de prueba,
-  guardar el de unos 41 KB que caducó en la 1.1.1 confirmando con solo
-  `url_path` y `confirmation_token` (a la primera, sin `confirmation_token
-  expired`), y lo mismo con un `fs_write_file` grande sobre un fichero de
-  prueba. Comprobar en el log que no aparece el contenido y que, pasados unos
-  dos minutos, el directorio de confirmaciones no lo conserva
-  (`specs/007-confirmar-con-token/quickstart.md`).
-- [ ] **Dashboards grandes**: leer por vistas un dashboard de más de 128 KiB
-  (`too_large`, `view_index`, `top_level`) y guardarlo entero sin perder
-  claves de nivel superior. Estaba bloqueada por el primer problema conocido
-  de la 1.1.1 (no se podía guardar un dashboard de más de unos 25 KB, y por
-  tanto tampoco crear uno de más de 128 KiB para leerlo), resuelto en la
-  1.1.2. Sobre un dashboard de prueba, borrado al terminar, ya funcionan en
-  vivo el guardado pequeño y el control negativo `top_level_keys_missing`.
+- [ ] **Confirmar sin el documento con `fs_write_file` (1.1.2)**: lo mismo
+  que con el dashboard, con un fichero de prueba grande; y comprobar que,
+  pasados unos dos minutos, el directorio de confirmaciones no conserva el
+  contenido (`specs/007-confirmar-con-token/quickstart.md`). Hace falta
+  acceso al `/data` del add-on, que las tools no dan.
 
 ### 1.2.x y posteriores
 
+- **Guardar un dashboard por vistas.** Hoy, editar un dashboard grande obliga
+  al cliente a reescribir el documento entero, y en la prueba en vivo de la
+  1.1.2 el cliente se dejó tarjetas al reescribir 134 KB (la vista previa lo
+  mostró). Una forma de guardar una sola vista (por ejemplo, `view_index` en
+  `ha_save_lovelace_dashboard`), con el servidor conservando las demás vistas
+  y las claves de nivel superior, evitaría reescribir lo que no cambia. Con
+  confirmación y vista previa, como ahora.
 - **Menor conocido de la 1.1.2: coste del barrido en cada vista previa con
   documento.** `create_confirmation_token` relee y parsea todos los ficheros de
   token para barrer caducados y sumar el tope. Con el tope de 16 MiB casi
