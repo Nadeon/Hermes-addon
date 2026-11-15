@@ -166,19 +166,43 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   último.
 - **Recargas de la tienda en serie.** `sv_reload_store`,
   `sv_check_for_updates` y añadir o quitar un repositorio comparten un
-  candado: una recarga lanzada por Hermes no empieza hasta que termina la
-  anterior, y su hora de inicio se toma con el candado cogido y solo cuenta
-  si termina bien. Antes, una segunda recarga simultánea podía volver «bien»
-  sin releer nada mientras la primera seguía.
-- **Un `config.*` que el Supervisor descartaría no bloquea otras apps.**
-  Uno sin `slug` válido, que no es UTF-8, YAML o JSON válido, que no es un
-  mapa o al que le falta un campo obligatorio de su esquema (`name`,
-  `version`, `slug`, `description`, `arch`) no declara ninguna app: ya no
-  provoca `store_copy_stale` al instalar, actualizar o reconstruir otra, y
-  sale en la vista previa en `ignored_config_files` con su motivo real.
-  Solo lo que Hermes de verdad no puede leer (un symlink, algo que no es un
-  fichero regular, uno de más de 1 MiB, un error de lectura) sigue
-  bloqueando, y el motivo lo dice.
+  candado: una recarga lanzada por Hermes no empieza hasta que Hermes ha
+  terminado de esperar la anterior, y su hora de inicio se toma con el
+  candado cogido y solo cuenta si termina bien. Antes, una segunda recarga
+  simultánea podía volver «bien» sin releer nada mientras la primera
+  seguía. Si Hermes deja de esperar (se cancela la llamada o vence el
+  tiempo), el Supervisor sigue con esa recarga: por eso, mientras el
+  Supervisor tenga una recarga de la tienda sin terminar (la de su lista de
+  jobs, `/jobs/info`: también la programada o la que lance otro), instalar,
+  actualizar o reconstruir una app local da `store_copy_stale`, y una
+  recarga de Hermes que la encuentre al empezar o al terminar no cuenta. Si
+  la lista de jobs no responde, lo mismo.
+- **Cada recarga de Hermes obliga al Supervisor a releer las apps
+  locales.** El Supervisor solo las relee si la fecha más reciente de
+  `/addons` (la de la propia carpeta incluida) es distinta de la que guardó,
+  y la guarda antes de releer: si releer fallaba, la recarga daba error,
+  pero la siguiente volvía «bien» sin releer nada y Hermes la daba por
+  buena. Ahora, justo antes de cada recarga, Hermes cambia la fecha de la
+  propia carpeta `/addons` (no toca ningún fichero), así que el Supervisor
+  relee siempre; si falla, la recarga da error y no cuenta. Ese cambio de
+  Hermes no cuenta como «algo cambió en `/addons`»; cualquier cambio
+  posterior, sí. Sin `/addons` o si no se puede cambiar la fecha, la
+  recarga se hace igual, pero no cuenta para las apps locales.
+- **Un `config.*` que el Supervisor salta no bloquea otras apps.** Uno sin
+  `slug` válido, que no es UTF-8, YAML o JSON válido, que no es un mapa o
+  al que le falta un campo obligatorio de su esquema (`name`, `version`,
+  `slug`, `description`, `arch`) no declara ninguna app: ya no provoca
+  `store_copy_stale` al instalar, actualizar o reconstruir otra, y sale en
+  la vista previa en `ignored_config_files` con su motivo real. Solo lo que
+  Hermes de verdad no puede leer (un symlink, algo que no es un fichero
+  regular, uno de más de 1 MiB, un error de lectura) sigue bloqueando, y el
+  motivo lo dice.
+- **Un `config.*` que tumba la recarga sí bloquea.** Un YAML que al leerlo
+  lanza algo que el Supervisor no captura (por ejemplo, una fecha
+  imposible como `2001-13-01`) no se salta: hace fallar toda recarga de la
+  tienda. Ya no sale en `ignored_config_files`: instalar, actualizar o
+  reconstruir una app local da `store_copy_stale` con su ruta y la
+  indicación de arreglarlo o quitarlo.
 - **Esperar el candado de una carpeta tiene un tope de 15 s.** Reconstruir
   una app local retiene el candado de `/addons` mientras dura (hasta
   300 s), y la confirmación que esperaba detrás encontraba su token

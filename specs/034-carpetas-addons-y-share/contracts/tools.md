@@ -159,8 +159,18 @@ sin token en la vista previa y al confirmar, bajo el candado de `/addons`.
   tiene una fecha posterior al inicio de la última recarga lanzada por
   Hermes menos 2 s (T051); `reason` dice qué cambió lo último.
 - `ignored_config_files`: `{"files": [{"path", "reason"}], "count", "note"}`
-  en la vista previa, con los `config.*` que el Supervisor descartaría
-  (T055); no bloquean.
+  en la vista previa, con los `config.*` que el Supervisor salta (T055); no
+  bloquean. Los que tumban la recarga (una excepción que el Supervisor no
+  captura) no salen aquí: `store_copy_stale` con su ruta y la pista de
+  arreglarlos o quitarlos (convergencia 3, T059).
+- Convergencia 3: `store_copy_stale` también si `GET /jobs/info` tiene un
+  job de recarga de la tienda sin terminar (`store_manager_reload`,
+  `store_manager_add_repository`, `store_manager_update_repositories`, a
+  cualquier profundidad del árbol) o no responde (T058). Las cuatro vías de
+  recarga marcan antes la raíz de `/addons` (`os.utime`, fecha mayor que la
+  que tenía y que la hora actual) y solo anotan si la marca se puso y no
+  había ni hay una recarga en curso; la marca anotada (valor exacto en ns)
+  no cuenta como cambio (T057).
 - `folder_busy`: `{"error": "folder_busy", "folder", "detail"}` (y `slug` en
   las `sv_*`) si el candado de la carpeta no se consigue en
   `ESPERA_MAX_CANDADO_S` (15 s); el token no se gasta (T056).

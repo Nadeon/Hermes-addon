@@ -499,6 +499,12 @@ un cliente contra la instalación real.
   cualquier fichero de `/addons` antes de confirmar da `store_copy_stale`;
   confirmar mientras se reconstruye otra app local da `folder_busy` a los
   15 s sin gastar el token.
+- [ ] (VM) **Recarga que revienta (convergencia 3 de la 034)**: con un
+  `config.yaml` con `creada: 2001-13-01` en `/addons`, `sv_reload_store` da
+  error dos veces seguidas (Hermes cambia la fecha de `/addons` y el
+  Supervisor relee las dos), `sv_install_addon` de una app local responde
+  `store_copy_stale` con esa ruta, y tras quitarlo y recargar hay token;
+  con una recarga en curso en el Supervisor, `store_copy_stale`.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 

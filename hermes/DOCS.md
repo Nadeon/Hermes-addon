@@ -152,7 +152,11 @@ borrar, **siempre en dos pasos**. Las reglas:
   última recarga que lanzó Hermes, o Hermes no ha recargado desde que
   arrancó, instalar, actualizar o reconstruir una app local se rechaza sin
   token (`store_copy_stale`): pide a Claude que recargue la tienda
-  (`sv_reload_store`) y vuelva a empezar.
+  (`sv_reload_store`) y vuelva a empezar. Para que el Supervisor relea las
+  apps locales, Hermes cambia la fecha de la propia carpeta `/addons` justo
+  antes de cada recarga que lanza (no toca ningún fichero). Si un
+  `config.yaml` hace fallar la recarga entera (por ejemplo, una fecha
+  imposible), también se rechaza, con su ruta: arréglalo o quítalo.
 
 Para eso Hermes monta `/addons` **con escritura** desde la 1.2.1. Usa el tipo
 de montaje `addons`, que el Supervisor da por heredado desde la 2026.07: al

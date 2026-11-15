@@ -421,3 +421,43 @@ cada control negativo, comprobado: revertido, en rojo y restaurado):
 - Hallazgo de paso: la nota de `declared_in_folder` salía como
   `token ***REDACTED***` (la redacción tomaba la palabra tras «token» por un
   secreto); reescrita y comprobada en `TestActualizar`.
+
+## Fase 7: Convergencia 3
+
+Segunda verificación independiente del rango `64d611e..3abcb87` (la
+convergencia 2). Severidad entre corchetes; las decisiones son del supervisor.
+
+- [x] T057 [MEDIO] F1: `store_copy_stale` se saltaba con una recarga que revienta DESPUÉS de que el Supervisor guarde la fecha. `RepositoryLocal.update` (`store/repository.py`) guarda el máximo de `utils.get_latest_mtime` antes de `data.update()` (`StoreManager.reload`, `store/__init__.py`); si releer lanza (un `config.*` con algo que no captura), la recarga da error, y la siguiente ve la misma fecha, no relee y responde 200, y Hermes la anotaba. Arreglo: en cada recarga que lanza Hermes (las cuatro vías), con el candado de recarga cogido y antes de tomar el inicio, Hermes pone a la raíz de `/addons` una fecha mayor que la que tenía y que la hora actual (`os.utime`); el Supervisor compara con `!=` y la raíz entra en el máximo (`directory.stat()`), así que relee siempre (o falla y no se anota). La marca (leída de vuelta, en ns) se registra junto con el inicio, solo si la recarga se anota, y ese valor exacto no cuenta en `fecha_mas_reciente`; cualquier otro, sí. Sin `/addons` o si la marca falla, la recarga se hace pero no se anota (fail-closed). Test con el escenario y control negativo
+- [x] T058 [BAJO] F2: una recarga de Hermes cancelada o que vence el tiempo suelta el candado mientras el Supervisor sigue con ella (`asyncio.shield` en `api/store.py`), y otra recarga podía volver al instante y anotarse. Arreglo: `store_copy_stale` si `GET /jobs/info` tiene un job de recarga de la tienda sin terminar (`store_manager_reload`, `store_manager_add_repository`, `store_manager_update_repositories`, a cualquier profundidad: la programada lo lleva de hijo de `tasks_reload_store`) o no responde; una recarga de Hermes que encuentre uno al empezar o al terminar, o no pueda saberlo, no se anota. El CHANGELOG deja de prometer que las recargas «no empiezan hasta que termina la anterior» sin matiz. Test y control negativo
+- [x] T059 [BAJO] F3: honestidad de `ignored_config_files`. Un YAML cuya lectura lanza algo que `read_yaml_file` (`utils/yaml.py`) no captura (solo `YAMLError`, `AttributeError`, `OSError` y `UnicodeDecodeError`; una fecha imposible da `ValueError`) no se salta: tumba toda recarga. Arreglo: `IndiceDeApps.rompen_recarga`, separado de `descartados`; bloquea instalar, actualizar y reconstruir apps locales (`store_copy_stale` con la ruta y la pista de arreglarlo o quitarlo) y no sale en `ignored_config_files`, cuya nota ya no dice «do not affect this one». En JSON, todo fallo de `json` es un descarte real (`read_json_file` captura `ValueError` y `TypeError`). Test y control negativo
+
+Notas de la convergencia 3 (tests en `tests/test_convergencia_3_034.py`;
+cada control negativo, comprobado: revertido, en rojo y restaurado):
+
+- T057: qué dispara de verdad `get_latest_mtime` (Supervisor 2026.11.0,
+  `utils/__init__.py`): `directory.stat().st_mtime` de la raíz y
+  `path.stat().st_mtime` de todo `rglob("*")` (carpetas incluidas, sigue
+  symlinks en el `stat`), el máximo; `RepositoryLocal.update` compara con
+  `!=`. Basta la raíz, sin fichero marcador. `_store.marcar_raiz_de_addons`
+  (marca = máx(hora actual, fecha anterior + 1 ms), para que también cambie
+  el `float`), `empezar_recarga_de_tienda`,
+  `recarga_valida_para_apps_locales` y `anotar_recarga_de_tienda(inicio,
+  marca)`; `folders.fecha_mas_reciente(..., marca_raiz_ns=...)`. El
+  Supervisor simulado del test calcula la fecha como `get_latest_mtime` y la
+  guarda antes de releer. Controles negativos: marcar sin `os.utime` → cae
+  el escenario (la segunda recarga no relee y hay token con la copia de
+  `SYS_ADMIN`); sin excluir la marca → cae `test_sin_cambios_hay_token`
+  (con el margen real de 2 s la marca siempre contaría).
+- T058: `_store.jobs_de_recarga_en_curso` (forma de `api/jobs.py`, `info`,
+  con `child_jobs`); los simulados de la tienda responden por defecto
+  `{"ignore_conditions": [], "jobs": []}`. Controles negativos: sin la
+  consulta en `comprobar_copia_de_tienda` caen los dos tests de rechazo; sin
+  la segunda consulta al anotar cae el caso «después».
+- T059: `folders._YAML_QUE_EL_SUPERVISOR_SALTA`; `_analizar_texto` devuelve
+  un cuarto elemento. Controles negativos: con `except Exception` (lo de
+  antes) caen la clasificación y el bloqueo; sin el rechazo por
+  `rompen_recarga` cae el bloqueo.
+- Lo que el Supervisor no captura al VALIDAR (por ejemplo, `devices: [5]`,
+  que `_migrate_app_config` recorre con `":" in line`) no se imita: Hermes
+  lo cuenta como app (fail-closed) y, si tumba la recarga, T057 hace que
+  la recarga de Hermes falle y no se anote.
