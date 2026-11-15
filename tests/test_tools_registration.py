@@ -789,6 +789,63 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
     "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
     "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
+    # Spec 016, tramo A (contracts/tools.md). Las dos de lectura, por prefijo.
+    # `ha_ignore_discovery` modifica sin destruir y es idempotente: crea la
+    # entrada `ignore` y HA deja de ofrecer ese descubrimiento (se deshace
+    # borrando esa entrada). Desde T046 solo acepta flujos de descubrimiento;
+    # ignorar un `reauth` borraba la entrada real, y eso se rechaza en vez de
+    # anunciarse destructivo, porque no pide token; `ha_update_config_entry` es
+    # destructiva por nombre exacto porque puede pedir token.
+    "ha_list_discovered_integrations": ("R-I-", "List discovered integrations (Home Assistant)"),
+    "ha_ignore_discovery": ("--I-", "Ignore discovery (Home Assistant)"),
+    "ha_list_config_flow_domains": ("R-I-", "List config flow domains (Home Assistant)"),
+    "ha_update_config_entry": ("-DI-", "Update config entry (Home Assistant)"),
+    # Spec 016, tramo B (contracts/tools.md). Abrir o avanzar un flujo no es
+    # idempotente; `ha_delete_subentry` es destructiva por prefijo y
+    # `ha_continue_reconfigure_flow` por nombre exacto (pide token en cada
+    # paso: decisión del supervisor). Renombrar y abortar, ni lo uno ni lo
+    # otro.
+    "ha_list_config_subentries": ("R-I-", "List config subentries (Home Assistant)"),
+    "ha_start_subentry_flow": ("----", "Start subentry flow (Home Assistant)"),
+    "ha_continue_subentry_flow": ("----", "Continue subentry flow (Home Assistant)"),
+    "ha_abort_subentry_flow": ("--I-", "Abort subentry flow (Home Assistant)"),
+    "ha_update_subentry": ("--I-", "Update subentry (Home Assistant)"),
+    "ha_delete_subentry": ("-DI-", "Delete subentry (Home Assistant)"),
+    "ha_start_reconfigure_flow": ("----", "Start reconfigure flow (Home Assistant)"),
+    "ha_continue_reconfigure_flow": ("-D--", "Continue reconfigure flow (Home Assistant)"),
+    # Spec 016, tramo C. `ha_get_repair` de lectura por prefijo; abrir y
+    # avanzar un flujo de reparación no son idempotentes; avanzar es
+    # destructiva por nombre exacto (pide token en cada paso); abortar, como
+    # `ha_abort_config_entry_flow`.
+    "ha_get_repair": ("R-I-", "Get repair (Home Assistant)"),
+    "ha_start_repair_fix": ("----", "Start repair fix (Home Assistant)"),
+    "ha_continue_repair_fix": ("-D--", "Continue repair fix (Home Assistant)"),
+    "ha_abort_repair_fix": ("--I-", "Abort repair fix (Home Assistant)"),
+}
+
+# Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
+# La tabla de arriba sigue diciendo lo que prometía la 1.1.2.
+_HINTS_CAMBIADOS_A_PROPOSITO: dict[str, str] = {
+    # Spec 016, tramo C (decisión del supervisor): pide token en cada paso de
+    # un flujo `reauth` (cambia credenciales); «pide token ⇔ destructiva».
+    "ha_continue_config_entry_flow": "-DI-",
+}
+
+# Tools de cada familia nueva de la 1.2.0 (sus contratos). Con la familia
+# desactivada no aparece ninguna.
+_TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
+    "integration_flows": {
+        "ha_list_discovered_integrations", "ha_ignore_discovery",
+        "ha_list_config_flow_domains", "ha_update_config_entry",
+        "ha_list_config_subentries", "ha_start_subentry_flow",
+        "ha_continue_subentry_flow", "ha_abort_subentry_flow",
+        "ha_update_subentry", "ha_delete_subentry",
+        "ha_start_reconfigure_flow", "ha_continue_reconfigure_flow",
+    },
+    "repair_flows": {
+        "ha_get_repair", "ha_start_repair_fix", "ha_continue_repair_fix",
+        "ha_abort_repair_fix",
+    },
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -878,11 +935,15 @@ class TestToolTitles:
         assert faltan == [], f"tools de la 1.1.2 que ya no están: {faltan}"
         sobran = sorted(set(tools) - set(_HINTS_SNAPSHOT) - set(_HINTS_NUEVAS_1_2_0))
         assert sobran == [], f"tools nuevas sin declarar: {sobran}"
+        esperado = {**_HINTS_SNAPSHOT, **_HINTS_CAMBIADOS_A_PROPOSITO}
         cambiados = sorted(
-            f"{n}: {_HINTS_SNAPSHOT[n]} -> {_hint_code(tools[n].annotations)}"
+            f"{n}: {esperado[n]} -> {_hint_code(tools[n].annotations)}"
             for n in _HINTS_SNAPSHOT
-            if _hint_code(tools[n].annotations) != _HINTS_SNAPSHOT[n])
+            if _hint_code(tools[n].annotations) != esperado[n])
         assert cambiados == [], f"hints cambiados: {cambiados}"
+        # Cada cambio a propósito es de verdad un cambio respecto a la 1.1.2.
+        for nombre, codigo in _HINTS_CAMBIADOS_A_PROPOSITO.items():
+            assert _HINTS_SNAPSHOT[nombre] != codigo, nombre
 
     def test_hints_y_titulos_de_las_nuevas(self):
         """Contrato de la 011 (contracts/tools.md): hints y títulos exactos."""
@@ -990,6 +1051,15 @@ class TestToolTitles:
                                   "confirmation_token"]),
             "required": esperado["ha_create_scene_from_current"]["required"],
         }
+        # Octava diferencia permitida, de la spec 016 (tramo C, decisión del
+        # supervisor): `ha_continue_config_entry_flow` gana el argumento
+        # OPCIONAL `confirmation_token`, que solo usan los flujos `reauth`.
+        # Una llamada de la 1.1.2 sin él sigue valiendo para los demás.
+        esperado["ha_continue_config_entry_flow"] = {
+            "properties": sorted([*esperado["ha_continue_config_entry_flow"]["properties"],
+                                  "confirmation_token"]),
+            "required": esperado["ha_continue_config_entry_flow"]["required"],
+        }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
         distintos = []
@@ -1064,16 +1134,29 @@ class TestRegistroPorFamilias:
             f"sobran {sorted(set(tools) - set(_HINTS_SNAPSHOT))}, "
             f"faltan {sorted(set(_HINTS_SNAPSHOT) - set(tools))}")
         assert len(set(tools) - {"test_progress"}) == 216
+        # Salvo los cambios a propósito (y justificados) de la 1.2.0.
+        esperado = {**_HINTS_SNAPSHOT, **_HINTS_CAMBIADOS_A_PROPOSITO}
         cambiados = sorted(
             n for n in _HINTS_SNAPSHOT
-            if _hint_code(tools[n].annotations) != _HINTS_SNAPSHOT[n])
+            if _hint_code(tools[n].annotations) != esperado[n])
         assert cambiados == [], f"hints cambiados: {cambiados}"
+
+    def test_familias_nuevas_con_sus_tools(self):
+        """Spec 016 (T009, FR-017): cada familia nueva de la 1.2.0 registra
+        exactamente sus tools y, desactivada, ninguna (las demás siguen)."""
+        completo = set(_do_register().tools)
+        for familia, tools in _TOOLS_DE_FAMILIA_1_2_0.items():
+            assert tools <= completo, (familia, sorted(tools - completo))
+            reducido = set(_do_register([familia]).tools)
+            assert reducido.isdisjoint(tools), (familia, sorted(reducido & tools))
+            assert completo - reducido == tools, familia
 
     def test_por_defecto_la_1_1_2_entera(self):
         """Con la opción vacía, las 216 están y con los mismos hints."""
         tools = _real_registry()
         assert set(_HINTS_SNAPSHOT) <= set(tools)
-        assert all(_hint_code(tools[n].annotations) == h for n, h in _HINTS_SNAPSHOT.items())
+        esperado = {**_HINTS_SNAPSHOT, **_HINTS_CAMBIADOS_A_PROPOSITO}
+        assert all(_hint_code(tools[n].annotations) == h for n, h in esperado.items())
 
     def test_cada_register_dentro_de_su_familia(self):
         """Por AST: cada `register_*` importado de `hermes.tools.<módulo>`

@@ -45,6 +45,15 @@ código: `ha_call_service_response` con token (018), `view_index` y `view` de
 que confirman (`ha_set_log_level`, `ha_clear_system_log` y
 `ha_dismiss_persistent_notification`). Todas atan todo lo que cambia la
 acción; ningún hallazgo.
+
+Recuento: 91 desde la integración de la 016, que trae cinco tools con token,
+comprobadas en el código: `ha_update_config_entry` (ata los cuatro
+argumentos tal como llegan), `ha_delete_subentry`,
+`ha_continue_reconfigure_flow` y `ha_continue_repair_fix` (atan el flujo, el
+paso actual que leen de HA al previsualizar y al confirmar, y el `user_input`
+entero; la de Repairs, también el aviso), y `ha_continue_config_entry_flow`,
+de la 1.1.2, que gana `confirmation_token` solo para los flujos `reauth`
+(mismo esquema de atado que el reconfigure). Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -160,6 +169,25 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_disable_config_entry": {"entry_id": A},
     "ha_delete_config_entry": {"entry_id": A},
     "ha_ignore_repair": {"domain": A, "issue_id": A, "ignore": A},
+    # ── integraciones: flujos y Repairs (spec 016) ──────────────────────
+    # Los cuatro tal como llegan; el comando solo envía lo que cambia
+    # respecto a la entrada, que se relee al confirmar.
+    "ha_update_config_entry": {
+        "entry_id": A,
+        "title": A,
+        "pref_disable_polling": A,
+        "pref_disable_new_entities": A,
+    },
+    "ha_delete_subentry": {"entry_id": A, "subentry_id": A},
+    # Atan además el `step_id` actual, que se lee de HA al previsualizar y
+    # al confirmar: si el paso cambió, el token no vale y no se envía nada.
+    "ha_continue_reconfigure_flow": {"flow_id": A, "user_input": A},
+    # `user_input` ausente se normaliza a `{}` antes de atarlo.
+    "ha_continue_repair_fix": {"domain": A, "issue_id": A, "flow_id": A, "user_input": A},
+    # De la 1.1.2: el token solo se pide en los flujos `reauth` (los demás
+    # se envían sin token, como antes) y ata el flujo, el paso y el
+    # `user_input` entero, como el reconfigure.
+    "ha_continue_config_entry_flow": {"flow_id": A, "user_input": A},
     # ── diagnóstico de Core (spec 012) ──────────────────────────────────
     # `level` va normalizado (en mayúsculas) antes de atarlo.
     "ha_set_log_level": {"level": A, "integration": A, "module": A, "persistence": A},
@@ -271,8 +299,8 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
     def test_recuento(self) -> None:
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
-        # (018) + las tres de la 012 que confirman.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 86)
+        # (018) + las tres de la 012 que confirman + las cinco de la 016.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 91)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -292,7 +320,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 86)
+        self.assertEqual(len(publicadas), 91)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

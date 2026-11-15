@@ -1,0 +1,18 @@
+# Servicios de la integración de prueba `banco_flujos` (spec 016). Es
+# configuración del banco de pruebas de Core: nunca llega al add-on.
+descubrir:
+  fields:
+    unique_id:
+      required: true
+      selector:
+        text:
+    name:
+      selector:
+        text:
+crear_avisos:
+pedir_reauth:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:

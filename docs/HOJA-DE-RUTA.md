@@ -425,6 +425,15 @@ un cliente contra la instalación real.
   la instalación real: el camino feliz de `ha_get_device_diagnostics` con un
   dispositivo de una integración con diagnóstico de dispositivo (Z-Wave, ZHA,
   Matter, MQTT…); en el banco solo se prueba `diagnostics_not_supported`.
+- [ ] (instalación real, tras publicar) **Integraciones: flujos y Repairs
+  (spec 016), en vivo**: lo que la integración de prueba `banco_flujos` del
+  banco de Core no puede dar, porque las 12 tools que modifican ya se
+  ejecutan ahí contra HA Core real (con su fila «ok» en la matriz de
+  pruebas). Un descubrimiento real (listarlo e ignorarlo), las subentries de
+  una integración real, un flujo de reparación real del Supervisor y otro de
+  varios pasos, una reautenticación real con
+  `ha_continue_config_entry_flow` y los textos de los avisos con HA en un
+  idioma distinto del inglés.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -448,7 +457,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 013 | Diagnóstico del Supervisor | 081, 085, 087 (lectura), 088, 089 | hecha: once tools de solo lectura en la familia `system_diagnostics` (logs de Core, Supervisor, plugins y host, también de arranques anteriores; servicios del host, uso de disco, OS y swap); `boot`/`latest` en `sv_get_addon_logs`; 28 rutas a `dedicated` y 3 a `read` (jobs, sugerencias de un issue, discos montables); `POST /security/integrity` sigue `deny` (410 en el Supervisor 2026.11); prueba en vivo pendiente (VM de la 014, después instalación real) |
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
-| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
+| 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | hecha: familias `integration_flows` (descubiertos, dominios configurables, título y preferencias de una entrada, subentries y reconfigure con token en cada paso; la tool general de flujos rechaza los reconfigure y los flujos que no reconoce, y pide token en los `reauth`; ignorar, solo descubrimientos) y `repair_flows` (aviso con sus datos internos y flujo de reparación con token en cada paso); textos traducidos en `ha_list_repairs`; guía de helpers por config entry. Todo lo que modifica, probado en el banco de Core con la integración de prueba `banco_flujos`. Pendiente manual tras publicar: un descubrimiento real, subentries de una integración real, flujos de reparación reales (uno del Supervisor y uno de varios pasos), una reautenticación real y textos en un idioma distinto del inglés |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
@@ -637,6 +646,8 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `fs_set_secret` | VM | pendiente | |
 | `fs_write_file` | VM | pendiente | |
 | `ha_abort_config_entry_flow` | banco de Core | ok | |
+| `ha_abort_repair_fix` | banco de Core | ok | spec 016 |
+| `ha_abort_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_activate_scene` | banco de Core | ok | |
 | `ha_call_service` | banco de Core | ok | |
 | `ha_call_service_response` | banco de Core | ok | |
@@ -647,6 +658,9 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_clear_system_log` | banco de Core | ok | |
 | `ha_continue_config_entry_flow` | banco de Core | ok | |
 | `ha_continue_options_flow` | banco de Core | ok | |
+| `ha_continue_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_continue_repair_fix` | banco de Core | ok | spec 016 |
+| `ha_continue_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_create_area` | banco de Core | ok | |
 | `ha_create_category` | banco de Core | ok | |
 | `ha_create_floor` | banco de Core | ok | |
@@ -690,6 +704,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_scene` | banco de Core | ok | |
 | `ha_delete_schedule` | banco de Core | ok | |
 | `ha_delete_script` | banco de Core | ok | |
+| `ha_delete_subentry` | banco de Core | ok | spec 016 |
 | `ha_delete_timer` | banco de Core | ok | |
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
@@ -699,6 +714,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_enable_config_entry` | banco de Core | ok | |
 | `ha_finish_timer` | banco de Core | ok | |
 | `ha_fire_event` | banco de Core | ok | |
+| `ha_ignore_discovery` | banco de Core | ok | spec 016 |
 | `ha_ignore_repair` | banco de Core | ok | |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
@@ -728,11 +744,15 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_set_log_level` | banco de Core | ok | |
 | `ha_start_config_entry_flow` | banco de Core | ok | |
 | `ha_start_options_flow` | banco de Core | ok | |
+| `ha_start_reconfigure_flow` | banco de Core | ok | spec 016 |
+| `ha_start_repair_fix` | banco de Core | ok | spec 016 |
+| `ha_start_subentry_flow` | banco de Core | ok | spec 016 |
 | `ha_start_timer` | banco de Core | ok | |
 | `ha_toggle_input_boolean` | banco de Core | ok | |
 | `ha_trigger_automation` | banco de Core | ok | |
 | `ha_update_area` | banco de Core | ok | |
 | `ha_update_category` | banco de Core | ok | |
+| `ha_update_config_entry` | banco de Core | ok | spec 016 |
 | `ha_update_device` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
@@ -740,6 +760,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
+| `ha_update_subentry` | banco de Core | ok | spec 016 |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_create_backup_full` | VM | pendiente | |
@@ -802,10 +823,7 @@ programa:
   completa (022).
 - **Escritura en el Marketplace** (026), con confirmación, backup previo y
   vista previa completa.
-- **Flujos de reparación de Repairs y textos traducidos** (016).
-- **Subentries y reconfigure** (016). **Helpers por config entry**: ya se
-  pueden crear con los flujos; falta explicarlo en la guía (016).
-  **Triggers y condiciones por propósito; resolución de targets** (017).
+- **Triggers y condiciones por propósito; resolución de targets** (017).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas

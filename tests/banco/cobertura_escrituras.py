@@ -46,7 +46,7 @@ ninguno: los dos de la 028 están arreglados y sus tests ya no son `xfail`.
 
 from __future__ import annotations
 
-from tests.banco import cobertura
+from tests.banco import cobertura, cobertura_016
 from tests.banco.cobertura_012 import PROBADAS_012
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
@@ -140,12 +140,13 @@ XFAIL_PERMITIDOS_028: dict[str, str] = {}
 
 # Lo que el job del banco exige (`tests/banco/conftest.py`): todas las probadas
 # por ejecución y todos los `xfail` de hallazgos listados. Una sub-feature
-# nueva con tests en el banco suma aquí sus listas (la 012, `PROBADAS_012`).
+# nueva con tests en el banco suma aquí sus listas (la 012, `PROBADAS_012`; la 016, `PROBADAS_016`).
 TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | PROBADAS_028
     # Spec 029: lecturas, pero también se exigen por ejecución (FR-022).
     | cobertura.PROBADAS_EN_BANCO_029
     | PROBADAS_012
+    | cobertura_016.PROBADAS_016
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 

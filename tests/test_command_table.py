@@ -428,8 +428,13 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
         `system_log/list` a `read` → cae este test nombrándola. Dejarla en
         `deny` «pendiente (spec 012)» no lo hace caer (era el estado anterior
         y sigue siendo válido aquí): eso lo vigila el test de la genérica
-        (`TestDedicadasDeLaSpec012` de test_tools_generic_commands.py)."""
+        (`TestDedicadasDeLaSpec012` de test_tools_generic_commands.py).
+
+        Spec 016 (T016 g): además, la familia anotada en la entrada es la de
+        su tool. Control negativo comprobado: con `config_entries/update` en
+        `read` → cae nombrándola."""
         matriz = _matriz_008()
+        tools = _tool_a_familia()
         malas = []
         for inventario, tabla in ((_CORE, ct.CORE_WS), (_SV, ct.SUPERVISOR)):
             for k, f in inventario.items():
@@ -448,9 +453,12 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                     familia = FAMILIAS.get(_tool_a_familia().get(e.tool, ""))
                     if e.tool in _DE_LA_1_1_2_AMPLIADAS:
                         continue
+                    # Spec 016: y la familia de la entrada es la de su tool.
                     if (familia is None or familia.desde != "1.2.0"
-                            or familia.nombre == "generic_commands"):
-                        malas.append(f"{k} ({f['cap']}): dedicated hacia {e.tool!r}")
+                            or familia.nombre == "generic_commands"
+                            or e.family != familia.nombre):
+                        malas.append(f"{k} ({f['cap']}): dedicated hacia {e.tool!r} "
+                                     f"de {e.family!r}")
                     continue
                 if k in _POR_LA_TABLA and e.category in {"read", "confirm"}:
                     spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])

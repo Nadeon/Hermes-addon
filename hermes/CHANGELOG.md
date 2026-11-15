@@ -158,7 +158,134 @@ argumento existente cambia ni pasa a ser obligatorio.
 
 ### Integraciones
 
-_Pendiente: la añade la sub-feature que lo implemente._
+#### Integraciones: flujos y Repairs (spec 016)
+
+- **Familia nueva `integration_flows`** (desactivable con
+  `tool_families_disabled`), con cuatro tools:
+  - `ha_list_discovered_integrations` — lo que Home Assistant ha descubierto y
+    espera configuración (también los flujos de reautenticación), con
+    `ignorable` y los datos del descubrimiento redactados. Un descubierto se
+    configura con `ha_continue_config_entry_flow`, como cualquier flujo.
+  - `ha_ignore_discovery` — lo ignora como el botón «Ignorar» de la interfaz:
+    Home Assistant crea una entrada `ignore` y deja de ofrecer ese
+    descubrimiento; se deshace borrando esa entrada con
+    `ha_delete_config_entry`. Sin confirmación. Solo flujos de
+    descubrimiento: un `reauth`, `reconfigure`, `user` o `import` se rechaza,
+    porque Home Assistant sustituiría por la ignorada la entrada real con el
+    mismo identificador y la borraría con sus dispositivos y entidades.
+  - `ha_list_config_flow_domains` — el catálogo de dominios que se configuran
+    por flujo (filtrable por `device`, `helper`, `hub` o `service`), incluidas
+    las integraciones personalizadas instaladas.
+  - `ha_update_config_entry` — título y opciones de sistema de una entrada.
+    Desactivar el sondeo o las entidades nuevas pide confirmación, con una
+    vista previa que dice si Home Assistant recarga la integración y qué deja
+    de actualizarse; renombrar y volver a activarlas, no. Solo envía lo que
+    cambia. El título sale redactado, en la vista previa y en la respuesta.
+- **`ha_list_configured_domains`**: su descripción ya no dice que no existe
+  la lista de dominios configurables; remite a `ha_list_config_flow_domains`.
+  Nombre, argumentos y anotaciones, sin cambios.
+- **Tabla de comandos**: `config_entries/flow/progress`,
+  `config_entries/ignore_flow` y `config_entries/update` pasan de `deny`
+  («pendiente») a `dedicated`; las genéricas remiten a su tool. El generador
+  de la tabla lo hace también en la primera generación.
+- **Guía**: tema nuevo `integration_flows` (alias `discovery` y
+  `discovered`) y, en `helpers`, cómo crear, listar, editar y borrar los
+  helpers que se crean por config entry (template, group…), con un ejemplo.
+- **Banco de Core**: integración de prueba propia `banco_flujos` (solo en
+  `tests/`, sin red) con un descubrimiento, avisos reparables, flujo
+  `reconfigure` y subentries; `ha_ignore_discovery` y
+  `ha_update_config_entry` se ejecutan contra Home Assistant real y el lector
+  independiente comprueba su efecto.
+- **Subentries** (tramo B), en la misma familia:
+  - `ha_list_config_subentries` — las subentries de una entrada y los tipos
+    que admite crear.
+  - `ha_start_subentry_flow`, `ha_continue_subentry_flow` y
+    `ha_abort_subentry_flow` — añadir una subentry o reconfigurarla por su
+    flujo, y cerrar un flujo a medias. Sin confirmación, como los flujos de
+    configuración y de opciones.
+  - `ha_update_subentry` — renombrarla. Sin confirmación.
+  - `ha_delete_subentry` — borrarla con confirmación: la vista previa enumera
+    las entidades y los dispositivos que Home Assistant borra con ella.
+- **Reconfigurar una integración** (tramo B): `ha_start_reconfigure_flow` abre
+  el flujo y `ha_continue_reconfigure_flow` envía cada paso con confirmación
+  (vista previa con los campos y los secretos tapados): cualquier paso puede
+  cambiar credenciales o datos de conexión, y Home Assistant recarga la
+  integración al terminar. Hermes recuerda los reconfigure que abre (en
+  memoria; tras una hora sin usarse caducan y los aborta al abrir o
+  continuar otro) y
+  `ha_continue_config_entry_flow` los rechaza y remite a la tool dedicada.
+  Ninguna otra vía de Hermes
+  abre un reconfigure: `ha_start_config_entry_flow` solo manda el dominio, no
+  hay comando WebSocket que abra flujos y el proxy REST de Core del
+  Supervisor está cerrado. Tras reiniciar Hermes, un reconfigure abierto antes
+  ya no se reconoce (Home Assistant no los lista) y no se puede continuar por
+  ninguna vía: hay que abrir otro.
+- Los flujos de subentry y de reconfigure devuelven tapados los valores
+  sugeridos de los campos de contraseña, y rechazan `***REDACTED***` en
+  `user_input` (se guardaría tal cual).
+- **Tabla de comandos**: `config_entries/subentries/list`, `…/update` y
+  `…/delete` pasan a `dedicated`.
+- **Guía**: el tema `integration_flows` explica subentries y reconfigure
+  (alias `subentries`, `subentry` y `reconfigure`).
+- **Banco de Core**: las siete tools nuevas que modifican se ejecutan contra
+  Home Assistant real; el reconfigure, con un campo de contraseña de nombre
+  inocente, y con el rechazo de `ha_continue_config_entry_flow`.
+- **Reautenticación con confirmación** (tramo C): los flujos `reauth` (los
+  que abre Home Assistant cuando las credenciales de una integración dejan de
+  valer) se siguen con `ha_continue_config_entry_flow`, pero ahora cada paso
+  pide confirmación, con una vista previa de los campos y los secretos
+  tapados, porque cambian credenciales. Hermes lo sabe porque Home Assistant
+  los lista entre los flujos en curso. Por eso esa tool gana el argumento
+  opcional `confirmation_token` y se anuncia destructiva.
+- **Cambio de comportamiento de `ha_continue_config_entry_flow`**: solo
+  continúa los flujos que abrió `ha_start_config_entry_flow` en la misma
+  sesión de Hermes (sin usar más de una hora; Hermes los recuerda en memoria)
+  y los que Home Assistant lista como descubiertos o de reautenticación.
+  Cualquier otro, por ejemplo un flujo abierto antes de reiniciar Hermes o
+  desde la interfaz de Home Assistant, o un reconfigure, se rechaza con
+  `unknown_flow` sin enviar nada, y también si Hermes no puede leer la lista
+  de flujos en curso: hay que abrirlo de nuevo. En la 1.1.2 se enviaba sin
+  confirmación. Abrir y continuar un flujo en la misma sesión sigue igual que
+  en la 1.1.2. Con el token y la anotación, son los tres cambios de una tool
+  de la 1.1.2 en esta sección; su esquema no cambia más. `SECURITY.md` lo
+  explica.
+- **Familia nueva `repair_flows`** (tramo C, desactivable), con cuatro tools:
+  - `ha_get_repair` — un aviso de Repairs con su texto entero y sus datos
+    internos, redactados (si no caben, sus claves y su tamaño).
+  - `ha_start_repair_fix` — abre el flujo de reparación de un aviso
+    reparable. Algunas integraciones lo terminan al abrirlo:
+    `finished_on_start` lo dice.
+  - `ha_continue_repair_fix` — envía cada paso con confirmación: Home
+    Assistant no dice antes qué paso aplica el arreglo. La vista previa tiene
+    el aviso, el texto del paso y los campos con los secretos tapados; al
+    terminar, la respuesta dice si el aviso sigue.
+  - `ha_abort_repair_fix` — cierra el flujo sin aplicar nada.
+- **Textos de los avisos**: `ha_list_repairs` trae `title` y `description` de
+  cada aviso como los enseña la interfaz, en el idioma de Home Assistant y con
+  los marcadores sustituidos (redactados); la vista previa de
+  `ha_ignore_repair`, el título. Sin argumentos nuevos. Si los textos no se
+  pueden leer, la lista sale igual con `translations_unavailable: true`.
+- **Tabla de comandos**: `repairs/get_issue_data` pasa a `dedicated` hacia
+  `ha_get_repair`. En total, la 016 pasa siete entradas a `dedicated`;
+  `frontend/get_translations` sigue `deny` para las genéricas (Hermes lo usa
+  por dentro).
+- **Guía**: tema nuevo `repair_flows` (alias `repair_fix` y `fix`) con la
+  receta «arreglar un aviso de Repairs»; `diagnostics` remite a él;
+  `integration_flows` explica la reautenticación.
+- **Banco de Core**: las tres de reparación que modifican, los textos de
+  `ha_list_repairs`, `ha_get_repair` y la reautenticación con confirmación se
+  ejecutan contra Home Assistant real. En total, la 016 añade 16 tools en dos
+  familias.
+- **Al integrarla con el resto del programa**: `ha_list_discovered_integrations`,
+  `ha_list_config_flow_domains` y `ha_list_config_subentries` devuelven el
+  sobre común de las listas de la 1.2.0 (`count` es cuántos `items` vienen;
+  si la respuesta se recorta, `_response_limit` dice cuántos había). El tema
+  `config_entries` de la guía remite a `integration_flows` y explica que el
+  reconfigure va por su tool y que el `reauth` pide token. La vista previa de
+  `ha_delete_subentry` reconoce los dispositivos de una subentry por
+  `config_entry_id` y `config_subentry_id`, y solo como respaldo para las
+  versiones de Home Assistant anteriores a ese modelo por
+  `config_entries_subentries`, que Home Assistant retira en la 2027.8.
 
 ### Automatización
 
