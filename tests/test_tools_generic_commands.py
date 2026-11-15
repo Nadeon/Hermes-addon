@@ -1997,6 +1997,51 @@ class TestAssistPorLaTabla(_Base):
         self.ha.ws_one_shot_subscription.assert_not_awaited()
 
 
+class TestLimpiezasDeLa023YLa024Juntas(unittest.TestCase):
+    """Integración de la 024 en la rama del programa: las dos limpiezas de las
+    genéricas que no van por clave conviven en `_redactar_respuesta`. Primero
+    se tapa el VALOR de cada `webhook_id` en toda la respuesta (024, T032),
+    sobre el dato en bruto; después `_redactar` tapa el token del audio de
+    Assist (`_RE_TTS_PROXY`, 023, T019). Ninguna deshace a la otra, también
+    cuando las dos caen en el mismo texto.
+
+    Formas REALES de Core 2026.11.1: el trigger de webhook de
+    `automation/config` (`{"trigger": "webhook", "webhook_id": …}`) y el
+    `tts_output` del evento `tts-end` (`media_id` =
+    `media-source://tts/-stream-/<token>`, `url` = `/api/tts_proxy/<token>`).
+
+    Controles negativos comprobados al integrar: sin `tapar_valores` en
+    `_redactar_respuesta` → cae por el id de webhook en la descripción; sin
+    la sustitución de `_RE_TTS_PROXY` en `_redactar` → cae por el token del
+    audio."""
+
+    _WEBHOOK = "centinela-webhook-024"
+    _TOKEN = "Cn7tInElA0234xYzAbCdEf.mp3"
+
+    def test_las_dos_limpiezas_a_la_vez(self) -> None:
+        bruto = {
+            "triggers": [{"trigger": "webhook", "webhook_id": self._WEBHOOK,
+                          "allowed_methods": ["POST"], "local_only": True}],
+            "description": (f"Llamar a /api/webhook/{self._WEBHOOK} y oir "
+                            f"/api/tts_proxy/{self._TOKEN}"),
+            "tts_output": {"media_id": f"media-source://tts/-stream-/{self._TOKEN}",
+                           "url": f"/api/tts_proxy/{self._TOKEN}",
+                           "mime_type": "audio/mpeg"},
+        }
+        limpio = mod._redactar_respuesta(bruto, frozenset())
+        texto = json.dumps(limpio)
+        self.assertNotIn(self._WEBHOOK, texto)
+        self.assertNotIn("Cn7tInElA0234", texto)
+        tapado = security.REDACTED_MARKER
+        self.assertEqual(limpio["triggers"][0]["webhook_id"], tapado)
+        self.assertEqual(limpio["description"],
+                         f"Llamar a /api/webhook/{tapado} y oir /api/tts_proxy/{tapado}")
+        self.assertEqual(limpio["tts_output"]["media_id"],
+                         f"media-source://tts/-stream-/{tapado}")
+        self.assertEqual(limpio["tts_output"]["mime_type"], "audio/mpeg")
+        self.assertEqual(limpio["triggers"][0]["allowed_methods"], ["POST"])
+
+
 # Spec 031, tramo 1 (CAP-057): agentes y ajustes de los backups de HA.
 _DEDICADAS_031_TRAMO_1 = {
     "backup/agents/info": "ha_list_backup_agents",

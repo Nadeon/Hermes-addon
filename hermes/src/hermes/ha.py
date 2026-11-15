@@ -73,6 +73,8 @@ class HAConnectionError(RuntimeError):
     `test_sent_por_defecto_es_desconocido`). La spec 023 marca `False` en
     `ws_send` y en las suscripciones cuando no hay WebSocket con el que
     enviar, con este mismo atributo (spec 023, T020).
+    `rest_get_image` (spec 024) marca `False` sin cliente HTTP y deja el
+    defecto en sus respuestas de error (estado HTTP, imagen demasiado grande).
     """
 
     def __init__(
@@ -1526,7 +1528,7 @@ class HAClient:
         la instalación.
         """
         if self._session is None:
-            raise HAConnectionError("Cliente HTTP de HA no inicializado.")
+            raise HAConnectionError("Cliente HTTP de HA no inicializado.", sent=False)
         _assert_safe_request_path(path)
         # La comprobación central no mira segmentos vacíos; aquí no hay
         # ninguna ruta legítima con `//` y quien llama interpola un

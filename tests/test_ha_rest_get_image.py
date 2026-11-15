@@ -136,6 +136,25 @@ class TestRestGetImage(unittest.IsolatedAsyncioTestCase):
 
     async def test_sesion_no_inicializada(self) -> None:
         self.client._session = None
-        with self.assertRaises(HAConnectionError):
+        with self.assertRaises(HAConnectionError) as ctx:
             await self._leer()
         self.assertEqual(self.peticiones, [])
+        # Contrato de `HAConnectionError.sent` (spec 022, T032): sin cliente
+        # HTTP la petición seguro que no salió. Control negativo comprobado
+        # al integrar la 024 en la rama del programa: sin `sent=False` en el
+        # `raise` de `rest_get_image` → cae esta aserción (`None`).
+        self.assertIs(ctx.exception.sent, False)
+
+    async def test_sent_desconocido_en_respuestas_de_error(self) -> None:
+        # Un estado HTTP de error y una imagen demasiado grande son
+        # respuestas de HA: `sent` se queda en su valor por defecto, `None`
+        # («no aplica»), nunca `False`, que diría que no se pidió nada.
+        self.estado = 404
+        with self.assertRaises(HAConnectionError) as ctx:
+            await self._leer()
+        self.assertIsNone(ctx.exception.sent)
+        self.estado = 200
+        self.cuerpo = b"y" * 1001
+        with self.assertRaises(ImageTooLargeError) as ctx2:
+            await self._leer(max_bytes=1000)
+        self.assertIsNone(ctx2.exception.sent)
