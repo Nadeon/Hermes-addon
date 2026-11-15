@@ -459,6 +459,25 @@ Tramo 3: el panel de energía, en una familia nueva `energy` (desactivable con
   cambiadas entre medias rechazadas, preferencias de antes restauradas al
   final), y también las cuatro lecturas por la genérica.
 
+Convergencia tras la revisión independiente:
+
+- **`ha_adjust_statistics_sum` exige una hora en punto (en UTC)**: HA ajusta
+  la tabla horaria desde `start_time` con los minutos a cero pero conserva
+  los segundos, así que con `10:30:15` no tocaba la fila de las 10:00 que la
+  vista previa enseñaba como ajustada. Ahora otro instante da
+  `invalid_argument` sin token.
+- **Números enormes**: un entero que no cabe en un float (`10**400`) en
+  `stats` o en `adjustment` da `invalid_argument` en vez de una excepción.
+- **Borrar no hace desaparecer la estadística de un sensor vivo**: la vista
+  previa, la descripción y la guía dicen que el recorder la vuelve a
+  compilar desde ahora (lo borrado no vuelve).
+- **`not_validated: ["statistic_in_database"]`** en la vista previa y la
+  respuesta de cambiar la unidad, editar los metadatos y ajustar: HA lista
+  también las estadísticas que una integración añadirá en su próxima
+  compilación, con los mismos campos que las guardadas, y con ellas responde
+  «ok» sin hacer nada. Hermes no puede distinguirlas y no afirma que se
+  comprobó.
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de

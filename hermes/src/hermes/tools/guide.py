@@ -862,8 +862,10 @@ ejecutar. Antes del token leen los metadatos y rechazan lo que HA aceptaría
 sin hacer nada (`statistics_not_found` con `missing`); si los metadatos
 cambian antes de confirmar, `statistics_changed` y nada se ejecuta.
 - `ha_clear_statistics(statistic_ids, start_time=None, end_time=None)` —
-  borra de 1 a 100 estadísticas. Sin rango, enteras (filas y metadatos:
-  desaparecen de las listas). Con rango (ISO 8601 con zona, los dos o
+  borra de 1 a 100 estadísticas. Sin rango, enteras (filas y metadatos). Lo
+  borrado no vuelve, pero la estadística de una entidad que se sigue grabando
+  NO desaparece: sigue en las listas y el recorder la vuelve a compilar desde
+  ahora. Con rango (ISO 8601 con zona, los dos o
   ninguno), las filas que SE SOLAPAN con él: la vista previa da
   `effective_range`, que en la tabla horaria empieza una hora antes de
   `start_time` y en la de 5 minutos, 5 minutos antes.
@@ -882,8 +884,10 @@ cambian antes de confirmar, `statistics_changed` y nada se ejecuta.
   `ha_change_statistics_unit`.
 - `ha_adjust_statistics_sum(statistic_id, start_time, adjustment,
   adjustment_unit)` — suma `adjustment` (negativo para restar) a la suma de
-  cada fila desde `start_time` (la horaria, desde su hora): para arreglar un
-  salto o un reinicio de un contador. NO es idempotente: dos ajustes suman
+  cada fila (horaria y de 5 minutos) desde `start_time`, que tiene que ser
+  una hora en punto en UTC (si no, `invalid_argument`: HA no tocaría la fila
+  horaria que enseña la vista previa): para arreglar un salto o un reinicio
+  de un contador. NO es idempotente: dos ajustes suman
   dos veces (cada token sirve una vez, pero otra vista previa da otro). La
   vista previa da `sum_at_start` (la suma guardada en esa hora antes y, si la
   unidad del ajuste es la de la estadística, después). Sin suma,
@@ -906,6 +910,12 @@ cambian antes de confirmar, `statistics_changed` y nada se ejecuta.
   `queued: true`.
 Diferencia clave: cambiar la unidad convierte los números; editar los
 metadatos solo cambia la etiqueta.
+Lo que NO se comprueba (`not_validated: ["statistic_in_database"]` en cambiar
+la unidad, editar los metadatos y ajustar): HA lista también las
+estadísticas que una integración añadirá en su próxima compilación (un
+sensor nuevo con `state_class`, o uno recién borrado), con los mismos campos
+que las guardadas. Con una de esas HA responde «ok» y no hace nada: comprueba
+el resultado con la tool de `check_with`.
 
 Avisos de Repairs de las estadísticas: tras arreglar una estadística,
 `ha_call_ws_command(type="recorder/update_statistics_issues")` (dos pasos,

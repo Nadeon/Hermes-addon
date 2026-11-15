@@ -85,6 +85,20 @@ _UNDO = (
     "Home Assistant database brings the old data back."
 )
 _ID_DETALLE = "must look like 'sensor.energy' or 'source:statistic' (lowercase letters, digits and '_')"
+# T055 (b): `recorder/get_statistics_metadata` lista también lo que una
+# integración «añadirá en el próximo periodo» (todo sensor con `state_class`
+# aunque aún no se haya compilado, `list_statistic_ids` de HA), con los mismos
+# campos que lo guardado en la base: Hermes no puede distinguirlo. Los
+# trabajos de cambiar la unidad, editar los metadatos y ajustar miran la
+# base, así que con una de esas HA responde «ok» y no hace nada. No se
+# afirma lo que no se sabe: va en `not_validated`.
+_NO_VALIDADO = ["statistic_in_database"]
+_NO_VALIDADO_DETALLE = (
+    "Not checked: whether this statistic is already stored in the database. Home "
+    "Assistant also lists statistics that an integration will only add at its next "
+    "compilation (a new sensor with a state_class, or one whose statistics were just "
+    "deleted); for those it answers ok and changes nothing. Check the result as "
+    "described in check_with.")
 _TIMEOUT = (
     "Home Assistant did not confirm within its 10 s limit. The job may still be "
     "in the recorder queue and run later: check the result with "
@@ -250,9 +264,19 @@ def _iso(fecha: datetime) -> str:
 
 
 def _numero_finito(valor: Any) -> bool:
-    """int o float finito; `bool` no cuenta (en Python es un int)."""
-    return (isinstance(valor, (int, float)) and not isinstance(valor, bool)
-            and math.isfinite(valor))
+    """int o float finito; `bool` no cuenta (en Python es un int).
+
+    Un entero enorme (`10**400`, JSON válido) no cabe en un float y
+    `math.isfinite` lanza `OverflowError`: no es un número que HA pueda
+    guardar, así que cuenta como no finito y la tool responde
+    `invalid_argument` en vez de reventar (T054).
+    """
+    if not isinstance(valor, (int, float)) or isinstance(valor, bool):
+        return False
+    try:
+        return math.isfinite(valor)
+    except OverflowError:
+        return False
 
 
 def _inicio_ms(fila: Mapping[str, Any]) -> float | None:
@@ -403,7 +427,10 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
         confirmation_token it returns a preview (each statistic with its
         metadata, the scope and, with a range, the effective range per table)
         and changes nothing; repeat the same call with confirmation_token to
-        delete. Without a range each statistic disappears entirely. With a
+        delete. Without a range all rows and the metadata are deleted; the
+        statistic of an entity that is still recorded stays listed and the
+        recorder compiles it again from now on (deleted rows do not come
+        back). With a
         range, Home Assistant deletes every row whose period OVERLAPS it: the
         hourly row that starts up to 1 hour before start_time and the
         5-minute row that starts up to 5 minutes before it are deleted too.
@@ -476,9 +503,16 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
                     "`after` and before `before` (both exclusive) in each table. "
                     "The metadata stays.")
             else:
+                # T055 (a): HA lista también lo que las integraciones
+                # compilarán (`list_statistic_ids`): la estadística de un
+                # sensor que se sigue grabando no desaparece y se recompila
+                # desde la próxima compilación. Lo borrado no vuelve.
                 preview["effect"] = (
                     "Deletes these statistics entirely: every row and their "
-                    "metadata. They disappear from the statistics lists.")
+                    "metadata. The deleted rows do not come back, but a statistic "
+                    "of an entity that is still recorded does NOT disappear: it "
+                    "stays in the statistics lists and the recorder compiles it "
+                    "again from now on.")
             preview["irreversible"] = True
             preview["undo"] = _UNDO
             return preview
@@ -519,7 +553,11 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
 
         Returns:
             Preview: {confirmation_token, expires_in_seconds, preview}.
-            Confirmed: {queued: true, check_with, detail}. Errors:
+            Confirmed: {queued: true, check_with, not_validated, detail}.
+            not_validated: Hermes cannot tell whether the statistic is
+            already stored or only announced by its integration (a new
+            sensor not compiled yet); for the latter Home Assistant does
+            nothing. Errors:
             invalid_argument, statistics_not_found, not_supported_for_source,
             unit_mismatch (with the current unit), recorder_not_loaded,
             ha_command_failed.
@@ -571,6 +609,8 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
                 "effect": ("Converts every stored value of this statistic from "
                            "old_unit to new_unit and stores new_unit. Home Assistant "
                            "rejects units it cannot convert."),
+                "not_validated": list(_NO_VALIDADO),
+                "not_validated_detail": _NO_VALIDADO_DETALLE,
                 "irreversible": True,
                 "undo": _UNDO,
             }
@@ -585,6 +625,8 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
             resultado={
                 "queued": True,
                 "check_with": "ha_get_statistics_metadata",
+                "not_validated": list(_NO_VALIDADO),
+                "not_validated_detail": _NO_VALIDADO_DETALLE,
                 "detail": ("Home Assistant queued the conversion in the recorder and "
                            "applies it in the background, usually within seconds. "
                            "It is done when ha_get_statistics_metadata shows the new "
@@ -619,7 +661,11 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
 
         Returns:
             Preview: {confirmation_token, expires_in_seconds, preview}.
-            Confirmed: {updated: true}. Errors: invalid_argument,
+            Confirmed: {updated: true, check_with, not_validated}.
+            not_validated: Hermes cannot tell whether the statistic is
+            already stored or only announced by its integration (a new
+            sensor not compiled yet); for the latter Home Assistant does
+            nothing. Errors: invalid_argument,
             statistics_not_found, recorder_not_loaded, ha_timeout,
             ha_command_failed (e.g. a unit not valid for the class).
         """
@@ -645,6 +691,8 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
                 "new": {"unit_of_measurement": unit_of_measurement, "unit_class": unit_class},
                 "converts_values": False,
                 "hint": "use ha_change_statistics_unit to convert stored values",
+                "not_validated": list(_NO_VALIDADO),
+                "not_validated_detail": _NO_VALIDADO_DETALLE,
                 "irreversible": True,
                 "undo": _UNDO,
             }
@@ -660,7 +708,9 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
                      "statistic_id": statistic_id,
                      "unit_of_measurement": unit_of_measurement,
                      "unit_class": unit_class},
-            resultado={"updated": True},
+            resultado={"updated": True, "check_with": "ha_get_statistics_metadata",
+                       "not_validated": list(_NO_VALIDADO),
+                       "not_validated_detail": _NO_VALIDADO_DETALLE},
         )
 
     @mcp.tool()
@@ -686,8 +736,9 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
 
         Args:
             statistic_id: A statistic with a sum, e.g. "sensor.energy".
-            start_time: ISO 8601 with time zone. Every 5-minute row from this
-                instant and every hourly row from its hour on is adjusted.
+            start_time: ISO 8601 with time zone at the top of an hour (in
+                UTC), e.g. "2026-01-01T10:00:00+00:00". Every hourly and
+                5-minute row from this instant on is adjusted.
             adjustment: The amount to add (negative to subtract); not 0.
             adjustment_unit: The unit of adjustment, e.g. "kWh" (null if the
                 statistic has no unit).
@@ -695,8 +746,13 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
 
         Returns:
             Preview: {confirmation_token, expires_in_seconds, preview}.
-            Confirmed: {queued: true, check_with, detail}. Errors:
-            invalid_argument, statistics_not_found, statistic_has_no_sum,
+            Confirmed: {queued: true, check_with, not_validated, detail}.
+            not_validated: Hermes cannot tell whether the statistic is
+            already stored or only announced by its integration (a new
+            sensor not compiled yet); for the latter Home Assistant does
+            nothing. Errors:
+            invalid_argument (start_time not at the top of an hour, too),
+            statistics_not_found, statistic_has_no_sum,
             recorder_not_loaded, ha_command_failed (e.g. invalid_units).
         """
         tool = "ha_adjust_statistics_sum"
@@ -706,6 +762,16 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
         if inicio is None:
             return _invalido(tool, "start_time", "start_time must be ISO 8601 with a time "
                              "zone, e.g. '2026-01-01T00:00:00+00:00'.")
+        if inicio.minute or inicio.second or inicio.microsecond:
+            # T053: HA ajusta la tabla horaria desde `start_time.replace(minute=0)`,
+            # que conserva segundos y microsegundos: con 10:30:15 la fila de
+            # las 10:00 NO se toca, y con 10:30 la de 5 minutos empieza a y
+            # media mientras la horaria empieza a las 10. La vista previa
+            # enseña la suma de esa hora: solo es verdad en una hora en punto.
+            return _invalido(tool, "start_time", (
+                "start_time must be at the top of an hour (in UTC), e.g. "
+                "'2026-01-01T10:00:00+00:00': with minutes or seconds Home Assistant "
+                "would not adjust the hourly row the preview shows."))
         if not _numero_finito(adjustment) or adjustment == 0:
             return _invalido(tool, "adjustment", "adjustment must be a finite number other "
                              "than 0.")
@@ -752,6 +818,8 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
                 "statistics_unit": unidad,
                 "sum_at_start": suma,
                 "applies_to": "every row from this hour on (hourly and 5-minute)",
+                "not_validated": list(_NO_VALIDADO),
+                "not_validated_detail": _NO_VALIDADO_DETALLE,
                 "repeat_warning": ("Not idempotent: adjusting twice adds the amount twice. "
                                    "Check with ha_statistics_during_period before "
                                    "repeating."),
@@ -770,6 +838,8 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
             resultado={
                 "queued": True,
                 "check_with": "ha_statistics_during_period",
+                "not_validated": list(_NO_VALIDADO),
+                "not_validated_detail": _NO_VALIDADO_DETALLE,
                 "detail": ("Home Assistant queued the adjustment in the recorder and "
                            "applies it in the background, usually within seconds. Do "
                            "not repeat it: check the sum with "

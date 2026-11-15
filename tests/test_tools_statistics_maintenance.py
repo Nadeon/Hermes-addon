@@ -390,7 +390,8 @@ class TestMetadatos(_Base):
                         "unit_class": clase}
                 r = await self.tool(**args)
                 hecho = await self.tool(**args, confirmation_token=r["confirmation_token"])
-                self.assertEqual(hecho, {"updated": True})
+                self.assertIs(hecho["updated"], True)
+                self.assertEqual(hecho["not_validated"], ["statistic_in_database"])
                 self.assertEqual(self._escrituras(), [{
                     "type": "recorder/update_statistics_metadata",
                     "statistic_id": "banco:externa", "unit_of_measurement": "kWh",
@@ -600,11 +601,28 @@ class TestAjustarSuma(_BaseTramo2):
             "start_time": _HORA, "end_time": "2026-03-01T11:00:00+00:00",
             "period": "hour", "types": ["sum"]}])
 
-    async def test_hora_con_minutos_lee_su_hora(self) -> None:
-        self.filas["sensor.consumo"] = [{"start": _HORA_MS, "sum": 10.0}]
-        r = await self.tool(**{**self.args, "start_time": "2026-03-01T10:25:00+00:00"})
-        self.assertEqual(r["preview"]["from"], "2026-03-01T10:25:00+00:00")
-        self.assertEqual(r["preview"]["sum_at_start"]["before"], 10.0)
+    async def test_hora_no_en_punto_sin_token(self) -> None:
+        """T053: fuera de la hora en punto (en UTC) la vista previa mentiría.
+
+        HA ajusta la tabla horaria desde `start_time.replace(minute=0)`, que
+        conserva los segundos: con 10:30:15 la fila de las 10:00 que la vista
+        previa enseñaba como ajustada no se toca. Control negativo: sin la
+        comprobación de la hora en punto, este test cae (da token).
+        """
+        self.filas["sensor.consumo"] = [{"start": _HORA_MS, "sum": 100.0}]
+        for instante in ("2026-03-01T10:30:15+00:00", "2026-03-01T10:25:00+00:00",
+                         "2026-03-01T10:00:15Z", "2026-03-01T10:00:00.000001+00:00",
+                         "2026-03-01T15:00:00+05:30"):
+            with self.subTest(instante=instante):
+                r = await self.tool(**{**self.args, "start_time": instante})
+                self.assertEqual(r["error"], "invalid_argument")
+                self.assertEqual(r["field"], "start_time")
+                self.assertIn("top of an hour", r["detail"])
+                self.assertNotIn("confirmation_token", r)
+        self.ha.ws_send.assert_not_awaited()
+        # Una hora en punto en otra zona sí vale: en UTC también lo es.
+        r = await self.tool(**{**self.args, "start_time": "2026-03-01T11:00:00+01:00"})
+        self.assertEqual(r["preview"]["sum_at_start"], {"before": 100.0, "after": 600.0})
 
     async def test_otra_unidad_solo_da_la_de_antes(self) -> None:
         self.filas["sensor.consumo"] = [{"start": _HORA_MS, "sum": 1200.0}]
@@ -924,3 +942,84 @@ class TestTokenTramo2(_BaseTramo2):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConvergencia(_BaseTramo2):
+    """Fase 4 (T054, T055): números enormes y lo que Hermes no comprueba."""
+
+    async def test_entero_enorme_es_invalid_argument(self) -> None:
+        """T054: `10**400` (JSON válido) no cabe en un float.
+
+        `math.isfinite` lanzaba `OverflowError` y la tool reventaba. Control
+        negativo: sin el `except OverflowError` de `_numero_finito`, este test
+        cae con la excepción.
+        """
+        enorme = 10**400
+        ajuste = {"statistic_id": "sensor.consumo", "start_time": _HORA,
+                  "adjustment": enorme, "adjustment_unit": "Wh"}
+        r = await self.t["ha_adjust_statistics_sum"](**ajuste)
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "adjustment"))
+        for campo in ("sum", "mean", "min", "max", "state"):
+            with self.subTest(campo=campo):
+                fila = {"start": _HORA, campo: enorme}
+                r = await self.t["ha_import_statistics"](metadata=_metadata(), stats=[fila])
+                self.assertEqual((r["error"], r["field"]), ("invalid_argument", "stats"))
+        self.ha.ws_send.assert_not_awaited()
+        self.assertFalse(mod._numero_finito(-enorme))
+
+    async def test_fila_de_ha_con_inicio_enorme_no_revienta(self) -> None:
+        """T054: lo mismo en lo que lee la vista previa (`_inicio_ms`)."""
+        self.filas["sensor.consumo"] = [{"start": 10**400, "sum": 1.0}]
+        r = await self.t["ha_adjust_statistics_sum"](
+            statistic_id="sensor.consumo", start_time=_HORA, adjustment=1,
+            adjustment_unit="Wh")
+        self.assertIsNone(r["preview"]["sum_at_start"])
+
+    async def test_borrar_entera_no_promete_que_desaparezca(self) -> None:
+        """T055 (a): la estadística de un sensor vivo se vuelve a compilar.
+
+        Control negativo: con el texto anterior («They disappear from the
+        statistics lists») este test cae.
+        """
+        r = await self.t["ha_clear_statistics"](statistic_ids=["sensor.consumo"])
+        efecto = r["preview"]["effect"]
+        self.assertNotIn("disappear from", efecto)
+        self.assertIn("does NOT disappear", efecto)
+        self.assertIn("compiles it again", efecto)
+        doc = mod.inspect.getdoc(self.t["ha_clear_statistics"]) or ""
+        self.assertIn("compiles it again", doc)
+        from hermes.tools.guide import _GUIDE  # noqa: PLC0415
+        guia = _GUIDE["recorder"]
+        self.assertNotIn("desaparecen de las listas", guia)
+        self.assertIn("vuelve a compilar", guia)
+
+    async def test_no_validado_que_este_en_la_base(self) -> None:
+        """T055 (b): HA lista también lo que una integración compilará.
+
+        `recorder/get_statistics_metadata` devuelve, con los mismos campos, un
+        sensor con `state_class` que aún no está en la base; con él HA
+        responde «ok» y sus trabajos no hacen nada. Hermes no puede
+        distinguirlo: lo dice en `not_validated` en la vista previa y en la
+        respuesta. Control negativo: sin `not_validated` en una de las tres,
+        este test cae.
+        """
+        casos = {
+            "ha_change_statistics_unit": {"statistic_id": "sensor.consumo",
+                                          "old_unit": "Wh", "new_unit": "kWh"},
+            "ha_update_statistics_metadata": {"statistic_id": "sensor.consumo",
+                                              "unit_of_measurement": "kWh",
+                                              "unit_class": "energy"},
+            "ha_adjust_statistics_sum": {"statistic_id": "sensor.consumo",
+                                         "start_time": _HORA, "adjustment": 1,
+                                         "adjustment_unit": "Wh"},
+        }
+        for tool, args in casos.items():
+            with self.subTest(tool=tool):
+                r = await self.t[tool](**args)
+                self.assertEqual(r["preview"]["not_validated"], ["statistic_in_database"])
+                self.assertIn("next compilation", r["preview"]["not_validated_detail"])
+                hecho = await self.t[tool](**args, confirmation_token=r["confirmation_token"])
+                self.assertEqual(hecho["not_validated"], ["statistic_in_database"])
+                self.assertIn("changes nothing", hecho["not_validated_detail"])
+                self.assertIn("check_with", hecho)
+                self.assertIn("not_validated", mod.inspect.getdoc(self.t[tool]) or "")
