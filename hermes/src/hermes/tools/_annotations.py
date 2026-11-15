@@ -212,6 +212,14 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # dispositivo o la versión de una integración, sin vuelta atrás desde
     # Hermes. Pide token y su nombre no lo delata.
     "ha_install_update",
+    # Spec 030: piden token. Añadir un repositorio mete código de terceros
+    # sin revisar en la tienda (cadena de suministro); quitarlo deja sus apps
+    # sin poder instalarse. Ninguna lo delata con el prefijo.
+    "sv_add_store_repository",
+    "sv_remove_store_repository",
+    # Spec 030, tramo 2: reconstruir borra el contenedor y la imagen de la
+    # app; si la construcción falla, la app queda sin poder arrancar.
+    "sv_rebuild_addon",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -255,6 +263,16 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # Tramo 3: la integración descarga el firmware o la versión nueva; y
     # algunas piden las notas de versión a internet al leerlas.
     "ha_install_update", "ha_get_update_release_notes",
+    # Spec 030: provocan descargas en el Supervisor. Añadir y reparar clonan
+    # el repositorio; recargar hace `git pull` de todos. Quitar y listar no
+    # salen (listar lee lo que el Supervisor ya tiene).
+    "sv_add_store_repository",
+    "sv_repair_store_repository",
+    "sv_reload_store",
+    # Reconstruir descarga la imagen base (al construir) o la imagen de la
+    # app (con `force`). Leer el changelog, la documentación o la
+    # disponibilidad no sale: el Supervisor lee su clon local.
+    "sv_rebuild_addon",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

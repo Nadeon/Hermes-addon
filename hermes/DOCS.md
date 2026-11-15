@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 284 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 293 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -182,6 +182,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `integration_flows` | 12 | Integraciones descubiertas, dominios configurables por flujo, título y opciones de sistema de una integración, subentries y reconfigure de una integración (nueva en 1.2.0) |
 | `repair_flows` | 4 | Un aviso de Repairs con sus datos internos y su flujo de reparación (nueva en 1.2.0) |
 | `system_updates` | 8 | Qué tiene actualización (Core, OS, Supervisor, apps y plugins), buscar actualizaciones, actualizar Core, el OS y el Supervisor con vista previa, y las entidades `update` de Core (listar, notas de versión e instalar) (nueva en 1.2.0) |
+| `app_store` | 9 | Tienda de apps del Supervisor: repositorios (listar, añadir y quitar en dos pasos, reparar y recargar la tienda), changelog y documentación de la versión de la tienda de una app, si se puede instalar en este sistema y reconstruir una app instalada (en dos pasos) (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -196,7 +197,7 @@ valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
 familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
 `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
-`mounts` y `system_updates`) desactivadas, la lista de tools es exactamente
+`mounts`, `system_updates` y `app_store`) desactivadas, la lista de tools es exactamente
 la de la 1.1.2.
 
 ### Tools genéricas

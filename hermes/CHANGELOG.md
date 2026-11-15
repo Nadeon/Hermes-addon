@@ -564,8 +564,8 @@ _Pendiente: la añade la sub-feature que lo implemente._
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 115 y 57), `read` (36 y 29),
-  `confirm` (20 y 25) o `deny` (452 y 143, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 124 y 72), `read` (36 y 29),
+  `confirm` (20 y 25) o `deny` (443 y 128, con su motivo). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -665,6 +665,134 @@ la lista de tools es la de la 1.1.2.
 - **Banco de Core**: las ocho se ejecutan contra HA Core 2026.11.1 real, y
   también la auditoría y la red por la genérica. La configuración del banco
   carga `system_health:`, `network:`, `recorder:` y `logbook:`.
+
+### Tienda de apps
+
+Spec 030: la tienda de apps del Supervisor (repositorios, recarga, changelog,
+documentación, disponibilidad y reconstrucción de una app), en una familia
+nueva, `app_store`, y vistas previas más honestas en tres tools de la 1.1.2.
+Con la familia desactivada (y las demás de la 1.2.0), la lista de tools es la
+de la 1.1.2.
+
+- **Nueve tools nuevas, familia `app_store`**. Cinco de repositorios:
+  - `sv_list_store_repositories`: los repositorios de la tienda con `builtin`
+    (los integrados del Supervisor, que no se pueden quitar), cuántas apps
+    ofrece cada uno y cuáles están instaladas; con `repository`, solo ese. Usa
+    el sobre común de las listas nuevas. Si el catálogo de apps no se puede
+    leer, la lista sale igual con los recuentos a `null` y el motivo.
+  - `sv_add_store_repository`: añade un repositorio en **dos pasos**. Es
+    código de terceros que no revisan ni Home Assistant ni Hermes: la vista
+    previa lo avisa, enseña la URL exacta que se enviará, el servidor y la
+    rama, y no descarga nada (clona el Supervisor al confirmar). Añadir no
+    instala ninguna app. Una URL que no es `http(s)://…[#rama]`, o un
+    repositorio que ya está, se rechazan sin token.
+  - `sv_remove_store_repository`: quita un repositorio en **dos pasos**. Un
+    integrado (`builtin_repository`) o uno con apps instaladas
+    (`repository_in_use`, con la lista y la pista de `sv_uninstall_addon`) se
+    rechazan sin token, como haría el Supervisor. El token se ata también al
+    repositorio y a sus apps instaladas leídos en la vista previa: si se
+    instala una app suya antes de confirmar, no vale.
+  - `sv_repair_store_repository`: vuelve a clonar un repositorio roto (el
+    Supervisor solo sustituye la copia si la descarga sale bien); `local` no
+    se puede reparar. Sin token.
+  - `sv_reload_store`: actualiza todos los repositorios y relee el catálogo,
+    sin instalar ni actualizar nada. Sin token.
+
+  Y cuatro de apps:
+  - `sv_get_addon_changelog` y `sv_get_addon_documentation`: el changelog y
+    la documentación de la versión que ofrece la **tienda** (no de la
+    instalada), redactados y marcados como texto de terceros, **por trozos**
+    (`offset`, `max_chars`, `next_offset`) dentro del tope de respuesta. Se
+    redacta el texto entero antes de cortarlo, para no partir un secreto. El
+    Supervisor responde con un 200 aunque la app no tenga changelog o no
+    exista; Hermes lee antes la ficha y reconoce esos textos
+    (`changelog_not_found`, `documentation_not_found`, `addon_not_found`).
+  - `sv_get_addon_availability`: si la app se puede instalar en este sistema
+    (arquitectura, tipo de máquina, versión de HA) y, si no, el motivo del
+    Supervisor.
+  - `sv_rebuild_addon`: reconstruye una app instalada en **dos pasos** (borra
+    contenedor e imagen y los rehace con la misma versión; con `force`, una
+    app de imagen vuelve a descargarla). Se rechaza sin token lo que el
+    Supervisor rechazaría: no instalada, desligada de la tienda, con otra
+    versión en la tienda o de imagen sin `force`. La vista previa dice que se
+    conservan opciones y `/data` y que, si la construcción falla, la app queda
+    sin imagen; sobre el propio Hermes, con el aviso de autoprotección.
+- **Vistas previas de tres tools de la 1.1.2**, sin argumentos nuevos y con
+  la misma petición al confirmar:
+  - `sv_install_addon` comprueba la tienda antes del token:
+    `addon_not_found`, `already_installed` y `addon_not_available` (con el
+    motivo) se devuelven sin token; la vista previa añade nombre, versión,
+    repositorio y, si el repositorio no es integrado, el aviso de terceros.
+  - `sv_update_addon` añade la disponibilidad y los primeros 4000 caracteres
+    del changelog de la versión de la tienda (redactados, texto de terceros).
+    Una app que ya está en la versión de la tienda responde
+    `already_up_to_date` con la versión instalada, **sin token**: no hay nada
+    que confirmar. Una app desligada de la tienda no se da por al día: la
+    vista previa dice `in_store: false` y que el Supervisor no la actualizará.
+  - En `sv_install_addon` y `sv_update_addon`, el token se ata también a la
+    `version_latest` de la vista previa: si la tienda publica otra antes de
+    confirmar, `preview_outdated` sin instalar ni actualizar nada. Los
+    argumentos y la petición, los de la 1.1.2; un token sin versión atada ya
+    no vale.
+  - Si la tienda no se puede leer al instalar, `store_check` dice que no se
+    sabe si la app está disponible, si ya está instalada ni si es de un
+    repositorio de terceros (`third_party_repository: null`).
+  - `sv_set_addon_options` valida las opciones finales con el Supervisor
+    (`options/validate`) antes del token: si no valen, `invalid_options` sin
+    token; si no se pudo validar, se dice y el token sale como antes. Avisa
+    también de una contraseña filtrada (`pwned`).
+  - **Seguridad (también en código de la 1.1.2)**: el Supervisor repite en
+    sus mensajes de opciones inválidas («… Got {…}») TODAS las opciones en
+    claro, cortadas a 500 caracteres; la sustitución literal de los secretos
+    no encontraba uno cortado ni uno escapado (barras, saltos de línea,
+    comillas). Ahora, del mensaje de validación y del error del guardado
+    nunca sale nada desde «Got», se tapan los valores de todas las opciones
+    (enteros, escapados o cortados) y, si aun así quedara un trozo de un
+    secreto, el mensaje es genérico con solo las claves que fallan. El error
+    del guardado, que además se escribía en claro en el fichero del token en
+    `/data`, pasa por la misma limpieza.
+- **Sin versión concreta (desviación de FR-051 de la 008)**: el Supervisor
+  2026.11.0 ignora `{version}` en `install/{version}`, `update/{version}` y
+  `GET /store/addons/{app}/{version}`, así que ninguna tool acepta una
+  versión: instalar y actualizar llevan siempre a la de la tienda, y la guía
+  explica la vuelta atrás con un backup parcial de la app.
+- **Credenciales y textos de terceros**: la parte de usuario de una URL con
+  credenciales (`usuario:contraseña@`, `usuario@` o `token@`, ENTERA) sale
+  como `***REDACTED***` en las vistas previas, las respuestas y los errores,
+  también en el texto que devuelve el Supervisor (que repite la URL y a veces
+  el token suelto), en todas las tools de repositorios; solo la petición
+  real al Supervisor lleva la URL completa, y el token de confirmación se ata
+  a la URL completa (otra credencial no lo confirma). El log
+  (`app_store_action`) solo lleva el `slug` del repositorio o de la app,
+  nunca la URL, textos ni opciones. Nombres, URL, mantenedores, changelog y
+  documentación van marcados como texto de terceros (`_third_party_text`),
+  con el aviso del Marketplace. Con una `@` sin codificar en la contraseña
+  se tapa hasta la última `@` antes del servidor, y una URL con un puerto que
+  no es un número (`https://u:p/ss@servidor/…`) se rechaza al validar.
+- **Anotaciones**: añadir, quitar y reconstruir son destructivas (piden
+  token); añadir, reparar, recargar y reconstruir, de mundo abierto (el
+  Supervisor descarga). Las de la 1.1.2 no cambian.
+- **Tabla de comandos**: `GET /store`, `GET /store/repositories`,
+  `GET /store/repositories/{repository}`, `POST /store/repositories`,
+  `DELETE /store/repositories/{repository}`,
+  `POST /store/repositories/{repository}/repair` y `POST /store/reload` pasan
+  de `deny` a `dedicated`; las genéricas los rechazan con
+  `use_dedicated_tool`. También el changelog, la documentación, la
+  disponibilidad y `POST /addons/{app}/rebuild` (a las tools nuevas),
+  `POST /addons/{app}/options/validate` (a `sv_set_addon_options`) y las tres
+  rutas con `{version}` (a `sv_install_addon`, `sv_update_addon` y
+  `sv_get_addon`, porque el Supervisor ignora la versión). No queda ninguna
+  entrada pendiente de la 030. Los iconos y logos de las apps siguen `deny`.
+- **Guía**: tema `app_store` (alias `store`, `tienda`, `repositories`,
+  `repository`, `repositorios`, `changelog`, `documentation`, `rebuild`,
+  `availability`), que el índice y las instrucciones del servidor nombran
+  solo con la familia activa; el tema `supervisor` remite a él y cuenta las
+  vistas previas nuevas y la validación de opciones.
+- **Pruebas**: con un Supervisor simulado con la forma del 2026.11.0. Las
+  cinco que modifican no se pueden ejecutar en el banco de Core (su
+  Supervisor es un simulado): quedan en la matriz como `VM` / `pendiente` y
+  en la tanda 2 del procedimiento de la VM. La prueba en vivo de toda la
+  sub-feature queda pendiente (VM de la 014, después instalación real).
 
 ### Banco de pruebas
 

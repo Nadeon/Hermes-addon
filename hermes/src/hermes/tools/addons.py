@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -42,11 +43,13 @@ from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.ha import HAClient, HAConnectionError
 from hermes.logging_setup import network_redaction_enabled, redact_network
 from hermes.security import (
+    ESTADO_CAMBIADO,
     REDACTED_MARKER,
     redact_structure,
     complete_confirmation_token,
     create_confirmation_token,
     redact_secrets,
+    resolve_confirmation_token,
     validate_confirmation_token,
 )
 from hermes.tools._common import ultimas_lineas_que_caben
@@ -55,6 +58,14 @@ from hermes.tools._logs import (
     comprobar_latest,
     normalizar_boot,
     ruta_de_log,
+)
+from hermes.tools._store import (
+    disponibilidad,
+    es_integrado,
+    ficha_de_tienda,
+    mensaje_del_supervisor,
+    texto_de_la_app,
+    texto_de_terceros,
 )
 from hermes.tools._validation import InvalidIdentifier, validate_slug
 
@@ -75,6 +86,11 @@ _HERMES_SLUG = (os.environ.get("HOSTNAME") or "local-hermes").replace("-", "_").
 
 # Timeout largo para operaciones de instalación/actualización/desinstalación
 _LONG_OP_TIMEOUT = 300.0  # 5 minutos
+
+# Principio del changelog en la vista previa de `sv_update_addon` (spec 030,
+# FR-010): lo bastante para ver qué cambia sin gastar el contexto de una
+# vista previa; el entero, por trozos, con `sv_get_addon_changelog`.
+_CHANGELOG_EXTRACTO = 4000
 
 
 def _es_hermes(slug: str) -> bool:
@@ -202,6 +218,183 @@ def _rutas_cambiadas(antes: Any, despues: Any, ruta: str = "") -> list[str]:
     return [ruta or "(raíz)"]
 
 
+def _valores_secretos(original: Any, redactado: Any) -> set[str]:
+    """Los textos de `original` que `redact_structure` sustituyó en
+    `redactado` (recorridos a la vez): los valores secretos de unas opciones."""
+    if isinstance(original, dict) and isinstance(redactado, dict):
+        out: set[str] = set()
+        for clave, valor in original.items():
+            out |= _valores_secretos(valor, redactado.get(clave))
+        return out
+    if isinstance(original, list) and isinstance(redactado, list):
+        out = set()
+        for valor, tapado in zip(original, redactado):
+            out |= _valores_secretos(valor, tapado)
+        return out
+    if isinstance(original, str) and original and original != redactado:
+        return {original}
+    return set()
+
+
+def _sin_valores_secretos(texto: str, *conjuntos: Any) -> str:
+    """Un mensaje del Supervisor sobre unas opciones, sin ningún valor suyo.
+
+    Fail-closed, en cuatro pasos (convergencia de la 030, T029 y T030):
+
+    1. Nada desde «Got» en adelante. El Supervisor valida con
+       `vol.Schema(vol.All(dict, AppOptions))` y `AppOptions` lanza
+       `vol.Invalid` en la RAÍZ, así que `humanize_error` añade «. Got
+       <repr() de TODAS las opciones>», cortado a 497 caracteres + `...`.
+       Un cliente podía alargar una opción para que el corte cayera dentro
+       de un secreto y recibirlo entero menos su último carácter, y un
+       secreto con barras invertidas, saltos de línea o comillas salía escapado y no se
+       encontraba. Lo que queda antes de «Got» es el texto del error, que
+       solo nombra la opción, la app y su slug.
+    2. Cualquier otro eco de un valor (de TODAS las opciones, no solo de las
+       secretas) se tapa: entero, escapado como lo escriben `repr()` y JSON,
+       o cortado al final del texto.
+    3. Si aun así queda un trozo de un valor secreto, no se arriesga nada: un
+       mensaje genérico con solo las claves que fallan (`data['clave']`).
+    4. La redacción general (`redact_secrets`) al final, como siempre.
+
+    `conjuntos` son las opciones que pudo ver el Supervisor (las actuales,
+    los cambios pedidos y las finales): los valores de todas cuentan.
+    """
+    m = _RE_GOT.search(texto)
+    if m:
+        texto = texto[:m.start()].rstrip()
+    antes_de_got = texto
+
+    formas: set[str] = set()
+    for conjunto in conjuntos:
+        for valor in _hojas(conjunto):
+            formas |= {f for f in _formas(valor) if len(f) >= _LARGO_MIN_VALOR}
+    # Los más largos primero, para no dejar restos de uno que contiene a otro.
+    for forma in sorted(formas, key=len, reverse=True):
+        texto = texto.replace(forma, REDACTED_MARKER)
+    if m:
+        texto += " (values not shown)"
+    else:
+        # Sin «Got» el texto no lo cortó voluptuous, pero pudo cortarlo
+        # otro (el cuerpo de un error HTTP): un valor a medias al final.
+        texto = _sin_cola_cortada(texto, formas)
+
+    secretos: set[str] = set()
+    for conjunto in conjuntos:
+        secretos |= _valores_secretos(conjunto, redact_structure(conjunto))
+    if _queda_rastro(texto, secretos):
+        return _mensaje_generico(antes_de_got, conjuntos)
+    return redact_secrets(texto)
+
+
+# Desde aquí el Supervisor (`humanize_error`) repite los valores. `\b` a los
+# dos lados: «Gotify» o un slug `abc_gotify` no cortan nada.
+_RE_GOT = re.compile(r"\bGot\b", re.IGNORECASE)
+
+# Por debajo de este largo un valor no se sustituye en el texto: un `1`, un
+# `on` o un `u` aparecen en cualquier mensaje y lo dejarían ilegible. Tras
+# cortar en «Got» el texto solo nombra opción, app y slug; un SECRETO corto
+# que aparezca igualmente lleva al mensaje genérico (`_queda_rastro`).
+_LARGO_MIN_VALOR = 4
+
+# Largo del trozo de un secreto que, si aparece, delata que se ha colado algo.
+_VENTANA_RASTRO = 6
+
+# Las claves que nombra el error: «option 'clave'» (`apps/options.py`) y
+# `data['clave']` (voluptuous).
+_RE_CLAVE_EN_MENSAJE = re.compile(r"option '([^'\n]{1,200})'|data\['([^'\n]{1,200})'\]")
+
+
+def _hojas(valor: Any) -> list[str]:
+    """Los valores escalares de unas opciones, como texto. Sin booleanos ni
+    `None`: `True`/`None` no identifican nada y están en cualquier mensaje."""
+    if isinstance(valor, dict):
+        return [h for v in valor.values() for h in _hojas(v)]
+    if isinstance(valor, list):
+        return [h for v in valor for h in _hojas(v)]
+    if isinstance(valor, bool) or valor is None:
+        return []
+    if isinstance(valor, (str, int, float)):
+        return [str(valor)]
+    return []
+
+
+def _claves(valor: Any) -> set[str]:
+    """Todas las claves de unas opciones, a cualquier nivel."""
+    if isinstance(valor, dict):
+        out = {str(k) for k in valor}
+        for v in valor.values():
+            out |= _claves(v)
+        return out
+    if isinstance(valor, list):
+        out = set()
+        for v in valor:
+            out |= _claves(v)
+        return out
+    return set()
+
+
+def _formas(valor: str) -> set[str]:
+    """Cómo puede aparecer `valor` en un mensaje: tal cual, escapado por
+    `repr()` (con una u otra comilla), por JSON (con y sin `ensure_ascii`) y
+    el `repr()` metido a su vez en un JSON (el cuerpo del error HTTP)."""
+    escapado = repr(valor)[1:-1]
+    return {
+        valor,
+        escapado,
+        escapado.replace("\'", "'"),
+        escapado.replace('"', '\\"'),
+        json.dumps(valor, ensure_ascii=False)[1:-1],
+        json.dumps(valor)[1:-1],
+        json.dumps(escapado, ensure_ascii=False)[1:-1],
+        json.dumps(escapado)[1:-1],
+    } - {""}
+
+
+def _sin_cola_cortada(texto: str, formas: set[str]) -> str:
+    """Tapa el principio de un valor que se quedó al final del texto porque
+    alguien lo cortó (voluptuous corta a 500 caracteres y añade `...`)."""
+    cola = texto.rstrip(" .'\"}])")
+    for forma in sorted(formas, key=len, reverse=True):
+        for largo in range(len(forma) - 1, _LARGO_MIN_VALOR - 1, -1):
+            if cola.endswith(forma[:largo]):
+                return cola[: len(cola) - largo] + REDACTED_MARKER + "..."
+    return texto
+
+
+def _queda_rastro(texto: str, secretos: set[str]) -> bool:
+    """True si en `texto` queda algún trozo de un secreto, en cualquiera de
+    sus formas: el secreto entero si es corto, o cualquier trozo de
+    `_VENTANA_RASTRO` caracteres si es largo (un corte en cualquier punto)."""
+    comparar = texto.replace(REDACTED_MARKER, "\0")
+    for secreto in secretos:
+        for forma in _formas(secreto):
+            ventana = min(len(forma), _VENTANA_RASTRO)
+            for i in range(len(forma) - ventana + 1):
+                if forma[i:i + ventana] in comparar:
+                    return True
+    return False
+
+
+def _mensaje_generico(texto: str, conjuntos: tuple[Any, ...]) -> str:
+    """Solo las claves que fallan, nunca sus valores. Una clave entra solo si
+    es de verdad una clave de las opciones: así no se cuela por aquí nada que
+    no lo sea."""
+    validas: set[str] = set()
+    for conjunto in conjuntos:
+        validas |= _claves(conjunto)
+    claves: list[str] = []
+    for m in _RE_CLAVE_EN_MENSAJE.finditer(texto):
+        clave = m.group(1) or m.group(2)
+        if clave in validas and clave not in claves:
+            claves.append(clave)
+    mensaje = ("The Supervisor rejected the options. Its message is not shown "
+               "because it could reveal a secret value.")
+    if claves:
+        mensaje += " Failing options: " + ", ".join(f"data['{c}']" for c in claves)
+    return mensaje
+
+
 def _tiene_obligatorias(schema_ui: Any) -> bool:
     """True si el schema de /info declara alguna opción obligatoria, a cualquier nivel.
 
@@ -234,6 +427,174 @@ def register(
             return None
         except InvalidIdentifier as exc:
             return {"error": "invalid_identifier", "detail": str(exc)}
+
+    # ── Vistas previas de la tienda (spec 030, tramo 2) ──
+    #
+    # Solo añaden campos a la vista previa o rechazan SIN token lo que el
+    # Supervisor rechazaría. Ninguna cambia los argumentos ni lo que se hace
+    # con un token válido (FR-009…FR-013 de la 030; SC-005).
+
+    async def _vista_previa_de_instalar(
+        slug: str, preview: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Completa `preview` o devuelve el rechazo (sin token)."""
+        try:
+            ficha = await ficha_de_tienda(ha_client, slug)
+            if ficha is None:
+                return {"error": "addon_not_found",
+                        "detail": "No app with that slug in the store."}
+            if ficha.get("installed") is True:
+                return {"error": "already_installed",
+                        "detail": ("The app is already installed. Use "
+                                   "sv_update_addon to update it.")}
+            disponible, motivo = await disponibilidad(ha_client, slug)
+        except HAConnectionError as exc:
+            if exc.status == 404:
+                return {"error": "addon_not_found",
+                        "detail": "No app with that slug in the store."}
+            # Sin la ficha no se sabe nada de lo que se iba a comprobar, y
+            # callarlo daría a entender que no hay nada que avisar
+            # (convergencia de la 030, T035).
+            preview["store_check"] = {
+                "checked": False,
+                "reason": redact_secrets(str(exc)),
+                "note": ("The store could not be read, so it is unknown whether "
+                         "the app is available on this system, whether it is "
+                         "already installed and whether it comes from a "
+                         "third-party repository. The Supervisor checks "
+                         "availability again when installing."),
+            }
+            preview["third_party_repository"] = None
+            return None
+        if not disponible:
+            return {"error": "addon_not_available", "reason": motivo,
+                    "detail": "The app cannot be installed on this system."}
+        repositorio = ficha.get("repository")
+        preview.update({
+            "name": redact_secrets(ficha["name"]) if isinstance(ficha.get("name"), str)
+            else ficha.get("name"),
+            "version_latest": ficha.get("version_latest"),
+            "repository": repositorio,
+            "build": ficha.get("build"),
+            "store_check": {"checked": True, "available": True},
+        })
+        if not (isinstance(repositorio, str) and es_integrado(repositorio)):
+            preview["third_party_repository"] = True
+            preview["warning"] = (
+                "This app comes from a third-party repository: it is not "
+                "reviewed by Home Assistant nor by Hermes, and once installed "
+                "it runs with the permissions it declares."
+            )
+        preview["_third_party_text"] = texto_de_terceros(["name"])
+        return None
+
+    async def _version_de_la_tienda(slug: str) -> Any:
+        """`version_latest` de la ficha de la tienda, o `None` si no se puede
+        leer. Es lo que ata el token de `sv_install_addon`."""
+        try:
+            ficha = await ficha_de_tienda(ha_client, slug)
+        except HAConnectionError:
+            return None
+        return ficha.get("version_latest") if isinstance(ficha, dict) else None
+
+    async def _token_con_version(
+        tool_name: str,
+        args: dict[str, Any],
+        confirmation_token: str,
+        version: Any,
+    ) -> dict[str, Any] | None:
+        """Resuelve un token atado a la versión de la vista previa, o devuelve
+        el rechazo.
+
+        Convergencia de la 030 (T031): la vista previa enseña `version_latest`
+        (y, al actualizar, el changelog de ESA versión), pero el Supervisor
+        instala o actualiza a la que tenga la tienda al confirmar. Si la
+        tienda publicó otra en los 60 s del token, se confirmaría algo que
+        nadie vio. El token ata la versión con `estado` (spec 018) y, si ya
+        no es la misma, `preview_outdated` sin tocar nada, como la 015. Si
+        no se puede leer, cuenta como `None`: si la vista previa sí la leyó,
+        no casa (fail-closed). Los argumentos y la petición, como en la 1.1.2.
+        """
+        valid, error, _ = await resolve_confirmation_token(
+            confirmation_token, tool_name, args, estado={"version_latest": version})
+        if valid:
+            return None
+        if error == ESTADO_CAMBIADO:
+            return {
+                "error": error,
+                "preview_outdated": True,
+                "slug": args["slug"],
+                "version_latest": version,
+                "hint": ("The store version changed since the preview. Nothing "
+                         "was done; request a new preview (call again without "
+                         "confirmation_token)."),
+            }
+        return {"error": error}
+
+    async def _resumen_de_changelog(slug: str) -> dict[str, Any]:
+        """Los campos de changelog de la vista previa de actualizar. Nunca
+        impiden el token: sin changelog se dice por qué."""
+        try:
+            texto = await texto_de_la_app(ha_client, slug, "changelog")
+        except HAConnectionError as exc:
+            return {"changelog_excerpt": None,
+                    "changelog_unavailable": redact_secrets(str(exc))}
+        if texto is None:
+            return {"changelog_excerpt": None,
+                    "changelog_unavailable": "The app has no changelog."}
+        # Se redacta el texto ENTERO antes de cortar (como en
+        # `sv_get_addon_changelog`): un secreto no se parte en el corte.
+        redactado = redact_secrets(texto)
+        return {
+            "changelog_excerpt": redactado[:_CHANGELOG_EXTRACTO],
+            "changelog_truncated": len(redactado) > _CHANGELOG_EXTRACTO,
+            "_third_party_text": texto_de_terceros(["changelog_excerpt"]),
+        }
+
+    async def _validar_opciones(
+        slug: str,
+        actuales: dict[str, Any],
+        finales: dict[str, Any],
+        preview: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Añade `validation` a `preview` o devuelve `invalid_options` (sin
+        token). El cuerpo son las opciones finales SIN envolver
+        (`api/apps.py`, `options_validate`)."""
+        if not finales:
+            # Con un cuerpo vacío el Supervisor valida las GUARDADAS, no las
+            # enviadas: decir que se validó `{}` sería mentir.
+            preview["validation"] = {"checked": False, "reason": "empty_options"}
+            return None
+        try:
+            res = await ha_client.sv_request(
+                "POST", f"/addons/{slug}/options/validate", json_body=finales)
+        except HAConnectionError as exc:
+            preview["validation"] = {
+                "checked": False,
+                "reason": _sin_valores_secretos(str(exc), actuales, finales),
+            }
+            return None
+        if not isinstance(res, dict) or not isinstance(res.get("valid"), bool):
+            preview["validation"] = {"checked": False, "reason": "unexpected_response"}
+            return None
+        if res["valid"] is False:
+            mensaje = res.get("message")
+            return {
+                "error": "invalid_options",
+                "message": _sin_valores_secretos(mensaje, actuales, finales)
+                if isinstance(mensaje, str) else None,
+                "changed_paths": _rutas_cambiadas(actuales, finales),
+            }
+        pwned = res.get("pwned")
+        preview["validation"] = {"checked": True, "valid": True, "pwned": pwned}
+        if pwned is True:
+            preview["warning_pwned"] = (
+                "The Supervisor reports that a secret in these options appears "
+                "in known data breaches (Have I Been Pwned). Use another one."
+            )
+        elif pwned is None:
+            preview["pwned_check"] = "failed"
+        return None
 
     @mcp.tool()
     async def sv_list_addons(installed_only: bool = True) -> object:
@@ -414,7 +775,12 @@ def register(
 
         Primera llamada (sin token): preview con las opciones actuales, los
         cambios pedidos, las opciones finales que se enviarán y las rutas que
-        cambian, todo con los secretos redactados, + confirmation_token.
+        cambian, todo con los secretos redactados, + confirmation_token. Antes
+        de dar el token, el Supervisor valida las opciones finales: si no son
+        válidas, responde `invalid_options` (mensaje redactado) SIN token; si
+        no se pudo validar, `validation.checked` es false y el token sale igual
+        (el guardado vuelve a validar). `warning_pwned` avisa de un secreto
+        filtrado.
         Segunda llamada (con token): vuelve a leer las opciones actuales, mezcla
         de nuevo y envía. Si alguien las tocó entre medias, lo que tú no
         cambias conserva su valor más reciente.
@@ -470,7 +836,8 @@ def register(
             try:
                 actuales = await _opciones_en_bruto(slug)
             except HAConnectionError as exc:
-                return {"error": str(exc)}
+                # Por si el Supervisor repitiera los cambios pedidos.
+                return {"error": _sin_valores_secretos(str(exc), opts_dict)}
             if actuales is None:
                 return sin_opciones
             finales = _mezclar_opciones(actuales, opts_dict)
@@ -489,6 +856,14 @@ def register(
             }
             if warning:
                 preview["warning"] = warning
+            # Spec 030 (FR-013, research R-7): el Supervisor valida las
+            # opciones FINALES antes del token. Si dice que no valen, no hay
+            # token (el guardado las rechazaría igual); si no se pudo validar,
+            # se dice y el token sale como en la 1.1.2, porque el guardado
+            # vuelve a validar.
+            rechazo = await _validar_opciones(slug, actuales, finales, preview)
+            if rechazo is not None:
+                return rechazo
             return await create_confirmation_token(tool_name, args, preview=preview)
 
         valid, error = await validate_confirmation_token(
@@ -497,6 +872,7 @@ def register(
         if not valid:
             return {"error": error}
 
+        actuales = finales = None
         try:
             # Se vuelven a leer: las del preview pueden haber cambiado mientras
             # tanto, y reutilizarlas desharía cambios ajenos en lo que el
@@ -516,10 +892,18 @@ def register(
             logger.info("sv_set_addon_options_ok", slug=slug)
             return result
         except HAConnectionError as exc:
+            # Si el guardado rechaza las opciones, el Supervisor responde
+            # «App … has invalid options: <humanize_error>», con el repr() de
+            # TODAS las opciones en claro (y otra vez en `validation_error`).
+            # Ese texto iba a la respuesta y al fichero del token en /data
+            # (`cached_error`, que entra en los backups del add-on): se limpia
+            # igual que el mensaje de la validación (convergencia de la 030,
+            # T030). La forma `{"error": …}` no cambia.
+            mensaje = _sin_valores_secretos(str(exc), opts_dict, actuales, finales)
             await complete_confirmation_token(
-                confirmation_token, success=False, error=str(exc)
+                confirmation_token, success=False, error=mensaje
             )
-            return {"error": str(exc)}
+            return {"error": mensaje}
 
     @mcp.tool()
     async def sv_start_addon(
@@ -674,7 +1058,19 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Instala una app (add-on) del store de HAOS.
+        """Instala una app (add-on) de la tienda del Supervisor, en la versión
+        que ofrece la tienda (`version_latest`): no se puede elegir otra.
+
+        La vista previa comprueba antes la tienda: `addon_not_found`,
+        `already_installed` y `addon_not_available` (con el motivo:
+        arquitectura, máquina o versión de HA) se devuelven SIN token. Si la
+        app viene de un repositorio de terceros, lo avisa. Si la tienda no se
+        puede leer, el token sale igual y `store_check` dice que no se sabe
+        si la app está disponible ni si es de terceros
+        (`third_party_repository: null`).
+
+        El token se ata a la `version_latest` de la vista previa: si la tienda
+        ofrece otra al confirmar, responde `preview_outdated` sin instalar.
 
         Operación larga — devuelve inmediatamente un job_id.
         Usa sv_get_job_status(job_id) para consultar el progreso.
@@ -699,11 +1095,22 @@ def register(
                 "action": "install",
                 "note": "This operation may take several minutes.",
             }
-            return await create_confirmation_token(tool_name, args, preview=preview)
+            # Spec 030 (FR-009, research R-3): antes del token, la ficha de la
+            # tienda y la disponibilidad. Lo que el Supervisor rechazaría (no
+            # está, ya instalada, no disponible en este sistema) se dice sin
+            # token. Si la tienda no se puede leer, se dice y el token sale
+            # como en la 1.1.2: el Supervisor vuelve a comprobarlo al instalar.
+            rechazo = await _vista_previa_de_instalar(slug, preview)
+            if rechazo is not None:
+                return rechazo
+            return await create_confirmation_token(
+                tool_name, args, preview=preview,
+                estado={"version_latest": preview.get("version_latest")})
 
-        valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
-        if not valid:
-            return {"error": error}
+        rechazo = await _token_con_version(
+            tool_name, args, confirmation_token, await _version_de_la_tienda(slug))
+        if rechazo is not None:
+            return rechazo
 
         try:
             data = await ha_client.sv_request(
@@ -803,12 +1210,33 @@ def register(
             await complete_confirmation_token(confirmation_token, success=False, error=str(exc))
             return {"error": str(exc)}
 
+    async def _version_de_la_app(slug: str) -> Any:
+        """`version_latest` de la app instalada (`/addons/{slug}/info`), o
+        `None` si no se puede leer. Es lo que ata el token de
+        `sv_update_addon`."""
+        try:
+            info = await ha_client.sv_request("GET", f"/addons/{slug}/info")
+        except HAConnectionError:
+            return None
+        return info.get("version_latest") if isinstance(info, dict) else None
+
     @mcp.tool()
     async def sv_update_addon(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Actualiza una app (add-on) a la versión más reciente disponible.
+        """Actualiza una app (add-on) a la versión que ofrece la tienda
+        (`version_latest`): no se puede elegir otra.
+
+        La vista previa enseña la disponibilidad y el principio del changelog
+        de esa versión (texto de terceros, redactado). Si la app ya está en la
+        versión de la tienda, responde `already_up_to_date` con la versión
+        instalada, SIN token: no hay nada que confirmar. Si la app ya no
+        está en la tienda (`detached`), no lo dice: la vista previa lleva
+        `in_store: false` y avisa de que el Supervisor rechazará actualizarla.
+
+        El token se ata a la `version_latest` de la vista previa: si la tienda
+        ofrece otra al confirmar, responde `preview_outdated` sin actualizar.
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
@@ -825,6 +1253,7 @@ def register(
             Con token: {"job_id": "...", "status": "running",
                         "poll_with": "sv_get_job_status"}
             Sobre Hermes: {"error": "self_update_not_supported", "detail": "..."}
+            Sin actualización: {"error": "already_up_to_date", "version": "..."}
         """
         if (err := _bad_slug(slug)):
             return err
@@ -851,10 +1280,30 @@ def register(
                     current = info.get("version")
                     latest = info.get("version_latest")
                     avail = info.get("update_available", False)
+                    detached = info.get("detached")
                 else:
-                    current = latest = avail = None
+                    current = latest = avail = detached = None
             except HAConnectionError:
-                current = latest = avail = None
+                current = latest = avail = detached = None
+
+            # Convergencia de la 030 (T032): una app que ya no está en la
+            # tienda (`detached`) también da `update_available: false`
+            # (`need_update` del Supervisor), y decir que está al día sería
+            # falso. Solo con `detached: false` se sabe que está en la tienda.
+            if avail is False and current is not None and detached is False:
+                # Spec 030, extra del supervisor del programa: una app
+                # instalada sin actualización no tiene nada que confirmar (el
+                # Supervisor respondería `AppNoUpdateAvailableError`), así que
+                # no hay token. Solo con la lectura correcta y la app
+                # instalada; si no se pudo leer, sigue como en la 1.1.2.
+                return {
+                    "error": "already_up_to_date",
+                    "slug": slug,
+                    "version": current,
+                    "version_latest": latest,
+                    "detail": ("The app is already at the version the store "
+                               "offers; there is nothing to update."),
+                }
 
             preview: dict[str, Any] = {
                 "slug": slug,
@@ -864,11 +1313,36 @@ def register(
             }
             if not avail and avail is not None:
                 preview["note"] = "No update available at this time."
-            return await create_confirmation_token(tool_name, args, preview=preview)
+            if detached is True:
+                # Como en la 1.1.2, con token; pero diciendo la verdad.
+                preview["in_store"] = False
+                preview["update_status"] = "not_in_store"
+                preview["note"] = (
+                    "The app is no longer in the store (its repository was "
+                    "removed or no longer offers it), so it is unknown whether "
+                    "a newer version exists. The Supervisor will refuse to "
+                    "update it.")
+            elif detached is False:
+                preview["in_store"] = True
+            else:
+                preview["in_store"] = None
+            # Spec 030 (FR-010): disponibilidad y principio del changelog de
+            # la versión de la tienda. Ninguna de las dos impide el token.
+            try:
+                disponible, motivo = await disponibilidad(ha_client, slug)
+                preview["available"] = disponible
+                preview["reason"] = motivo
+            except HAConnectionError as exc:
+                preview["available"] = None
+                preview["reason"] = redact_secrets(mensaje_del_supervisor(exc))
+            preview.update(await _resumen_de_changelog(slug))
+            return await create_confirmation_token(
+                tool_name, args, preview=preview, estado={"version_latest": latest})
 
-        valid, error = await validate_confirmation_token(confirmation_token, tool_name, args)
-        if not valid:
-            return {"error": error}
+        rechazo = await _token_con_version(
+            tool_name, args, confirmation_token, await _version_de_la_app(slug))
+        if rechazo is not None:
+            return rechazo
 
         try:
             data = await ha_client.sv_request(

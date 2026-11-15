@@ -160,6 +160,17 @@ _CATALOGO: tuple[Familia, ...] = (
             "Check for and install updates of Core, OS, Supervisor and "
             "update entities.",
             "1.2.0", True, ("system_updates", "update_entities")),
+    # Spec 030 (research R-1): la tienda de apps del Supervisor. Va aparte de
+    # `supervisor` (familia de la 1.1.2) para que apagar las familias de la
+    # 1.2.0 deje exactamente la lista de la 1.1.2 (FR-010 de la 008), y es una
+    # sola familia para repositorios y fichas de apps porque es un mismo caso
+    # de uso y un tema de la guía. Dos módulos, uno por tramo:
+    # `store_repositories` (repositorios y recarga) y `store_apps` (changelog,
+    # documentación, disponibilidad y reconstrucción).
+    Familia("app_store",
+            "App store: repositories, store reload, app changelog, "
+            "documentation and availability, and app rebuild.",
+            "1.2.0", True, ("store_repositories", "store_apps")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

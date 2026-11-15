@@ -471,7 +471,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
-| 030 | Tienda de apps | 082, 093 | pendiente |
+| 030 | Tienda de apps | 082, 093 | hecha: nueve tools en la familia `app_store` (repositorios: listar, añadir y quitar en dos pasos, reparar y recargar; apps: changelog y documentación de la versión de la tienda por trozos, disponibilidad y reconstrucción en dos pasos); vistas previas nuevas en `sv_install_addon` (disponibilidad), `sv_update_addon` (changelog; `already_up_to_date` sin token) y `sv_set_addon_options` (validación del Supervisor, con los mensajes de opciones sin ningún valor); tokens de instalar y actualizar atados a la versión de la vista previa; credenciales de las URL tapadas enteras; 15 rutas a `dedicated`; sin versión concreta (el Supervisor 2026.11 ignora `{version}`: desviación de FR-051); prueba en vivo de las cinco que modifican pendiente (VM de la 014, después instalación real) |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
 | 032 | Host y red del host | 086, 090 | pendiente |
 | 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | hecha: tramo 1 (el token de `ha_run_script` y `ha_trigger_automation` ata `variables`; inventario de argumentos atados) y tramo 2 (`ha_reload_counters` y `ha_get_config_entry_options` dicen `not_supported` y quedan deprecadas; `ha_wait_for_event` sin `ctx`; `ha_create_scene_from_current` con escena temporal, token para reemplazar y `name` rechazado; descripciones de escenas con `scenes.yaml`; `amount` y `ha_set_counter_value` validados); banco sin ningún `xfail` |
@@ -762,6 +762,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
 | `ha_update_subentry` | banco de Core | ok | spec 016 |
+| `sv_add_store_repository` | VM | pendiente | repositorio de prueba |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_check_for_updates` | VM | pendiente | spec 015 |
@@ -776,8 +777,12 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_get_job_status` | VM | pendiente | |
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_rebuild_addon` | VM | pendiente | app local de prueba |
 | `sv_reload_backups` | VM | pendiente | |
 | `sv_reload_mount` | VM | pendiente | |
+| `sv_reload_store` | VM | pendiente | |
+| `sv_remove_store_repository` | VM | pendiente | repositorio de prueba |
+| `sv_repair_store_repository` | VM | pendiente | repositorio de prueba |
 | `sv_restart_addon` | VM | pendiente | add-on de prueba |
 | `sv_restart_core` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_full` | VM | pendiente | instantánea antes |

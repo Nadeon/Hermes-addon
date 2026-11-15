@@ -855,6 +855,22 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_list_updates": ("R-I-", "List updates (Home Assistant)"),
     "ha_get_update_release_notes": ("R-IO", "Get update release notes (Home Assistant)"),
     "ha_install_update": ("-DIO", "Install update (Home Assistant)"),
+    # Spec 030, tramo 1 (contracts/tools.md, familia `app_store`). Añadir y
+    # quitar piden token, así que son destructivas (invariante de la 1.1.2);
+    # añadir, reparar y recargar provocan descargas en el Supervisor (mundo
+    # abierto). Todas idempotentes: añadir dos veces da «ya añadido».
+    "sv_list_store_repositories": ("R-I-", "List store repositories (Supervisor)"),
+    "sv_add_store_repository": ("-DIO", "Add store repository (Supervisor)"),
+    "sv_remove_store_repository": ("-DI-", "Remove store repository (Supervisor)"),
+    "sv_repair_store_repository": ("--IO", "Repair store repository (Supervisor)"),
+    "sv_reload_store": ("--IO", "Reload store (Supervisor)"),
+    # Spec 030, tramo 2: las tres de lectura heredan `readOnlyHint` del
+    # prefijo `sv_get_` (leen el clon local, no salen); reconstruir pide token
+    # (destructiva) y descarga imágenes (mundo abierto).
+    "sv_get_addon_changelog": ("R-I-", "Get add-on changelog (Supervisor)"),
+    "sv_get_addon_documentation": ("R-I-", "Get add-on documentation (Supervisor)"),
+    "sv_get_addon_availability": ("R-I-", "Get add-on availability (Supervisor)"),
+    "sv_rebuild_addon": ("-DIO", "Rebuild add-on (Supervisor)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -890,6 +906,13 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_update_os", "sv_update_supervisor", "ha_list_updates",
         "ha_get_update_release_notes", "ha_install_update",
     },
+    "app_store": {
+        "sv_list_store_repositories", "sv_add_store_repository",
+        "sv_remove_store_repository", "sv_repair_store_repository",
+        "sv_reload_store", "sv_get_addon_changelog",
+        "sv_get_addon_documentation", "sv_get_addon_availability",
+        "sv_rebuild_addon",
+    },
 }
 
 # Las de la spec 019, tramo 1 (montajes, CAP-083).
@@ -900,6 +923,16 @@ _MOUNTS_019 = (
 # Las de la spec 019, tramo 2 (ajustes de backup, misma familia).
 _BACKUP_SETTINGS_019 = (
     "sv_get_backup_settings", "sv_set_backup_settings", "sv_reload_backups",
+)
+
+# Las nueve de la spec 030: tramo 1 (repositorios y recarga, CAP-082) y
+# tramo 2 (fichas, disponibilidad y reconstrucción, CAP-082 y CAP-093).
+_TIENDA_030 = (
+    "sv_list_store_repositories", "sv_add_store_repository",
+    "sv_remove_store_repository", "sv_repair_store_repository",
+    "sv_reload_store",
+    "sv_get_addon_changelog", "sv_get_addon_documentation",
+    "sv_get_addon_availability", "sv_rebuild_addon",
 )
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1621,6 +1654,65 @@ class TestRecorderRegistration:
         sin = set(_real_registry(["system_status", "recorder"]))
         assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
         assert sin <= completo
+
+
+class TestTiendaDeApps030:
+    """Spec 030, T008 y T023 (FR-015, FR-016): las nueve tools de la tienda
+    se registran por defecto con las anotaciones de contracts/tools.md;
+    añadir, quitar y reconstruir llevan `confirmation_token`, el resto no;
+    con `app_store` desactivada no queda ninguna y el resto no cambia.
+
+    Control negativo comprobado: quitar `sv_remove_store_repository` de
+    `_DESTRUCTIVE_EXACT` → caen `test_anotaciones` y el invariante de
+    `TestDestructiveToolsAskBeforeActing`."""
+
+    def test_anotaciones(self):
+        tools = _real_registry()
+        for nombre in _TIENDA_030:
+            assert nombre in tools, nombre
+            codigo, titulo = _HINTS_NUEVAS_1_2_0[nombre]
+            assert _hint_code(tools[nombre].annotations) == codigo, nombre
+            assert tools[nombre].title == titulo, nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {})) for n in _TIENDA_030}
+        assert props == {
+            "sv_list_store_repositories": {"repository"},
+            "sv_add_store_repository": {"repository", "confirmation_token"},
+            "sv_remove_store_repository": {"repository", "confirmation_token"},
+            "sv_repair_store_repository": {"repository"},
+            "sv_reload_store": set(),
+            "sv_get_addon_changelog": {"slug", "offset", "max_chars"},
+            "sv_get_addon_documentation": {"slug", "offset", "max_chars"},
+            "sv_get_addon_availability": {"slug"},
+            "sv_rebuild_addon": {"slug", "force", "confirmation_token"},
+        }
+        for nombre in ("sv_add_store_repository", "sv_remove_store_repository",
+                       "sv_repair_store_repository"):
+            assert tools[nombre].parameters.get("required") == ["repository"], nombre
+        for nombre in ("sv_get_addon_changelog", "sv_get_addon_documentation",
+                       "sv_get_addon_availability", "sv_rebuild_addon"):
+            assert tools[nombre].parameters.get("required") == ["slug"], nombre
+
+    def test_las_tres_de_la_1_1_2_no_cambian(self):
+        """T023 (SC-005): `sv_install_addon`, `sv_update_addon` y
+        `sv_set_addon_options` ganan vista previa, no argumentos ni
+        anotaciones."""
+        tools = _real_registry()
+        for nombre in ("sv_install_addon", "sv_update_addon", "sv_set_addon_options"):
+            assert _hint_code(tools[nombre].annotations) == _HINTS_SNAPSHOT[nombre], nombre
+        assert set(tools["sv_install_addon"].parameters["properties"]) == {
+            "slug", "confirmation_token"}
+        assert set(tools["sv_update_addon"].parameters["properties"]) == {
+            "slug", "confirmation_token"}
+        assert set(tools["sv_set_addon_options"].parameters["properties"]) == {
+            "slug", "options", "confirmation_token"}
+
+    def test_con_la_familia_apagada(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["app_store"]))
+        assert completo - sin == set(_TIENDA_030)
 
 
 class TestMarketplaceRegistration:

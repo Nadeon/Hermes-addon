@@ -1110,6 +1110,95 @@ class TestDedicadasDelTramoBDeLa012(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+class TestTiendaDeLa030(unittest.IsolatedAsyncioTestCase):
+    """Spec 030, T009 (FR-014, FR-015): con la tabla real, las genéricas del
+    Supervisor rechazan las rutas de repositorios y recarga hacia su tool de
+    `app_store`, sin llegar al Supervisor; con la familia desactivada, además
+    `family_disabled: true`. Los iconos siguen `deny` (clase B).
+
+    Control negativo (T012 g): dejar `POST /store/repositories` como `deny`
+    → cae `test_rechazo_hacia_su_tool` (sale `command_denied`)."""
+
+    _CASOS = (
+        ("sv_read_api", ("/store/repositories",), "sv_list_store_repositories"),
+        ("sv_read_api", ("/store",), "sv_list_store_repositories"),
+        ("sv_read_api", ("/store/repositories/abcd1234",), "sv_list_store_repositories"),
+        ("sv_call_api", ("POST", "/store/repositories",
+                         {"repository": "https://example.com/repo-ficticio"}),
+         "sv_add_store_repository"),
+        ("sv_call_api", ("DELETE", "/store/repositories/abcd1234"),
+         "sv_remove_store_repository"),
+        ("sv_call_api", ("POST", "/store/repositories/abcd1234/repair"),
+         "sv_repair_store_repository"),
+        ("sv_call_api", ("POST", "/store/reload"), "sv_reload_store"),
+    )
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for generica, args, tool in self._CASOS:
+            with self.subTest(args=args):
+                r = await mcp.tools[generica](*args)
+                self.assertEqual(r.get("error"), "use_dedicated_tool", r)
+                self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
+                                 (tool, "app_store", False))
+                self.assertIn(tool, mcp.tools)
+        ha.sv_request.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["app_store"])
+        for generica, args, tool in self._CASOS:
+            with self.subTest(args=args):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools[generica](*args)
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.sv_request.assert_not_awaited()
+
+    async def test_iconos_siguen_denegados(self) -> None:
+        mcp, ha = _registrar_todo([])
+        r = await mcp.tools["sv_read_api"]("/store/addons/abcd1234_ejemplo/icon")
+        self.assertEqual(r["error"], "command_denied")
+        ha.sv_request.assert_not_awaited()
+
+    # Tramo 2 (T022): las de `app_store` y las que apuntan a una tool de la
+    # 1.1.2 (`supervisor`), que siguen ahí aunque `app_store` se apague.
+    _CASOS_T2_TIENDA = (
+        ("sv_read_api", ("/store/addons/abcd1234_ejemplo/changelog",), "sv_get_addon_changelog"),
+        ("sv_read_api", ("/store/addons/abcd1234_ejemplo/documentation",),
+         "sv_get_addon_documentation"),
+        ("sv_read_api", ("/store/addons/abcd1234_ejemplo/availability",),
+         "sv_get_addon_availability"),
+        ("sv_call_api", ("POST", "/addons/local_ejemplo/rebuild", {"force": True}),
+         "sv_rebuild_addon"),
+    )
+    _CASOS_T2_SUPERVISOR = (
+        ("sv_call_api", ("POST", "/store/addons/abcd1234_ejemplo/install/1.0.0"),
+         "sv_install_addon"),
+        ("sv_call_api", ("POST", "/store/addons/abcd1234_ejemplo/update/1.0.0"),
+         "sv_update_addon"),
+        ("sv_read_api", ("/store/addons/abcd1234_ejemplo/1.0.0",), "sv_get_addon"),
+        ("sv_call_api", ("POST", "/addons/abcd1234_ejemplo/options/validate", {"a": 1}),
+         "sv_set_addon_options"),
+    )
+
+    async def test_tramo_2_hacia_su_tool(self) -> None:
+        """Control negativo (T026 g): dejar `POST /addons/{app}/rebuild` como
+        `deny` → cae este test (sale `command_denied`)."""
+        for desactivadas in ([], ["app_store"]):
+            mcp, ha = _registrar_todo(desactivadas)
+            for casos, familia in ((self._CASOS_T2_TIENDA, "app_store"),
+                                   (self._CASOS_T2_SUPERVISOR, "supervisor")):
+                for generica, args, tool in casos:
+                    with self.subTest(args=args, desactivadas=desactivadas):
+                        r = await mcp.tools[generica](*args)
+                        self.assertEqual(r.get("error"), "use_dedicated_tool", r)
+                        apagada = familia in desactivadas
+                        self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
+                                         (tool, familia, apagada))
+                        self.assertEqual(tool in mcp.tools, not apagada)
+            ha.sv_request.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()

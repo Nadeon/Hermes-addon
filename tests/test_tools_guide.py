@@ -1010,6 +1010,116 @@ class TestTemaUpdates(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("@", sin)
 
 
+class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
+    """Spec 030, T010 (FR-020), tramo 1: tema `app_store` con las cinco
+    tools de repositorios y recarga, el aviso de terceros al añadir, que
+    quitar exige desinstalar antes y reparar frente a recargar; sus alias; el
+    índice lo nombra y las instrucciones del servidor solo con la familia
+    activa; los temas que este tramo no toca no cambian.
+
+    Control negativo comprobado: sin `@TEMA_TIENDA@` en las instrucciones →
+    cae `test_indice_e_instrucciones`."""
+
+    # sha256 (16 hex) de temas que la 030 no toca, más `supervisor`, que el
+    # tramo 2 cambia a propósito (remite a `app_store`, validación de
+    # opciones y vistas previas de instalar y actualizar; FR-020) y el
+    # converge vuelve a cambiar (mensajes sin valores y versión atada al
+    # token, T029-T031). Al integrar la 030 en la rama del programa, la
+    # huella de `supervisor` es la del texto mezclado: «apps (add-ons)» y los
+    # jobs de la 027 y la remisión a `updates` de la 015, más lo de la 030.
+    _HUELLAS = {
+        "supervisor": "59ff6dec570dcfbf",
+        "marketplace": "f83ec233a87ad95b",
+        "system_diagnostics": "50509e336b5ca215",
+        "security": "157ee929e7db08ae",
+        "workflows": "53b81454a6708b9a",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_cinco_tools(self) -> None:
+        texto = await self.guide("app_store")
+        self.assertIs(texto, _GUIDE["app_store"])
+        for palabra in ("sv_list_store_repositories", "sv_add_store_repository",
+                        "sv_remove_store_repository", "sv_repair_store_repository",
+                        "sv_reload_store", "CÓDIGO DE TERCEROS", "DOS PASOS",
+                        "EXACTA", "***REDACTED***", "NO instala",
+                        "repository_already_added", "builtin_repository",
+                        "repository_in_use", "sv_uninstall_addon", "not_supported",
+                        "_third_party_text", "Marketplace", "marketplace"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        # Reparar frente a recargar.
+        self.assertIn("Reparar arregla UN repositorio roto; recargar trae lo nuevo de todos",
+                      texto)
+
+    async def test_alias(self) -> None:
+        texto = _GUIDE["app_store"]
+        for alias in ("store", "tienda", "repositories", "repository",
+                      "repositorios", "STORE"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_tramo_2_fichas_reconstruir_y_version(self) -> None:
+        """T024 (FR-011, FR-020): las nueve tools, que changelog y
+        documentación son de la versión de la tienda y por trozos, la
+        disponibilidad, reconstruir (local frente a `force`, qué pasa si
+        falla) y que no se puede elegir versión, con la vuelta atrás."""
+        texto = " ".join(_GUIDE["app_store"].split())
+        for palabra in ("sv_get_addon_changelog", "sv_get_addon_documentation",
+                        "sv_get_addon_availability", "sv_rebuild_addon",
+                        "versión de la TIENDA", "POR TROZOS", "next_offset",
+                        "changelog_not_found", "documentation_not_found",
+                        "arquitectura", "force=true", "Si la construcción FALLA",
+                        "rebuild_version_changed", "rebuild_not_supported",
+                        "addon_not_in_store", "already_up_to_date",
+                        "NO SE PUEDE ELEGIR", "sv_restore_backup_partial",
+                        "usuario, contraseña o token"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("changelog", "documentation", "rebuild", "availability"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), _GUIDE["app_store"])
+
+    async def test_el_tema_supervisor_remite(self) -> None:
+        texto = " ".join(_GUIDE["supervisor"].split())
+        for palabra in ('hermes_guide("app_store")', "VALIDA las opciones",
+                        "invalid_options", "addon_not_available",
+                        "principio del changelog", "no se puede elegir otra"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    async def test_la_busqueda_de_la_tabla_lista_las_dedicadas(self) -> None:
+        texto = await self.guide("generic_commands", search="store")
+        for palabra in ("sv_get_addon_changelog", "sv_get_addon_availability",
+                        "sv_install_addon", "sv_list_store_repositories", "dedicated"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        texto = await self.guide("generic_commands", search="rebuild")
+        self.assertIn("sv_rebuild_addon", texto)
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`app_store`", await self.guide())
+        self.assertIn("app_store", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"app_store"}))
+        self.assertNotIn("app_store", sin)
+        self.assertNotIn("@", sin)
+        self.assertIn("marketplace, security", sin)
+
+    def test_los_temas_que_no_toca_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)
+
+
 if __name__ == "__main__":
     unittest.main()
 

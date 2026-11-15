@@ -8,7 +8,7 @@ suite normal (sin HA ni Docker):
         ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 1 + 0)
       ∪ cobertura.PROBADAS_GENERICAS ∪ cobertura.NO_EJECUTABLES_GENERICAS (011, 1 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
-      ∪ FUERA_DEL_BANCO                                              (31)
+      ∪ FUERA_DEL_BANCO                                              (36)
       ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 3)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
@@ -179,6 +179,20 @@ _SV_AVISOS = (
     "avisos del Supervisor: solo existen en el Supervisor real; se prueba con "
     "simuladores en la suite normal y en la VM de la 014"
 )
+# Spec 030 (FR-022): repositorios de la tienda de apps.
+_SV_TIENDA = (
+    "tienda de apps: la tienda y sus repositorios solo existen en el "
+    "Supervisor real, con internet (clonar, git pull); el del banco es un "
+    "simulado que solo reenvía a Core; se prueba con simuladores en la suite "
+    "normal y en la VM de la 014"
+)
+# Spec 030, tramo 2 (FR-022): reconstruir una app.
+_SV_APPS_TIENDA = (
+    "apps de la tienda: reconstruir necesita una app instalada en un "
+    "Supervisor real (Docker, imagen local o descargada); el del banco es un "
+    "simulado que solo reenvía a Core; se prueba con simuladores en la suite "
+    "normal y en la VM de la 014"
+)
 
 _SV_MONTAJES = (
     "montajes del Supervisor: necesitan un recurso CIFS o NFS (o un disco) y "
@@ -225,4 +239,9 @@ FUERA_DEL_BANCO: dict[str, str] = {
     # no tiene backups ni montajes.
     "sv_set_backup_settings": _SV_MONTAJES,
     "sv_reload_backups": _SV_MONTAJES,
+    "sv_add_store_repository": _SV_TIENDA,
+    "sv_remove_store_repository": _SV_TIENDA,
+    "sv_repair_store_repository": _SV_TIENDA,
+    "sv_reload_store": _SV_TIENDA,
+    "sv_rebuild_addon": _SV_APPS_TIENDA,
 }

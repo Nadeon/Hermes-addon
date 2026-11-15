@@ -398,6 +398,17 @@ def register_all_tools(
         from hermes.tools.update_entities import register as register_update_entities
         register_update_entities(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Tienda de apps del Supervisor (spec 030): repositorios y recarga (tramo
+    # 1), fichas, disponibilidad y reconstrucción (tramo 2). Añadir y quitar
+    # un repositorio y reconstruir una app piden confirmación; la lista y los
+    # textos reciben `response_max_bytes` para recortarse (lista por el final
+    # con `truncated`, textos por trozos con `next_offset`).
+    if _activa("app_store"):
+        from hermes.tools.store_apps import register as register_store_apps
+        from hermes.tools.store_repositories import register as register_store_repositories
+        register_store_repositories(mcp, ha_client, response_max_bytes=response_max_bytes)
+        register_store_apps(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

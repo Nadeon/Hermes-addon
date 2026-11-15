@@ -387,6 +387,14 @@ class TestPistasYMotivos(unittest.TestCase):
 # `/addons/{app}/logs/latest` y `/addons/{app}/logs/boots/{bootid}`.
 _DE_LA_1_1_2_AMPLIADAS: dict[str, str] = {
     "sv_get_addon_logs": "spec 013 (CAP-081): `boot` y `latest`",
+    # Spec 030 (research R-2 y R-7): el Supervisor 2026.11.0 ignora
+    # `{version}`, así que esas rutas son las de las tools sin versión de la
+    # 1.1.2; la validación de opciones va en la vista previa de
+    # `sv_set_addon_options`. Ninguna gana argumentos: ganan vista previa.
+    "sv_install_addon": "spec 030 (CAP-082): ignora `{version}`; vista previa con la tienda",
+    "sv_update_addon": "spec 030 (CAP-082): ignora `{version}`; vista previa con el changelog",
+    "sv_get_addon": "spec 030 (CAP-082): `GET /store/addons/{app}/{version}` ignora la versión",
+    "sv_set_addon_options": "spec 030 (CAP-093): valida las opciones en la vista previa",
 }
 
 _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
@@ -734,6 +742,116 @@ class TestActualizacionesDeLa015(unittest.TestCase):
         for p in ("audio", "cli", "dns", "multicast", "observer"):
             with self.subTest(p=p):
                 self.assertEqual(ct.SUPERVISOR[("POST", f"/{p}/update")].category, "confirm")
+
+
+# Spec 030, tramo 1 (data-model, «Entradas de la tabla que cambian»): las siete
+# rutas de repositorios y recarga de la tienda (CAP-082) → (tool, motivo).
+_TIENDA_030_T1: dict[tuple[str, str], tuple[str, str]] = {
+    ("GET", "/store"): (
+        "sv_list_store_repositories",
+        "cubierto por sv_list_store_repositories (repositorios) y sv_list_addons (apps)"),
+    ("GET", "/store/repositories"): (
+        "sv_list_store_repositories", "cubierto por sv_list_store_repositories"),
+    ("GET", "/store/repositories/{repository}"): (
+        "sv_list_store_repositories",
+        "cubierto por sv_list_store_repositories(repository=…)"),
+    ("POST", "/store/repositories"): (
+        "sv_add_store_repository", "cubierto por sv_add_store_repository"),
+    ("DELETE", "/store/repositories/{repository}"): (
+        "sv_remove_store_repository", "cubierto por sv_remove_store_repository"),
+    ("POST", "/store/repositories/{repository}/repair"): (
+        "sv_repair_store_repository", "cubierto por sv_repair_store_repository"),
+    ("POST", "/store/reload"): ("sv_reload_store", "cubierto por sv_reload_store"),
+}
+
+# Spec 030, tramo 2: las ocho restantes → (tool, familia, CAP, motivo). Tres
+# rutas con `{version}` apuntan a la tool SIN versión de la 1.1.2 porque el
+# Supervisor 2026.11.0 ignora `{version}` (research R-2; desviación de FR-051).
+_TIENDA_030_T2: dict[tuple[str, str], tuple[str, str, str, str]] = {
+    ("GET", "/store/addons/{app}/changelog"): (
+        "sv_get_addon_changelog", "app_store", "CAP-082",
+        "cubierto por sv_get_addon_changelog"),
+    ("GET", "/store/addons/{app}/documentation"): (
+        "sv_get_addon_documentation", "app_store", "CAP-082",
+        "cubierto por sv_get_addon_documentation"),
+    ("GET", "/store/addons/{app}/availability"): (
+        "sv_get_addon_availability", "app_store", "CAP-082",
+        "cubierto por sv_get_addon_availability"),
+    ("GET", "/store/addons/{app}/{version}"): (
+        "sv_get_addon", "supervisor", "CAP-082",
+        "el Supervisor 2026.11.0 ignora `{version}` y devuelve la ficha actual: "
+        "cubierto por sv_get_addon"),
+    ("POST", "/store/addons/{app}/install/{version}"): (
+        "sv_install_addon", "supervisor", "CAP-082",
+        "el Supervisor 2026.11.0 ignora `{version}` e instala la de la tienda: "
+        "cubierto por sv_install_addon"),
+    ("POST", "/store/addons/{app}/update/{version}"): (
+        "sv_update_addon", "supervisor", "CAP-082",
+        "el Supervisor 2026.11.0 ignora `{version}` y actualiza a la de la tienda: "
+        "cubierto por sv_update_addon"),
+    ("POST", "/addons/{app}/options/validate"): (
+        "sv_set_addon_options", "supervisor", "CAP-093",
+        "cubierto por sv_set_addon_options (valida en la vista previa)"),
+    ("POST", "/addons/{app}/rebuild"): (
+        "sv_rebuild_addon", "app_store", "CAP-093", "cubierto por sv_rebuild_addon"),
+}
+
+# Iconos, logos y alias legados de la tienda: clase B, siguen `deny`.
+_TIENDA_DENY_030: tuple[tuple[str, str], ...] = (
+    ("GET", "/store/addons/{app}/icon"), ("GET", "/store/addons/{app}/logo"),
+    ("GET", "/addons/{app}/icon"), ("GET", "/addons/{app}/logo"),
+    ("GET", "/addons/{app}/changelog"), ("GET", "/addons/{app}/documentation"),
+    ("POST", "/addons/{app}/install"), ("POST", "/addons/{app}/update"),
+    ("POST", "/addons/reload"),
+)
+
+
+class TestTiendaDeLa030(unittest.TestCase):
+    """FR-014 de la 030: las siete rutas de repositorios y recarga (tramo 1)
+    y las ocho de fichas, versiones, validación y reconstrucción (tramo 2)
+    pasan a `dedicated`; iconos, logos y alias legados siguen `deny` (clase
+    B); no queda ninguna «spec 030».
+
+    Control negativo (T012 g): dejar `POST /store/repositories` como `deny`
+    → cae `test_siete_rutas_dedicadas` nombrándola."""
+
+    def test_siete_rutas_dedicadas(self) -> None:
+        self.assertEqual(len(_TIENDA_030_T1), 7)
+        malas = []
+        for k, (tool, motivo) in _TIENDA_030_T1.items():
+            e = ct.SUPERVISOR[k]
+            esperado = ("dedicated", tool, "app_store", "CAP-082", motivo)
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != esperado:
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_iconos_logos_y_alias_siguen_deny(self) -> None:
+        abiertas = sorted(
+            str(k) for k in _TIENDA_DENY_030
+            if ct.SUPERVISOR[k].category != "deny" or "clase B" not in ct.SUPERVISOR[k].reason)
+        self.assertEqual(abiertas, [])
+
+    def test_ocho_rutas_del_tramo_2(self) -> None:
+        """T022 (FR-011, FR-014). Control negativo (T026 g): dejar
+        `POST /addons/{app}/rebuild` como `deny` → cae este test nombrándola,
+        `test_ninguna_pendiente` y el de las genéricas."""
+        self.assertEqual(len(_TIENDA_030_T2), 8)
+        malas = []
+        for k, (tool, familia, cap, motivo) in _TIENDA_030_T2.items():
+            e = ct.SUPERVISOR[k]
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != ("dedicated", tool, familia, cap, motivo):
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_ninguna_pendiente(self) -> None:
+        pendientes = sorted(
+            str(k) for k, e in ct.SUPERVISOR.items() if "spec 030" in e.reason)
+        self.assertEqual(pendientes, [])
+        texto = (_RAIZ / "hermes" / "src" / "hermes" / "command_table.py").read_text(
+            encoding="utf-8")
+        self.assertEqual(texto.count("spec 030"), 0)
 
 
 if __name__ == "__main__":
