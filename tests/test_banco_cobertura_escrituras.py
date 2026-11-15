@@ -38,6 +38,7 @@ from tests.banco import cobertura, cobertura_012 as c012, cobertura_015 as c015
 from tests.banco import cobertura_016 as c016
 from tests.banco import cobertura_017 as c017
 from tests.banco import cobertura_020 as c020
+from tests.banco import cobertura_026 as c026
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -84,6 +85,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 020 (contrato de la 028): mantenimiento de estadísticas.
         "PROBADAS_020": set(c020.PROBADAS_020),
         "NO_EJECUTABLES_020": set(c020.NO_EJECUTABLES_020),
+        # Spec 026 (contrato de la 028): mantenimiento del Marketplace.
+        "PROBADAS_026": set(c026.PROBADAS_026),
+        "NO_EJECUTABLES_026": set(c026.NO_EJECUTABLES_026),
     }
 
 
@@ -111,8 +115,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # y borrar blueprints del tramo A e importar del tramo B), y las 6 de la
         # 020 (5 de estadísticas de los tramos 1 y 2 y la de energía del 3), y
         # las 8 de la 022 (7 de control de Core y del Supervisor del tramo 1 y
-        # la de aplicar sugerencias del tramo 2).
-        self.assertEqual(len(reales), 175)
+        # la de aplicar sugerencias del tramo 2), y las 4 del tramo 1 de la
+        # 026 (mantenimiento del Marketplace).
+        self.assertEqual(len(reales), 179)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -170,7 +175,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
             | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
             | c016.PROBADAS_016 | c017.PROBADAS_017 | c020.PROBADAS_020
-            | c020.LECTURAS_020,
+            | c020.LECTURAS_020 | c026.PROBADAS_026,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}

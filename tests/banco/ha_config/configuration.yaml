@@ -221,3 +221,13 @@ template:
 # del recorder; sin hardware ni internet (la previsión solar solo devuelve lo
 # que tienen las integraciones de previsión, y aquí no hay ninguna).
 energy:
+# ── Spec 026 (tramo 1): Marketplace ─────────────────────────────────────────
+#
+# El Marketplace (`marketplace`) no se declara aquí: está en
+# DEFAULT_INTEGRATIONS de HA 2026.11 y se carga siempre. Sin internet no
+# descarga el catálogo, así que no hay repositorios sobre los que actuar.
+# `.storage/marketplace.critical` (en esta carpeta) siembra UN aviso crítico
+# ficticio sin reconocer (`ejemplo/tarjeta-critica`) para que
+# `ha_marketplace_acknowledge_critical` tenga algo que reconocer contra HA
+# real (tests/banco/test_banco_marketplace.py). HA no lo pisa al arrancar: la
+# tarea que descarga los críticos falla sin red y retorna antes de guardar.
