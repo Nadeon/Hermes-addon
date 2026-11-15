@@ -487,9 +487,8 @@ def register(
         no se puede leer, cuenta como `None`: si la vista previa sí la leyó,
         no casa (fail-closed). Los argumentos y la petición, como en la 1.1.2.
 
-        `estado` es el estado leído ahora: `{"version_latest"}` al
-        actualizar y, desde la 034, `{"version_latest", "privileges"}` al
-        instalar. El token solo guarda su huella, así que la pista no puede
+        `estado` es el estado leído ahora: desde la 034,
+        `{"version_latest", "privileges"}` al instalar y al actualizar. El token solo guarda su huella, así que la pista no puede
         decir cuál de los dos cambió.
         """
         valid, error, _ = await resolve_confirmation_token(
@@ -1066,9 +1065,12 @@ def register(
         rechaza SIN token con `store_copy_stale` (pista: `sv_reload_store`).
         También sin /addons, si es demasiado grande para comprobarlo a
         tiempo, sin la app en su índice, con dos `config.*` válidos para el
-        mismo slug o con alguno que Hermes no puede leer. Un `config.*` que
-        el Supervisor descartaría (sin `slug`, inválido…) no bloquea: sale en
-        `ignored_config_files` con su motivo. Se comprueba en la vista previa
+        mismo slug, con alguno que Hermes no puede leer, con alguno que hace
+        fallar toda recarga en el Supervisor (arréglalo o quítalo), o si el
+        Supervisor tiene una recarga de la tienda en curso (o su lista de
+        jobs no responde). Un `config.*` que el Supervisor salta (sin
+        `slug`, YAML inválido…) no bloquea: sale en `ignored_config_files`
+        con su motivo. Se comprueba en la vista previa
         y otra vez al confirmar, junto con la petición, sin que ninguna
         escritura de Hermes en /addons se cuele entre medias; si otra
         operación de Hermes retiene /addons más de 15 s, `folder_busy` sin
@@ -1110,7 +1112,7 @@ def register(
                 return rechazo
             # Convergencia T047: para una app local, el Supervisor instala su
             # copia de la última recarga de la tienda, no el fichero.
-            desfase, ignorados = await comprobar_copia_de_tienda(slug)
+            desfase, ignorados = await comprobar_copia_de_tienda(slug, ha_client)
             if desfase is not None:
                 return desfase
             if ignorados is not None:
@@ -1134,7 +1136,7 @@ def register(
                   "without confirmation_token)."))
         if rechazo is not None:
             return rechazo
-        desfase, _ = await comprobar_copia_de_tienda(slug)
+        desfase, _ = await comprobar_copia_de_tienda(slug, ha_client)
         if desfase is not None:
             await complete_confirmation_token(
                 confirmation_token, success=False, error="store_copy_stale")
@@ -1268,7 +1270,8 @@ def register(
         copia del `config.*`, la de la última recarga de la tienda. Si algo
         en /addons cambió después del inicio de la última recarga que lanzó
         Hermes, o no ha lanzado ninguna, `store_copy_stale` SIN token (pista:
-        `sv_reload_store`), en la vista previa y otra vez al confirmar, bajo
+        `sv_reload_store`; también por las demás causas de `sv_install_addon`,
+        como una recarga en curso en el Supervisor), en la vista previa y otra vez al confirmar, bajo
         el candado de /addons (`folder_busy` si otra operación de Hermes lo
         retiene más de 15 s, sin gastar el token).
 
@@ -1375,7 +1378,7 @@ def register(
             _poner_privilegios(preview, bloque, motivo_info)
             # Y, para una app local, la copia del Supervisor es la de la
             # última recarga, no el fichero (T047).
-            desfase, ignorados = await comprobar_copia_de_tienda(slug)
+            desfase, ignorados = await comprobar_copia_de_tienda(slug, ha_client)
             if desfase is not None:
                 return desfase
             if ignorados is not None:
@@ -1401,7 +1404,7 @@ def register(
                   "without confirmation_token)."))
         if rechazo is not None:
             return rechazo
-        desfase, _ = await comprobar_copia_de_tienda(slug)
+        desfase, _ = await comprobar_copia_de_tienda(slug, ha_client)
         if desfase is not None:
             await complete_confirmation_token(
                 confirmation_token, success=False, error="store_copy_stale")

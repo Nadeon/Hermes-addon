@@ -535,7 +535,9 @@ class TestEstadoDelToken(_Instalar):
         n = len(self.sv.llamadas)
         r = await self.t["sv_install_addon"](_LOCAL, confirmation_token=prev["confirmation_token"])
         self.assertEqual(r["job_id"], "abc")
-        [ficha_, post] = self.sv.llamadas[n:]
+        # Convergencia 3 (T058): entre medias, la lectura de `/jobs/info`.
+        [ficha_, jobs, post] = self.sv.llamadas[n:]
+        self.assertEqual((jobs["metodo"], jobs["ruta"]), ("GET", "/jobs/info"))
         self.assertEqual((ficha_["metodo"], ficha_["ruta"]), ("GET", f"/store/addons/{_LOCAL}"))
         self.assertEqual((post["metodo"], post["ruta"], post["json"], post["timeout"]),
                          ("POST", f"/store/addons/{_LOCAL}/install", {"background": True},
@@ -848,11 +850,17 @@ class TestCopiaDeTienda(_ConRaices):
         self.assertEqual(r.get("job_id"), "j1", r)
 
 
-class TestRecargasAnotadas(unittest.IsolatedAsyncioTestCase):
+class TestRecargasAnotadas(_ConRaices):
     """Las vías de Hermes que recargan la tienda anotan la hora de INICIO
     (antes de la petición) solo si el Supervisor respondió bien.
     Control negativo comprobado: sin `anotar_recarga_de_tienda` en
-    `sv_reload_store` cae `test_reload_store`."""
+    `sv_reload_store` cae `test_reload_store`. Con /addons de verdad (una
+    carpeta temporal): desde la convergencia 3 de la 034 (T057), sin poder
+    marcar /addons no se anota nada."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        _store._ULTIMA_RECARGA = None
 
     async def test_reload_store(self) -> None:
         from hermes.tools import store_repositories
@@ -881,6 +889,8 @@ class TestRecargasAnotadas(unittest.IsolatedAsyncioTestCase):
         class Cliente:
             async def sv_request(self, metodo: str, ruta: str, **_: Any) -> Any:
                 llamadas.append((metodo, ruta))
+                if ruta == "/jobs/info":
+                    return {"ignore_conditions": [], "jobs": []}
                 return {}
 
         mcp = _MCP()

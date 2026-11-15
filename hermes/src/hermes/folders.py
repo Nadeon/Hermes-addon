@@ -312,7 +312,7 @@ def recorrer(carpeta: Path) -> list[Entrada]:
     return entradas
 
 
-def fecha_mas_reciente(carpeta: Path) -> tuple[float, str]:
+def fecha_mas_reciente(carpeta: Path, marca_raiz_ns: int | None = None) -> tuple[float, str]:
     """La fecha de modificación más reciente de `carpeta` (incluida) y de
     TODO lo que hay debajo, a cualquier profundidad, y su ruta relativa
     (`"."` si es la raíz). Convergencia 2 (T051).
@@ -327,12 +327,22 @@ def fecha_mas_reciente(carpeta: Path) -> tuple[float, str]:
     Supervisor mira la del destino). Síncrono: quien llama lo manda a un
     hilo. Topes: `MAX_ENTRADAS` y `MAX_SEGUNDOS`.
 
+    Convergencia 3 (T057): `marca_raiz_ns` es la fecha EXACTA (en ns) que
+    Hermes puso a la raíz para obligar al Supervisor a releer en su última
+    recarga anotada. Si la raíz sigue teniendo justo esa fecha, la raíz no
+    cuenta (ese cambio es de Hermes y la recarga lo vio); cualquier otro
+    valor, también el de alguien que la toque después, cuenta como siempre.
+
     Raises:
         ArbolDemasiadoGrande: si pasa de un tope (quien llama no supone nada).
         OSError: si algo no se puede leer.
     """
     inicio = time.monotonic()
-    ultima, ruta = os.lstat(carpeta).st_mtime, "."
+    st_raiz = os.lstat(carpeta)
+    if marca_raiz_ns is not None and st_raiz.st_mtime_ns == marca_raiz_ns:
+        ultima, ruta = float("-inf"), "."
+    else:
+        ultima, ruta = st_raiz.st_mtime, "."
     vistas = 0
     pendientes: list[tuple[str, str]] = [(os.fspath(carpeta), "")]
     while pendientes:
@@ -732,6 +742,12 @@ class IndiceDeApps:
       symlink, que él seguiría; algo que no es un fichero regular; uno de más
       de 1 MiB; un error de E/S; un JSON con BOM), con el motivo. Podrían
       declarar cualquier app: fail-closed.
+    - `rompen_recarga` (convergencia 3, T059): los que el Supervisor NO
+      salta, porque al leerlos sale una excepción que no captura (un YAML
+      con una fecha imposible, `2001-13-01`, da `ValueError`, y
+      `read_yaml_file` solo captura `YAMLError`, `AttributeError`, `OSError`
+      y `UnicodeDecodeError`). Tumban la recarga entera de la tienda: no se
+      ignoran, bloquean.
     Un fichero que el Supervisor descartaría por otra regla de su esquema
     (un `arch` que no existe, un `map` mal escrito…) no se reconoce aquí y
     cuenta como app: fail-closed también.
@@ -740,6 +756,7 @@ class IndiceDeApps:
     configs: dict[str, str | None] = field(default_factory=dict)
     descartados: dict[str, str] = field(default_factory=dict)
     no_legibles: dict[str, str] = field(default_factory=dict)
+    rompen_recarga: dict[str, str] = field(default_factory=dict)
 
     @property
     def apps(self) -> dict[str, dict[str, str]]:
@@ -774,65 +791,91 @@ class IndiceDeApps:
         return None
 
 
-def _analizar_config(p: Path) -> tuple[str | None, str | None, str | None]:
-    """`(local_<slug> o None, motivo de descarte o None, motivo de no
-    legible o None)` de un `config.*` (T055)."""
+#: Lo que captura `read_yaml_file` del Supervisor (`utils/yaml.py`): con
+#: estas excepciones el fichero se salta (`ConfigurationFileError` en
+#: `store/data.py`); con cualquier otra, la recarga entera revienta
+#: (convergencia 3, T059). `OSError` no puede salir de cargar un texto.
+_YAML_QUE_EL_SUPERVISOR_SALTA: tuple[type[BaseException], ...] = (
+    yaml.YAMLError, AttributeError, UnicodeDecodeError)
+
+#: `(local_<slug> o None, motivo de descarte o None, motivo de no legible o
+#: None, motivo de que tumba la recarga o None)`.
+_Analisis = tuple[str | None, str | None, str | None, str | None]
+
+
+def _analizar_config(p: Path) -> _Analisis:
+    """El análisis (`_Analisis`) de un `config.*` (T055; el cuarto
+    elemento, convergencia 3, T059)."""
     try:
         st = os.lstat(p)
     except OSError:
-        return None, None, "it could not be checked (I/O error)"
+        return None, None, "it could not be checked (I/O error)", None
     # Un symlink no se sigue: podría apuntar fuera de /addons. El Supervisor
     # sí lo seguiría (`path.open`), así que no se sabe qué leería.
     if _stat.S_ISLNK(st.st_mode):
-        return None, None, "it is a symlink, which Hermes does not follow"
+        return None, None, "it is a symlink, which Hermes does not follow", None
     if not _stat.S_ISREG(st.st_mode):
-        return None, None, "it is not a regular file"
+        return None, None, "it is not a regular file", None
     if st.st_size > TAM_MAX_CONFIG:
-        return None, None, _MAYOR_QUE_EL_TOPE
+        return None, None, _MAYOR_QUE_EL_TOPE, None
     try:
         crudo = _fs.read_bytes(p, TAM_MAX_CONFIG + 1)
     except Exception:  # noqa: BLE001 — cualquier fallo de E/S: no se sabe
-        return None, None, "it could not be read (I/O error)"
+        return None, None, "it could not be read (I/O error)", None
     try:
         texto = crudo.decode("utf-8")
     except UnicodeDecodeError:
         # El Supervisor tampoco: `read_yaml_file` captura
         # `UnicodeDecodeError` y `orjson` rechaza el UTF-8 inválido.
-        return None, "it is not valid UTF-8", None
+        return None, "it is not valid UTF-8", None, None
     return _analizar_texto(texto, p.suffix)
 
 
-def _analizar_texto(texto: str, sufijo: str) -> tuple[str | None, str | None, str | None]:
+def _analizar_texto(texto: str, sufijo: str) -> _Analisis:
     """Como `_analizar_config`, sobre el texto ya leído."""
     if len(texto.encode("utf-8", "surrogatepass")) > TAM_MAX_CONFIG:
-        return None, None, _MAYOR_QUE_EL_TOPE
-    try:
-        if sufijo == ".json":
+        return None, None, _MAYOR_QUE_EL_TOPE, None
+    if sufijo == ".json":
+        try:
             datos = json.loads(texto)
-        else:
+        except Exception:  # noqa: BLE001 — cualquier fallo de sintaxis
+            if texto.startswith("\ufeff"):
+                # `json` no admite el BOM; no está comprobado que `orjson`,
+                # el del Supervisor, tampoco: no se supone.
+                return None, None, "it is JSON with a byte order mark", None
+            # `read_json_file` captura `ValueError` (el `JSONDecodeError` de
+            # `orjson`) y `TypeError`: el Supervisor lo salta. Lo que `json`
+            # no lee por profundidad (`RecursionError`, hacia los 3000
+            # niveles) tampoco lo lee `orjson` (tope de 1024).
+            return None, "it is not valid JSON", None, None
+    else:
+        try:
             # `read_yaml_file`: `load(..., Loader=SafeLoader) or {}`.
             datos = yaml.load(texto, Loader=_CARGADOR_YAML) or {}  # noqa: S506
-    except Exception:  # noqa: BLE001 — cualquier fallo de sintaxis
-        if sufijo == ".json" and texto.startswith("\ufeff"):
-            # `json` no admite el BOM; no está comprobado que `orjson`, el
-            # del Supervisor, tampoco: no se supone.
-            return None, None, "it is JSON with a byte order mark"
-        return None, ("it is not valid JSON" if sufijo == ".json"
-                      else "it is not valid YAML"), None
+        except _YAML_QUE_EL_SUPERVISOR_SALTA:
+            return None, "it is not valid YAML", None, None
+        except Exception as exc:  # noqa: BLE001 — lo que el Supervisor no captura
+            # Convergencia 3 (T059): el Supervisor no salta este fichero; la
+            # excepción sube por `_process_apps_config` y la recarga de la
+            # tienda entera falla (no se relee ninguna app).
+            return None, None, None, (
+                f"reading it as YAML raises {type(exc).__name__}, which the "
+                "Supervisor does not catch: every store reload fails while "
+                "this file is there")
     if not isinstance(datos, dict):
-        return None, "it is not a mapping", None
+        return None, "it is not a mapping", None, None
     slug = datos.get("slug")
     local = f"local_{slug}" if isinstance(slug, str) and slug.strip() else None
     if not datos.get("name"):
-        return local, "it has no 'name'", None
+        return local, "it has no 'name'", None, None
     for campo in CAMPOS_OBLIGATORIOS_CONFIG:
         if campo not in datos:
-            return local, f"it has no '{campo}'", None
+            return local, f"it has no '{campo}'", None, None
     if not isinstance(slug, str) or not _RE_SLUG_CAMPO.match(slug):
-        return local, "its 'slug' is not valid", None
+        return local, "its 'slug' is not valid", None, None
     if len(f"local_{slug}") > SLUG_MAX:
-        return local, f"its app slug is longer than {SLUG_MAX} characters", None
-    return local, None, None
+        return local, f"its app slug is longer than {SLUG_MAX} characters", None, None
+    return local, None, None, None
 
 
 def slug_de_texto(texto: str, sufijo: str) -> str | None:
@@ -861,6 +904,7 @@ def indice_de_apps_locales(base: Path | None = None) -> IndiceDeApps:
     configs: dict[str, str | None] = {}
     descartados: dict[str, str] = {}
     no_legibles: dict[str, str] = {}
+    rompen_recarga: dict[str, str] = {}
     for dirpath, dirnames, filenames in os.walk(raiz_addons, followlinks=False):
         dirnames[:] = sorted(
             d for d in dirnames if not d.startswith(".") and d != "rootfs"
@@ -872,13 +916,15 @@ def indice_de_apps_locales(base: Path | None = None) -> IndiceDeApps:
             if Path(nombre).suffix not in SUFIJOS_CONFIG:
                 continue
             rel = nombre if rel_dir == "." else rel_dir + "/" + nombre
-            slug, descarte, no_legible = _analizar_config(Path(dirpath) / nombre)
+            slug, descarte, no_legible, rompe = _analizar_config(Path(dirpath) / nombre)
             configs[rel] = slug
             if descarte is not None:
                 descartados[rel] = descarte
             if no_legible is not None:
                 no_legibles[rel] = no_legible
-    return IndiceDeApps(configs, descartados, no_legibles)
+            if rompe is not None:
+                rompen_recarga[rel] = rompe
+    return IndiceDeApps(configs, descartados, no_legibles, rompen_recarga)
 
 
 def es_config_candidato(rel: str) -> bool:

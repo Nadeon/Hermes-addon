@@ -409,9 +409,12 @@ def register(
         rejected WITHOUT a token with `store_copy_stale` (hint:
         sv_reload_store). Also without /addons, if it is too large to check
         in time, without the app in its index, with two valid config files
-        for the same slug or with one Hermes cannot read. A config file the
-        Supervisor would skip (no slug, invalid…) does not block: it is
-        listed in `ignored_config_files` with its reason. Checked in the
+        for the same slug, with one Hermes cannot read, with one that makes
+        every store reload fail in the Supervisor (fix or remove it), or
+        while the Supervisor has a store reload still running (or its job
+        list does not answer). A config file the Supervisor skips (no slug,
+        invalid YAML…) does not block: it is listed in
+        `ignored_config_files` with its reason. Checked in the
         preview and again when confirming, together with the request, with
         no Hermes write to /addons in between; if another Hermes operation
         holds /addons for more than 15 s, `folder_busy` without using the
@@ -477,7 +480,7 @@ def register(
             bloque = await _privilegios_de_reconstruir(slug, info, None)
             # Convergencia T047: para una app local, `rebuild` aplica la copia
             # de la última recarga de la tienda, no el fichero.
-            desfase, ignorados = await comprobar_copia_de_tienda(slug)
+            desfase, ignorados = await comprobar_copia_de_tienda(slug, ha_client)
             if desfase is not None:
                 return _rechazo(tool, desfase, slug=slug)
             preview["privileges"] = privilegios_para_mostrar(bloque)
@@ -512,7 +515,7 @@ def register(
                              "again without confirmation_token)."),
                 }
             return _rechazo(tool, {"error": error_token}, slug=slug)
-        desfase, _ = await comprobar_copia_de_tienda(slug)
+        desfase, _ = await comprobar_copia_de_tienda(slug, ha_client)
         if desfase is not None:
             await complete_confirmation_token(
                 confirmation_token, success=False, error="store_copy_stale")

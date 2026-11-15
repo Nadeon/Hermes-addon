@@ -194,15 +194,21 @@ class _Lento:
             self.traza.append(("entra", ruta, time.time()))
             await asyncio.sleep(0.05)
             self.traza.append(("sale", ruta, time.time()))
+        if ruta == "/jobs/info":
+            # Convergencia 3 (T058): ninguna recarga en curso.
+            return {"ignore_conditions": [], "jobs": []}
         return {}
 
 
-class TestRecargasEnSerie(unittest.IsolatedAsyncioTestCase):
+class TestRecargasEnSerie(_ConRaices):
     """Control negativo comprobado: sin `async with candado_de_recarga()` en
     `sv_reload_store` caen `test_dos_recargas_a_la_vez_van_en_serie` (la
     traza se entrelaza) y `test_recargar_y_buscar_actualizaciones_comparten`."""
 
     def setUp(self) -> None:
+        # Con /addons de verdad (carpeta temporal): la convergencia 3 (T057)
+        # solo anota si pudo marcarla.
+        super().setUp()
         _store._ULTIMA_RECARGA = None
         self.sv = _Lento()
         mcp = _MCP()

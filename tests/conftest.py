@@ -143,5 +143,7 @@ def _sin_recarga_de_tienda_conocida():
     from hermes.tools import _store
 
     _store._ULTIMA_RECARGA = None
+    _store._MARCA_RAIZ_NS = None  # convergencia 3 de la 034 (T057)
     yield
     _store._ULTIMA_RECARGA = None
+    _store._MARCA_RAIZ_NS = None

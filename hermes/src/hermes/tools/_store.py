@@ -27,7 +27,9 @@ import hashlib
 import json
 import os
 import re
+import time
 import weakref
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
@@ -735,6 +737,21 @@ async def leer_declarado(slug: str) -> tuple[Any, str | None]:
 #: Hora (`time.time()`) del INICIO de la última recarga de la tienda que lanzó
 #: Hermes y que terminó bien. `None` desde que arranca: ninguna conocida.
 _ULTIMA_RECARGA: float | None = None
+#: Convergencia 3 (T057): la fecha EXACTA (`st_mtime_ns`, leída de vuelta)
+#: que Hermes puso a la raíz de /addons en esa misma recarga para obligar al
+#: Supervisor a releer las apps locales. Solo ese valor exacto deja de contar
+#: como cambio; `None`: ninguno.
+_MARCA_RAIZ_NS: int | None = None
+#: Los jobs del Supervisor 2026.11.0 que releen las fichas de la tienda
+#: (`store/__init__.py`): `reload` (también la recarga programada,
+#: `tasks_reload_store`, que lo lleva de hijo), añadir un repositorio y
+#: `update_repositories`. Mientras uno no ha terminado, su copia está a medias
+#: (convergencia 3, T058).
+JOBS_DE_RECARGA: frozenset[str] = frozenset({
+    "store_manager_reload",
+    "store_manager_add_repository",
+    "store_manager_update_repositories",
+})
 #: Margen para las fechas de los ficheros (hay sistemas de ficheros con una
 #: resolución de hasta 2 s): un fichero escrito justo antes de recargar
 #: cuenta como posterior.
@@ -766,19 +783,136 @@ def candado_de_recarga() -> asyncio.Lock:
     return lock
 
 
-def anotar_recarga_de_tienda(inicio: float) -> None:
+def anotar_recarga_de_tienda(inicio: float, marca_raiz_ns: int | None = None) -> None:
     """Anota una recarga de la tienda que Hermes lanzó a las `inicio` (antes
     de mandar la petición, con `candado_de_recarga` cogido) y que el
     Supervisor completó. La llaman `sv_reload_store`, `sv_check_for_updates`
     (`/refresh_updates` recarga la tienda) y `sv_add_store_repository` /
-    `sv_remove_store_repository` (que vuelven a leer todas las fichas)."""
-    global _ULTIMA_RECARGA
+    `sv_remove_store_repository` (que vuelven a leer todas las fichas), solo
+    si `recarga_valida_para_apps_locales` lo dice (convergencia 3).
+    `marca_raiz_ns` es la fecha que esa recarga puso a la raíz de /addons:
+    se registra A LA VEZ que el inicio, para que una marca de una recarga
+    que falló nunca deje de contar como cambio."""
+    global _ULTIMA_RECARGA, _MARCA_RAIZ_NS
     if _ULTIMA_RECARGA is None or inicio > _ULTIMA_RECARGA:
         _ULTIMA_RECARGA = inicio
+        _MARCA_RAIZ_NS = marca_raiz_ns
 
 
 def ultima_recarga_de_tienda() -> float | None:
     return _ULTIMA_RECARGA
+
+
+# ── Convergencia 3: obligar al Supervisor a releer (T057) y jobs (T058) ──────
+#
+# T057. El Supervisor solo relee las apps locales si la fecha más reciente de
+# /addons (`utils.get_latest_mtime`: `stat().st_mtime` de la raíz y de todo
+# lo que hay debajo, el máximo) es DISTINTA (`!=`) de la que guardó la vez
+# anterior (`RepositoryLocal.update`, `store/repository.py`). Y la guarda
+# ANTES de releer (`data.update()`, en `StoreManager.reload`): si releer
+# revienta (un `config.*` que tumba la recarga), la recarga da error pero la
+# fecha queda guardada, y la siguiente vuelve «bien» sin releer nada. Por
+# eso, antes de cada recarga suya, Hermes cambia la fecha de la raíz de
+# /addons a una MAYOR que la que tenía y que la hora actual: el máximo cambia
+# y el Supervisor relee (o la recarga falla, y entonces no se anota). Basta
+# la raíz: entra en el máximo (`directory.stat()`), y cambiarla no toca
+# ningún fichero.
+#
+# T058. La API responde cuando su recarga termina (`api/store.py`), pero si
+# Hermes deja de esperar (se cancela la llamada o vence el tiempo) la
+# recarga sigue en el Supervisor (`asyncio.shield`), y una recarga de
+# Hermes posterior puede volver al instante sin haber releído. Mientras haya
+# un job de `JOBS_DE_RECARGA` sin terminar (`GET /jobs/info`), la copia de
+# la tienda no es fiable: no se anota una recarga que lo encuentre, y
+# `store_copy_stale` rechaza.
+
+
+#: Lo mínimo que se adelanta la marca sobre la fecha que tenía la raíz: así
+#: el `float` de `st_mtime` que compara el Supervisor también cambia (a esta
+#: escala, un `float` distingue unos 0,24 µs).
+_SALTO_MARCA_NS = 1_000_000
+
+
+def marcar_raiz_de_addons() -> int | None:
+    """Pone a la raíz de /addons una fecha nueva (T057) y devuelve la que
+    ha quedado, leída de vuelta (el sistema de ficheros puede redondearla),
+    o `None` si /addons no está o el cambio no se pudo hacer o no cambió
+    nada. Síncrono: quien llama lo manda a un hilo."""
+    from hermes import folders
+
+    try:
+        base = folders.raiz("addons")
+        antes = os.lstat(base).st_mtime_ns
+        marca = max(time.time_ns(), antes + _SALTO_MARCA_NS)
+        # La raíz ya viene resuelta (`ADDONS_BASE`): no es un symlink.
+        os.utime(base, ns=(marca, marca))
+        despues = os.lstat(base).st_mtime_ns
+    except (folders.CarpetaError, OSError, NotImplementedError):
+        return None
+    return despues if despues != antes else None
+
+
+def _hay_job_de_recarga(datos: Any) -> list[str]:
+    """Los jobs de `JOBS_DE_RECARGA` sin terminar en el árbol de `/jobs/info`
+    (hijos incluidos; `done` es `None` en uno creado y aún no arrancado).
+    Una forma inesperada lanza `ValueError` (quien llama no supone nada)."""
+    if not isinstance(datos, dict) or not isinstance(datos.get("jobs"), list):
+        raise ValueError("unexpected /jobs/info shape")
+    en_curso: list[str] = []
+    pendientes = list(datos["jobs"])
+    while pendientes:
+        job = pendientes.pop(0)
+        if not isinstance(job, dict):
+            raise ValueError("unexpected job shape")
+        if job.get("name") in JOBS_DE_RECARGA and job.get("done") is not True:
+            en_curso.append(job["name"])
+        hijos = job.get("child_jobs") or []
+        if not isinstance(hijos, list):
+            raise ValueError("unexpected child_jobs shape")
+        pendientes.extend(hijos)
+    return en_curso
+
+
+async def jobs_de_recarga_en_curso(ha_client: Any) -> list[str] | None:
+    """Los nombres de los jobs de recarga de la tienda sin terminar, o `None`
+    si `/jobs/info` no responde o responde algo que no se entiende (no se
+    sabe: quien llama falla cerrado)."""
+    try:
+        datos = await ha_client.sv_request("GET", "/jobs/info")
+        return _hay_job_de_recarga(datos)
+    except Exception:  # noqa: BLE001 — caído, 4xx, forma rara: no se sabe
+        return None
+
+
+@dataclass
+class RecargaDeTienda:
+    """Una recarga de la tienda que Hermes va a lanzar (con
+    `candado_de_recarga` cogido)."""
+
+    inicio: float
+    marca_raiz_ns: int | None
+    limpia_al_empezar: bool
+
+
+async def empezar_recarga_de_tienda(ha_client: Any) -> RecargaDeTienda:
+    """Justo antes de mandar la petición de recarga: mira si hay otra recarga
+    en curso en el Supervisor (T058), marca la raíz de /addons (T057) y toma
+    la hora de inicio, en ese orden."""
+    en_curso = await jobs_de_recarga_en_curso(ha_client)
+    marca = await asyncio.to_thread(marcar_raiz_de_addons)
+    return RecargaDeTienda(inicio=time.time(), marca_raiz_ns=marca,
+                           limpia_al_empezar=en_curso == [])
+
+
+async def recarga_valida_para_apps_locales(ha_client: Any, recarga: RecargaDeTienda) -> bool:
+    """Tras una recarga que el Supervisor respondió bien: True si se puede
+    anotar (`anotar_recarga_de_tienda`). No, si la marca de /addons no se
+    pudo poner (el Supervisor quizá no releyó las apps locales), si al
+    empezar había otra recarga en curso, o si ahora la hay o no se sabe
+    (fail-closed)."""
+    if recarga.marca_raiz_ns is None or not recarga.limpia_al_empezar:
+        return False
+    return await jobs_de_recarga_en_curso(ha_client) == []
 
 
 def _desfasada(slug: str, motivo: str) -> dict[str, Any]:
@@ -806,7 +940,9 @@ def _lista_de_motivos(motivos: dict[str, str]) -> str:
 
 
 def _nota_de_ignorados(indice: Any) -> dict[str, Any] | None:
-    """La nota de los `config.*` que el Supervisor descartaría (T055)."""
+    """La nota de los `config.*` que el Supervisor descartaría (T055). Solo
+    los que de verdad salta (convergencia 3, T059): los que tumban la
+    recarga no salen aquí, bloquean (`store_copy_stale`)."""
     if not indice.descartados:
         return None
     rutas = sorted(indice.descartados)
@@ -814,8 +950,9 @@ def _nota_de_ignorados(indice: Any) -> dict[str, Any] | None:
         "files": [{"path": r, "reason": indice.descartados[r]}
                   for r in rutas[:_MAX_IGNORADOS]],
         "count": len(rutas),
-        "note": ("The Supervisor skips these config files when it reloads the "
-                 "store, so they declare no app and do not affect this one."),
+        "note": ("The Supervisor skips each of these config files when it "
+                 "reloads the store (it logs a warning and goes on with the "
+                 "rest), so they declare no app."),
     }
 
 
@@ -841,6 +978,17 @@ def copia_de_tienda_desfasada(slug: str) -> tuple[dict[str, Any] | None, dict[st
     except OSError:
         return _desfasada(slug, "The /addons folder could not be read."), None
     nota = _nota_de_ignorados(indice)
+    if indice.rompen_recarga:
+        # Convergencia 3 (T059): con uno de estos, toda recarga de la tienda
+        # falla en el Supervisor: su copia no se puede poner al día.
+        rechazo = _desfasada(slug, "Some config files in /addons make every store "
+                                   "reload fail in the Supervisor ("
+                                   + _lista_de_motivos(indice.rompen_recarga)
+                                   + "), so its copy of the apps cannot be "
+                                   "brought up to date.")
+        rechazo["hint"] = ("Fix or remove those config files, reload the store "
+                           "with sv_reload_store and request a new preview.")
+        return rechazo, nota
     declarantes = indice.declarantes(slug)
     if not declarantes:
         sueltos = {c: indice.descartados[c] for c, s in indice.configs.items()
@@ -864,7 +1012,9 @@ def copia_de_tienda_desfasada(slug: str) -> tuple[dict[str, Any] | None, dict[st
         return _desfasada(slug, "Hermes has not reloaded the store since it started, "
                                 "so it does not know which copy the Supervisor has."), nota
     try:
-        fecha, ruta = folders.fecha_mas_reciente(base)
+        # Convergencia 3 (T057): la marca que puso Hermes en esa misma
+        # recarga, con su valor exacto, no cuenta; cualquier otro, sí.
+        fecha, ruta = folders.fecha_mas_reciente(base, marca_raiz_ns=_MARCA_RAIZ_NS)
     except folders.ArbolDemasiadoGrande as exc:
         return _desfasada(slug, "/addons is too large to check in time (" + exc.detail
                                 + "), so it is unknown whether it changed after "
@@ -880,9 +1030,31 @@ def copia_de_tienda_desfasada(slug: str) -> tuple[dict[str, Any] | None, dict[st
     return None, nota
 
 
-async def comprobar_copia_de_tienda(slug: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """`copia_de_tienda_desfasada` en un hilo."""
-    return await asyncio.to_thread(copia_de_tienda_desfasada, slug)
+async def comprobar_copia_de_tienda(
+    slug: str, ha_client: Any,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """`copia_de_tienda_desfasada` en un hilo y, para una app `local_*` que
+    pasa, que no haya una recarga de la tienda en curso en el Supervisor
+    (convergencia 3, T058): su copia estaría a medias. Si `/jobs/info` no
+    responde, tampoco se supone nada."""
+    rechazo, nota = await asyncio.to_thread(copia_de_tienda_desfasada, slug)
+    if rechazo is not None or not (isinstance(slug, str) and slug.startswith("local_")):
+        return rechazo, nota
+    en_curso = await jobs_de_recarga_en_curso(ha_client)
+    if en_curso is None:
+        return _desfasada(slug, "The Supervisor's job list could not be read, so "
+                                "it is unknown whether a store reload is still "
+                                "running."), nota
+    if en_curso:
+        rechazo = _desfasada(slug, "A store reload is still running in the "
+                                   "Supervisor (" + ", ".join(sorted(set(en_curso)))
+                                   + "), so its copy of the apps may be half "
+                                   "updated.")
+        rechazo["hint"] = ("Wait until it finishes (sv_list_pending_jobs), reload "
+                           "the store with sv_reload_store and request a new "
+                           "preview.")
+        return rechazo, nota
+    return None, nota
 
 
 def candado_de_app(slug: str) -> Any:

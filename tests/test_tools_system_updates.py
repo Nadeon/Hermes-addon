@@ -401,7 +401,10 @@ class TestBuscar(_Base):
         self.assertEqual(posts[0]["ruta"], "/refresh_updates")
         self.assertEqual(posts[0]["timeout"], 120)
         # El POST va antes que la lista: si no, devolvería la caché vieja.
-        self.assertEqual(self.sv.llamadas[0]["ruta"], "/refresh_updates")
+        # Antes solo va la lectura de `/jobs/info` (convergencia 3 de la
+        # 034, T058: ¿hay otra recarga de la tienda en curso?).
+        rutas = [c["ruta"] for c in self.sv.llamadas]
+        self.assertEqual(rutas[:2], ["/jobs/info", "/refresh_updates"])
         self.assertEqual(r["count"], 4)
         self.assertIs(r["refreshed"], True)
         self.assertNotIn("/reload_updates", [c["ruta"] for c in self.sv.llamadas])
@@ -415,7 +418,8 @@ class TestBuscar(_Base):
         texto = json.dumps(r) + repr(logs)
         self.assertNotIn(CENTINELA_PASSWORD, texto)
         self.assertNotIn(CENTINELA_JWT, texto)
-        self.assertEqual([c["ruta"] for c in self.sv.llamadas], ["/refresh_updates"])
+        self.assertEqual([c["ruta"] for c in self.sv.llamadas],
+                         ["/jobs/info", "/refresh_updates"])
 
 
 # ── sv_update_core: vista previa (FR-003, FR-004, FR-005, FR-010) ─────────────

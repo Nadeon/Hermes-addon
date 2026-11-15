@@ -978,9 +978,13 @@ APPS LOCALES INSTALADAS (solo addons)
   y pide otra vista previa. También sin /addons, si tiene más de 50 000
   entradas o tarda más de 10 s en recorrerse, sin la app en su índice, con
   dos `config.*` válidos del mismo slug o con alguno que Hermes no puede
-  leer (symlink, más de 1 MiB…). Un `config.*` que el Supervisor descarta
-  (sin `slug`, YAML roto, sin un campo obligatorio) no bloquea: sale en
-  `ignored_config_files` con su motivo.
+  leer (symlink, más de 1 MiB…). También si el Supervisor tiene una recarga
+  de la tienda en curso (o su lista de jobs no responde): espera a que
+  termine y recarga. Un `config.*` que el Supervisor SALTA (sin `slug`,
+  YAML roto, sin un campo obligatorio) no bloquea: sale en
+  `ignored_config_files` con su motivo. Uno que TUMBA toda recarga (por
+  ejemplo, un YAML con una fecha imposible, `2001-13-01`) sí bloquea, con
+  el motivo: arréglalo o quítalo y recarga.
 
 OTRAS REGLAS
 - Lista negra por NOMBRE de fichero, la misma de /config (secrets.yaml,
@@ -2179,9 +2183,13 @@ REPOSITORIOS Y RECARGA
   relee el catálogo: para que aparezcan apps o versiones nuevas. No instala
   ni actualiza nada. Puede tardar. Hermes anota cuándo EMPEZÓ: instalar,
   actualizar o reconstruir una app local exige una recarga posterior al
-  último cambio en /addons (si no, `store_copy_stale`). Las recargas que
+  último cambio en /addons (si no, `store_copy_stale`). Justo antes,
+  Hermes cambia la fecha de la propia carpeta /addons (sin tocar ningún
+  fichero) para que el Supervisor relea las apps locales. Las recargas que
   lanza Hermes (también `sv_check_for_updates` y añadir o quitar un
-  repositorio) van de una en una.
+  repositorio) esperan a que termine la anterior de Hermes; si el
+  Supervisor sigue con otra (una cancelada, la programada), la de Hermes no
+  cuenta para las apps locales.
 Reparar arregla UN repositorio roto; recargar trae lo nuevo de todos. Ninguna
 de las dos pide token.
 
