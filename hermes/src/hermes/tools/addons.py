@@ -56,7 +56,7 @@ from hermes.tools._common import ultimas_lineas_que_caben
 # La limpieza del eco del Supervisor vive en `_eco_supervisor` (cierre de
 # seguridad de la 1.2.0); se reexportan los nombres que usan los tests.
 from hermes.tools._eco_supervisor import (  # noqa: F401
-    _sin_valores_secretos,
+    _texto_sin_eco,
     _valores_secretos,
 )
 from hermes.tools._logs import (
@@ -446,7 +446,7 @@ def register(
         except HAConnectionError as exc:
             preview["validation"] = {
                 "checked": False,
-                "reason": _sin_valores_secretos(str(exc), actuales, finales),
+                "reason": _texto_sin_eco(str(exc), actuales, finales),
             }
             return None
         if not isinstance(res, dict) or not isinstance(res.get("valid"), bool):
@@ -456,7 +456,7 @@ def register(
             mensaje = res.get("message")
             return {
                 "error": "invalid_options",
-                "message": _sin_valores_secretos(mensaje, actuales, finales)
+                "message": _texto_sin_eco(mensaje, actuales, finales)
                 if isinstance(mensaje, str) else None,
                 "changed_paths": _rutas_cambiadas(actuales, finales),
             }
@@ -712,7 +712,7 @@ def register(
                 actuales = await _opciones_en_bruto(slug)
             except HAConnectionError as exc:
                 # Por si el Supervisor repitiera los cambios pedidos.
-                return {"error": _sin_valores_secretos(str(exc), opts_dict)}
+                return {"error": _texto_sin_eco(str(exc), opts_dict)}
             if actuales is None:
                 return sin_opciones
             finales = _mezclar_opciones(actuales, opts_dict)
@@ -774,7 +774,7 @@ def register(
             # (`cached_error`, que entra en los backups del add-on): se limpia
             # igual que el mensaje de la validación (convergencia de la 030,
             # T030). La forma `{"error": …}` no cambia.
-            mensaje = _sin_valores_secretos(str(exc), opts_dict, actuales, finales)
+            mensaje = _texto_sin_eco(str(exc), opts_dict, actuales, finales)
             await complete_confirmation_token(
                 confirmation_token, success=False, error=mensaje
             )

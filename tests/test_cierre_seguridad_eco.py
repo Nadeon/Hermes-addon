@@ -224,6 +224,6 @@ class TestTodasLasSvQueMandanCuerpo(unittest.TestCase):
             if not manda or ruta.name in _SIN_ECO_POSIBLE:
                 continue
             if "sin_eco_del_supervisor" not in ruta.read_text(encoding="utf-8") \
-                    and "_sin_valores_secretos" not in ruta.read_text(encoding="utf-8"):
+                    and "_texto_sin_eco" not in ruta.read_text(encoding="utf-8"):
                 faltan.append(ruta.name)
         self.assertEqual(faltan, [])

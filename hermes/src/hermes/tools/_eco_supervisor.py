@@ -29,9 +29,9 @@ def sin_eco_del_supervisor(texto: str, *conjuntos: Any, que: str = "the request"
     `conjuntos` son los datos que pudo ver el Supervisor (el cuerpo enviado
     y, si aplica, lo que había antes): los valores de todos cuentan. `que`
     nombra lo rechazado en el mensaje genérico del paso 3 (`the options` en
-    `sv_set_addon_options`). Ver `_sin_valores_secretos` para los pasos.
+    `sv_set_addon_options`). Ver `_texto_sin_eco` para los pasos.
     """
-    return _sin_valores_secretos(texto, *conjuntos, que=que)
+    return _texto_sin_eco(texto, *conjuntos, que=que)
 
 
 def _valores_secretos(original: Any, redactado: Any) -> set[str]:
@@ -59,7 +59,10 @@ def _valores_secretos(original: Any, redactado: Any) -> set[str]:
     return set()
 
 
-def _sin_valores_secretos(texto: str, *conjuntos: Any, que: str = "the options") -> str:
+# Antes se llamaba `_sin_valores_secretos`: con «secretos» en el nombre, el
+# análisis estático tomaba el texto que DEVUELVE (ya limpio) por un secreto y
+# avisaba al guardarlo como error de un token de confirmación.
+def _texto_sin_eco(texto: str, *conjuntos: Any, que: str = "the options") -> str:
     """Un mensaje del Supervisor sobre unas opciones, sin ningún valor suyo.
 
     Fail-closed, en cuatro pasos (convergencia de la 030, T029 y T030):

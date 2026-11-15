@@ -425,7 +425,7 @@ Windows); quedan estos hallazgos de la revisión.
   redactado es el marcador y el original es un objeto o una lista, todos sus
   textos (con `_hojas`) cuentan como secretos. Regresión de D-2: con
   `{"credentials": {"username": "u", "password": "abc"}}` y un mensaje del
-  Supervisor que nombra `abc`, `_sin_valores_secretos` ya no da el mensaje
+  Supervisor que nombra `abc`, `_texto_sin_eco` ya no da el mensaje
   genérico y deja el secreto a la vista (antes de la 025 sí lo daba). Test
   con control negativo; revisar si otra función compara el original con
   `redact_structure` recorriendo los dos a la vez.

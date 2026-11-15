@@ -10,7 +10,7 @@ los mensajes construidos como los construye el Supervisor 2026.11.0:
 `validation_error` en `extra_fields`).
 
 Controles negativos (comprobados al escribirlos; recuentos en el commit):
-(a) no cortar en «Got» en `_sin_valores_secretos` → caen los de
+(a) no cortar en «Got» en `_texto_sin_eco` → caen los de
     `TestFugaPorElMensaje` con corte y escapes;
 (b) devolver y guardar `str(exc)` al fallar el guardado (como la 1.1.2) →
     cae `TestErrorAlGuardar`;
@@ -32,7 +32,7 @@ from structlog.testing import capture_logs
 
 from hermes import security
 from hermes.ha import HAConnectionError
-from hermes.tools.addons import _sin_valores_secretos, register
+from hermes.tools.addons import _texto_sin_eco, register
 from tests.fixtures.supervisor_tienda import SupervisorSimulado, ficha
 
 _SLUG = "abcd1234_ejemplo"
@@ -169,10 +169,10 @@ class TestFugaPorElMensaje(_Base):
             ]
             for caso in casos:
                 with self.subTest(caso=caso):
-                    self.assertSinSecreto(_sin_valores_secretos(caso, opciones), secreto)
+                    self.assertSinSecreto(_texto_sin_eco(caso, opciones), secreto)
 
     def test_todas_las_opciones_no_solo_las_secretas(self) -> None:
-        out = _sin_valores_secretos("valor raro mi-servidor-mqtt aquí",
+        out = _texto_sin_eco("valor raro mi-servidor-mqtt aquí",
                                     {"host": "mi-servidor-mqtt"})
         self.assertNotIn("mi-servidor-mqtt", out)
 
@@ -182,14 +182,14 @@ class TestFugaPorElMensaje(_Base):
         opciones = {"password": _SECRETO, "port": "x"}
         mensaje = (f"Type error for option 'port' in Ejemplo ({_SLUG}) cerca de "
                    f"{_SECRETO[3:20]}")
-        out = _sin_valores_secretos(mensaje, opciones)
+        out = _texto_sin_eco(mensaje, opciones)
         self.assertSinSecreto(out)
         self.assertIn("data['port']", out)
         self.assertNotIn("Ejemplo", out)
 
     def test_el_generico_no_inventa_claves(self) -> None:
         opciones = {"password": _SECRETO}
-        out = _sin_valores_secretos(f"option 'no-es-clave' {_SECRETO[2:15]}", opciones)
+        out = _texto_sin_eco(f"option 'no-es-clave' {_SECRETO[2:15]}", opciones)
         self.assertNotIn("no-es-clave", out)
         self.assertSinSecreto(out)
 

@@ -42,7 +42,7 @@ from typing import Any
 from structlog.testing import capture_logs
 
 from hermes.security import REDACTED_MARKER
-from hermes.tools.addons import _sin_valores_secretos, _valores_secretos, register
+from hermes.tools.addons import _texto_sin_eco, _valores_secretos, register
 from hermes.security import redact_structure
 from tests.fixtures.supervisor_tienda import SupervisorSimulado
 from tests.test_tools_generic_commands import _Base
@@ -149,7 +149,7 @@ class TestSecretosAnidadosEnLosErrores(unittest.IsolatedAsyncioTestCase):
                          {"passwords": ["abc", "xyz"]}):
             with self.subTest(opciones=opciones):
                 self.assertIn("abc", _valores_secretos(opciones, redact_structure(opciones)))
-                out = _sin_valores_secretos(mensaje, opciones)
+                out = _texto_sin_eco(mensaje, opciones)
                 self.assertNotIn("abc", out)
                 self.assertIn("could reveal a secret value", out)
 
