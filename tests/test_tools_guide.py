@@ -1211,11 +1211,18 @@ class TestTemasDeIntegraciones(unittest.IsolatedAsyncioTestCase):
 
     Control negativo comprobado (tramo 1): citar `zwave_js/add_node` en
     `POR LA GENÉRICA` → cae `test_cruce_con_la_tabla`; quitar el alias
-    `z-wave` → cae `test_tema_y_alias`.
+    `z-wave` → cae `test_tema_y_alias`. Tramo 2: citar
+    `thread/get_dataset_tlv` en `POR LA GENÉRICA` de `matter_thread` → cae
+    `test_cruce_con_la_tabla`; quitar el alias `otbr` → cae
+    `test_tema_y_alias`.
     """
 
+    # Tema → (prefijos de sus comandos, alias).
     _TEMAS = {
-        "zwave": ("zwave_js/", ("zwave_js", "z-wave", "z_wave", "Z-Wave")),
+        "zwave": (("zwave_js/",), ("zwave_js", "z-wave", "z_wave", "Z-Wave")),
+        "zigbee": (("zha/",), ("zha", "ZHA", "Zigbee")),
+        "matter_thread": (("matter/", "thread/", "otbr/"),
+                          ("matter", "thread", "otbr", "Matter", "OTBR")),
     }
 
     def setUp(self) -> None:
@@ -1252,9 +1259,10 @@ class TestTemasDeIntegraciones(unittest.IsolatedAsyncioTestCase):
 
         from hermes import command_table as ct
 
-        for tema, (prefijo, _) in self._TEMAS.items():
+        for tema, (prefijos, _) in self._TEMAS.items():
             secciones = self._secciones(_GUIDE[tema])
-            patron = re.compile(re.escape(prefijo) + r"[a-z0-9_/\-]+")
+            patron = re.compile(
+                "(?:" + "|".join(map(re.escape, prefijos)) + r")[a-z0-9_/\-]+")
             disponibles = set(patron.findall(secciones["POR LA GENÉRICA"]))
             rechazados = set(patron.findall(secciones["RECHAZADO"]))
             self.assertTrue(disponibles and rechazados, tema)
@@ -1271,6 +1279,22 @@ class TestTemasDeIntegraciones(unittest.IsolatedAsyncioTestCase):
             with self.subTest(tema=tema):
                 self.assertIn(f"`{tema}`", indice)
                 self.assertIn(tema, self.guide.__doc__)
+
+    async def test_zigbee_claves_y_permit(self) -> None:
+        texto = _GUIDE["zigbee"]
+        for palabra in ("zha.permit", "ha_call_service", "network_key", "tc_link_key",
+                        "key_table", "stack_specific", "alarm_master_code", "tapad"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        otra_via = self._secciones(texto)["OTRA VÍA"]
+        self.assertIn("zha.permit", otra_via)
+
+    async def test_matter_thread_sin_codigos_ni_claves(self) -> None:
+        texto = _GUIDE["matter_thread"]
+        for palabra in ("active_dataset_tlvs", "thread/get_dataset_tlv",
+                        "matter/open_commissioning_window", "interfaz"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
 
     async def test_zwave_avisa_de_la_radio(self) -> None:
         texto = _GUIDE["zwave"]

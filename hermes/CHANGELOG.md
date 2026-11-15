@@ -1176,7 +1176,8 @@ Spec 025: los comandos WebSocket de integraciones concretas (clase C:
 Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX, Insteon…) se clasifican uno a uno
 en la tabla de las genéricas, con el handler de HA leído. Sin tools nuevas: se
 usan con `ha_read_ws_command` y, en dos pasos, `ha_call_ws_command`. Se hace
-en tres tramos; este es el 1 (mecanismo y Z-Wave JS).
+en tres tramos; van el 1 (mecanismo y Z-Wave JS) y el 2 (ZHA, Matter,
+Thread y OTBR).
 
 - **Z-Wave JS** (55 comandos): 18 de lectura (estado de la red y de los
   nodos, parámetros de configuración, avisos, capacidades; las estadísticas
@@ -1190,6 +1191,24 @@ en tres tramos; este es el 1 (mecanismo y Z-Wave JS).
 - **Tema `zwave` de `hermes_guide`** (alias `zwave_js`, `z-wave`, `z_wave`):
   qué se lee, qué se cambia en dos pasos, qué se rechaza y por qué, y la otra
   vía (las acciones `zwave_js.*` y la interfaz de HA).
+- **ZHA** (28 comandos): 13 de lectura (dispositivos, grupos, clústeres y
+  atributos, ajustes y copias de la red, opciones), 10 en dos pasos (vincular
+  y desvincular, grupos y sus miembros, crear una copia de la red y cambiar
+  las opciones) y 5 rechazados (`zha/devices/permit` y
+  `zha/devices/reconfigure`, que dejan una suscripción abierta; restaurar una
+  copia, cambiar de canal y `zha/topology/update`, que no responde). Para
+  permitir uniones queda la acción `zha.permit` por `ha_call_service`.
+- **Matter** (11): 3 de lectura (topología, diagnóstico y ping de un nodo),
+  1 en dos pasos (reentrevistar un nodo) y 7 rechazados (commissioning y
+  `matter/open_commissioning_window`, que devuelve el código de
+  emparejamiento; quitar un fabric; dataset Thread y Wi-Fi; la suscripción
+  de topología).
+- **Thread y OTBR** (11): 2 de lectura (`thread/list_datasets`, sin la
+  clave, y `otbr/info`), 2 en dos pasos (dataset y router de borde
+  preferidos) y 7 rechazados (leer, añadir o borrar un dataset, crear o
+  cambiar la red y su canal, y el descubrimiento de routers por eventos).
+- **Temas `zigbee` (alias `zha`) y `matter_thread` (alias `matter`,
+  `thread`, `otbr`) de `hermes_guide`**, con el mismo esquema que `zwave`.
 - **Generador de la tabla**: `scripts/inventario/clase_c.py` guarda la
   clasificación revisada de la clase C, así que generar la tabla desde cero
   da la misma que la revisada a mano (un test lo compara fila a fila).
@@ -1217,6 +1236,14 @@ Seguridad:
   claro.
 - `zwave_js/get_provisioning_entries` devuelve el DSK de cada nodo
   preaprovisionado tapado (sus cinco primeros dígitos son el PIN de S2).
+- `zha/network/settings`, `zha/network/backups/list` y
+  `zha/network/backups/create` devuelven tapadas ENTERAS la clave de red, la
+  de enlace, la tabla de claves y el material propio de la radio
+  (`network_key`, `tc_link_key`, `key_table`, `stack_specific`); el canal y
+  el PAN siguen visibles. `otbr/info` tapa el dataset Thread activo (lleva
+  la clave de red y el PSKc), y `zha/configuration` el código maestro de la
+  alarma de ZHA (`alarm_master_code`), también en la vista previa de
+  `zha/configuration/update`.
 
 ### Banco de pruebas
 

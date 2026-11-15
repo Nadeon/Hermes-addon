@@ -7,10 +7,14 @@ Dos partes:
   (`redact_structure`, hallazgo H-1).
 - `TestZwave` (FR-001, FR-009): entradas reales de la tabla `zwave_js/*`
   con `ws_send` y `ws_one_shot_subscription` simulados.
+- `TestZha` y `TestMatterThread` (FR-002…FR-004, FR-009; tramo 2): una
+  lectura, una escritura en dos pasos, los rechazos y los centinelas de las
+  claves de red Zigbee y Thread y del código de la alarma de ZHA.
 
 Datos ficticios (`<device_id>`, `<entry_id>`, centinelas `…025…`). La forma
 de las respuestas es la de los handlers de HA Core 2026.11.1
-(`homeassistant/components/zwave_js/api.py`).
+(`homeassistant/components/zwave_js/api.py`, `zha/websocket_api.py`,
+`matter/api.py`, `thread/websocket_api.py` y `otbr/websocket_api.py`).
 
 Controles negativos comprobados:
 - quitar en `_redactar` el tapado entero de objetos y listas → caen
@@ -198,5 +202,270 @@ class TestZwave(_Base):
         self.assertEqual(r["items"][0]["dsk"], "***REDACTED***")
         self.assertEqual(r["items"][0]["securityClasses"], [0, 1])
         for trozo in (dsk, "20251"):
+            self.assertNotIn(trozo, json.dumps(r))
+            self.assertNotIn(trozo, json.dumps(logs, default=str))
+
+
+
+# ── Tramo 2: ZHA, Matter, Thread y OTBR (FR-002…FR-004, FR-009) ───────────────
+
+# Forma REAL de `NetworkBackup.as_dict()` de zigpy, que devuelven
+# `zha/network/settings` (bajo `settings`), `zha/network/backups/list` (una por
+# copia) y `zha/network/backups/create` (bajo `backup`) en
+# `homeassistant/components/zha/websocket_api.py`. Las claves (`KeyData`, 16
+# bytes en hexadecimal con dos puntos) van DENTRO de objetos bajo
+# `network_key`, `tc_link_key` y cada elemento de `key_table`; el material
+# propio de la radio va en `stack_specific` (en EZSP, `hashed_tclk`). Lo mismo
+# lee `zha/repairs/network_settings_inconsistent.py`
+# (`network_info.tc_link_key.key`, `network_info.network_key.key`). Un
+# centinela distinto en cada sitio: si uno se escapa, se sabe cuál.
+_NK = "c0:ff:ee:02:50:25:00:00:00:00:00:00:00:00:00:01"
+_TCLK = "c0:ff:ee:02:50:25:00:00:00:00:00:00:00:00:00:02"
+_KT = "c0:ff:ee:02:50:25:00:00:00:00:00:00:00:00:00:03"
+_HASHED = "c0ffee02502500000000000000000004"
+_CENTINELAS_ZHA = (_NK, _TCLK, _KT, _HASHED, "c0:ff:ee:02:50:25", "c0ffee025025")
+
+
+def _copia_zigpy() -> dict[str, Any]:
+    def clave(k: str, contador: int) -> dict[str, Any]:
+        return {"key": k, "tx_counter": contador, "rx_counter": 0, "seq": 0,
+                "partner_ieee": "00:11:22:33:44:55:66:77"}
+
+    return {
+        "version": 1,
+        "backup_time": "2026-11-15T00:00:00+00:00",
+        "network_info": {
+            "extended_pan_id": "00:11:22:33:44:55:66:99",
+            "pan_id": "1A2B",
+            "nwk_update_id": 0,
+            "nwk_manager_id": "0000",
+            "channel": 15,
+            "channel_mask": [15],
+            "security_level": 5,
+            "network_key": clave(_NK, 202501),
+            "tc_link_key": clave(_TCLK, 202502),
+            "key_table": [clave(_KT, 202503)],
+            "children": [],
+            "nwk_addresses": {},
+            "stack_specific": {"ezsp": {"hashed_tclk": _HASHED}},
+            "metadata": {"ezsp": {"stack_version": 8}},
+            "source": "bellows@0.0.0",
+        },
+        "node_info": {"nwk": "0x0000", "ieee": "00:11:22:33:44:55:66:00",
+                      "logical_type": "coordinator"},
+    }
+
+
+class TestZha(_Base):
+    """FR-002. Control negativo comprobado: quitar `stack_specific` de
+    `redact_extra` de `zha/network/settings` → cae
+    `test_network_settings_tapa_las_claves` (sale `hashed_tclk`); volver
+    `_redactar` a recorrer los objetos bajo `redact_extra` → caen los tres
+    centinelas de la red (`tc_link_key.key` y `key_table[0].key` en claro);
+    quitar `redact_extra` de `zha/configuration` → cae
+    `test_configuration_tapa_el_codigo_de_la_alarma`."""
+
+    inyectadas = False
+
+    async def test_devices_por_la_de_lectura(self) -> None:
+        self.ha.ws_send.return_value = [{"ieee": "00:11:22:33:44:55:66:77",
+                                         "name": "ficticio", "lqi": 200}]
+        r = await self.t["ha_read_ws_command"]("zha/devices")
+        self.ha.ws_send.assert_awaited_once_with({"type": "zha/devices"})
+        self.assertEqual(r["category"], "read")
+        self.assertEqual(r["items"][0]["lqi"], 200)
+
+    async def test_bind_en_dos_pasos(self) -> None:
+        carga = {"source_ieee": "00:11:22:33:44:55:66:77",
+                 "target_ieee": "00:11:22:33:44:55:66:88"}
+        vista = await self.t["ha_call_ws_command"]("zha/devices/bind", carga)
+        self.assertIn("preview", vista)
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_send.return_value = None
+        r = await self.t["ha_call_ws_command"](
+            "zha/devices/bind", carga, confirmation_token=vista["confirmation_token"])
+        self.ha.ws_send.assert_awaited_once_with({"type": "zha/devices/bind", **carga})
+        self.assertTrue(r["executed"])
+
+    async def test_rechazos_sin_llamar_a_ha(self) -> None:
+        for comando in ("zha/devices/permit", "zha/devices/reconfigure",
+                        "zha/topology/update", "zha/network/backups/restore",
+                        "zha/network/change_channel"):
+            for tool in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, tool=tool):
+                    r = await self.t[tool](comando, {"ieee": "00:11:22:33:44:55:66:77"})
+                    self.assertEqual(r["error"], "command_denied")
+                    self.assertTrue(r["reason"])
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_one_shot_subscription.assert_not_awaited()
+        self.assertEqual(list(Path(self.temp_dir.name).glob("*")), [])
+
+    async def test_permit_remite_a_zha_permit(self) -> None:
+        r = await self.t["ha_call_ws_command"]("zha/devices/permit", {"duration": 60})
+        self.assertEqual(r["error"], "command_denied")
+        self.assertIn("zha.permit", r["reason"])
+
+    def _sin_centinelas(self, r: dict[str, Any], logs: list[dict]) -> None:
+        for trozo in _CENTINELAS_ZHA:
+            self.assertNotIn(trozo, json.dumps(r, default=str))
+            self.assertNotIn(trozo, json.dumps(logs, default=str))
+
+    def _red_tapada(self, info: dict[str, Any]) -> None:
+        for clave in ("network_key", "tc_link_key", "key_table", "stack_specific"):
+            self.assertEqual(info[clave], "***REDACTED***", clave)
+        # Lo útil para diagnosticar sigue visible.
+        self.assertEqual(info["channel"], 15)
+        self.assertEqual(info["pan_id"], "1A2B")
+        self.assertEqual(info["extended_pan_id"], "00:11:22:33:44:55:66:99")
+
+    async def test_network_settings_tapa_las_claves(self) -> None:
+        self.ha.ws_send.return_value = {
+            "radio_type": "ezsp",
+            "device": {"path": "/dev/ttyUSB0", "baudrate": 115200, "flow_control": None},
+            "settings": _copia_zigpy(),
+        }
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"]("zha/network/settings")
+        self._red_tapada(r["result"]["settings"]["network_info"])
+        self.assertEqual(r["result"]["radio_type"], "ezsp")
+        self._sin_centinelas(r, logs)
+
+    async def test_backups_list_tapa_las_claves(self) -> None:
+        self.ha.ws_send.return_value = [_copia_zigpy(), _copia_zigpy()]
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"]("zha/network/backups/list")
+        self.assertEqual(len(r["items"]), 2)
+        for copia in r["items"]:
+            self._red_tapada(copia["network_info"])
+        self._sin_centinelas(r, logs)
+
+    async def test_backups_create_tapa_las_claves(self) -> None:
+        vista = await self.t["ha_call_ws_command"]("zha/network/backups/create", {})
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_send.return_value = {"backup": _copia_zigpy(), "is_complete": True}
+        with capture_logs() as logs:
+            r = await self.t["ha_call_ws_command"](
+                "zha/network/backups/create", {},
+                confirmation_token=vista["confirmation_token"])
+        self.assertTrue(r["executed"])
+        self._red_tapada(r["result"]["backup"]["network_info"])
+        self.assertTrue(r["result"]["is_complete"])
+        self._sin_centinelas(r, logs)
+
+    async def test_configuration_tapa_el_codigo_de_la_alarma(self) -> None:
+        """Hallazgo del tramo 2: `zha/configuration` devuelve las opciones de
+        la entrada con `zha_alarm_options.alarm_master_code`, el código maestro
+        del panel de alarma de ZHA (`CONF_ZHA_ALARM_SCHEMA` de `zha/helpers.py`;
+        `zha/diagnostics.py` lo tapa). Ningún marcador lo reconoce:
+        `redact_extra` lo tapa, en la respuesta y en la vista previa de
+        `zha/configuration/update`."""
+        codigo = "20250257"
+        opciones = {"alarm_master_code": codigo, "alarm_failed_tries": 3,
+                    "alarm_arm_requires_code": False}
+        self.ha.ws_send.return_value = {
+            "schemas": {"zha_alarm_options": [
+                {"name": "alarm_master_code", "default": "1234", "type": "string",
+                 "required": True},
+            ]},
+            "data": {"zha_alarm_options": dict(opciones)},
+        }
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"]("zha/configuration")
+        leidas = r["result"]["data"]["zha_alarm_options"]
+        self.assertEqual(leidas["alarm_master_code"], "***REDACTED***")
+        self.assertEqual(leidas["alarm_failed_tries"], 3)
+        carga = {"data": {"zha_alarm_options": dict(opciones)}}
+        with capture_logs() as logs2:
+            vista = await self.t["ha_call_ws_command"]("zha/configuration/update", carga)
+        self.assertIn("confirmation_token", vista)
+        self.ha.ws_send.assert_awaited_once()  # solo la lectura
+        for registro in (r, vista, logs, logs2):
+            self.assertNotIn(codigo, json.dumps(registro, default=str))
+
+
+class TestMatterThread(_Base):
+    """FR-003 y FR-004. Control negativo comprobado: quitar `redact_extra` de
+    `otbr/info` → cae `test_otbr_info_tapa_el_dataset`; pasar
+    `thread/get_dataset_tlv` a `read` → cae `test_rechazos_sin_llamar_a_ha`
+    (y la clasificación de la tabla)."""
+
+    inyectadas = False
+
+    async def test_lecturas(self) -> None:
+        self.ha.ws_send.return_value = {"node_id": 5, "network_type": "thread",
+                                        "available": True}
+        r = await self.t["ha_read_ws_command"](
+            "matter/node_diagnostics", {"device_id": "<device_id>"})
+        self.ha.ws_send.assert_awaited_once_with(
+            {"type": "matter/node_diagnostics", "device_id": "<device_id>"})
+        self.assertEqual(r["result"]["network_type"], "thread")
+        self.ha.ws_send.reset_mock()
+        # Forma de `thread/list_datasets` (`thread/websocket_api.py`): sin el TLV.
+        self.ha.ws_send.return_value = {"datasets": [{
+            "channel": 15, "created": "2026-11-15T00:00:00+00:00",
+            "dataset_id": "<dataset_id>", "extended_pan_id": "0011223344556699",
+            "network_name": "red-ficticia", "pan_id": "1a2b", "preferred": True,
+            "preferred_border_agent_id": None, "preferred_extended_address": None,
+            "source": "Google"}]}
+        r = await self.t["ha_read_ws_command"]("thread/list_datasets")
+        self.ha.ws_send.assert_awaited_once_with({"type": "thread/list_datasets"})
+        self.assertEqual(r["result"]["datasets"][0]["channel"], 15)
+
+    async def test_escrituras_en_dos_pasos(self) -> None:
+        for comando, carga in (
+            ("matter/interview_node", {"device_id": "<device_id>"}),
+            ("thread/set_preferred_dataset", {"dataset_id": "<dataset_id>"}),
+        ):
+            with self.subTest(comando=comando):
+                self.ha.ws_send.reset_mock()
+                vista = await self.t["ha_call_ws_command"](comando, carga)
+                self.assertIn("confirmation_token", vista)
+                self.ha.ws_send.assert_not_awaited()
+                self.ha.ws_send.return_value = None
+                r = await self.t["ha_call_ws_command"](
+                    comando, carga, confirmation_token=vista["confirmation_token"])
+                self.ha.ws_send.assert_awaited_once_with({"type": comando, **carga})
+                self.assertTrue(r["executed"])
+
+    async def test_rechazos_sin_llamar_a_ha(self) -> None:
+        for comando in ("matter/open_commissioning_window", "matter/set_wifi_credentials",
+                        "matter/commission", "matter/set_thread",
+                        "thread/get_dataset_tlv", "thread/delete_dataset",
+                        "thread/add_dataset_tlv", "otbr/create_network"):
+            for tool in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, tool=tool):
+                    r = await self.t[tool](comando, {"device_id": "<device_id>"})
+                    self.assertEqual(r["error"], "command_denied")
+                    self.assertTrue(r["reason"])
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_one_shot_subscription.assert_not_awaited()
+        self.assertEqual(list(Path(self.temp_dir.name).glob("*")), [])
+
+    async def test_otbr_info_tapa_el_dataset(self) -> None:
+        # Forma REAL de `otbr/info` (`otbr/websocket_api.py`, `websocket_info`):
+        # un objeto por router con la dirección extendida (8 bytes en hex) como
+        # CLAVE, y `active_dataset_tlvs` = `dataset_tlvs.hex()`, el dataset
+        # activo en TLV de MeshCoP. Lleva el PSKc (tipo 0x04) y la clave de red
+        # (tipo 0x05), 16 bytes cada uno: se tapa el dataset ENTERO. El
+        # centinela es un TLV con esa forma: canal (00 03 00 000f), PAN
+        # (01 02 1a2b), PSKc (04 10 …) y clave de red (05 10 …).
+        pskc = "c0ffee025025000000000000000000aa"
+        clave_red = "c0ffee025025000000000000000000bb"
+        tlvs = "000300000f" + "01021a2b" + "0410" + pskc + "0510" + clave_red
+        self.ha.ws_send.return_value = {"0011223344556677": {
+            "active_dataset_tlvs": tlvs,
+            "border_agent_id": "00112233445566778899aabbccddeeff",
+            "channel": 15,
+            "extended_address": "0011223344556677",
+            "extended_pan_id": "0011223344556699",
+            "url": "http://core-openthread-border-router:8081",
+        }}
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"]("otbr/info")
+        router = r["result"]["0011223344556677"]
+        self.assertEqual(router["active_dataset_tlvs"], "***REDACTED***")
+        self.assertEqual(router["channel"], 15)
+        self.assertEqual(router["extended_pan_id"], "0011223344556699")
+        for trozo in (tlvs, pskc, clave_red, "c0ffee025025"):
             self.assertNotIn(trozo, json.dumps(r))
             self.assertNotIn(trozo, json.dumps(logs, default=str))

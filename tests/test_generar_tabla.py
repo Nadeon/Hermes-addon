@@ -365,8 +365,9 @@ class TestClaseAConToolDedicada(_Base):
                 malas.append(f"{k}: desde cero {campos(cero.CORE_WS[k])}, "
                              f"tabla {campos(real.CORE_WS[k])}")
         self.assertEqual(malas, [], "\n".join(malas))
-        # Tramo 1: las 55 de `zwave_js/`. Sube con cada tramo.
-        self.assertEqual(n, 55)
+        # Tramo 1: las 55 de `zwave_js/`; tramo 2, más las 50 de ZHA, Matter,
+        # Thread y OTBR. Sube con cada tramo.
+        self.assertEqual(n, 105)
 
     def test_desde_cero_las_de_la_030_con_su_motivo(self) -> None:
         """Integración de la 030: las rutas cuyo motivo no sigue la forma

@@ -88,6 +88,13 @@ Lo no evidente en `read`/`confirm`:
 - `zwave_js/network_status` devuelve `ws_server_url` (dirección interna del
   servidor Z-Wave JS, sin credenciales): `read`. La redacción de textos de la
   genérica tapa una URL con contraseña si la hubiera.
+- `zha/configuration` devuelve las opciones de la entrada con
+  `zha_alarm_options.alarm_master_code`, el código maestro del panel de
+  alarma de ZHA (`CONF_ZHA_ALARM_SCHEMA` de `zha/helpers.py`;
+  `zha/diagnostics.py` lo tapa con `CONF_ALARM_MASTER_CODE`). Ningún
+  marcador lo reconoce: `redact_extra=("alarm_master_code",)` en la lectura
+  y en `zha/configuration/update`, cuya vista previa resume la carga con las
+  mismas claves (hallazgo del tramo 2; no cambia la categoría).
 - `notify/html5/appkey` devuelve la clave PÚBLICA VAPID: no es secreta.
 - `insteon/config/get` devuelve `config_entry.data`; en un hub v2 lleva
   `password`, que tapa el marcador `password` de `redact_structure`.
@@ -171,8 +178,8 @@ Lo no evidente en `read`/`confirm`:
 
 | Comando | Categoría | Marcas | Motivo (texto de la tabla) |
 |---|---|---|---|
-| `zha/configuration` | `read` | — | opciones de ZHA y su esquema; solo lee |
-| `zha/configuration/update` | `confirm` | — | cambia las opciones de ZHA y recarga la integración |
+| `zha/configuration` | `read` | `redact_extra=alarm_master_code` | opciones de ZHA y su esquema; el código maestro de la alarma sale tapado; solo lee |
+| `zha/configuration/update` | `confirm` | `redact_extra=alarm_master_code` | cambia las opciones de ZHA y recarga la integración; el código maestro de la alarma sale tapado en la vista previa |
 | `zha/device` | `read` | — | un dispositivo Zigbee; solo lee |
 | `zha/devices` | `read` | — | dispositivos Zigbee con su información; solo lee |
 | `zha/devices/bind` | `confirm` | ejemplo `{"source_ieee": "00:11:22:33:44:55:66:77", "target_ieee": "00:11:22:33:44:55:66:88"}` | vincula dos dispositivos Zigbee |
@@ -460,6 +467,7 @@ entera no cambió ningún resultado de tools existentes con el arreglo.
 | `zha/network/settings` | `settings.network_info.network_key.key`, `tc_link_key.key`, `key_table[].key`, `stack_specific.*` | `redact_extra` de cuatro claves (R-5) | uno distinto en cada sitio |
 | `zha/network/backups/list` | ídem por cada copia | ídem | ídem |
 | `zha/network/backups/create` | `backup.network_info.*` | ídem | ídem |
+| `zha/configuration` y `zha/configuration/update` | `data.zha_alarm_options.alarm_master_code` (respuesta y carga) | `redact_extra=("alarm_master_code",)` (hallazgo del tramo 2) | código centinela de ocho dígitos |
 | `otbr/info` | `<ext_addr>.active_dataset_tlvs` | `redact_extra=("active_dataset_tlvs",)` | TLV hex centinela |
 | `insteon/config/get` | `modem_config.password` | marcador `password` (sin `redact_extra`) | `"centinela-025"` |
 | `mqtt/device/debug_info` | `entities[].discovery_data.payload.code`, `entities[].transmitted[].messages[].payload` | `redact_extra=("code", "transmitted")` | código de alarma centinela en los dos sitios |

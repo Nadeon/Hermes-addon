@@ -1,6 +1,6 @@
 """La clase C de la tabla: comandos de integraciones concretas (spec 025).
 
-FR-001 (y FR-002…FR-006 en los tramos siguientes), FR-007, FR-009 y FR-011 de
+FR-001…FR-004 (FR-005 y FR-006 en el tramo 3), FR-007, FR-009 y FR-011 de
 la 025; FR-089 de la 008. La clasificación comando a comando, con el handler
 leído y el motivo, está en `specs/025-integraciones-especificas/research.md`,
 R-1; aquí se fija para que una edición de la tabla no la cambie en silencio.
@@ -16,6 +16,10 @@ Reglas:
   «sin revisar» (FR-007).
 - `test_ningun_proxy`: ninguna entrada `hassio/*` ni `supervisor/*` de clase C
   en `read`/`confirm` (el proxy del Supervisor las rechaza).
+
+Control negativo comprobado (tramo 2): pasar `thread/get_dataset_tlv` a
+`read` → caen `test_clasificacion` y `test_recuento_del_tramo_2`; quitar
+`stack_specific` de `zha/network/settings` → cae `test_redact_extra_de_las_claves`.
 
 Control negativo comprobado (tramo 1): pasar `zwave_js/hard_reset_controller`
 a `confirm` → cae `test_clasificacion` nombrándolo; quitar `redact_extra` de
@@ -37,7 +41,8 @@ _INVENTARIO = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
 
 # Prefijos de las integraciones ya revisadas. Crece por tramos: el 2 añade
 # `zha/`, `matter/`, `thread/` y `otbr/`; el 3, el resto.
-_REVISADAS: frozenset[str] = frozenset({"zwave_js/"})
+_REVISADAS: frozenset[str] = frozenset(
+    {"zwave_js/", "zha/", "matter/", "thread/", "otbr/"})
 
 # Comando → (categoría, marcas distintas del valor por defecto). R-1.
 _ESPERADO: dict[str, tuple[str, set[str]]] = {
@@ -96,6 +101,59 @@ _ESPERADO: dict[str, tuple[str, set[str]]] = {
     "zwave_js/update_data_collection_preference": ("confirm", set()),
     "zwave_js/update_log_config": ("confirm", set()),
     "zwave_js/validate_dsk_and_enter_pin": ("deny", set()),
+    # Tramo 2 — ZHA (CAP-101): 13 read, 10 confirm, 5 deny.
+    "zha/configuration": ("read", {"redact_extra"}),
+    "zha/configuration/update": ("confirm", {"redact_extra"}),
+    "zha/device": ("read", set()),
+    "zha/devices": ("read", set()),
+    "zha/devices/bind": ("confirm", {"example"}),
+    "zha/devices/bindable": ("read", set()),
+    "zha/devices/clusters": ("read", set()),
+    "zha/devices/clusters/attributes": ("read", set()),
+    "zha/devices/clusters/attributes/value": ("read", set()),
+    "zha/devices/clusters/commands": ("read", set()),
+    "zha/devices/groupable": ("read", set()),
+    "zha/devices/permit": ("deny", set()),
+    "zha/devices/reconfigure": ("deny", set()),
+    "zha/devices/unbind": ("confirm", set()),
+    "zha/group": ("read", set()),
+    "zha/group/add": ("confirm", {"example"}),
+    "zha/group/members/add": ("confirm", set()),
+    "zha/group/members/remove": ("confirm", set()),
+    "zha/group/remove": ("confirm", set()),
+    "zha/groups": ("read", set()),
+    "zha/groups/bind": ("confirm", set()),
+    "zha/groups/unbind": ("confirm", set()),
+    "zha/network/backups/create": ("confirm", {"redact_extra"}),
+    "zha/network/backups/list": ("read", {"redact_extra"}),
+    "zha/network/backups/restore": ("deny", set()),
+    "zha/network/change_channel": ("deny", set()),
+    "zha/network/settings": ("read", {"redact_extra"}),
+    "zha/topology/update": ("deny", set()),
+    # Matter (CAP-102): 3 read, 1 confirm, 7 deny.
+    "matter/commission": ("deny", set()),
+    "matter/commission_on_network": ("deny", set()),
+    "matter/interview_node": ("confirm", set()),
+    "matter/network_topology": ("read", set()),
+    "matter/node_diagnostics": ("read", set()),
+    "matter/open_commissioning_window": ("deny", set()),
+    "matter/ping_node": ("read", set()),
+    "matter/remove_matter_fabric": ("deny", set()),
+    "matter/set_thread": ("deny", set()),
+    "matter/set_wifi_credentials": ("deny", set()),
+    "matter/subscribe_network_topology": ("deny", set()),
+    # Thread y OTBR (CAP-103): 2 read, 2 confirm, 7 deny.
+    "otbr/create_network": ("deny", set()),
+    "otbr/info": ("read", {"redact_extra"}),
+    "otbr/set_channel": ("deny", set()),
+    "otbr/set_network": ("deny", set()),
+    "thread/add_dataset_tlv": ("deny", set()),
+    "thread/delete_dataset": ("deny", set()),
+    "thread/discover_routers": ("deny", set()),
+    "thread/get_dataset_tlv": ("deny", set()),
+    "thread/list_datasets": ("read", set()),
+    "thread/set_preferred_border_agent": ("confirm", set()),
+    "thread/set_preferred_dataset": ("confirm", {"example"}),
 }
 
 
@@ -135,7 +193,7 @@ class TestClaseC(unittest.TestCase):
         filas = {k for k in _filas_c() if revisada(k)}
         self.assertEqual(sorted(filas - set(_ESPERADO)), [], "revisadas sin _ESPERADO")
         self.assertEqual(sorted(set(_ESPERADO) - filas), [], "_ESPERADO fuera de clase C")
-        self.assertEqual(len(_ESPERADO), 55)
+        self.assertEqual(len(_ESPERADO), 105)
 
     def test_ninguna_pendiente_de_la_025(self) -> None:
         malas = sorted(k for k, e in ct.CORE_WS.items()
@@ -163,6 +221,43 @@ class TestClaseC(unittest.TestCase):
             if k.startswith("zwave_js/"):
                 cuenta[e.category] = cuenta.get(e.category, 0) + 1
         self.assertEqual(cuenta, {"read": 18, "confirm": 13, "deny": 24})
+
+    def test_recuento_del_tramo_2(self) -> None:
+        """R-1: ZHA 13/10/5, Matter 3/1/7, Thread y OTBR 2/2/7 (FR-002…FR-004)."""
+        grupos = {"zha/": "zha", "matter/": "matter", "thread/": "thread", "otbr/": "thread"}
+        cuenta: dict[str, dict[str, int]] = {}
+        for k, e in ct.CORE_WS.items():
+            for prefijo, grupo in grupos.items():
+                if k.startswith(prefijo):
+                    c = cuenta.setdefault(grupo, {})
+                    c[e.category] = c.get(e.category, 0) + 1
+        self.assertEqual(cuenta, {
+            "zha": {"read": 13, "confirm": 10, "deny": 5},
+            "matter": {"read": 3, "confirm": 1, "deny": 7},
+            "thread": {"read": 2, "confirm": 2, "deny": 7},
+        })
+
+    def test_redact_extra_de_las_claves(self) -> None:
+        """R-6: qué claves tapa cada entrada; el valor ENTERO (FR-008)."""
+        claves_zha = ("network_key", "tc_link_key", "key_table", "stack_specific")
+        esperado = {
+            "zha/network/settings": claves_zha,
+            "zha/network/backups/list": claves_zha,
+            "zha/network/backups/create": claves_zha,
+            "zha/configuration": ("alarm_master_code",),
+            "zha/configuration/update": ("alarm_master_code",),
+            "otbr/info": ("active_dataset_tlvs",),
+        }
+        for comando, claves in esperado.items():
+            with self.subTest(comando=comando):
+                self.assertEqual(ct.CORE_WS[comando].redact_extra, claves)
+
+    def test_permit_remite_a_la_accion(self) -> None:
+        """R-3: `zha/devices/permit` se rechaza, pero su motivo dice cómo
+        permitir uniones sin la genérica."""
+        motivo = ct.CORE_WS["zha/devices/permit"].reason
+        self.assertIn("zha.permit", motivo)
+        self.assertIn("ha_call_service", motivo)
 
 
 if __name__ == "__main__":

@@ -200,12 +200,12 @@ Desviaciones del tramo 1 (anotadas al hacerlo):
 
 ## Tramo 2 — ZHA, Matter, Thread y OTBR (US2, US3, US5, US6)
 
-- [ ] T018 Comprobar que la rama tiene el tramo 1 y tomar la línea base.
-- [ ] T019 [P] [US2] [US3] En `tests/test_command_table_clase_c.py`: añadir
+- [x] T018 Comprobar que la rama tiene el tramo 1 y tomar la línea base.
+- [x] T019 [P] [US2] [US3] En `tests/test_command_table_clase_c.py`: añadir
   a `_ESPERADO` las 50 entradas de `zha/*`, `matter/*`, `thread/*` y `otbr/*`
   de R-1 y a `_REVISADAS` sus cuatro prefijos. Verlos en rojo (y
   `test_clase_c_pendiente_de_la_025` deja de exigirlo en ellos).
-- [ ] T020 [P] [US2] [US3] En `tests/test_tools_generic_commands_clase_c.py`,
+- [x] T020 [P] [US2] [US3] En `tests/test_tools_generic_commands_clase_c.py`,
   clases `TestZha` y `TestMatterThread`: una lectura, una escritura en dos
   pasos y los rechazos de cada integración (`zha/devices/permit`,
   `zha/topology/update`, `zha/network/backups/restore`,
@@ -218,32 +218,49 @@ Desviaciones del tramo 1 (anotadas al hacerlo):
   `key_table[0].key` y `stack_specific.ezsp.hashed_tclk`) y el canal y el PAN
   visibles; `otbr/info` con un `active_dataset_tlvs` centinela bajo una clave
   de dirección extendida; respuesta y log. Verlos en rojo.
-- [ ] T021 [US2] [US3] En `command_table.py` y en `CLASE_C`, las 50
+- [x] T021 [US2] [US3] En `command_table.py` y en `CLASE_C`, las 50
   entradas de R-1 con sus marcas y ejemplos; comentarios encima de las tres
   de ZHA con `redact_extra` (por qué el valor entero), de `zha/devices/permit`
   y de `otbr/info`.
-- [ ] T022 [US2] ZHA en verde. Control negativo: quitar `stack_specific` de
+- [x] T022 [US2] ZHA en verde. Control negativo: quitar `stack_specific` de
   `redact_extra` de `zha/network/settings` → cae su centinela; volver T003 a
   recorrer objetos → caen los centinelas de `network_key` y `key_table`.
   Restaurar y anotarlo.
-- [ ] T023 [US3] Matter, Thread y OTBR en verde. Control negativo: quitar
+- [x] T023 [US3] Matter, Thread y OTBR en verde. Control negativo: quitar
   `redact_extra` de `otbr/info` → cae el centinela; pasar
   `thread/get_dataset_tlv` a `read` → caen la clasificación y el rechazo.
-- [ ] T024 [US6] `test_desde_cero_clase_c_igual_que_la_tabla` en verde con 105
+- [x] T024 [US6] `test_desde_cero_clase_c_igual_que_la_tabla` en verde con 105
   filas comparadas (actualizar el recuento esperado).
-- [ ] T025 [US5] En `TestTemasDeIntegraciones`, los temas `zigbee` (alias
+- [x] T025 [US5] En `TestTemasDeIntegraciones`, los temas `zigbee` (alias
   `zha`) y `matter_thread` (alias `matter`, `thread`, `otbr`) con las mismas
   comprobaciones que T013. Verlos en rojo.
-- [ ] T026 [US5] En `guide.py`, los temas `zigbee` (con `zha.permit` por
+- [x] T026 [US5] En `guide.py`, los temas `zigbee` (con `zha.permit` por
   `ha_call_service` en `OTRA VÍA` y las claves tapadas explicadas) y
   `matter_thread` (sin códigos de emparejamiento ni claves; commissioning y
   redes desde la UI); alias; índice; docstring. T025 en verde; huellas
   iguales.
-- [ ] T027 Suite completa: exactamente los 6 fallos conocidos.
-- [ ] T028 [P] CHANGELOG (ZHA, Matter, Thread y OTBR con sus recuentos y los
+- [x] T027 Suite completa: exactamente los 6 fallos conocidos.
+- [x] T028 [P] CHANGELOG (ZHA, Matter, Thread y OTBR con sus recuentos y los
   temas) y hoja de ruta («en curso (tramo 2 de 3)»).
-- [ ] T029 Revisar el diff (privacidad); commit(s) con los controles
+- [x] T029 Revisar el diff (privacidad); commit(s) con los controles
   negativos de T022 y T023.
+
+Desviaciones del tramo 2 (anotadas al hacerlo):
+- T021: al releer los handlers, `zha/configuration` devuelve las opciones
+  de la entrada con `zha_alarm_options.alarm_master_code` (código maestro de
+  la alarma de ZHA; `zha/diagnostics.py` lo tapa) y ningún marcador lo
+  reconoce. Se añade `redact_extra=("alarm_master_code",)` a
+  `zha/configuration` y a `zha/configuration/update` (su vista previa resume
+  la carga con las mismas claves), sin cambiar la categoría; R-1, R-6 y
+  FR-002 actualizados. Las entradas que tapan secretos pasan de 7 a 9 (SC-002
+  y la tabla de R-6 las cuentan en el tramo 3).
+- T020: los rechazos de ZHA prueban también `zha/devices/reconfigure`;
+  los de Matter y Thread, `matter/commission`, `matter/set_thread` y
+  `thread/add_dataset_tlv`. Test nuevo de `test_command_table_clase_c.py`:
+  `test_redact_extra_de_las_claves` (qué claves tapa cada entrada) y
+  `test_permit_remite_a_la_accion`.
+- T025: `_TEMAS` de `TestTemasDeIntegraciones` pasa a una tupla de
+  prefijos por tema (el de `matter_thread` tiene tres).
 
 ---
 

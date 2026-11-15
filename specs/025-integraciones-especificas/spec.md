@@ -298,7 +298,8 @@ forma parte de estos requisitos.
 - **FR-002**: Los 28 comandos `zha/*` quedan clasificados como dice R-1: 13
   `read`, 10 `confirm` y 5 `deny`. `network/settings`, `network/backups/list`
   y `network/backups/create` tapan `network_key`, `tc_link_key`, `key_table`
-  y `stack_specific` enteros (CAP-101; FR-089, FR-019).
+  y `stack_specific` enteros; `configuration` y `configuration/update`
+  tapan `alarm_master_code` (hallazgo del tramo 2) (CAP-101; FR-089, FR-019).
 - **FR-003**: Los 11 comandos `matter/*` quedan como dice R-1: 3 `read`, 1
   `confirm` (`interview_node`) y 7 `deny` (commissioning, código de
   emparejamiento, fabric, dataset Thread, Wi-Fi y la suscripción redundante)
