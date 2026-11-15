@@ -227,9 +227,69 @@ class TestVistaPrevia(_Base):
         self.assertNotIn("stored_args", datos)
 
     async def test_estrategia_sin_vistas(self) -> None:
-        self.ws.respuestas["lovelace/config"] = {"strategy": {"type": "original-states"}}
+        # T034: lo que se borra es la estrategia, y la vista previa lo dice
+        # (con su `type`) en vez de «0 vistas y 0 tarjetas» a secas.
+        # Control negativo: sin el bloque `if estrategia is not None` de la
+        # vista previa, cae por la falta de `strategy` (comprobado).
+        self.ws.respuestas["lovelace/config"] = {
+            "strategy": {"type": "original-states", "hidden_areas": ["garaje"]}}
         r = await self.vista_previa()
-        self.assertEqual((r["preview"]["views"], r["preview"]["cards"]), (0, 0))
+        p = r["preview"]
+        self.assertEqual((p["views"], p["cards"]), (0, 0))
+        self.assertEqual(p["strategy"], "original-states")
+        self.assertIn("strategy", p["warning"])
+        self.assertNotIn("every view and card", p["warning"])
+        self.assertNotIn("garaje", json.dumps(r))
+        res = await self.tool("panel-pruebas", confirmation_token=r["confirmation_token"])
+        self.assertEqual(res["strategy_removed"], "original-states")
+
+    async def test_estrategia_sin_tipo_legible(self) -> None:
+        self.ws.respuestas["lovelace/config"] = {"strategy": "rara"}
+        r = await self.vista_previa()
+        self.assertIs(r["preview"]["strategy"], True)
+
+    async def test_sin_estrategia_no_hay_campo(self) -> None:
+        r = await self.vista_previa()
+        self.assertNotIn("strategy", r["preview"])
+
+
+class TestListaDeDashboardsIlegible(_Base):
+    """T033: si `lovelace/dashboards/list` falla, nunca `not_found` ni un
+    resultado falso; sin token y sin gastar el token.
+
+    Control negativo: volver a `_get_dashboard_meta_by_url_path` (que da
+    `None` también ante el fallo) → caen los dos tests (comprobado).
+    """
+
+    _FALLOS = (HAConnectionError("caído", code="unknown_error"),
+               HAConnectionError("timeout"), {"no": "es una lista"})
+
+    async def test_vista_previa(self) -> None:
+        for fallo in self._FALLOS:
+            with self.subTest(fallo=fallo):
+                self.ws.respuestas["lovelace/dashboards/list"] = fallo
+                r = await self.tool("panel-pruebas")
+                self.assertEqual(r["error"], "dashboards_unavailable")
+                self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.ws.de("lovelace/config"), [])
+        self.assert_sin_borrar()
+
+    async def test_confirmacion_no_gasta_el_token(self) -> None:
+        r = await self.vista_previa()
+        token = r["confirmation_token"]
+        self.ws.respuestas["lovelace/dashboards/list"] = HAConnectionError(
+            "caído", code="unknown_error")
+        res = await self.tool("panel-pruebas", confirmation_token=token)
+        self.assertEqual(res["error"], "dashboards_unavailable")
+        self.assertNotIn("result", res)
+        self.assert_sin_borrar()
+        datos = json.loads((Path(self._tmp.name) / f"{token}.json")
+                           .read_text(encoding="utf-8"))
+        self.assertEqual(datos["state"], "pending")
+        # Al volver la lista, el mismo token vale.
+        self.ws.respuestas["lovelace/dashboards/list"] = [_PRINCIPAL, _PANEL, _YAML]
+        res = await self.tool("panel-pruebas", confirmation_token=token)
+        self.assertEqual(res["result"], "ok")
 
 
 class TestConfirmacion(_Base):

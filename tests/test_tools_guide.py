@@ -579,8 +579,9 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # La 018 cambia `lovelace` (guardado por vista) y `services`
         # (`ha_call_service_response` con token); su CHANGELOG lo dice. La
         # 024 (tramo 2) le añade la sección «Restablecer un dashboard»
-        # (FR-016); su CHANGELOG lo dice. Huella recalculada.
-        "lovelace": "1da19d01a404f95b",
+        # (FR-016); su CHANGELOG lo dice. La convergencia de la 024 (T033,
+        # T034) añade `strategy` y `dashboards_unavailable`. Huella recalculada.
+        "lovelace": "04bebf2041d378db",
         "marketplace": "f83ec233a87ad95b",
         "registries": "42894b4111cb8c80",
         "security": "157ee929e7db08ae",
@@ -1325,7 +1326,8 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
     # sha256 (16 hex) de cada tema antes de la 024: el tramo 1 solo añade
     # temas (y dos líneas al índice, que no está aquí). El tramo 2 añade a
     # `lovelace` la sección «Restablecer un dashboard» (FR-016, la única
-    # que cambia a propósito): huella recalculada.
+    # que cambia a propósito; la convergencia, T033 y T034, le añade
+    # `strategy` y `dashboards_unavailable`): huella recalculada.
     _HUELLAS = {
         "app_store": "f02491e7f0e6c93c",
         "automation_assist": "d360de0f7fd1deb5",
@@ -1341,7 +1343,7 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "generic_commands": "906066a916e93727",
         "helpers": "c99850e94eb5c996",
         "integration_flows": "5df1b039b66924d5",
-        "lovelace": "1da19d01a404f95b",
+        "lovelace": "04bebf2041d378db",
         "marketplace": "f83ec233a87ad95b",
         "mounts": "df26cd22a86efe39",
         "recorder": "2899543acd9b8794",

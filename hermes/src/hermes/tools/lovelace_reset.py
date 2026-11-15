@@ -18,9 +18,15 @@ POR QUÉ ASÍ (research R-4)
 - El token ata `url_path` y, con `estado` (spec 018), la configuración leída
   en la vista previa: si cambia antes de confirmar, la vista previa ya no
   dice la verdad sobre lo que se pierde y no se borra nada.
-- Se reutilizan `_default_panel`, `_get_dashboard_meta_by_url_path` y
-  `_count_cards` de `tools/lovelace.py` sin tocarlo: la familia `lovelace` de
-  la 1.1.2 no cambia (FR-010 de la 008).
+- Se reutilizan `_default_panel` y `_count_cards` de `tools/lovelace.py` sin
+  tocarlo: la familia `lovelace` de la 1.1.2 no cambia (FR-010 de la 008).
+  La búsqueda del dashboard NO reutiliza `_get_dashboard_meta_by_url_path`:
+  esa devuelve `None` también cuando falla `lovelace/dashboards/list`, y aquí
+  eso acababa en un `not_found` falso que, al confirmar, gastaba el token
+  (T033). `_buscar_dashboard` distingue el fallo de lectura de la ausencia.
+- Un dashboard de estrategia (`{"strategy": {...}}`, sin `views`) no pierde
+  vistas ni tarjetas: pierde la estrategia y sus opciones, y la vista previa
+  lo dice con el `type` de la estrategia (T034).
 - El log lleva `tool`, `url_path` y el resultado; nunca la configuración del
   dashboard (puede llevar nombres de entidades y datos de la casa).
 """
@@ -43,7 +49,6 @@ from hermes.tools._common import requires_ready
 from hermes.tools.lovelace import (
     _count_cards,
     _default_panel,
-    _get_dashboard_meta_by_url_path,
 )
 
 logger = structlog.get_logger(__name__)
@@ -55,10 +60,31 @@ _AVISO = (
     "Irreversible except from a backup: every view and card listed here is "
     "lost and Home Assistant shows its auto-generated dashboard instead."
 )
+_AVISO_ESTRATEGIA = (
+    "Irreversible except from a backup: the dashboard strategy and its options "
+    "are lost and Home Assistant shows its auto-generated dashboard instead."
+)
 _RECUPERACION = (
     "Copy it first with ha_get_lovelace_dashboard(url_path); to restore it, "
     "save that copy with ha_save_lovelace_dashboard."
 )
+
+
+def _estrategia(config: dict[str, Any]) -> str | bool | None:
+    """La estrategia guardada: su `type` si es un texto, `True` si la hay sin
+    `type` legible, `None` si no hay estrategia.
+
+    El frontend guarda un dashboard de estrategia como `{"strategy": {"type":
+    "original-states", ...}}` (o `custom:<nombre>`). Restablecerlo borra esa
+    estrategia y sus opciones aunque no haya ninguna vista guardada.
+    """
+    estrategia = config.get("strategy")
+    if estrategia is None:
+        return None
+    tipo = estrategia.get("type") if isinstance(estrategia, dict) else None
+    if isinstance(tipo, str) and tipo:
+        return redact_secrets(tipo)
+    return True
 
 
 def _recuentos(config: dict[str, Any]) -> tuple[int, int]:
@@ -92,6 +118,34 @@ async def _leer_config(
     if not isinstance(config, dict):
         return None, "preview_unavailable"
     return config, None
+
+
+async def _buscar_dashboard(
+    ha_client: HAClient, url_path: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Busca el dashboard en `lovelace/dashboards/list`. Devuelve `(meta, error)`.
+
+    - Está: `(meta, None)`.
+    - La lista se lee y no está: `(None, "not_found")`.
+    - La lista NO se puede leer (error de Core o forma inesperada): `(None,
+      "dashboards_unavailable")`. Sin la lista no se sabe si existe ni si es
+      YAML; decir `not_found` sería mentir (principio V) y, al confirmar,
+      daría el token por completado con un resultado falso.
+    """
+    try:
+        dashboards = await ha_client.ws_send({"type": "lovelace/dashboards/list"})
+    except HAConnectionError as exc:
+        logger.warning("lovelace_dashboards_list_failed", tool=_TOOL,
+                       error=redact_secrets(str(exc)))
+        return None, "dashboards_unavailable"
+    if not isinstance(dashboards, list):
+        logger.warning("lovelace_dashboards_list_unexpected_type", tool=_TOOL,
+                       got=type(dashboards).__name__)
+        return None, "dashboards_unavailable"
+    for d in dashboards:
+        if isinstance(d, dict) and d.get("url_path") == url_path:
+            return d, None
+    return None, "not_found"
 
 
 def register(
@@ -141,6 +195,15 @@ def register(
             }
         return None
 
+    def _sin_lista(url_path: Any) -> dict[str, Any]:
+        return {
+            "error": "dashboards_unavailable",
+            "url_path": url_path,
+            "hint": ("Could not read the dashboard list from Home Assistant, so it "
+                     "is unknown whether this dashboard exists. Nothing was reset; "
+                     "try again (a confirmation token stays valid until it expires)."),
+        }
+
     async def _cerrar_sin_objetivo(
         confirmation_token: str, args: dict[str, Any], resultado: dict[str, Any],
     ) -> dict[str, Any] | None:
@@ -169,8 +232,8 @@ def register(
         """Delete the stored config of a storage-mode Lovelace dashboard so it
         goes back to the auto-generated one.
 
-        The dashboard itself is kept; only its saved views and cards are
-        deleted. Irreversible (except from a backup): copy it first with
+        The dashboard itself is kept; only its saved views and cards (or its
+        strategy, for a strategy dashboard) are deleted. Irreversible (except from a backup): copy it first with
         `ha_get_lovelace_dashboard`, restore it with
         `ha_save_lovelace_dashboard`.
 
@@ -183,19 +246,22 @@ def register(
         panel are always protected (`cannot_reset_default_dashboard`); if
         the default panel cannot be read nothing is reset
         (`default_panel_unknown`). YAML dashboards cannot be reset
-        (`yaml_mode_dashboard`).
+        (`yaml_mode_dashboard`). If the dashboard list cannot be read, nothing
+        is reset and the token is not spent (`dashboards_unavailable`).
 
         Args:
             url_path: URL path of the dashboard, for example "panel-tests".
             confirmation_token: One-time token from the preview call.
 
         Returns:
-            Preview ({preview: {url_path, title, mode, views, cards, effect,
-            warning, recovery}, confirmation_token}), the result ({result:
-            "ok", url_path, views_removed, cards_removed}) or {"error": ...}:
-            cannot_reset_default_dashboard, default_panel_unknown, not_found,
-            yaml_mode_dashboard, nothing_to_reset, preview_unavailable,
-            dashboard_changed or a token error.
+            Preview ({preview: {url_path, title, mode, views, cards,
+            strategy?, effect, warning, recovery}, confirmation_token}), the
+            result ({result: "ok", url_path, views_removed, cards_removed,
+            strategy_removed?}) or {"error": ...}:
+            cannot_reset_default_dashboard, default_panel_unknown,
+            dashboards_unavailable, not_found, yaml_mode_dashboard,
+            nothing_to_reset, preview_unavailable, dashboard_changed or a
+            token error.
         """
         rechazo = await _guarda(url_path)
         if rechazo is not None:
@@ -204,7 +270,10 @@ def register(
         args: dict[str, Any] = {"url_path": url_path}
 
         if not confirmation_token:
-            meta = await _get_dashboard_meta_by_url_path(ha_client, url_path)
+            meta, error = await _buscar_dashboard(ha_client, url_path)
+            if error == "dashboards_unavailable":
+                return _fin(url_path, "rejected:dashboards_unavailable",
+                            _sin_lista(url_path))
             if meta is None:
                 return _fin(url_path, "rejected:not_found",
                             {"error": "not_found", "url_path": url_path})
@@ -220,6 +289,7 @@ def register(
                 return _fin(url_path, f"rejected:{error}",
                             {"error": error, "url_path": url_path})
             vistas, tarjetas = _recuentos(config)
+            estrategia = _estrategia(config)
             preview: dict[str, Any] = {
                 "url_path": url_path,
                 "title": meta.get("title"),
@@ -230,13 +300,24 @@ def register(
                 "warning": _AVISO,
                 "recovery": _RECUPERACION,
             }
+            if estrategia is not None:
+                # Lo que se pierde es la estrategia: «0 vistas y 0 tarjetas»
+                # a secas haría creer que no se pierde nada (T034).
+                preview["strategy"] = estrategia
+                if not isinstance(config.get("views"), list):
+                    preview["warning"] = _AVISO_ESTRATEGIA
             respuesta = await create_confirmation_token(
                 _TOOL, args, preview=preview, estado=config)
             return _fin(url_path, "preview", respuesta)
 
         # Confirmación: metadata y configuración leídas otra vez justo antes
         # de resolver el token, que exige la misma configuración.
-        meta = await _get_dashboard_meta_by_url_path(ha_client, url_path)
+        meta, error = await _buscar_dashboard(ha_client, url_path)
+        if error == "dashboards_unavailable":
+            # Fallo de lectura, no ausencia: el token sigue pendiente para
+            # reintentar en su plazo (T033).
+            return _fin(url_path, "rejected:dashboards_unavailable",
+                        _sin_lista(url_path))
         if meta is None:
             resultado = {"result": "not_found", "url_path": url_path}
             error_token = await _cerrar_sin_objetivo(confirmation_token, args, resultado)
@@ -279,5 +360,8 @@ def register(
             return _fin(url_path, "error", {"error": detalle, "url_path": url_path})
         resultado = {"result": "ok", "url_path": url_path,
                      "views_removed": vistas, "cards_removed": tarjetas}
+        estrategia = _estrategia(config)
+        if estrategia is not None:
+            resultado["strategy_removed"] = estrategia
         await complete_confirmation_token(confirmation_token, success=True, result=resultado)
         return _fin(url_path, "ok", resultado)

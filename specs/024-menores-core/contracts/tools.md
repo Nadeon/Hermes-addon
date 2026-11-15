@@ -50,9 +50,12 @@ ha_reset_lovelace_dashboard_config(url_path: str, confirmation_token: str | None
 > reset.
 
 Comando: `lovelace/config/delete` con `url_path`. Errores:
-`cannot_reset_default_dashboard`, `default_panel_unknown`, `not_found`,
-`yaml_mode_dashboard`, `nothing_to_reset`, `preview_unavailable`, los del
-token (incluido el de estado cambiado).
+`cannot_reset_default_dashboard`, `default_panel_unknown`,
+`dashboards_unavailable` (no se pudo leer `lovelace/dashboards/list`; sin
+token y sin gastar el token, T033), `not_found`, `yaml_mode_dashboard`,
+`nothing_to_reset`, `preview_unavailable`, los del token (incluido el de
+estado cambiado). En un dashboard de estrategia, la vista previa lleva
+`strategy` (el `type` o `true`) y el resultado `strategy_removed` (T034).
 
 ## Por la tabla (genéricas)
 
@@ -62,7 +65,7 @@ token (incluido el de estado cambiado).
 | `camera/update_prefs` | `ha_call_ws_command` | confirm, O | `preload_stream`, `orientation` |
 | `trace/contexts` | `ha_read_ws_command` | read | `domain`+`item_id` opcionales |
 | `frontend/get_themes` | `ha_read_ws_command` | read | |
-| `webhook/list` | `ha_read_ws_command` | read | `webhook_id` tapado |
+| `webhook/list` | `ha_read_ws_command` | read | `webhook_id` tapado, también donde se repita (T032) |
 | `vacuum/get_segments` | `ha_read_ws_command` | read, O | `entity_id` |
 | `radio_frequency/list` | `ha_read_ws_command` | read | |
 | CAP-065/066/067/070/072/073 | según R-0 | sin cambios salvo R-6 y R-7 | |
