@@ -327,3 +327,14 @@ banco, decisiones.)
   (los de siempre): los 4 tests nuevos (Repairs, arreglo, abortar y
   reautenticación) contra HA Core 2026.11.1.
 - **Hallazgos en el banco**: ninguno.
+
+---
+
+## Fase 4: Convergencia
+
+Revisión independiente del rango `cc92b4a..99f9645`. Severidad entre corchetes.
+
+- [ ] T046 [ALTO] `ha_ignore_discovery` no puede ignorar un flujo `reauth`: HA pone en su contexto el `unique_id` de la entrada, así que hoy sale con `ignorable: true` y `config_entries/ignore_flow` crea una entrada `ignore` con ese `unique_id`; `async_finish_flow` de HA 2026.11.1 descarga y BORRA la entrada real y limpia sus dispositivos y entidades, sin token. Arreglo mínimo: `_ignorable` en `integration_setup.py` devuelve `false` si `source == "reauth"` (`cannot_ignore` con `reason: "reauth_flow"` y sin llamar a `ignore_flow`); docstring y guía («no toca nada en marcha») al día; test con un `reauth` con `unique_id` y su control negativo per FR-001, FR-002, FR-019, principio IV y V (contradicts)
+- [ ] T047 [BAJO] La pista de `not_a_reconfigure_flow` en `ha_continue_reconfigure_flow` («Other config flows continue with ha_continue_config_entry_flow») empuja, tras reiniciar Hermes, a continuar un reconfigure por la vía general sin token. Decir que un reconfigure abierto antes de reiniciar Hermes no se puede continuar y hay que abortarlo (`ha_abort_config_entry_flow`) y abrir otro con `ha_start_reconfigure_flow`; test del texto per FR-010a, FR-010c, principio V (partial)
+- [ ] T048 [BAJO] (propuesta: decide el supervisor) Cierre fail-closed del riesgo residual de FR-010c: `config_entries/flow/progress` NO sirve para reconocer un reconfigure (HA excluye `user` y `reconfigure` por igual), pero sí permite saber que un flujo es «de origen `user` o `reconfigure`». Registrar también en memoria los `flow_id` que abre `ha_start_config_entry_flow` y que `ha_continue_config_entry_flow` rechace (`unknown_flow_origin`, sin enviar) un flujo que no esté ni en ese registro ni en `flow/progress`, y también si `flow/progress` no se puede leer. Coste: un flujo `user` abierto antes de reiniciar Hermes, o desde la interfaz de HA, hay que abrirlo de nuevo per FR-010c, FR-010d, FR-024 (partial)
+- [ ] T049 [BAJO] `ha_update_config_entry` devuelve `config_entry` tal cual llega de HA, con el `title` sin redactar (un JWT en el título sale entero), cuando la vista previa sí lo redacta y FR-021 incluye los títulos. Pasar `config_entry` por `redactar_datos` (o redactar `title`) y test con centinela per FR-021, SC-004 (partial)
