@@ -188,6 +188,19 @@ class _ConMatiz:
     matiz: str
 
 
+@dataclass(frozen=True)
+class _ConMotivo:
+    """Lo cubierto por una tool con un motivo entero que no sigue la forma
+    «cubierto por <tool> (<matiz>)» (spec 030: `GET /store` lo cubren dos
+    tools, y las rutas con `{version}` las cubre la tool sin versión porque el
+    Supervisor ignora `{version}`). Sin esto, la generación desde cero
+    perdería el motivo que la tabla revisada sí tiene.
+    """
+
+    tool: str
+    motivo: str
+
+
 _INTERNO = _Deny("uso interno de Hermes")
 _SUSCRIPCION_NO_USADA = _Deny(
     "suscripción/streaming: MCP es petición-respuesta (Hermes no la usa)"
@@ -203,7 +216,8 @@ _SUSCRIPCION_NO_USADA = _Deny(
 # `use_dedicated_tool`: la tool dedicada tiene la vista previa semántica, la
 # denylist o las protecciones (dashboard principal, autoprotección de Hermes)
 # que la genérica no tiene.
-_DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny | _ConMatiz] = {
+_DEDICADAS_INICIALES: dict[
+    str | tuple[str, str], str | _Deny | _ConMatiz | _ConMotivo] = {
     # Automatizaciones y scripts: la config por entity_id la dan las tools de
     # lectura (que leen por REST); el comando WS lo usan los registros por dentro.
     "automation/config": "ha_get_automation",
@@ -428,6 +442,39 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny | _ConMatiz] = {
     ("GET", "/os/info"): "sv_get_os_info",
     ("GET", "/os/config/swap"): "sv_get_swap",
     ("GET", "/os/datadisk/list"): "sv_list_datadisk_candidates",
+    # 030: la tienda de apps (CAP-082) y la validación y reconstrucción de una
+    # app (CAP-093), clase A de vía D y D+X, por el mismo mecanismo. Las tres
+    # rutas con `{version}` van a la tool SIN versión de la 1.1.2: el
+    # Supervisor 2026.11.0 ignora `{version}` (research R-2 de la 030).
+    ("GET", "/store"): _ConMotivo(
+        "sv_list_store_repositories",
+        "cubierto por sv_list_store_repositories (repositorios) y sv_list_addons (apps)"),
+    ("GET", "/store/repositories"): "sv_list_store_repositories",
+    ("GET", "/store/repositories/{repository}"): _ConMotivo(
+        "sv_list_store_repositories",
+        "cubierto por sv_list_store_repositories(repository=…)"),
+    ("POST", "/store/repositories"): "sv_add_store_repository",
+    ("DELETE", "/store/repositories/{repository}"): "sv_remove_store_repository",
+    ("POST", "/store/repositories/{repository}/repair"): "sv_repair_store_repository",
+    ("POST", "/store/reload"): "sv_reload_store",
+    ("GET", "/store/addons/{app}/changelog"): "sv_get_addon_changelog",
+    ("GET", "/store/addons/{app}/documentation"): "sv_get_addon_documentation",
+    ("GET", "/store/addons/{app}/availability"): "sv_get_addon_availability",
+    ("GET", "/store/addons/{app}/{version}"): _ConMotivo(
+        "sv_get_addon",
+        "el Supervisor 2026.11.0 ignora `{version}` y devuelve la ficha actual: "
+        "cubierto por sv_get_addon"),
+    ("POST", "/store/addons/{app}/install/{version}"): _ConMotivo(
+        "sv_install_addon",
+        "el Supervisor 2026.11.0 ignora `{version}` e instala la de la tienda: "
+        "cubierto por sv_install_addon"),
+    ("POST", "/store/addons/{app}/update/{version}"): _ConMotivo(
+        "sv_update_addon",
+        "el Supervisor 2026.11.0 ignora `{version}` y actualiza a la de la tienda: "
+        "cubierto por sv_update_addon"),
+    ("POST", "/addons/{app}/options/validate"): _ConMatiz(
+        "sv_set_addon_options", "valida en la vista previa"),
+    ("POST", "/addons/{app}/rebuild"): "sv_rebuild_addon",
 }
 
 # Colecciones de helpers: list/create/update/delete con el mismo patrón de
@@ -522,7 +569,10 @@ def _clasificar(
     # clase A cuya sub-feature ya creó su tool (specs 012, 013, 016 y 029;
     # research R-7): un solo constructor para las dos, para que una
     # generación desde cero dé la misma tabla que la revisada a mano.
-    def dedicada(destino: str | _ConMatiz) -> dict[str, object]:
+    def dedicada(destino: str | _ConMatiz | _ConMotivo) -> dict[str, object]:
+        if isinstance(destino, _ConMotivo):
+            return {"category": "dedicated", "reason": destino.motivo,
+                    "family": tools[destino.tool], "tool": destino.tool, "cap": cap}
         matiz = ""
         if isinstance(destino, _ConMatiz):
             matiz = f" ({destino.matiz})"
@@ -560,7 +610,7 @@ def _clasificar(
         # 012 y 029, research R-7): se consulta antes que la regla
         # «pendiente», con el mismo constructor que las de clase «cubierto».
         destino = _DEDICADAS_INICIALES.get(clave)
-        if isinstance(destino, (str, _ConMatiz)):
+        if isinstance(destino, (str, _ConMatiz, _ConMotivo)):
             return dedicada(destino)
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")

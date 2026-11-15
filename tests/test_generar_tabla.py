@@ -289,8 +289,37 @@ class TestClaseAConToolDedicada(_Base):
         # el mapa del generador: si baja, el test ha dejado de mirarlas. Desde
         # la integración de la 015, también sus 6 filas A (`/available_updates`,
         # `/reload_updates`, `/core/update`, `/os/update`, `/supervisor/update`
-        # y `update/release_notes`).
-        self.assertGreaterEqual(n, 60)
+        # y `update/release_notes`). Desde la integración de la 030, sus 15
+        # rutas (7 de repositorios y recarga, 8 de fichas, versiones,
+        # validación y reconstrucción).
+        self.assertGreaterEqual(n, 75)
+
+    def test_desde_cero_las_de_la_030_con_su_motivo(self) -> None:
+        """Integración de la 030: las rutas cuyo motivo no sigue la forma
+        «cubierto por <tool>» (`GET /store`, que cubren dos tools, y las tres
+        con `{version}`, que cubre la tool sin versión) salen desde cero con
+        el motivo entero de la tabla revisada (`_ConMotivo`).
+
+        Control negativo comprobado: con `("GET", "/store"):
+        "sv_list_store_repositories"` en el mapa (sin el motivo) cae este test
+        y el de arriba nombrándola; quitar `("POST", "/store/reload")` del
+        mapa → cae el de arriba nombrándola."""
+        from hermes import command_table as real
+
+        inventario = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
+        self.salida.unlink(missing_ok=True)
+        gt.generar(inventario / "core-ws.tsv", inventario / "supervisor-rutas.tsv",
+                   self.salida, ha_core="2026.11.1", supervisor="2026.11.0")
+        cero = self._tabla()
+        for k in (("GET", "/store"), ("GET", "/store/repositories/{repository}"),
+                  ("GET", "/store/addons/{app}/{version}"),
+                  ("POST", "/store/addons/{app}/install/{version}"),
+                  ("POST", "/store/addons/{app}/update/{version}"),
+                  ("POST", "/addons/{app}/options/validate")):
+            with self.subTest(k=k):
+                g, r = cero.SUPERVISOR[k], real.SUPERVISOR[k]
+                self.assertEqual((g.category, g.reason, g.family, g.tool, g.cap),
+                                 (r.category, r.reason, r.family, r.tool, r.cap))
 
     def test_desde_cero_las_de_la_015_con_su_matiz(self) -> None:
         """Integración de la 015: las dos entradas cuya tool no usa esa misma
