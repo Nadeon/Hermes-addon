@@ -187,10 +187,43 @@ class TestCoberturaDelBanco(unittest.TestCase):
             excepcion = marcas[0].kwargs.get("raises")
             self.assertNotIn(excepcion, (None, AssertionError, Exception, BaseException), nodeid)
 
-    def test_reload_counters_es_hallazgo_y_no_probada(self) -> None:
+    def test_reload_counters_no_ejecutable_y_no_probada(self) -> None:
+        # Spec 033 (FR-004, T029): ya no es un hallazgo (no falla: responde
+        # `not_supported` sin llamar a HA), pero tampoco modifica nada que el
+        # lector pueda comprobar, así que no cuenta como probada.
         self.assertNotIn("ha_reload_counters", PROBADAS_EN_BANCO)
-        self.assertIn("spec 033", FALLAN_EN_BANCO["ha_reload_counters"])
+        self.assertIn("not_supported", NO_EJECUTABLES["ha_reload_counters"])
+        self.assertEqual(FALLAN_EN_BANCO, {})
         self.assertEqual(len(PROBADAS_EN_BANCO), 46)
+
+    def test_ningun_xfail_en_el_banco_fuera_de_la_lista(self) -> None:
+        """Spec 033 (T036): cada `xfail` que queda en `tests/banco/` está en
+        la lista que admite el job, y viceversa. Hoy las dos están vacías: los
+        tres hallazgos (el de la 010 y los dos de la 028) están arreglados.
+
+        El plugin del job ya pone el job en rojo con un `xfail` de más; esto
+        lo dice antes, en la suite normal, sin HA.
+
+        Control negativo, comprobado y restaurado: volviendo a poner el
+        `xfail` de `TestCounter.test_recarga`, este test cae nombrándolo.
+        """
+        import ast
+
+        from tests.banco.cobertura_escrituras import XFAIL_DEL_JOB
+
+        marcados: set[str] = set()
+        for ruta in sorted((RAIZ / "tests" / "banco").glob("test_*.py")):
+            arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+            for clase in (n for n in arbol.body if isinstance(n, ast.ClassDef)):
+                for metodo in clase.body:
+                    if not isinstance(metodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    if any("xfail" in ast.unparse(d) for d in metodo.decorator_list):
+                        marcados.add(
+                            f"tests/banco/{ruta.name}::{clase.name}::{metodo.name}"
+                        )
+        self.assertEqual(marcados, set(XFAIL_DEL_JOB))
+        self.assertEqual(XFAIL_DEL_JOB, {})
 
 
 

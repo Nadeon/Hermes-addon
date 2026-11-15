@@ -1,7 +1,8 @@
 """Hermes — Carga de configuración desde variables de entorno.
 
-run.sh lee options.json con bashio y exporta env vars.
-Este módulo las recoge y las expone como un objeto tipado.
+run.sh lee /data/options.json directamente con jq (sin pasar por la API
+del Supervisor) y exporta env vars. Este módulo las recoge y las expone como un objeto
+tipado.
 """
 
 from __future__ import annotations

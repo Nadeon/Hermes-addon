@@ -4,7 +4,7 @@
 
 ## Resumen
 
-Programa de 24 sub-features (009–032) que lleva Hermes de cubrir 130 comandos
+Programa de 25 sub-features (009–033) que lleva Hermes de cubrir 130 comandos
 de Core y 37 rutas del Supervisor a cubrir todo lo que HA 2026.11 ofrece a un
 administrador, con un modelo **híbrido**: tools dedicadas para lo de prioridad
 alta y media-alta y para lo que tiene consecuencias, y cuatro tools genéricas
@@ -89,6 +89,7 @@ paralelo.
 | 016 | `integraciones-flujos-y-repairs` | 036, 037, 044, 045, 048 | FR-053…FR-057 | 011 | 2 | ~14 | L | 3 |
 | 018 | `mejoras-de-tools-existentes` | 019, 020, 023 | FR-063…FR-065 | 011 | 2 | 0 | M | 2 |
 | 027 | `plataforma-y-deprecaciones` | 025, 026, 028, 029, 030, 031, 032, 033 | FR-092…FR-097 | — | 2 | 0 | S | 1 |
+| 033 | `arreglos-del-banco` (tools de la 1.1.2 rotas o deshonestas que destapa el banco) | 039 | FR-099 | 011, 028 | 2 | 0 | M | 2 |
 | 015 | `actualizaciones-del-sistema` | 064, 080 | FR-049, FR-050 | 013 | 3 | ~7 | M | 2 |
 | 030 | `tienda-de-apps` | 082, 093 | FR-051, FR-052 | 011 | 3 | ~9 | M | 2 |
 | 017 | `automatizacion-asistida` | 038, 040 (al guardar), 046, 051, 052 | FR-058…FR-062 | 012 | 3 | ~14 | L | 3 |
@@ -103,7 +104,7 @@ paralelo.
 | 025 | `integraciones-especificas` (clase C por la tabla) | 100–106 | FR-089, FR-090 | 011 | 3 | 0 | M | 2 |
 | 026 | `marketplace-escritura` | 075 | FR-091 | 030 | 4 | ~8 | M | 2 |
 
-Totales: 24 sub-features, 49 tramos. Transversales a todas: FR-012, FR-015,
+Totales: 25 sub-features, 51 tramos. Transversales a todas: FR-012, FR-015,
 FR-018…FR-021, FR-023, FR-024. Cierre: FR-098.
 
 ### Cambios respecto a research R-6
@@ -131,7 +132,11 @@ FR-018…FR-021, FR-023, FR-024. Cierre: FR-098.
 - **026 depende de 030**, no de 014: comparte el patrón de textos de terceros y
   backup previo de la tienda.
 - **027 no retira nada** (decisión 3): solo documenta fechas y lo bloqueado.
-- Los números nuevos (028–032) son los siguientes libres; el orden lo da la
+- **033 se añade después** (no estaba en R-6): arregla las tools de la 1.1.2
+  que el banco de Core y las revisiones de la 010 y la 028 muestran rotas o
+  deshonestas (CAP-039, FR-099). Depende de 011 (instantánea de esquemas) y de
+  028 (banco de automatizaciones, scripts y escenas).
+- Los números nuevos (028–033) son los siguientes libres; el orden lo da la
   columna «Ola», no el número.
 
 ### Cómo se reparte cada CAP entre dedicada y tabla
@@ -222,6 +227,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-036 | media | 016 | FR-056 | X | textos traducidos en Repairs |
 | CAP-037 | baja | 016 | FR-057 | M | tema de la guía |
 | CAP-038 | baja | 017 | FR-061 | D | espera de trigger (banco) |
+| CAP-039 | alta | 033 | FR-099 | X | token atado a `variables`: `tests/test_security_regressions.py` (`TestRestrictedEntityVariables`), `tests/test_tools_scripts.py`, `tests/test_tools_automations.py`, inventario `tests/test_confirmation_args_inventory.py` y banco `tests/banco/test_banco_escrituras_automatizacion.py` (`test_el_token_ata_las_variables`, tramo 1); tramo 2: `not_supported` de `ha_reload_counters` (`tests/test_tools_counter.py`, `test_reload_no_soportada`) y canario de `counter.reload` (`tests/banco/test_banco_helpers_tiempo.py`, `TestCounter.test_recarga`); `amount` y `ha_set_counter_value` (`TestValorDeContadorValido`; banco `TestCounter.test_valores_que_ha_rechaza`); esquema sin `ctx` (`tests/test_tools_registration.py`, `TestEsperaSinCtxEnElEsquema`, `test_esquemas_de_la_1_1_2`; `tests/test_tools_wait_for_event.py`, `TestContextoDeLaEspera`; banco `TestEsperarEvento`); escenas (`tests/test_tools_scenes.py`, `TestEscenaDesdeElEstadoActual` y `TestDescripcionesDeEscenas`; banco `TestEscena.test_escena_desde_el_estado_*`); opciones (`tests/test_tools_config_entry_flows.py`, `TestGetConfigEntryOptions`; banco `TestOpcionesNoPublicadas`); banco sin `xfail` (`tests/test_banco_cobertura.py`, `test_ningun_xfail_en_el_banco_fuera_de_la_lista`) |
 | CAP-040 | alta | 012, 017 | FR-036, FR-062 | D+X | `ha_validate_config`, `ha_test_condition` (012): `tests/test_tools_core_validation.py`; banco: `TestValidacion` (`tests/banco/test_banco_core_diagnostico.py`) |
 | CAP-041 | alta | 012 | FR-037 | D | `ha_list_system_log`, `ha_get_error_log`, `ha_get_log_levels`, `ha_set_log_level`, `ha_clear_system_log`: `tests/test_tools_core_logs.py`, `tests/test_ha_rest_text_tail.py`; banco: `tests/banco/test_banco_core_logs.py` |
 | CAP-042 | alta | 012 | FR-038 | D | `ha_list_diagnostics_handlers`, `ha_get_config_entry_diagnostics`, `ha_get_device_diagnostics`: `tests/test_tools_integration_diagnostics.py`; banco: `TestDiagnosticos` (`tests/banco/test_banco_core_diagnostico.py`, entrada de `local_calendar`); camino feliz del de dispositivo, prueba manual pendiente (ninguna integración sin hardware ni nube lo ofrece) |
@@ -281,7 +287,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-105 | baja | 025 | FR-089, FR-090 | T | USB por la tabla (unitario) |
 | CAP-106 | baja | 025 | FR-089, FR-090 | T | resto; secretos `deny` (unitario) |
 
-95 CAP, todas con sub-feature y FR. Ninguna CAP queda excluida: lo excluido es
+96 CAP, todas con sub-feature y FR. Ninguna CAP queda excluida: lo excluido es
 la clase B y la clase D (spec, «Exclusiones»), que no tiene CAP.
 
 ## Banco de pruebas: qué se prueba dónde

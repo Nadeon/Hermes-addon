@@ -363,7 +363,8 @@ la lista de tools es la de la 1.1.2.
   no tiene el servicio `counter.reload`; Core responde 400. No cuenta como
   probada: queda anotado en la hoja de ruta, pendiente de arreglo en la spec
   033, y en el banco como fallo esperado que solo admite ese error. Esta
-  sección no cambia la tool.
+  sección no cambia la tool. Arreglado en esta misma versión: ver «Arreglos
+  destapados por el banco (033)».
 - **26 escrituras más de Core, ejecutadas de verdad.** En el mismo job,
   automatizaciones, scripts y escenas (crear y editar en dos pasos, con la
   configuración guardada leída de HA; activar, desactivar, disparar,
@@ -392,13 +393,15 @@ la lista de tools es la de la 1.1.2.
   responde 400; la descripción de la tool dice que «HA decide». Tampoco es
   cierto que una colisión de `scene_id` dé error: Core reemplaza la escena.
   Sin `name` funciona. Pendiente de arreglo en la spec 033; en el banco, fallo
-  esperado que solo admite ese error.
+  esperado que solo admite ese error. Arreglado en esta misma versión: ver
+  «Arreglos destapados por el banco (033)».
 - **Hallazgo de seguridad: el token de `ha_run_script` y
   `ha_trigger_automation` no cubre `variables`.** Con un script o una
   automatización restringidos, se acepta una confirmación con variables
   distintas de las de la vista previa, y la vista previa no las enseña.
   Pendiente de arreglo en la spec 033 (prioridad máxima); en el banco, fallo
-  esperado que solo admite ese caso.
+  esperado que solo admite ese caso. Arreglado en esta misma versión: ver
+  «Arreglos destapados por el banco (033)».
 - Fuera del CI, los tests del banco se saltan con un motivo que dice qué falta
   y dónde corren; las piezas que no necesitan HA (Supervisor simulado,
   onboarding, reglas de salto, comprobaciones del workflow, inventario de
@@ -483,6 +486,70 @@ la lista de tools es la de la 1.1.2.
   sale una línea `request_cancelled_on_shutdown`; cualquier otra excepción
   conserva su traza. Un `CancelledError` que llegue a `main()` se registra
   como `interrupted`, y la espera del servidor recoge su cancelación.
+
+#### Arreglos destapados por el banco (033)
+
+- **El token de un script o una automatización restringidos cubre
+  `variables`** (seguridad). Con una entidad restringida (sus acciones llaman
+  a servicios de la denylist), `ha_run_script` y `ha_trigger_automation` piden
+  confirmación, pero el token solo ataba la entidad y el servicio: se podía
+  pedir la vista previa con unas variables y confirmar con otras, y la vista
+  previa no las enseñaba. Ahora la vista previa trae `variables` y el token
+  las ata tal como llegan: confirmar con otras, sin ellas o con ellas tras una
+  vista previa sin ellas se rechaza sin llamar a HA. Un script o una
+  automatización no restringidos siguen en un paso. Un test de inventario
+  exige que cada argumento de cada tool con `confirmation_token` esté atado
+  al token o exento con un motivo escrito; el banco lo comprueba contra HA
+  real con las dos tools.
+- **`ha_reload_counters` dice que no puede recargar** (deprecada; se retira en
+  la 1.3.0). Home Assistant no tiene `counter.reload`: la tool pedía token y,
+  al confirmar, HA respondía 400. Ahora responde siempre `not_supported`, con
+  o sin token, sin llamar a HA: los counters de la UI o de Hermes se aplican
+  al guardar y los de YAML al reiniciar. En el banco es un canario que avisa
+  si un HA futuro añade la recarga.
+- **`ha_get_config_entry_options` dice que no puede leer las opciones**
+  (deprecada; se retira en la 1.3.0). Home Assistant no publica las opciones
+  de una config entry por su API, y la tool devolvía siempre `options: {}`.
+  Ahora responde `not_supported` con el dominio, el título y si la
+  integración tiene opciones, e indica la vía: abrir el flujo de opciones con
+  `ha_start_options_flow` (muchas integraciones enseñan los valores actuales)
+  y cerrarlo con `ha_abort_config_entry_flow`.
+- **`ha_wait_for_event` ya no pide `ctx`.** El contexto del SDK estaba mal
+  anotado y salía en el esquema como argumento obligatorio, sin ningún valor
+  con sentido; además, el aviso de progreso durante la espera no salía nunca.
+  Ahora el SDK lo inyecta y el aviso sale cada 15 s (si el cliente pidió
+  avisos de progreso). Un cliente que siga mandando `ctx` no recibe error.
+- **`ha_create_scene_from_current` hace lo que dice.** Crea una escena
+  TEMPORAL (se pierde al reiniciar HA o al recargar las escenas). Con `name`
+  respondía siempre el 400 de HA, porque `scene.create` no admite nombre:
+  ahora responde `name_not_supported` sin llamar a HA (el argumento queda
+  deprecado y se retira en la 1.3.0; para una escena con nombre,
+  `ha_create_or_update_scene`). Reemplazar otra escena temporal, que HA hace
+  en silencio, pide ahora `confirmation_token` con una vista previa de las
+  entidades actuales y las nuevas; sobre una escena que no es temporal
+  responde `scene_exists` (HA no la tocaría); una entidad que no existe da
+  `entity_not_found`; y después comprueba que la escena tiene esas entidades
+  y, si la reemplazaba, que HA la ha recreado de verdad (`scene_not_created`
+  si no; una escena de YAML sin `id` con las mismas entidades ya no pasa por
+  reemplazada). Pasa a anunciarse destructiva, y la respuesta
+  de éxito dice si reemplazó y conserva la de HA en `ha_response`.
+- **Las escenas editables están en `scenes.yaml`.** Las descripciones de
+  `ha_get_scene`, `ha_create_or_update_scene` y `ha_delete_scene` decían
+  `.storage/core.scene_*`, y la segunda, que veía las escenas de
+  `scene.create`, que no están en ningún fichero.
+- **`amount` de los counters y `ha_set_counter_value` no dan el 500 de HA.**
+  HA solo acepta valores múltiplos del `step` y dentro de los límites, y si
+  no, responde un 500 genérico. Ahora `ha_increment_counter` y
+  `ha_decrement_counter` con `amount` responden `invalid_amount`, y
+  `ha_set_counter_value` responde `invalid_value`, con el motivo
+  (`not_multiple_of_step` u `out_of_range`), el valor y los límites, sin
+  tocar el counter. Sin `amount`, todo sigue igual.
+- **La vista previa de deshabilitar o borrar una integración cuenta bien las
+  entidades.** Comparaba el `entry_id` por subcadena: una entidad de la entry
+  `e10` contaba para la `e1`. Ahora compara el id exacto.
+- El banco de pruebas queda sin ningún fallo esperado: los tres hallazgos
+  (el de la 010 y los dos de la 028) están arreglados y sus tests prueban el
+  comportamiento nuevo contra HA real.
 
 ## [1.1.2] — 2026-11-14
 

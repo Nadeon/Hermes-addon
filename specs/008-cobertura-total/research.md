@@ -271,6 +271,7 @@ propuestas» pasan a ser entradas de la tabla de clasificación.
 | CAP-036 | Textos traducidos de los avisos de Repairs | `tools/repairs.py` | Usar internamente `frontend/get_translations` (categoría `issues`, hoy clase B) para devolver título y descripción | no | bajo | S | media | HR |
 | CAP-037 | Helpers por config entry | `tools/guide.py` | Solo guía: tipo `helper`, `handler`, opciones | no | bajo | S | baja | HR (desfasado) |
 | CAP-038 | Esperar a un trigger | `tools/wait_for_event.py` | `subscribe_trigger` de un solo disparo, con el mismo tope que `ha_wait_for_event` (reclasificación de B) | no | bajo | S | baja | Hallazgo |
+| CAP-039 | Tools de la 1.1.2 rotas o deshonestas que destapa el banco de Core (añadida con la sub-feature 033) | `tools/_common.py`, `counter.py`, `wait_for_event.py`, `scenes.py`, `config_entry_flows.py` | Token de `ha_trigger_automation`/`ha_run_script` atado a `variables`; `not_supported` honesto y deprecación en `ha_reload_counters` y `ha_get_config_entry_options`; `ctx` inyectado en `ha_wait_for_event`; `ha_create_scene_from_current` sin `name`, con token al reemplazar y `destructiveHint`; `scenes.yaml` en las descripciones; `amount` de contadores comprobado | sí (variables; reemplazo de escena) | alto (token sin atar, principio IV) | M | alta | Hallazgo (banco 010 y revisiones 010 y 028) |
 
 ### Bloque 3 — Huecos A de Core (CAP-040 a CAP-075)
 
@@ -512,12 +513,12 @@ subir de rol; con `manager` entran todas salvo `POST /reload_updates` (usar
 
 | Prioridad | CAP |
 |---|---|
-| alta (21) | 001, 002, 004, 005, 006, 010, 019, 022, 034, 040, 041, 042, 043, 044, 045, 046, 047, 080, 081, 082, 083 |
+| alta (22) | 001, 002, 004, 005, 006, 010, 019, 022, 034, 039, 040, 041, 042, 043, 044, 045, 046, 047, 080, 081, 082, 083 |
 | media-alta (11) | 003, 007, 020, 048, 049, 050, 051, 052, 060, 064, 085 |
 | media (28) | 008, 011, 012, 016, 021, 023, 027, 030, 031, 035, 036, 053, 054, 055, 056, 057, 058, 059, 068, 084, 086, 087, 088, 089, 093, 100, 101, 104 |
 | baja (35) | 013, 014, 015, 017, 018, 024, 025, 026, 028, 029, 032, 033, 037, 038, 061, 062, 063, 065, 066, 067, 069, 070, 071, 072, 073, 074, 075, 090, 091, 092, 094, 102, 103, 105, 106 |
 
-Total: **95 CAP**. Si todo fuera tool dedicada, las CAP de Core y del
+Total: **96 CAP** (CAP-039 se añadió con la sub-feature 033). Si todo fuera tool dedicada, las CAP de Core y del
 Supervisor suman unas **210 tools nuevas** (135 de Core y 76 del Supervisor,
 contando las del informe), más de 400 en total sin la clase C.
 

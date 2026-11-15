@@ -382,9 +382,13 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
     # que cambie un tema a propósito actualiza aquí su huella y lo dice en su
     # CHANGELOG; un cambio accidental cae aquí.
     _HUELLAS_ANTES_DE_LA_013 = {
-        "automations": "cb414a2c5e0cad24",
+        # La 033 cambia `automations` (el token de una restringida ata
+        # `variables`; escenas temporales), `config_entries`
+        # (`ha_get_config_entry_options` da
+        # `not_supported`) y `helpers` (counters); su CHANGELOG lo dice.
+        "automations": "7792fa788da1e1cc",
         "backups": "c9a088b65d4f13c5",
-        "config_entries": "7c9723694f529f2f",
+        "config_entries": "afaf103b7388da10",
         "data": "c77e3e6782cc89a7",
         # La 012 cambia `diagnostics` (remite a `core_diagnostics`); su
         # CHANGELOG lo dice.
@@ -392,7 +396,7 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "events": "3765a76095ece40f",
         "filesystem": "b5902d6d0ff666c1",
         "generic_commands": "906066a916e93727",
-        "helpers": "685d974fff03f37b",
+        "helpers": "1c0d88c851dbbdd5",
         # La 018 cambia `lovelace` (guardado por vista) y `services`
         # (`ha_call_service_response` con token); su CHANGELOG lo dice.
         "lovelace": "38d00048b136b460",

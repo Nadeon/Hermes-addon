@@ -197,8 +197,18 @@ Servicios peligrosos piden confirmation_token (ver `security`).
   `ha_reload_automations`.
 - Scripts: `ha_list_scripts`, `ha_get_script`, `ha_create_or_update_script` (token),
   `ha_run_script`, `ha_delete_script` (token), `ha_reload_scripts`.
+- `ha_trigger_automation` y `ha_run_script` piden token si la entidad está
+  restringida (sus acciones llaman a servicios peligrosos). El token cubre
+  también `variables`: confirma con las mismas que enseña el preview.
 - Scenes: `ha_list_scenes`, `ha_get_scene`, `ha_create_or_update_scene` (token),
   `ha_activate_scene`, `ha_create_scene_from_current`, `ha_delete_scene` (token).
+  Las editables viven en `scenes.yaml`.
+- `ha_create_scene_from_current` crea una scene TEMPORAL (`scene.create`): no
+  va a `scenes.yaml` y se pierde al reiniciar HA o al recargar scenes (también
+  al guardar o borrar cualquier scene). No admite `name` (deprecado, se retira
+  en la 1.3.0): para una scene con nombre y persistente, usa
+  `ha_create_or_update_scene`. Reemplazar otra temporal pide token; sobre una
+  scene que no es temporal responde `scene_exists`.
 
 Ejemplo (crear/editar una automatización — devuelve preview + token, repite con
 el token para aplicar):
@@ -224,6 +234,14 @@ edita, token), `ha_delete_*` (token) y acciones (`ha_set_*`, `ha_toggle_*`,
 
 Ojo: `ha_create_or_update_input_number` cambia la CONFIGURACIÓN del helper
 (nombre, mínimo, máximo); `ha_set_input_number` cambia su VALOR actual.
+
+Counters: HA solo acepta valores múltiplos de `step` y dentro de
+`minimum`/`maximum`. `ha_increment/decrement_counter` con `amount` y
+`ha_set_counter_value` lo comprueban antes y responden `invalid_amount` /
+`invalid_value` sin tocar nada; sin `amount`, HA avanza un `step` y se queda
+en el límite. No hay recarga de counters en HA: `ha_reload_counters` responde
+`not_supported` (deprecada, se retira en la 1.3.0); los de la UI o de Hermes
+se aplican al guardar y los de YAML al reiniciar.
 
 Ejemplos:
 - Fijar un input_number: `ha_set_input_number("input_number.umbral", 25)`
@@ -431,8 +449,11 @@ Receta «¿por qué falla esta integración?»:
 - Config flows (instalar/configurar): `ha_list_configured_domains`,
   `ha_start_config_entry_flow`, `ha_continue_config_entry_flow`,
   `ha_abort_config_entry_flow`.
-- Options flows: `ha_get_config_entry_options`, `ha_start_options_flow`,
-  `ha_continue_options_flow`.
+- Options flows: `ha_start_options_flow`, `ha_continue_options_flow`. HA no
+  publica las opciones actuales de una entry: `ha_get_config_entry_options`
+  responde `not_supported` (deprecada, se retira en la 1.3.0). Para verlas,
+  abre el flujo de opciones (muchas integraciones lo rellenan con los valores
+  actuales; depende de cada una) y ciérralo con `ha_abort_config_entry_flow`.
 
 Los flujos `external` (OAuth de la integración) y `progress` NO son
 automatizables: Hermes los aborta y lo indica. Para deshabilitar de forma

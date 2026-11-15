@@ -337,6 +337,114 @@ class TestRestrictedEntityInvocation(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(spy.reached, ["script.turn_on"])
 
+
+class TestRestrictedEntityVariables(unittest.IsolatedAsyncioTestCase):
+    """El token de una entidad restringida ata `variables` (spec 033, FR-001/FR-002).
+
+    Hasta la 1.2.0, `guarded_entity_invoke` ataba solo `entity_id` y
+    `service`: se podía pedir la vista previa de un script restringido con
+    unas variables y confirmarla con otras, y la vista previa ni siquiera las
+    enseñaba. Un script restringido puede hacer cosas muy distintas según sus
+    variables, así que lo que el usuario aprueba tiene que ser lo que se
+    ejecuta (principio IV).
+
+    Control negativo (T005): quitando `variables` de los argumentos atados
+    (dejando la vista previa) caen los 3 tests de rechazo de esta clase y los
+    2 de `test_tools_scripts.py` / `test_tools_automations.py` (5 en total);
+    quitándola solo de la vista previa caen `test_preview_shows_variables` y
+    esos 2 de las tools, que también miran la vista previa (3 en total).
+    """
+
+    def setUp(self) -> None:
+        from hermes import security, service_policy
+
+        service_policy.set_auto_restricted_entities({"script.ficticio"})
+        self._dir_original = security.CONFIRMATIONS_DIR
+        self._tmp = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = pathlib.Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        from hermes import security, service_policy
+
+        service_policy.set_auto_restricted_entities(set())
+        security.CONFIRMATIONS_DIR = self._dir_original
+        self._tmp.cleanup()
+
+    class _Spy:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict, bool]] = []
+
+        async def call_service(self, domain, service, data=None, *, allow_dangerous=False):
+            self.calls.append((f"{domain}.{service}", data, allow_dangerous))
+            return {"ok": True}
+
+    async def _invoke(self, spy, entity_id, token, variables):  # type: ignore[no-untyped-def]
+        from hermes.tools._common import guarded_entity_invoke
+
+        out = await guarded_entity_invoke(
+            spy, "script", "turn_on", entity_id, "ha_run_script", token,
+            variables=variables,
+        )
+        return json.loads(out) if isinstance(out, str) else out
+
+    async def _preview(self, spy, variables):  # type: ignore[no-untyped-def]
+        out = await self._invoke(spy, "script.ficticio", None, variables)
+        self.assertIn("confirmation_token", out)
+        return out
+
+    async def test_preview_shows_variables(self) -> None:
+        spy = self._Spy()
+        out = await self._preview(spy, {"modo": "suave"})
+        self.assertEqual(out["preview"]["variables"], {"modo": "suave"})
+        self.assertEqual(spy.calls, [])
+
+    async def test_other_variables_are_rejected(self) -> None:
+        spy = self._Spy()
+        token = (await self._preview(spy, {"modo": "suave"}))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, {"modo": "todo"})
+        self.assertIn("does not match", out.get("error", ""))
+        self.assertEqual(spy.calls, [], "se ejecutó con variables no revisadas")
+
+    async def test_missing_variables_are_rejected(self) -> None:
+        # Pedir con variables y confirmar sin ellas es otra acción.
+        spy = self._Spy()
+        token = (await self._preview(spy, {"modo": "suave"}))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, None)
+        self.assertIn("does not match", out.get("error", ""))
+        self.assertEqual(spy.calls, [])
+
+    async def test_added_variables_are_rejected(self) -> None:
+        # Y al revés: vista previa sin variables, confirmación con ellas.
+        spy = self._Spy()
+        token = (await self._preview(spy, None))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, {"modo": "todo"})
+        self.assertIn("does not match", out.get("error", ""))
+        self.assertEqual(spy.calls, [])
+
+    async def test_same_variables_in_other_key_order_run(self) -> None:
+        spy = self._Spy()
+        token = (await self._preview(spy, {"modo": "suave", "nivel": 2}))["confirmation_token"]
+        out = await self._invoke(spy, "script.ficticio", token, {"nivel": 2, "modo": "suave"})
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(
+            spy.calls,
+            [(
+                "script.turn_on",
+                {"entity_id": "script.ficticio", "variables": {"nivel": 2, "modo": "suave"}},
+                True,
+            )],
+        )
+
+    async def test_unrestricted_entity_with_variables_is_one_step(self) -> None:
+        spy = self._Spy()
+        out = await self._invoke(spy, "script.inocuo", None, {"modo": "todo"})
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(
+            spy.calls,
+            [("script.turn_on", {"entity_id": "script.inocuo", "variables": {"modo": "todo"}}, False)],
+        )
+        self.assertEqual(list(pathlib.Path(self._tmp.name).glob("*.json")), [])
+
 class TestLegitimatePathStillWorks(unittest.IsolatedAsyncioTestCase):
     """El guardia nuevo no puede romper el camino autorizado.
 

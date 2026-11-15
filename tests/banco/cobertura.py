@@ -56,7 +56,7 @@ MODULOS_HELPERS: tuple[str, ...] = (
 
 # 46 de las 47 tools de la tabla de data-model.md; cada una la llama algún
 # `tests/banco/test_banco_helpers_*.py` y comprueba su efecto con el lector.
-# La que falta está en `FALLAN_EN_BANCO`.
+# La que falta, `ha_reload_counters`, está en `NO_EJECUTABLES` (spec 033).
 PROBADAS_EN_BANCO: frozenset[str] = frozenset(
     {
         # input_boolean (4)
@@ -88,7 +88,7 @@ PROBADAS_EN_BANCO: frozenset[str] = frozenset(
         "ha_create_or_update_input_text",
         "ha_set_input_text",
         "ha_delete_input_text",
-        # counter (6; ha_reload_counters está en FALLAN_EN_BANCO)
+        # counter (6; ha_reload_counters está en NO_EJECUTABLES)
         "ha_create_or_update_counter",
         "ha_increment_counter",
         "ha_decrement_counter",
@@ -119,28 +119,33 @@ PROBADAS_EN_BANCO: frozenset[str] = frozenset(
     }
 )
 
-# Tool → motivo por el que no se puede ejecutar en el banco. Vacío: las 47 se
-# ejecutan. Un motivo vacío no vale (lo comprueba el test del invariante).
-NO_EJECUTABLES: dict[str, str] = {}
-
-# Tool → hallazgo. Se ejecuta en el banco, pero falla contra HA real, así que
-# NO cuenta como probada (SC-002 queda en 46 de 47 hasta que se arregle). Cada
-# una tiene su test con `xfail` estricto que espera ese fallo concreto, en
-# `XFAIL_PERMITIDOS`.
-FALLAN_EN_BANCO: dict[str, str] = {
+# Tool → motivo por el que no se puede ejecutar en el banco. Un motivo vacío
+# no vale (lo comprueba el test del invariante).
+NO_EJECUTABLES: dict[str, str] = {
+    # Spec 033 (FR-004, research R-2): era el hallazgo de la 010 (llamaba a
+    # `counter.reload`, que Core no tiene, y Core respondía 400). Ahora
+    # responde `not_supported` sin llamar a HA: no modifica nada, así que no
+    # hay efecto que probar. Su test del banco (`TestCounter.test_recarga`) es
+    # un canario que comprueba que Core sigue sin `counter.reload` y que la
+    # tool no llama a ningún servicio.
     "ha_reload_counters": (
-        "HALLAZGO pendiente de arreglo (spec 033): llama a `counter.reload`, que "
-        "HA Core 2026.11.1 no tiene; Core responde 400 y la tool falla"
+        "HA Core 2026.11.1 no tiene `counter.reload`: la tool responde "
+        "`not_supported` sin llamar a HA (deprecada, se retira en la 1.3.0); no "
+        "modifica nada que se pueda comprobar. Canario en TestCounter.test_recarga"
     ),
 }
+
+# Tool → hallazgo. Se ejecuta en el banco, pero falla contra HA real, así que
+# NO cuenta como probada. Cada una tiene su test con `xfail` estricto que
+# espera ese fallo concreto, en `XFAIL_PERMITIDOS`. Vacío desde la spec 033,
+# que arregló el único (`ha_reload_counters`).
+FALLAN_EN_BANCO: dict[str, str] = {}
 
 # Los únicos `xfail` que el job admite: id del test (como lo escribe pytest
 # desde la raíz del repositorio) → tool de `FALLAN_EN_BANCO` que documenta.
 # Cualquier otro `xfail`, o uno de estos que no se vea fallar, pone el job en
-# rojo (`tests/banco/obligatorio.py`).
-XFAIL_PERMITIDOS: dict[str, str] = {
-    "tests/banco/test_banco_helpers_tiempo.py::TestCounter::test_recarga": "ha_reload_counters",
-}
+# rojo (`tests/banco/obligatorio.py`). Vacío desde la spec 033.
+XFAIL_PERMITIDOS: dict[str, str] = {}
 
 
 # ── Genéricas (spec 011, T027) ─────────────────────────────────────────────

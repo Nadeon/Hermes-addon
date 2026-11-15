@@ -48,8 +48,11 @@ _SECURITY_MD = _RAIZ / "SECURITY.md"
 SITIOS: dict[tuple[str, str], frozenset[str]] = {
     ("tools/ha.py", "ha_call_service"): frozenset({"ha_call_service"}),
     ("tools/ha.py", "ha_call_service_response"): frozenset({"ha_call_service_response"}),
+    # Sin `ha_reload_counters` desde la 033: responde `not_supported` sin
+    # llamar a HA (Core no tiene `counter.reload`). Lo detectó este mismo
+    # test al integrar la 033 con la 018.
     ("tools/_common.py", "guarded_reload"): frozenset({
-        "ha_reload_automations", "ha_reload_counters", "ha_reload_scenes",
+        "ha_reload_automations", "ha_reload_scenes",
         "ha_reload_schedules", "ha_reload_scripts", "ha_reload_timers",
         "ha_reload_zones",
     }),

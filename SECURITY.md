@@ -139,9 +139,11 @@ report about one of them will be closed with a pointer to this section:
     lift it, and only after validating their token: `ha_call_service` and
     `ha_call_service_response` (a denylisted service or a restricted script
     or automation), the reload tools `ha_reload_automations`,
-    `ha_reload_counters`, `ha_reload_scenes`, `ha_reload_schedules`,
-    `ha_reload_scripts`, `ha_reload_timers` and `ha_reload_zones` (always
-    confirmed, since a reload applies whatever YAML is in `/config`), and
+    `ha_reload_scenes`, `ha_reload_schedules`, `ha_reload_scripts`,
+    `ha_reload_timers` and `ha_reload_zones` (always confirmed, since a
+    reload applies whatever YAML is in `/config`; `ha_reload_counters` no
+    longer calls Home Assistant, which has no `counter.reload`, and answers
+    `not_supported`), and
     `ha_run_script` and `ha_trigger_automation` (only for a restricted
     script or automation), and `ha_clear_system_log` and
     `ha_dismiss_persistent_notification` (always confirmed: clearing the

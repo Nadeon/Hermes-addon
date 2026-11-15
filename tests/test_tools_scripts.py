@@ -484,3 +484,65 @@ class TestConfirmarSinConfigScript(unittest.IsolatedAsyncioTestCase):
         res, enviados = await self._confirmar(r["confirmation_token"])
         self.assertEqual(res, {"result": "ok"})
         self.assertEqual(len(enviados), 1)
+
+
+class TestRunScriptRestringidoVariables(unittest.IsolatedAsyncioTestCase):
+    """`ha_run_script` sobre un script restringido: el token ata `variables`
+    (spec 033, FR-001). Control negativo en `test_security_regressions.py`
+    (`TestRestrictedEntityVariables`)."""
+
+    async def asyncSetUp(self) -> None:
+        from hermes import service_policy
+
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+        service_policy.set_auto_restricted_entities({"script.ficticio"})
+        self.session = ClientSession()
+        cache = {
+            "script.ficticio": {
+                "entity_id": "script.ficticio",
+                "state": "off",
+                "attributes": {"friendly_name": "Ficticio", "mode": "single"},
+            }
+        }
+        self.mcp = DummyMCP()
+        scripts_module.register(self.mcp, make_ready_client(self.session, cache))
+
+    async def asyncTearDown(self) -> None:
+        from hermes import service_policy
+
+        service_policy.set_auto_restricted_entities(set())
+        await self.session.close()
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    async def _llamar(self, **kwargs) -> tuple[object, list]:
+        with aioresponses() as m:
+            m.post(f"{REST_BASE}/services/script/turn_on", status=200, payload=[], repeat=True)
+            res = await self.mcp.tools["ha_run_script"]("script.ficticio", **kwargs)
+            enviados = [
+                c.kwargs.get("json")
+                for (metodo, _url), llamadas in m.requests.items()
+                if metodo.upper() == "POST"
+                for c in llamadas
+            ]
+        return (json.loads(res) if isinstance(res, str) else res), enviados
+
+    async def test_vista_con_a_y_confirmacion_con_b_se_rechaza(self) -> None:
+        vista, enviados = await self._llamar(variables={"modo": "suave"})
+        self.assertEqual(vista["preview"]["variables"], {"modo": "suave"})
+        self.assertEqual(enviados, [])
+        res, enviados = await self._llamar(
+            variables={"modo": "todo"}, confirmation_token=vista["confirmation_token"]
+        )
+        self.assertIn("does not match", res["error"])
+        self.assertEqual(enviados, [], "HA recibió variables que no se revisaron")
+
+        # El rechazo no gasta el token: con las variables de la vista previa
+        # se ejecuta, y HA recibe esas.
+        res, enviados = await self._llamar(
+            variables={"modo": "suave"}, confirmation_token=vista["confirmation_token"]
+        )
+        self.assertEqual(res, [])
+        self.assertEqual(enviados, [{"entity_id": "script.ficticio", "variables": {"modo": "suave"}}])

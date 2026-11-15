@@ -326,17 +326,22 @@ def register(mcp: object, ha_client: HAClient) -> None:
     @mcp.tool()
     @ready
     async def ha_get_config_entry_options(entry_id: str) -> object:
-        """Devuelve las opciones actuales de una config entry.
+        """DEPRECATED (removed in 1.3.0): Home Assistant does not expose config entry options.
 
-        Las opciones son los parámetros configurables de una integración
-        (distintos a los datos de la setup inicial). Requiere que la
-        integración soporte opciones (supports_options: true).
+        Ninguna API de Home Assistant devuelve las opciones de una config
+        entry, así que esta tool no puede leerlas. Para una entry existente
+        responde `not_supported` con lo que sí sabe (`entry_id`, `domain`,
+        `title`, `supports_options`) y una indicación: `ha_start_options_flow`
+        enseña el formulario de opciones (muchas integraciones lo rellenan con
+        los valores actuales, pero depende de cada una) y después
+        `ha_abort_config_entry_flow` lo cierra sin cambiar nada.
 
         Args:
             entry_id: UUID de la config entry.
 
         Returns:
-            JSON {"entry_id": "...", "supports_options": bool, "options": {...}}
+            JSON {"error": "not_supported", "entry_id", "domain", "title",
+            "supports_options", "message", "hint", "_deprecated"},
             o {"error": "not_found"}.
         """
         try:
@@ -358,14 +363,30 @@ def register(mcp: object, ha_client: HAClient) -> None:
         if entry is None:
             return json.dumps({"error": "not_found", "entry_id": entry_id})
 
+        # Spec 033 (FR-008, research R-6): `get_single` devuelve
+        # `ConfigEntry.as_json_fragment`, que no incluye `options` (ni
+        # `data`), y no hay otra vía general (diagnósticos dependen de cada
+        # integración; `.storage` está vetado en las fs_*). Antes se devolvía
+        # `options: {}`, que el cliente leía como «sin opciones»: era falso.
+        # Se responde lo que sí se sabe y la vía alternativa, sin `options`.
         result = {
+            "error": "not_supported",
             "entry_id": entry_id,
             "domain": entry.get("domain"),
             "title": entry.get("title"),
             "supports_options": entry.get("supports_options", False),
-            "options": entry.get("options", {}),
+            "message": "Home Assistant does not expose config entry options through its API.",
+            "hint": (
+                "Start ha_start_options_flow to see the form (many integrations "
+                "prefill the current values, but it depends on the integration), "
+                "then ha_abort_config_entry_flow to close it without changes."
+            ),
+            "_deprecated": (
+                "ha_get_config_entry_options is deprecated and will be removed in "
+                "1.3.0; use ha_start_options_flow and ha_abort_config_entry_flow."
+            ),
         }
-        logger.info("ha_get_config_entry_options_ok", entry_id=entry_id)
+        logger.info("ha_get_config_entry_options_not_supported", entry_id=entry_id)
         return json.dumps(result, ensure_ascii=False)
 
     # ── ha_start_options_flow ─────────────────────────────────────────────

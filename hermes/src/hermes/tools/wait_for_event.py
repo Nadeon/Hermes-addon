@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
+from mcp.server.mcpserver import Context
 
 from hermes.ha import HAClient, HAConnectionError, _WS_CLOSED_SENTINEL
 from hermes.tools._common import requires_ready
@@ -180,7 +181,13 @@ def register(
     @mcp.tool()
     @ready
     async def ha_wait_for_event(
-        ctx: Any,
+        # `Context` y no `Any` (spec 033, FR-005): el SDK solo inyecta un
+        # parámetro anotado con su `Context`; con `Any` lo publicaba como
+        # argumento obligatorio que ningún cliente podía rellenar y el aviso
+        # de progreso del keepalive no salía nunca. Va primero y sin valor
+        # por defecto porque `event_type` no lo tiene; los tests que llaman a
+        # la función directamente pasan `None` (de ahí el `hasattr` de abajo).
+        ctx: Context,
         event_type: str,
         filters: dict[str, str] | None = None,
         timeout_seconds: int = 30,
@@ -313,11 +320,24 @@ def register(
                     if loop_now2 >= next_keepalive:
                         elapsed_so_far = round(time.monotonic() - wait.started_at, 1)
                         if hasattr(ctx, "report_progress"):
-                            await ctx.report_progress(
-                                progress=int(elapsed_so_far),
-                                total=timeout_seconds,
-                                message=f"waiting for {event_type} ({elapsed_so_far}s)",
-                            )
+                            # El aviso es solo para mantener viva la llamada:
+                            # si falla (sin petición detrás, transporte
+                            # cerrado), la espera sigue. Hasta la spec 033
+                            # este código no se ejecutaba nunca (`ctx` era el
+                            # dict del cliente), así que un fallo aquí sería
+                            # una regresión nueva que no debe cortar la espera.
+                            try:
+                                await ctx.report_progress(
+                                    progress=int(elapsed_so_far),
+                                    total=timeout_seconds,
+                                    message=f"waiting for {event_type} ({elapsed_so_far}s)",
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.debug(
+                                    "wait_for_event_progress_failed",
+                                    wait_id=wait_id,
+                                    error=str(exc),
+                                )
                         last_keepalive = loop_now2
                     continue
 

@@ -8,7 +8,7 @@ description: "Tareas del programa de cobertura total, Hermes 1.2.0 (spec 008, pa
 **Entrada**: `specs/008-cobertura-total/` (spec.md, plan.md, research.md,
 inventario/).
 
-**Cómo se lee**: es un programa. Cada tarea T002…T025 es **una sub-feature
+**Cómo se lee**: es un programa. Cada tarea T002…T025 (y T030) es **una sub-feature
 entera**: escribir su spec, plan y tareas con spec-kit en `specs/NNN-nombre/`
 (trazando a los FR de esta spec y a sus CAP), implementarla en los tramos que
 dice el plan y cerrarla con la suite y el CI en verde. Todas comparten las
@@ -49,6 +49,7 @@ diagnóstico, US5 qué está probado, US6 deriva, US7 familias.
 - [ ] T009 [P] [US5] Sub-feature 014 `banco-de-pruebas-supervisor` en `specs/014-banco-de-pruebas-supervisor/`: procedimiento de la VM con HAOS, matriz tool → entorno → resultado y pruebas manuales en `docs/HOJA-DE-RUTA.md`, comentario de `hassio_role` en `hermes/config.yaml` (CAP-006, CAP-022, CAP-034, CAP-035; FR-016, FR-017). S, 1 tramo. Depende de T003
 - [ ] T010 [P] [US1] Sub-feature 016 `integraciones-flujos-y-repairs` en `specs/016-integraciones-flujos-y-repairs/`: CAP-044, CAP-045, CAP-048, CAP-036, CAP-037 (FR-053…FR-057). L, 3 tramos: (a) descubiertas, preferencias y guía de helpers; (b) subentries y reconfigure; (c) reparación y traducciones. Depende de T004
 - [ ] T011 [P] [US2] [US3] Sub-feature 018 `mejoras-de-tools-existentes` en `specs/018-mejoras-de-tools-existentes/`: CAP-019, CAP-020, CAP-023 (FR-063…FR-065). M, 2 tramos: (a) guardado por vistas; (b) denylist con token y sobre común. Depende de T004
+- [ ] T030 [P] [US2] [US3] Sub-feature 033 `arreglos-del-banco` en `specs/033-arreglos-del-banco/`: tools de la 1.1.2 rotas o deshonestas que destapa el banco (CAP-039; FR-099): token de `ha_trigger_automation`/`ha_run_script` atado a `variables` e inventario de argumentos atados; `not_supported` y deprecación de `ha_reload_counters` y `ha_get_config_entry_options`; `ctx` de `ha_wait_for_event`; `ha_create_scene_from_current`; descripciones de escenas; `amount` de contadores. M, 2 tramos: (1) token atado; (2) el resto. Depende de T004 y T005
 - [ ] T012 [P] [US3] Sub-feature 027 `plataforma-y-deprecaciones` en `specs/027-plataforma-y-deprecaciones/`: CAP-025, CAP-026, CAP-028…CAP-033 (FR-092…FR-097), sin retirar nada. S, 1 tramo
 
 ## Fase 5: Ola 3 — tools dedicadas y cola larga por la tabla
@@ -81,8 +82,9 @@ diagnóstico, US5 qué está probado, US6 deriva, US7 familias.
 
 - T001 → T002, T003 (ola 0, en paralelo) → T004 (necesita las dos) y T005
   (necesita T003).
-- Ola 2 (T006…T012): todas tras T004 salvo T009 (tras T003) y T012 (sin
-  dependencias; puede ir en cualquier momento).
+- Ola 2 (T006…T012 y T030): todas tras T004 salvo T009 (tras T003), T012
+  (sin dependencias; puede ir en cualquier momento) y T030 (tras T004 y
+  T005).
 - Ola 3: T013, T020 y T021 tras T008; T015 tras T006; T018 tras T007; T022 tras
   T011; el resto tras T004.
 - T025 tras T014.
@@ -96,7 +98,7 @@ diagnóstico, US5 qué está probado, US6 deriva, US7 familias.
 
 - Ola 0: T002 y T003.
 - Ola 1: T004 y T005.
-- Ola 2: T006…T012, hasta siete a la vez.
+- Ola 2: T006…T012 y T030, hasta ocho a la vez.
 - Ola 3: T013…T024, limitado por quién toca los mismos ficheros comunes.
 
 ## Estrategia

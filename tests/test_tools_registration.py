@@ -548,7 +548,11 @@ _HINTS_SNAPSHOT: dict[str, str] = {
     "ha_create_or_update_timer": "-DI-",
     "ha_create_or_update_zone": "-DI-",
     "ha_create_person": "----",
-    "ha_create_scene_from_current": "----",
+    # Spec 033 (FR-011 de la 033, FR-099 de la 008): pasa de `----` a `-D--`.
+    # Puede reemplazar una escena temporal (lo pide confirmar con token), y
+    # anunciarse no destructiva era la mentira; un cliente que confiara en
+    # `----` solo pierde un aviso que debió tener.
+    "ha_create_scene_from_current": "-D--",
     "ha_cycle_input_select": "----",
     "ha_decrement_counter": "----",
     "ha_decrement_input_number": "----",
@@ -966,6 +970,25 @@ class TestToolTitles:
             "properties": sorted([*esperado["ha_call_service_response"]["properties"],
                                   "confirmation_token"]),
             "required": esperado["ha_call_service_response"]["required"],
+        }
+        # Sexta diferencia permitida, de la spec 033 (FR-011 de la 033,
+        # FR-099 de la 008): `ha_wait_for_event` pierde `ctx` (propiedad y
+        # obligatorio). Era el `Context` del SDK mal anotado (`Any`): se
+        # publicaba como argumento obligatorio sin ningún valor con sentido, y
+        # un cliente que lo siga mandando no recibe error (el SDK no prohíbe
+        # claves de más; `tests/test_tools_wait_for_event.py` lo comprueba).
+        esperado["ha_wait_for_event"] = {
+            "properties": [p for p in esperado["ha_wait_for_event"]["properties"] if p != "ctx"],
+            "required": [r for r in esperado["ha_wait_for_event"]["required"] if r != "ctx"],
+        }
+        # Séptima, también de la 033 (FR-006 y FR-011; FR-099 de la 008):
+        # `ha_create_scene_from_current` gana `confirmation_token` OPCIONAL,
+        # que solo hace falta para reemplazar una escena temporal. Quien no lo
+        # usa sigue llamando igual.
+        esperado["ha_create_scene_from_current"] = {
+            "properties": sorted([*esperado["ha_create_scene_from_current"]["properties"],
+                                  "confirmation_token"]),
+            "required": esperado["ha_create_scene_from_current"]["required"],
         }
         assert set(esperado) == set(_HINTS_SNAPSHOT)
         tools = _real_registry()
@@ -1658,3 +1681,26 @@ class TestArgumentosCambiadosAnteLaValidacionDelSdk:
         assert args["view"] is None
         assert args["view_index"] == 1
         assert meta.validate_arguments({"url_path": "panel-prueba"})["view_index"] is None
+
+class TestEsperaSinCtxEnElEsquema:
+    """Spec 033 (FR-005, T018): `ctx` de `ha_wait_for_event` es el `Context`
+    del SDK y no un argumento del cliente. Con `ctx: Any`, el SDK no lo
+    reconocía (`find_context_parameter` solo acepta subclases de `Context`),
+    lo publicaba como obligatorio y no lo inyectaba (research R-3).
+
+    Comprobado sobre el registro real, con el envoltorio de `requires_ready`
+    (`functools.wraps`) en medio: `get_type_hints` sigue `__wrapped__`.
+
+    Control negativo (T020), comprobado y restaurado: volviendo a `ctx: Any`
+    caen los dos tests, `test_esquemas_de_la_1_1_2` (`ctx` vuelve al esquema
+    y la excepción escrita allí ya no cuadra) y, en
+    `tests/test_tools_wait_for_event.py`, `test_sin_ctx_por_el_servidor_real`.
+    """
+
+    def test_esquema_sin_ctx(self):
+        esquema = _real_registry()["ha_wait_for_event"].parameters
+        assert sorted(esquema["properties"]) == ["event_type", "filters", "timeout_seconds"]
+        assert esquema.get("required", []) == ["event_type"]
+
+    def test_ctx_es_el_contexto_inyectado(self):
+        assert _real_registry()["ha_wait_for_event"].context_kwarg == "ctx"
