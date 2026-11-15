@@ -200,7 +200,9 @@ separado. Cada uno necesita el anterior integrado en la rama.
   caído y un `config.*` → 3 (`test_supervisor_caido_con_config` ×2 y
   `test_supervisor_cae_entre_medias`); (d) borrar y mover con `normalizar`
   (sigue el symlink) → 0 en Windows (se saltan) y comprobado en el CI de
-  Linux con una rama desechable, ya borrada (ver el commit); (e) sin
+  Linux con una rama desechable, ya borrada: 4 caen en pytest 3.12 y 3.13
+  (`TestBorrar::test_symlink_borra_el_enlace_y_no_el_destino` y
+  `TestMover::test_symlink_mueve_el_enlace`, en las dos carpetas); (e) sin
   comprobar puntos de montaje → 6 (`TestPuntosDeMontaje::test_borrar` ×4 y
   `TestMover::test_rechazos_sin_token` ×2); (f) admitiendo la raíz → 17 (14
   de `TestBorrar::test_raiz`, 2 de `TestMover::test_rechazos_sin_token` y el
