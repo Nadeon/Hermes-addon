@@ -458,6 +458,13 @@ def register_all_tools(
         from hermes.tools.cameras import register as register_cameras
         register_cameras(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Restablecer un dashboard (spec 024, tramo 2, CAP-071): borra la
+    # configuración guardada en dos pasos, con la protección del principal y
+    # del panel por defecto de `ha_delete_lovelace_dashboard`.
+    if _activa("dashboard_reset"):
+        from hermes.tools.lovelace_reset import register as register_lovelace_reset
+        register_lovelace_reset(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

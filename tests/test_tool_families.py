@@ -298,6 +298,20 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("cameras"), "cameras")
         self.assertEqual(validar_desactivadas(["cameras"]), frozenset({"cameras"}))
 
+    def test_dashboard_reset_de_la_1_2_0(self) -> None:
+        """Spec 024 (FR-013, T018): familia nueva de la 1.2.0, desactivable,
+        con exactamente el módulo `lovelace_reset` (research R-3): la familia
+        `lovelace` de la 1.1.2 no gana tools.
+        Control negativo comprobado: con `lovelace_reset` en la familia
+        `lovelace` cae este test (y el SC-005 de las de la 1.1.2)."""
+        familia = FAMILIAS["dashboard_reset"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("lovelace_reset",))
+        self.assertEqual(familia_de_modulo("lovelace_reset"), "dashboard_reset")
+        self.assertEqual(validar_desactivadas(["dashboard_reset"]),
+                         frozenset({"dashboard_reset"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

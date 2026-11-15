@@ -203,6 +203,14 @@ _CATALOGO: tuple[Familia, ...] = (
     Familia("cameras",
             "Camera snapshots and image entities (returns images).",
             "1.2.0", True, ("cameras",)),
+    # Spec 024, tramo 2 (research R-3): restablecer un dashboard borra toda su
+    # configuración guardada. Va en su propia familia porque la `lovelace` de
+    # la 1.1.2 no puede ganar tools (FR-010 de la 008: apagando las familias
+    # de la 1.2.0 vuelve la lista exacta de la 1.1.2), y así quien no quiera
+    # que el cliente pueda vaciar un dashboard la apaga sola.
+    Familia("dashboard_reset",
+            "Reset a Lovelace dashboard to its auto-generated config.",
+            "1.2.0", True, ("lovelace_reset",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

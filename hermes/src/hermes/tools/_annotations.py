@@ -242,6 +242,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Importar (spec 017, tramo B) guarda lo descargado igual que
     # `ha_save_blueprint`, y con `allow_override` sobrescribe y recarga.
     "ha_import_blueprint",
+    # Spec 024, tramo 2: borra la configuración guardada de un dashboard
+    # (todas sus vistas y tarjetas), irreversible salvo backup. Pide token y
+    # el prefijo `ha_reset_` no lo delata. Idempotente: repetirla no tiene
+    # más efecto (la segunda vez no hay nada que restablecer).
+    "ha_reset_lovelace_dashboard_config",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

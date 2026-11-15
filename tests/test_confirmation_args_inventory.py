@@ -105,6 +105,13 @@ de la 1.1.2 sin cambiar sus argumentos: `ha_create_or_update_automation` y
 `ha_create_or_update_script` validan con HA en la vista previa (sin token si
 la configuración es inválida) y siguen atando su id y `config`. Ningún
 hallazgo.
+
+Recuento: 106 desde la 024 (tramo 2), que trae una tool con token,
+comprobada en el código (`tools/lovelace_reset.py`):
+`ha_reset_lovelace_dashboard_config` ata `url_path` y, en el `estado` del
+token, la configuración del dashboard leída en la vista previa (si cambia
+antes de confirmar, `dashboard_changed` y no se borra nada). Las dos de
+`cameras` (tramo 1) son de solo lectura y no piden token. Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -298,6 +305,9 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_save_blueprint": {"domain": A, "path": A, "yaml": A, "allow_override": A},
     "ha_delete_blueprint": {"domain": A, "path": A},
     "ha_import_blueprint": {"url": A, "path": A, "allow_override": A},
+    # ── restablecer un dashboard (spec 024, tramo 2) ────────────────────
+    # Ata además, en el `estado`, la configuración leída en la vista previa.
+    "ha_reset_lovelace_dashboard_config": {"url_path": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -391,8 +401,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
-        # cuatro de montajes de la 019.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 105)
+        # cuatro de montajes de la 019, y la de restablecer un dashboard de
+        # la 024.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 106)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -412,7 +423,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 105)
+        self.assertEqual(len(publicadas), 106)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

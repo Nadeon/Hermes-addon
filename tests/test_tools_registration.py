@@ -902,6 +902,11 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # internet al pedir la imagen.
     "ha_get_camera_snapshot": ("R-IO", "Get camera snapshot (Home Assistant)"),
     "ha_get_image_entity": ("R-IO", "Get image entity (Home Assistant)"),
+    # Spec 024, tramo 2 (contracts/tools.md): restablecer pide token y borra
+    # toda la configuración guardada de un dashboard (`_DESTRUCTIVE_EXACT`);
+    # idempotente y de mundo cerrado, como `ha_delete_lovelace_dashboard`.
+    "ha_reset_lovelace_dashboard_config": (
+        "-DI-", "Reset Lovelace dashboard config (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -2154,6 +2159,61 @@ class TestCamerasRegistration:
         from unittest.mock import patch
 
         with patch("hermes.tools.cameras.register") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
+
+
+# ── Spec 024, tramo 2: restablecer un dashboard (T023) ───────────────────────
+
+_RESET_024 = "ha_reset_lovelace_dashboard_config"
+
+
+class TestRestablecerDashboardRegistration:
+    """La tool de restablecer se registra bajo `dashboard_reset`, pide
+    `confirmation_token`, es destructiva (invariante «pide token →
+    destructiva») y con la familia desactivada no aparece; las de `lovelace`
+    de la 1.1.2 siguen igual.
+
+    Control negativo comprobado: sacarla de `_DESTRUCTIVE_EXACT` → caen
+    `test_destructiva_idempotente_y_de_mundo_cerrado`,
+    `test_hints_y_titulos_de_las_nuevas` y el invariante «pide token →
+    destructiva»."""
+
+    def test_registrada_por_defecto(self):
+        assert _RESET_024 in _register_all().tools
+
+    def test_con_la_familia_desactivada_no_aparece(self):
+        mcp = _do_register(["dashboard_reset"])
+        assert _RESET_024 not in mcp.tools
+        assert "ha_delete_lovelace_dashboard" in mcp.tools
+
+    def test_con_lovelace_desactivada_sigue(self):
+        # Familias independientes: apagar la de la 1.1.2 no la quita.
+        mcp = _do_register(["lovelace"])
+        assert _RESET_024 in mcp.tools
+        assert "ha_delete_lovelace_dashboard" not in mcp.tools
+
+    def test_esquema_con_confirmation_token(self):
+        esquema = _real_registry()[_RESET_024].parameters
+        assert sorted(esquema["properties"]) == ["confirmation_token", "url_path"]
+        assert esquema.get("required") == ["url_path"]
+
+    def test_destructiva_idempotente_y_de_mundo_cerrado(self):
+        from hermes.tools._annotations import classify
+
+        ann = classify(_RESET_024)
+        assert ann.destructive_hint and not ann.read_only_hint
+        assert ann.idempotent_hint
+        assert not ann.open_world_hint
+
+    def test_recibe_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.lovelace_reset.register") as reg:
             register_all_tools(
                 _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
                 response_max_bytes=54_321, call_service_auto_classify=False,
