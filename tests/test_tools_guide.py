@@ -585,7 +585,10 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # dicen.
         "diagnostics": "838ff4a3a3eeaddb",
         "events": "3765a76095ece40f",
-        "filesystem": "b5902d6d0ff666c1",
+        # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
+        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
+        # lo dice.
+        "filesystem": "803cd5255be768b5",
         # La convergencia de la 025 (T047) cambia `generic_commands`: el rechazo
         # `redacted_value_in_payload`; su CHANGELOG lo dice.
         "generic_commands": "55325dfe9602e63b",
@@ -1133,7 +1136,10 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     # desde la de la 032, su remisión a `host_control` (apagar, hostname,
     # swap, ranura y red del host; FR-017 de la 032).
     _HUELLAS = {
-        "supervisor": "dc38e81c61a06932",
+        # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
+        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
+        # lo dice.
+        "supervisor": "a73a78043e9a14a3",
         "marketplace": "f49c5f1c9d78b51b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
@@ -2141,9 +2147,15 @@ class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
         # `redacted_value_in_payload` de las cargas con el marcador de redacción
         # (su CHANGELOG lo dice); huella recalculada al integrar la 025.
         "generic_commands": "55325dfe9602e63b",
-        "app_store": "f02491e7f0e6c93c",
+        # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
+        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
+        # lo dice.
+        "app_store": "2ba35623c8c92c0b",
         "workflows": "53b81454a6708b9a",
-        "supervisor": "dc38e81c61a06932",
+        # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
+        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
+        # lo dice.
+        "supervisor": "a73a78043e9a14a3",
     }
 
     def setUp(self) -> None:
@@ -2238,7 +2250,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
     # toca, pero la 020, 021, 022, 031 y 032, integradas antes, sí (son las
     # huellas de la rama del programa, sin cambio de la 024).
     _HUELLAS = {
-        "app_store": "f02491e7f0e6c93c",
+        # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
+        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
+        # lo dice.
+        "app_store": "2ba35623c8c92c0b",
         "automation_assist": "d360de0f7fd1deb5",
         "automations": "d27ee3c45bc13171",
         "backups": "3e685f47171224e7",
@@ -2251,7 +2266,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "data": "c77e3e6782cc89a7",
         "diagnostics": "838ff4a3a3eeaddb",
         "events": "3765a76095ece40f",
-        "filesystem": "b5902d6d0ff666c1",
+        # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
+        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
+        # lo dice.
+        "filesystem": "803cd5255be768b5",
         # La convergencia de la 025 (T047) añade a `generic_commands` el rechazo
         # `redacted_value_in_payload` de las cargas con el marcador de redacción
         # (su CHANGELOG lo dice); huella recalculada al integrar la 025.
@@ -2269,7 +2287,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "repair_flows": "49f0ab3db2c30057",
         "security": "157ee929e7db08ae",
         "services": "e7b494a2e8ad587e",
-        "supervisor": "dc38e81c61a06932",
+        # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
+        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
+        # lo dice.
+        "supervisor": "a73a78043e9a14a3",
         "system_diagnostics": "50509e336b5ca215",
         "system_status": "f6401ab7737759f6",
         # El remate del cierre de seguridad cambia `updates`: otra app
@@ -2450,7 +2471,10 @@ class TestInstruccionesSinFamiliasDeLa112(unittest.TestCase):
             with self.subTest(tool=tool):
                 self.assertIn(tool, INSTRUCTIONS)
                 self.assertFalse(self._cita(texto, tool), tool)
-        self.assertNotIn("fs_", texto)
+        # Desde la 034, con `addons_share` activa la cabecera dice `fs_`
+        # (ficheros de /addons y /share): esas tools existen. Sin /config.
+        self.assertNotIn("ficheros de /config", texto)
+        self.assertNotIn("fs_", instrucciones(self._VARIAS | {"addons_share"}))
         self.assertNotIn("recurso Lovelace", texto)
         for tema in self._VARIAS:
             self.assertNotIn(tema, self._temas(texto))
@@ -2499,9 +2523,112 @@ class TestInstruccionesSinFamiliasDeLa112(unittest.TestCase):
         from hermes.tools.guide import instrucciones
 
         self.assertEqual(instrucciones(), INSTRUCTIONS)
-        # Huella del texto de 001cc6c: con todas activas es el mismo.
+        # Huella del texto de 001cc6c: con todas activas era el mismo hasta
+        # la 034, que cambia la cabecera (`fs_` también es /addons y /share)
+        # y añade el tema `folders`. Sin `addons_share`, el de 001cc6c.
         self.assertEqual(hashlib.sha256(INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
+                         "a618698e69c75890")
+        sin = instrucciones(frozenset({"addons_share"}))
+        self.assertEqual(hashlib.sha256(sin.encode("utf-8")).hexdigest()[:16],
                          "6ce3dfc48e813d80")
+
+
+class TestTemaFolders(unittest.IsolatedAsyncioTestCase):
+    """Spec 034, T037 (FR-032): tema `folders` (familia `addons_share`) con
+    las siete tools, el argumento `folder`, los dos pasos con huella, que no
+    hay backup y cómo hacerlo, el aviso de /addons, que una app instalada no
+    se borra ni se mueve (desinstalar antes), la lista negra, los puntos de
+    montaje y la carpeta en la que escribe otra app; sus alias; el índice y
+    las instrucciones; `filesystem`, `supervisor` y `app_store` remiten a
+    él o nombran `privileges`.
+
+    Desviaciones anotadas en tasks.md: `addons` sigue siendo alias de
+    `supervisor` (como en la 1.1.2, igual que `backup` o `host`), así que
+    los alias del tema son `share`, `local_apps`, `carpetas` y otros; y el
+    índice (`_OVERVIEW`) y los temas son fijos, como para todas las
+    familias: lo que depende de la familia son las instrucciones.
+
+    Control negativo comprobado: registrar el tema en `_TEMAS` sin familia
+    → cae `test_instrucciones_con_y_sin_la_familia`; dejar la cabecera de
+    siempre → cae `test_cabecera_dice_fs_de_las_carpetas`."""
+
+    _TOOLS = ("fs_list_dir_in_folder", "fs_stat_in_folder", "fs_read_file_in_folder",
+              "fs_write_file_in_folder", "fs_create_dir_in_folder",
+              "fs_move_in_folder", "fs_delete_in_folder")
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_siete_tools_y_sus_reglas(self) -> None:
+        texto = await self.guide("folders")
+        self.assertIs(texto, _GUIDE["folders"])
+        plano = " ".join(texto.split())
+        for palabra in (*self._TOOLS, "`folder`", '"addons" o "share"', "addons_share",
+                        "DOS PASOS", "HUELLA", "preview_outdated",
+                        "SIN BACKUP", "backup: null", "backup_hint",
+                        """sv_create_backup_partial(folders='["addons/local"]')""",
+                        """sv_create_backup_partial(folders='["share"]')""",
+                        "`warning`", "construye y ejecuta", "installed_app",
+                        "sv_uninstall_addon", "installed_check_failed",
+                        "installed_check_inconclusive", "inside_installed_app",
+                        "sv_rebuild_addon", "is_blacklisted", "`blacklisted`",
+                        "SIN redactar", "mount_point", "root_protected",
+                        "too_large_to_preview", "otra app está escribiendo",
+                        "sv_stop_addon", "traversal", "privileges",
+                        "declared_in_folder", "omit_on_confirm"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+
+    async def test_alias(self) -> None:
+        for alias in ("share", "local_apps", "carpetas", "folder", "addons_share",
+                      "addons_folder", "SHARE"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), _GUIDE["folders"])
+        # `addons` sigue llevando a `supervisor`, como en la 1.1.2.
+        self.assertIs(await self.guide("addons"), _GUIDE["supervisor"])
+
+    async def test_indice_y_otros_temas(self) -> None:
+        self.assertIn("`folders`", await self.guide())
+        for tema in ("filesystem", "supervisor", "app_store"):
+            with self.subTest(tema=tema):
+                self.assertIn('hermes_guide("folders")', _GUIDE[tema])
+        for tema in ("supervisor", "app_store"):
+            plano = " ".join(_GUIDE[tema].split())
+            for palabra in ("privileges", "elevated", "declared_in_folder",
+                            "preview_outdated"):
+                with self.subTest(tema=tema, palabra=palabra):
+                    self.assertIn(palabra, plano)
+        self.assertIn("privileges_unavailable", _GUIDE["supervisor"])
+        self.assertIn("`installed`", _GUIDE["app_store"])
+
+    def test_instrucciones_con_y_sin_la_familia(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        temas = TestInstruccionesSinFamiliasDeLa112._temas
+        self.assertIn("folders", temas(INSTRUCTIONS))
+        sin = instrucciones(frozenset({"addons_share"}))
+        self.assertNotIn("folders", temas(sin))
+        self.assertNotIn("@", INSTRUCTIONS)
+
+    def test_cabecera_dice_fs_de_las_carpetas(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        plano = " ".join(INSTRUCTIONS.split())
+        self.assertIn("`fs_` (ficheros de /config, /addons y /share)", plano)
+        # Sin la familia, el texto de antes.
+        sin = " ".join(instrucciones(frozenset({"addons_share"})).split())
+        self.assertIn("`fs_` (ficheros de /config) y `sv_`", sin)
+        self.assertNotIn("/addons", sin)
+        # Sin /config pero con las carpetas, `fs_` sigue (sus tools existen).
+        solo = " ".join(instrucciones(frozenset({"filesystem"})).split())
+        self.assertIn("`fs_` (ficheros de /addons y /share)", solo)
+        self.assertNotIn("/config", solo)
+        # Sin ninguna de las dos, sin `fs_`.
+        ninguna = instrucciones(frozenset({"filesystem", "addons_share"}))
+        self.assertNotIn("fs_", ninguna)
+        self.assertNotIn("folders", TestInstruccionesSinFamiliasDeLa112._temas(ninguna))
 
 
 if __name__ == "__main__":
