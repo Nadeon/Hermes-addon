@@ -170,7 +170,46 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Sistema
 
-_Pendiente: la añade la sub-feature que lo implemente._
+Configuración del sistema (spec 021). Tramo a: el núcleo y la exposición a
+asistentes, en dos familias nuevas que se pueden desactivar.
+
+- **`core_config`** (CAP-053):
+  - `ha_get_core_config`: la configuración general editable (nombre,
+    ubicación, unidades, zona horaria, moneda, país, idioma y URLs), de dónde
+    viene (`storage` o `yaml`) y la versión.
+  - `ha_update_core_config`: cambia solo los campos que se le pasan, en dos
+    pasos. La vista previa enseña el antes y el después de lo que cambia (lo
+    que ya estaba igual sale solo por nombre) y un aviso por grupo: zona
+    horaria, unidades y `update_units`, ubicación (`zone.home`), URLs,
+    país/moneda/idioma y, si la configuración está en `configuration.yaml`,
+    que el cambio no sobrevive a un reinicio. El token se ata a los
+    argumentos y a la configuración leída. La zona horaria se manda sola y
+    primero: una zona inválida no deja nada a medias, y si el resto falla la
+    respuesta es `partial` con lo aplicado y lo que no. El log y el fichero
+    del token no llevan valores (ni coordenadas, ni zona, ni URLs), y la
+    confirmación solo relee los campos pedidos.
+  - `config/core/detect` pasa a `read` en la tabla, de mundo abierto: HA
+    consulta un servicio externo de geolocalización por IP y no guarda nada.
+- **`assistant_exposure`** (CAP-055):
+  - `ha_list_exposed_entities`: las entidades expuestas a Assist
+    (`conversation`, también agentes de LLM y la integración MCP Server) y a
+    Alexa y Google a través de Home Assistant Cloud, con `expose_new` por
+    asistente y filtros por asistente y dominio.
+  - `ha_set_entity_exposure`: exponer (de 1 a 200 entidades, a 1–3
+    asistentes) pide confirmación, con una vista previa por asistente y las
+    entidades de dominios sensibles (cerraduras, alarmas, persianas,
+    válvulas). Ocultar se aplica a la primera, sin token: solo reduce lo
+    expuesto. Cada entidad tiene que existir (HA crearía una entrada
+    huérfana).
+  - `ha_set_expose_new_entities`: activarlo pide confirmación; desactivarlo
+    va sin token.
+  - Las dos que escriben se anuncian de mundo abierto y no destructivas.
+- Cinco comandos pasan a `dedicated` en la tabla (`config/core/update` y los
+  cuatro de `homeassistant/expose_*`): las genéricas los rechazan hacia su
+  tool. Temas `core_config` y `assistant_exposure` en `hermes_guide`; el tema
+  `system_status` remite las URLs a `ha_update_core_config`.
+- Banco de Core: las cinco, contra HA real, con el lector independiente, y el
+  banco queda como estaba.
 
 ### Mejoras de tools existentes
 

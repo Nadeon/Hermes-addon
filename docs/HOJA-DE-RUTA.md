@@ -453,7 +453,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
-| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
+| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | en curso: tramo a (núcleo y exposición a asistentes: `ha_get_core_config`, `ha_update_core_config`, `ha_list_exposed_entities`, `ha_set_entity_exposure`, `ha_set_expose_new_entities`) hecho y probado en el banco de Core; faltan usuarios (b) y red y HTTP (c) |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
@@ -719,6 +719,8 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_run_script` | banco de Core | ok | |
 | `ha_save_lovelace_dashboard` | banco de Core | ok | |
 | `ha_set_counter_value` | banco de Core | ok | |
+| `ha_set_entity_exposure` | banco de Core | ok | |
+| `ha_set_expose_new_entities` | banco de Core | ok | |
 | `ha_set_input_boolean` | banco de Core | ok | |
 | `ha_set_input_datetime` | banco de Core | ok | |
 | `ha_set_input_number` | banco de Core | ok | |
@@ -733,6 +735,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_trigger_automation` | banco de Core | ok | |
 | `ha_update_area` | banco de Core | ok | |
 | `ha_update_category` | banco de Core | ok | |
+| `ha_update_core_config` | banco de Core | ok | |
 | `ha_update_device` | banco de Core | ok | |
 | `ha_update_entity_registry` | banco de Core | ok | |
 | `ha_update_floor` | banco de Core | ok | |
