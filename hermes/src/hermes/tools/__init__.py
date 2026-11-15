@@ -334,8 +334,8 @@ def register_all_tools(
         register_system_status(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # El recorder y las estadísticas de largo plazo (spec 029, CAP-049):
-    # estado, validación y metadatos. Hoy solo lee; la 020 añadirá aquí el
-    # mantenimiento de estadísticas.
+    # estado, validación y metadatos; y el mantenimiento de estadísticas de
+    # la 020.
     if _activa("recorder"):
         from hermes.tools.recorder_status import register as register_recorder_status
         register_recorder_status(mcp, ha_client, response_max_bytes=response_max_bytes)
@@ -345,6 +345,12 @@ def register_all_tools(
             register as register_statistics_maintenance,
         )
         register_statistics_maintenance(mcp, ha_client, response_max_bytes=response_max_bytes)
+    # Preferencias del panel de energía (spec 020, CAP-054): leer y guardar,
+    # esta última con confirmación. Recibe el tope porque las preferencias
+    # son un documento que no se recorta (`response_too_large`).
+    if _activa("energy"):
+        from hermes.tools.energy import register as register_energy
+        register_energy(mcp, ha_client, response_max_bytes=response_max_bytes)
     # Diagnóstico de Core (spec 012): logs y niveles de log, validación,
     # diagnósticos de integraciones y notificaciones persistentes. Reciben
     # `response_max_bytes` las que pueden devolver mucho: el log del sistema

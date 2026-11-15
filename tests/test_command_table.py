@@ -400,6 +400,20 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
         "spec 020: no toca filas ni metadatos, solo vuelve a crear o quitar los "
         "avisos de Repairs de las estadísticas; sin argumentos, una tool no "
         "tendría vista previa útil (research R-3, decisión D-3)"),
+    # Spec 020, tramo 3 (FR-013): las cuatro lecturas de energía. Revisadas
+    # en `energy/websocket_api.py`: ninguna escribe ni sale a internet (la
+    # previsión solar devuelve lo que la integración ya descargó).
+    "energy/validate": (
+        "spec 020: problemas de configuración del panel por fuente y "
+        "dispositivo; solo lee"),
+    "energy/info": (
+        "spec 020: sensores de coste y dominios con previsión solar; solo lee"),
+    "energy/solar_forecast": (
+        "spec 020: la previsión que ya tienen las integraciones de las fuentes "
+        "solares; solo lee, no la descarga"),
+    "energy/fossil_energy_consumption": (
+        "spec 020: un cálculo sobre estadísticas de energía y de CO2; solo "
+        "lee, con ejemplo de carga"),
 }
 
 
@@ -464,6 +478,43 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                 if e.category != "deny" or not m or m.group(1) not in subs:
                     malas.append(f"{k} ({f['cap']}, {via}, {subs}): {e.category} {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
+
+
+class TestCapitulosDeLa020(unittest.TestCase):
+    """Spec 020, T043 (FR-013, FR-015, SC-002): no queda ninguna entrada
+    «(spec 020)» y las doce de CAP-050 y CAP-054 tienen la categoría de
+    data-model, con su tool o su familia."""
+
+    _ESPERADAS = {
+        "recorder/clear_statistics": ("dedicated", "ha_clear_statistics", "recorder"),
+        "recorder/change_statistics_unit": ("dedicated", "ha_change_statistics_unit", "recorder"),
+        "recorder/update_statistics_metadata": ("dedicated", "ha_update_statistics_metadata",
+                                                "recorder"),
+        "recorder/adjust_sum_statistics": ("dedicated", "ha_adjust_statistics_sum", "recorder"),
+        "recorder/import_statistics": ("dedicated", "ha_import_statistics", "recorder"),
+        "recorder/update_statistics_issues": ("confirm", None, "generic_commands"),
+        "energy/get_prefs": ("dedicated", "ha_get_energy_prefs", "energy"),
+        "energy/save_prefs": ("dedicated", "ha_update_energy_prefs", "energy"),
+        "energy/validate": ("read", None, "generic_commands"),
+        "energy/info": ("read", None, "generic_commands"),
+        "energy/solar_forecast": ("read", None, "generic_commands"),
+        "energy/fossil_energy_consumption": ("read", None, "generic_commands"),
+    }
+
+    def test_ninguna_pendiente_de_la_020(self) -> None:
+        pendientes = sorted(str(k) for tabla in (ct.CORE_WS, ct.SUPERVISOR)
+                            for k, e in tabla.items() if "(spec 020)" in e.reason)
+        self.assertEqual(pendientes, [])
+
+    def test_las_doce_con_su_categoria(self) -> None:
+        for comando, (categoria, tool, familia) in self._ESPERADAS.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual((e.category, e.tool, e.family, e.cap),
+                                 (categoria, tool, familia,
+                                  "CAP-054" if comando.startswith("energy/") else "CAP-050"))
+                # Ninguna sale a internet (research R-5).
+                self.assertFalse(e.open_world)
 
 
 # Spec 013 (data-model, «A dedicated»): las rutas de logs de CAP-081 y su tool.

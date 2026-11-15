@@ -278,7 +278,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         # Desde la integración de la 028, la unión de las listas (y desde la
         # 012, también la suya).
         from tests.banco.cobertura_012 import PROBADAS_012
-        from tests.banco.cobertura_020 import PROBADAS_020
+        from tests.banco.cobertura_020 import LECTURAS_020, PROBADAS_020
         from tests.banco.cobertura_escrituras import PROBADAS_028
 
         # Desde la 029, también sus lecturas.
@@ -287,7 +287,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         self.assertEqual(
             plugin.tools_exigidas,
             PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029
-            | PROBADAS_012 | PROBADAS_020,
+            | PROBADAS_012 | PROBADAS_020 | LECTURAS_020,
         )
 
 
@@ -342,4 +342,48 @@ class TestCoberturaDeLa029(unittest.TestCase):
             p.read_text(encoding="utf-8")
             for p in sorted((RAIZ / "tests" / "banco").glob("test_banco_*.py")))
         faltan = sorted(t for t in PROBADAS_EN_BANCO_029 if f'"{t}"' not in textos)
+        self.assertEqual(faltan, [], f"sin test en tests/banco/: {faltan}")
+
+
+class TestCoberturaDeLa020(unittest.TestCase):
+    """Spec 020, T048 (FR-021, SC-005): `PROBADAS_020` (escrituras) y
+    `LECTURAS_020` son EXACTAMENTE lo que registran `MODULOS_020`, y cada
+    nombre aparece en algún `tests/banco/test_banco_*.py`. Que se ejecutan de
+    verdad lo exige el job (`TOOLS_EXIGIDAS_DEL_JOB`).
+
+    Control negativo (T050 f): quitar `ha_get_energy_prefs` de
+    `LECTURAS_020` → cae `test_inventario_exacto` nombrándola."""
+
+    def test_inventario_exacto(self) -> None:
+        from tests.banco.cobertura_020 import LECTURAS_020, MODULOS_020, PROBADAS_020
+
+        registradas: set[str] = set()
+        for modulo in MODULOS_020:
+            mod = importlib.import_module(f"hermes.tools.{modulo}")
+            dummy = _DummyMCP()
+            mod.register(dummy, MagicMock(), response_max_bytes=131_072)
+            registradas.update(dummy.nombres)
+        declaradas = set(PROBADAS_020) | set(LECTURAS_020)
+        self.assertEqual(
+            declaradas, registradas,
+            f"sin probar en el banco: {sorted(registradas - declaradas)}; "
+            f"declaradas que no registra ningún módulo de la 020: "
+            f"{sorted(declaradas - registradas)}")
+        self.assertFalse(set(PROBADAS_020) & set(LECTURAS_020))
+
+    def test_modulos_de_la_020(self) -> None:
+        from hermes.tool_families import FAMILIAS
+        from tests.banco.cobertura_020 import MODULOS_020
+
+        self.assertEqual(set(MODULOS_020),
+                         {"statistics_maintenance"} | set(FAMILIAS["energy"].modulos))
+
+    def test_cada_una_en_un_fichero_del_banco(self) -> None:
+        from tests.banco.cobertura_020 import LECTURAS_020, PROBADAS_020
+
+        textos = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((RAIZ / "tests" / "banco").glob("test_banco_*.py")))
+        faltan = sorted(t for t in PROBADAS_020 | LECTURAS_020
+                        if f'"{t}"' not in textos)
         self.assertEqual(faltan, [], f"sin test en tests/banco/: {faltan}")

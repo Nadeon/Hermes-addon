@@ -800,6 +800,10 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # filas deja el mismo estado.
     "ha_adjust_statistics_sum": ("-D--", "Adjust statistics sum (Home Assistant)"),
     "ha_import_statistics": ("-DI-", "Import statistics (Home Assistant)"),
+    # Spec 020, tramo 3 (CAP-054, familia `energy`): leer por prefijo; guardar
+    # reemplaza listas enteras (`_DESTRUCTIVE_EXACT`), con token, idempotente.
+    "ha_get_energy_prefs": ("R-I-", "Get energy prefs (Home Assistant)"),
+    "ha_update_energy_prefs": ("-DI-", "Update energy prefs (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1348,6 +1352,41 @@ class TestStatisticsMaintenanceRegistration:
         assert "ha_adjust_statistics_sum" in _NON_IDEMPOTENT_EXACT
         assert classify("ha_adjust_statistics_sum").idempotent_hint is False
         assert classify("ha_import_statistics").idempotent_hint is True
+
+
+class TestEnergyRegistration:
+    """Spec 020, T036 (FR-014, FR-016, SC-001): las dos de CAP-054 van en la
+    familia `energy`; solo la que guarda pide `confirmation_token`. Con
+    `energy` desactivada no aparece ninguna y el resto no cambia; con
+    `recorder` y `energy` desactivadas, la lista es la de antes de la 029
+    (sin `system_status`, que también es de la 029)."""
+
+    _DOS = {"ha_get_energy_prefs", "ha_update_energy_prefs"}
+
+    def test_registradas_y_token_solo_al_guardar(self):
+        tools = _real_registry()
+        assert self._DOS <= set(tools)
+        for nombre in self._DOS:
+            assert nombre in _HINTS_NUEVAS_1_2_0, nombre
+        props = tools["ha_update_energy_prefs"].parameters.get("properties", {})
+        assert "confirmation_token" in props
+        assert {"energy_sources", "device_consumption",
+                "device_consumption_water"} <= set(props)
+        props = tools["ha_get_energy_prefs"].parameters.get("properties", {})
+        assert "confirmation_token" not in props
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["energy"]))
+        assert completo - sin == self._DOS
+        assert sin <= completo
+
+    def test_sin_recorder_ni_energy_es_la_lista_de_antes_de_la_029(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status", "recorder", "energy"]))
+        assert completo - sin == (self._DOS | TestRecorderRegistration._TRES
+                                  | TestSystemStatusRegistration._CINCO
+                                  | TestStatisticsMaintenanceRegistration._DE_LA_020)
 
 
 class TestMarketplaceRegistration:

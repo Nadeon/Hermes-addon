@@ -51,7 +51,10 @@ La 020 (tramo 1) suma las tres primeras de mantenimiento de estadísticas
 `ha_update_statistics_metadata`): 89. Atan todo, sin exentos. El tramo 2 suma
 `ha_adjust_statistics_sum` (la cantidad, la estadística, el instante en UTC
 y la unidad) e `ha_import_statistics` (`metadata` y `stats`, este omitible
-al confirmar y normalizado): 91. Tampoco tienen exentos.
+al confirmar y normalizado): 91. Tampoco tienen exentos. El tramo 3 suma
+`ha_update_energy_prefs` (las tres listas, `None` las que no llegan: el
+documento que se enviará entero): 92. Sin exentos; el `estado` (las
+preferencias leídas) también ata el token.
 """
 
 from __future__ import annotations
@@ -191,6 +194,14 @@ INVENTARIO: dict[str, dict[str, str]] = {
     # `stats` omitible al confirmar (lo guarda el token) y normalizado:
     # `start` en UTC, filas ordenadas. El hash cubre el documento entero.
     "ha_import_statistics": {"metadata": A, "stats": A},
+    # ── panel de energía (spec 020, tramo 3) ────────────────────────────
+    # Las tres listas: la que no llega va como `None`, así que mandarla al
+    # confirmar también cambia la acción. Además ata el `estado`.
+    "ha_update_energy_prefs": {
+        "energy_sources": A,
+        "device_consumption": A,
+        "device_consumption_water": A,
+    },
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     "sv_set_addon_options": {"slug": A, "options": A},
@@ -298,8 +309,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las tres del tramo 1 de
-        # la 020 (estadísticas).
-        self.assertEqual(len(firmas_con_token(TOOLS)), 91)
+        # la 020 (estadísticas), las dos del tramo 2 y la de energía del
+        # tramo 3.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 92)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -319,7 +331,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 91)
+        self.assertEqual(len(publicadas), 92)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

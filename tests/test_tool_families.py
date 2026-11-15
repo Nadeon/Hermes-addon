@@ -195,6 +195,20 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["core_diagnostics"]),
                          frozenset({"core_diagnostics"}))
 
+    def test_energy_de_la_1_2_0(self) -> None:
+        """Spec 020, T036 (FR-014): familia nueva de la 1.2.0, desactivable,
+        con el módulo de las dos tools de CAP-054 y la descripción de
+        data-model (dice que guardar pide confirmación)."""
+        familia = FAMILIAS["energy"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("energy",))
+        self.assertEqual(
+            familia.descripcion,
+            "Energy dashboard preferences: read and save (with confirmation).")
+        self.assertEqual(familia_de_modulo("energy"), "energy")
+        self.assertEqual(validar_desactivadas(["energy"]), frozenset({"energy"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

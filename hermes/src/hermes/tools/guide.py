@@ -146,6 +146,7 @@ para el detalle de un área. Temas disponibles:
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
 - `recorder`       — estado del recorder, validación y mantenimiento de estadísticas y auditoría de acciones
+- `energy`         — preferencias del panel de energía (leer y guardar) y sus lecturas
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -919,6 +920,61 @@ llamaron en ese intervalo: `domain`, `service`, `service_data`, `when` y el
 hasta ahora. Los `code` de `service_data` (alarmas, cerraduras) salen
 tapados. Lee lo que el recorder grabó: sin recorder no hay auditoría.
 """,
+    "energy": """\
+# Panel de energía (familia `energy`)
+
+- `ha_get_energy_prefs()` — SOLO LEE la configuración del panel de energía:
+  `energy_sources` (fuentes: `type` grid, solar, battery, gas, water o home,
+  con sus estadísticas `stat_*`), `device_consumption` (dispositivos
+  eléctricos: `stat_consumption`, y `stat_rate`, `name`, `included_in_stat`
+  opcionales) y `device_consumption_water` (los de agua, igual).
+  `configured: false` y las tres listas vacías si nunca se configuró.
+- `ha_update_energy_prefs(energy_sources=None, device_consumption=None,
+  device_consumption_water=None)` — guarda, en dos pasos con token. Cada
+  lista que pasas REEMPLAZA ENTERA la de Home Assistant; las que no pasas se
+  conservan. Un elemento que no reenvías en una lista que pasas, se quita.
+
+Ciclo: leer → editar → guardar.
+1. `ha_get_energy_prefs()`.
+2. Edita la lista que quieras cambiar y pásala COMPLETA, p. ej. añadir un
+   dispositivo: `ha_update_energy_prefs(device_consumption=[<los que había>,
+   {"stat_consumption": "sensor.horno_energia"}])`.
+3. La vista previa (no cambia nada) da, por cada lista que pasas, `current`
+   (cómo está) y `new` (cómo quedará), y en `changes` cuántos había y habrá
+   y los elementos que entran (`added`), salen (`removed`) y cambian
+   (`changed`), identificados por su `type` y sus `stat_*`. `kept` dice qué
+   listas se conservan. `warnings` avisa de lo que se quita
+   (`removes_items`), de las estadísticas que el recorder no conoce
+   (`unknown_statistic`: HA las acepta igual) y de si no se pudo comprobar
+   (`statistics_not_checked`). `removes_all_sources: true` si quitas todas
+   las fuentes.
+4. Repite la MISMA llamada con `confirmation_token`. Si alguien guardó el
+   panel entre medias (p. ej. desde la interfaz), `energy_prefs_changed` y
+   no se guarda nada: pide otra vista previa. Responde `saved: true` y
+   `prefs`, lo que HA guardó (puede rellenar `stat_rate` de las fuentes con
+   `power_config`).
+Hermes comprueba la forma básica; el esquema completo lo valida HA al
+guardar (`ha_command_failed` con `ha_code: invalid_format`, y no cambia
+nada). No reenvíes un `***REDACTED***` de una lectura: se rechaza. Para
+deshacer, guarda de vuelta las listas de `current`. Sin la integración
+`energy` (va en `default_config`), `energy_not_loaded`.
+
+LECTURAS POR LA GENÉRICA (solo leen; ninguna sale a internet)
+- `ha_read_ws_command(type="energy/validate")` — problemas de configuración
+  del panel por fuente y dispositivo.
+- `ha_read_ws_command(type="energy/info")` — sensores de coste que creó el
+  panel y dominios con previsión solar.
+- `ha_read_ws_command(type="energy/solar_forecast")` — la previsión que ya
+  tienen las integraciones configuradas en las fuentes solares (`{}` si
+  ninguna); no la descarga.
+- `ha_read_ws_command(type="energy/fossil_energy_consumption",
+  payload={"start_time": "2026-01-01T00:00:00+00:00",
+  "end_time": "2026-01-02T00:00:00+00:00",
+  "energy_statistic_ids": ["sensor.consumo"],
+  "co2_statistic_id": "sensor.intensidad_co2", "period": "hour"})` — el
+  consumo de origen fósil por periodo (`5minute`, `hour`, `day` o `month`),
+  calculado con las estadísticas de energía y la de intensidad de CO2.
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -1045,6 +1101,9 @@ _ALIASES: dict[str, str] = {
     "statistics_validation": "recorder",
     "action_calls": "recorder",
     "audit": "recorder",
+    "energy_prefs": "energy",
+    "energy_dashboard": "energy",
+    "energia": "energy",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -1153,7 +1212,7 @@ def register(mcp: object) -> None:
                 helpers, events, data, registries, diagnostics, config_entries,
                 filesystem, supervisor, system_diagnostics, backups, lovelace,
                 marketplace, security, generic_commands, system_status, recorder,
-                core_diagnostics, workflows. Acepta alias
+                energy, core_diagnostics, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,

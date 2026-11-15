@@ -672,6 +672,49 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"end_time": "2026-01-01T06:00:00+00:00"', texto)
 
 
+class TestTemaEnergy(unittest.IsolatedAsyncioTestCase):
+    """Spec 020, T045 (FR-020): el tema `energy` nombra las dos tools, la
+    semántica de reemplazo por lista, el ciclo leer → editar → guardar y las
+    cuatro lecturas con su llamada exacta; sus alias resuelven a él, el
+    índice lo menciona y la búsqueda en la tabla enseña el ejemplo de
+    consumo fósil."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_contenido(self) -> None:
+        texto = await self.guide("energy")
+        self.assertIs(texto, _GUIDE["energy"])
+        for palabra in ("ha_get_energy_prefs", "ha_update_energy_prefs",
+                        "REEMPLAZA ENTERA", "se conservan", "leer → editar → guardar",
+                        "confirmation_token", "current", "new", "kept", "warnings",
+                        "removes_all_sources", "unknown_statistic", "energy_prefs_changed",
+                        "configured: false", "energy_not_loaded", "invalid_format",
+                        'ha_read_ws_command(type="energy/validate")',
+                        'ha_read_ws_command(type="energy/info")',
+                        'ha_read_ws_command(type="energy/solar_forecast")',
+                        'ha_read_ws_command(type="energy/fossil_energy_consumption"',
+                        '"co2_statistic_id": "sensor.intensidad_co2"'):
+            self.assertIn(palabra, texto)
+
+    async def test_alias(self) -> None:
+        texto = await self.guide("energy")
+        for alias in ("energy_prefs", "energy_dashboard", "energia", "ENERGIA"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_el_indice_lo_menciona(self) -> None:
+        self.assertIn("`energy`", await self.guide())
+
+    async def test_la_busqueda_enseña_el_ejemplo(self) -> None:
+        texto = await self.guide("generic_commands", search="fossil")
+        self.assertIn("energy/fossil_energy_consumption", texto)
+        self.assertIn('"co2_statistic_id": "sensor.intensidad_co2"', texto)
+        self.assertIn('"period": "hour"', texto)
+
+
 class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
     """Spec 012 (FR-016, T014): el tema `core_diagnostics` existe con sus
     alias, el índice lo lista, `diagnostics` remite a él y nombra TODAS las

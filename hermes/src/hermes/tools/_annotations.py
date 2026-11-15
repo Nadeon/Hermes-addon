@@ -185,6 +185,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # son prefijos destructivos.
     "ha_adjust_statistics_sum",
     "ha_import_statistics",
+    # Spec 020, tramo 3 (CAP-054): cada lista que recibe reemplaza ENTERA la
+    # de HA, así que quita las fuentes o dispositivos que no se reenvían.
+    # `ha_update_` no es prefijo destructivo. Repetirla con las mismas listas
+    # deja el mismo estado (idempotente).
+    "ha_update_energy_prefs",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

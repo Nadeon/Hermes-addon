@@ -123,6 +123,13 @@ _CATALOGO: tuple[Familia, ...] = (
             "1.2.0", True,
             ("core_logs", "core_validation", "integration_diagnostics",
              "persistent_notifications")),
+    # Spec 020 (CAP-054): las preferencias del panel de energía. Familia
+    # propia y no `recorder`: el panel es de la integración `energy`, que
+    # puede no estar cargada aunque el recorder sí, y quien no usa el panel
+    # puede apagarla sin perder el mantenimiento de estadísticas.
+    Familia("energy",
+            "Energy dashboard preferences: read and save (with confirmation).",
+            "1.2.0", True, ("energy",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

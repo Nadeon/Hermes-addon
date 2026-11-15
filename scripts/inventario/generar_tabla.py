@@ -327,6 +327,11 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "recorder/update_statistics_metadata": "ha_update_statistics_metadata",
     "recorder/adjust_sum_statistics": "ha_adjust_statistics_sum",
     "recorder/import_statistics": "ha_import_statistics",
+    # 020, tramo 3: preferencias del panel de energía (CAP-054, familia
+    # `energy`). Las cuatro lecturas de energía no van aquí: son `read` por la
+    # tabla, editadas a mano.
+    "energy/get_prefs": "ha_get_energy_prefs",
+    "energy/save_prefs": "ha_update_energy_prefs",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

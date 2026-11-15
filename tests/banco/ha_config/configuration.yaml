@@ -149,3 +149,16 @@ system_log:
 # `local_calendar` (sin red ni hardware) para tener un diagnóstico de entrada.
 # `persistent_notification` es de núcleo: no hace falta cargarla.
 diagnostics:
+
+# ── Spec 020 (tramo 3): panel de energía ────────────────────────────────────
+#
+# energy: registra `energy/get_prefs` y `energy/save_prefs` (sin la
+# integración, HA responde `unknown_command` y las tools,
+# `energy_not_loaded`), que usan `ha_get_energy_prefs` y
+# `ha_update_energy_prefs`, y las cuatro lecturas `energy/validate`,
+# `energy/info`, `energy/solar_forecast` y `energy/fossil_energy_consumption`
+# de la genérica. Va en `default_config`, que aquí no se carga. Guarda sus
+# preferencias en `.storage` de esta copia temporal y lee las estadísticas
+# del recorder; sin hardware ni internet (la previsión solar solo devuelve lo
+# que tienen las integraciones de previsión, y aquí no hay ninguna).
+energy:

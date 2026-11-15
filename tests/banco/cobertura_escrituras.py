@@ -10,7 +10,7 @@ suite normal (sin HA ni Docker):
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
       ∪ FUERA_DEL_BANCO                                              (24)
       ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 3)
-      ∪ cobertura_020.PROBADAS_020 ∪ cobertura_020.NO_EJECUTABLES_020  (020, 5)
+      ∪ cobertura_020.PROBADAS_020 ∪ cobertura_020.NO_EJECUTABLES_020  (020, 6)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el
@@ -49,7 +49,7 @@ from __future__ import annotations
 
 from tests.banco import cobertura
 from tests.banco.cobertura_012 import PROBADAS_012
-from tests.banco.cobertura_020 import PROBADAS_020
+from tests.banco.cobertura_020 import LECTURAS_020, PROBADAS_020
 
 # Las 53 de la 028 (26 del tramo A y 27 del B): cada una la llama con éxito
 # algún `tests/banco/test_banco_escrituras_*.py` que pasa (lo exige el job) y su
@@ -149,6 +149,8 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     | cobertura.PROBADAS_EN_BANCO_029
     | PROBADAS_012
     | PROBADAS_020
+    # Spec 020, tramo 3: la lectura de energía también (FR-021).
+    | LECTURAS_020
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}
 
