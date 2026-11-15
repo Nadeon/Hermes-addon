@@ -1,0 +1,30 @@
+"""Inventario de las escrituras de la spec 020 en el banco de Core.
+
+Contrato de la 028 («Regla para las sub-features siguientes»): cada tool
+nueva que modifica se ejecuta en el banco y va en `PROBADAS_020`, o en
+`NO_EJECUTABLES_020` con un motivo concreto. Las dos listas se suman a la
+unión de `tests/test_banco_cobertura_escrituras.py` y `PROBADAS_020` a lo que
+el job exige por ejecución (`cobertura_escrituras.TOOLS_EXIGIDAS_DEL_JOB`).
+
+Tramo 1: `ha_clear_statistics`, `ha_change_statistics_unit` y
+`ha_update_statistics_metadata`, en `tests/banco/test_banco_estadisticas.py`
+(el lector siembra las estadísticas y comprueba cada efecto).
+
+`MODULOS_020` son los módulos de la 020. `statistics_maintenance` entra en la
+familia `recorder` de la 029, así que el test de los módulos de las familias
+de la 029 (`tests/test_banco_cobertura.py`) los resta: las tools de la 020
+se cuentan aquí, no en `PROBADAS_EN_BANCO_029`. `energy` llega en el tramo 3.
+"""
+
+from __future__ import annotations
+
+MODULOS_020: tuple[str, ...] = ("statistics_maintenance", "energy")
+
+PROBADAS_020: frozenset[str] = frozenset({
+    "ha_clear_statistics",
+    "ha_change_statistics_unit",
+    "ha_update_statistics_metadata",
+})
+
+# Vacío: todas las de la 020 se ejecutan contra HA Core real en el banco.
+NO_EJECUTABLES_020: dict[str, str] = {}

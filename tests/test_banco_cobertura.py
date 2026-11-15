@@ -278,6 +278,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         # Desde la integración de la 028, la unión de las listas (y desde la
         # 012, también la suya).
         from tests.banco.cobertura_012 import PROBADAS_012
+        from tests.banco.cobertura_020 import PROBADAS_020
         from tests.banco.cobertura_escrituras import PROBADAS_028
 
         # Desde la 029, también sus lecturas.
@@ -286,7 +287,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         self.assertEqual(
             plugin.tools_exigidas,
             PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029
-            | PROBADAS_012,
+            | PROBADAS_012 | PROBADAS_020,
         )
 
 
@@ -324,11 +325,15 @@ class TestCoberturaDeLa029(unittest.TestCase):
     def test_modulos_de_las_familias_de_la_029(self) -> None:
         from hermes.tool_families import FAMILIAS
         from tests.banco.cobertura import MODULOS_029
+        from tests.banco.cobertura_020 import MODULOS_020
 
-        # T031: los módulos de las dos familias de la 029.
+        # T031: los módulos de las dos familias de la 029. La 020 añade
+        # `statistics_maintenance` a `recorder`; sus tools se inventarían en
+        # `cobertura_020.py`, así que sus módulos se restan aquí.
         self.assertEqual(
             set(MODULOS_029),
-            set(FAMILIAS["system_status"].modulos) | set(FAMILIAS["recorder"].modulos))
+            (set(FAMILIAS["system_status"].modulos) | set(FAMILIAS["recorder"].modulos))
+            - set(MODULOS_020))
 
     def test_cada_una_en_un_fichero_del_banco(self) -> None:
         from tests.banco.cobertura import PROBADAS_EN_BANCO_029

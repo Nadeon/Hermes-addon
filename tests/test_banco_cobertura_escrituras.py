@@ -34,7 +34,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tests.banco import cobertura, cobertura_012 as c012, cobertura_escrituras as c028
+from tests.banco import (
+    cobertura,
+    cobertura_012 as c012,
+    cobertura_020 as c020,
+    cobertura_escrituras as c028,
+)
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -68,6 +73,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 012 (contrato de la 028): sus escrituras, en su propio módulo.
         "PROBADAS_012": set(c012.PROBADAS_012),
         "NO_EJECUTABLES_012": set(c012.NO_EJECUTABLES_012),
+        # Spec 020 (contrato de la 028): mantenimiento de estadísticas.
+        "PROBADAS_020": set(c020.PROBADAS_020),
+        "NO_EJECUTABLES_020": set(c020.NO_EJECUTABLES_020),
     }
 
 
@@ -86,8 +94,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B).
-        self.assertEqual(len(reales), 129)
+        # del tramo B) y las 3 del tramo 1 de la 020 (estadísticas).
+        self.assertEqual(len(reales), 132)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -135,7 +143,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         self.assertEqual(
             c028.TOOLS_EXIGIDAS_DEL_JOB,
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
-            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012,
+            | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c020.PROBADAS_020,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}
