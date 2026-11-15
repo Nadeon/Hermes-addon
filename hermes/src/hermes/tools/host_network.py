@@ -22,6 +22,10 @@ la ruta por defecto, la de la interfaz `primary`. Por eso se rechaza SIEMPRE,
 sin token y sin escribir:
   - la interfaz principal, también con un cambio inocuo como `mdns` (una
     regla simple que no hay que razonar caso a caso);
+  - si la principal es una VLAN, su madre (y la madre de esta, si también es
+    VLAN): borrar o reactivar el perfil de la madre tumba la VLAN (T028). Si
+    la madre no se resuelve a un nombre (el Supervisor la da como UUID de la
+    conexión), no se sabe de qué depende la principal y no se edita ninguna;
   - la única conectada, aunque no esté marcada como principal (transitorios
     de NetworkManager: es igualmente el único camino);
   - cualquier interfaz si no se sabe cuál es la principal (lectura fallida,
@@ -39,12 +43,19 @@ BLOQUES COMPLETOS (FR-008, research R-4)
 valores por defecto: un `ipv4` sin `method` pasa a estático SIN dirección y un
 `wifi` sin `auth` pasa a red abierta. Hermes no puede fundir con lo actual (no
 puede leer la PSK), así que exige los campos que deciden el resultado y
-rechaza los bloques incompletos o contradictorios antes de llamar.
+rechaza los bloques incompletos o contradictorios antes de llamar. También
+lo que el Supervisor aceptaría e IGNORARÍA, que la vista previa daría por
+aplicado (T034): `wifi` en una interfaz que no es `wireless`, DNS con
+`disabled`, `addr_gen_mode`/`ip6_privacy` sin `auto` y la autenticación `wep`
+(la clave acaba donde NetworkManager no la lee y la red no conecta).
+`enabled: false` BORRA el perfil guardado en la v1 y descarta los demás
+bloques: va solo y la vista previa lo dice (T030).
 
 LA PSK NUNCA SALE (FR-010, research R-9)
 Entra, se envía al Supervisor y no aparece en la vista previa (`"psk":
-"set"`), la respuesta, los errores (se sustituye el valor literal, porque el
-texto del Supervisor puede repetirla, y se pasa por `redact_secrets`), el log
+"set"`), la respuesta, los errores (se sustituyen el valor literal y sus
+formas escapadas de JSON o `repr`, porque el texto del Supervisor puede
+repetirla, y se pasa por `redact_secrets`), el log
 ni el fichero del token: no hay `omitibles`, así que en disco solo queda el
 HMAC de la acción (019). El token la ata por ese HMAC.
 
@@ -62,6 +73,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import re
 from typing import Any
 
@@ -91,7 +103,11 @@ _METODOS = ("auto", "static", "disabled")
 _ADDR_GEN = ("eui64", "stable-privacy", "default-or-eui64", "default")
 _IP6_PRIVACY = ("disabled", "enabled-prefer-public", "enabled", "default")
 _WIFI_MODOS = ("infrastructure", "mesh", "adhoc", "ap")
-_WIFI_AUTH = ("open", "wep", "wpa-psk")
+# `wep` NO se admite (T034): el Supervisor 2026.11.0 escribe la clave en
+# `802-11-wireless-security.psk` con `key-mgmt: none`, pero NetworkManager
+# lee la clave WEP de `wep-key0`, así que la red nunca llega a conectar y la
+# vista previa la daría por buena (principio V).
+_WIFI_AUTH = ("open", "wpa-psk")
 _MULTICAST = ("default", "off", "resolve", "announce")
 
 _CLAVES_IP = {
@@ -132,6 +148,13 @@ _AVISO_RUTA = (
     "WARNING: a gateway on this interface may take the default route from "
     "the primary interface. If it does, Home Assistant and Hermes become "
     "unreachable through the current path until it is fixed locally."
+)
+_AVISO_DESACTIVAR = (
+    "WARNING: enabled false DELETES the saved connection of this interface: "
+    "its IP settings and, on Wi-Fi, the network and its key (psk) are lost; "
+    "any other block would be discarded. It is not a pause: enabling it "
+    "again needs the full configuration (ipv4, ipv6 and, on Wi-Fi, wifi with "
+    "its psk)."
 )
 _AVISO_RUTA_VLAN = (
     "WARNING: a gateway on this VLAN (static, or handed out by DHCP with the "
@@ -246,6 +269,15 @@ def _validar_ip(bloque: str, valor: Any) -> dict[str, Any]:
             "method is 'static'.")
     if "nameservers" in valor:
         dns = valor["nameservers"]
+        # Con `disabled`, `generate.py` (`_get_ipv4/6_connection_settings`)
+        # no escribe los DNS: el Supervisor los aceptaría y los tiraría, y la
+        # vista previa los enseñaría como aplicados (T034). Una lista vacía
+        # no pide nada y se admite.
+        if metodo == "disabled" and dns:
+            raise ArgumentoInvalido(
+                f"{bloque}.nameservers",
+                f"{bloque}.nameservers are ignored by the Supervisor when "
+                "method is 'disabled'; remove them or use 'auto' or 'static'.")
         if not isinstance(dns, list) or len(dns) > _DNS_MAX:
             raise ArgumentoInvalido(
                 f"{bloque}.nameservers",
@@ -261,6 +293,15 @@ def _validar_ip(bloque: str, valor: Any) -> dict[str, Any]:
                 f"{bloque}.route_metric must be an integer 0 or greater.")
         salida["route_metric"] = metrica
     if bloque == "ipv6":
+        # `addr_gen_mode` e `ip6_privacy` solo se escriben con `auto` (rama
+        # AUTO de `_get_ipv6_connection_settings`): con `static` o `disabled`
+        # el Supervisor los ignora, así que se rechazan (T034).
+        for clave in ("addr_gen_mode", "ip6_privacy"):
+            if clave in valor and metodo != "auto":
+                raise ArgumentoInvalido(
+                    f"ipv6.{clave}",
+                    f"ipv6.{clave} is ignored by the Supervisor unless "
+                    "ipv6.method is 'auto'; remove it.")
         if "addr_gen_mode" in valor:
             salida["addr_gen_mode"] = _elegir(
                 "ipv6.addr_gen_mode", valor["addr_gen_mode"], _ADDR_GEN)
@@ -287,6 +328,11 @@ def _validar_wifi(valor: Any) -> dict[str, Any]:
                 f"wifi.{obligatorio} is required: the Supervisor replaces the "
                 "whole block, and a missing auth becomes an OPEN network.")
     modo = _elegir("wifi.mode", valor["mode"], _WIFI_MODOS)
+    if valor["auth"] == "wep":
+        raise ArgumentoInvalido(
+            "wifi.auth", "wifi.auth 'wep' is not supported: the Supervisor stores "
+                         "a WEP key where NetworkManager does not read it, so the "
+                         "network would never connect. Use 'wpa-psk' or 'open'.")
     auth = _elegir("wifi.auth", valor["auth"], _WIFI_AUTH)
     ssid = valor["ssid"]
     if (not isinstance(ssid, str) or not 1 <= len(ssid.encode("utf-8")) <= 32
@@ -342,6 +388,15 @@ def _validar_bloques(
         carga["mdns"] = _validar_multicast("mdns", mdns)
     if llmnr is not None:
         carga["llmnr"] = _validar_multicast("llmnr", llmnr)
+    if carga.get("enabled") is False and len(carga) > 1:
+        # En la v1, `enabled: false` va a `apply_changes(destructive_disable=
+        # True)`, que BORRA el perfil guardado: los demás bloques se asignan
+        # y se tiran sin aplicarse. Mezclarlos daría una vista previa que
+        # miente (T030, principio V).
+        raise ArgumentoInvalido(
+            "enabled", "enabled false deletes the saved connection and the "
+                       "Supervisor discards every other block sent with it. "
+                       "Send enabled false alone.")
     return carga
 
 
@@ -389,12 +444,31 @@ def _carga_publica(carga: dict[str, Any]) -> dict[str, Any]:
     return salida
 
 
+def _formas_de_la_psk(psk: str) -> list[str]:
+    """La PSK y sus formas escapadas, de la más larga a la más corta.
+
+    El texto de un error puede traerla dentro de un JSON (`\\"`, `\\\\`,
+    `\\u00f1`), de un `repr` de Python o de un JSON metido en otro JSON: el
+    literal no basta si lleva comillas, barras o caracteres no ASCII (T031).
+    """
+    formas = {psk}
+    for base in (json.dumps(psk)[1:-1], json.dumps(psk, ensure_ascii=False)[1:-1],
+                 repr(psk)[1:-1]):
+        formas.add(base)
+        # Un nivel más: el JSON de un error metido en el mensaje de otro.
+        formas.add(json.dumps(base)[1:-1])
+        formas.add(json.dumps(base, ensure_ascii=False)[1:-1])
+    return sorted((f for f in formas if f), key=len, reverse=True)
+
+
 def _limpiar(texto: str, psk: str | None) -> str:
-    """Un texto del Supervisor sin la PSK: primero el valor literal (el
-    Supervisor puede repetirla en su mensaje y `redact_secrets` no la
-    reconoce sin una clave delante) y después la redacción general."""
+    """Un texto del Supervisor sin la PSK: primero el valor literal y sus
+    formas escapadas (el Supervisor puede repetirla en su mensaje y
+    `redact_secrets` no la reconoce sin una clave delante) y después la
+    redacción general."""
     if psk:
-        texto = texto.replace(psk, REDACTED_MARKER)
+        for forma in _formas_de_la_psk(psk):
+            texto = texto.replace(forma, REDACTED_MARKER)
     return redact_secrets(texto)
 
 
@@ -415,6 +489,44 @@ class _Red:
         self.interfaces = interfaces
         self.principal = principal
         self.conectadas = conectadas
+
+
+def _dependencias_de_la_principal(red: _Red) -> set[str] | None:
+    """Las interfaces de las que depende la principal (T028); None si no se
+    puede saber.
+
+    En el modelo del Supervisor 2026.11.0 solo hay `ethernet`, `wireless` y
+    `vlan` (`InterfaceType`); puentes y *bonds* no se listan (`dbus/network`
+    salta cualquier otro tipo), así que si uno de ellos es la principal
+    ninguna interfaz sale `primary` y ya se rechaza todo (`primary_unknown`).
+    La única dependencia posible es la madre de una VLAN, y la de una VLAN
+    sobre otra VLAN. Borrar o reactivar el perfil de la madre tumba la VLAN:
+    la VLAN guarda como madre el UUID de la conexión de la madre
+    (`generate.py`) y no vuelve a levantarse.
+
+    `vlan.parent` llega como NOMBRE recién creada la VLAN, pero como UUID de
+    la conexión después (`VlanConfig` en `host/configuration.py`), y la API
+    v1 no da los UUID de las conexiones. Si la madre no se resuelve a una
+    interfaz por su nombre, la cadena no se conoce: None, y la guarda no deja
+    editar ninguna (fail-closed; decisión del supervisor). No se adivina por
+    la forma `<madre>.<id>` del nombre: es una costumbre, no una garantía.
+    """
+    dependencias: set[str] = set()
+    actual = red.principal
+    while actual is not None:
+        interfaz = red.interfaces.get(actual)
+        if interfaz is None:
+            return None
+        if interfaz["type"] != "vlan":
+            return dependencias
+        vlan = interfaz.get("vlan")
+        madre = vlan.get("parent") if isinstance(vlan, dict) else None
+        if (not isinstance(madre, str) or madre not in red.interfaces
+                or madre == red.principal or madre in dependencias):
+            return None
+        dependencias.add(madre)
+        actual = madre
+    return dependencias
 
 
 def _es_respuesta_del_supervisor(exc: Exception) -> bool:
@@ -488,6 +600,27 @@ def register(mcp: object, ha_client: HAClient) -> None:
             raise _Rechazo({"error": "interface_not_found",
                             "detail": f"The Supervisor has no interface {nombre}."},
                            "interface_not_found")
+        dependencias = _dependencias_de_la_principal(red)
+        if dependencias is None:
+            raise _Rechazo({
+                "error": "primary_dependency_unknown",
+                "detail": (f"The primary interface {red.principal} is a VLAN and "
+                           "the Supervisor does not say, by name, which "
+                           "interface carries it (it may report the parent as a "
+                           "connection id). Editing or disabling that parent "
+                           "would take the primary down with it, and Hermes "
+                           "cannot tell which one it is, so it edits none. "
+                           f"{_COMO_HACERLO}"),
+            }, "primary_dependency_unknown")
+        if nombre in dependencias:
+            raise _Rechazo({
+                "error": "primary_interface_parent",
+                "detail": (f"{nombre} carries the primary interface "
+                           f"{red.principal} (a VLAN on it): disabling or "
+                           "reconfiguring it takes the primary down too, and "
+                           "the Supervisor does not roll it back. Hermes never "
+                           f"edits it. {_COMO_HACERLO}"),
+            }, "primary_interface_parent")
         if red.conectadas == [nombre]:
             raise _Rechazo({
                 "error": "only_connected_interface",
@@ -606,21 +739,26 @@ def register(mcp: object, ha_client: HAClient) -> None:
     ) -> object:
         """Change the configuration of a SECONDARY host network interface
         (for example a backup Wi-Fi or a second card). The primary interface
-        (the default route), the only connected one, or any interface when
-        the primary cannot be determined are ALWAYS refused, even for a
-        harmless change: change those from the Home Assistant UI with local
-        access. 'default' is refused too (it means the primary).
+        (the default route), the card that carries it when the primary is a
+        VLAN, the only connected one, or any interface when the primary or
+        what it depends on cannot be determined are ALWAYS refused, even for
+        a harmless change: change those from the Home Assistant UI with
+        local access. 'default' is refused too (it means the primary).
 
         Each block you pass REPLACES the whole block (nothing is merged):
         ipv4/ipv6 need method ('auto', 'static' or 'disabled'); 'static'
         needs address (like ['192.0.2.20/24']) and may have gateway;
-        nameservers and route_metric are optional; ipv6 also accepts
-        addr_gen_mode and ip6_privacy. wifi needs mode ('infrastructure',
-        'mesh', 'adhoc', 'ap'), auth ('open', 'wep', 'wpa-psk') and ssid; psk
-        is required for 'wep'/'wpa-psk' and is never returned or logged.
-        enabled is true/false; mdns/llmnr are 'default', 'off', 'resolve' or
-        'announce'. Read the current values with
-        sv_read_api("/network/interface/<interface>/info").
+        nameservers (not with 'disabled') and route_metric are optional;
+        ipv6 with 'auto' also accepts addr_gen_mode and ip6_privacy. wifi
+        (wireless interfaces only) needs mode ('infrastructure', 'mesh',
+        'adhoc', 'ap'), auth ('open' or 'wpa-psk'; WEP is refused because the
+        Supervisor stores it where the network never connects) and ssid; psk
+        is required for 'wpa-psk' and is never returned or logged. Settings
+        the Supervisor would ignore are refused. mdns/llmnr are 'default',
+        'off', 'resolve' or 'announce'. enabled false DELETES the saved
+        connection (IP settings, Wi-Fi network and psk), so it must be sent
+        alone, and enabling it again needs the full configuration. Read the
+        current values with sv_read_api("/network/interface/<interface>/info").
 
         Two steps: the preview shows the interface before, what will be sent
         (psk as "set"), its role and a warning, and returns a
@@ -649,6 +787,16 @@ def register(mcp: object, ha_client: HAClient) -> None:
         try:
             red = await _leer_red(para_guarda=True, psk=psk)
             _guarda(interface, red)
+            if "wifi" in carga and red.interfaces[interface]["type"] != "wireless":
+                # `generate.py` solo usa el bloque `wifi` con WIRELESS: en una
+                # ethernet o una VLAN el Supervisor lo aceptaría y lo tiraría,
+                # y la vista previa lo enseñaría como aplicado (T034).
+                raise _Rechazo({
+                    "error": "wifi_not_wireless",
+                    "detail": (f"{interface} is not a wireless interface; the "
+                               "Supervisor ignores a wifi block on it. Remove "
+                               "wifi or name a wireless interface."),
+                }, "wifi_not_wireless")
             antes = await _interfaz(interface, psk)
         except _Rechazo as r:
             _log(tool, "rejected", interface=interface, reason=r.motivo)
@@ -669,6 +817,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
             if any(isinstance(carga.get(b), dict) and carga[b].get("gateway")
                    for b in ("ipv4", "ipv6")):
                 preview["route_warning"] = _AVISO_RUTA
+            if carga.get("enabled") is False:
+                # La v1 borra el perfil (`destructive_disable`), no lo apaga:
+                # hay que decirlo, no basta el aviso genérico (T030).
+                preview["deletes_saved_connection"] = True
+                preview["disable_warning"] = _AVISO_DESACTIVAR
             # Sin `redact_structure` sobre la respuesta entera: taparía el
             # propio `confirmation_token` y el `"psk": "set"` que dice que la
             # clave va. La PSK ya no está en la vista previa.

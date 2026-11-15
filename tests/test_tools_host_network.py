@@ -42,12 +42,18 @@ from tests.fixtures.supervisor_host import (
     MAC,
     PSK,
     SSID,
+    UUID_MADRE,
     SupervisorDeRed,
     corte,
     error_que_repite_la_psk,
+    interfaz_eth1,
+    red,
     red_sin_principal,
+    red_vlan_principal,
+    red_vlan_sobre_vlan,
     red_wlan0_unica_conectada,
 )
+from hermes.ha import HAConnectionError
 
 
 class DummyMCP:
@@ -177,13 +183,11 @@ class TestEditarInterfaz(_Base):
     async def test_carga_normalizada(self) -> None:
         _, hecho = await self._confirmar(
             "sv_update_network_interface", interface="wlan0",
-            ipv6={"method": "static", "address": ["2001:DB8:0:0::20/64"],
-                  "addr_gen_mode": "stable-privacy"},
+            ipv6={"method": "static", "address": ["2001:DB8:0:0::20/64"]},
             mdns="resolve", enabled=True)
         self.assertEqual(hecho["result"], "ok")
         self.assertEqual(self.sv.escrituras[0]["json_body"], {
-            "ipv6": {"method": "static", "address": ["2001:db8::20/64"],
-                     "addr_gen_mode": "stable-privacy"},
+            "ipv6": {"method": "static", "address": ["2001:db8::20/64"]},
             "enabled": True, "mdns": "resolve"})
 
     async def test_relectura_fallida(self) -> None:
@@ -385,8 +389,21 @@ class TestValidacionDeBloques(_Base):
         ("ssid vacío", {"wifi": {**WIFI, "ssid": ""}}, "wifi.ssid"),
         ("wpa-psk sin psk", {"wifi": {"mode": "infrastructure", "auth": "wpa-psk",
                                       "ssid": SSID}}, "wifi.psk"),
+        ("wep", {"wifi": {**WIFI, "auth": "wep", "psk": "clave"}}, "wifi.auth"),
         ("wep sin psk", {"wifi": {"mode": "infrastructure", "auth": "wep", "ssid": SSID}},
-         "wifi.psk"),
+         "wifi.auth"),
+        ("dns con disabled", {"ipv4": {"method": "disabled", "nameservers": [GATEWAY]}},
+         "ipv4.nameservers"),
+        ("dns ipv6 con disabled",
+         {"ipv6": {"method": "disabled", "nameservers": ["2001:db8::53"]}},
+         "ipv6.nameservers"),
+        ("addr_gen_mode con static",
+         {"ipv6": {"method": "static", "address": ["2001:db8::20/64"],
+                   "addr_gen_mode": "eui64"}}, "ipv6.addr_gen_mode"),
+        ("ip6_privacy con disabled", {"ipv6": {"method": "disabled", "ip6_privacy": "enabled"}},
+         "ipv6.ip6_privacy"),
+        ("enabled false con otro bloque", {"enabled": False, "mdns": "off"}, "enabled"),
+        ("enabled false con wifi", {"enabled": False, "wifi": WIFI}, "enabled"),
         ("psk de 7", {"wifi": {**WIFI, "psk": "1234567"}}, "wifi.psk"),
         ("psk de 64 no hex", {"wifi": {**WIFI, "psk": "z" * 64}}, "wifi.psk"),
         ("psk con open", {"wifi": {**WIFI, "auth": "open"}}, "wifi.psk"),
@@ -418,7 +435,9 @@ class TestValidacionDeBloques(_Base):
             {"ipv6": {"method": "auto", "ip6_privacy": "enabled-prefer-public"}},
             {"wifi": {"mode": "infrastructure", "auth": "open", "ssid": SSID}},
             {"wifi": {**WIFI, "psk": "a" * 64}},
-            {"wifi": {**WIFI, "auth": "wep", "psk": "clave"}},
+            {"ipv4": {"method": "disabled", "nameservers": [], "route_metric": 10}},
+            {"ipv6": {"method": "auto", "addr_gen_mode": "eui64", "ip6_privacy": "enabled"}},
+            {"enabled": True, "mdns": "off"},
             {"llmnr": "announce"},
             {"enabled": False},
         )
@@ -657,3 +676,183 @@ class TestLog(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── T028–T034: arreglos de la convergencia ──────────────────────────────────
+
+
+class TestMadreDeLaPrincipal(_Base):
+    """T028 (A1 de la revisión): con la principal en la VLAN `eth0.10`, su
+    madre `eth0` se rechaza igual que la principal. En la v1, `enabled:
+    false` sobre `eth0` borra su perfil (`_apply_delete`) y la VLAN, que
+    guarda como madre el UUID de ese perfil, no vuelve a levantarse.
+
+    Control negativo: sin la comprobación de `_dependencias_de_la_principal`
+    en `_guarda`, caen `test_madre_rechazada` (el escenario de la revisión:
+    token y POST), `test_madre_como_uuid_rechaza_todo`,
+    `test_vlan_sobre_vlan` y `test_se_repite_al_confirmar`.
+    """
+
+    async def test_madre_rechazada(self) -> None:
+        self._montar(red_vlan_principal())
+        for kw in ({"enabled": False}, {"ipv4": {"method": "auto"}}, {"mdns": "off"}):
+            with self.subTest(kw=kw):
+                r = await self.t["sv_update_network_interface"](interface="eth0", **kw)
+                self.assertEqual(r["error"], "primary_interface_parent", r)
+                self.assertIn("eth0.10", r["detail"])
+                self.assertIn("Home Assistant UI", r["detail"])
+                self._sin_escrituras_ni_token(r)
+
+    async def test_las_demas_se_pueden_editar(self) -> None:
+        self._montar(red_vlan_principal())
+        for nombre in ("eth1", "wlan0"):
+            with self.subTest(interfaz=nombre):
+                await self._vista("sv_update_network_interface", interface=nombre,
+                                  mdns="off")
+
+    async def test_madre_como_uuid_rechaza_todo(self) -> None:
+        # Lo normal tras la primera actualización: `vlan.parent` es el UUID
+        # de la conexión, que la API v1 no permite resolver. Sin saber de
+        # qué depende la principal, no se edita ninguna (fail-closed).
+        for madre in (UUID_MADRE, None, "eth9"):
+            self._montar(red_vlan_principal(madre))
+            for nombre in ("eth0", "eth1", "wlan0"):
+                with self.subTest(madre=madre, interfaz=nombre):
+                    r = await self.t["sv_update_network_interface"](
+                        interface=nombre, mdns="off")
+                    self.assertEqual(r["error"], "primary_dependency_unknown", r)
+                    self.assertIn("Home Assistant UI", r["detail"])
+                    self._sin_escrituras_ni_token(r)
+
+    async def test_vlan_sobre_vlan(self) -> None:
+        self._montar(red_vlan_sobre_vlan())
+        for nombre in ("eth0", "eth0.10"):
+            with self.subTest(interfaz=nombre):
+                r = await self.t["sv_update_network_interface"](interface=nombre,
+                                                                 mdns="off")
+                self.assertEqual(r["error"], "primary_interface_parent", r)
+                self._sin_escrituras_ni_token(r)
+        await self._vista("sv_update_network_interface", interface="eth1", mdns="off")
+
+    async def test_se_repite_al_confirmar(self) -> None:
+        # La vista previa sale con la principal en `eth1`; antes de
+        # confirmar, la principal pasa a la VLAN `eth0.10` sobre `eth0`.
+        self._montar([*red(), interfaz_eth1()])
+        self.sv.interfaz("eth0")["primary"] = False
+        self.sv.interfaz("eth1").update({"primary": True, "connected": True})
+        vista = await self._vista("sv_update_network_interface", interface="eth0",
+                                  mdns="off")
+        self.sv.interfaz("eth1")["primary"] = False
+        self.sv.interfaz("eth0.10")["primary"] = True
+        r = await self.t["sv_update_network_interface"](
+            interface="eth0", mdns="off", confirmation_token=vista["confirmation_token"])
+        self.assertEqual(r["error"], "primary_interface_parent", r)
+        self.assertEqual(self.sv.escrituras, [])
+
+
+class TestDesactivar(_Base):
+    """T030 (A3): `enabled: false` borra el perfil guardado en la v1.
+
+    Control negativo: sin el rechazo de `_validar_bloques`, cae
+    `test_con_otros_bloques_sin_token` (la vista previa daba token y enseñaba
+    `ipv4` en `after`); sin el aviso, cae `test_solo_avisa_que_borra`.
+    """
+
+    async def test_solo_avisa_que_borra(self) -> None:
+        vista = await self._vista("sv_update_network_interface", interface="wlan0",
+                                  enabled=False)
+        p = vista["preview"]
+        self.assertEqual(p["after"], {"enabled": False})
+        self.assertIs(p["deletes_saved_connection"], True)
+        self.assertIn("DELETES the saved connection", p["disable_warning"])
+        self.assertIn("psk", p["disable_warning"])
+        self.assertIn("full configuration", p["disable_warning"])
+
+    async def test_con_otros_bloques_sin_token(self) -> None:
+        r = await self.t["sv_update_network_interface"](
+            interface="wlan0", enabled=False, ipv4={"method": "auto"})
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "enabled"))
+        self.assertIn("discards", r["detail"])
+        self.assertEqual(self.sv.llamadas, [])
+
+    async def test_activar_no_avisa_de_borrado(self) -> None:
+        vista = await self._vista("sv_update_network_interface", interface="wlan0",
+                                  enabled=True)
+        self.assertNotIn("disable_warning", vista["preview"])
+        self.assertNotIn("deletes_saved_connection", vista["preview"])
+
+
+class TestPskEscapada(_Base):
+    """T031 (A4): la PSK sale tapada también en sus formas escapadas.
+
+    Control negativo: con `_limpiar` sustituyendo solo el literal, caen los
+    casos JSON, JSON sin `ensure_ascii`, `repr` y JSON dentro de JSON.
+    """
+
+    PSK_RARA = 'abc"de\\fgñ\'x'
+
+    def _formas(self) -> dict[str, str]:
+        psk = self.PSK_RARA
+        return {
+            "literal": psk,
+            "json": json.dumps(psk)[1:-1],
+            "json sin ascii": json.dumps(psk, ensure_ascii=False)[1:-1],
+            "repr": repr(psk)[1:-1],
+            "json en json": json.dumps(json.dumps(psk)[1:-1])[1:-1],
+        }
+
+    async def test_formas_escapadas_tapadas(self) -> None:
+        wifi = {**WIFI, "psk": self.PSK_RARA}
+        for nombre, forma in self._formas().items():
+            with self.subTest(forma=nombre):
+                self._montar()
+                self.sv.errores[("POST", "/network/interface/wlan0/update")] = \
+                    HAConnectionError(
+                        "Supervisor REST POST http://supervisor/network/interface/"
+                        'wlan0/update failed 400: {"result": "error", "message": '
+                        f'"key {forma} rejected"}}', status=400)
+                with capture_logs() as eventos:
+                    _, r = await self._confirmar("sv_update_network_interface",
+                                                 interface="wlan0", wifi=wifi)
+                self.assertIn("rejected", r["error"])
+                salida = _texto(r) + _texto(eventos) + _ficheros_de_tokens()
+                for otra in self._formas().values():
+                    self.assertNotIn(otra, salida)
+                self.assertNotIn(forma, r["error"])
+
+
+class TestBloquesIgnorados(_Base):
+    """T034 (A7): lo que el Supervisor aceptaría e ignoraría se rechaza sin
+    token, con el motivo.
+
+    Control negativo: sin la comprobación del `type`, caen los dos casos de
+    `test_wifi_fuera_de_una_wireless` (daban token); sin los rechazos de
+    `_validar_ip`/`_validar_wifi`, caen sus casos de `TestValidacionDeBloques`
+    (`dns con disabled`, `addr_gen_mode con static`, `wep`…).
+    """
+
+    async def test_wifi_fuera_de_una_wireless(self) -> None:
+        self._montar([*red(), interfaz_eth1()])
+        for nombre in ("eth1", "eth0.10"):
+            with self.subTest(interfaz=nombre):
+                self.sv.llamadas.clear()
+                r = await self.t["sv_update_network_interface"](interface=nombre,
+                                                                 wifi=WIFI)
+                self.assertEqual(r["error"], "wifi_not_wireless", r)
+                self.assertIn("not a wireless interface", r["detail"])
+                self.assertNotIn(PSK, _texto(r))
+                self._sin_escrituras_ni_token(r)
+
+    async def test_wep_explica_el_motivo(self) -> None:
+        r = await self.t["sv_update_network_interface"](
+            interface="wlan0", wifi={**WIFI, "auth": "wep", "psk": "clave"})
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "wifi.auth"))
+        self.assertIn("never connect", r["detail"])
+        self.assertEqual(self.sv.llamadas, [])
+
+    async def test_vlan_con_dns_y_disabled(self) -> None:
+        r = await self.t["sv_create_vlan"](
+            interface="eth0", vlan_id=20,
+            ipv4={"method": "disabled", "nameservers": [GATEWAY]})
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "ipv4.nameservers"))
+        self.assertEqual(self.sv.llamadas, [])
