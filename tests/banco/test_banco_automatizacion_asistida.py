@@ -21,17 +21,29 @@ contrastan con el lector independiente (directo a Core, sin Hermes):
   `switch.turn_on`);
 - las genéricas rechazan esos comandos hacia su tool dedicada.
 
+Tramo D (T047):
+
+- `ha_wait_for_trigger` con un trigger de estado sobre un `input_boolean`
+  creado por el lector, que el lector enciende mientras la tool espera:
+  `matched: true` con `to_state.state == "on"`; con un trigger que HA no
+  acepta, `invalid_trigger`;
+- `ha_create_or_update_automation` con un trigger inválido: `invalid_config`
+  sin token, y el lector comprueba que esa automatización no existe; con
+  `use_blueprint` de `homeassistant/motion_light.yaml` sin una entrada
+  obligatoria, `blueprint_substitution_failed` sin token.
+
 Solo corre en el job `banco-core` del CI; fuera se salta con su motivo.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 import pytest
 
-from tests.banco.base_helpers import BancoHelpers, sin_error
+from tests.banco.base_helpers import BancoHelpers, nombre_de_prueba, sin_error
 from tests.banco.entorno import llamar
 
 pytestmark = pytest.mark.banco
@@ -145,3 +157,89 @@ class TestTargets(BancoHelpers):
                                payload={"target": {"entity_id": "switch.x"}})
             self.assertEqual((r["error"], r["tool"]),
                              ("use_dedicated_tool", "ha_list_actions_for_target"))
+
+class TestEsperaDeTrigger(BancoHelpers):
+    async def test_dispara_con_un_cambio_del_lector(self) -> None:
+        async with self.sesion() as s:
+            nombre = nombre_de_prueba("input_boolean")
+            await s.lector.crear("input_boolean", {"name": nombre})
+            s.creados.append(("input_boolean", nombre))
+            entidad = f"input_boolean.{nombre}"
+            await s.esperar_estado(entidad, lambda e: e["state"] == "off", "creado apagado")
+            espera = asyncio.ensure_future(llamar(
+                s.cliente, "ha_wait_for_trigger",
+                trigger={"trigger": "state", "entity_id": entidad, "to": "on"},
+                timeout_seconds=30))
+            # El lector lo apaga y enciende hasta que la tool responde: no se
+            # sabe en qué momento queda suscrita, y solo vale un "on" posterior.
+            bucle = asyncio.get_running_loop()
+            limite = bucle.time() + 25
+            while not espera.done() and bucle.time() < limite:
+                for servicio in ("turn_off", "turn_on"):
+                    await s.lector.comando({
+                        "type": "call_service", "domain": "input_boolean",
+                        "service": servicio, "target": {"entity_id": entidad}})
+                await asyncio.sleep(1)
+            r = sin_error("ha_wait_for_trigger", await asyncio.wait_for(espera, timeout=10))
+            self.assertIs(r["matched"], True, r)
+            self.assertEqual(r["trigger"]["entity_id"], entidad)
+            self.assertEqual(r["trigger"]["to_state"]["state"], "on")
+
+    async def test_trigger_que_ha_rechaza(self) -> None:
+        async with self.sesion() as s:
+            # `state` sin `entity_id`: está en la lista cerrada, pero HA lo
+            # rechaza al suscribir.
+            r = await _rechazo(s.cliente, "ha_wait_for_trigger",
+                               trigger={"trigger": "state"}, timeout_seconds=5)
+            self.assertEqual(r["error"], "invalid_trigger")
+
+    async def test_trigger_fuera_de_la_lista(self) -> None:
+        async with self.sesion() as s:
+            r = await _rechazo(s.cliente, "ha_wait_for_trigger",
+                               trigger={"trigger": "webhook", "webhook_id": "banco_017"},
+                               timeout_seconds=5)
+            self.assertEqual(r["error"], "trigger_not_allowed")
+
+
+class TestValidacionAlGuardar(BancoHelpers):
+    async def test_trigger_invalido_sin_token(self) -> None:
+        async with self.sesion() as s:
+            id_ = nombre_de_prueba("automation")
+            r = await _rechazo(
+                s.cliente, "ha_create_or_update_automation", automation_id=id_,
+                config={"alias": id_,
+                        "triggers": [{"trigger": "plataforma_que_no_existe_017"}],
+                        "actions": [{"action": "input_boolean.turn_on",
+                                     "target": {"entity_id": "input_boolean.x"}}]})
+            self.assertEqual(r["error"], "invalid_config", r)
+            self.assertEqual(list(r["parts"]), ["triggers"])
+            self.assertNotIn("confirmation_token", r)
+            estado, _ = await s.lector.rest("GET", f"/api/config/automation/config/{id_}")
+            self.assertEqual(estado, 404, "la automatización existe sin haber confirmado")
+
+    async def test_valida_y_da_token(self) -> None:
+        async with self.sesion() as s:
+            id_ = nombre_de_prueba("automation")
+            r = sin_error("ha_create_or_update_automation", await llamar(
+                s.cliente, "ha_create_or_update_automation", automation_id=id_,
+                config={"alias": id_, "mode": "single",
+                        "triggers": [{"trigger": "event", "event_type": f"{id_}_evento"}],
+                        "actions": [{"event": f"{id_}_respuesta"}]}))
+            self.assertIn("confirmation_token", r)
+            self.assertEqual(r["preview"]["validation"]["validated"], ["actions", "triggers"])
+            self.assertEqual(r["preview"]["validation"]["not_validated"], ["alias", "mode"])
+            estado, _ = await s.lector.rest("GET", f"/api/config/automation/config/{id_}")
+            self.assertEqual(estado, 404, "la vista previa guardó la automatización")
+
+    async def test_blueprint_sin_una_entrada(self) -> None:
+        async with self.sesion() as s:
+            id_ = nombre_de_prueba("automation")
+            r = await _rechazo(
+                s.cliente, "ha_create_or_update_automation", automation_id=id_,
+                config={"alias": id_, "use_blueprint": {
+                    "path": "homeassistant/motion_light.yaml",
+                    "input": {"light_target": {"entity_id": "input_boolean.x"}}}})
+            self.assertEqual(r["error"], "blueprint_substitution_failed", r)
+            self.assertEqual(r["blueprint"], "homeassistant/motion_light.yaml")
+            estado, _ = await s.lector.rest("GET", f"/api/config/automation/config/{id_}")
+            self.assertEqual(estado, 404)

@@ -134,7 +134,7 @@ para el detalle de un área. Temas disponibles:
 - `diagnostics`    — Repairs, trazas, relaciones y resolución del Supervisor
 - `core_diagnostics` — logs, validación, diagnósticos y notificaciones de Core
 - `blueprints`     — listar, ver la sustitución, guardar y borrar blueprints
-- `automation_assist` — triggers, condiciones y acciones de un dispositivo; resolver un target y qué admite
+- `automation_assist` — triggers, condiciones y acciones de un dispositivo; resolver un target y qué admite; esperar a un trigger
 - `config_entries` — integraciones y sus flujos de configuración
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
@@ -213,6 +213,15 @@ el token para aplicar):
 Tras crear/editar, HA recarga sola (no hace falta `reload` manual). Si un
 script/automation llama a un servicio peligroso, Hermes lo marca como
 restringido y su ejecución pedirá confirmación.
+
+La vista previa de `ha_create_or_update_automation` y `_script` YA VALIDA con
+HA los triggers, condiciones y acciones (con `use_blueprint`, los de la
+configuración que da el blueprint): si HA la rechazaría, `invalid_config` con
+el error de cada parte y sin token; si no se pudo validar,
+`validation_unavailable` sin token. `validation.not_validated` lista lo que HA
+solo comprueba al guardar (`alias`, `mode`…). Blueprints: tema `blueprints`;
+triggers de dispositivo, targets y esperar a un trigger: tema
+`automation_assist`.
 """,
     "helpers": """\
 # Helpers (entidades auxiliares)
@@ -946,7 +955,35 @@ RECETA: TARGET → PROPÓSITO → VALIDAR
 1. `ha_resolve_target(target)` para ver que abarca lo que crees.
 2. `ha_list_triggers_for_target(target)` y elige un nombre.
 3. Escríbelo con el mismo `target` y compruébalo con `ha_validate_config`.
-4. Guárdalo con `ha_create_or_update_automation` (token).
+4. Guárdalo con `ha_create_or_update_automation` (token): su vista previa
+   vuelve a validar y no da token si HA la rechazaría.
+
+ESPERAR A UN TRIGGER
+`ha_wait_for_trigger(trigger, variables=None, timeout_seconds=30)` espera UNA
+vez, bloqueando, a que salte un trigger escrito como en una automatización
+(`{"trigger": "state", "entity_id": "light.salon", "to": "on"}` o uno por
+propósito con `target`), y devuelve el disparo (`matched: true`, `trigger`
+con `from_state`/`to_state` redactados; si no caben, sin ellos y
+`truncated: true`) o `timeout`, `cancelled` o `ws_reconnect`. Para un aviso
+permanente, crea una automatización.
+Frente a `ha_wait_for_event` (tema `events`): aquella filtra eventos del bus
+por campos; esta usa la lógica de un trigger (`for`, umbrales, propósitos,
+`template`…).
+Solo admite triggers de los que se sabe que SOLO ESCUCHAN: `state`,
+`numeric_state`, `event`, `time`, `time_pattern`, `template`, `sun`, `zone`,
+`geo_location`, `homeassistant`, `mqtt`, `tag`, `calendar`,
+`persistent_notification`, y `<integración>.<nombre>` o `device` de
+integraciones incluidas en HA. Rechaza (`trigger_not_allowed`, sin
+suscribirse) `webhook` (abre un endpoint HTTP), `conversation` (contesta en
+Assist), el `turn_on` de `samsungtv`, `webostv` y `lg_netcast` (da a la tele
+la acción de encender) y los de integraciones personalizadas. Si HA rechaza
+el trigger: `invalid_trigger` con su mensaje.
+Comparte con `ha_wait_for_event` el tope de segundos
+(`wait_for_event_max_seconds`) y el de esperas a la vez: sale en
+`ha_list_active_waits` con `kind: "trigger"` y se corta con `ha_cancel_wait`.
+Esas dos son de la familia `events`: si está apagada, la espera de trigger
+funciona igual pero no se puede listar ni cancelar desde otra llamada (acaba
+sola al disparar o al agotar el plazo).
 """,
     "workflows": """\
 # Flujos completos (recetas paso a paso)
@@ -1029,9 +1066,10 @@ _ALIASES: dict[str, str] = {
     "notifications": "core_diagnostics",
     "validation": "core_diagnostics",
     "blueprint": "blueprints",
-    # Spec 017, tramo C (el tramo D añade `wait_for_trigger`).
+    # Spec 017, tramos C y D.
     "device_automation": "automation_assist",
     "targets": "automation_assist",
+    "wait_for_trigger": "automation_assist",
     "integrations": "config_entries",
     "config_entry": "config_entries",
     "flows": "config_entries",

@@ -382,7 +382,9 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
     # que cambie un tema a propósito actualiza aquí su huella y lo dice en su
     # CHANGELOG; un cambio accidental cae aquí.
     _HUELLAS_ANTES_DE_LA_013 = {
-        "automations": "cb414a2c5e0cad24",
+        # La 017 (tramo D) cambia `automations` (la vista previa valida y
+        # remite a `blueprints` y `automation_assist`); su CHANGELOG lo dice.
+        "automations": "0af30eef63afe1b1",
         "backups": "c9a088b65d4f13c5",
         "config_entries": "7c9723694f529f2f",
         "data": "c77e3e6782cc89a7",
@@ -766,6 +768,23 @@ class TestTemaAutomationAssist(unittest.IsolatedAsyncioTestCase):
 
     async def test_indice(self) -> None:
         self.assertIn("`automation_assist`", await self.guide())
+
+    async def test_espera_de_trigger(self) -> None:
+        """Tramo D (T046): la espera de trigger con su alias, frente a
+        `ha_wait_for_event`, los rechazados y qué pasa con `events` apagada;
+        el tema `automations` dice que la vista previa valida. Control
+        negativo comprobado: sin el párrafo de la espera → cae."""
+        tema = _GUIDE["automation_assist"]
+        self.assertEqual(await self.guide("wait_for_trigger"), tema)
+        for clave in ("ha_wait_for_trigger", "ha_wait_for_event", "trigger_not_allowed",
+                      "webhook", "conversation", "samsungtv", "invalid_trigger",
+                      "ha_cancel_wait", "ha_list_active_waits", "`events`",
+                      "wait_for_event_max_seconds"):
+            self.assertIn(clave, tema)
+        automatizaciones = _GUIDE["automations"]
+        for clave in ("invalid_config", "validation_unavailable", "not_validated",
+                      "`blueprints`", "`automation_assist`"):
+            self.assertIn(clave, automatizaciones)
 
 
 if __name__ == "__main__":
