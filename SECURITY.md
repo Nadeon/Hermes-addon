@@ -183,6 +183,12 @@ report about one of them will be closed with a pointer to this section:
     is stored next to the token, never the answer. Answers go through the
     secret redaction and the response cap; the log records one
     `generic_command` event per call with the payload keys, never values.
+    Under a sensitive key (by name, or listed in the entry's `redact_extra`)
+    the WHOLE value is masked, whatever its type: an object or a list is not
+    walked, so a network key nested as `{"key": …}` cannot leak. Commands of
+    specific integrations (Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX,
+    Insteon…) that return or take network keys, DSKs, pairing codes, tokens or
+    passwords are refused, or answered with those values masked.
     Tests keep the table in step with the inventories of the HA source and
     forbid `read` for any command with a write verb or any route other than
     `GET`. Some `read` entries hide fields that work as credentials: the

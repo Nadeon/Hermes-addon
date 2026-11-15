@@ -52,7 +52,16 @@ VERBOS_ESCRITURA = frozenset({
 # Entradas `read` que contienen uno de esos verbos y aun así solo leen.
 # Clave (comando o (método, ruta)) → justificación. Cada una lleva además un
 # comentario en command_table.py. El test las enumera al fallar.
-_EXCEPCIONES_VERBOS: dict[str | tuple[str, str], str] = {}
+_EXCEPCIONES_VERBOS: dict[str | tuple[str, str], str] = {
+    # Spec 025 (FR-010): lecturas de Z-Wave JS con `update` en el nombre por
+    # «firmware update»; los tres handlers solo consultan el driver.
+    "zwave_js/is_node_firmware_update_in_progress":
+        "solo pregunta si un nodo se está actualizando; no actualiza nada",
+    "zwave_js/is_any_ota_firmware_update_in_progress":
+        "solo pregunta si algún nodo se está actualizando; no actualiza nada",
+    "zwave_js/get_node_firmware_update_capabilities":
+        "solo lee qué admite el nodo para actualizar firmware; no actualiza nada",
+}
 
 _CATEGORIAS = {"dedicated", "read", "confirm", "deny"}
 _PROXY_CORE = ("/core/api", "/homeassistant/api")
@@ -523,6 +532,9 @@ _READ_QUE_SALEN: dict[str | tuple[str, str], str] = {
     # Spec 024 (research R-5): `async_get_segments` lo implementa cada
     # integración; la de Roborock refresca el mapa por red al leer.
     "vacuum/get_segments": "algunas integraciones piden los segmentos al aspirador o a su nube",
+    # Spec 025: pregunta al servicio de Z-Wave JS si hay base de datos de
+    # dispositivos nueva.
+    "zwave_js/check_for_config_updates": "consulta por internet la base de datos de Z-Wave JS",
 }
 
 
@@ -727,12 +739,8 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
         self.assertGreaterEqual(
             sum(1 for k in ct.SUPERVISOR if k[1].startswith(_PROXY_CORE)), 10)
 
-    def test_clase_c_pendiente_de_la_025(self) -> None:
-        malas = sorted(
-            str(k) for k, f in _CORE.items() if f["clase"] == "C"
-            and (ct.CORE_WS[k].category, ct.CORE_WS[k].reason)
-            != ("deny", "pendiente de revisión (spec 025)"))
-        self.assertEqual(malas, [])
+    # La clase C ya no está «pendiente»: la vigila entera
+    # tests/test_command_table_clase_c.py (spec 025, tramo 3).
 
     def test_clase_a_de_via_dedicada_pendiente_de_su_spec(self) -> None:
         """Clase A de vía D/D+T/D+X: `deny` «pendiente de tool dedicada (spec

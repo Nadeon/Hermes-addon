@@ -250,6 +250,13 @@ rechaza sin llegar a Home Assistant. Las de escritura piden siempre
 confirmación, con una vista previa de lo que se va a enviar. Claude puede
 consultar la tabla con `hermes_guide(topic="generic_commands", search="…")`.
 
+Las integraciones concretas (Z-Wave JS, ZHA, Matter, Thread, MQTT, USB, KNX,
+Insteon, LCN, ESPHome…) no tienen tools propias: sus comandos van por estas
+genéricas, clasificados uno a uno. Lo que devuelve o pide claves de red,
+códigos de emparejamiento, tokens o contraseñas se rechaza o sale tapado. La
+guía tiene un tema por grupo: `zwave`, `zigbee`, `matter_thread` y
+`other_integrations`.
+
 ## Problemas
 
 El apartado *Si no arranca* del [README en español](https://github.com/Nadeon/Hermes-addon/blob/main/README.es.md#si-no-arranca)

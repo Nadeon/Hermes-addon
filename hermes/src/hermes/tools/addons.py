@@ -221,6 +221,13 @@ def _rutas_cambiadas(antes: Any, despues: Any, ruta: str = "") -> list[str]:
 def _valores_secretos(original: Any, redactado: Any) -> set[str]:
     """Los textos de `original` que `redact_structure` sustituyó en
     `redactado` (recorridos a la vez): los valores secretos de unas opciones."""
+    if redactado == REDACTED_MARKER and original != REDACTED_MARKER and not isinstance(original, str):
+        # Desde la 025 (`tapar_entero`) un objeto, una lista o un número bajo
+        # una clave sensible se tapa ENTERO: el recorrido paralelo encontraba
+        # dict frente a texto y no recogía nada, y un mensaje del Supervisor
+        # que nombrara `credentials.password` salía tal cual (revisión de la
+        # 025, MEDIO-1). Todos sus valores escalares cuentan como secretos.
+        return {h for h in _hojas(original) if h}
     if isinstance(original, dict) and isinstance(redactado, dict):
         out: set[str] = set()
         for clave, valor in original.items():

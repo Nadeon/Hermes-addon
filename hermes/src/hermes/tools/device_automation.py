@@ -38,7 +38,7 @@ from typing import Any
 import structlog
 
 from hermes.ha import HAClient, HAConnectionError
-from hermes.security import REDACTED_MARKER, es_clave_sensible, redact_secrets
+from hermes.security import REDACTED_MARKER, es_clave_sensible, redact_secrets, tapar_entero
 from hermes.tools._common import (
     _LIMIT_HINT,
     ajustar_lista_a_bytes,
@@ -54,13 +54,15 @@ _MAX_CAPACIDADES = 50
 
 def _limpio(valor: Any, clave: str = "") -> Any:
     """`redact_structure` + `redact_secrets` en todos los textos (FR-015)."""
+    # Bajo una clave sensible, el valor ENTERO, sea del tipo que sea (spec
+    # 025, D-2): el mismo criterio que `redact_structure`.
+    if clave and es_clave_sensible(clave) and tapar_entero(valor):
+        return REDACTED_MARKER
     if isinstance(valor, Mapping):
         return {k: _limpio(v, str(k)) for k, v in valor.items()}
     if isinstance(valor, list):
         return [_limpio(v, clave) for v in valor]
     if isinstance(valor, str):
-        if valor and es_clave_sensible(clave):
-            return REDACTED_MARKER
         return redact_secrets(valor)
     return valor
 

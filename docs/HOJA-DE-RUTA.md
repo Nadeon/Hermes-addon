@@ -449,6 +449,14 @@ un cliente contra la instalación real.
   escritura en `/config` no se hace); y la retención podando safety backups
   cifrados reales. En la suite se prueban con un Supervisor y un HA
   simulados, y en el banco de Core todo lo que no reinicia Core.
+- [ ] (instalación real con hardware, tras publicar) **Integraciones
+  específicas (spec 025), en vivo**: con Z-Wave, Zigbee o Matter/Thread,
+  pedir a un cliente MCP el estado de la red Z-Wave, los parámetros de un
+  nodo, los dispositivos y los ajustes de la red Zigbee y los routers de
+  borde OTBR, y comprobar que las claves salen `***REDACTED***`
+  (`specs/025-integraciones-especificas/quickstart.md`). Sin tools nuevas:
+  no hay filas en la matriz de pruebas; el banco de Core solo puede cargar
+  `usb`.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -481,7 +489,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | hecha: familia `system_control` con siete tools (arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor) y familia `resolution_fixes` con `sv_apply_resolution_suggestion` (vista previa que traduce el arreglo, rechazos y arreglos automáticos atados al token); 8 rutas a `dedicated`, estadísticas `read`, `/host/reload` y los chequeos del centro de resolución `confirm`; plugins, Docker, placas y hora probados por la tabla sin cambiarla; prueba en la VM pendiente |
 | 023 | Assist y conversación | 060–063 | hecha: familia `conversation` con cuatro tools (agentes, frases de los disparadores, análisis sin ejecutar y `ha_process_conversation`, siempre en dos pasos, con lo que reconoce el agente integrado o el aviso del agente externo, y `outcome_unknown` si vence el plazo); 5 entradas de la tabla a `dedicated`; pipelines, motores, AI Task y satélites por las genéricas, con el token del audio de `pipeline_debug/get` tapado en su `url`, su `media_id` y cualquier `/api/tts_proxy/…` o `media-source://tts/-stream-/…`; tema `conversation`; en el banco de Core, `ha_process_conversation` con un disparador de frase y pipelines y AI Task por las genéricas. Solo en unitarios: otro agente (un LLM) y los satélites, que el banco no tiene |
 | 024 | Menores de Core | 059, 065–067, 070–073 | hecha: familia `cameras` con `ha_get_camera_snapshot` y `ha_get_image_entity` (imagen MCP, tope de 2 MiB, sin Pillow) y familia `dashboard_reset` con `ha_reset_lovelace_dashboard_config` (dos pasos, token atado a la configuración leída, principal y panel por defecto protegidos); `lovelace/config/delete` a `dedicated`; preferencias de cámara y cinco lecturas de la UI (`trace/contexts`, `frontend/get_themes`, `webhook/list` con el `webhook_id` tapado, `vacuum/get_segments`, `radio_frequency/list`) por la tabla; miniaturas de `browse_media`/`search_media` tapadas (hallazgo); motivo de `application_credentials/config_entry` corregido; las 33 entradas fijadas por test; temas `cameras` y `core_minor` y sección «Restablecer» en `lovelace`; todo probado en el banco de Core, sin hallazgos. Pendiente manual: una cámara real JPEG y otra en la nube (reducción y tope) |
-| 025 | Integraciones específicas por la tabla | 100–106 | pendiente |
+| 025 | Integraciones específicas por la tabla | 100–106 | hecha: las 192 entradas de la clase C clasificadas con el handler leído (73 de lectura, 57 en dos pasos, 62 rechazadas; ninguna «pendiente»), sin tools nuevas (no hay filas en la matriz de pruebas): Z-Wave JS 18/13/24; ZHA, Matter, Thread y OTBR 18/13/19; MQTT, USB, Bluetooth y el resto 37/31/19. Redacción de valor entero bajo claves sensibles y claves S0/S2 como secretos; nueve entradas tapan secretos con su centinela; mapa de la clase C del generador (desde cero igual que la tabla; lo nuevo, «sin revisar»); temas `zwave`, `zigbee`, `matter_thread` y `other_integrations`; `usb` en el banco de Core |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |

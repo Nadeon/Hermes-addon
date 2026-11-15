@@ -859,6 +859,13 @@ _SENSITIVE_KEY_MARKERS: tuple[str, ...] = (
     # automatización sin autenticarse, y viaja en la `config` y en
     # `trigger` de las trazas (revisión 1.1.0, BAJO-13).
     "webhook_id",
+    # Claves de seguridad S0 y S2 de Z-Wave (spec 025, D-2): la integración
+    # las escribe en las opciones de la app Z-Wave JS con estos nombres
+    # (`zwave_js/const.py`, `CONF_ADDON_S0_LEGACY_KEY`…) y ninguno contiene
+    # otro marcador; `sv_get_addon_options` las devolvía en claro. Las
+    # variantes de largo alcance (`lr_s2_…`) las contienen como subcadena.
+    "s0_legacy_key", "s2_access_control_key", "s2_authenticated_key",
+    "s2_unauthenticated_key",
 )
 
 # Público porque las tools de escritura lo necesitan para lo contrario: rechazar
@@ -955,6 +962,27 @@ def tapar_valores(value: Any, valores: frozenset[str]) -> Any:
     return visitar(value)
 
 
+def tapar_entero(value: Any) -> bool:
+    """True si, bajo una clave sensible, el valor se sustituye ENTERO.
+
+    Spec 025, D-2 (hallazgo H-1): antes solo se tapaban textos, y un objeto
+    bajo una clave sensible se recorría. La clave de red de ZHA viaja como
+    `{"network_key": {"key": "…", "tx_counter": …}}`: `network_key` es
+    sensible, pero `key` no, y la clave salía en claro. Ahora la decisión es
+    de la clave, no del tipo: texto, número, objeto o lista, se tapa entero.
+
+    Se conservan `None`, los booleanos y lo vacío (cadena, objeto o lista):
+    dicen si algo está configurado o activado, que es diagnóstico útil, y no
+    pueden llevar un secreto. Público para que las redacciones locales de las
+    tools (`_limpio`, `_redactar` de las genéricas) usen el MISMO criterio.
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, (str, dict, list, tuple)) and not value:
+        return False
+    return True
+
+
 def redact_structure(value: Any, _key: str = "") -> Any:
     """Copia del dato con los valores sensibles sustituidos (ver
     `_redact_por_clave`), y además el valor de cada `webhook_id` tapado en
@@ -977,20 +1005,24 @@ def _redact_por_clave(value: Any, _key: str = "") -> Any:
     redacción, un cliente con un token válido la leería en claro y se quedaría
     con un secreto de larga duración que sobrevive a la revocación del token.
 
-    Solo se sustituyen valores de tipo texto: un número o un booleano bajo una
-    clave como `token_expiry_seconds` no es un secreto y redactarlo solo
-    generaría ruido.
+    Bajo una clave sensible se sustituye el valor ENTERO, sea texto, número,
+    objeto o lista (spec 025, D-2; ver `tapar_entero`). Hasta la 025 solo se
+    tapaban textos, y un objeto como `{"network_key": {"key": "…"}}` dejaba
+    la clave en claro. El precio: un número legítimo bajo una clave sensible
+    (`token_expiry_seconds`) también sale tapado; preferimos ese ruido a un
+    PIN o una clave numérica en claro.
 
-    Las cadenas vacías se conservan: saber que una opción está SIN configurar
-    es información de diagnóstico útil (p. ej. "el add-on no arranca porque le
-    falta la contraseña") y no revela ningún secreto.
+    Las cadenas vacías, `None`, los booleanos y los objetos o listas vacíos se
+    conservan: saber que una opción está SIN configurar es información de
+    diagnóstico útil (p. ej. "el add-on no arranca porque le falta la
+    contraseña") y no revela ningún secreto.
     """
+    if _key and _looks_sensitive(str(_key)) and tapar_entero(value):
+        return _STRUCT_REDACTED
     if isinstance(value, dict):
         return {k: _redact_por_clave(v, k) for k, v in value.items()}
     if isinstance(value, list):
         return [_redact_por_clave(item, _key) for item in value]
-    if isinstance(value, str) and value and _looks_sensitive(_key):
-        return _STRUCT_REDACTED
     return value
 
 

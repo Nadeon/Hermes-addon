@@ -184,6 +184,10 @@ para el detalle de un área. Temas disponibles:
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
 - `recorder`       — estado del recorder, validación y mantenimiento de estadísticas y auditoría de acciones
 - `energy`         — preferencias del panel de energía (leer y guardar) y sus lecturas
+- `zwave`          — Z-Wave JS por las genéricas: qué se lee, qué se cambia en dos pasos y qué no
+- `zigbee`         — Zigbee (ZHA) por las genéricas: dispositivos, grupos y vínculos; claves de red tapadas
+- `matter_thread`  — Matter, Thread y OTBR por las genéricas, sin códigos de emparejamiento ni claves
+- `other_integrations` — MQTT, USB, Bluetooth, KNX, Insteon, LCN, ESPHome y el resto de integraciones por las genéricas
 - `app_store`      — tienda de apps del Supervisor: repositorios, recarga, changelog, documentación, disponibilidad y reconstrucción
 - `core_config`    — configuración general: nombre, ubicación, unidades, zona horaria, moneda, idioma y URLs
 - `assistant_exposure` — qué entidades ven y controlan Assist, los agentes y Alexa o Google
@@ -1571,6 +1575,10 @@ RECHAZOS (ninguno llega a Home Assistant ni al Supervisor)
   ejecuta por la genérica).
 - `wrong_generic_tool` — es de la otra genérica; `use_tool` dice cuál.
 - `family_disabled` — la familia de la entrada está desactivada.
+- `redacted_value_in_payload` — la carga de `ha_call_ws_command` o el cuerpo
+  de `sv_call_api` llevan `***REDACTED***` (en un valor o en una clave), el
+  texto con que Hermes tapa un secreto al leer: se guardaría en lugar del
+  valor real. `paths` dice dónde; manda el valor real o quita ese campo.
 - `path_not_allowed` — ruta con forma inválida (`rule: shape`), el proxy de
   Core del Supervisor (`core_proxy`) o dirigida al propio Hermes
   (`self_target`).
@@ -2450,6 +2458,284 @@ NUNCA sale (tapado), y el id de la credencial de `config_entry` tampoco.
 Crear, cambiar y borrar credenciales NO se puede (denegado: introduciría
 secretos de terceros).
 """,
+    "zwave": """\
+# Z-Wave JS por las genéricas
+
+No hay tools dedicadas de Z-Wave: todo va por `ha_read_ws_command` (lee) y
+`ha_call_ws_command` (cambia algo, siempre en dos pasos con
+`confirmation_token`). Si la familia `generic_commands` está desactivada en las
+opciones del add-on, nada de esto existe. Casi todos los comandos piden
+`entry_id` (la entrada de Z-Wave JS: `ha_list_config_entries`) o `device_id`
+(el dispositivo: `ha_list_devices`).
+
+POR LA GENÉRICA
+Lecturas (`ha_read_ws_command`):
+- `type="zwave_js/network_status", payload={"entry_id": "<entry_id>"}` —
+  cliente, controlador y nodos (sin claves de seguridad).
+- `type="zwave_js/node_status", payload={"device_id": "<device_id>"}` — si
+  el nodo está vivo, dormido o listo, y su seguridad.
+- `type="zwave_js/get_config_parameters", payload={"device_id": "<device_id>"}`
+  — parámetros de configuración del nodo con su valor y metadatos.
+- `type="zwave_js/subscribe_node_statistics", payload={"device_id":
+  "<device_id>"}` y `type="zwave_js/subscribe_controller_statistics",
+  payload={"entry_id": "<entry_id>"}` — estadísticas (RSSI, rutas, fallos):
+  un solo mensaje y la suscripción se cancela.
+- `zwave_js/node_alerts`, `zwave_js/node_metadata` y
+  `zwave_js/node_capabilities` (`device_id`) — avisos, instrucciones del
+  fabricante y clases de comando del nodo.
+- `zwave_js/get_provisioning_entries` (`entry_id`) — nodos preaprovisionados
+  por SmartStart; el `dsk` sale tapado.
+- `zwave_js/check_for_config_updates` (`entry_id`) — pregunta por internet si
+  hay base de datos de dispositivos nueva.
+Escrituras (`ha_call_ws_command`, dos pasos):
+- `type="zwave_js/set_config_parameter", payload={"device_id": "<device_id>",
+  "property": 3, "value": 1}` — cambia un parámetro (lee antes con
+  `get_config_parameters`).
+- `type="zwave_js/rebuild_node_routes", payload={"device_id": "<device_id>"}`
+  — reconstruye las rutas de un nodo; `zwave_js/begin_rebuilding_routes` y
+  `zwave_js/stop_rebuilding_routes`, las de toda la red.
+- `zwave_js/refresh_node_values` y `zwave_js/refresh_node_cc_values` — vuelve
+  a pedir valores al nodo.
+- `zwave_js/network_neighbors` (`entry_id`) — solo lee la tabla de vecinos,
+  pero APAGA la radio mientras recorre los nodos: por eso va en dos pasos. En
+  una red grande puede pasar del plazo de la genérica; Home Assistant vuelve
+  a encender la radio al terminar.
+- `zwave_js/install_config_update` (descarga la base de datos nueva),
+  `zwave_js/update_log_config`, `zwave_js/stop_inclusion` y
+  `zwave_js/stop_exclusion`.
+
+RECHAZADO (`command_denied`, sin llamar a Home Assistant)
+- Inclusión, exclusión y S2: `zwave_js/add_node`, `zwave_js/remove_node`,
+  `zwave_js/grant_security_classes`, `zwave_js/validate_dsk_and_enter_pin` y
+  `zwave_js/subscribe_new_devices` (eventos, pulsar un botón del dispositivo,
+  el PIN de S2).
+- SmartStart y DSK: `zwave_js/provision_smart_start_node` y
+  `zwave_js/parse_qr_code_string` (llevan o devuelven el DSK, con el PIN).
+- Lo que borra o reemplaza la red: `zwave_js/hard_reset_controller`,
+  `zwave_js/restore_nvm`, `zwave_js/remove_failed_node` y
+  `zwave_js/replace_failed_node`; también la copia `zwave_js/backup_nvm` (el
+  resultado llega en un evento).
+- Firmware: `zwave_js/abort_firmware_update`.
+- `zwave_js/invoke_cc_api` (cualquier método de cualquier clase de comando,
+  sin vista previa útil) y `zwave_js/refresh_node_info` (deja una suscripción
+  de progreso abierta).
+- Suscripciones sin primer mensaje con el estado: `zwave_js/subscribe_log_updates`,
+  `zwave_js/subscribe_node_status` y similares.
+
+OTRA VÍA
+- Por `ha_call_service`, las acciones de la integración:
+  `zwave_js.set_config_parameter`, `zwave_js.refresh_value` y `zwave_js.ping`.
+- Inclusión, exclusión, SmartStart, copia y restauración de la NVM y
+  firmware: desde la interfaz de Home Assistant (Ajustes → Dispositivos y
+  servicios → Z-Wave JS).
+
+El resto de los 55 comandos, con su categoría y su motivo:
+`hermes_guide("generic_commands", search="zwave_js")`.
+""",
+    "zigbee": """\
+# Zigbee (ZHA) por las genéricas
+
+No hay tools dedicadas de ZHA: todo va por `ha_read_ws_command` (lee) y
+`ha_call_ws_command` (cambia algo, siempre en dos pasos con
+`confirmation_token`). Si la familia `generic_commands` está desactivada en las
+opciones del add-on, nada de esto existe. Los dispositivos se identifican por
+su IEEE (`00:11:22:33:44:55:66:77`, el campo `ieee` de `zha/devices`) y los
+grupos por `group_id`.
+
+POR LA GENÉRICA
+Lecturas (`ha_read_ws_command`):
+- `type="zha/devices"` — dispositivos Zigbee con su IEEE, LQI, vecinos y
+  rutas; `type="zha/device", payload={"ieee": "00:11:22:33:44:55:66:77"}`,
+  uno solo.
+- `zha/groups` y `zha/group` (`group_id`) — grupos Zigbee;
+  `zha/devices/groupable`, los dispositivos que admiten grupos.
+- `zha/devices/bindable` (`ieee`) — a qué dispositivos se puede vincular uno.
+- `zha/devices/clusters` (`ieee`), `zha/devices/clusters/attributes` y
+  `zha/devices/clusters/commands` — clústeres, atributos y comandos;
+  `zha/devices/clusters/attributes/value` lee un atributo por radio (no cambia
+  nada).
+- `zha/network/settings` y `zha/network/backups/list` — canal, PAN y radio de
+  la red y las copias guardadas. Las claves de red y de enlace salen tapadas
+  ENTERAS: `network_key`, `tc_link_key`, `key_table` y `stack_specific`
+  llegan como `***REDACTED***`.
+- `zha/configuration` — opciones de ZHA y su esquema; el código maestro de
+  la alarma (`alarm_master_code`) sale tapado.
+Escrituras (`ha_call_ws_command`, dos pasos):
+- `type="zha/devices/bind", payload={"source_ieee": "00:11:22:33:44:55:66:77",
+  "target_ieee": "00:11:22:33:44:55:66:88"}` — vincula un mando a una
+  bombilla; `zha/devices/unbind`, lo deshace.
+- `type="zha/group/add", payload={"group_name": "Salón", "members":
+  [{"ieee": "00:11:22:33:44:55:66:77", "endpoint_id": 1}]}` — crea un grupo;
+  `zha/group/members/add`, `zha/group/members/remove` y `zha/group/remove`
+  lo cambian o lo borran; `zha/groups/bind` y `zha/groups/unbind` vinculan
+  un dispositivo a un grupo.
+- `zha/network/backups/create` — crea una copia de la red (5-30 s); las
+  claves salen tapadas en la respuesta (la copia se guarda en Home Assistant).
+- `zha/configuration/update` — REEMPLAZA las opciones propias de ZHA
+  enteras con `data` (lo que no se envía vuelve a su valor por defecto) y
+  recarga la integración. Si partes de `zha/configuration`, el código maestro
+  llega tapado: una carga con `***REDACTED***` se rechaza
+  (`redacted_value_in_payload`) porque lo guardaría como código. Manda el
+  código real o quita `alarm_master_code` (sin él vuelve al de por defecto).
+
+RECHAZADO (`command_denied`, sin llamar a Home Assistant)
+- `zha/devices/permit` (abre la red con el modo depuración y eventos que la
+  genérica no cierra, y acepta códigos de instalación, que son claves) y
+  `zha/devices/reconfigure` (deja una suscripción de progreso abierta).
+- Lo que cambia la red entera: `zha/network/backups/restore` (restaura una
+  copia con sus claves) y `zha/network/change_channel` (los dispositivos que
+  no sigan se pierden).
+- `zha/topology/update` (no responde nunca).
+
+OTRA VÍA
+- Para permitir que se unan dispositivos: la acción `zha.permit` por
+  `ha_call_service` (`ha_call_service("zha", "permit", {"duration": 60})`).
+- Reconfigurar un dispositivo, restaurar una copia o cambiar de canal: desde
+  la interfaz de Home Assistant (Ajustes → Dispositivos y servicios → ZHA).
+
+El resto de los 28 comandos, con su categoría y su motivo:
+`hermes_guide("generic_commands", search="zha/")`.
+""",
+    "matter_thread": """\
+# Matter, Thread y OTBR por las genéricas
+
+No hay tools dedicadas: todo va por `ha_read_ws_command` (lee) y
+`ha_call_ws_command` (cambia algo, siempre en dos pasos con
+`confirmation_token`). Si la familia `generic_commands` está desactivada en las
+opciones del add-on, nada de esto existe. Los nodos Matter se piden por
+`device_id` (`ha_list_devices`). Hermes no devuelve ni acepta códigos de
+emparejamiento, claves de red Thread ni contraseñas Wi-Fi.
+
+POR LA GENÉRICA
+Lecturas (`ha_read_ws_command`):
+- `type="matter/network_topology"` — topología de la red Matter/Thread
+  (`payload={"refresh": true}` la vuelve a medir).
+- `type="matter/node_diagnostics", payload={"device_id": "<device_id>"}` —
+  diagnóstico de red de un nodo; `matter/ping_node`, le hace ping.
+- `type="thread/list_datasets"` — redes Thread guardadas (canal, PAN, nombre)
+  y cuál es la preferida, sin la clave de red.
+- `type="otbr/info"` — routers de borde OpenThread (canal, PAN, URL); el
+  dataset activo (`active_dataset_tlvs`, que lleva la clave de red) sale
+  tapado.
+Escrituras (`ha_call_ws_command`, dos pasos):
+- `type="matter/interview_node", payload={"device_id": "<device_id>"}` —
+  reentrevista un nodo.
+- `type="thread/set_preferred_dataset", payload={"dataset_id":
+  "<dataset_id>"}` — elige la red Thread que usarán los dispositivos nuevos;
+  `thread/set_preferred_border_agent`, el router de borde preferido.
+
+RECHAZADO (`command_denied`, sin llamar a Home Assistant)
+- Códigos de emparejamiento: `matter/commission` y
+  `matter/commission_on_network` (los llevan) y
+  `matter/open_commissioning_window` (devuelve el código que da el control
+  del dispositivo a otro ecosistema).
+- Claves y contraseñas: `thread/get_dataset_tlv` (devuelve el dataset con la
+  clave de red), `thread/add_dataset_tlv` y `matter/set_thread` (la llevan) y
+  `matter/set_wifi_credentials`.
+- Lo que cambia o destruye la red: `otbr/create_network` (reset de fábrica
+  del router de borde), `otbr/set_network`, `otbr/set_channel`,
+  `thread/delete_dataset` (sin otra copia, la red no se recupera) y
+  `matter/remove_matter_fabric`.
+- Suscripciones: `thread/discover_routers` y
+  `matter/subscribe_network_topology` (la misma topología la da la lectura
+  de arriba).
+
+OTRA VÍA
+- Añadir dispositivos Matter (commissioning), compartirlos con otro
+  ecosistema y crear o cambiar la red Thread: desde la interfaz de Home
+  Assistant (Ajustes → Dispositivos y servicios → Matter o Thread) o la app
+  del móvil.
+
+El resto, con su categoría y su motivo:
+`hermes_guide("generic_commands", search="matter/")`, `search="thread/"` y
+`search="otbr/"`.
+""",
+    "other_integrations": """\
+# Otras integraciones por las genéricas (MQTT, USB, Bluetooth, KNX, Insteon…)
+
+No hay tools dedicadas: todo va por `ha_read_ws_command` (lee) y
+`ha_call_ws_command` (cambia algo, siempre en dos pasos con
+`confirmation_token`). Si la familia `generic_commands` está desactivada en las
+opciones del add-on, nada de esto existe. Cada comando solo responde si su
+integración está configurada; si no, Home Assistant contesta
+`unknown_command`. Hermes no devuelve ni acepta claves de cifrado, tokens de
+emparejamiento ni contraseñas.
+
+POR LA GENÉRICA
+Lecturas (`ha_read_ws_command`):
+- MQTT: `type="mqtt/device/debug_info", payload={"device_id": "<device_id>"}`
+  — topics, suscripciones, descubrimiento y últimos mensajes recibidos de un
+  dispositivo. Salen tapados el contenido (`payload`) de cada mensaje
+  recibido (se ven su topic, fecha, QoS y `retain`), la lista entera de los
+  ENVIADOS por Home Assistant y el `code` del descubrimiento de alarmas y
+  cerraduras.
+- USB y Bluetooth: `type="usb/list_serial_ports", payload={"include_usage":
+  true}` — puertos serie y dongles y quién los usa; `usb/list_serial_integrations`,
+  qué integraciones se configuran con un puerto serie; `usb/scan` pide un
+  escaneo nuevo (no configura nada). `bluetooth/subscribe_advertisements` —
+  anuncios Bluetooth vistos, en un solo mensaje.
+- Descubrimiento: `dhcp/subscribe_discovery` — equipos vistos por DHCP (MAC,
+  nombre, IP), en un solo mensaje.
+- KNX: `knx/get_base_data` (conexión y proyecto), `knx/group_monitor_info` y
+  `knx/query_telegrams` (telegramas), `knx/get_entity_config`,
+  `knx/get_knx_project` (grande), `knx/validate_entity` (valida sin guardar).
+- Insteon: `insteon/device/get`, `insteon/aldb/get` (enlaces),
+  `insteon/properties/get`, `insteon/scenes/get`, `insteon/config/get` (la
+  contraseña del hub sale tapada) e `insteon/aldb/notify_all` (si alguna
+  ALDB se está cargando, en un solo mensaje).
+- LCN: `lcn/devices` y `lcn/entities`, con `payload={"entry_id": "<entry_id>"}`.
+- Otras: `esphome/get_device_capabilities` y `esphome/get_device_wizard`
+  (por `device_id`), `dynalite/get-config`, `lorawan/devices/list`,
+  `modbus/connections/list`, `wyoming/info` y `notify/html5/appkey` (la clave
+  PÚBLICA de las notificaciones HTML5).
+Escrituras (`ha_call_ws_command`, dos pasos):
+- KNX: `knx/create_entity`, `knx/update_entity`, `knx/delete_entity`,
+  exposiciones (`knx/update_expose`, `knx/delete_expose`) y
+  `knx/update_time_server_config` (estas envían telegramas al bus).
+- Insteon: los cambios de la ALDB y de las propiedades quedan pendientes
+  hasta escribirlos (`insteon/aldb/change` + `insteon/aldb/write`,
+  `insteon/properties/change` + `insteon/properties/write`); escenas
+  (`insteon/scene/save`, `insteon/scene/delete`) e `insteon/device/remove`.
+- LCN: `lcn/devices/scan` (escanea el bus y añade lo que encuentra),
+  `lcn/devices/add`, `lcn/entities/add` y sus borrados.
+- Dynalite: `dynalite/save-config` REEMPLAZA la configuración entera del
+  puente: lee antes con `dynalite/get-config` y manda el objeto completo.
+
+RECHAZADO (`command_denied`, sin llamar a Home Assistant)
+- Secretos devueltos: `esphome/get_encryption_key` (clave de la API de
+  ESPHome), `sendspin/get_pairing_token` (token de emparejamiento) e
+  `insteon/config/get_modem_schema` (lleva la contraseña del hub como valor
+  por defecto).
+- Secretos introducidos: `insteon/config/update_modem_config` (credenciales
+  del hub) y `knx/project_file_process` (contraseña del proyecto ETS y un
+  fichero subido).
+- Suscripciones y streaming, que MCP no puede servir: `mqtt/subscribe`,
+  `knx/subscribe_telegrams`, `insteon/aldb/notify`, `lorawan/devices/subscribe`
+  (los mismos datos los da la lectura de dispositivos LoRaWAN de arriba),
+  `sendspin/subscribe_clients` y las de un mensaje por elemento o solo si hay
+  datos (`ssdp/subscribe_discovery`, `zeroconf/subscribe_discovery`,
+  `bluetooth/subscribe_scanner_state`, `bluetooth/subscribe_scanner_details`,
+  `bluetooth/subscribe_connection_allocations`).
+- Interactivo o de la interfaz: `insteon/device/add` (modo de enlace y
+  pulsar el botón del dispositivo) y `generic_camera/start_preview` (no
+  envía respuesta).
+- La app móvil: `mobile_app/push_notification_channel` y
+  `mobile_app/push_notification_confirm` (suplantarían el canal de la app y
+  necesitan su `webhook_id`).
+
+OTRA VÍA
+- Publicar en MQTT: la acción `mqtt.publish` por `ha_call_service`.
+- Añadir dispositivos (enlace Insteon, cargar un proyecto ETS, emparejar
+  ESPHome o Sendspin) y cambiar credenciales: desde la interfaz de Home
+  Assistant (Ajustes → Dispositivos y servicios).
+- Ver lo que pasa por un topic MQTT o por el bus KNX en directo: la página de
+  la integración en la interfaz; por aquí, `mqtt/device/debug_info` y
+  `knx/query_telegrams` dan lo último que pasó.
+
+El resto, con su categoría y su motivo:
+`hermes_guide("generic_commands", search="<integración>/")`, p. ej.
+`search="knx/"` o `search="insteon/"`.
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -2683,6 +2969,25 @@ _ALIASES: dict[str, str] = {
     "webhooks": "core_minor",
     "themes": "core_minor",
     "temas": "core_minor",
+    # Spec 025: integraciones específicas por las genéricas.
+    "zwave_js": "zwave",
+    "z-wave": "zwave",
+    "z_wave": "zwave",
+    "zha": "zigbee",
+    "matter": "matter_thread",
+    "thread": "matter_thread",
+    "otbr": "matter_thread",
+    "mqtt": "other_integrations",
+    "usb": "other_integrations",
+    "bluetooth": "other_integrations",
+    "knx": "other_integrations",
+    "insteon": "other_integrations",
+    "lcn": "other_integrations",
+    "esphome": "other_integrations",
+    "dynalite": "other_integrations",
+    "lorawan": "other_integrations",
+    "modbus": "other_integrations",
+    "wyoming": "other_integrations",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -2795,7 +3100,8 @@ def register(mcp: object) -> None:
                 generic_commands, system_status, recorder, energy, core_diagnostics,
                 app_store, blueprints, automation_assist, core_config,
                 assistant_exposure, users, core_network, conversation, core_minor,
-                workflows. Acepta alias
+                zwave, zigbee, matter_thread, other_integrations, workflows.
+                Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,
