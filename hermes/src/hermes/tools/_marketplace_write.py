@@ -531,3 +531,135 @@ def registrar(tool: str, outcome: str, category: Any = None) -> None:
         EVENTO, tool=tool, outcome=outcome,
         category=category if category in MARKETPLACE_CATEGORIES else None,
     )
+
+
+# ── Interruptor «pre-release» por `ha_call_service` (T032) ───────────────────
+#
+# Cada repositorio instalado tiene un `switch` de la plataforma `marketplace`
+# (`RepositoryPreReleaseSwitchEntity` en `components/marketplace/switch.py`
+# de HA 2026.11.1) que cambia `show_beta` SIN mirar el aviso de riesgos: hace
+# lo mismo que `marketplace/repository/beta` (deny por la DV-1), y con él el
+# Marketplace ofrece versiones beta de código de terceros. Decisión del
+# supervisor: por `ha_call_service`, un interruptor así pide token; un
+# objetivo indirecto que pueda alcanzarlo se rechaza. Es la misma forma que la
+# comprobación de `update.install` de la 015 (`comprobar_update_install`:
+# lista explícita de `entity_id`, resuelta por el REGISTRO, fail-closed) y
+# reutiliza sus piezas, para unirlas al integrar.
+
+_SERVICIOS_INTERRUPTOR = frozenset({"turn_on", "turn_off", "toggle"})
+# `homeassistant.turn_on` y compañía reparten la llamada al dominio de cada
+# entidad: con un `switch.*` dentro, es la misma vía.
+_DOMINIOS_INTERRUPTOR = frozenset({"switch", "homeassistant"})
+
+AVISO_INTERRUPTOR_BETA = (
+    "This switch belongs to the Marketplace: it is the pre-release option of an "
+    "installed repository. Turning it on makes the Marketplace offer BETA "
+    "versions of third-party code (not reviewed by Home Assistant), and Home "
+    "Assistant does not ask for its risk warning on this path. It installs "
+    "nothing by itself."
+)
+
+
+def _objetivo_indirecto(data: dict[str, Any]) -> bool:
+    """True si la llamada apunta a entidades SIN nombrarlas: `area_id`,
+    `device_id`, `label_id`, `floor_id`, `entity_id: all` o una forma que no
+    se entiende (fail-closed). Sin objetivo (o `none`) HA no alcanza ninguna
+    entidad: no es indirecto."""
+    from hermes.service_policy import _INDIRECT_TARGET_KEYS
+
+    contenedores: list[Any] = [data]
+    if "target" in data:
+        contenedores.append(data["target"])
+    for c in contenedores:
+        if not isinstance(c, dict):
+            return True
+        if any(k in c for k in _INDIRECT_TARGET_KEYS):
+            return True
+        raw = c.get("entity_id")
+        if raw is None:
+            continue
+        valores = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
+        if valores is None or not all(isinstance(v, str) for v in valores):
+            return True
+        partes = {p.strip().lower() for v in valores for p in v.split(",")}
+        if "all" in partes:
+            return True
+    return False
+
+
+async def _hay_interruptores_marketplace(ha_client: HAClient) -> bool:
+    """¿Hay algún `switch` habilitado de la plataforma `marketplace`?
+
+    `config/entity_registry/list_for_display` da `ei` (entity_id) y `pl`
+    (plataforma) de las entidades HABILITADAS, las únicas que un servicio
+    alcanza. Si no se puede leer, lanza: quien llama no lo adivina."""
+    datos = await ha_client.ws_send({"type": "config/entity_registry/list_for_display"})
+    entidades = datos.get("entities") if isinstance(datos, dict) else None
+    if not isinstance(entidades, list):
+        raise HAConnectionError("entity registry: unexpected answer")
+    return any(
+        isinstance(e, dict) and e.get("pl") == "marketplace"
+        and str(e.get("ei", "")).startswith("switch.")
+        for e in entidades
+    )
+
+
+async def comprobar_interruptor_beta(
+    ha_client: HAClient, domain: str, service: str, data: dict[str, Any]
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """`switch|homeassistant.turn_on|turn_off|toggle` por `ha_call_service`.
+
+    Devuelve `(rechazo, interruptores)`: un error sin token, o la lista de
+    interruptores del Marketplace a los que apunta (vacía: la llamada sigue
+    como en la 1.1.2). Con alguno, `ha_call_service` pide token.
+
+    1. objetivo indirecto (`_objetivo_indirecto`) y hay interruptores del
+       Marketplace → `use_entity_ids`; si no se puede saber → `registry_unavailable`;
+    2. lista explícita → cada `switch.*` se resuelve por el REGISTRO
+       (`config/entity_registry/get_entries`, como la 015); ilegible →
+       `registry_unavailable`.
+    """
+    if domain not in _DOMINIOS_INTERRUPTOR or service not in _SERVICIOS_INTERRUPTOR:
+        return None, []
+    from hermes.tools.update_entities import _entidades_explicitas, _leer_registro
+
+    def _sin_registro(exc: Exception) -> tuple[dict[str, Any], list[str]]:
+        del exc
+        registrar("ha_call_service", "rejected:registry_unavailable")
+        return {
+            "error": "registry_unavailable",
+            "detail": (
+                "The entity registry could not be read, so Hermes cannot tell "
+                "whether this call reaches the pre-release switch of a "
+                "Marketplace repository; nothing was done."
+            ),
+        }, []
+
+    if _objetivo_indirecto(data):
+        try:
+            hay = await _hay_interruptores_marketplace(ha_client)
+        except Exception as exc:  # noqa: BLE001 — fail-closed
+            return _sin_registro(exc)
+        if not hay:
+            return None, []
+        registrar("ha_call_service", "rejected:use_entity_ids")
+        return {
+            "error": "use_entity_ids",
+            "detail": (
+                f"{domain}.{service} with area_id, device_id, label_id, floor_id "
+                "or entity_id 'all' can reach the pre-release switch of a "
+                "Marketplace repository, which needs a confirmation_token. Name "
+                "the entities with an explicit entity_id list instead."
+            ),
+        }, []
+    ids = [i for i in (_entidades_explicitas(data) or []) if i.startswith("switch.")]
+    if not ids:
+        return None, []
+    try:
+        registro = await _leer_registro(ha_client, ids)
+    except Exception as exc:  # noqa: BLE001 — fail-closed
+        return _sin_registro(exc)
+    return None, [
+        eid for eid in ids
+        if isinstance(registro.get(eid), dict) and registro[eid].get("platform") == "marketplace"
+    ]

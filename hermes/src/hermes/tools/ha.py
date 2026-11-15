@@ -243,6 +243,51 @@ def _scan_for_dangerous_services(
     return False
 
 
+def menciona_update_install(data: Any, depth: int = 0) -> bool:
+    """¿Llama esta configuración (automatización o script) a `update.install`?
+
+    Spec 026, T031 (decisión del supervisor, D-29 ampliada): una
+    automatización o un script corren SIN usuario (`Context` sin `user_id`), y
+    el Marketplace de HA 2026.11.1 (`RepositoryUpdateEntity.async_install`)
+    deja instalar en ese caso si CUALQUIER persona aceptó su aviso de riesgos.
+    Esto solo sirve para AVISAR en la vista previa: NO es una barrera de
+    seguridad. No ve una llamada indirecta (un script que llama a otro, una
+    escena, un blueprint con la acción dentro de una entrada) y la guía lo
+    dice. Mira las mismas claves que `_scan_for_dangerous_services` y, con
+    una plantilla, si nombra `install`: mejor un aviso de más que uno de
+    menos.
+    """
+    if depth > 20:
+        return False
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in _SERVICE_CALL_KEYS | _SERVICE_TEMPLATE_KEYS and isinstance(value, str):
+                texto = value.strip().lower()
+                if texto == "update.install":
+                    return True
+                if ("{{" in texto or "{%" in texto or key in _SERVICE_TEMPLATE_KEYS) \
+                        and "install" in texto:
+                    return True
+            elif isinstance(value, (dict, list)) and menciona_update_install(value, depth + 1):
+                return True
+    elif isinstance(data, list):
+        return any(menciona_update_install(item, depth + 1) for item in data)
+    return False
+
+
+# Aviso de la vista previa de `ha_create_or_update_automation` y
+# `ha_create_or_update_script` cuando la configuración llama a
+# `update.install` (spec 026, T031). Es un aviso, no una barrera.
+AVISO_UPDATE_INSTALL = (
+    "This configuration calls update.install. An automation or a script runs "
+    "without a Home Assistant user, and in that case Home Assistant 2026.11 lets "
+    "update.install install from the Marketplace if ANY person accepted the "
+    "Marketplace risk warning: it can install third-party code from the "
+    "Marketplace (not reviewed by Home Assistant) without going through that "
+    "warning. Check which update entities it targets before confirming."
+)
+
+
 def _slugify(text: str) -> str:
     """Convierte un alias a un slug de entity_id, como hace HA."""
     slug = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -476,6 +521,10 @@ def register(
     # actualizaciones al importar este módulo.
     from hermes.tools.system_updates import lector_slug_propio
     from hermes.tools.update_entities import comprobar_update_install
+    from hermes.tools._marketplace_write import (
+        AVISO_INTERRUPTOR_BETA,
+        comprobar_interruptor_beta,
+    )
 
     slug_propio = lector_slug_propio(ha_client)
 
@@ -622,6 +671,12 @@ def register(
         se remiten a sv_update_core, sv_update_os y sv_update_supervisor
         (use_dedicated_tool). Mejor ha_install_update, con versiones y notas.
 
+        switch/homeassistant turn_on, turn_off y toggle sobre el interruptor
+        «pre-release» de un repositorio del Marketplace (activa betas de
+        código de terceros sin el aviso de riesgos de HA) piden token; con
+        area_id, device_id, label_id, floor_id o 'all' que puedan alcanzarlo:
+        use_entity_ids (nombra las entidades).
+
         Args:
             domain (str): Dominio del servicio. Ej: 'light', 'switch'.
             service (str): Nombre del servicio. Ej: 'turn_on', 'set_temperature'.
@@ -653,6 +708,16 @@ def register(
             if rechazo is not None:
                 return rechazo
 
+        # Spec 026, T032: el interruptor «pre-release» de un repositorio del
+        # Marketplace activa betas de código de terceros sin el aviso de
+        # riesgos de HA. Pide token (y un objetivo indirecto que pueda
+        # alcanzarlo se rechaza). Se mira en la vista previa Y al confirmar,
+        # como la 015; lo que no lo toca sigue como en la 1.1.2.
+        rechazo_beta, interruptores_beta = await comprobar_interruptor_beta(
+            ha_client, domain_lower, service_lower, data if isinstance(data, dict) else {})
+        if rechazo_beta is not None:
+            return rechazo_beta
+
         # Check denylist
         in_denylist = _is_in_denylist(domain_lower, service_lower, effective_denylist)
 
@@ -665,7 +730,7 @@ def register(
             domain_lower, data, get_auto_restricted_entities(), service=service_lower
         )
 
-        needs_token = in_denylist or entity_is_restricted
+        needs_token = in_denylist or entity_is_restricted or bool(interruptores_beta)
 
         if needs_token:
             tool_name_cs = "ha_call_service"
@@ -680,6 +745,13 @@ def register(
                     "call_service", domain_lower, service_lower, data,
                     in_denylist=in_denylist, entity_is_restricted=entity_is_restricted,
                 )
+                if interruptores_beta and not (in_denylist or entity_is_restricted):
+                    preview["reason"] = (
+                        f"Service '{domain_lower}.{service_lower}' requires "
+                        "confirmation (Marketplace pre-release switch).")
+                if interruptores_beta:
+                    preview["marketplace_prerelease_switches"] = interruptores_beta
+                    preview["warning_marketplace_beta"] = AVISO_INTERRUPTOR_BETA
                 if (domain_lower, service_lower) == ("update", "install"):
                     # Spec 015, FR-015: la vía de siempre sigue igual (mismo
                     # token, misma llamada), pero esta vista previa no dice de
