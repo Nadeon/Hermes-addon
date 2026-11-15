@@ -728,5 +728,76 @@ class TestUsuarioEnErroresSinCredenciales(_Base):
         self.assertNotIn(USUARIO, _ficheros_de_tokens())
 
 
+class TestRedaccionDeFormasEscapadas(unittest.TestCase):
+    """T036 (convergencia de la 019): `_limpiar_error` tapa también las
+    formas escapadas o poco comunes de las credenciales:
+
+    - la contraseña con `\\` o `"`, repetida escapada en el JSON de error del
+      Supervisor o en el `repr` del dict de `humanize_error`;
+    - valores entre comillas con espacios (`username='ana lopez'`,
+      `"user": "..."`), también sin conocer el valor;
+    - `DOMINIO\\usuario`, `//usuario@servidor/share` y `usuario@servidor`.
+
+    Control negativo comprobado: con el `_limpiar_error` de antes de T036
+    (sustitución literal y las tres formas del usuario) caen 10 de los 11
+    subtests de `test_cada_forma` (todos menos `"user": "..."` en JSON, que
+    ya cubría) y `test_el_json_sigue_siendo_json`; restaurado, verde.
+    """
+
+    # Contraseña con barra invertida y comillas, como las que el Supervisor
+    # repite escapadas.
+    CLAVE_RARA = 'CLAVE\\CENTINELA "019"'
+    USUARIO_ESPACIO = "USUARIO CENTINELA"
+
+    def _casos(self) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+        """(texto, secretos conocidos, centinelas que no pueden quedar)."""
+        c, u, ue = self.CLAVE_RARA, USUARIO, self.USUARIO_ESPACIO
+        # «019» es el final de la contraseña: un tapado a medias (que corta en
+        # la primera comilla escapada) lo dejaría a la vista.
+        return [
+            ("Got " + json.dumps({"name": "n", "password": c}), (c,), ("CENTINELA", "019")),
+            ("Got " + repr({"username": u, "password": c}), (u, c), ("CENTINELA", "019")),
+            ("Got " + repr({"password": c}), (), ("CENTINELA", "019")),
+            ("Got " + json.dumps({"password": c}), (), ("CENTINELA", "019")),
+            (f"username='{ue}' rejected", (), ("CENTINELA",)),
+            (f'username="{ue}" rejected', (), ("CENTINELA",)),
+            (json.dumps({"user": ue, "x": 1}), (), ("CENTINELA",)),
+            (f"CORPCENTINELA\\{u}: access denied", (), ("CENTINELA",)),
+            (json.dumps({"m": f"CORPCENTINELA\\{u} denied"}), (), ("CENTINELA",)),
+            (f"Could not mount //{u}@nas.local/backups", (), ("CENTINELA",)),
+            (f"Could not mount //{u}:{CLAVE}@nas.local/backups", (), ("CENTINELA",)),
+        ]
+
+    def test_cada_forma(self) -> None:
+        from hermes.tools.mounts import _limpiar_error
+
+        for texto, secretos, centinelas in self._casos():
+            with self.subTest(texto=texto):
+                limpio = _limpiar_error(f"Supervisor error: {texto}", secretos)
+                for centinela in centinelas:
+                    self.assertNotIn(centinela, limpio)
+                self.assertIn("Supervisor error", limpio)
+                self.assertIn(security.REDACTED_MARKER, limpio)
+
+    def test_el_json_sigue_siendo_json(self) -> None:
+        """Se tapa el valor con las mismas comillas: el JSON sigue siendo
+        válido y el resto de claves sigue ahí."""
+        from hermes.tools.mounts import _limpiar_error
+
+        texto = json.dumps({"name": "nas", "username": self.USUARIO_ESPACIO,
+                            "password": self.CLAVE_RARA, "server": "nas.local"})
+        datos = json.loads(_limpiar_error(texto, ()))
+        self.assertEqual(datos["name"], "nas")
+        self.assertEqual(datos["server"], "nas.local")
+        self.assertEqual(datos["username"], security.REDACTED_MARKER)
+        self.assertEqual(datos["password"], security.REDACTED_MARKER)
+
+    def test_lo_que_no_es_credencial_no_se_toca(self) -> None:
+        from hermes.tools.mounts import _limpiar_error
+
+        texto = "Could not mount nas_backups: Connection timed out (vers=3.0)"
+        self.assertEqual(_limpiar_error(texto, ()), texto)
+
+
 if __name__ == "__main__":
     unittest.main()

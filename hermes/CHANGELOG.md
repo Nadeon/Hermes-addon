@@ -104,9 +104,12 @@ _Pendiente: la añade la sub-feature que lo implemente._
     salen nunca: ni en respuestas, vistas previas, errores, el log de Hermes
     ni el fichero del token. Tampoco cuando el texto de error del Supervisor
     repite el usuario en una tool que no lo recibe (recargar, borrar, el
-    montaje por defecto, los ajustes de backup): se tapa por su forma. Como el Supervisor reemplaza la configuración
-    entera y no las devuelve, editar un CIFS sin `username` y `password` las
-    quita; la vista previa lo avisa (`removed_if_present`).
+    montaje por defecto, los ajustes de backup): se tapa por su forma
+    (`username=…`, también entre comillas y con espacios, `DOMINIO\usuario`,
+    `//usuario@servidor`), y la contraseña también cuando llega escapada en
+    el JSON o el `repr` del error. Como el Supervisor reemplaza la
+    configuración entera y no las devuelve, editar un CIFS sin `username` y
+    `password` las quita; la vista previa lo avisa (`removed_if_present`).
   - Tres para los ajustes de backup del Supervisor, sin confirmación:
     `sv_get_backup_settings` (`days_until_stale`, el montaje por defecto y
     los montajes de backup con su estado), `sv_set_backup_settings`

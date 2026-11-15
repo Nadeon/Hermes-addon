@@ -46,6 +46,7 @@ datos de la red de casa (principio VIII) y un error puede repetir valores.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -334,32 +335,76 @@ def _resumen_afectados(afectados: list[dict[str, Any]]) -> dict[str, Any]:
 # lo es aquí: con él y el servidor, solo falta la contraseña. Recargar, borrar
 # o fijar el por defecto no reciben las credenciales, así que no hay valor
 # literal que quitar y solo queda reconocerlo por su forma:
-# - `"username": "x"` (JSON), con comillas;
-# - `username=x`, `user: x`, `domain=x` (opciones de mount.cifs);
-# - `user x`, `user 'x'` (mensajes de mount.cifs y del kernel).
-# Tapar de más (un «user» seguido de una palabra cualquiera) es preferible a
-# dejar escapar un usuario.
-_USUARIO_JSON = re.compile(
-    r'("(?:user(?:name)?|login|domain)"\s*:\s*")([^"]*)(")', re.IGNORECASE)
+# - `"username": "x"` (JSON) y `'username': 'x'` (`repr` de un dict), con
+#   comillas, espacios y comillas escapadas dentro;
+# - `username=x`, `user: x`, `domain=x` (opciones de mount.cifs), también
+#   entre comillas y con espacios (`username='ana lopez'`);
+# - `user x`, `user 'x'` (mensajes de mount.cifs y del kernel);
+# - `DOMINIO\usuario` (también con la barra escapada, `DOMINIO\\usuario`);
+# - `usuario@servidor` y `//usuario:clave@servidor/share`.
+# Tapar de más (un «user» seguido de una palabra cualquiera, una dirección de
+# correo, una ruta con barra invertida) es preferible a dejar escapar un
+# usuario.
+_CLAVES_USUARIO = r"user(?:name)?|login|domain|workgroup"
+# Valor entre comillas, con las comillas escapadas dentro (`\"`, `\'`).
+_ENTRE_COMILLAS = r"""(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')"""
+# Clave entre comillas (JSON o `repr`) con valor entre comillas. Entran
+# también las de contraseña: `redact_secrets` no tapa un valor entre comillas
+# simples con espacios ni uno con comillas escapadas.
+_CLAVE_ENTRE_COMILLAS = re.compile(
+    r"""(["'](?:""" + _CLAVES_USUARIO + r"""|pass(?:word|wd)?)["']\s*:\s*)"""
+    + _ENTRE_COMILLAS, re.IGNORECASE)
 _USUARIO_CLAVE = re.compile(
-    r"\b(user(?:name)?|login|domain)(\s*[:=]\s*)(['\"]?)[^\s,;'\")]+\3",
+    r"\b(" + _CLAVES_USUARIO + r"|pass(?:word|wd)?)(\s*[:=]\s*)(?:"
+    + _ENTRE_COMILLAS + r"""|[^\s,;'")]+)""",
     re.IGNORECASE)
 _USUARIO_SUELTO = re.compile(
-    r"\b(user(?:name)?)([ \t]+)(?![:=])(['\"]?)[^\s,;'\")]+\3", re.IGNORECASE)
+    r"\b(user(?:name)?)([ \t]+)(?![:=])(?:" + _ENTRE_COMILLAS
+    + r"""|[^\s,;'")]+)""", re.IGNORECASE)
+# `DOMINIO\usuario`: una o dos barras (dos, si llega escapado en JSON o en un
+# `repr`). Se tapa entero: el dominio también identifica la red.
+_DOMINIO_USUARIO = re.compile(r"""[\w.-]+\\{1,2}[^\s\\/,;:'"()\[\]{}]+""")
+# `usuario@servidor` y `usuario:clave@servidor` (también tras `//`): se tapa
+# lo que va antes de la arroba.
+_USUARIO_ARROBA = re.compile(r"""[^\s/@'"(),;\[\]{}]+@(?=[\w\[])""")
+
+
+def _formas_del_secreto(s: str) -> set[str]:
+    """El valor literal y cómo puede llegar repetido en un error: escapado en
+    el JSON del Supervisor (orjson no escapa lo que no es ASCII, json.dumps
+    sí) y en el `repr` de `humanize_error`, también los dos a la vez."""
+    formas = {s, json.dumps(s)[1:-1], json.dumps(s, ensure_ascii=False)[1:-1],
+              repr(s)[1:-1]}
+    formas |= {repr(f)[1:-1] for f in list(formas)}
+    return {f for f in formas if f}
+
+
+def _tapar_valor(m: re.Match[str]) -> str:
+    """Conserva la clave y el separador (los grupos) y tapa el valor; si iba
+    entre comillas, con las mismas comillas, para no romper el JSON."""
+    prefijo = "".join(g or "" for g in m.groups())
+    valor = m.group(0)[len(prefijo):]
+    comilla = valor[0] if valor[:1] in ("'", '"') else ""
+    return f"{prefijo}{comilla}{REDACTED_MARKER}{comilla}"
 
 
 def _limpiar_error(texto: str, secretos: tuple[Any, ...]) -> str:
-    """Quita los valores literales de las credenciales (los más largos antes,
-    para no dejar trozos), el usuario por su forma y pasa por
-    `redact_secrets` (FR-008). Todo error de las tools de montajes y de
-    ajustes de backup pasa por aquí antes de responder o guardarse en el
-    token."""
-    for s in sorted((s for s in secretos if isinstance(s, str) and s),
-                    key=len, reverse=True):
-        texto = texto.replace(s, REDACTED_MARKER)
-    texto = _USUARIO_JSON.sub(rf"\1{REDACTED_MARKER}\3", texto)
-    texto = _USUARIO_CLAVE.sub(rf"\1\2{REDACTED_MARKER}", texto)
-    texto = _USUARIO_SUELTO.sub(rf"\1\2{REDACTED_MARKER}", texto)
+    """Quita los valores literales de las credenciales (en todas sus formas
+    escapadas, las más largas antes, para no dejar trozos), el usuario por su
+    forma y pasa por `redact_secrets` (FR-008). Todo error de las tools de
+    montajes y de ajustes de backup pasa por aquí antes de responder o
+    guardarse en el token."""
+    formas: set[str] = set()
+    for s in secretos:
+        if isinstance(s, str) and s:
+            formas |= _formas_del_secreto(s)
+    for f in sorted(formas, key=len, reverse=True):
+        texto = texto.replace(f, REDACTED_MARKER)
+    texto = _CLAVE_ENTRE_COMILLAS.sub(_tapar_valor, texto)
+    texto = _USUARIO_CLAVE.sub(_tapar_valor, texto)
+    texto = _USUARIO_SUELTO.sub(_tapar_valor, texto)
+    texto = _DOMINIO_USUARIO.sub(REDACTED_MARKER, texto)
+    texto = _USUARIO_ARROBA.sub(f"{REDACTED_MARKER}@", texto)
     return redact_secrets(texto)
 
 
