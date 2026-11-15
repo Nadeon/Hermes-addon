@@ -793,6 +793,9 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_preview_blueprint_substitution": ("R-I-", "Preview blueprint substitution (Home Assistant)"),
     "ha_save_blueprint": ("-DI-", "Save blueprint (Home Assistant)"),
     "ha_delete_blueprint": ("-DI-", "Delete blueprint (Home Assistant)"),
+    # Tramo B: importar pide token (`_DESTRUCTIVE_EXACT`) y es la única de
+    # la familia de mundo abierto (`_OPEN_WORLD`): HA descarga de la URL.
+    "ha_import_blueprint": ("-DIO", "Import blueprint (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1496,6 +1499,7 @@ class TestCoreDiagnosticsTramoBRegistration:
 _BLUEPRINTS_017 = (
     "ha_list_blueprints", "ha_preview_blueprint_substitution",
     "ha_save_blueprint", "ha_delete_blueprint",
+    "ha_import_blueprint",  # tramo B
 )
 
 
@@ -1532,14 +1536,21 @@ class TestBlueprintsRegistration:
             )
         assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
 
-    def test_las_que_modifican_piden_token_y_ninguna_sale_a_internet(self):
+    def test_las_que_modifican_piden_token_y_solo_importar_sale_a_internet(self):
+        """Spec 017, tramo B (T020): `openWorldHint` verdadero solo en
+        `ha_import_blueprint` de entre las de la familia.
+
+        Control negativo (T025, 5): quitar `ha_import_blueprint` de
+        `_OPEN_WORLD` → cae este test (y `test_hints_y_titulos_de_las_nuevas`).
+        """
         from hermes.tools._annotations import classify
 
-        for nombre in ("ha_save_blueprint", "ha_delete_blueprint"):
+        for nombre in ("ha_save_blueprint", "ha_delete_blueprint", "ha_import_blueprint"):
             ann = classify(nombre)
             assert ann.destructive_hint and not ann.read_only_hint, nombre
         assert classify("ha_preview_blueprint_substitution").read_only_hint
-        assert [n for n in _BLUEPRINTS_017 if classify(n).open_world_hint] == []
+        assert [n for n in _BLUEPRINTS_017 if classify(n).open_world_hint] == [
+            "ha_import_blueprint"]
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────

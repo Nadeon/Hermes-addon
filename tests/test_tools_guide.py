@@ -716,6 +716,16 @@ class TestTemaBlueprints(unittest.IsolatedAsyncioTestCase):
     async def test_indice(self) -> None:
         self.assertIn("`blueprints`", await self.guide())
 
+    def test_importar_avisa_de_texto_de_terceros(self) -> None:
+        """Tramo B (T022): la parte de importar dice que HA descarga, que es
+        texto de terceros y qué hacer con `content_changed`. Control negativo
+        comprobado: sin el párrafo de importar → cae."""
+        tema = _GUIDE["blueprints"]
+        for clave in ("ha_import_blueprint", "third-party", "_third_party_text",
+                      "content_changed", "content_sha256", "blueprint_too_large",
+                      "invalid_blueprint", "Hermes no abre la URL"):
+            self.assertIn(clave, tema)
+
     def test_nombra_cada_tool_de_las_familias_de_la_017(self) -> None:
         from hermes.tool_families import FAMILIAS
         from tests.test_tools_registration import _do_register

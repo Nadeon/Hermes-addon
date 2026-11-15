@@ -173,6 +173,9 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # destructiva»). `ha_delete_blueprint` ya lo es por el prefijo
     # `ha_delete_`: borra un fichero que solo vuelve con un backup.
     "ha_save_blueprint",
+    # Importar (spec 017, tramo B) guarda lo descargado igual que
+    # `ha_save_blueprint`, y con `allow_override` sobrescribe y recarga.
+    "ha_import_blueprint",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -205,6 +208,10 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
     # Es de solo lectura, pero no puede decir que no sale.
     "ha_get_system_health",
+    # Spec 017, tramo B: HA descarga el blueprint de la URL que da el agente
+    # (foro, GitHub, gist o cualquier web). No abre el socket Hermes, pero la
+    # descarga la provoca esta tool (mismo criterio que sv_install_addon).
+    "ha_import_blueprint",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

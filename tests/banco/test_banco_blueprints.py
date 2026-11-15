@@ -18,6 +18,17 @@ preparando cada caso y comprobando cada efecto directamente en Core
   blueprint → `blueprint_in_use` con ella y sin token, y el fichero sigue; el
   lector borra la automatización → vista previa (el fichero sigue) →
   confirmación → el lector ya no lo ve.
+- **Importar** (tramo B, T023): el banco no tiene salida a internet, así que
+  HA sirve un blueprint propio desde su carpeta `www`
+  (`ha_config/www/hermes_banco/luz_por_movimiento.yaml`, en `/local/`) y se
+  importa desde `http://127.0.0.1:8123/local/…`: dentro del contenedor,
+  127.0.0.1 es la propia HA, que la regla de `iptables` del workflow no toca
+  (solo corta lo que sale de la subred). Es una descarga HTTP real por el
+  importador genérico de HA. Vista previa con el YAML y su huella (la misma
+  que la del fichero que lee el lector) → el lector no lo ve → confirmación
+  → el lector lo ve con `source_url` → se borra con `ha_delete_blueprint`.
+  Los importadores de GitHub, gist y foro necesitan internet: prueba manual
+  pendiente en docs/HOJA-DE-RUTA.md.
 
 Todo lo creado se borra al cerrar la sesión, pase lo que pase. Solo corre en
 el job `banco-core` del CI; fuera se salta con su motivo.
@@ -25,6 +36,7 @@ el job `banco-core` del CI; fuera se salta con su motivo.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -191,3 +203,72 @@ class TestGuardarYBorrar(BancoEscrituras):
             self.assertEqual(r["result"], "ok")
             await s.lector.esperar(lambda: _blueprints(s), lambda b: ruta not in b,
                                    descripcion=f"blueprint {ruta} borrado")
+
+
+# La URL la abre HA DENTRO de su contenedor: 127.0.0.1 es la propia HA.
+_URL_LOCAL = "http://127.0.0.1:8123/local/hermes_banco/luz_por_movimiento.yaml"
+_RUTA_IMPORTADA = "127.0.0.1/luz_por_movimiento.yaml"
+
+
+class TestImportar(BancoEscrituras):
+    async def test_importar_desde_local(self) -> None:
+        async with self.sesion() as s:
+
+            async def borrar_importado() -> None:
+                if _RUTA_IMPORTADA in await _blueprints(s):
+                    await s.lector.comando({"type": "blueprint/delete",
+                                            "domain": "automation",
+                                            "path": _RUTA_IMPORTADA})
+
+            s.limpiezas.append(borrar_importado)
+
+            # (1) HA sirve el fichero: si no, el fallo lo dice aquí y no como
+            # un `import_failed` sin contexto.
+            estado, fichero = await s.lector.rest(
+                "GET", "/local/hermes_banco/luz_por_movimiento.yaml")
+            self.assertEqual(estado, 200, "HA no sirve /config/www en /local/ "
+                                          "(¿falta frontend: o la carpeta www?)")
+            self.assertIsInstance(fichero, str)
+            self.assertIn("blueprint:", fichero)
+            self.assertNotIn(_RUTA_IMPORTADA, await _blueprints(s))
+
+            # (2) Vista previa: lo que HA descargó, entero y con su huella.
+            tool = "ha_import_blueprint"
+            vista = await s.vista(tool, url=_URL_LOCAL)
+            p = vista["preview"]
+            self.assertEqual(
+                (p["importer"], p["domain"], p["path"], p["exists"], p["source_url"]),
+                ("generic", "automation", _RUTA_IMPORTADA, False, _URL_LOCAL))
+            self.assertEqual(p["content"], fichero)
+            self.assertEqual(p["content_sha256"],
+                             hashlib.sha256(fichero.encode("utf-8")).hexdigest())
+            self.assertEqual(p["metadata"]["name"], "Luz por movimiento (banco)")
+            self.assertEqual([e["name"] for e in p["inputs"]], ["sensor", "luz"])
+            self.assertIn("content", p["_third_party_text"]["fields"])
+            # La vista previa no ha guardado nada.
+            self.assertNotIn(_RUTA_IMPORTADA, await _blueprints(s))
+
+            # Confirmación: HA descarga otra vez, la huella casa y se guarda.
+            r = await s.confirmar(tool, vista, url=_URL_LOCAL)
+            self.assertEqual((r["result"], r["path"]), ("ok", _RUTA_IMPORTADA))
+            guardados = await s.lector.esperar(
+                lambda: _blueprints(s), lambda b: _RUTA_IMPORTADA in b,
+                descripcion=f"blueprint {_RUTA_IMPORTADA} importado")
+            meta = guardados[_RUTA_IMPORTADA]["metadata"]
+            self.assertEqual((meta["name"], meta["source_url"]),
+                             ("Luz por movimiento (banco)", _URL_LOCAL))
+
+            # Otra vez sin `allow_override`: ya existe, sin token.
+            r = await _rechazo(s, tool, url=_URL_LOCAL)
+            self.assertEqual(r["error"], "already_exists")
+            self.assertNotIn("confirmation_token", r)
+
+            # (3) Se borra con la tool del tramo A.
+            vista = await s.vista("ha_delete_blueprint", domain="automation",
+                                  path=_RUTA_IMPORTADA)
+            r = await s.confirmar("ha_delete_blueprint", vista, domain="automation",
+                                  path=_RUTA_IMPORTADA)
+            self.assertEqual(r["result"], "ok")
+            await s.lector.esperar(lambda: _blueprints(s),
+                                   lambda b: _RUTA_IMPORTADA not in b,
+                                   descripcion=f"blueprint {_RUTA_IMPORTADA} borrado")

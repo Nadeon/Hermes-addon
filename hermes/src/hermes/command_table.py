@@ -95,7 +95,7 @@ CORE_WS: dict[str, E] = {
     "backup/start": E("deny", "señal interna del Supervisor (clase B)", "generic_commands"),
     "backup/subscribe_events": E("deny", "suscripción al progreso de los backups: MCP es petición-respuesta (clase B)", "generic_commands"),
     "blueprint/delete": E("dedicated", "cubierto por ha_delete_blueprint", "blueprints", tool="ha_delete_blueprint", cap="CAP-046"),
-    "blueprint/import": E("deny", "pendiente de tool dedicada (spec 017)", "generic_commands", cap="CAP-046"),
+    "blueprint/import": E("dedicated", "cubierto por ha_import_blueprint", "blueprints", tool="ha_import_blueprint", cap="CAP-046"),
     "blueprint/list": E("dedicated", "cubierto por ha_list_blueprints", "blueprints", tool="ha_list_blueprints", cap="CAP-046"),
     "blueprint/save": E("dedicated", "cubierto por ha_save_blueprint", "blueprints", tool="ha_save_blueprint", cap="CAP-046"),
     "blueprint/substitute": E("dedicated", "cubierto por ha_preview_blueprint_substitution", "blueprints", tool="ha_preview_blueprint_substitution", cap="CAP-046"),

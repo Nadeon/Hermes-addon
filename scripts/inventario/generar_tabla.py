@@ -320,12 +320,13 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "diagnostics/list": "ha_list_diagnostics_handlers",
     "diagnostics/get": "ha_list_diagnostics_handlers",
     "persistent_notification/get": "ha_list_persistent_notifications",
-    # Blueprints (spec 017), clase A de vía D, tramo A. `blueprint/import`
-    # sigue «pendiente» hasta su tool (tramo B).
+    # Blueprints (spec 017), clase A de vía D: las cuatro del tramo A e
+    # importar, del tramo B.
     "blueprint/list": "ha_list_blueprints",
     "blueprint/save": "ha_save_blueprint",
     "blueprint/delete": "ha_delete_blueprint",
     "blueprint/substitute": "ha_preview_blueprint_substitution",
+    "blueprint/import": "ha_import_blueprint",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

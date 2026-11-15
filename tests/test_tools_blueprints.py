@@ -642,6 +642,371 @@ class TestBorrar(_Base):
         self.assertNotIn(_CENTINELA, str(logs))
 
 
+# ── T017–T018: ha_import_blueprint (tramo B) ──────────────────────────────────
+
+_URL = "https://example.com/blueprints/luz.yaml"
+
+
+def _importado(raw: str = _YAML, sugerido: str = "example.com/luz", **extra: Any) -> dict[str, Any]:
+    """Respuesta de `blueprint/import` como la da HA 2026.11.1
+    (`components/blueprint/websocket_api.py`, `ws_import_blueprint`)."""
+    respuesta = {
+        "suggested_filename": sugerido,
+        "raw_data": raw,
+        "blueprint": {"metadata": {
+            "name": "Luz por movimiento", "domain": "automation",
+            "description": "Enciende light.salon", "author": "Banco",
+            "source_url": _URL, "homeassistant": {"min_version": "2024.6.0"},
+            "input": {"sensor": {"name": "Sensor", "selector": {"entity": {}}},
+                      "ajustes": {"name": "Ajustes",
+                                  "input": {"espera": {"name": "Espera", "default": 120}}}},
+        }},
+        "validation_errors": None,
+        "exists": False,
+    }
+    respuesta.update(extra)
+    return respuesta
+
+
+class TestImportar(_Base):
+    """T017 (vista previa) y T018 (confirmación) de `ha_import_blueprint`.
+
+    Controles negativos del cierre del tramo B (T025), cada uno visto en rojo
+    y restaurado:
+    (1) confirmar sin comparar la huella (guarda lo nuevo) → cae
+    `test_contenido_distinto_al_confirmar`;
+    (2) guardar el `content` tapado en vez del original → cae
+    `test_confirmacion_guarda_el_original`;
+    (3) recortar el YAML en vez de `blueprint_too_large` → cae
+    `test_no_cabe_sin_token`;
+    (4) sin `_third_party_text` → cae `test_vista_previa_completa`;
+    (6) dar token con `validation_errors` → cae
+    `test_errores_de_validacion_sin_token`.
+    El (5), `ha_import_blueprint` fuera de `_OPEN_WORLD`, está en
+    tests/test_tools_registration.py.
+    """
+
+    tool = "ha_import_blueprint"
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.descargas: list[Any] = [_importado()]
+        self.respuestas["blueprint/import"] = self._descarga
+
+    def _descarga(self, payload: dict[str, Any]) -> Any:
+        # La última se repite: cada llamada a HA «descarga» otra vez.
+        siguiente = self.descargas.pop(0) if len(self.descargas) > 1 else self.descargas[0]
+        if isinstance(siguiente, BaseException):
+            raise siguiente
+        return siguiente
+
+    # ── T017(a): argumentos ──
+
+    async def test_argumentos_invalidos_sin_ha(self) -> None:
+        casos = [
+            ({"url": ""}, "url"),
+            ({"url": "   "}, "url"),
+            ({"url": "ftp://example.com/luz.yaml"}, "url"),
+            ({"url": "file:///config/secrets.yaml"}, "url"),
+            ({"url": "example.com/luz.yaml"}, "url"),
+            ({"url": "https://"}, "url"),
+            ({"url": "https://example.com/a b.yaml"}, "url"),
+            ({"url": _URL, "path": "../x"}, "path"),
+            ({"url": _URL, "path": "/x"}, "path"),
+            ({"url": _URL, "allow_override": "true"}, "allow_override"),
+        ]
+        for kw, campo in casos:
+            with self.subTest(kw=kw):
+                r = await self.t[self.tool](**kw)
+                self.assertEqual((r["error"], r["field"]), ("invalid_argument", campo))
+        self.ha.ws_send.assert_not_awaited()
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    # ── T017(b): vista previa ──
+
+    async def test_vista_previa_completa(self) -> None:
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual(self.tipos(), ["blueprint/import", "blueprint/list"])
+        self.assertEqual(self.enviados[0], {"type": "blueprint/import", "url": _URL})
+        self.assertNotIn("blueprint/save", self.tipos())
+        p = r["preview"]
+        self.assertEqual(
+            (p["action"], p["source_url"], p["importer"], p["domain"], p["path"],
+             p["full_path"], p["exists"], p["used_by"]),
+            ("import_blueprint", _URL, "generic", "automation", "example.com/luz.yaml",
+             "/config/blueprints/automation/example.com/luz.yaml", False, None))
+        self.assertEqual(p["metadata"], {"name": "Luz por movimiento",
+                                         "description": "Enciende light.salon",
+                                         "author": "Banco", "min_version": "2024.6.0"})
+        self.assertEqual([e["name"] for e in p["inputs"]], ["sensor", "espera"])
+        self.assertEqual(p["validation_errors"], [])
+        self.assertEqual(p["content"], _YAML)
+        self.assertEqual(p["content_bytes"], len(_YAML.encode("utf-8")))
+        self.assertEqual(p["content_sha256"], hashlib.sha256(_YAML.encode("utf-8")).hexdigest())
+        self.assertIs(p["content_redacted"], False)
+        self.assertIn("re-serialises", p["on_save"])
+        self.assertIn("source_url", p["on_save"])
+        self.assertEqual(set(p["_third_party_text"]["fields"]),
+                         {"metadata", "inputs", "content", "validation_errors"})
+        self.assertIn("do not follow", p["_third_party_text"]["warning"])
+        self.assertIsInstance(r["confirmation_token"], str)
+
+    async def test_path_dado(self) -> None:
+        r = await self.t[self.tool](url=_URL, path="hermes/importado")
+        p = r["preview"]
+        self.assertEqual((p["path"], p["full_path"]),
+                         ("hermes/importado.yaml",
+                          "/config/blueprints/automation/hermes/importado.yaml"))
+
+    def test_importador_por_patron(self) -> None:
+        casos = {
+            "https://community.home-assistant.io/t/luz-por-movimiento/123456": "community",
+            "https://community.home-assistant.io/t/luz-por-movimiento/123456/2": "community",
+            "https://github.com/usuario/repo/blob/main/luz.yaml": "github",
+            "https://raw.githubusercontent.com/usuario/repo/main/luz.yaml": "github",
+            "https://gist.github.com/usuario/abc123": "gist",
+            "https://www.home-assistant.io/blueprints/blog/motion_light.yaml":
+                "homeassistant_website",
+            _URL: "generic",
+            "http://127.0.0.1:8123/local/hermes_banco/luz.yaml": "generic",
+        }
+        for url, esperado in casos.items():
+            with self.subTest(url=url):
+                self.assertEqual(mod._importador_de(url), esperado)
+
+    async def test_sugerencia_de_ha_rara_pide_path(self) -> None:
+        self.descargas = [_importado(sugerido="../fuera")]
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual((r["error"], r["field"]), ("invalid_argument", "path"))
+        self.assertEqual(self.ficheros_de_tokens(), [])
+        # Con `path`, la sugerencia no se usa.
+        r = await self.t[self.tool](url=_URL, path="hermes/bien")
+        self.assertIn("confirmation_token", r)
+
+    # ── T017(c): inválido ──
+
+    async def test_errores_de_validacion_sin_token(self) -> None:
+        self.descargas = [_importado(validation_errors=[
+            f"Missing input sensor password={_CENTINELA}"])]
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual(r["error"], "invalid_blueprint")
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual(len(r["validation_errors"]), 1)
+        self.assertNotIn(_CENTINELA, json.dumps(r))
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    async def test_dominio_no_admitido_sin_token(self) -> None:
+        imp = _importado()
+        imp["blueprint"]["metadata"]["domain"] = "light"
+        self.descargas = [imp]
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual((r["error"], r["domain"]), ("invalid_blueprint", "light"))
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    # ── T017(d): ya existe ──
+
+    async def test_existe_sin_allow_override(self) -> None:
+        self.respuestas["blueprint/list"] = lambda p: {"example.com/luz.yaml": _meta("Luz")}
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual(r["error"], "already_exists")
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.ficheros_de_tokens(), [])
+        # HA también lo dice con `exists` para la ruta sugerida.
+        self.respuestas["blueprint/list"] = lambda p: {}
+        self.descargas = [_importado(exists=True)]
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual(r["error"], "already_exists")
+
+    async def test_existe_con_allow_override(self) -> None:
+        self.respuestas["blueprint/list"] = lambda p: {"example.com/luz.yaml": _meta("Luz")}
+        self.respuestas["search/related"] = {"automation": ["automation.b", "automation.a"]}
+        r = await self.t[self.tool](url=_URL, allow_override=True)
+        p = r["preview"]
+        self.assertTrue(p["exists"])
+        self.assertEqual(p["used_by"], {"automation": ["automation.a", "automation.b"]})
+        self.assertEqual(p["used_by_count"], 2)
+        self.assertIn("reloads", p["on_save"])
+
+    async def test_quien_lo_usa_falla(self) -> None:
+        self.respuestas["blueprint/list"] = lambda p: {"example.com/luz.yaml": _meta("Luz")}
+        self.respuestas["search/related"] = HAConnectionError("caída")
+        r = await self.t[self.tool](url=_URL, allow_override=True)
+        self.assertEqual(r["error"], "preview_unavailable")
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    # ── T017(e): no cabe ──
+
+    async def test_no_cabe_sin_token(self) -> None:
+        relleno = "#" + "x" * 200 + "\n"
+        grande = _YAML + relleno * (self.max_bytes // len(relleno) + 10)
+        self.descargas = [_importado(raw=grande)]
+        r = await self.t[self.tool](url=_URL)
+        self.assertEqual(r["error"], "blueprint_too_large")
+        self.assertEqual(r["content_bytes"], len(grande.encode("utf-8")))
+        self.assertEqual(r["max_bytes"], self.max_bytes)
+        self.assertNotIn("confirmation_token", r)
+        self.assertNotIn("content", r)
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    # ── T017(f): redacción ──
+
+    async def test_contenido_con_secreto_tapado(self) -> None:
+        self.descargas = [_importado(raw=_YAML_CON_SECRETO)]
+        r = await self.t[self.tool](url=_URL)
+        p = r["preview"]
+        self.assertNotIn(_CENTINELA, json.dumps(r))
+        self.assertNotIn(_JWT, json.dumps(r))
+        self.assertIs(p["content_redacted"], True)
+        self.assertIn("content_note", p)
+        # La huella y el tamaño son los del original, que es lo que se guarda.
+        self.assertEqual(p["content_sha256"],
+                         hashlib.sha256(_YAML_CON_SECRETO.encode("utf-8")).hexdigest())
+        self.assertNotIn(_CENTINELA, self.texto_de_tokens())
+
+    # ── T017(g): errores de HA ──
+
+    async def test_errores_de_ha(self) -> None:
+        for codigo in ("not_supported", "timeout", "unknown_error", "invalid_format",
+                       "home_assistant_error"):
+            with self.subTest(codigo=codigo):
+                self.descargas = [HAConnectionError(
+                    f"HA WS command failed: 404 for https://u:{_CENTINELA}@example.com",
+                    code=codigo)]
+                r = await self.t[self.tool](url=_URL)
+                self.assertEqual((r["error"], r["ha_code"]), ("import_failed", codigo))
+                self.assertNotIn(_CENTINELA, json.dumps(r))
+                self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.ficheros_de_tokens(), [])
+
+    async def test_respuesta_rara(self) -> None:
+        for raro in (None, [], {"raw_data": 1}, {"raw_data": "x"}):
+            with self.subTest(raro=raro):
+                self.descargas = [raro]
+                r = await self.t[self.tool](url=_URL)
+                self.assertEqual(r["error"], "import_failed")
+                self.assertNotIn("confirmation_token", r)
+
+    # ── T017(h): log ──
+
+    async def test_log_sin_url_con_credenciales_ni_yaml(self) -> None:
+        url = f"https://user:{_CENTINELA}@example.com/blueprints/luz.yaml"
+        self.descargas = [_importado(raw=_YAML_CON_SECRETO)]
+        with capture_logs() as logs:
+            v = await self.t[self.tool](url=url)
+            await self.t[self.tool](url=url, confirmation_token=v["confirmation_token"])
+            self.descargas = [HAConnectionError("caída", code="timeout")]
+            await self.t[self.tool](url=url)
+        texto = str(logs)
+        self.assertNotIn(_CENTINELA, texto)
+        self.assertNotIn("triggers", texto)
+        self.assertNotIn("Luz por movimiento", texto)
+        eventos = {e["event"] for e in logs}
+        self.assertTrue({"ha_import_blueprint_preview", "ha_import_blueprint_ok",
+                         "ha_import_blueprint_error"} <= eventos)
+
+    # ── T018: confirmación ──
+
+    async def _vista(self, **kw: Any) -> dict[str, Any]:
+        return await self.t[self.tool](**{"url": _URL, **kw})
+
+    async def test_confirmacion_guarda_el_original(self) -> None:
+        self.descargas = [_importado(raw=_YAML_CON_SECRETO)]
+        v = await self._vista()
+        self.enviados.clear()
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertEqual(r["result"], "ok")
+        self.assertEqual(self.tipos(), ["blueprint/import", "blueprint/save"])
+        self.assertEqual(self.enviados[1], {
+            "type": "blueprint/save", "domain": "automation",
+            "path": "example.com/luz.yaml", "yaml": _YAML_CON_SECRETO,
+            "source_url": _URL, "allow_override": False})
+        self.assertEqual((r["domain"], r["path"], r["content_sha256"]),
+                         ("automation", "example.com/luz.yaml",
+                          hashlib.sha256(_YAML_CON_SECRETO.encode("utf-8")).hexdigest()))
+        self.assertNotIn(_CENTINELA, json.dumps(r))
+
+    async def test_confirmacion_con_path_y_allow_override(self) -> None:
+        self.respuestas["blueprint/list"] = lambda p: {"hermes/x.yaml": _meta("x")}
+        self.respuestas["search/related"] = {"automation": []}
+        v = await self._vista(path="hermes/x", allow_override=True)
+        self.enviados.clear()
+        r = await self.t[self.tool](url=_URL, path="hermes/x", allow_override=True,
+                                    confirmation_token=v["confirmation_token"])
+        self.assertEqual(r["result"], "ok")
+        guardar = self.enviados[-1]
+        self.assertEqual((guardar["path"], guardar["allow_override"]), ("hermes/x.yaml", True))
+
+    async def test_contenido_distinto_al_confirmar(self) -> None:
+        self.descargas = [_importado(), _importado(raw=_YAML.replace("Banco", "Otro"))]
+        v = await self._vista()
+        self.enviados.clear()
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertEqual(r["error"], "content_changed")
+        self.assertIn("new preview", r["hint"])
+        self.assertNotIn("blueprint/save", self.tipos())
+
+    async def test_sugerencia_distinta_al_confirmar(self) -> None:
+        self.descargas = [_importado(), _importado(sugerido="example.com/otra")]
+        v = await self._vista()
+        self.enviados.clear()
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertEqual(r["error"], "content_changed")
+        self.assertNotIn("blueprint/save", self.tipos())
+
+    async def test_token_de_otros_argumentos(self) -> None:
+        for otros in ({"url": "https://example.com/blueprints/otra.yaml"},
+                      {"path": "hermes/otra"}, {"allow_override": True}):
+            with self.subTest(otros=otros):
+                v = await self._vista()
+                self.enviados.clear()
+                args = {"url": _URL, **otros}
+                r = await self.t[self.tool](**args, confirmation_token=v["confirmation_token"])
+                self.assertIn("does not match", r["error"])
+                self.assertNotIn("blueprint/save", self.tipos())
+
+    async def test_token_reutilizado(self) -> None:
+        v = await self._vista()
+        await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.enviados.clear()
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertIn("already used", r["error"])
+        self.assertNotIn("blueprint/save", self.tipos())
+
+    async def test_segunda_descarga_falla(self) -> None:
+        self.descargas = [_importado(), HAConnectionError("caída", code="timeout")]
+        v = await self._vista()
+        self.enviados.clear()
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertEqual((r["error"], r["ha_code"]), ("import_failed", "timeout"))
+        self.assertNotIn("blueprint/save", self.tipos())
+
+    async def test_carrera_ya_existe_al_guardar(self) -> None:
+        v = await self._vista()
+        self.respuestas["blueprint/save"] = HAConnectionError(
+            "HA WS command failed: File already exists", code="already_exists")
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertEqual(r["error"], "already_exists")
+        estado = json.loads(self.ficheros_de_tokens()[0].read_text(encoding="utf-8"))
+        self.assertEqual(estado["state"], "failed")
+
+    async def test_ha_rechaza_al_guardar(self) -> None:
+        v = await self._vista()
+        self.respuestas["blueprint/save"] = HAConnectionError(
+            f"HA WS command failed: Invalid password={_CENTINELA}", code="invalid_format")
+        r = await self.t[self.tool](url=_URL, confirmation_token=v["confirmation_token"])
+        self.assertEqual((r["error"], r["ha_code"]), ("save_failed", "invalid_format"))
+        self.assertNotIn(_CENTINELA, json.dumps(r))
+
+    async def test_el_token_no_guarda_el_yaml(self) -> None:
+        self.descargas = [_importado(raw=_YAML_CON_SECRETO)]
+        await self._vista()
+        texto = self.texto_de_tokens()
+        self.assertNotIn("triggers", texto)
+        self.assertNotIn(_CENTINELA, texto)
+        self.assertNotIn("stored_args", texto)
+
+
 class TestEsquemaDelYaml(unittest.TestCase):
     """`yaml` es `str` exactamente (como `content` de `fs_write_file`): el SDK
     MCP no lo convierte aunque parezca JSON. Control negativo comprobado: con

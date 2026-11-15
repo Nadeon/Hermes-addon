@@ -373,6 +373,12 @@ un cliente contra la instalación real.
   que usa Hermes caben en `manager`, sin excepciones
   (`tests/test_rutas_supervisor_rol.py`). El rol del add-on publicado se
   decide con este resultado (D-02).
+- [ ] (VM o instalación real, con internet) **`ha_import_blueprint` con los
+  importadores que el banco no puede probar** (spec 017): una URL de GitHub
+  (`github.com/<repo>/blob/…` y `raw.githubusercontent.com`), un gist y un
+  tema del foro. Comprobar la vista previa (`importer`, ruta sugerida, YAML
+  entero y huella), la confirmación y el `source_url` guardado. El banco
+  solo cubre el importador genérico (sin salida a internet).
 - [ ] (instalación real, tras publicar) **Pruebas en vivo de las tools nuevas
   de la 1.2.0**: las tools nuevas del programa en una instalación en uso,
   solo después de publicar; las destructivas, antes en la VM.
@@ -431,7 +437,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
-| 017 | Automatización asistida | 038, 040, 046, 051, 052 | en curso (tramo A): familia `blueprints` con `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint` y `ha_delete_blueprint`; 4 entradas `blueprint/*` a `dedicated`; guardar y borrar probados en el banco de Core |
+| 017 | Automatización asistida | 038, 040, 046, 051, 052 | en curso (tramos A y B): familia `blueprints` con `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint`, `ha_delete_blueprint` e `ha_import_blueprint`; 5 entradas `blueprint/*` a `dedicated`; guardar, importar (desde `/local/` del banco) y borrar probados en el banco de Core. Pendiente manual: importar de GitHub, gist y foro |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
@@ -675,6 +681,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_finish_timer` | banco de Core | ok | |
 | `ha_fire_event` | banco de Core | ok | |
 | `ha_ignore_repair` | banco de Core | ok | |
+| `ha_import_blueprint` | banco de Core | ok | importador genérico desde `/local/` del banco; GitHub, gist y foro sin probar |
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
 | `ha_pause_timer` | banco de Core | ok | |

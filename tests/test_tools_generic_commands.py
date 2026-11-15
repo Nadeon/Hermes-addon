@@ -1032,6 +1032,24 @@ class TestDedicadasDeLa017(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", "ha_save_blueprint"))
         ha.ws_send.assert_not_awaited()
 
+    async def test_importar_a_su_dedicada(self) -> None:
+        """Tramo B (T021): `blueprint/import` pasa a `ha_import_blueprint`; antes
+        era `deny` («pendiente de tool dedicada»). Control negativo
+        comprobado: dejarla en `deny` → `command_denied` y cae este test."""
+        mcp, ha = _registrar_todo([])
+        url = {"url": "https://example.com/blueprints/luz.yaml"}
+        for generica in ("ha_call_ws_command", "ha_read_ws_command"):
+            with self.subTest(generica=generica):
+                r = await mcp.tools[generica]("blueprint/import", url)
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", "ha_import_blueprint", "blueprints",
+                                  False))
+        mcp, ha_off = _registrar_todo(["blueprints"])
+        r = await mcp.tools["ha_call_ws_command"]("blueprint/import", url)
+        self.assertEqual((r["tool"], r["family_disabled"]), ("ha_import_blueprint", True))
+        ha.ws_send.assert_not_awaited()
+        ha_off.ws_send.assert_not_awaited()
+
     async def test_con_la_familia_desactivada(self) -> None:
         mcp, ha = _registrar_todo(["blueprints"])
         self.assertNotIn("ha_delete_blueprint", mcp.tools)

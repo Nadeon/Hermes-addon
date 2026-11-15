@@ -10,8 +10,11 @@ Tramo A (blueprints locales): `ha_save_blueprint` y `ha_delete_blueprint`, en
 `tests/banco/test_banco_blueprints.py`, con el efecto comprobado por el lector
 (`blueprint/list` directo a Core). `ha_list_blueprints` y
 `ha_preview_blueprint_substitution` no modifican (`readOnlyHint`) y no entran
-en el invariante, aunque también se ejecutan en ese fichero. El tramo B añade
-`ha_import_blueprint`.
+en el invariante, aunque también se ejecutan en ese fichero.
+
+Tramo B (importar): `ha_import_blueprint`, en el mismo fichero, importando
+desde `/local/` de la propia HA del banco (que no tiene salida a internet):
+importador genérico. Los de GitHub, gist y foro, prueba manual pendiente.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 PROBADAS_017: frozenset[str] = frozenset({
     "ha_save_blueprint",
     "ha_delete_blueprint",
+    "ha_import_blueprint",
 })
 
 # Vacío: todas las de la 017 se ejecutan contra HA Core real en el banco.

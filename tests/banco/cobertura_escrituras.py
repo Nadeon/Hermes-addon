@@ -161,7 +161,7 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
     # Spec 029: lecturas, pero también se exigen por ejecución (FR-022).
     | cobertura.PROBADAS_EN_BANCO_029
     | PROBADAS_012
-    # Spec 017, tramo A: guardar y borrar blueprints.
+    # Spec 017: guardar y borrar blueprints (tramo A) e importar (tramo B).
     | PROBADAS_017
 )
 XFAIL_DEL_JOB: dict[str, str] = {**cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028}

@@ -284,8 +284,8 @@ class TestDedicadas(unittest.TestCase):
     def test_dedicadas_de_la_017_tramo_a(self) -> None:
         """Spec 017, T010 (FR-012): los cuatro comandos de blueprints del
         tramo A son `dedicated` hacia su tool de `blueprints`, con la forma
-        que escribe el generador, y el mapa del generador los nombra.
-        `blueprint/import` sigue pendiente hasta su tool (tramo B).
+        que escribe el generador, y el mapa del generador los nombra. Tramo B
+        (T021): `blueprint/import` también, hacia `ha_import_blueprint`.
         Control negativo (T016, 7): `blueprint/delete` de vuelta a `deny` →
         cae aquí (y `test_desde_cero_igual_que_la_tabla_real` de test_generar_tabla)."""
         from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
@@ -295,6 +295,7 @@ class TestDedicadas(unittest.TestCase):
             "blueprint/save": "ha_save_blueprint",
             "blueprint/delete": "ha_delete_blueprint",
             "blueprint/substitute": "ha_preview_blueprint_substitution",
+            "blueprint/import": "ha_import_blueprint",
         }
         for comando, tool in cuatro.items():
             with self.subTest(comando=comando):
@@ -303,7 +304,6 @@ class TestDedicadas(unittest.TestCase):
                     (e.category, e.reason, e.family, e.tool, e.cap),
                     ("dedicated", f"cubierto por {tool}", "blueprints", tool, "CAP-046"))
                 self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
-        self.assertEqual(ct.CORE_WS["blueprint/import"].category, "deny")
 
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
