@@ -112,12 +112,37 @@ async def _crear_calendario(s: SesionEscrituras) -> str:
     return next(e["entry_id"] for e in cargadas if e.get("title") == nombre)
 
 
+_ESPERA_MANEJADOR = 30.0
+
+
+async def _esperar_manejador(s: Any, dominio: str,
+                             timeout: float = _ESPERA_MANEJADOR) -> dict[str, Any]:
+    """`ha_list_diagnostics_handlers` (por Hermes) hasta que liste `dominio`.
+
+    Devuelve la última respuesta, que ya lo incluye; si en `timeout` segundos
+    no aparece, `esperar` lanza `AssertionError` con lo último visto.
+    Control negativo comprobado: con un dominio que no existe y `timeout`
+    corto, falla con «no se cumplió».
+    """
+    return await s.lector.esperar(
+        lambda: s.accion("ha_list_diagnostics_handlers"),
+        lambda r: any(h.get("domain") == dominio for h in r.get("items", [])),
+        descripcion=f"manejador de diagnóstico de {dominio} listado por Hermes",
+        timeout=timeout,
+    )
+
+
 class TestDiagnosticos(BancoEscrituras):
     async def test_diagnostico_de_entrada(self) -> None:
         async with self.sesion() as s:
             entry_id = await _crear_calendario(s)
 
-            todos = await s.accion("ha_list_diagnostics_handlers")
+            # Core registra la plataforma de diagnóstico de `local_calendar`
+            # un poco DESPUÉS de que la entrada quede `loaded` (se procesa
+            # aparte, al cargar la integración): una vez en el CI la lista aún
+            # no la traía. Se sondea, acotado, hasta que aparezca; si no
+            # aparece nunca, `esperar` falla con el último valor (no se salta).
+            todos = await _esperar_manejador(s, "local_calendar")
             self.assertIn({"domain": "local_calendar", "config_entry": True, "device": False},
                           todos["items"])
             uno = await s.accion("ha_list_diagnostics_handlers", domain="local_calendar")
