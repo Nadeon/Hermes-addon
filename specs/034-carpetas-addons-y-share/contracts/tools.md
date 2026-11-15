@@ -20,6 +20,8 @@ fs_delete_in_folder(folder: str, path: str, recursive: bool = False, confirmatio
 # Existentes: MISMO esquema de entrada; solo cambia la vista previa (tramo 3)
 sv_install_addon(slug, confirmation_token=None)            # familia supervisor
 sv_rebuild_addon(slug, force=False, confirmation_token=None)  # familia app_store
+# Convergencia 2 (T053): MISMO esquema de entrada; cambia la vista previa
+sv_update_addon(slug, confirmation_token=None)             # familia supervisor
 ```
 
 `content` se anota `str` (no `str | None`), como en `fs_write_file`: el SDK
@@ -142,6 +144,26 @@ confirmar: el mismo rechazo `preview_outdated` que ya da `sv_install_addon`
 por versión, con la pista al día («the store version or the app's
 privileges changed»). El token solo guarda una huella del estado, así que
 no se dice cuál de los dos cambió. El resto de la respuesta, igual.
+
+### `sv_update_addon` (convergencia 2, T053)
+
+Como `sv_rebuild_addon`: la vista previa gana `privileges` (`store`,
+`installed`, `elevated` y, para `local_*`, `declared_in_folder`) y el token
+ata `{"version_latest", "privileges"}`. Para `local_*`, `store_copy_stale`
+sin token en la vista previa y al confirmar, bajo el candado de `/addons`.
+
+### `store_copy_stale`, `ignored_config_files` y `folder_busy` (convergencia 2)
+
+- `store_copy_stale` (instalar, actualizar y reconstruir una `local_*`): si
+  cualquier entrada de `/addons`, a cualquier profundidad y con la raíz,
+  tiene una fecha posterior al inicio de la última recarga lanzada por
+  Hermes menos 2 s (T051); `reason` dice qué cambió lo último.
+- `ignored_config_files`: `{"files": [{"path", "reason"}], "count", "note"}`
+  en la vista previa, con los `config.*` que el Supervisor descartaría
+  (T055); no bloquean.
+- `folder_busy`: `{"error": "folder_busy", "folder", "detail"}` (y `slug` en
+  las `sv_*`) si el candado de la carpeta no se consigue en
+  `ESPERA_MAX_CANDADO_S` (15 s); el token no se gasta (T056).
 
 ## Errores al cliente
 

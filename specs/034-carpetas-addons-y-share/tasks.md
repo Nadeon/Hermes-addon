@@ -365,3 +365,59 @@ Notas de la convergencia (decisiones del supervisor aplicadas):
 - T048: `folders.candado(folder)` por bucle de eventos; `folders.revalidar` en el hilo de la operación y `dir_fd` con `O_NOFOLLOW|O_DIRECTORY` donde el sistema lo da (`USAR_DIR_FD`); en Windows, por ruta. Error nuevo `path_changed`.
 - T049: `lstat` + `O_NONBLOCK` + `fstat` al leer; `exigir_regular_o_ausente` en la vista previa y justo antes de escribir. Error `not_regular_file`.
 - T050: README, README.es y la tabla de familias de DOCS dicen «sin borrar ni mover» (escribir dentro se admite, con aviso).
+
+## Fase 6: Convergencia 2
+
+Verificación independiente del rango `2a01016..64d611e` (la convergencia
+T045–T050). Severidad entre corchetes; las decisiones son del supervisor.
+
+- [x] T051 [MEDIO] N1: `store_copy_stale` se saltaba con dos `config.*` del mismo slug en carpetas distintas en el momento de la recarga (el Supervisor se queda con el último del glob; después se borra uno y solo cambia la fecha de SU carpeta, fuera del camino del otro). Arreglo: hacer lo que hace el Supervisor con `get_latest_mtime` (`utils/__init__.py`, que usa `RepositoryLocal.update`): se rechaza si CUALQUIER entrada de `/addons` (ficheros y carpetas, a cualquier profundidad, la raíz incluida) tiene una fecha posterior al inicio de la última recarga lanzada por Hermes menos el margen de 2 s; un fichero borrado cambia la fecha de su carpeta padre, así que cuenta. Si el recorrido pasa de los topes de entradas o de tiempo, se rechaza (fail-closed). Sustituye a la comprobación por camino; el rechazo por slug duplicado se mantiene. Test con el escenario y control negativo per FR-021, FR-022, FR-023
+- [x] T052 [BAJO] N2: dos recargas a la vez; la segunda vuelve «bien» sin releer mientras la primera sigue. Arreglo: un candado común a todas las vías de recarga de Hermes (`sv_reload_store`, `sv_check_for_updates`, añadir y quitar repositorio); la hora de inicio se toma con el candado cogido y solo se anota si la recarga termina bien. Test y control negativo
+- [x] T053 [MEDIO] N3: `sv_update_addon` aplica la copia de la tienda (`apps/app.py`, `update`) sin enseñar privilegios ni comprobar `store_copy_stale`. Arreglo: el mismo tratamiento que `sv_install_addon`: bloque `privileges` en la vista previa de cualquier app (con `installed`, porque la app está instalada), token atado al bloque y, para `local_*`, `store_copy_stale` en la vista previa y en la confirmación, con la comprobación y el `POST` bajo el candado de `/addons`. Sin cambio del esquema de entrada (instantánea de la 1.1.2); inventario de la 033, descripción, guía y CHANGELOG al día. Tests y control negativo per FR-021, FR-022, FR-023
+- [x] T054 [BAJO] N4: honestidad. El CHANGELOG y las cabeceras de `folders.py` y `folders_write.py` decían que en Linux «se opera relativa a la carpeta padre»; la escritura revalida y va por ruta. Decir con exactitud qué operaciones van por descriptor de carpeta en Linux (crear carpeta, mover y borrar; en escribir, solo crear las carpetas padre) y cuáles por ruta (la escritura del fichero) per principio V
+- [x] T055 [BAJO] N5: un `config.*` que el Supervisor descartaría (sin `slug` válido, que no se puede parsear, que no es un mapa o al que le falta un campo obligatorio de su esquema, `apps/validate.py` y `store/data.py`) bloqueaba instalar y reconstruir TODA app local con el motivo «cannot be read». Arreglo: no bloquea otras apps; sale en una nota (`ignored_config_files`) con su motivo real; solo lo que Hermes de verdad no puede leer (symlink, no regular, más de 1 MiB, error de E/S) sigue bloqueando, con su motivo. Test y control negativo
+- [x] T056 [BAJO] N6: esperar el candado de una carpeta no tenía tope (reconstruir una app local lo retiene hasta 300 s y las confirmaciones en cola caducaban). Arreglo: tope de espera menor que la vida del token; si se pasa, `folder_busy` sin gastar el token y sin hacer nada; guía (`folders`) y CHANGELOG. Test y control negativo
+
+Notas de la convergencia 2 (tests en `tests/test_convergencia_2_034.py`;
+cada control negativo, comprobado: revertido, en rojo y restaurado):
+
+- T051: `folders.fecha_mas_reciente` recorre `/addons` entero con
+  `os.scandir` (sin seguir symlinks; de un symlink cuenta además la fecha de
+  su destino, como `stat` en el Supervisor) y devuelve la fecha más reciente
+  y su ruta, que sale en `reason`. Topes `MAX_ENTRADAS` y `MAX_SEGUNDOS`:
+  si se pasan, `store_copy_stale`. Sustituye a `_fecha_mas_reciente` (el
+  camino del fichero). Control negativo: con la comprobación por camino caen
+  los tres escenarios (dos `config.*` y se borra el que ganó, un cambio en
+  otra carpeta, una carpeta oculta) y el del árbol grande.
+- T052: `_store.candado_de_recarga()` (uno por bucle) en las cuatro vías; el
+  inicio se toma dentro y se anota solo si la petición va bien. Un test por
+  AST exige que cada `anotar_recarga_de_tienda` esté dentro del candado (4
+  vías). Control negativo: sin el candado en `sv_reload_store`, la traza de
+  dos recargas simultáneas se entrelaza y caen los tres tests.
+- T053: `sv_update_addon` lee la app instalada una sola vez (`info`), arma
+  el bloque como reconstruir (tienda, instalada y, para `local_*`,
+  `declared_in_folder`) y ata `{"version_latest", "privileges"}`; la
+  confirmación va por `bajo_candado_de_app`. `test_tools_addons_tienda`
+  cuenta ahora dos lecturas GET antes del `POST` (la petición es la de la
+  1.1.2). Controles negativos: sin `privileges` en el estado, sin la
+  comprobación en la vista previa y sin ella al confirmar, cada uno con su
+  test en rojo.
+- T054: cabeceras de `folders.py` y `folders_write.py` y el CHANGELOG
+  (control negativo: el texto sin «por ruta» → cae su test).
+- T055: `IndiceDeApps` separa `descartados` (lo que el Supervisor salta:
+  UTF-8, YAML o JSON inválidos, no es un mapa, sin `name`, `version`, `slug`,
+  `description` o `arch`, `slug` fuera de `RE_SLUG_FIELD`, `local_<slug>` de
+  más de 60) de `no_legibles` (symlink, no regular, más de 1 MiB, E/S, JSON
+  con BOM); `apps` prefiere el no descartado; YAML con el cargador del
+  Supervisor (`CSafeLoader` si está). Otras reglas del esquema no se imitan
+  y cuentan como app (fail-closed). `installed_check_inconclusive` (FR-019)
+  sigue contando todo `config.*` sin slug, con el texto corregido.
+  Controles negativos: `ilegibles` como antes → caen los casos sin slug;
+  sin la preferencia en `apps` → cae el del duplicado descartado.
+- T056: `folders.ESPERA_MAX_CANDADO_S = 15` (la cuarta parte de los 60 s del
+  token) y `candado_con_tope`; `folder_busy` antes de mirar el token. Control
+  negativo: con el candado sin tope las dos confirmaciones se quedan
+  esperando y caen por el `wait_for` del test.
+- Hallazgo de paso: la nota de `declared_in_folder` salía como
+  `token ***REDACTED***` (la redacción tomaba la palabra tras «token» por un
+  secreto); reescrita y comprobada en `TestActualizar`.

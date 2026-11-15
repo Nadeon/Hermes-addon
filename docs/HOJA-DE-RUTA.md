@@ -493,6 +493,12 @@ un cliente contra la instalación real.
   `sv_install_addon` de una app local con `map` y `privileged` enseña
   `privileges` con `declared_in_folder` y `elevated`; cambiar su
   `config.yaml` antes de confirmar da `preview_outdated`.
+- [ ] (VM) **Actualizar una app local y `store_copy_stale` (convergencia 2
+  de la 034)**: subir la `version` de una app local instalada,
+  `sv_reload_store` y `sv_update_addon` enseña `privileges`; tocar
+  cualquier fichero de `/addons` antes de confirmar da `store_copy_stale`;
+  confirmar mientras se reconstruye otra app local da `folder_busy` a los
+  15 s sin gastar el token.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -1074,10 +1080,14 @@ Spec, plan y tareas en `specs/034-carpetas-addons-y-share/`. Hermes pasa de
 - **Protecciones**: no se borra ni se mueve una app local instalada, la raíz
   de una carpeta ni un punto de montaje; el aviso de `/addons` en cada vista
   previa; la lista negra por nombre de fichero de `/config`.
-- **Privilegios en `sv_install_addon` y `sv_rebuild_addon`**: la vista
-  previa enseña `privileges` (tienda, instalada, lo que declara el
-  `config.*` de una app local y cuáles son elevados) y el token se ata a
-  ese bloque; `sv_rebuild_addon` ata ahora su token al estado.
+- **Privilegios en `sv_install_addon`, `sv_update_addon` y
+  `sv_rebuild_addon`**: la vista previa enseña `privileges` (tienda,
+  instalada, lo que declara el `config.*` de una app local y cuáles son
+  elevados) y el token se ata a ese bloque; `sv_rebuild_addon` ata ahora su
+  token al estado. Para una app local, `store_copy_stale` si algo en
+  `/addons` cambió desde la última recarga de la tienda lanzada por Hermes
+  (las recargas de Hermes van en serie) y `folder_busy` si la espera del
+  candado de `/addons` pasa de 15 s.
 - Guía (tema `folders`), DOCS, SECURITY y los README al día. Las cuatro que
   modifican tienen su fila «VM / pendiente» en la matriz de la 014 y están
   fuera del banco de Core (no hablan con Core); la prueba en vivo, en

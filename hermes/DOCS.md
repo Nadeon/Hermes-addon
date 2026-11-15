@@ -140,17 +140,18 @@ borrar, **siempre en dos pasos**. Las reglas:
   puede; el cambio se aplica al reconstruir la app.
 - La raíz de cada carpeta y los puntos de montaje (un NAS montado en
   `/share`) no se borran ni se mueven.
-- Instalar o reconstruir una app (`sv_install_addon`, `sv_rebuild_addon`)
-  enseña en la vista previa los privilegios que pide (acceso completo al
-  hardware, a Docker o a la red del host, AppArmor desactivado, carpetas con
-  escritura…) y, para una app local, lo que declara su `config.yaml`. Si
-  cambian antes de confirmar, no se instala ni se reconstruye nada.
-- **Recarga la tienda después de tocar una app local.** El Supervisor instala
-  y reconstruye con su propia copia del `config.yaml`, la de la última
-  recarga de la tienda. Si el fichero (o una carpeta de su camino) cambió
-  después de la última recarga que lanzó Hermes, o Hermes no ha recargado
-  desde que arrancó, instalar o reconstruir esa app se rechaza sin token
-  (`store_copy_stale`): pide a Claude que recargue la tienda
+- Instalar, actualizar o reconstruir una app (`sv_install_addon`,
+  `sv_update_addon`, `sv_rebuild_addon`) enseña en la vista previa los
+  privilegios que pide (acceso completo al hardware, a Docker o a la red del
+  host, AppArmor desactivado, carpetas con escritura…) y, para una app local,
+  lo que declara su `config.yaml`. Si cambian antes de confirmar, no se hace
+  nada.
+- **Recarga la tienda después de tocar `/addons`.** El Supervisor instala,
+  actualiza y reconstruye con su propia copia del `config.yaml`, la de la
+  última recarga de la tienda. Si algo en `/addons` cambió después de la
+  última recarga que lanzó Hermes, o Hermes no ha recargado desde que
+  arrancó, instalar, actualizar o reconstruir una app local se rechaza sin
+  token (`store_copy_stale`): pide a Claude que recargue la tienda
   (`sv_reload_store`) y vuelva a empezar.
 
 Para eso Hermes monta `/addons` **con escritura** desde la 1.2.1. Usa el tipo
