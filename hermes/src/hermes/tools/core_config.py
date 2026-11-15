@@ -53,11 +53,10 @@ from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
     redact_secrets,
-    redact_structure,
     resolve_confirmation_token,
 )
 from hermes.tools._validation import es_numero_finito
-from hermes.tools._common import requires_ready
+from hermes.tools._common import redactar_datos, requires_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -288,7 +287,11 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
             logger.warning("ha_get_core_config_failed", error=exc.code or "connection")
             return _error_ha(exc)
         logger.info("ha_get_core_config_ok", config_source=config.get("config_source"))
-        return redact_structure(config)
+        # Por clave Y por patrón (revisión final 1.2.0): `internal_url` y
+        # `external_url` no son claves sensibles, y una URL con
+        # `usuario:clave@` salía en claro. Sale `usuario:***@`, como en las
+        # genéricas; reenviarla así ya lo rechaza `mcp_server.call_tool`.
+        return redactar_datos(config)
 
     # ── ha_update_core_config ─────────────────────────────────────────────
 
@@ -394,7 +397,8 @@ def register(mcp: object, ha_client: HAClient, *, response_max_bytes: int) -> No
             # de la casa).
             preview = {
                 "action": "update_core_config",
-                "changes": redact_structure(cambios),
+                # El antes y el después de una URL, con `usuario:***@`.
+                "changes": redactar_datos(cambios),
                 "unchanged": sorted(c for c in pedidos if c not in cambios),
                 "update_units": update_units,
                 "warnings": avisos,
@@ -469,4 +473,4 @@ async def _releer(ha_client: HAClient, nombres: list[str]) -> dict[str, Any] | N
         out["unit_system_detail"] = config["unit_system_detail"]
     out["config_source"] = config.get("config_source")
     out["version"] = config.get("version")
-    return redact_structure(out)
+    return redactar_datos(out)
