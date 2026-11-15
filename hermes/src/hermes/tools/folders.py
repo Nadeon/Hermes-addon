@@ -32,7 +32,6 @@ import structlog
 from hermes import folders as _folders
 from hermes.config import RESPONSE_MAX_BYTES_DEFAULT
 from hermes.fs import PathTraversalError, blacklisted_name, is_binary
-from hermes.fs import _open_file_nofollow
 from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista, tam_json
 
 logger = structlog.get_logger(__name__)
@@ -144,71 +143,190 @@ def _listar(base: Path, recursive: bool, max_depth: int) -> tuple[list[dict[str,
     return entradas, truncated
 
 
-def _leer_lineas(p: Path, offset: int, limit: int) -> dict[str, Any]:
+def _leer_lineas(p: Path, offset: int, limit: int,
+                 presupuesto: int = RESPONSE_MAX_BYTES_DEFAULT) -> dict[str, Any]:
     """Lee `limit` líneas desde `offset` sin cargar el fichero entero.
 
     Devuelve `binary: True` si hay un byte nulo en los primeros 8 KiB. Si el
     texto no es UTF-8 se vuelve a leer como latin-1 (como `detect_encoding`).
-    `more` dice si quedan líneas después del trozo.
+    `more` dice si quedan líneas después del trozo (o si se paró antes del
+    final por el presupuesto). `presupuesto` es el tope de caracteres que se
+    guardan de las líneas que se van a devolver (convergencia T045): más no
+    cabría en la respuesta, así que tampoco se carga en memoria.
+
+    Raises:
+        NoEsFichero: `p` no es un fichero regular (T049).
+        OSError: si no se puede leer.
     """
-    size = os.stat(p).st_size
-    with _open_file_nofollow(p) as f:
+    with _abrir_regular(p) as f:
+        size = os.fstat(f.fileno()).st_size
         probe = f.read(_BINARY_PROBE)
-    if is_binary(probe):
-        return {"binary": True, "size": size}
-    contar_todas = size <= TOTAL_LINES_MAX_BYTES
-    for encoding in ("utf-8", "latin-1"):
-        try:
-            return {"size": size, **_trozo(p, encoding, offset, limit, contar_todas, probe)}
-        except UnicodeDecodeError:
-            continue
+        if is_binary(probe):
+            return {"binary": True, "size": size}
+        contar_todas = size <= TOTAL_LINES_MAX_BYTES
+        for encoding in ("utf-8", "latin-1"):
+            try:
+                f.seek(0)
+                return {"size": size, **_trozo(f, encoding, offset, limit, contar_todas,
+                                               probe, presupuesto)}
+            except UnicodeDecodeError:
+                continue
     raise AssertionError("latin-1 decodifica cualquier secuencia de bytes")  # pragma: no cover
 
 
-def _trozo(p: Path, encoding: str, offset: int, limit: int,
-           contar_todas: bool, probe: bytes) -> dict[str, Any]:
+def _no_regular(rel: str) -> dict[str, Any]:
+    return {"error": "not_regular_file", "path": rel,
+            "detail": ("Not a regular file (a FIFO, socket or device): it is not "
+                       "read nor written, so nothing can block waiting on it.")}
+
+
+class NoEsFichero(OSError):
+    """La ruta no es un fichero regular (FIFO, socket, dispositivo): no se lee
+    (convergencia T049)."""
+
+
+def _abrir_regular(p: Path):
+    """Abre `p` para leer SOLO si es un fichero regular (T049).
+
+    Un FIFO sin escritor bloquea `open(O_RDONLY)` para siempre (en `/share`
+    los hay, p. ej. el de Snapcast); un dispositivo puede no acabar nunca.
+    Por eso: `lstat` antes (sin abrir nada), apertura con `O_NONBLOCK` (en
+    un FIFO vuelve en el acto) y `fstat` del descriptor después (lo que se
+    abrió es lo que se lee, aunque alguien cambie el fichero en medio).
+    """
+    if not _stat.S_ISREG(os.lstat(p).st_mode):
+        raise NoEsFichero(f"{p.name!r} is not a regular file")
+    fd = os.open(str(p), os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK | _O_BINARY)
+    try:
+        if not _stat.S_ISREG(os.fstat(fd).st_mode):
+            raise NoEsFichero(f"{p.name!r} is not a regular file")
+        return os.fdopen(fd, "rb")
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+_O_BINARY = getattr(os, "O_BINARY", 0)
+#: Lo que `str.splitlines` toma como fin de línea (`\r\n` acaba en `\n`).
+_FINES: tuple[str, ...] = ("\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e",
+                           "\x85", "\u2028", "\u2029")
+#: Bloque de lectura. Mutable para los tests.
+TAM_BLOQUE = 1024 * 1024
+
+
+def _trozo(f: Any, encoding: str, offset: int, limit: int,
+           contar_todas: bool, probe: bytes, presupuesto: int) -> dict[str, Any]:
+    """Las líneas `[offset, offset+limit)` de `f`, leyendo por bloques.
+
+    Memoria acotada (convergencia T045): de una línea solo se guarda lo que
+    cabe en `presupuesto` (caracteres; un carácter ocupa al menos un byte en
+    la respuesta) y, de las que no se devuelven, nada. Así un fichero de
+    varios GB sin un solo salto de línea ocupa a lo sumo `presupuesto` más un
+    bloque. Solo la PRIMERA línea de la página puede salir cortada (es la
+    única forma de avanzar); si otra no cabe entera, la página acaba antes
+    de ella y la siguiente llamada empieza por ella con todo el presupuesto.
+    """
     nombre = encoding
     if encoding == "utf-8" and probe.startswith(_UTF8_BOM):
         encoding, nombre = "utf-8-sig", "utf-8-bom"
     decoder = codecs.getincrementaldecoder(encoding)("strict")
     lineas: list[str] = []
+    cortes: list[dict[str, Any]] = []
     total = 0
     more = False
-    pendiente = ""
+    usado = 0
+    # La línea en curso: trozos guardados, caracteres vistos y si se cortó.
+    trozos: list[str] = []
+    guardado = 0
+    largo = 0
+    cortada = False
+    # Un `\r` al final de un bloque: la línea queda abierta por si el
+    # siguiente empieza con `\n` (mismas fronteras que `splitlines`).
+    cr_pendiente = False
 
-    def anotar(linea: str) -> bool:
-        """Cuenta una línea; False cuando ya no hace falta leer más."""
-        nonlocal total, more
-        if offset <= total < offset + limit:
-            lineas.append(linea)
+    def en_pagina() -> bool:
+        return offset <= total < offset + limit and not more
+
+    def anadir(parte: str) -> None:
+        nonlocal guardado, largo, cortada
+        largo += len(parte)
+        if not en_pagina():
+            return
+        sitio = presupuesto - usado - guardado
+        if sitio <= 0:
+            cortada = cortada or bool(parte)
+            return
+        if len(parte) > sitio:
+            parte, cortada = parte[:sitio], True
+        trozos.append(parte)
+        guardado += len(parte)
+
+    def cerrar() -> bool:
+        """Cierra la línea en curso; False cuando ya no hace falta leer más."""
+        nonlocal total, more, usado, trozos, guardado, largo, cortada
+        if offset <= total < offset + limit and not more:
+            if cortada and lineas:
+                # No es la primera de la página: no se corta, se deja para
+                # la siguiente llamada.
+                more = True
+            else:
+                lineas.append("".join(trozos))
+                usado += guardado
+                if cortada:
+                    cortes.append({"line": total, "returned_chars": guardado,
+                                   "line_chars": largo})
         elif total >= offset + limit:
             more = True
         total += 1
-        return contar_todas or not more
+        trozos, guardado, largo, cortada = [], 0, 0, False
+        if not contar_todas and (more or usado >= presupuesto):
+            more = True
+            return False
+        return True
 
-    with _open_file_nofollow(p) as f:
-        seguir = True
-        while seguir:
-            bloque = f.read(1024 * 1024)
-            texto = decoder.decode(bloque, final=not bloque)
-            pendiente += texto
-            # Mismas fronteras que `splitlines(keepends=True)`, pero sin
-            # cortar un `\r\n` que llega partido entre dos bloques.
-            partes = pendiente.splitlines(keepends=True)
-            if bloque and partes and (not partes[-1].endswith(("\n", "\r"))
-                                      or partes[-1].endswith("\r")):
-                pendiente = partes.pop()
-            else:
-                pendiente = ""
-            for linea in partes:
-                if not anotar(linea):
-                    seguir = False
-                    break
-            if not bloque:
+    seguir = True
+    while seguir:
+        bloque = f.read(TAM_BLOQUE)
+        texto = decoder.decode(bloque, final=not bloque)
+        if cr_pendiente and texto:
+            cr_pendiente = False
+            if texto.startswith("\n"):
+                anadir("\n")
+                texto = texto[1:]
+            if not cerrar():
                 break
+        partes = texto.splitlines(keepends=True)
+        for i, parte in enumerate(partes):
+            anadir(parte)
+            if not parte.endswith(_FINES):
+                continue  # la última, sin terminar: sigue en el próximo bloque
+            if parte.endswith("\r") and i == len(partes) - 1 and bloque:
+                cr_pendiente = True
+                continue
+            if not cerrar():
+                seguir = False
+                break
+        else:
+            # Corte de una línea gigante a mitad (fichero grande): no hace
+            # falta leer hasta su final para devolver lo que cabe.
+            if (not contar_todas and cortada and en_pagina()
+                    and not lineas and not cr_pendiente):
+                cortes.append({"line": total, "returned_chars": guardado,
+                               "line_chars": None})
+                lineas.append("".join(trozos))
+                more = True
+                break
+        if not bloque:
+            if cr_pendiente or largo:
+                cerrar()
+            break
     return {
         "encoding": nombre,
         "lines": lineas,
+        "cut_lines": cortes,
+        # Con `contar_todas` nunca se para antes del final: el recuento vale.
         "total_lines": total if contar_todas else None,
         "more": more,
     }
@@ -353,10 +471,17 @@ def register(
         """Read a text file under /addons or /share by lines.
 
         `folder` is "addons" or "share"; `path` is relative to it. Reads
-        `limit` lines (max 5000) starting at line `offset` (0-based) without
-        loading the whole file; if more lines remain, `truncated: true` and
-        `next_offset` say where to continue. The answer is also cut to the
-        response size limit.
+        `limit` lines (max 5000) starting at line `offset` (0-based), in
+        blocks, keeping in memory only what fits in the answer; if more lines
+        may remain, `truncated: true` and `next_offset` say where to
+        continue. The answer is also cut to the response size limit. A line
+        longer than that limit (a minified file, a dump without line breaks)
+        is returned cut, only when it is the first of the page: `cut_lines`
+        says which one and how many characters came back; the rest of that
+        line cannot be read with this tool.
+
+        Only regular files are read: a FIFO, socket or device returns
+        not_regular_file without opening it.
 
         Files with a sensitive name (secrets.yaml, *.key, *.pem, *token*,
         *.db…) are rejected ("blacklisted"), as under /config. A binary file
@@ -366,10 +491,12 @@ def register(
         Returns:
             {"folder", "path", "size_bytes", "encoding", "offset",
             "returned_lines", "total_lines" (null above 4 MiB), "lines",
-            "truncated"} plus "next_offset" and "hint" when truncated. Binary:
-            {"folder", "path", "size_bytes", "binary": true, "content": null,
-            "hint"}. Errors: invalid_argument, folder_unavailable, traversal,
-            blacklisted, not_found, is_directory, io_error.
+            "truncated"} plus "next_offset" and "hint" when truncated and
+            "cut_lines": [{"line", "returned_chars", "line_chars"}] when a
+            line was cut. Binary: {"folder", "path", "size_bytes", "binary":
+            true, "content": null, "hint"}. Errors: invalid_argument,
+            folder_unavailable, traversal, blacklisted, not_found,
+            is_directory, not_regular_file, io_error.
         """
         tool = "fs_read_file_in_folder"
         limit = max(1, min(int(limit), _MAX_LINES_PER_READ))
@@ -392,9 +519,12 @@ def register(
                 "hint": "Use fs_list_dir_in_folder to list a directory.",
             })
         try:
-            leido = await asyncio.to_thread(_leer_lineas, abs_path, offset, limit)
+            leido = await asyncio.to_thread(_leer_lineas, abs_path, offset, limit,
+                                            response_max_bytes)
         except FileNotFoundError:
             return _rechazo(tool, folder, rel, {"error": "not_found", "path": rel})
+        except NoEsFichero:
+            return _rechazo(tool, folder, rel, _no_regular(rel))
         except OSError as exc:
             return _rechazo(tool, folder, rel, {"error": "io_error", "detail": str(exc)})
 
@@ -407,9 +537,21 @@ def register(
             }
 
         lineas: list[str] = leido["lines"]
+        cortes: dict[int, dict[str, Any]] = {c["line"]: c for c in leido["cut_lines"]}
 
-        def armar(n: int, recortada: bool) -> dict[str, Any]:
+        def armar(n: int, recortada: bool, primera: str | None = None) -> dict[str, Any]:
             truncated = recortada or leido["more"]
+            devueltas = lineas[:n]
+            cortadas = [dict(cortes[offset + i]) for i in range(n) if offset + i in cortes]
+            if primera is not None and n:
+                # La primera línea, recortada aún más para que quepa con sus
+                # escapes JSON: se dice cuánto se devuelve de ella.
+                devueltas = [primera] + devueltas[1:]
+                if cortadas and cortadas[0]["line"] == offset:
+                    cortadas[0]["returned_chars"] = len(primera)
+                else:
+                    cortadas.insert(0, {"line": offset, "returned_chars": len(primera),
+                                        "line_chars": len(lineas[0])})
             out: dict[str, Any] = {
                 "folder": folder,
                 "path": rel,
@@ -418,15 +560,27 @@ def register(
                 "offset": offset,
                 "returned_lines": n,
                 "total_lines": leido["total_lines"],
-                "lines": lineas[:n],
+                "lines": devueltas,
                 "truncated": truncated,
             }
+            if cortadas:
+                out["cut_lines"] = cortadas
             if truncated:
                 out["next_offset"] = offset + n
                 out["hint"] = (
-                    "More lines remain; call again with offset=next_offset."
+                    "More lines may remain; call again with offset=next_offset."
                     if n else
                     "The line at this offset alone exceeds the response size limit."
+                )
+            if cortadas:
+                out["hint"] = (
+                    "Line " + ", ".join(str(c["line"]) for c in cortadas)
+                    + " is longer than the response size limit and was cut: only "
+                    "its first returned_chars characters are returned "
+                    "(line_chars is its length, null if not read to its end). "
+                    "The rest of that line cannot be read with this tool."
+                    + (" Call again with offset=next_offset for the next lines."
+                       if truncated else "")
                 )
             return out
 
@@ -447,5 +601,18 @@ def register(
             while n > 0 and tam_json(resultado) > response_max_bytes:
                 n -= 1
                 resultado = armar(n, True)
+            if n == 0 and lineas:
+                # Ni la primera cabe entera (escapes JSON): se recorta para
+                # avanzar siempre (T045). Búsqueda binaria del trozo más largo.
+                bajo, alto = 0, len(lineas[0])
+                while bajo < alto:
+                    medio = (bajo + alto + 1) // 2
+                    if tam_json(armar(1, True, lineas[0][:medio])) <= response_max_bytes:
+                        bajo = medio
+                    else:
+                        alto = medio - 1
+                if bajo:
+                    # Truncada solo si quedan líneas: el corte lo dice `cut_lines`.
+                    resultado = armar(1, len(lineas) > 1, lineas[0][:bajo])
         _log(tool, folder, rel, "ok")
         return resultado

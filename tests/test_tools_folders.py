@@ -290,6 +290,127 @@ class TestLeer:
         assert r["total_lines"] == 2
         assert r["lines"][1] == "y\n"
 
+    @pytest.mark.parametrize("contar", [True, False])
+    def test_linea_gigante_sin_cargar_el_fichero(self, raices, folder, monkeypatch,
+                                                 contar) -> None:
+        # Convergencia T045: un fichero de una sola línea (un minificado, un
+        # volcado) no se carga entero: se guarda solo lo que cabe en la
+        # respuesta más un bloque. Con `contar=False` el fichero pasa del
+        # umbral de `total_lines` y la lectura para en cuanto la página está
+        # llena, sin llegar al final de la línea.
+        # Control negativo comprobado: sin el tope de lo que se guarda de la
+        # línea (`sitio` ilimitado en `_trozo`, como antes, que acumulaba la
+        # línea entera) el pico pasa de 1 MiB y caen las cuatro variantes.
+        import tracemalloc
+
+        monkeypatch.setattr(tools_folders, "TAM_BLOQUE", 64 * 1024)
+        monkeypatch.setattr(tools_folders, "TOTAL_LINES_MAX_BYTES",
+                            8 * 1024 * 1024 if contar else 1024)
+        f = raices[folder] / "min.js"
+        with open(f, "wb") as fh:
+            for _ in range(64):
+                fh.write(b"a" * (64 * 1024))
+        tamano = 64 * 64 * 1024
+        tracemalloc.start()
+        try:
+            leido = tools_folders._leer_lineas(f, 0, 10, 8192)
+            _, pico = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert pico < 1024 * 1024, pico
+        assert leido["lines"] == ["a" * 8192]
+        assert leido["cut_lines"] == [{"line": 0, "returned_chars": 8192,
+                                       "line_chars": tamano if contar else None}]
+        r = _llamar(_tools(response_max_bytes=8192), "fs_read_file_in_folder",
+                    folder=folder, path="min.js")
+        assert tam_json(r) <= 8192
+        assert r["returned_lines"] == 1
+        # Sin leer hasta el final no se sabe si hay más líneas: se dice.
+        assert r.get("next_offset") == (None if contar else 1)
+        [corte] = r["cut_lines"]
+        assert corte["line"] == 0 and corte["returned_chars"] == len(r["lines"][0]) > 7000
+        assert corte["line_chars"] == (tamano if contar else None)
+        assert r["truncated"] is (not contar)
+        assert "cut" in r["hint"]
+
+    def test_solo_la_primera_de_la_pagina_se_corta(self, raices, folder) -> None:
+        # Una línea larga que no es la primera no se corta: la página acaba
+        # antes de ella y la siguiente llamada empieza por ella.
+        (raices[folder] / "f.txt").write_bytes(b"a\n" + b"b" * 20000 + b"\nc\n")
+        t = _tools(response_max_bytes=4096)
+        r = _llamar(t, "fs_read_file_in_folder", folder=folder, path="f.txt")
+        assert r["lines"] == ["a\n"] and r["next_offset"] == 1 and "cut_lines" not in r
+        r = _llamar(t, "fs_read_file_in_folder", folder=folder, path="f.txt", offset=1)
+        assert r["returned_lines"] == 1 and r["lines"][0].startswith("bbb")
+        assert r["cut_lines"][0]["line"] == 1 and r["cut_lines"][0]["line_chars"] == 20001
+        assert r["truncated"] is True and r["next_offset"] == 2
+        r = _llamar(t, "fs_read_file_in_folder", folder=folder, path="f.txt", offset=2)
+        assert r["lines"] == ["c\n"] and r["truncated"] is False
+
+    def test_fronteras_con_bloques_pequenos(self, raices, folder, monkeypatch) -> None:
+        # Con bloques de 3 bytes, cualquier fin de línea (y `\r\n`) cae
+        # partido entre dos bloques: las fronteras siguen siendo las de
+        # `splitlines(keepends=True)`.
+        monkeypatch.setattr(tools_folders, "TAM_BLOQUE", 3)
+        contenido = "a\r\nbb\rcc\r\r\nd\x0be\x85f ñ\n\n\rg"
+        (raices[folder] / "f.txt").write_bytes(contenido.encode("utf-8"))
+        r = _llamar(_tools(), "fs_read_file_in_folder", folder=folder, path="f.txt")
+        assert r["lines"] == contenido.splitlines(keepends=True)
+        assert r["total_lines"] == len(contenido.splitlines())
+
+    def test_no_regular_sin_abrirlo(self, raices, folder, monkeypatch) -> None:
+        # Convergencia T049, independiente del sistema operativo: un `lstat`
+        # que dice FIFO → `not_regular_file`, y el fichero ni se abre.
+        # Control negativo comprobado: sin las dos comprobaciones de
+        # `_abrir_regular` (`lstat` y `fstat`) caen las dos variantes.
+        import stat as stat_mod
+
+        f = raices[folder] / "snapfifo"
+        f.write_bytes(b"x\n")
+        lstat_real, open_real = os.lstat, os.open
+        abiertos: list[str] = []
+
+        def lstat_falso(p, *a, **k):
+            st = lstat_real(p, *a, **k)
+            if pathlib.Path(p) == f:
+                campos = list(st)
+                campos[0] = stat_mod.S_IFIFO | 0o644
+                return os.stat_result(campos)
+            return st
+
+        def open_espia(p, *a, **k):
+            abiertos.append(str(p))
+            return open_real(p, *a, **k)
+
+        monkeypatch.setattr(tools_folders.os, "lstat", lstat_falso)
+        monkeypatch.setattr(tools_folders.os, "open", open_espia)
+        r = _llamar(_tools(), "fs_read_file_in_folder", folder=folder, path="snapfifo")
+        assert r["error"] == "not_regular_file" and r["path"] == "snapfifo"
+        assert str(f) not in abiertos
+
+    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="sin FIFO en este sistema")
+    def test_fifo_real_no_bloquea(self, raices, folder) -> None:
+        # Convergencia T049 en Linux (CI): un FIFO sin escritor bloqueaba
+        # `open(O_RDONLY)` para siempre. Si vuelve a bloquear, el test falla
+        # por tiempo y el `finally` desbloquea el hilo abriendo el otro lado.
+        f = raices[folder] / "snapfifo"
+        os.mkfifo(f)
+        t = _tools()
+
+        async def leer() -> Any:
+            return await asyncio.wait_for(
+                t["fs_read_file_in_folder"](folder=folder, path="snapfifo"), 5)
+
+        try:
+            r = asyncio.run(leer())
+        finally:
+            try:
+                fd = os.open(f, os.O_WRONLY | os.O_NONBLOCK)
+                os.close(fd)
+            except OSError:
+                pass
+        assert r["error"] == "not_regular_file"
+
     def test_total_lines_null_por_encima_del_umbral(self, raices, folder, monkeypatch) -> None:
         monkeypatch.setattr(tools_folders, "TOTAL_LINES_MAX_BYTES", 10)
         (raices[folder] / "f.txt").write_text("".join(f"{i}\n" for i in range(100)),
