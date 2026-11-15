@@ -190,6 +190,19 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["core_diagnostics"]),
                          frozenset({"core_diagnostics"}))
 
+    def test_backup_integration_de_la_1_2_0(self) -> None:
+        """Spec 031 (FR-016, T006): familia nueva, desactivable, con el módulo
+        del tramo 1 (`ha_backup_settings`; los tramos 2 y 3 añaden los
+        suyos). Los backups de la 1.1.2 siguen en `backups`."""
+        familia = FAMILIAS["backup_integration"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("ha_backup_settings",))
+        self.assertEqual(familia_de_modulo("ha_backup_settings"), "backup_integration")
+        self.assertEqual(familia_de_modulo("ha_backups"), "backups")
+        self.assertEqual(validar_desactivadas(["backup_integration"]),
+                         frozenset({"backup_integration"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

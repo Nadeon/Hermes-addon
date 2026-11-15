@@ -361,6 +361,13 @@ def register_all_tools(
         )
         register_persistent_notifications(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Backups de la integración `backup` de HA (spec 031, CAP-057): agentes
+    # y ajustes de los backups automáticos. `ha_list_backup_agents` recorta
+    # su lista a `response_max_bytes`.
+    if _activa("backup_integration"):
+        from hermes.tools.ha_backup_settings import register as register_ha_backup_settings
+        register_ha_backup_settings(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

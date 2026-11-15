@@ -122,6 +122,14 @@ _CATALOGO: tuple[Familia, ...] = (
             "1.2.0", True,
             ("core_logs", "core_validation", "integration_diagnostics",
              "persistent_notifications")),
+    # Spec 031 (CAP-057): los backups de la integración `backup` de HA
+    # (agentes, ajustes; en los tramos siguientes, crear, borrar y
+    # restaurar). Familia propia y no `backups` (1.1.2), para que apagar las
+    # de la 1.2.0 deje la lista de la 1.1.2 (FR-010 de la 008).
+    Familia("backup_integration",
+            "Home Assistant backup integration: backup agents, automatic backup "
+            "settings and backups before updates.",
+            "1.2.0", True, ("ha_backup_settings",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

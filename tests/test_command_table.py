@@ -281,6 +281,29 @@ class TestDedicadas(unittest.TestCase):
         pendientes = sorted(str(k) for k, e in _todas() if "(spec 029)" in e.reason)
         self.assertEqual(pendientes, [])
 
+    def test_dedicadas_de_la_031(self) -> None:
+        """Spec 031, T011 (FR-017): los cuatro comandos de agentes y ajustes
+        de los backups de HA son `dedicated` hacia su tool de
+        `backup_integration`, con la forma exacta que escribe el generador
+        (data-model sección 13), y el mapa del generador los nombra.
+        Control negativo (T015 d): `backup/config/update` en `deny` → cae."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        tramo_1 = {
+            "backup/agents/info": "ha_list_backup_agents",
+            "backup/config/update": "ha_update_backup_config",
+            "hassio/update/config/info": "ha_get_update_backup_settings",
+            "hassio/update/config/update": "ha_set_update_backup_settings",
+        }
+        for comando, tool in tramo_1.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "backup_integration", tool,
+                     "CAP-057"))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
         otras = sorted(str(k) for k, e in _todas()

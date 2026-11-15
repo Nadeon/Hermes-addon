@@ -70,10 +70,10 @@ CORE_WS: dict[str, E] = {
     # ha_get_automation lee por REST /api/config/automation/config/{id} y no da la
     # de las automatizaciones de YAML sin `id`: no es la misma información.
     "automation/config": E("read", "configuración en bruto de una automatización por entity_id (también las de YAML sin id); solo lee", "generic_commands"),
-    "backup/agents/info": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
+    "backup/agents/info": E("dedicated", "cubierto por ha_list_backup_agents", "backup_integration", tool="ha_list_backup_agents", cap="CAP-057"),
     "backup/can_decrypt_on_download": E("deny", "comprobación de la UI antes de descargar (clase B)", "generic_commands"),
     "backup/config/info": E("dedicated", "cubierto por ha_get_backup_config", "backups", tool="ha_get_backup_config"),
-    "backup/config/update": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
+    "backup/config/update": E("dedicated", "cubierto por ha_update_backup_config", "backup_integration", tool="ha_update_backup_config", cap="CAP-057"),
     # Cubre también ubicaciones remotas, que sv_delete_backup no ve; pero la vista
     # previa genérica (resumen de la carga) no dice qué backup es ni qué contiene.
     # Hasta la tool dedicada de la 031, deny.
@@ -270,8 +270,8 @@ CORE_WS: dict[str, E] = {
     "hardware/info": E("deny", "placa/hardware: ya lo da sv_get_host_info (clase B)", "generic_commands"),
     "hardware/subscribe_system_status": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "hassio/update/addon": E("dedicated", "cubierto por sv_update_addon", "supervisor", tool="sv_update_addon"),
-    "hassio/update/config/info": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
-    "hassio/update/config/update": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands", cap="CAP-057"),
+    "hassio/update/config/info": E("dedicated", "cubierto por ha_get_update_backup_settings", "backup_integration", tool="ha_get_update_backup_settings", cap="CAP-057"),
+    "hassio/update/config/update": E("dedicated", "cubierto por ha_set_update_backup_settings", "backup_integration", tool="ha_set_update_backup_settings", cap="CAP-057"),
     # `hassio.core_update` ya no existe en 2026.11: la vía es `update.install` sobre
     # la entidad update de Core, que está en la denylist (dos pasos). Ver la nota de
     # `backup/generate_with_automatic_settings` (T046).

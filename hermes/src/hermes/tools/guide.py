@@ -138,6 +138,7 @@ para el detalle de un área. Temas disponibles:
 - `supervisor`     — add-ons, host y core de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
+- `backup_integration` — agentes y ajustes de los backups de Home Assistant (programación, retención, backup antes de actualizar)
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
@@ -535,6 +536,52 @@ backup automático correcto, Hermes conserva los N más recientes y borra el
 resto. Solo toca los que él mismo anotó al crearlos; nunca uno del usuario
 aunque se llame `hermes-safety-…`, ni protegidos, parciales o copiados a otra
 ubicación. Los anteriores a 1.1.0 no se podan: bórralos con `sv_delete_backup`.
+""",
+    "backup_integration": """\
+# Backups de Home Assistant: agentes y ajustes (familia `backup_integration`)
+
+La integración `backup` de Home Assistant (HA 2025.1+) guarda sus backups en
+«agentes»: el local, los montajes de red del Supervisor y ubicaciones remotas
+como la nube. Estas tools leen y cambian sus ajustes. Para crear, restaurar o
+borrar backups del Supervisor, las `sv_*` del tema `backups`; para listar los
+backups que ve HA, `ha_list_backups`.
+
+- `ha_list_backup_agents()` — cada agente con `kind` (`local`, `mount` para un
+  montaje de red del Supervisor, `remote` para el resto), `protected` (si HA
+  cifra la copia que guarda ahí), su `retention` propia (`null`: usa la
+  global) y `used_by_automatic_backups`. Solo lee.
+- `ha_update_backup_config(schedule=…, retention=…, agents=…, create_backup=…,
+  automatic_backups_configured=…)` — los backups automáticos, en dos pasos.
+  Pasa solo lo que cambias: Hermes completa `schedule` y `retention` con lo
+  actual (HA los sustituye enteros, y un `schedule` a medias apagaría los
+  automáticos); un `null` explícito sí se manda. La vista previa trae
+  `current`, `resulting`, `sends` (lo que se manda a HA), `changed`,
+  `warnings` y `retention_effect`.
+- `ha_get_update_backup_settings()` y `ha_set_update_backup_settings(…)` — si
+  HA hace un backup antes de actualizar Core (`core_backup_before_update`) o
+  una app (`add_on_backup_before_update`) y cuántos guarda de cada app
+  (`add_on_backup_retain_copies`, de 1 a 100). Solo existen con Supervisor:
+  sin él, `supervisor_integration_unavailable`. Cambiarlos pide token.
+
+LA RETENCIÓN BORRA BACKUPS
+`retention` (`copies`, `days`; `null` es sin límite) y la de cada agente
+deciden qué backups AUTOMÁTICOS borra HA: por días, en las 24 h siguientes al
+cambio; por copias, al terminar el siguiente backup automático. Los manuales
+no los toca. `retention_effect.would_delete` es una ESTIMACIÓN hecha con las
+reglas de HA (`when`: `within_24h` o `after_next_automatic_backup`):
+enséñasela al usuario antes de confirmar. Si la configuración o los backups
+cambian entre la vista previa y la confirmación, `state_changed`: pide otra
+vista previa.
+
+LA CLAVE DE CIFRADO
+La clave que cifra los backups (la del kit de emergencia) NUNCA sale: solo
+`password_set`. Tampoco se cambia aquí: `password` se rechaza en cualquier
+sitio; se cambia en la interfaz de HA (Ajustes → Sistema → Backups), que
+entrega el kit. `agents.<id>.protected: false` guarda esa copia SIN cifrar
+(con `secrets.yaml`): la vista previa lo avisa.
+
+Errores: `invalid_argument` (con `field`), `ha_version_unsupported` (HA
+anterior a 2025.1), `backup_integration_unavailable`.
 """,
     "lovelace": """\
 # Lovelace (dashboards y recursos)
@@ -954,6 +1001,11 @@ _ALIASES: dict[str, str] = {
     "os": "system_diagnostics",
     "jobs": "system_diagnostics",
     "backup": "backups",
+    # Spec 031. `backup` sigue llevando a `backups`, como en la 1.1.2.
+    "backup_agents": "backup_integration",
+    "backup_config": "backup_integration",
+    "backup_schedule": "backup_integration",
+    "backup_retention": "backup_integration",
     "dashboards": "lovelace",
     "dashboard": "lovelace",
     "hacs": "marketplace",
@@ -1083,7 +1135,8 @@ def register(mcp: object) -> None:
         Args:
             topic (str, opcional): Tema. Uno de: overview, services, automations,
                 helpers, events, data, registries, diagnostics, config_entries,
-                filesystem, supervisor, system_diagnostics, backups, lovelace,
+                filesystem, supervisor, system_diagnostics, backups,
+                backup_integration, lovelace,
                 marketplace, security, generic_commands, system_status, recorder,
                 core_diagnostics, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).

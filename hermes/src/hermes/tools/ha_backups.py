@@ -216,6 +216,22 @@ def _json(valor: Any) -> str:
     return json.dumps(valor, ensure_ascii=False)
 
 
+async def comprobar_version_backup(ha_client: HAClient) -> dict[str, Any] | None:
+    """Error común si HA es anterior a 2025.1; None si se puede seguir.
+
+    Con la versión desconocida se intenta igualmente: el comando dirá
+    `unknown_command` si no existe, y eso se traduce en cada tool. Es de
+    módulo (spec 031) para que las tools de `ha_backup_settings` usen la
+    misma comprobación sin copiarla.
+    """
+    if await ha_at_least(ha_client, _VERSION_MINIMA) is False:
+        actual = await ha_core_version(ha_client)
+        return {"error": "ha_version_unsupported", "feature": "backup",
+                "required": _VERSION_MINIMA,
+                "current": str(actual) if actual is not None else None}
+    return None
+
+
 def register(
     mcp: object,
     ha_client: HAClient,
@@ -226,17 +242,7 @@ def register(
     ready = requires_ready(ha_client)
 
     async def _comprobar_version() -> dict[str, Any] | None:
-        """Error común si HA es anterior a 2025.1; None si se puede seguir.
-
-        Con la versión desconocida se intenta igualmente: el comando dirá
-        `unknown_command` si no existe, y eso se traduce abajo.
-        """
-        if await ha_at_least(ha_client, _VERSION_MINIMA) is False:
-            actual = await ha_core_version(ha_client)
-            return {"error": "ha_version_unsupported", "feature": "backup",
-                    "required": _VERSION_MINIMA,
-                    "current": str(actual) if actual is not None else None}
-        return None
+        return await comprobar_version_backup(ha_client)
 
     async def _enviar(payload: dict[str, Any]) -> tuple[Any, dict[str, Any] | None]:
         try:

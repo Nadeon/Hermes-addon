@@ -1006,6 +1006,47 @@ class TestDedicadasDelTramoBDeLa012(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+# Spec 031, tramo 1 (CAP-057): agentes y ajustes de los backups de HA.
+_DEDICADAS_031_TRAMO_1 = {
+    "backup/agents/info": "ha_list_backup_agents",
+    "backup/config/update": "ha_update_backup_config",
+    "hassio/update/config/info": "ha_get_update_backup_settings",
+    "hassio/update/config/update": "ha_set_update_backup_settings",
+}
+
+
+class TestDedicadasDeLa031(unittest.IsolatedAsyncioTestCase):
+    """Spec 031, T010 (FR-017): con la tabla real, las dos genéricas rechazan
+    los cuatro comandos del tramo 1 hacia su tool de `backup_integration`, sin
+    llegar a HA; con la familia desactivada, además `family_disabled: true`.
+
+    Control negativo (T015 d), comprobado: dejar `backup/config/update` en
+    `deny` → caen los dos tests de esta clase (`command_denied`) y
+    `test_dedicadas_de_la_031` de test_command_table.
+    """
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_031_TRAMO_1.items():
+            for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, generica=generica):
+                    r = await mcp.tools[generica](comando, {})
+                    self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                     ("use_dedicated_tool", tool, "backup_integration", False))
+                    self.assertIn(tool, mcp.tools)
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["backup_integration"])
+        for comando, tool in _DEDICADAS_031_TRAMO_1.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {})
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()

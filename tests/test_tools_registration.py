@@ -789,6 +789,14 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
     "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
     "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
+    # Spec 031, tramo 1 (data-model sección 14): las de lectura por su
+    # prefijo; las dos que cambian ajustes piden token y van en
+    # `_DESTRUCTIVE_EXACT` (la retención borra backups). Ninguna sale a
+    # internet: solo leen o escriben ajustes de HA.
+    "ha_list_backup_agents": ("R-I-", "List backup agents (Home Assistant)"),
+    "ha_get_update_backup_settings": ("R-I-", "Get update backup settings (Home Assistant)"),
+    "ha_update_backup_config": ("-DI-", "Update backup config (Home Assistant)"),
+    "ha_set_update_backup_settings": ("-DI-", "Set update backup settings (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1303,6 +1311,45 @@ class TestRecorderRegistration:
         sin = set(_real_registry(["system_status", "recorder"]))
         assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
         assert sin <= completo
+
+
+class TestBackupIntegrationRegistration:
+    """Spec 031, tramo 1 (T006; FR-016, FR-018): las cuatro de agentes y
+    ajustes se registran bajo `backup_integration`, las dos que modifican con
+    `confirmation_token`, y con la familia desactivada no queda ninguna y el
+    resto no cambia.
+
+    Control negativo (T015 c), comprobado: sacar `ha_set_update_backup_settings`
+    de `_DESTRUCTIVE_EXACT` → caen `test_hints_y_titulos_de_las_nuevas` (sale
+    `--I-`) y `test_every_tool_that_asks_for_a_token_says_it_is_destructive`.
+    """
+
+    _CUATRO = {"ha_list_backup_agents", "ha_update_backup_config",
+               "ha_get_update_backup_settings", "ha_set_update_backup_settings"}
+    _CON_TOKEN = {"ha_update_backup_config", "ha_set_update_backup_settings"}
+
+    def test_registradas_y_token_solo_en_las_que_modifican(self):
+        tools = _real_registry()
+        assert self._CUATRO <= set(tools)
+        for nombre in self._CUATRO:
+            props = tools[nombre].parameters.get("properties", {})
+            assert ("confirmation_token" in props) == (nombre in self._CON_TOKEN), nombre
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["backup_integration"]))
+        assert completo - sin == self._CUATRO
+
+    def test_recibe_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.ha_backup_settings.register") as reg:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
 
 
 class TestMarketplaceRegistration:

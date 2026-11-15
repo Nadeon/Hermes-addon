@@ -320,6 +320,13 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "diagnostics/list": "ha_list_diagnostics_handlers",
     "diagnostics/get": "ha_list_diagnostics_handlers",
     "persistent_notification/get": "ha_list_persistent_notifications",
+    # 031: backups de la integración `backup` de HA (CAP-057, clase A de vía
+    # D+T). Tramo 1: agentes y ajustes; crear, borrar y restaurar llegan en
+    # los tramos siguientes.
+    "backup/agents/info": "ha_list_backup_agents",
+    "backup/config/update": "ha_update_backup_config",
+    "hassio/update/config/info": "ha_get_update_backup_settings",
+    "hassio/update/config/update": "ha_set_update_backup_settings",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

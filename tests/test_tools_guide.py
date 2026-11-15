@@ -693,5 +693,45 @@ class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(faltan, [])
 
 
+class TestTemaBackupIntegration(unittest.IsolatedAsyncioTestCase):
+    """Spec 031, tramo 1 (T012, FR-021): tema `backup_integration` con las
+    cuatro tools de agentes y ajustes, la retención y su estimación, y que la
+    clave de cifrado no sale ni se cambia aquí; sus alias; el índice lo
+    menciona; `backup` sigue llevando a `backups`; los temas de la 1.1.2 no
+    cambian (lo vigila `TestTemaSystemDiagnostics.test_los_demas_temas_no_cambian`).
+
+    Control negativo, comprobado: sin el alias `backup_retention` cae
+    `test_tema_y_alias`; con `backup` apuntando a `backup_integration` cae
+    `test_backup_sigue_en_backups`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        texto = await self.guide("backup_integration")
+        self.assertIs(texto, _GUIDE["backup_integration"])
+        for palabra in ("ha_list_backup_agents", "ha_update_backup_config",
+                        "ha_get_update_backup_settings", "ha_set_update_backup_settings",
+                        "retention_effect", "ESTIMACIÓN", "within_24h",
+                        "after_next_automatic_backup", "password_set",
+                        "kit de emergencia", "state_changed", "sv_",
+                        "supervisor_integration_unavailable"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("backup_agents", "backup_config", "backup_schedule",
+                      "backup_retention", "BACKUP_AGENTS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_lo_menciona(self) -> None:
+        self.assertIn("backup_integration", await self.guide())
+
+    async def test_backup_sigue_en_backups(self) -> None:
+        self.assertEqual(await self.guide("backup"), _GUIDE["backups"])
+
+
 if __name__ == "__main__":
     unittest.main()

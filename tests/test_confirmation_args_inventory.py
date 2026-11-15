@@ -45,6 +45,10 @@ código: `ha_call_service_response` con token (018), `view_index` y `view` de
 que confirman (`ha_set_log_level`, `ha_clear_system_log` y
 `ha_dismiss_persistent_notification`). Todas atan todo lo que cambia la
 acción; ningún hallazgo.
+
+Spec 031, tramo 1: 88. Suma `ha_update_backup_config` y
+`ha_set_update_backup_settings`, que atan todos sus argumentos (además del
+estado leído en la vista previa, que va aparte con `estado=`).
 """
 
 from __future__ import annotations
@@ -165,6 +169,21 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_set_log_level": {"level": A, "integration": A, "module": A, "persistence": A},
     "ha_clear_system_log": {},
     "ha_dismiss_persistent_notification": {"notification_id": A},
+    # ── backups de la integración `backup` (spec 031) ───────────────────
+    # Se atan tal como llegan; lo que se manda a HA (completado con la
+    # configuración actual) lo ata además el estado de la vista previa.
+    "ha_update_backup_config": {
+        "schedule": A,
+        "retention": A,
+        "agents": A,
+        "create_backup": A,
+        "automatic_backups_configured": A,
+    },
+    "ha_set_update_backup_settings": {
+        "core_backup_before_update": A,
+        "add_on_backup_before_update": A,
+        "add_on_backup_retain_copies": A,
+    },
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     "sv_set_addon_options": {"slug": A, "options": A},
@@ -272,7 +291,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 86)
+        self.assertEqual(len(firmas_con_token(TOOLS)), 88)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -292,7 +311,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 86)
+        self.assertEqual(len(publicadas), 88)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).
