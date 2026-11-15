@@ -264,6 +264,11 @@ error sin emitir token ni crear fichero de token.
    previa, **entonces** recibe el error sin token.
 5. **Dado** que HA no responde a la validación, **cuando** pide la vista
    previa, **entonces** recibe `validation_unavailable` sin token.
+6. **Dado** un HA anterior a `validate_config` o a `blueprint/substitute`
+   (responde `unknown_command`), **cuando** pide la vista previa, **entonces**
+   recibe token como en la 1.1.2, con `validation.available: false`,
+   `reason: "unsupported_by_ha_version"`, nada en `validated` y todo en
+   `not_validated` (convergencia, T057).
 
 ### Historia 6 — Nada se rompe ni se salta una protección (Prioridad: P1)
 
@@ -434,7 +439,14 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   token ni fichero de token; sustitución fallida →
   `blueprint_substitution_failed` sin token; validación imposible →
   `validation_unavailable` sin token. Con todo válido, la vista previa añade
-  `validation` (partes validadas y `not_validated`) y sigue como hoy. La
+  `validation` (`available: true`, partes validadas y `not_validated`) y
+  sigue como hoy. Excepción (decisión del supervisor, convergencia T057): si
+  `validate_config` o `blueprint/substitute` responden `unknown_command` (HA
+  anterior al comando), token como en la 1.1.2 con `validation:
+  {"available": false, "reason": "unsupported_by_ha_version", "validated":
+  [], "not_validated": [todas las claves], "note"}`; sin `blueprint/substitute`
+  no se sabe qué añade el blueprint, y la nota dice que la sustitución no se
+  comprobó. El guardado de HA valida con las mismas funciones. La
   confirmación no cambia (FR-062, CAP-040).
 
 #### Familias, tabla, convenciones y documentación (transversales de la 008)

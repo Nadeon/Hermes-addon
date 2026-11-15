@@ -15,6 +15,10 @@ Controles negativos (T054), comprobados y restaurados:
    y `test_respuesta_que_no_es_objeto`;
 3. validar sin sustituir el blueprint (mandar la config con `use_blueprint`
    a `validate_config`) → caen los `test_use_blueprint`.
+4. (convergencia, T057) tratar `unknown_command` como cualquier otro fallo
+   (sin token) → caen `test_ha_sin_validate_config` y
+   `test_ha_sin_blueprint_substitute`; darlo con cualquier código → caen
+   `test_validacion_no_disponible` y `test_sustitucion_fallida`.
 """
 
 from __future__ import annotations
@@ -220,6 +224,49 @@ class _Base:
         self.assertEqual(r["error"], "validation_unavailable")
         self.assertIn("hint", r)
         self.sin_token(r)
+
+    async def test_ha_sin_validate_config(self) -> None:
+        # T057: un HA anterior al comando. El guardado real valida con las
+        # mismas funciones: se da token, sin decir que se validó nada.
+        self.ws.error_validacion = HAConnectionError(
+            "HA WS command failed: Unknown command.", code="unknown_command")
+        r = await self.vista_previa(self.C["valida"])
+        self.assertIn("confirmation_token", r, r)
+        v = r["preview"]["validation"]
+        self.assertEqual((v["available"], v["reason"], v["validated"]),
+                         (False, "unsupported_by_ha_version", []))
+        self.assertEqual(v["not_validated"], sorted(self.C["valida"]))
+        self.assertIn("note", v)
+
+    async def test_ha_sin_blueprint_substitute(self) -> None:
+        self.ws.error_sustitucion = HAConnectionError(
+            "HA WS command failed: Unknown command.", code="unknown_command")
+        config = {"alias": "Desde blueprint",
+                  "use_blueprint": {"path": "homeassistant/motion_light.yaml",
+                                    "input": {}}}
+        r = await self.vista_previa(config)
+        self.assertIn("confirmation_token", r, r)
+        v = r["preview"]["validation"]
+        self.assertEqual((v["available"], v["reason"], v["validated"]),
+                         (False, "unsupported_by_ha_version", []))
+        # Sin sustitución no se sabe qué añade el blueprint: solo las claves
+        # dadas, también `use_blueprint`, y la nota lo dice.
+        self.assertEqual(v["not_validated"], ["alias", "use_blueprint"])
+        self.assertEqual(v["via_blueprint"], "homeassistant/motion_light.yaml")
+        self.assertIn("substitution", v["note"])
+        self.assertEqual(self.ws.de_tipo("validate_config"), [])
+
+    async def test_validacion_disponible_lo_dice(self) -> None:
+        r = await self.vista_previa(self.C["valida"])
+        self.assertIs(r["preview"]["validation"]["available"], True)
+
+    async def test_otros_codigos_siguen_sin_token(self) -> None:
+        for codigo in ("unknown_error", "home_assistant_error", None):
+            with self.subTest(codigo=codigo):
+                self.ws.error_validacion = HAConnectionError("fallo", code=codigo)
+                r = await self.vista_previa(self.C["valida"])
+                self.assertEqual(r["error"], "validation_unavailable")
+                self.sin_token(r)
 
     async def test_respuesta_que_no_es_objeto(self) -> None:
         self.ws.respuesta_validacion = ["no", "es", "un", "objeto"]

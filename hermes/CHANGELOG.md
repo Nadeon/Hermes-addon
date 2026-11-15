@@ -287,7 +287,12 @@ Tramo D: esperar a un trigger y validar al guardar.
   (`not_validated`: `alias`, `mode`…) y `via_blueprint`. La confirmación no
   vuelve a validar (guarda lo previsualizado y HA valida al guardar). No
   depende de que `core_diagnostics` o `blueprints` estén activas.
-  `ha_validate_config` no cambia.
+  `ha_validate_config` no cambia. En un HA anterior a `validate_config` o a
+  `blueprint/substitute` (`unknown_command`), la vista previa da token como
+  en la 1.1.2, sin validar: `validation.available: false`,
+  `reason: "unsupported_by_ha_version"` y todo en `not_validated` (el
+  guardado de HA valida con las mismas funciones). Cualquier otro fallo
+  sigue sin token (convergencia).
 - Tabla de comandos e inventario: `subscribe_trigger` pasa de clase B a A
   (CAP-038) en el inventario de la 008 y a `dedicated` hacia
   `ha_wait_for_trigger`.

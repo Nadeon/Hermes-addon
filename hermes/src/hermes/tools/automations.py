@@ -170,7 +170,10 @@ def register(mcp: object, ha_client: HAClient) -> None:
         `blueprint_substitution_failed`) sin token; si no se puede validar,
         `validation_unavailable` sin token. La vista previa trae
         `validation` con lo validado y lo NO validado (`alias`, `mode`...),
-        que HA comprueba al guardar.
+        que HA comprueba al guardar. En un Home Assistant anterior a esos
+        comandos (`unknown_command`), da token sin validar:
+        `validation.available: false`, `reason: "unsupported_by_ha_version"`
+        y todo en `not_validated`; HA lo valida al guardar.
         """
         if config is None and not confirmation_token:
             return {

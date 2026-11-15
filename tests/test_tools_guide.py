@@ -383,8 +383,9 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
     # CHANGELOG; un cambio accidental cae aquí.
     _HUELLAS_ANTES_DE_LA_013 = {
         # La 017 (tramo D) cambia `automations` (la vista previa valida y
-        # remite a `blueprints` y `automation_assist`); su CHANGELOG lo dice.
-        "automations": "0af30eef63afe1b1",
+        # remite a `blueprints` y `automation_assist`; en la convergencia, el
+        # caso de un HA anterior a los comandos); su CHANGELOG lo dice.
+        "automations": "1660ac1d7d52bd13",
         "backups": "c9a088b65d4f13c5",
         "config_entries": "7c9723694f529f2f",
         "data": "c77e3e6782cc89a7",

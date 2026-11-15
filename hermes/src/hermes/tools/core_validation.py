@@ -105,6 +105,39 @@ _NOTA_SIN_PARTES = (
     "No triggers, conditions or actions to validate: Home Assistant checks "
     "the rest when saving."
 )
+_NOTA_SIN_VALIDATE_CONFIG = (
+    "This Home Assistant has no validate_config command (it is older than "
+    "the command), so nothing was validated before saving. Home Assistant "
+    "validates the whole config when saving and rejects it if invalid."
+)
+_NOTA_SIN_SUBSTITUTE = (
+    "This Home Assistant has no blueprint/substitute command (it is older "
+    "than the command), so the blueprint substitution and the triggers, "
+    "conditions and actions it gives were NOT checked. Home Assistant "
+    "validates them when saving and rejects the config if invalid."
+)
+
+
+def _sin_validar_por_version(
+    claves: set[str], via_blueprint: str | None, nota: str
+) -> dict[str, Any]:
+    """`validation` cuando el HA es anterior al comando de validación (T057).
+
+    Con `unknown_command`, HA no tiene el comando: es un HA más viejo que
+    él, no una caída. El guardado real (`POST /api/config/…`) valida con las
+    MISMAS funciones (`async_validate_config_item` con `raise_on_errors`, 400
+    si falla), así que bloquear aquí no protege nada y rompería lo que la
+    1.1.2 guardaba. Se da token, sin inventar: nada validado y todo en
+    `not_validated` (D-22).
+    """
+    return {
+        "available": False,
+        "reason": "unsupported_by_ha_version",
+        "validated": [],
+        "not_validated": sorted(claves),
+        "via_blueprint": via_blueprint,
+        "note": nota,
+    }
 
 
 async def validar_al_guardar(
@@ -124,6 +157,10 @@ async def validar_al_guardar(
     - Fail-closed: si HA no responde o responde algo inesperado,
       `validation_unavailable` (dar token sin haber validado incumpliría en
       silencio la regla).
+    - Salvo `unknown_command` de `blueprint/substitute` o `validate_config`
+      (HA anterior al comando, convergencia T057): token como en la 1.1.2,
+      con `validation.available: false`, `reason: "unsupported_by_ha_version"`
+      y todo en `not_validated`; lo valida HA al guardar.
     - Honestidad (D-22): `validate_config` solo mira triggers, condiciones y
       acciones; el resto (`alias`, `mode`, `fields`…) va en
       `not_validated`: lo valida HA al guardar.
@@ -149,6 +186,14 @@ async def validar_al_guardar(
         try:
             origen = await sustituir(ha_client, dominio, via_blueprint, entradas)
         except HAConnectionError as exc:
+            if exc.code == "unknown_command":
+                # Sin `blueprint/substitute` no hay partes que validar: no se
+                # sabe qué añade el blueprint, así que solo se listan las
+                # claves de la configuración, todas sin validar.
+                logger.info("validar_al_guardar_not_supported", domain=dominio,
+                            command="blueprint/substitute")
+                return _sin_validar_por_version(
+                    {str(k) for k in config}, via_blueprint, _NOTA_SIN_SUBSTITUTE), None
             logger.warning("validar_al_guardar_substitution_failed", domain=dominio,
                            code=exc.code or "connection")
             return None, {"error": "blueprint_substitution_failed",
@@ -171,6 +216,7 @@ async def validar_al_guardar(
             {str(k) for k in config if k not in excluir} | set(no_validadas))
 
     validation: dict[str, Any] = {
+        "available": True,
         "validated": sorted(partes),
         "not_validated": no_validadas,
         "via_blueprint": via_blueprint,
@@ -182,6 +228,12 @@ async def validar_al_guardar(
     try:
         resultado_ha = await validar_partes(ha_client, partes)
     except HAConnectionError as exc:
+        if exc.code == "unknown_command":
+            logger.info("validar_al_guardar_not_supported", domain=dominio,
+                        command="validate_config")
+            return _sin_validar_por_version(
+                {str(k) for k in config} | {str(k) for k in origen},
+                via_blueprint, _NOTA_SIN_VALIDATE_CONFIG), None
         logger.warning("validar_al_guardar_unavailable", domain=dominio,
                        code=exc.code or "connection")
         return None, {"error": "validation_unavailable",

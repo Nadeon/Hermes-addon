@@ -219,7 +219,11 @@ HA los triggers, condiciones y acciones (con `use_blueprint`, los de la
 configuración que da el blueprint): si HA la rechazaría, `invalid_config` con
 el error de cada parte y sin token; si no se pudo validar,
 `validation_unavailable` sin token. `validation.not_validated` lista lo que HA
-solo comprueba al guardar (`alias`, `mode`…). Blueprints: tema `blueprints`;
+solo comprueba al guardar (`alias`, `mode`…). En un HA anterior a
+`validate_config` o a `blueprint/substitute` (`unknown_command`), la vista
+previa da token como antes, sin validar: `validation.available: false`,
+`reason: "unsupported_by_ha_version"` y todo en `not_validated` (HA valida
+al guardar y rechaza lo inválido). Blueprints: tema `blueprints`;
 triggers de dispositivo, targets y esperar a un trigger: tema
 `automation_assist`.
 """,
