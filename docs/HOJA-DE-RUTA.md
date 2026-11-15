@@ -414,7 +414,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
 | 017 | Automatización asistida | 038, 040, 046, 051, 052 | pendiente |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
-| 019 | Montajes y ajustes de backup | 083 | tramo 1 hecho: familia `mounts` con seis tools de montajes (CIFS, NFS y disco local; crear, editar, borrar y el por defecto con token atado también al estado), credenciales que entran y nunca salen, seis rutas de `/mounts` a `dedicated` y el `action_hash` de los tokens con HMAC; falta el tramo 2 (ajustes de backup y `location`); prueba en vivo pendiente (VM de la 014) |
+| 019 | Montajes y ajustes de backup | 083 | hecha; prueba en la VM pendiente: familia `mounts` con nueve tools (seis de montajes CIFS, NFS y disco local, con crear, editar, borrar y el por defecto con token atado también al estado; tres de ajustes de backup sin token), `location` opcional en `sv_create_backup_full` y `sv_create_backup_partial`, credenciales (también el usuario en los errores del Supervisor) que entran y nunca salen, las nueve rutas de CAP-083 a `dedicated` y el `action_hash` de los tokens con HMAC |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
 | 021 | Configuración del sistema | 053, 055, 056, 069, 074 | pendiente |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
@@ -705,12 +705,14 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_get_job_status` | VM | pendiente | |
 | `sv_install_addon` | VM | pendiente | add-on de prueba |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
+| `sv_reload_backups` | VM | pendiente | |
 | `sv_reload_mount` | VM | pendiente | |
 | `sv_restart_addon` | VM | pendiente | add-on de prueba |
 | `sv_restart_core` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_full` | VM | pendiente | instantánea antes |
 | `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
 | `sv_set_addon_options` | VM | pendiente | add-on de prueba |
+| `sv_set_backup_settings` | VM | pendiente | |
 | `sv_set_default_backup_mount` | VM | pendiente | |
 | `sv_start_addon` | VM | pendiente | add-on de prueba |
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |

@@ -402,6 +402,11 @@ con `sv_get_job_status(job_id)` hasta `done`.
 - Crear (asíncrono, devuelven `job_id`): `sv_create_backup_full`,
   `sv_create_backup_partial`, `sv_create_safety_backup` (full bajo demanda con
   cooldown).
+- Dónde (1.2.0): `sv_create_backup_full` y `sv_create_backup_partial` aceptan
+  `location` opcional: `.local` (disco local), el nombre de un montaje de uso
+  `backup` o una lista de esos (el primero es el principal; el resto, copias).
+  Sin ella, el backup va al montaje por defecto (`sv_get_backup_settings`; ver
+  el tema `mounts`). `.cloud_backup` no se admite.
 - Borrar/restaurar (token): `sv_delete_backup`, `sv_restore_backup_full`
   (¡sobrescribe TODO!), `sv_restore_backup_partial`.
 - Jobs: `sv_get_job_status(job_id)`, `sv_list_pending_jobs`.
@@ -550,7 +555,19 @@ si el montaje cambia entre la vista previa y la confirmación, la respuesta es
    `sv_set_default_backup_mount("nas_backups")`.
 3. Comprueba con `sv_list_mounts` que `state` es `active`. Si falla,
    `sv_get_resolution` dice por qué y `sv_reload_mount` reintenta.
-4. Los backups nuevos (también `sv_create_safety_backup`) irán al NAS.
+4. Los backups nuevos (también `sv_create_safety_backup`) irán al NAS. Para
+   uno concreto en otro sitio, `sv_create_backup_full(..., location=".local")`.
+
+## Ajustes de backup (sin token)
+
+- `sv_get_backup_settings` — `days_until_stale`, el montaje por defecto y los
+  montajes de uso `backup` con su estado (la lista de backups es
+  `sv_list_backups`).
+- `sv_set_backup_settings(days_until_stale)` — días sin un backup completo
+  nuevo tras los que el Supervisor avisa de que los backups están viejos
+  (entero ≥ 1; 30 por defecto). Solo cambia el aviso.
+- `sv_reload_backups` — el Supervisor relee los backups de todas las
+  ubicaciones (p. ej., tras copiar a mano un backup al NAS) y dice cuántos ve.
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)

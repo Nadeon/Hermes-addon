@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **237 tools**: turn on lights, write automations,
+external systems). It ships **240 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 237 tools
+## What it can do — 240 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -38,9 +38,9 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **`/config` files** | 11 | Read, write, move, delete, search, manage `secrets.yaml` and restore backups |
 | **Lovelace** | 10 | Dashboards and resources |
 | **Add-ons** | 12 | List, install, start, stop, update, read logs (also from previous boots) and statistics |
-| **Backups** | 13 | Full and partial, create and restore. Also, read-only, the backups of Home Assistant's `backup` integration (HA 2025.1 or later) in every location (local, network, cloud), and its configuration without the encryption password |
+| **Backups** | 13 | Full and partial, create (optionally on a chosen backup mount) and restore. Also, read-only, the backups of Home Assistant's `backup` integration (HA 2025.1 or later) in every location (local, network, cloud), and its configuration without the encryption password |
 | **Supervisor and system** | 6 | Host and core info, validate configuration, restart |
-| **Mounts** | 6 | Supervisor network mounts (CIFS and NFS) and local disk mounts for backups, media and share: list, create, edit, delete, re-check and choose the default backup mount, always with a preview. CIFS credentials go in but never come out (not in responses, previews, errors or logs) |
+| **Mounts** | 9 | Supervisor network mounts (CIFS and NFS) and local disk mounts for backups, media and share: list, create, edit, delete, re-check and choose the default backup mount, always with a preview. Also the Supervisor's backup settings (when backups count as stale) and re-reading the backups of every location. CIFS credentials go in but never come out (not in responses, previews, errors or logs) |
 | **System diagnostics** | 11 | Read only: Home Assistant Core, Supervisor, plugin (`dns`, `audio`, `multicast`) and host journal logs, also from previous boots, with secrets redacted; the journal's identifiers and boots; host services, what fills the disk, Home Assistant OS version and slots, swap and data disk candidates |
 | **History and statistics** | 4 | History, logbook and long-term statistics |
 | **Diagnostics** | 8 | Repairs issues (list and ignore), automation and script traces, what is related to an item, and the Supervisor resolution center (read, and dismiss issues and suggestions; suggestions are never applied) |

@@ -87,26 +87,26 @@ El tramo 2 necesita el tramo 1 integrado.
 
 ### Preparación
 
-- [ ] T019 Línea base del tramo 2: tramo 1 integrado, suite, `grep -c "spec 019"` = 3
-- [ ] T020 [P] [US4] Tests en `tests/test_tool_families.py`: `mounts` tiene los módulos `("mounts", "backup_settings")`; después, en `hermes/src/hermes/tool_families.py` (FR-016)
+- [x] T019 Línea base del tramo 2: tramo 1 integrado, suite, `grep -c "spec 019"` = 3
+- [x] T020 [P] [US4] Tests en `tests/test_tool_families.py`: `mounts` tiene los módulos `("mounts", "backup_settings")`; después, en `hermes/src/hermes/tool_families.py` (FR-016)
 
 ### Tests (escritos antes, en rojo)
 
-- [ ] T021 [P] [US3] `TestAjustes` en `tests/test_tools_backup_settings.py` (`sv_get_backup_settings`): `GET /backups/info` y `GET /mounts`; respuesta `{days_until_stale, default_backup_mount, backup_mounts: [{name, state}]}` sin la lista de backups; solo los de uso `backup`; forma inesperada en cualquiera de las dos → `error` (FR-011)
-- [ ] T022 [P] [US3] `TestDiasHastaViejo` en `tests/test_tools_backup_settings.py` (`sv_set_backup_settings`): `7` → `POST /backups/options` con `{"days_until_stale": 7}` y `{result, days_until_stale, previous}`; `0`, `-1`, `True`, `7.5` y `"7"` → `invalid_argument` sin llamada de escritura; error del Supervisor redactado; evento con los dos valores (FR-012, FR-020)
-- [ ] T023 [P] [US3] `TestReleerBackups` en `tests/test_tools_backup_settings.py` (`sv_reload_backups`): `POST /backups/reload` y después `GET /backups`; `{result: "ok", backups_count}`; error redactado (FR-013)
-- [ ] T024 [P] [US1] [US4] `TestUbicacionDelBackup` en `tests/test_tools_supervisor.py`: sin `location`, la carga de `sv_create_backup_full` y de `sv_create_backup_partial` es **idéntica** a la de hoy (comparar con la capturada antes del cambio) y la respuesta también; `location="nas_backups"`, `".local"` y `["nas_backups", ".local"]` → la clave en la carga tal cual; `".cloud_backup"` (sola o en la lista), `[]`, `["a", "a"]`, `"../x"` y `"con espacio"` → `invalid_argument` sin llamada; respuesta y evento con `location`; error del Supervisor (montaje que no es de backup) → redactado (FR-014, FR-017)
+- [x] T021 [P] [US3] `TestAjustes` en `tests/test_tools_backup_settings.py` (`sv_get_backup_settings`): `GET /backups/info` y `GET /mounts`; respuesta `{days_until_stale, default_backup_mount, backup_mounts: [{name, state}]}` sin la lista de backups; solo los de uso `backup`; forma inesperada en cualquiera de las dos → `error` (FR-011)
+- [x] T022 [P] [US3] `TestDiasHastaViejo` en `tests/test_tools_backup_settings.py` (`sv_set_backup_settings`): `7` → `POST /backups/options` con `{"days_until_stale": 7}` y `{result, days_until_stale, previous}`; `0`, `-1`, `True`, `7.5` y `"7"` → `invalid_argument` sin llamada de escritura; error del Supervisor redactado; evento con los dos valores (FR-012, FR-020)
+- [x] T023 [P] [US3] `TestReleerBackups` en `tests/test_tools_backup_settings.py` (`sv_reload_backups`): `POST /backups/reload` y después `GET /backups`; `{result: "ok", backups_count}`; error redactado (FR-013)
+- [x] T024 [P] [US1] [US4] `TestUbicacionDelBackup` en `tests/test_tools_supervisor.py`: sin `location`, la carga de `sv_create_backup_full` y de `sv_create_backup_partial` es **idéntica** a la de hoy (comparar con la capturada antes del cambio) y la respuesta también; `location="nas_backups"`, `".local"` y `["nas_backups", ".local"]` → la clave en la carga tal cual; `".cloud_backup"` (sola o en la lista), `[]`, `["a", "a"]`, `"../x"` y `"con espacio"` → `invalid_argument` sin llamada; respuesta y evento con `location`; error del Supervisor (montaje que no es de backup) → redactado (FR-014, FR-017)
 
 ### Implementación
 
-- [ ] T025 [US3] `hermes/src/hermes/tools/backup_settings.py` con las tres tools según contracts/tools.md y su registro en `tools/__init__.py` (dentro de `_activa("mounts")`); tests de registro en `tests/test_tools_registration.py` (registradas por defecto, no con `mounts` desactivada; `sv_get_backup_settings` `readOnlyHint`; `sv_set_backup_settings` y `sv_reload_backups` ni de solo lectura ni destructivas e idempotentes). T021–T023 en verde (FR-011…FR-013, FR-016)
-- [ ] T026 [US1] [US4] `location` en `hermes/src/hermes/tools/backups.py` (validador común, clave solo si se pasa, docstring que dice que sin ella se usa el montaje por defecto y que `.cloud_backup` no se admite); en `tests/test_tools_registration.py`, la excepción anotada en `test_esquemas_de_la_1_1_2` (`location` opcional en las dos, nunca en `required`). T024 en verde (FR-014, FR-017)
-- [ ] T027 [US4] Tabla: tests primero en `tests/test_command_table.py` (las 3 rutas de `/backups` de data-model son `dedicated`, familia `mounts`, `cap="CAP-083"`; ninguna entrada con «spec 019») y en `tests/test_tools_generic_commands.py` (`sv_read_api("/backups/info")` → `use_dedicated_tool` con `sv_get_backup_settings`); después, las 3 entradas en `command_table.py`; regenerar sin cambios; `grep -c "spec 019"` = 0 (FR-015, SC-002)
-- [ ] T028 [P] Matriz de la 014: filas `VM` / `pendiente` de `sv_reload_backups` y `sv_set_backup_settings`; en `docs/BANCO-SUPERVISOR.md`, sus líneas y, en la de `sv_create_backup_full`/`sv_create_backup_partial` (tanda 1), «también con `location`». `tests/test_matriz_pruebas.py` en verde (FR-021, SC-008)
-- [ ] T029 [P] Guía completa: tests primero en `tests/test_tools_guide.py` (el tema `mounts` nombra las 3 tools de ajustes y `days_until_stale`; el tema `backups` menciona `location`, `.local` y que sin ella va al montaje por defecto); después `hermes/src/hermes/tools/guide.py` (FR-018)
-- [ ] T030 Control negativo del tramo 2, anotando recuentos: (a) añadir siempre `location` (también `None`) a la carga → cae el de identidad con la 1.1.2; (b) aceptar `.cloud_backup` → cae; (c) aceptar `True` como `days_until_stale` → cae; (d) devolver la lista de backups en `sv_get_backup_settings` → cae; (e) dejar `/backups/options` como `deny` → caen los de la tabla; (f) quitar la excepción de `location` del test de esquemas → cae. Restaurar y comprobar verde
-- [ ] T031 Documentación completa: bloque de la 019 en el CHANGELOG con las 9 tools y `location`; `hermes/DOCS.md` (la familia con sus 9 tools); `README.md` y `README.es.md` sincronizados; `docs/HOJA-DE-RUTA.md`, estado de la 019 «hecha; prueba en la VM pendiente»; fila CAP-083 de la matriz de `specs/008-cobertura-total/plan.md` con las tools y los ficheros de test (FR-022)
-- [ ] T032 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), `grep -c "spec 019"` = 0, regeneración sin cambios, revisión del diff (principio VIII), commit con los recuentos de T030
+- [x] T025 [US3] `hermes/src/hermes/tools/backup_settings.py` con las tres tools según contracts/tools.md y su registro en `tools/__init__.py` (dentro de `_activa("mounts")`); tests de registro en `tests/test_tools_registration.py` (registradas por defecto, no con `mounts` desactivada; `sv_get_backup_settings` `readOnlyHint`; `sv_set_backup_settings` y `sv_reload_backups` ni de solo lectura ni destructivas e idempotentes). T021–T023 en verde (FR-011…FR-013, FR-016)
+- [x] T026 [US1] [US4] `location` en `hermes/src/hermes/tools/backups.py` (validador común, clave solo si se pasa, docstring que dice que sin ella se usa el montaje por defecto y que `.cloud_backup` no se admite); en `tests/test_tools_registration.py`, la excepción anotada en `test_esquemas_de_la_1_1_2` (`location` opcional en las dos, nunca en `required`). T024 en verde (FR-014, FR-017)
+- [x] T027 [US4] Tabla: tests primero en `tests/test_command_table.py` (las 3 rutas de `/backups` de data-model son `dedicated`, familia `mounts`, `cap="CAP-083"`; ninguna entrada con «spec 019») y en `tests/test_tools_generic_commands.py` (`sv_read_api("/backups/info")` → `use_dedicated_tool` con `sv_get_backup_settings`); después, las 3 entradas en `command_table.py`; regenerar sin cambios; `grep -c "spec 019"` = 0 (FR-015, SC-002)
+- [x] T028 [P] Matriz de la 014: filas `VM` / `pendiente` de `sv_reload_backups` y `sv_set_backup_settings`; en `docs/BANCO-SUPERVISOR.md`, sus líneas y, en la de `sv_create_backup_full`/`sv_create_backup_partial` (tanda 1), «también con `location`». `tests/test_matriz_pruebas.py` en verde (FR-021, SC-008)
+- [x] T029 [P] Guía completa: tests primero en `tests/test_tools_guide.py` (el tema `mounts` nombra las 3 tools de ajustes y `days_until_stale`; el tema `backups` menciona `location`, `.local` y que sin ella va al montaje por defecto); después `hermes/src/hermes/tools/guide.py` (FR-018)
+- [x] T030 Control negativo del tramo 2, anotando recuentos: (a) añadir siempre `location` (también `None`) a la carga → cae el de identidad con la 1.1.2; (b) aceptar `.cloud_backup` → cae; (c) aceptar `True` como `days_until_stale` → cae; (d) devolver la lista de backups en `sv_get_backup_settings` → cae; (e) dejar `/backups/options` como `deny` → caen los de la tabla; (f) quitar la excepción de `location` del test de esquemas → cae. Restaurar y comprobar verde
+- [x] T031 Documentación completa: bloque de la 019 en el CHANGELOG con las 9 tools y `location`; `hermes/DOCS.md` (la familia con sus 9 tools); `README.md` y `README.es.md` sincronizados; `docs/HOJA-DE-RUTA.md`, estado de la 019 «hecha; prueba en la VM pendiente»; fila CAP-083 de la matriz de `specs/008-cobertura-total/plan.md` con las tools y los ficheros de test (FR-022)
+- [x] T032 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), `grep -c "spec 019"` = 0, regeneración sin cambios, revisión del diff (principio VIII), commit con los recuentos de T030
 
 ---
 
@@ -148,6 +148,48 @@ El tramo 2 necesita el tramo 1 integrado.
   sin `credentials_warning` → 1 failed; (h) `server` en el log → 1 failed;
   (i) `POST /mounts` como `deny` → 4 failed (tabla, genérica y registro).
   Todo restaurado y en verde.
+
+## Notas del tramo 2 (implementación)
+
+- **Línea base** (T019): punta `71270b2` (tramo 1): 2595 passed, 67
+  skipped, 6 failed (los 6 conocidos de Windows); `grep -c "spec 019"` = 3.
+- **Duda del tramo 1 resuelta (petición del supervisor)**: el usuario CIFS
+  que repite un error del Supervisor no se tapaba en las tools que no reciben
+  las credenciales (`sv_reload_mount`, `sv_delete_mount`,
+  `sv_set_default_backup_mount`, las lecturas, editar sin credenciales).
+  `_limpiar_error` (`tools/mounts.py`) tapa ahora el usuario por su forma
+  (`"username": "x"`, `username=x`, `user: x`, `domain=x`, `user x`,
+  `user 'x'`) antes de `redact_secrets`; lo usan también las tres de ajustes
+  de backup. Tests: `TestUsuarioEnErroresSinCredenciales`
+  (`tests/test_tools_mounts.py`) y los de error de
+  `tests/test_tools_backup_settings.py`; control negativo (sin las tres
+  sustituciones) → 9 failed. Tapa de más a propósito (un «user» seguido de
+  cualquier palabra).
+- **T024/T026**: los errores de `sv_create_backup_full`/`_partial` pasan por
+  `redact_secrets` (con o sin `location`); la carga y la respuesta sin
+  `location` son las de la 1.1.2 (`TestUbicacionDelBackup`).
+- **Desviaciones**: `sv_reload_backups`, si tras releer no puede contar los
+  backups, responde `result: "ok"`, `backups_count: null` y un `warning` (la
+  relectura ya se hizo) en vez de un error. Las 2 que modifican van a
+  `FUERA_DEL_BANCO` (31) y el inventario de escrituras sube a 133. La huella
+  del tema `backups` de la guía (`TestTemaSystemDiagnostics`) se actualiza.
+  README, README.es y DOCS pasan de 237 a 240 tools.
+- **T027**: 3 entradas a mano; regenerar con
+  `scripts/inventario/generar_tabla.py` deja la tabla idéntica (0 nuevas, 0
+  quitadas); `grep -c "spec 019"` = 0.
+- **Inventario de la 033 al integrar**: ninguna de las tools de este tramo
+  pide token (`sv_get_backup_settings`, `sv_set_backup_settings`,
+  `sv_reload_backups`; `location` en `sv_create_backup_*`, que tampoco lo
+  piden). Las filas son las del tramo 1 (`sv_create_mount` y
+  `sv_update_mount` con 13 argumentos `atado`; `sv_delete_mount` y
+  `sv_set_default_backup_mount` con `name` `atado`; `test_recuento` +4).
+- **T030, controles negativos**: (a) `location` siempre en la carga → 2
+  subtests failed (identidad con la 1.1.2); (b) aceptar `.cloud_backup` → 3
+  failed; (c) aceptar `True` → 1 subtest failed; (d) devolver la lista de
+  backups → 1 failed; (e) `POST /backups/options` como `deny` → 4 failed
+  (tabla ×2, genérica y registro); (f) sin la excepción de `location` en el
+  test de esquemas → 1 failed. Guía: sin `sv_reload_backups` en `mounts` → 1
+  subtest; sin `.cloud_backup` en `backups` → 2. Todo restaurado y en verde.
 
 ## Dependencias
 

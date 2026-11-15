@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **237 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **240 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 237 herramientas
+## Qué puede hacer — 240 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -40,9 +40,9 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Ficheros de `/config`** | 11 | Leer, escribir, mover, borrar, buscar, gestionar `secrets.yaml` y restaurar copias |
 | **Lovelace** | 10 | Dashboards y recursos |
 | **Add-ons** | 12 | Listar, instalar, arrancar, parar, actualizar, leer logs (también de arranques anteriores) y estadísticas |
-| **Backups** | 13 | Completos y parciales, crear y restaurar. Además, de solo lectura, los backups de la integración `backup` de Home Assistant (HA 2025.1 o posterior) en todas sus ubicaciones (local, red, nube) y su configuración sin la contraseña de cifrado |
+| **Backups** | 13 | Completos y parciales, crear (también en un montaje de backup elegido) y restaurar. Además, de solo lectura, los backups de la integración `backup` de Home Assistant (HA 2025.1 o posterior) en todas sus ubicaciones (local, red, nube) y su configuración sin la contraseña de cifrado |
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
-| **Montajes** | 6 | Montajes de red del Supervisor (CIFS y NFS) y de discos locales para backups, medios y `share`: listar, crear, editar, borrar, volver a comprobar y elegir el montaje por defecto de los backups, siempre con vista previa. Las credenciales CIFS entran pero nunca salen (ni en respuestas, vistas previas, errores ni logs) |
+| **Montajes** | 9 | Montajes de red del Supervisor (CIFS y NFS) y de discos locales para backups, medios y `share`: listar, crear, editar, borrar, volver a comprobar y elegir el montaje por defecto de los backups, siempre con vista previa. También los ajustes de backup del Supervisor (cuándo un backup cuenta como viejo) y releer los backups de todas las ubicaciones. Las credenciales CIFS entran pero nunca salen (ni en respuestas, vistas previas, errores ni logs) |
 | **Diagnóstico del sistema** | 11 | De solo lectura: logs de Home Assistant Core, del Supervisor, de los plugins (`dns`, `audio`, `multicast`) y del journal del host, también de arranques anteriores, con los secretos redactados; los identificadores y arranques del journal; servicios del host, qué llena el disco, versión y slots de Home Assistant OS, swap y discos candidatos a disco de datos |
 | **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
 | **Diagnóstico** | 8 | Avisos de Reparaciones (listar e ignorar), trazas de automatizaciones y scripts, qué está relacionado con un elemento y el centro de resolución del Supervisor (leer y descartar issues y sugerencias; las sugerencias nunca se aplican) |

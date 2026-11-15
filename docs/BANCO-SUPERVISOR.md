@@ -286,7 +286,9 @@ Instantánea `antes-tanda-1`. Nada de esto reinicia ni para nada importante.
   introducido a propósito en un YAML; el resultado coincide con
   `ha core check`.
 - `sv_create_backup_full` y `sv_create_backup_partial`: el backup aparece en
-  `ha backups list` con el contenido pedido.
+  `ha backups list` con el contenido pedido; también con `location` (spec
+  019): `.local`, el montaje de backup de prueba y los dos en lista, y el
+  backup sale en esas ubicaciones.
 - `sv_create_safety_backup`: crea el backup con el prefijo de los safety
   backups; con `safety_backup_enabled`, la retención conserva los que diga
   `safety_backup_keep`.
@@ -363,6 +365,11 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
     para ver a dónde va) y `sv_delete_mount` sobre el montaje de backup con
     un backup dentro (la vista previa lista ese backup y dice que solo está
     ahí; después ya no sale en `sv_list_backups`).
+  - Ajustes de backup, en la tanda 1: `sv_set_backup_settings` (cambiar
+    `days_until_stale` y verlo en `ha backups info`; volver al valor
+    anterior) y `sv_reload_backups` (copiar a mano un backup al recurso de
+    backup y ver que, tras releer, sale en `sv_list_backups` y el recuento
+    sube).
 
 ## Probar hassio_role: manager
 

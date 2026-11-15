@@ -383,7 +383,8 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
     # CHANGELOG; un cambio accidental cae aquí.
     _HUELLAS_ANTES_DE_LA_013 = {
         "automations": "cb414a2c5e0cad24",
-        "backups": "c9a088b65d4f13c5",
+        # La 019 (tramo 2) cambia `backups`: `location` en sv_create_backup_*.
+        "backups": "2ea4378e67a80b64",
         "config_entries": "7c9723694f529f2f",
         "data": "c77e3e6782cc89a7",
         "diagnostics": "66690c9177650ea7",
@@ -596,3 +597,34 @@ class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
         self.assertIn("`mounts`", await self.guide())
         self.assertIn("mounts", INSTRUCTIONS)
         self.assertNotIn("mounts", instrucciones(frozenset({"mounts"})))
+
+
+class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):
+    """Spec 019, FR-018 (tramo 2): el tema `mounts` nombra las tres tools de
+    ajustes de backup y `days_until_stale`; el tema `backups` explica
+    `location`, `.local` y que sin ella el backup va al montaje por defecto.
+
+    Control negativo comprobado: quitar `sv_reload_backups` del tema
+    `mounts` → 1 failed (su subtest); quitar «`.cloud_backup` no se admite»
+    de `backups` → 2 failed (su subtest y la huella del tema); restaurado,
+    verde.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_mounts_con_los_ajustes(self) -> None:
+        texto = await self.guide("mounts")
+        for palabra in ("sv_get_backup_settings", "sv_set_backup_settings",
+                        "sv_reload_backups", "days_until_stale", "location"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    async def test_backups_con_location(self) -> None:
+        texto = await self.guide("backups")
+        for palabra in ("location", ".local", "montaje por defecto",
+                        ".cloud_backup", "sv_create_backup_full"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)

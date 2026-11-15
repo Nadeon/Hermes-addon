@@ -87,7 +87,7 @@ _Pendiente: la añade la sub-feature que lo implemente._
 ### Supervisor
 
 - **Montajes de red y ajustes de backup (019).** Familia nueva `mounts`
-  (desactivable con `tool_families_disabled`) con seis tools para los
+  (desactivable con `tool_families_disabled`) con nueve tools. Seis para los
   montajes del Supervisor: `sv_list_mounts` (montajes, su estado y el montaje
   por defecto de backups), `sv_create_mount` (CIFS, NFS o disco local),
   `sv_update_mount` (funde lo que se pasa con lo actual), `sv_delete_mount`,
@@ -102,13 +102,28 @@ _Pendiente: la añade la sub-feature que lo implemente._
   (`mount_changed`).
   - **Credenciales**: el usuario y la contraseña de un CIFS entran, pero no
     salen nunca: ni en respuestas, vistas previas, errores, el log de Hermes
-    ni el fichero del token. Como el Supervisor reemplaza la configuración
+    ni el fichero del token. Tampoco cuando el texto de error del Supervisor
+    repite el usuario en una tool que no lo recibe (recargar, borrar, el
+    montaje por defecto, los ajustes de backup): se tapa por su forma. Como el Supervisor reemplaza la configuración
     entera y no las devuelve, editar un CIFS sin `username` y `password` las
     quita; la vista previa lo avisa (`removed_if_present`).
-  - Las seis rutas de `/mounts` pasan de `deny` a `dedicated` en la tabla de
-    comandos; `sv_read_api` y `sv_call_api` remiten a su tool.
+  - Tres para los ajustes de backup del Supervisor, sin confirmación:
+    `sv_get_backup_settings` (`days_until_stale`, el montaje por defecto y
+    los montajes de backup con su estado), `sv_set_backup_settings`
+    (`days_until_stale`, entero ≥ 1; devuelve el anterior) y
+    `sv_reload_backups` (el Supervisor relee los backups de todas las
+    ubicaciones y dice cuántos ve).
+  - `sv_create_backup_full` y `sv_create_backup_partial` aceptan `location`
+    opcional: `.local`, un montaje de backup o una lista de ellos.
+    `.cloud_backup`, listas vacías o con repetidos y nombres inválidos se
+    rechazan sin llamar al Supervisor. Sin `location`, la petición y la
+    respuesta son las de la 1.1.2. Sus errores salen ahora redactados.
+  - Las nueve rutas de CAP-083 (`/mounts` y `/backups/info`,
+    `/backups/options`, `/backups/reload`) pasan de `deny` a `dedicated` en
+    la tabla de comandos; `sv_read_api` y `sv_call_api` remiten a su tool.
   - Guía: tema nuevo `hermes_guide("mounts")` (alias `cifs`, `nfs`, `nas`,
-    `network_storage`, `backup_settings`).
+    `network_storage`, `backup_settings`), con los ajustes de backup; el
+    tema `backups` explica `location`.
   - Prueba contra un Supervisor real: pendiente (VM de la 014).
 - **Tokens de confirmación con HMAC (019).** El `action_hash` que se guarda
   junto a cada token pasa de SHA-256 a HMAC-SHA256 con una clave aleatoria
