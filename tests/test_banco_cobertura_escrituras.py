@@ -117,8 +117,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # las 8 de la 022 (7 de control de Core y del Supervisor del tramo 1 y
         # la de aplicar sugerencias del tramo 2), y las 9 de la 021 (3 del
         # tramo a, núcleo y exposición; 3 del b, usuarios; y 3 del c, red y
-        # HTTP).
-        self.assertEqual(len(reales), 184)
+        # HTTP), y las 7 de la 032 (4 del tramo 1, control del host, y 3 del
+        # tramo 2, red del host).
+        self.assertEqual(len(reales), 191)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -163,8 +164,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # la 030: las cuatro de repositorios de la tienda (`_SV_TIENDA`) y
         # `sv_rebuild_addon` (`_SV_APPS_TIENDA`), FR-022 de la 030, y 8 de la
         # 022: 7 del tramo 1 (control de Core y del Supervisor) y 1 del tramo 2
-        # (aplicar sugerencias).
-        self.assertEqual(len(c028.FUERA_DEL_BANCO), 44)
+        # (aplicar sugerencias), y 7 de la 032: 4 del control del host
+        # (`_SV_HOST`) y 3 de la red del host (`_SV_RED`).
+        self.assertEqual(len(c028.FUERA_DEL_BANCO), 51)
 
     def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
         # El plugin del job (010) solo exige lo que le pasa el conftest. Si la

@@ -544,6 +544,17 @@ _DEDICADAS_INICIALES: dict[
     ("POST", "/addons/{app}/options/validate"): _ConMatiz(
         "sv_set_addon_options", "valida en la vista previa"),
     ("POST", "/addons/{app}/rebuild"): "sv_rebuild_addon",
+    # 032 (tramo 1): control del host y del OS (CAP-086), clase A de vía D,
+    # por el mismo mecanismo que las de la 012, la 013 y la 019.
+    ("POST", "/host/shutdown"): "sv_shutdown_host",
+    ("POST", "/host/options"): "sv_set_hostname",
+    ("POST", "/os/config/swap"): "sv_set_swap",
+    ("POST", "/os/boot-slot"): "sv_set_boot_slot",
+    # 032 (tramo 2): la red del host (CAP-090). Las lecturas de red siguen
+    # `read` por `sv_read_api` (013): no están en el mapa.
+    ("POST", "/network/reload"): "sv_reload_network",
+    ("POST", "/network/interface/{interface}/update"): "sv_update_network_interface",
+    ("POST", "/network/interface/{interface}/vlan/{vlan}"): "sv_create_vlan",
 }
 
 # Colecciones de helpers: list/create/update/delete con el mismo patrón de

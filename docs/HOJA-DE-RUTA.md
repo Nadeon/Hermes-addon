@@ -479,7 +479,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
 | 030 | Tienda de apps | 082, 093 | hecha: nueve tools en la familia `app_store` (repositorios: listar, añadir y quitar en dos pasos, reparar y recargar; apps: changelog y documentación de la versión de la tienda por trozos, disponibilidad y reconstrucción en dos pasos); vistas previas nuevas en `sv_install_addon` (disponibilidad), `sv_update_addon` (changelog; `already_up_to_date` sin token) y `sv_set_addon_options` (validación del Supervisor, con los mensajes de opciones sin ningún valor); tokens de instalar y actualizar atados a la versión de la vista previa; credenciales de las URL tapadas enteras; 15 rutas a `dedicated`; sin versión concreta (el Supervisor 2026.11 ignora `{version}`: desviación de FR-051); prueba en vivo de las cinco que modifican pendiente (VM de la 014, después instalación real) |
 | 031 | Backups de la integración y safety backups cifrados | 027, 057 | pendiente |
-| 032 | Host y red del host | 086, 090 | pendiente |
+| 032 | Host y red del host | 086, 090 | hecha; prueba en la VM pendiente: familia `host_control` con `sv_shutdown_host`, `sv_set_hostname`, `sv_set_swap` y `sv_set_boot_slot`, y familia `host_network` con `sv_reload_network` (sin token: solo relee), `sv_update_network_interface` y `sv_create_vlan`; dos pasos con el token atado a los argumentos y al estado, la interfaz principal, la única conectada o una principal desconocida rechazadas siempre, la PSK del Wi-Fi que entra y nunca sale, y sus siete rutas a `dedicated` |
 | 033 | Arreglos de tools de la 1.1.2 que destapa el banco | 039 | hecha: tramo 1 (el token de `ha_run_script` y `ha_trigger_automation` ata `variables`; inventario de argumentos atados) y tramo 2 (`ha_reload_counters` y `ha_get_config_entry_options` dicen `not_supported` y quedan deprecadas; `ha_wait_for_event` sin `ctx`; `ha_create_scene_from_current` con escena temporal, token para reemplazar y `name` rechazado; descripciones de escenas con `scenes.yaml`; `amount` y `ha_set_counter_value` validados); banco sin ningún `xfail` |
 
 #### Banco de Core: helpers (010)
@@ -795,6 +795,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_create_backup_partial` | VM | pendiente | |
 | `sv_create_mount` | VM | pendiente | recurso CIFS y NFS de prueba |
 | `sv_create_safety_backup` | VM | pendiente | |
+| `sv_create_vlan` | VM | pendiente | VM con segunda interfaz; instantánea antes |
 | `sv_delete_backup` | VM | pendiente | instantánea antes |
 | `sv_delete_mount` | VM | pendiente | instantánea antes |
 | `sv_dismiss_resolution_issue` | VM | pendiente | |
@@ -806,6 +807,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_rebuild_core` | VM | pendiente | instantánea antes |
 | `sv_reload_backups` | VM | pendiente | |
 | `sv_reload_mount` | VM | pendiente | |
+| `sv_reload_network` | VM | pendiente | |
 | `sv_reload_store` | VM | pendiente | |
 | `sv_reload_supervisor` | VM | pendiente | |
 | `sv_remove_store_repository` | VM | pendiente | repositorio de prueba |
@@ -818,9 +820,13 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_restore_backup_partial` | VM | pendiente | instantánea antes |
 | `sv_set_addon_options` | VM | pendiente | add-on de prueba |
 | `sv_set_backup_settings` | VM | pendiente | |
+| `sv_set_boot_slot` | VM | pendiente | instantánea antes; VM con HAOS y dos ranuras |
 | `sv_set_core_options` | VM | pendiente | |
 | `sv_set_default_backup_mount` | VM | pendiente | |
+| `sv_set_hostname` | VM | pendiente | instantánea antes |
 | `sv_set_supervisor_options` | VM | pendiente | |
+| `sv_set_swap` | VM | pendiente | HAOS ≥ 15; instantánea antes |
+| `sv_shutdown_host` | VM | pendiente | instantánea antes; encender la VM a mano |
 | `sv_start_addon` | VM | pendiente | add-on de prueba |
 | `sv_start_core` | VM | pendiente | instantánea antes; Core parado |
 | `sv_stop_addon` | VM | pendiente | add-on de prueba |
@@ -828,6 +834,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `sv_update_addon` | VM | pendiente | add-on de prueba |
 | `sv_update_core` | VM | pendiente | spec 015; instantánea antes |
 | `sv_update_mount` | VM | pendiente | instantánea antes |
+| `sv_update_network_interface` | VM | pendiente | VM con segunda interfaz; instantánea antes; comprobar el rechazo de la principal |
 | `sv_update_os` | VM | pendiente | spec 015; instantánea antes; reinicio del host después |
 | `sv_update_supervisor` | VM | pendiente | spec 015; instantánea antes |
 <!-- matriz-pruebas:fin -->

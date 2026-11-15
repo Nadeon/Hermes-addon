@@ -209,6 +209,18 @@ _SV_APPS_TIENDA = (
     "normal y en la VM de la 014"
 )
 
+_SV_HOST = (
+    "host de Home Assistant OS: apagar, el hostname, la swap y la ranura de "
+    "arranque necesitan un host real; se prueban con el Supervisor simulado "
+    "de tests/fixtures/supervisor_host.py en la suite normal y en la VM de "
+    "la 014"
+)
+_SV_RED = (
+    "red del host: recargar la red, editar una interfaz secundaria y crear "
+    "una VLAN necesitan NetworkManager y un host real con una segunda "
+    "interfaz; se prueban con el Supervisor simulado de "
+    "tests/fixtures/supervisor_host.py en la suite normal y en la VM de la 014"
+)
 _SV_MONTAJES = (
     "montajes del Supervisor: necesitan un recurso CIFS o NFS (o un disco) y "
     "el Supervisor real; se prueban con el Supervisor simulado de "
@@ -274,4 +286,16 @@ FUERA_DEL_BANCO: dict[str, str] = {
     # Spec 022, tramo 2: aplicar sugerencias, que solo existen en el
     # Supervisor real.
     "sv_apply_resolution_suggestion": _SV_AVISOS,
+    # Spec 032, tramo 1 (control del host): apagar, el hostname, la swap y la
+    # ranura de arranque necesitan un host real (HAOS); el banco solo tiene
+    # un Supervisor simulado que reenvía a Core.
+    "sv_shutdown_host": _SV_HOST,
+    "sv_set_hostname": _SV_HOST,
+    "sv_set_swap": _SV_HOST,
+    "sv_set_boot_slot": _SV_HOST,
+    # Spec 032, tramo 2 (red del host): sin NetworkManager ni segunda
+    # interfaz en el banco.
+    "sv_reload_network": _SV_RED,
+    "sv_update_network_interface": _SV_RED,
+    "sv_create_vlan": _SV_RED,
 }

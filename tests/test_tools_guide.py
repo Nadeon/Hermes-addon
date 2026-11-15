@@ -1111,9 +1111,11 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     # token, T029-T031). Al integrar la 030 en la rama del programa, la
     # huella de `supervisor` es la del texto mezclado: «apps (add-ons)» y los
     # jobs de la 027 y la remisión a `updates` de la 015, más lo de la 030,
-    # y, desde la integración de la 022, su remisión a `system_control`.
+    # y, desde la integración de la 022, su remisión a `system_control` y,
+    # desde la de la 032, su remisión a `host_control` (apagar, hostname,
+    # swap, ranura y red del host; FR-017 de la 032).
     _HUELLAS = {
-        "supervisor": "772c2ce8cbdfc3be",
+        "supervisor": "dc38e81c61a06932",
         "marketplace": "f83ec233a87ad95b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
@@ -1340,6 +1342,93 @@ class TestTemaDeRedYHttp(unittest.IsolatedAsyncioTestCase):
     async def test_indice_y_docstring(self) -> None:
         self.assertIn("`core_network`", await self.guide())
         self.assertIn("core_network", self.mcp.tools["hermes_guide"].__doc__)
+
+
+class TestTemaHostControl(unittest.IsolatedAsyncioTestCase):
+    """Spec 032, FR-017 (tramo 1): tema `host_control` con las cuatro tools
+    del host, el aviso de que nadie enciende el host a distancia y cómo
+    volver de la ranura; sus alias; el índice y las instrucciones lo nombran
+    solo con la familia activa. `host` sigue llevando a `supervisor`, que
+    remite al tema nuevo."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("host_control")
+        self.assertIs(texto, _GUIDE["host_control"])
+        for palabra in ("sv_shutdown_host", "sv_set_hostname", "sv_set_swap",
+                        "sv_set_boot_slot", "sv_reboot_host", "sv_get_os_info",
+                        "outcome", "unknown", "force", ".local", "reboot_required"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for frase in ("nadie puede encenderlo a distancia", "reinicia en el acto",
+                      "Para volver"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, texto)
+        for alias in ("hostname", "swap", "boot_slot", "shutdown", "SHUTDOWN"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `host` sigue siendo `supervisor`, como en la 1.1.2, y lo remite.
+        self.assertEqual(await self.guide("host"), _GUIDE["supervisor"])
+        self.assertIn("host_control", _GUIDE["supervisor"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b", _GUIDE["host_control"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`host_control`", await self.guide())
+        self.assertIn("host_control", INSTRUCTIONS)
+        # Desde el tramo 2 el tema cubre también la red del host: solo
+        # desaparece con las dos familias desactivadas.
+        self.assertIn("host_control", instrucciones(frozenset({"host_control"})))
+        self.assertIn("host_control", instrucciones(frozenset({"host_network"})))
+        self.assertNotIn("host_control",
+                         instrucciones(frozenset({"host_control", "host_network"})))
+
+
+class TestTemaHostNetwork(unittest.IsolatedAsyncioTestCase):
+    """Spec 032, FR-017 (tramo 2): el tema `host_control` cubre también la
+    red del host: las tres tools, la guarda de la principal, que la red se
+    lee con `sv_read_api("/network/info")`, que los bloques se reemplazan
+    enteros y que la PSK no se devuelve; con sus alias. `network` lleva a
+    `core_network` (spec 021), y los dos temas remiten al otro."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_red_en_el_tema(self) -> None:
+        texto = await self.guide("host_control")
+        for palabra in ("sv_reload_network", "sv_update_network_interface",
+                        "sv_create_vlan", 'sv_read_api("/network/info")',
+                        "primary_interface", "only_connected_interface",
+                        "primary_unknown", '"psk": "set"', "REEMPLAZA",
+                        "NO lo revierte", "ruta por defecto", "sin token"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("host_network", "network_config", "vlan", "wifi", "WiFi"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # Desde la integración con la 021, `network` lleva a `core_network`
+        # (la red de Core); cada tema remite al otro para no confundirlas.
+        self.assertEqual(await self.guide("network"), _GUIDE["core_network"])
+        self.assertIn('hermes_guide("core_network")', texto)
+        self.assertIn('hermes_guide("host_control")', _GUIDE["core_network"])
+        self.assertIn("red del host", _GUIDE["supervisor"])
+        self.assertIn("red del host", await self.guide())
 
 
 if __name__ == "__main__":

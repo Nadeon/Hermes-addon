@@ -980,6 +980,22 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_update_network_config": ("-DI-", "Update network config (Home Assistant)"),
     "ha_update_http_config": ("-DI-", "Update http config (Home Assistant)"),
     "ha_promote_http_config": ("-DI-", "Promote http config (Home Assistant)"),
+    # Spec 032, tramo 1 (contracts/tools.md): control del host, familia
+    # `host_control`. Las cuatro piden token y se anuncian destructivas;
+    # repetir cualquiera deja el mismo estado (idempotentes). Ninguna sale a
+    # internet.
+    "sv_shutdown_host": ("-DI-", "Shut down host (Supervisor)"),
+    "sv_set_hostname": ("-DI-", "Set hostname (Supervisor)"),
+    "sv_set_swap": ("-DI-", "Set swap (Supervisor)"),
+    "sv_set_boot_slot": ("-DI-", "Set boot slot (Supervisor)"),
+    # Spec 032, tramo 2: red del host, familia `host_network`. Recargar no
+    # pide token ni cambia nada: ni de solo lectura (es un POST que fuerza la
+    # comprobación de conectividad) ni destructiva, e idempotente (D-032-1).
+    # Editar una interfaz pide token (destructiva, idempotente); crear una
+    # VLAN también, y repetirla no deja el mismo estado (`sv_create_`).
+    "sv_reload_network": ("--I-", "Reload network (Supervisor)"),
+    "sv_update_network_interface": ("-DI-", "Update network interface (Supervisor)"),
+    "sv_create_vlan": ("-D--", "Create VLAN (Supervisor)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -1028,6 +1044,12 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
         "sv_set_supervisor_options",
     },
     "resolution_fixes": {"sv_apply_resolution_suggestion"},
+    "host_control": {
+        "sv_shutdown_host", "sv_set_hostname", "sv_set_swap", "sv_set_boot_slot",
+    },
+    "host_network": {
+        "sv_reload_network", "sv_update_network_interface", "sv_create_vlan",
+    },
 }
 
 # Las de la spec 019, tramo 1 (montajes, CAP-083).
@@ -1617,6 +1639,117 @@ class TestMontajes019:
         assert dedicadas == set(_MOUNTS_019 + _BACKUP_SETTINGS_019)
         # `location` es de `backups` (1.1.2): sigue aunque `mounts` se apague.
         assert "location" in tools["sv_create_backup_full"].parameters["properties"]
+
+
+# ── Spec 032, tramo 1: control del host (FR-015, FR-016, SC-001; T007) ───────
+
+_HOST_CONTROL_032 = ("sv_shutdown_host", "sv_set_hostname", "sv_set_swap",
+                     "sv_set_boot_slot")
+
+
+class TestHostControl032:
+    """Las cuatro tools de `host_control` se registran por defecto, piden
+    token y se anuncian destructivas, con sus argumentos y sus títulos; con la
+    familia apagada no existe ninguna y sus rutas siguen `dedicated`."""
+
+    def test_registradas_y_sus_hints(self):
+        tools = _real_registry()
+        for nombre in _HOST_CONTROL_032:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert "confirmation_token" in tools[nombre].parameters.get(
+                "properties", {}), nombre
+            assert (ann.read_only_hint, ann.destructive_hint,
+                    ann.open_world_hint) == (False, True, False), nombre
+            assert tools[nombre].title == _HINTS_NUEVAS_1_2_0[nombre][1], nombre
+        assert tools["sv_shutdown_host"].title == "Shut down host (Supervisor)"
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {}))
+                 for n in _HOST_CONTROL_032}
+        assert props == {
+            # Sin `force` (research R-5).
+            "sv_shutdown_host": {"confirmation_token"},
+            "sv_set_hostname": {"hostname", "confirmation_token"},
+            "sv_set_swap": {"swap_size", "swappiness", "confirmation_token"},
+            "sv_set_boot_slot": {"boot_slot", "confirmation_token"},
+        }
+        assert tools["sv_set_hostname"].parameters["required"] == ["hostname"]
+        assert tools["sv_set_boot_slot"].parameters["required"] == ["boot_slot"]
+        assert not tools["sv_set_swap"].parameters.get("required")
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["host_control"])
+        assert [n for n in _HOST_CONTROL_032 if n in tools] == []
+        dedicadas = {e.tool for e in SUPERVISOR.values()
+                     if e.category == "dedicated" and e.family == "host_control"}
+        assert dedicadas == set(_HOST_CONTROL_032)
+        # `sv_reboot_host` es de `supervisor` (1.1.2): sigue.
+        assert "sv_reboot_host" in tools
+
+
+# ── Spec 032, tramo 2: red del host (FR-015, FR-016, SC-001; T021) ──────────
+
+_HOST_NETWORK_032 = ("sv_reload_network", "sv_update_network_interface",
+                     "sv_create_vlan")
+
+
+class TestHostNetwork032:
+    """Las tres tools de `host_network` se registran por defecto; las dos que
+    cambian algo piden token y se anuncian destructivas; recargar, ni lo uno
+    ni lo otro. Con la familia apagada no existe ninguna."""
+
+    def test_registradas_y_sus_hints(self):
+        tools = _real_registry()
+        for nombre in _HOST_NETWORK_032:
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            codigo, titulo = _HINTS_NUEVAS_1_2_0[nombre]
+            assert tools[nombre].title == titulo, nombre
+            assert ann.destructive_hint == ("D" in codigo), nombre
+            assert ann.read_only_hint is False, nombre
+            assert ann.open_world_hint is False, nombre
+        reload_ann = tools["sv_reload_network"].annotations
+        assert (reload_ann.destructive_hint, reload_ann.idempotent_hint) == (False, True)
+        assert tools["sv_create_vlan"].annotations.idempotent_hint is False
+        assert tools["sv_create_vlan"].title == "Create VLAN (Supervisor)"
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {}))
+                 for n in _HOST_NETWORK_032}
+        assert props == {
+            # Sin token: solo relee (D-032-1).
+            "sv_reload_network": set(),
+            "sv_update_network_interface": {
+                "interface", "ipv4", "ipv6", "wifi", "enabled", "mdns", "llmnr",
+                "confirmation_token"},
+            "sv_create_vlan": {"interface", "vlan_id", "ipv4", "ipv6", "mdns",
+                               "llmnr", "confirmation_token"},
+        }
+        assert tools["sv_update_network_interface"].parameters["required"] == ["interface"]
+        assert tools["sv_create_vlan"].parameters["required"] == ["interface", "vlan_id"]
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import SUPERVISOR
+
+        tools = _real_registry(["host_network"])
+        assert [n for n in _HOST_NETWORK_032 if n in tools] == []
+        dedicadas = {e.tool for e in SUPERVISOR.values()
+                     if e.category == "dedicated" and e.family == "host_network"}
+        assert dedicadas == set(_HOST_NETWORK_032)
+        # La otra familia de la 032 sigue.
+        assert "sv_shutdown_host" in tools
+
+    def test_con_las_dos_familias_apagadas(self):
+        """US4: con `host_control` y `host_network` apagadas no queda
+        ninguna de las siete."""
+        tools = _real_registry(["host_control", "host_network"])
+        assert [n for n in _HOST_CONTROL_032 + _HOST_NETWORK_032 if n in tools] == []
+
 
 
 # ── Spec 015, tramo 1: actualizaciones del sistema (FR-017, FR-019; T009) ─────

@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **334 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **341 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 334 herramientas
+## Qué puede hacer — 341 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -44,6 +44,8 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Supervisor y sistema** | 6 | Info del host y del core, validar configuración, reiniciar |
 | **Montajes** | 9 | Montajes de red del Supervisor (CIFS y NFS) y de discos locales para backups, medios y `share`: listar, crear, editar, borrar, volver a comprobar y elegir el montaje por defecto de los backups, siempre con vista previa. También los ajustes de backup del Supervisor (cuándo un backup cuenta como viejo) y releer los backups de todas las ubicaciones. Las credenciales CIFS entran pero nunca salen (ni en respuestas, vistas previas, errores ni logs) |
 | **Control de Core y del Supervisor** | 7 | Arrancar Home Assistant Core cuando está parado, reconstruirlo (también en modo seguro) y cambiar sus opciones del Supervisor (arranque, watchdog, audio…); recargar, reiniciar y reparar el Supervisor y cambiar sus opciones (zona horaria, país, log, actualización automática, diagnósticos). Todo lo que corta algo dice qué se corta, cuánto y qué le pasa a Hermes, y pide confirmación (recargar no); las opciones van por listas cerradas. Familia `system_control`, nueva en 1.2.0 |
+| **Control del host** | 4 | Apagar el host y cambiar su hostname, la swap y la ranura de arranque de Home Assistant OS (por ejemplo, volver al OS anterior tras una actualización que va mal). Siempre con vista previa del estado actual y confirmación; la de apagar avisa de que nadie podrá encender el equipo a distancia. Familia `host_control`, nueva en 1.2.0 |
+| **Red del host** | 3 | Releer el estado de la red del host, editar una interfaz secundaria (un Wi-Fi de respaldo, una segunda tarjeta) y crear VLAN. La interfaz principal (y la tarjeta que la lleva, si es una VLAN), la única conectada, o cualquiera si no se sabe cuál es la principal o de qué depende, se rechazan siempre, para que el agente no pueda cortarte el acceso; cada cambio enseña la interfaz antes y después con un aviso fuerte (el Supervisor no revierte), y la clave Wi-Fi nunca se devuelve ni va al log. Familia `host_network`, nueva en 1.2.0 |
 | **Diagnóstico del sistema** | 11 | De solo lectura: logs de Home Assistant Core, del Supervisor, de los plugins (`dns`, `audio`, `multicast`) y del journal del host, también de arranques anteriores, con los secretos redactados; los identificadores y arranques del journal; servicios del host, qué llena el disco, versión y slots de Home Assistant OS, swap y discos candidatos a disco de datos |
 | **Actualizaciones del sistema** | 8 | Qué tiene actualización (Core, OS, Supervisor, apps y plugins), buscar actualizaciones y actualizar Core, el OS y el Supervisor: la vista previa dice versiones, backup, qué se reinicia (el OS solo se aplica al reiniciar el host), salud del sistema y, en Core, la comprobación de la configuración, y no da token si el Supervisor la rechazaría. Entidades `update` (firmware de dispositivos, integraciones, HACS): listarlas, leer sus notas e instalarlas con versiones, notas y backup en la vista previa; las de Core, OS, Supervisor y apps se mandan a sus tools, y Hermes nunca se actualiza a sí mismo |
 | **Histórico y estadísticas** | 4 | Histórico, logbook y estadísticas de largo plazo |
@@ -78,7 +80,8 @@ están siempre, y apagando las familias nuevas de la 1.2.0
 `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`,
 `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`,
 `system_control`, `resolution_fixes`, `core_config`,
-`assistant_exposure`, `users` y `core_network`)
+`assistant_exposure`, `users`, `core_network`, `host_control` y
+`host_network`)
 tienes exactamente la lista de herramientas de la 1.1.2.
 
 Las herramientas destructivas devuelven, en la primera llamada, una vista previa
@@ -477,7 +480,7 @@ completo está aquí abajo.
 | `mcp_bind` | `127.0.0.1` | Dirección donde escucha Hermes. Usa `172.30.32.1` si tu proxy corre en la red puente de HAOS |
 | `trusted_proxy_ips` | `[]` | Proxies cuyo `X-Forwarded-For` se cree, como IPs sueltas o rangos CIDR (`172.30.32.0/23` es la red puente de HAOS). Vacío significa confiar solo en `127.0.0.1`, lo que con `reverse_proxy` convierte todos los límites por IP en un único cubo global. Quien esté dentro de un rango de confianza puede falsificar la IP del cliente (solo afecta a límites y logs, nunca a la autorización) |
 | `log_level` | `info` | Nivel de log (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes`, `core_config`, `assistant_exposure`, `users` y `core_network`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
+| `tool_families_disabled` | `[]` | Familias de herramientas que Hermes no registra, para que el cliente cargue menos: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`, `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`, `energy`, `system_control`, `resolution_fixes`, `core_config`, `assistant_exposure`, `users`, `core_network`, `host_control` y `host_network`. `base` (`ping` y `hermes_guide`) no se puede desactivar. Un nombre desconocido, o `base`, impide arrancar y el log dice qué valor falla y cuáles valen |
 | `log_redact_network` | `true` | Sustituye en el log tu `public_hostname`, los hosts de `external_url` e `internal_url` de Home Assistant, los nombres `*.ts.net` y las IPs que no sean de loopback (también escritas como `ip-a-b-c-d`) por marcadores, para que puedas pegarlo al pedir ayuda. Desactívala solo para diagnosticar la red: el log lo avisa con `log_network_redaction_disabled`. Los secretos se redactan siempre |
 | `oauth_cimd_enabled` | `true` | Acepta clientes que se identifican con una URL de metadatos (CIMD), como Claude Code. Desactívala solo si un cliente falla con CIMD: el registro dinámico (DCR) sigue funcionando igual |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts cuyos documentos CIMD acepta Hermes (p. ej. `claude.ai`, donde publica el suyo Claude Code). Vacía significa **cualquier host público**: cada descarga sale de la IP de tu casa hacia un host que cualquiera puede elegir sin la contraseña. Pon solo los hosts que uses; ver `hermes/DOCS.md` |

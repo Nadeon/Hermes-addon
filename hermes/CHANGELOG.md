@@ -876,6 +876,128 @@ desactivar), y analytics y labs por la tabla.
   (`apps_lockout`, `nothing_to_promote`), porque confirmar reiniciaría
   la HA del banco; su confirmación queda para la VM. Las cuatro de analytics y
   labs, por las genéricas, sin activar ningún envío.
+- **Host y red del host (032), tramo 1: control del host.** Familia nueva
+  `host_control` (desactivable con `tool_families_disabled`) con cuatro
+  tools, todas en dos pasos con una vista previa del estado real leído del
+  Supervisor:
+  - `sv_shutdown_host` apaga la máquina entera. La vista previa dice qué se
+    para (el host, Home Assistant, todas las apps y el propio Hermes), que
+    **nadie puede encenderla a distancia** después y que la conexión se
+    corta. No expone `force`: si Home Assistant está migrando su base de
+    datos, el error del Supervisor vuelve tal cual y no se reintenta.
+  - `sv_set_hostname` cambia el hostname (una etiqueta DNS en minúsculas,
+    validada antes de llamar); la vista previa enseña el viejo y el nuevo y
+    avisa de que cambia el nombre mDNS (`<hostname>.local`). El mismo nombre
+    que ahora, `no_change`.
+  - `sv_set_swap` cambia el tamaño y la swappiness de la swap (Home
+    Assistant OS 15 o posterior; si no, `not_supported`), enviando solo lo
+    que se pasa. La vista previa enseña el antes y el después, el disco libre
+    y que hace falta reiniciar; con `0`, que desactiva la swap. Un tamaño
+    que dejaría libres menos de 1 GiB o del 10 % del disco (lo que sea
+    mayor), `insufficient_disk`.
+  - `sv_set_boot_slot` arranca en la otra ranura de Home Assistant OS (por
+    ejemplo, para volver al OS anterior). La vista previa enseña las dos
+    ranuras con su versión, avisa de que el equipo **reinicia en el acto** en
+    ese OS, de si la ranura está marcada como mala, y cómo volver. La ranura
+    activa, `already_booted`; una sin versión, `slot_unusable`; sin Home
+    Assistant OS (el Supervisor contesta sin ranuras, no con un 404),
+    `not_supported`. El Supervisor **no** comprueba aquí si Home Assistant
+    migra su base de datos (al apagar sí), así que Hermes lee el estado de
+    Core antes de la vista previa y otra vez al confirmar: con una migración
+    fuera de línea, `db_migration_in_progress`; si no puede leerlo,
+    `core_state_unknown`. En los dos casos, sin token ni reinicio.
+  - El token ata los argumentos (`boot_slot` normalizado a mayúsculas) y la
+    huella del estado que describe la vista previa: si el hostname, la swap o
+    las ranuras cambian antes de confirmar, no se ejecuta (`state_changed`).
+    El disco libre no entra, porque cambia solo; `insufficient_disk` se
+    vuelve a comprobar al confirmar. Las cuatro están en el inventario de
+    argumentos atados de la 033 (`sv_shutdown_host`, solo con el token,
+    como `sv_reboot_host`).
+  - Si la conexión se corta después de enviar la orden (lo normal al apagar
+    o al cambiar de ranura), la respuesta no es ni «ok» ni un error:
+    `outcome: "unknown"` con `verify_with`.
+  - El log (`host_control`) lleva la tool, el resultado y los nombres de lo
+    que cambia; nunca el hostname, la swap ni las versiones.
+  - Las cuatro rutas de CAP-086 (`POST /host/shutdown`, `/host/options`,
+    `/os/config/swap` y `/os/boot-slot`) pasan de `deny` a `dedicated` en la
+    tabla de comandos; `sv_call_api` remite a su tool.
+  - Guía: tema nuevo `hermes_guide("host_control")` (alias `hostname`,
+    `swap`, `boot_slot`, `shutdown`); el tema `supervisor` remite a él.
+  - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Host y red del host (032), tramo 2: red del host.** Familia nueva
+  `host_network` (desactivable con `tool_families_disabled`; con
+  `host_control` y `host_network` desactivadas, las siete tools de la 032
+  desaparecen) con tres tools:
+  - `sv_reload_network` hace que el Supervisor vuelva a leer el estado de la
+    red y compruebe la conectividad, y responde con `host_internet` y
+    `supervisor_internet`. **Sin token**: no cambia ninguna configuración
+    (es una desviación consciente del texto de FR-082 de la 008, que pedía
+    confirmación para las tres; anotada en la spec).
+  - `sv_update_network_interface` edita una interfaz **secundaria** (un
+    Wi-Fi de respaldo, una segunda tarjeta, una VLAN) en dos pasos. La vista
+    previa enseña la interfaz antes (sin la MAC), lo que se enviará (la clave
+    Wi-Fi como `"psk": "set"`), su papel y un aviso fuerte: el Supervisor
+    aplica el cambio en el acto y **no lo revierte**. Con una puerta de
+    enlace, un aviso más de que puede quedarse con la ruta por defecto. La
+    respuesta trae la interfaz releída.
+  - **Guarda de la interfaz de acceso**: la interfaz principal (la de la
+    ruta por defecto), la única conectada y cualquier interfaz cuando no se
+    sabe cuál es la principal (lectura fallida, ninguna o varias, forma
+    inesperada) se rechazan **siempre**, sin token y sin escribir nada,
+    también para un cambio inocuo como `mdns` (`primary_interface`,
+    `only_connected_interface`, `primary_unknown`); el nombre `default`
+    también. Si la principal es una VLAN, también la tarjeta que la lleva
+    (`primary_interface_parent`): desactivarla borra su conexión y la VLAN
+    no vuelve a levantarse. Si el Supervisor no dice cuál es esa tarjeta por
+    su nombre (suele dar el identificador de la conexión), no se edita
+    ninguna interfaz (`primary_dependency_unknown`). El mensaje dice que se
+    cambie desde la interfaz de Home Assistant con acceso local. La guarda se
+    repite justo antes de enviar.
+  - **Bloques completos**: el Supervisor reemplaza cada bloque entero y
+    rellena lo que falta (un `ipv4` sin `method` pasaría a estático sin
+    dirección; un `wifi` sin `auth`, a red abierta). Hermes exige `method`
+    en `ipv4`/`ipv6` y `mode`, `auth` y `ssid` en `wifi`, y rechaza antes de
+    llamar los bloques incompletos o contradictorios (una dirección con
+    `auto`, una IP de la otra familia, una clave en una red abierta, una
+    clave WPA de menos de 8 caracteres…), diciendo la regla y nunca el
+    valor. También lo que el Supervisor aceptaría y luego ignoraría, que la
+    vista previa daría por aplicado: un bloque `wifi` en una interfaz que no
+    es inalámbrica (`wifi_not_wireless`), DNS con `method: disabled`,
+    `addr_gen_mode` o `ip6_privacy` sin `auto`, y la autenticación `wep`
+    (el Supervisor guarda la clave donde NetworkManager no la lee y la red
+    no llega a conectar).
+  - **`enabled: false` borra la conexión guardada** (la configuración IP y,
+    en Wi-Fi, la red y su clave), no la pausa: tiene que ir sola (con otros
+    bloques se rechaza, porque el Supervisor los descartaría), la vista
+    previa lo avisa (`deletes_saved_connection`) y volver a activarla exige
+    la configuración completa.
+  - `sv_create_vlan` crea `<interfaz>.<id>` (1–4094) sobre una tarjeta
+    ethernet, también la principal (no la modifica). La vista previa avisa
+    de que una puerta de enlace de la VLAN (fija o por DHCP) puede quedarse
+    con la ruta por defecto. Una VLAN que ya existe, una madre que no es
+    ethernet o que no existe se rechazan sin token. No hay tool para
+    borrarla.
+  - **La clave Wi-Fi nunca sale**: ni en la vista previa, ni en la
+    respuesta, ni en los errores (aunque el texto del Supervisor la repita,
+    también escapada dentro de un JSON o de un `repr`), ni en el log, ni en el fichero del token (solo el HMAC de la acción).
+    Una clave igual al marcador de redacción o con caracteres de control se
+    rechaza.
+  - El token ata todos los argumentos (la clave, por el HMAC) y la huella
+    de la interfaz, su papel y las interfaces conectadas; no la señal Wi-Fi
+    ni `ready`, que cambian solos. Las dos tools con token están en el
+    inventario de argumentos atados de la 033.
+  - Si la conexión se corta después de enviar, `outcome: "unknown"` con
+    `verify_with`. El log (`host_network`) lleva la tool, el resultado, la
+    interfaz y los bloques que cambian; nunca IP, puerta de enlace, DNS,
+    SSID, MAC ni la clave.
+  - Las tres rutas de CAP-090 (`POST /network/reload`,
+    `/network/interface/{interface}/update` y
+    `/network/interface/{interface}/vlan/{vlan}`) pasan de `deny` a
+    `dedicated`; las lecturas de red siguen por `sv_read_api`.
+  - Guía: el tema `host_control` cubre también la red (alias
+    `host_network`, `network_config`, `vlan`, `wifi`).
+  - Prueba contra un Supervisor real: pendiente (VM de la 014, con una
+    segunda interfaz).
 
 ### Mejoras de tools existentes
 

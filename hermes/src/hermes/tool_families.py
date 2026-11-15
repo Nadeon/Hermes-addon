@@ -246,6 +246,25 @@ _CATALOGO: tuple[Familia, ...] = (
             "Core network adapters and HTTP server configuration (port, SSL, "
             "reverse proxy).",
             "1.2.0", True, ("core_network",)),
+    # Spec 032 (research R-1): apagar el host, el hostname, la swap y la
+    # ranura de arranque. Una familia aparte de la red del host (tramo 2,
+    # `host_network`) porque el riesgo es de otro orden: quien quiere que el
+    # agente cambie la swap no tiene por qué darle la red. No va en
+    # `supervisor` (1.1.2: FR-010 de la 008 pide familias nuevas) ni en
+    # `system_diagnostics`, que solo lee y dejaría de decir verdad.
+    Familia("host_control",
+            "Shut down the host and change its hostname, swap and Home "
+            "Assistant OS boot slot (all with confirmation).",
+            "1.2.0", True, ("host_control",)),
+    # Spec 032, tramo 2 (research R-1): la red del host (recargar, editar una
+    # interfaz que no sea la de acceso, crear una VLAN). Familia propia porque
+    # un error aquí puede dejar la casa sin acceso y el Supervisor no revierte:
+    # quien no quiera darle la red al agente la quita sin perder el resto.
+    Familia("host_network",
+            "Host network: reload the network state, edit a secondary "
+            "interface (never the primary one) and create VLANs (changes "
+            "with confirmation).",
+            "1.2.0", True, ("host_network",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

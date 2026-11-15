@@ -82,7 +82,7 @@ reintentar. `done` es true también si falla: cualquier entrada en `errors` da
 
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
-events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_CONTROL@@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
+events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_CONTROL@@TEMA_HOST@@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
 backups@TEMA_MONTAJES@, lovelace, marketplace@TEMA_TIENDA@, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
@@ -116,6 +116,11 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     texto = texto.replace(
         "@TEMA_CONTROL@",
         ", system_control" if "system_control" not in desactivadas else "")
+    # Spec 032: el tema del host (control y red), salvo con sus dos familias
+    # desactivadas.
+    texto = texto.replace(
+        "@TEMA_HOST@",
+        ", host_control" if not {"host_control", "host_network"} <= desactivadas else "")
     # Spec 019: el tema de los montajes, solo con su familia activa.
     texto = texto.replace(
         "@TEMA_MONTAJES@", ", mounts" if "mounts" not in desactivadas else "")
@@ -157,6 +162,7 @@ para el detalle de un área. Temas disponibles:
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — apps (add-ons), host y core de HAOS
 - `system_control` — arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor; aplicar sugerencias
+- `host_control`   — apagar el host, hostname, swap, ranura de arranque y red del host (interfaces secundarias, VLAN)
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `updates`        — qué hay que actualizar, buscar actualizaciones, actualizar Core, OS y Supervisor y las entidades `update`
 - `backups`        — crear, restaurar y gestionar backups
@@ -760,6 +766,8 @@ reversible con `fs_restore_file_backup`.
   Las apps siguen con `sv_update_addon`.
 - Arrancar o reconstruir Core, sus opciones, y recargar, reiniciar, reparar
   o configurar el Supervisor: `hermes_guide("system_control")`.
+- Apagar el host, cambiar el hostname, la swap, la ranura de arranque o la
+  red del host: `hermes_guide("host_control")`.
 
 Cuidado con el propio Hermes (`local_hermes`): pararlo/desinstalarlo te deja sin
 acceso; el preview lo advierte. Operaciones largas devuelven `job_id`: pollea
@@ -1188,6 +1196,105 @@ conexión), es un error con `sent: false`: no se hizo nada.
    `sv_rebuild_core` (con `safe_mode=true` para descartar una integración
    propia).
 4. Comprueba con `sv_get_core_info`.
+""",
+    "host_control": """\
+# Control del host: apagar, hostname, swap, ranura de arranque y red (Supervisor)
+
+Las cuatro piden confirmación en dos pasos: la vista previa enseña el estado
+real (leído del Supervisor) y lo que va a pasar. El token ata los argumentos y
+ese estado: si el hostname, la swap o las ranuras cambian antes de confirmar,
+la respuesta es `state_changed` y hay que pedir otra vista previa.
+
+- `sv_shutdown_host` (token) — apaga la máquina entera: el host, Home
+  Assistant, todas las apps y el propio Hermes. OJO: después
+  nadie puede encenderlo a distancia; hace falta acceso físico (o un
+  enchufe o Wake-on-LAN que no dependan de este equipo). Para reiniciar, usa
+  `sv_reboot_host`. No hay `force`: si Home Assistant está migrando su base
+  de datos, el Supervisor lo rechaza y hay que esperar.
+- `sv_set_hostname(hostname)` (token) — una etiqueta DNS en minúsculas
+  (letras, dígitos y `-`, 1–63, sin puntos). Cambia también el nombre mDNS
+  (`<hostname>.local`): enlaces, marcadores y certificados con el viejo dejan
+  de funcionar.
+- `sv_set_swap(swap_size=, swappiness=)` (token) — Home Assistant OS 15 o
+  posterior. `swap_size` como `2G` o `512M` (`0` desactiva la swap),
+  `swappiness` de 0 a 200; se envía solo lo que pases. Un tamaño que deje
+  libres menos de 1 GiB o del 10 % del disco (lo que sea mayor) se rechaza
+  (`insufficient_disk`). El Supervisor abre un aviso
+  `reboot_required` (`sv_get_resolution`): se aplica tras `sv_reboot_host`.
+- `sv_set_boot_slot(boot_slot)` (token) — `A` o `B`, por ejemplo para volver
+  al OS anterior tras una actualización que va mal. El equipo
+  reinicia en el acto en el OS de esa ranura y sigue arrancando de ella.
+  La vista previa enseña las dos ranuras con su versión y avisa si la de
+  destino está marcada como mala. Para volver, `sv_set_boot_slot` con la
+  ranura de antes (la vista previa dice cuál). El Supervisor NO comprueba
+  aquí si Home Assistant migra su base de datos, así que Hermes lo mira antes
+  de la vista previa y al confirmar: con una migración en curso se rechaza
+  (`db_migration_in_progress`), y también si no puede saberlo
+  (`core_state_unknown`). Sin Home Assistant OS, `not_supported`.
+
+Apagar y la ranura tumban el host: la respuesta puede no llegar. Si la
+conexión se corta después de enviar la orden, la respuesta es
+`outcome: "unknown"` con `verify_with` (`sv_get_os_info` tras la ranura,
+`sv_get_host_info` tras apagar): no reintentes; comprueba cuando Hermes
+vuelva a responder.
+
+Para leer sin cambiar nada: `sv_get_host_info` (hostname y disco),
+`sv_get_os_info` (ranuras y versiones) y `sv_get_swap` (tema
+`system_diagnostics`).
+
+## Red del host (familia `host_network`)
+
+Es la red del EQUIPO (interfaces, IP, Wi-Fi y VLAN, por NetworkManager y el
+Supervisor). No es la de Core: qué adaptadores usa Home Assistant para
+descubrir dispositivos y su servidor HTTP están en
+`hermes_guide("core_network")`.
+
+La red se LEE con `sv_read_api("/network/info")` (todas las interfaces, cuál
+es la principal y la conectividad) y
+`sv_read_api("/network/interface/<interfaz>/info")`. Para cambiarla:
+
+- `sv_reload_network` (sin token) — el Supervisor vuelve a leer el estado de
+  NetworkManager y comprueba la conectividad. No cambia nada.
+- `sv_update_network_interface(interface, ipv4=, ipv6=, wifi=, enabled=,
+  mdns=, llmnr=)` (token) — edita una interfaz SECUNDARIA. La interfaz
+  principal (la de la ruta por defecto, por la que se llega a Home Assistant
+  y a Hermes), la única conectada, y cualquiera si no se sabe cuál es la
+  principal se rechazan SIEMPRE (`primary_interface`,
+  `only_connected_interface`, `primary_unknown`), también para un cambio
+  inocuo como `mdns`; `default` también (es la principal). Si la principal es
+  una VLAN, también su tarjeta madre (`primary_interface_parent`); y si el
+  Supervisor no dice cuál es la madre por su nombre (suele dar el UUID de la
+  conexión), ninguna (`primary_dependency_unknown`). Esas se cambian
+  desde la interfaz de Home Assistant, con acceso local. El Supervisor aplica
+  el cambio en el acto y NO lo revierte.
+- `sv_create_vlan(interface, vlan_id, ipv4=, ipv6=, mdns=, llmnr=)` (token) —
+  crea `<interfaz>.<id>` (1–4094) sobre una tarjeta ethernet, también la
+  principal (no la modifica). No hay tool para borrarla.
+
+Cada bloque que pasas se REEMPLAZA entero, no se funde con lo que hay:
+`ipv4`/`ipv6` llevan siempre `method` (`auto`, `static`, `disabled`);
+`static` exige `address` con prefijo (`["192.0.2.20/24"]`) y admite
+`gateway`; `auto` y `disabled` no admiten ni `address` ni `gateway`. `wifi`
+(solo en una interfaz `wireless`) lleva siempre `mode`, `auth` (`open` o
+`wpa-psk`) y `ssid`; la `psk` es obligatoria con `wpa-psk` y no se admite con
+`open`. Un bloque incompleto se rechaza: el Supervisor lo rellenaría con
+valores por defecto (un `ipv4` sin `method` sería estático sin dirección; un
+`wifi` sin `auth`, una red abierta). También lo que el Supervisor aceptaría
+e ignoraría: `wifi` en una ethernet o una VLAN (`wifi_not_wireless`), DNS con
+`disabled`, `addr_gen_mode`/`ip6_privacy` sin `auto`, y `wep` (la clave
+acaba donde NetworkManager no la lee y la red no conecta).
+
+`enabled: false` BORRA la conexión guardada (la configuración IP y, en Wi-Fi,
+la red y su `psk`), no la pausa: va sola (con otros bloques se rechaza,
+porque el Supervisor los tiraría), la vista previa lo avisa, y volver a
+activarla exige pasar la configuración completa.
+
+La PSK no se devuelve nunca: la vista previa dice `"psk": "set"`, y no sale
+en respuestas, errores ni el log. Una puerta de enlace en una interfaz
+secundaria o en una VLAN (fija o por DHCP) se permite con un aviso fuerte:
+puede quedarse con la ruta por defecto y cortar el acceso. Si la conexión se
+corta después de enviar, la respuesta es `outcome: "unknown"` con
+`verify_with`: lee la interfaz antes de repetir nada.
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)
@@ -1914,7 +2021,8 @@ LO QUE NO HAY
 # Red y HTTP de Core (familia `core_network`)
 
 Lo que guarda Home Assistant Core sobre su red y su servidor web (Ajustes →
-Sistema → Red). No es la red del host (eso es el Supervisor). Para leer:
+Sistema → Red). No es la red del host (interfaces, IP, Wi-Fi y VLAN del
+equipo, que son del Supervisor: `hermes_guide("host_control")`). Para leer:
 `ha_read_ws_command(type="network")` (adaptadores, direcciones y
 `configured_adapters`) y `ha_read_ws_command(type="http/config")` (`stable`,
 `pending`, `revert_at`, `active_config_type` y `default`). Las tres tools
@@ -2094,6 +2202,18 @@ _ALIASES: dict[str, str] = {
     # Spec 015.
     "update": "updates",
     "upgrade": "updates",
+    # Spec 032. `host` sigue siendo `supervisor`, como en la 1.1.2.
+    "hostname": "host_control",
+    "swap": "host_control",
+    "boot_slot": "host_control",
+    "shutdown": "host_control",
+    # Spec 032, tramo 2: la red del host está en el mismo tema. `network`
+    # es de `core_network` (spec 021: los adaptadores y el HTTP que guarda
+    # Core); cada alias apunta a un solo tema y los dos temas remiten al otro.
+    "host_network": "host_control",
+    "network_config": "host_control",
+    "vlan": "host_control",
+    "wifi": "host_control",
     "backup": "backups",
     # Spec 019. `backup` sigue siendo `backups`, como en la 1.1.2.
     "cifs": "mounts",
@@ -2264,7 +2384,7 @@ def register(mcp: object) -> None:
             topic (str, opcional): Tema. Uno de: overview, services, automations,
                 helpers, events, data, registries, diagnostics, config_entries,
                 integration_flows, repair_flows, filesystem, supervisor,
-                system_control, system_diagnostics, updates, backups, lovelace,
+                system_control, host_control, system_diagnostics, updates, backups, lovelace,
                 marketplace, security,
                 generic_commands, system_status, recorder, energy, core_diagnostics,
                 app_store, blueprints, automation_assist, core_config,

@@ -127,8 +127,11 @@ class TestPrimeraGeneracion(_Base):
                 self.assertEqual(
                     (e.category, e.reason),
                     ("deny", f"pendiente de tool dedicada (spec {spec})"))
+        # Era el ejemplo de «spec 032»; desde su tramo 1 la tool existe y la
+        # fila está en el mapa: dedicada (la regla del mapa va antes).
         e = self.t.SUPERVISOR[("POST", "/host/shutdown")]
-        self.assertEqual(e.reason, "pendiente de tool dedicada (spec 032)")
+        self.assertEqual((e.category, e.tool, e.family),
+                         ("dedicated", "sv_shutdown_host", "host_control"))
         # CAP-087 se reparte: la lectura es de 013 y la escritura de 022.
         self.assertEqual(self.t.SUPERVISOR[("GET", "/jobs/info")].reason,
                          "pendiente de tool dedicada (spec 013)")
@@ -311,8 +314,9 @@ class TestClaseAConToolDedicada(_Base):
         # `/reload_updates`, `/core/update`, `/os/update`, `/supervisor/update`
         # y `update/release_notes`). Desde la integración de la 030, sus 15
         # rutas (7 de repositorios y recarga, 8 de fichas, versiones,
-        # validación y reconstrucción).
-        self.assertGreaterEqual(n, 75)
+        # validación y reconstrucción). Desde la integración de la 032, sus 4
+        # rutas de CAP-086 (tramo 1) y sus 3 de CAP-090 (tramo 2).
+        self.assertGreaterEqual(n, 82)
 
     def test_desde_cero_las_de_la_030_con_su_motivo(self) -> None:
         """Integración de la 030: las rutas cuyo motivo no sigue la forma

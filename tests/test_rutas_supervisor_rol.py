@@ -218,6 +218,22 @@ LLAMADAS_DECLARADAS: dict[tuple[str, str], tuple[str, ...] | str] = {
     # ayuda que recibe la ruta.
     ("hermes.tools.resolution_fixes", "leer"): (
         "/resolution/info", "/backups", "/addons/self/info", "/addons/x/info"),
+    # Spec 032, tramo 1: lecturas de las vistas previas y escrituras del
+    # control del host, con la ruta como constante en cada tool.
+    ("hermes.tools.host_control", "_leer"): ("/host/info", "/os/config/swap", "/os/info"),
+    ("hermes.tools.host_control", "_enviar"): (
+        "/host/shutdown",
+        "/host/options",
+        "/os/config/swap",
+        "/os/boot-slot",
+    ),
+    # Spec 032, tramo 2: las escrituras de la red del host; la ruta es un
+    # f-string con la interfaz (validada como nombre de interfaz) y el id
+    # (entero de 1 a 4094).
+    ("hermes.tools.host_network", "_enviar"): (
+        "/network/interface/x/update",
+        "/network/interface/x/vlan/1",
+    ),
     # La genérica del Supervisor de la 011 (todavía en su rama): sus rutas son
     # las claves de `command_table.SUPERVISOR`, que comprueba
     # `test_rutas_de_la_tabla_de_la_011` cuando el módulo existe.
