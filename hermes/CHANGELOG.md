@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.1] — <fecha de publicación>
+## [1.2.1] — 2026-11-15
 
 Claude puede trabajar ahora con dos carpetas más, `/addons` (el código de las
 apps locales) y `/share` (la carpeta compartida entre apps), y la vista previa

@@ -15,7 +15,7 @@ las pruebas en vivo de la 1.1.0 y la 1.1.2, lo que encontraron las de la
 lleva Hermes de 216 a 359 tools. Los recuentos de este apartado son los de la
 1.1.2; los de la 1.2.0 están en «Programa de cobertura total».
 
-**1.2.1, pendiente de publicar:** las carpetas `/addons` y `/share` (spec 034)
+**1.2.1, publicada el 2026-11-15:** las carpetas `/addons` y `/share` (spec 034)
 suben a 366 tools. Ver «Hecho en 1.2.1» en el plan por versiones.
 
 **Verificado contra:** Home Assistant Core **2026.11.1**, Supervisor **2026.11.0**
