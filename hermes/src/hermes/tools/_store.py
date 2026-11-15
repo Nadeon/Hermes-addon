@@ -21,11 +21,14 @@ POR QUÉ
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
 from typing import Any
 from urllib.parse import unquote, urlsplit
+
+import yaml
 
 from hermes.ha import HAConnectionError
 from hermes.security import REDACTED_MARKER, redact_secrets
@@ -340,3 +343,310 @@ def trozo_de_texto(
         else:
             alto = medio - 1
     return armar(bajo)
+
+
+# ── Privilegios de una app (spec 034, tramo 3; FR-021…FR-023) ─────────────────
+#
+# Con las tools de `/addons` un cliente puede escribir una app local y luego
+# instalarla. La salvaguarda es que la vista previa de instalar y de
+# reconstruir ENSEÑE qué privilegios pide la app y que el token se ate a lo
+# enseñado (research R-7). Se eligen los campos uno a uno: nunca la ficha en
+# crudo (lleva `long_description`, texto libre del autor, y la instalada,
+# `options`, que puede llevar contraseñas).
+
+#: Campos de privilegio de `GET /store/addons/{slug}` (`api/store.py`,
+#: `_generate_app_information(extended=True)`), FR-021.
+CAMPOS_PRIVILEGIO_TIENDA: tuple[str, ...] = (
+    "apparmor", "auth_api", "docker_api", "full_access", "hassio_api",
+    "hassio_role", "homeassistant_api", "host_network", "host_pid", "ingress",
+    "rating", "signed",
+)
+#: Los de `GET /addons/{slug}/info` (`api/apps.py`, `info_data`): los mismos
+#: más los que la tienda no da (FR-022).
+CAMPOS_PRIVILEGIO_INSTALADA: tuple[str, ...] = CAMPOS_PRIVILEGIO_TIENDA + (
+    "privileged", "devices", "host_ipc", "host_uts", "host_dbus",
+    "kernel_modules", "udev", "usb", "uart", "gpio", "devicetree", "video",
+    "audio",
+)
+#: Lo que se lee del `config.*` de una app local (FR-021). `map` y `ports` no
+#: los da ninguna ruta del Supervisor: solo se ven en el fichero.
+CAMPOS_DECLARADOS: tuple[str, ...] = (
+    "privileged", "full_access", "docker_api", "host_network", "host_pid",
+    "host_ipc", "host_uts", "host_dbus", "hassio_api", "hassio_role",
+    "homeassistant_api", "auth_api", "apparmor", "devices", "map",
+    "kernel_modules", "udev", "usb", "uart", "gpio", "video", "audio", "ports",
+)
+
+#: Booleanos que, a `true`, son un privilegio elevado (regla fija, R-7).
+_BOOLEANOS_ELEVADOS: tuple[str, ...] = (
+    "full_access", "docker_api", "host_network", "host_pid", "host_ipc",
+    "host_uts", "host_dbus", "kernel_modules", "udev",
+)
+_ROLES_ELEVADOS: frozenset[str] = frozenset({"manager", "admin"})
+
+NOTA_DECLARADO = (
+    "This is what the app's config file in /addons declares now. The "
+    "Supervisor uses its own copy until the store is reloaded "
+    "(sv_reload_store), so it may differ from 'store'."
+)
+
+# Topes de lo que se ENSEÑA (no de lo que se ata al token, que va entero):
+# un `config.yaml` de 1 MiB con miles de `devices` no puede llevarse la
+# respuesta por delante del tope de bytes.
+_MAX_ELEMENTOS = 50
+_MAX_TEXTO = 200
+
+
+def _limpio(valor: Any) -> Any:
+    """Copia de un valor que escribió el autor de la app con cada texto
+    (también las claves) pasado por `redact_secrets` (FR-023)."""
+    if valor is None or isinstance(valor, (bool, int, float)):
+        return valor
+    if isinstance(valor, str):
+        return redact_secrets(valor)
+    if isinstance(valor, dict):
+        return {redact_secrets(str(k)): _limpio(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [_limpio(v) for v in valor]
+    return redact_secrets(str(valor))
+
+
+def _verdadero(valor: Any) -> bool:
+    # El `config.yaml` pasa por `vol.Boolean()`, que admite también textos.
+    if valor is True:
+        return True
+    return isinstance(valor, str) and valor.strip().lower() in {
+        "true", "yes", "on", "1", "enable"}
+
+
+def _falso(valor: Any) -> bool:
+    if valor is False:
+        return True
+    return isinstance(valor, str) and valor.strip().lower() in {
+        "false", "no", "off", "0", "disable"}
+
+
+def _elevados(fuente: dict[str, Any]) -> set[str]:
+    """Nombres de los privilegios elevados de UNA fuente (regla de R-7)."""
+    out = {c for c in _BOOLEANOS_ELEVADOS if _verdadero(fuente.get(c))}
+    for lista in ("privileged", "devices"):
+        if fuente.get(lista):
+            out.add(lista)
+    rol = fuente.get("hassio_role")
+    if isinstance(rol, str) and rol in _ROLES_ELEVADOS:
+        out.add("hassio_role:" + rol)
+    # En la API `apparmor` es texto (`disable`, `default` o `profile`,
+    # `apps/model.py`); en el fichero, booleano.
+    if _falso(fuente.get("apparmor")):
+        out.add("apparmor:disabled")
+    mapa = fuente.get("map")
+    for entrada in mapa if isinstance(mapa, list) else []:
+        if isinstance(entrada, dict) and _falso(entrada.get("read_only")):
+            tipo = str(entrada.get("type"))[:_MAX_TEXTO]
+            out.add(f"map:{tipo} (read-write)")
+    return out
+
+
+def _normalizar_map(valor: Any) -> list[Any]:
+    """`map` como lo deja el Supervisor (`apps/validate.py`, `_migrate`):
+    `"share:rw"` → `{"type": "share", "read_only": false}`, `"ssl"` →
+    `read_only: true`, y un diccionario con `read_only` por defecto `true`.
+    Lo que el Supervisor descartaría se enseña como `unparsed` y no cuenta
+    como elevado (no se aplica)."""
+    if not isinstance(valor, list):
+        return [{"unparsed": valor}]
+    out: list[Any] = []
+    for entrada in valor:
+        if isinstance(entrada, str):
+            tipo, _, modo = entrada.partition(":")
+            if tipo and modo in ("", "rw", "ro"):
+                out.append({"type": tipo, "read_only": modo != "rw"})
+            else:
+                out.append({"unparsed": entrada})
+        elif isinstance(entrada, dict) and "type" in entrada:
+            normal = {"type": entrada["type"],
+                      "read_only": entrada.get("read_only", True)}
+            if "path" in entrada:
+                normal["path"] = entrada["path"]
+            out.append(normal)
+        else:
+            out.append({"unparsed": entrada})
+    return out
+
+
+class DeclaradoIlegible(Exception):
+    """No se pudo mirar el `config.*` de una app local (carpeta sin montar o
+    fichero ilegible). El mensaje es el motivo, sin rutas absolutas."""
+
+
+_ILEGIBLE = "The app's config file in /addons could not be read."
+
+
+def declarado_en_carpeta(slug: str) -> dict[str, Any] | None:
+    """Lo que declara el `config.*` de la app local `slug` en `/addons`, o
+    `None` si `slug` no es `local_*` o ningún `config.*` del índice
+    (`folders.indice_de_apps_locales`, las reglas del Supervisor) declara
+    ese slug. Solo `/addons`: el Supervisor no carga apps de otra carpeta.
+    Solo los campos de `CAMPOS_DECLARADOS`, redactados, más `config` (la
+    ruta relativa) y la nota. Síncrono (recorre la carpeta): quien llama lo
+    manda a un hilo.
+
+    Raises:
+        DeclaradoIlegible: la carpeta no está montada o el fichero no se lee.
+    """
+    # Import aquí: `folders` solo hace falta para esto (y así la 030 no
+    # depende de él al importar).
+    from hermes import folders
+
+    if not isinstance(slug, str) or not slug.startswith("local_"):
+        return None
+    try:
+        base = folders.raiz("addons")
+        datos = folders.indice_de_apps_locales(base).apps.get(slug)
+    except folders.CarpetaError as exc:
+        raise DeclaradoIlegible(str(exc)) from exc
+    except OSError as exc:
+        raise DeclaradoIlegible("The /addons folder could not be read.") from exc
+    if datos is None:
+        return None
+    rel = datos["config"]
+    try:
+        bruto = (base / rel).read_bytes()
+        if len(bruto) > folders.TAM_MAX_CONFIG:
+            raise DeclaradoIlegible(_ILEGIBLE)
+        texto = bruto.decode("utf-8")
+        # Como `read_json_or_yaml_file` del Supervisor: JSON por sufijo.
+        contenido = json.loads(texto) if rel.endswith(".json") else yaml.safe_load(texto)
+    except DeclaradoIlegible:
+        raise
+    except Exception as exc:  # noqa: BLE001 — cualquier fallo es «ilegible»
+        raise DeclaradoIlegible(_ILEGIBLE) from exc
+    if not isinstance(contenido, dict):
+        raise DeclaradoIlegible(_ILEGIBLE)
+    out: dict[str, Any] = {"config": rel}
+    for campo in CAMPOS_DECLARADOS:
+        if campo in contenido:
+            valor = contenido[campo]
+            out[campo] = _limpio(_normalizar_map(valor) if campo == "map" else valor)
+    out["note"] = NOTA_DECLARADO
+    return out
+
+
+#: Marca de «esta fuente no aplica» en `privilegios_de` (distinta de `None`,
+#: que es «no se pudo leer»).
+NO_APLICA: Any = object()
+
+
+def privilegios_de(
+    store: Any = NO_APLICA,
+    installed: Any = NO_APLICA,
+    declared: Any = NO_APLICA,
+    motivos: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    """El bloque `privileges` (data-model.md). Puro.
+
+    Cada fuente es la respuesta leída (dict), `None` si no se pudo leer (con
+    su motivo en `motivos`, por clave del bloque) o `NO_APLICA` (`installed`
+    al instalar; `declared` si la app no es local o no tiene `config.*` en
+    `/addons`). `store` e `installed` se reducen a sus campos de privilegio;
+    `declared` ya viene reducido (`declarado_en_carpeta`). Si no se leyó
+    ninguna fuente, `None`: quien llama dice `privileges_unavailable` y
+    nunca se inventa nada.
+    """
+    bloque: dict[str, Any] = {}
+    leidas: list[dict[str, Any]] = []
+    for clave, fuente, campos in (("store", store, CAMPOS_PRIVILEGIO_TIENDA),
+                                  ("installed", installed, CAMPOS_PRIVILEGIO_INSTALADA),
+                                  ("declared_in_folder", declared, None)):
+        if fuente is NO_APLICA:
+            continue
+        if not isinstance(fuente, dict):
+            bloque[clave] = None
+            continue
+        elegido = _limpio({c: fuente.get(c) for c in campos} if campos is not None
+                          else fuente)
+        bloque[clave] = elegido
+        leidas.append(elegido)
+    if not leidas:
+        return None
+    elevados: set[str] = set()
+    for fuente in leidas:
+        elevados |= _elevados(fuente)
+    bloque["elevated"] = sorted(elevados)
+    no_leidas = {k: redact_secrets(v) for k, v in (motivos or {}).items()
+                 if bloque.get(k, False) is None}
+    if no_leidas:
+        bloque["unavailable"] = no_leidas
+    return bloque
+
+
+def estado_de_privilegios(bloque: dict[str, Any] | None) -> Any:
+    """Lo que se ata al token (FR-023): el bloque ENTERO salvo la nota y los
+    motivos de lo que no se leyó. Un motivo es el texto de un error, que
+    puede variar entre dos lecturas sin que cambie nada de lo enseñado; que
+    una fuente no se leyera sí cuenta (su clave vale `null`)."""
+    if bloque is None:
+        return None
+    estado = {k: v for k, v in bloque.items() if k != "unavailable"}
+    if isinstance(estado.get("declared_in_folder"), dict):
+        estado["declared_in_folder"] = {
+            k: v for k, v in estado["declared_in_folder"].items() if k != "note"}
+    return estado
+
+
+def _acotar(valor: Any) -> tuple[Any, bool]:
+    if isinstance(valor, str):
+        return (valor[:_MAX_TEXTO], True) if len(valor) > _MAX_TEXTO else (valor, False)
+    if isinstance(valor, list):
+        cortado = len(valor) > _MAX_ELEMENTOS
+        out = []
+        for v in valor[:_MAX_ELEMENTOS]:
+            a, c = _acotar(v)
+            out.append(a)
+            cortado = cortado or c
+        return out, cortado
+    if isinstance(valor, dict):
+        cortado = len(valor) > _MAX_ELEMENTOS
+        outd: dict[str, Any] = {}
+        for k, v in list(valor.items())[:_MAX_ELEMENTOS]:
+            a, c = _acotar(v)
+            outd[k[:_MAX_TEXTO]] = a
+            cortado = cortado or c or len(k) > _MAX_TEXTO
+        return outd, cortado
+    return valor, False
+
+
+def privilegios_para_mostrar(bloque: dict[str, Any] | None) -> dict[str, Any] | None:
+    """El bloque con listas y textos acotados para la vista previa (el tope
+    de respuesta sigue vigente). Al token se ata el bloque entero
+    (`estado_de_privilegios`): un cambio en lo que no se ve también lo
+    invalida. Si algo se acortó, `truncated: true`."""
+    if bloque is None:
+        return None
+    out: dict[str, Any] = {}
+    cortado = False
+    for k, v in bloque.items():
+        if k in ("store", "installed", "declared_in_folder") and isinstance(v, dict):
+            a, c = _acotar({kk: vv for kk, vv in v.items() if kk != "note"})
+            if "note" in v:
+                a["note"] = v["note"]
+            out[k] = a
+            cortado = cortado or c
+        elif k == "elevated":
+            a, c = _acotar(v)
+            out[k] = a
+            cortado = cortado or c
+        else:
+            out[k] = v
+    if cortado:
+        out["truncated"] = True
+    return out
+
+
+async def leer_declarado(slug: str) -> tuple[Any, str | None]:
+    """(`declared` para `privilegios_de`, motivo si no se pudo leer)."""
+    try:
+        declarado = await asyncio.to_thread(declarado_en_carpeta, slug)
+    except DeclaradoIlegible as exc:
+        return None, str(exc)
+    return (NO_APLICA if declarado is None else declarado), None

@@ -257,6 +257,14 @@ lo guardado en la vista previa y el hash lo cubre);
 cuatro atan además, en el `estado`, la huella de lo que la vista previa vio
 (contenido de un fichero, destino de un symlink o el árbol entero de una
 carpeta; en mover, la del origen y la del destino). Ningún hallazgo.
+
+El tramo 3 de la 034 (privilegios, FR-023) no cambia ningún argumento ni el
+recuento: `sv_install_addon` sigue atando `slug` y `sv_rebuild_addon`,
+`slug` y `force`. Crece su `estado`: el de instalar pasa a ser
+`{"version_latest", "privileges"}` y el de reconstruir, que no tenía,
+`privileges` (el bloque de la vista previa sin notas ni motivos; al
+confirmar se vuelve a leer con las mismas rutas GET y, si cambió,
+`preview_outdated` sin enviar nada). Ningún hallazgo.
 """
 
 from __future__ import annotations

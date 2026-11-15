@@ -68,8 +68,12 @@ from hermes.tools._logs import (
 from hermes.tools._store import (
     disponibilidad,
     es_integrado,
+    estado_de_privilegios,
     ficha_de_tienda,
+    leer_declarado,
     mensaje_del_supervisor,
+    privilegios_de,
+    privilegios_para_mostrar,
     texto_de_la_app,
     texto_de_terceros,
 )
@@ -309,10 +313,30 @@ def register(
     # Supervisor rechazaría. Ninguna cambia los argumentos ni lo que se hace
     # con un token válido (FR-009…FR-013 de la 030; SC-005).
 
-    async def _vista_previa_de_instalar(
-        slug: str, preview: dict[str, Any]
+    async def _privilegios_de_instalar(
+        slug: str, ficha: dict[str, Any] | None, motivo_tienda: str | None
     ) -> dict[str, Any] | None:
-        """Completa `preview` o devuelve el rechazo (sin token)."""
+        """Bloque `privileges` de instalar (spec 034, FR-021): la ficha de la
+        tienda que ya se leyó (sin llamadas nuevas al Supervisor) y, para
+        `local_*`, lo que declara su `config.*` en `/addons`."""
+        declarado, motivo_carpeta = await leer_declarado(slug)
+        motivos = {"store": motivo_tienda, "declared_in_folder": motivo_carpeta}
+        return privilegios_de(store=ficha, declared=declarado,
+                              motivos={k: v for k, v in motivos.items() if v})
+
+    def _poner_privilegios(
+        preview: dict[str, Any], bloque: dict[str, Any] | None, motivo: str | None
+    ) -> None:
+        preview["privileges"] = privilegios_para_mostrar(bloque)
+        if bloque is None:
+            # Sin ninguna fuente: se dice por qué y nunca se inventa (FR-021).
+            preview["privileges_unavailable"] = motivo or "The store could not be read."
+
+    async def _vista_previa_de_instalar(
+        slug: str, preview: dict[str, Any], estado: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Completa `preview` y `estado` (lo que se ata al token) o devuelve
+        el rechazo (sin token)."""
         try:
             ficha = await ficha_de_tienda(ha_client, slug)
             if ficha is None:
@@ -340,6 +364,11 @@ def register(
                          "availability again when installing."),
             }
             preview["third_party_repository"] = None
+            motivo_tienda = redact_secrets(str(exc))
+            bloque = await _privilegios_de_instalar(slug, None, motivo_tienda)
+            _poner_privilegios(preview, bloque, motivo_tienda)
+            estado.update({"version_latest": None,
+                           "privileges": estado_de_privilegios(bloque)})
             return None
         if not disponible:
             return {"error": "addon_not_available", "reason": motivo,
@@ -361,22 +390,39 @@ def register(
                 "it runs with the permissions it declares."
             )
         preview["_third_party_text"] = texto_de_terceros(["name"])
+        bloque = await _privilegios_de_instalar(slug, ficha, None)
+        _poner_privilegios(preview, bloque, None)
+        estado.update({"version_latest": ficha.get("version_latest"),
+                       "privileges": estado_de_privilegios(bloque)})
         return None
 
-    async def _version_de_la_tienda(slug: str) -> Any:
-        """`version_latest` de la ficha de la tienda, o `None` si no se puede
-        leer. Es lo que ata el token de `sv_install_addon`."""
+    async def _estado_de_instalar(slug: str) -> dict[str, Any]:
+        """Lo que ata el token de `sv_install_addon`, leído otra vez al
+        confirmar: la `version_latest` de la ficha de la tienda (030) y el
+        bloque `privileges` (034, FR-023), con las mismas lecturas que la
+        vista previa (GET, sin efecto). Lo que no se puede leer cuenta como
+        `None`: si la vista previa sí lo leyó, no casa (fail-closed)."""
+        motivo: str | None = None
         try:
             ficha = await ficha_de_tienda(ha_client, slug)
-        except HAConnectionError:
-            return None
-        return ficha.get("version_latest") if isinstance(ficha, dict) else None
+        except HAConnectionError as exc:
+            ficha, motivo = None, redact_secrets(str(exc))
+        if ficha is None and motivo is None:
+            motivo = "The app is not in the store."
+        bloque = await _privilegios_de_instalar(slug, ficha, motivo)
+        return {
+            "version_latest": ficha.get("version_latest") if isinstance(ficha, dict) else None,
+            "privileges": estado_de_privilegios(bloque),
+        }
 
     async def _token_con_version(
         tool_name: str,
         args: dict[str, Any],
         confirmation_token: str,
-        version: Any,
+        estado: dict[str, Any],
+        hint: str = ("The store version changed since the preview. Nothing "
+                     "was done; request a new preview (call again without "
+                     "confirmation_token)."),
     ) -> dict[str, Any] | None:
         """Resuelve un token atado a la versión de la vista previa, o devuelve
         el rechazo.
@@ -389,9 +435,14 @@ def register(
         no es la misma, `preview_outdated` sin tocar nada, como la 015. Si
         no se puede leer, cuenta como `None`: si la vista previa sí la leyó,
         no casa (fail-closed). Los argumentos y la petición, como en la 1.1.2.
+
+        `estado` es el estado leído ahora: `{"version_latest"}` al
+        actualizar y, desde la 034, `{"version_latest", "privileges"}` al
+        instalar. El token solo guarda su huella, así que la pista no puede
+        decir cuál de los dos cambió.
         """
         valid, error, _ = await resolve_confirmation_token(
-            confirmation_token, tool_name, args, estado={"version_latest": version})
+            confirmation_token, tool_name, args, estado=estado)
         if valid:
             return None
         if error == ESTADO_CAMBIADO:
@@ -399,10 +450,8 @@ def register(
                 "error": error,
                 "preview_outdated": True,
                 "slug": args["slug"],
-                "version_latest": version,
-                "hint": ("The store version changed since the preview. Nothing "
-                         "was done; request a new preview (call again without "
-                         "confirmation_token)."),
+                "version_latest": estado.get("version_latest"),
+                "hint": hint,
             }
         return {"error": error}
 
@@ -944,8 +993,18 @@ def register(
         si la app está disponible ni si es de terceros
         (`third_party_repository: null`).
 
-        El token se ata a la `version_latest` de la vista previa: si la tienda
-        ofrece otra al confirmar, responde `preview_outdated` sin instalar.
+        La vista previa enseña también los privilegios que pide la app
+        (`privileges`): los de la ficha de la tienda (`store`), cuáles son
+        elevados (`elevated`: acceso total, Docker, red o PID del host,
+        capacidades, dispositivos, rol `manager`/`admin`, AppArmor apagado,
+        carpetas con escritura…) y, para una app local (`local_*`), lo que
+        declara su `config.*` en /addons (`declared_in_folder`, con `map` y
+        `ports`). Si no se pueden leer, `privileges: null` y
+        `privileges_unavailable` con el motivo.
+
+        El token se ata a la `version_latest` y a los `privileges` de la vista
+        previa: si cambian al confirmar, responde `preview_outdated` sin
+        instalar.
 
         Operación larga — devuelve inmediatamente un job_id.
         Usa sv_get_job_status(job_id) para consultar el progreso.
@@ -975,15 +1034,20 @@ def register(
             # está, ya instalada, no disponible en este sistema) se dice sin
             # token. Si la tienda no se puede leer, se dice y el token sale
             # como en la 1.1.2: el Supervisor vuelve a comprobarlo al instalar.
-            rechazo = await _vista_previa_de_instalar(slug, preview)
+            # Spec 034 (FR-021, FR-023): la vista previa enseña los
+            # privilegios de la app y el token se ata también a ellos.
+            estado: dict[str, Any] = {}
+            rechazo = await _vista_previa_de_instalar(slug, preview, estado)
             if rechazo is not None:
                 return rechazo
             return await create_confirmation_token(
-                tool_name, args, preview=preview,
-                estado={"version_latest": preview.get("version_latest")})
+                tool_name, args, preview=preview, estado=estado)
 
         rechazo = await _token_con_version(
-            tool_name, args, confirmation_token, await _version_de_la_tienda(slug))
+            tool_name, args, confirmation_token, await _estado_de_instalar(slug),
+            hint=("The store version or the app's privileges changed since the "
+                  "preview. Nothing was done; request a new preview (call again "
+                  "without confirmation_token)."))
         if rechazo is not None:
             return rechazo
 
@@ -1215,7 +1279,8 @@ def register(
                 tool_name, args, preview=preview, estado={"version_latest": latest})
 
         rechazo = await _token_con_version(
-            tool_name, args, confirmation_token, await _version_de_la_app(slug))
+            tool_name, args, confirmation_token,
+            {"version_latest": await _version_de_la_app(slug)})
         if rechazo is not None:
             return rechazo
 
