@@ -289,8 +289,24 @@ class TestDedicadas(unittest.TestCase):
         (data-model sección 13), y el mapa del generador los nombra. Los dos
         de `hassio/update/config/*` (HALLAZGO del tramo 1) son `deny` con el
         motivo del proxy del Supervisor, también desde el mapa.
-        Control negativo (T015 d): `backup/config/update` en `deny` → cae."""
+        Control negativo (T015 d): `backup/config/update` en `deny` → cae.
+
+        Tramo 2 (T027): crear y borrar, `dedicated` SIN `cap` (sus filas del
+        inventario son `cubierto`, sin CAP) y sin « (acción de HA)»."""
         from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES, _Deny
+
+        tramo_2 = {
+            "backup/delete": "ha_delete_backup",
+            "backup/generate": "ha_create_backup",
+            "backup/generate_with_automatic_settings": "ha_create_automatic_backup",
+        }
+        for comando, tool in tramo_2.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", "backup_integration", tool, None))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
 
         tramo_1 = {
             "backup/agents/info": "ha_list_backup_agents",
@@ -379,14 +395,17 @@ class TestPistasYMotivos(unittest.TestCase):
         self.assertEqual(problemas, [], "\n".join(problemas))
         # Las dos que antes eran `dedicated` hacia `ha_call_service` sin decir
         # qué acción (T046) y que el test no esté vacío.
-        self.assertTrue({"backup/generate_with_automatic_settings",
-                         "hassio/update/core"} <= vistos)
+        # (`backup/generate_with_automatic_settings` era la otra hasta que la
+        # 031, tramo 2, le dio tool dedicada.)
+        self.assertTrue({"hassio/update/core"} <= vistos)
 
     def test_ninguna_dedicada_a_ha_call_service_sin_accion(self) -> None:
         # Las que quedan apuntan a una acción del mismo nombre que el comando
         # (p. ej. `calendar/event/create` → `calendar.create_event`), ninguna
-        # de la denylist; las dos de T046 ya no son `dedicated`.
-        for k in ("backup/generate_with_automatic_settings", "hassio/update/core"):
+        # de la denylist; la de T046 que queda no es `dedicated` (la otra,
+        # `backup/generate_with_automatic_settings`, tiene tool propia desde
+        # la 031).
+        for k in ("hassio/update/core",):
             with self.subTest(k=k):
                 self.assertEqual(ct.CORE_WS[k].category, "deny")
                 self.assertRegex(ct.CORE_WS[k].reason, r"^pendiente de tool dedicada \(spec \d{3}\)")

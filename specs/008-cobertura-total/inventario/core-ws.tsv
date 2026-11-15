@@ -41,11 +41,11 @@ backup/agents/info	backup	homeassistant/components/backup/websocket.py	no	A	Back
 backup/can_decrypt_on_download	backup	homeassistant/components/backup/websocket.py	no	B	comprobación de la UI antes de descargar	
 backup/config/info	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_list_backups / ha_get_backup / ha_get_backup_config	
 backup/config/update	backup	homeassistant/components/backup/websocket.py	no	A	Backups de la integración backup (agentes, programación, retención)	CAP-057
-backup/delete	backup	homeassistant/components/backup/websocket.py	si-equivalente	cubierto	sv_delete_backup (mismo backup vía Supervisor; no cubre agentes remotos)	
+backup/delete	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_delete_backup (spec 031: todas las ubicaciones, también remotas)	
 backup/details	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_list_backups / ha_get_backup / ha_get_backup_config	
 backup/end	backup	homeassistant/components/backup/websocket.py	no	B	señal interna del Supervisor	
-backup/generate	backup	homeassistant/components/backup/websocket.py	accion-generica	cubierto	backup.create (denylist) o sv_create_backup_*; dedicada aportaría elegir agentes/ubicaciones	
-backup/generate_with_automatic_settings	backup	homeassistant/components/backup/websocket.py	accion-generica	cubierto	backup.create_automatic (denylist); poco que añadir	
+backup/generate	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_create_backup (spec 031: elegir agentes y contenido, cifrado con la clave de HA)	
+backup/generate_with_automatic_settings	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_create_automatic_backup (spec 031: con la estimación de la retención)	
 backup/info	backup	homeassistant/components/backup/websocket.py	si	cubierto	ha_list_backups / ha_get_backup / ha_get_backup_config	
 backup/restore	backup	homeassistant/components/backup/websocket.py	si-equivalente	cubierto	sv_restore_backup_full/partial (solo backups locales del Supervisor)	
 backup/start	backup	homeassistant/components/backup/websocket.py	no	B	señal interna del Supervisor	

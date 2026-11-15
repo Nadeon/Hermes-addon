@@ -74,19 +74,11 @@ CORE_WS: dict[str, E] = {
     "backup/can_decrypt_on_download": E("deny", "comprobación de la UI antes de descargar (clase B)", "generic_commands"),
     "backup/config/info": E("dedicated", "cubierto por ha_get_backup_config", "backups", tool="ha_get_backup_config"),
     "backup/config/update": E("dedicated", "cubierto por ha_update_backup_config", "backup_integration", tool="ha_update_backup_config", cap="CAP-057"),
-    # Cubre también ubicaciones remotas, que sv_delete_backup no ve; pero la vista
-    # previa genérica (resumen de la carga) no dice qué backup es ni qué contiene.
-    # Hasta la tool dedicada de la 031, deny.
-    "backup/delete": E("deny", "pendiente de tool dedicada (spec 031): restaurar o borrar backups exige una vista previa fuerte como la de `sv_restore_backup_full`", "generic_commands"),
+    "backup/delete": E("dedicated", "cubierto por ha_delete_backup", "backup_integration", tool="ha_delete_backup"),
     "backup/details": E("dedicated", "cubierto por ha_get_backup", "backups", tool="ha_get_backup"),
     "backup/end": E("deny", "señal interna del Supervisor (clase B)", "generic_commands"),
-    # backup.create crea un backup fijo en el agente local (y en HAOS ni existe);
-    # elegir agentes y contenido es ha_create_backup (CAP-057, spec 031).
-    "backup/generate": E("deny", "pendiente de tool dedicada (spec 031)", "generic_commands"),
-    # Su acción, `backup.create_automatic`, está en la denylist: `ha_call_service` la
-    # ejecuta, pero solo en dos pasos. `use_dedicated_tool` no dice qué acción ni
-    # que pide confirmación, así que el motivo lo dice (T046).
-    "backup/generate_with_automatic_settings": E("deny", "pendiente de tool dedicada (spec 031); mientras, `ha_call_service` con `backup.create_automatic`, que pide confirmación (denylist)", "generic_commands"),
+    "backup/generate": E("dedicated", "cubierto por ha_create_backup", "backup_integration", tool="ha_create_backup"),
+    "backup/generate_with_automatic_settings": E("dedicated", "cubierto por ha_create_automatic_backup", "backup_integration", tool="ha_create_automatic_backup"),
     "backup/info": E("dedicated", "cubierto por ha_list_backups", "backups", tool="ha_list_backups"),
     # SOBRESCRIBE Core, apps y datos desde cualquier ubicación, también remota.
     # La vista previa genérica no enseña fecha, contenido ni tamaño del backup como
@@ -273,8 +265,8 @@ CORE_WS: dict[str, E] = {
     "hassio/update/config/info": E("deny", "el proxy WS del Supervisor rechaza los comandos `hassio/*` y `supervisor/*` de las apps (DENIED_WS_TYPE_PREFIXES, Supervisor 2026.11.0)", "generic_commands", cap="CAP-057"),
     "hassio/update/config/update": E("deny", "el proxy WS del Supervisor rechaza los comandos `hassio/*` y `supervisor/*` de las apps (DENIED_WS_TYPE_PREFIXES, Supervisor 2026.11.0)", "generic_commands", cap="CAP-057"),
     # `hassio.core_update` ya no existe en 2026.11: la vía es `update.install` sobre
-    # la entidad update de Core, que está en la denylist (dos pasos). Ver la nota de
-    # `backup/generate_with_automatic_settings` (T046).
+    # la entidad update de Core, que está en la denylist (dos pasos). `use_dedicated_tool`
+    # no diría qué acción ni que pide confirmación, así que el motivo lo dice (T046).
     "hassio/update/core": E("deny", "pendiente de tool dedicada (spec 015); mientras, `ha_call_service` con `update.install` sobre la entidad update de Core, que pide confirmación (denylist)", "generic_commands"),
     "history/history_during_period": E("dedicated", "cubierto por ha_get_history", "data", tool="ha_get_history"),
     "history/stream": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),

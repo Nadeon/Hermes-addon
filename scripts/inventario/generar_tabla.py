@@ -209,10 +209,7 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "backup/config/info": "ha_get_backup_config",
     "backup/details": "ha_get_backup",
     "backup/info": "ha_list_backups",
-    "backup/delete": "sv_delete_backup",
     "backup/restore": "sv_restore_backup_full",
-    "backup/generate": "ha_call_service",
-    "backup/generate_with_automatic_settings": "ha_call_service",
     "backup/subscribe_events": _SUSCRIPCION_NO_USADA,
     "cloud/subscribe_events": _SUSCRIPCION_NO_USADA,
     # Acciones de HA.
@@ -330,11 +327,15 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "diagnostics/get": "ha_list_diagnostics_handlers",
     "persistent_notification/get": "ha_list_persistent_notifications",
     # 031: backups de la integración `backup` de HA (CAP-057, clase A de vía
-    # D+T). Tramo 1: agentes y ajustes; crear, borrar y restaurar llegan en
-    # los tramos siguientes. Los ajustes del backup previo a actualizar
+    # D+T). Tramo 1: agentes y ajustes; tramo 2: crear y borrar (filas
+    # `cubierto` sin CAP, como `backup/config/info`); restaurar llega en el
+    # tramo 3. Los ajustes del backup previo a actualizar
     # (`hassio/update/config/*`) no llegan a Core desde una app: `deny`.
     "backup/agents/info": "ha_list_backup_agents",
     "backup/config/update": "ha_update_backup_config",
+    "backup/delete": "ha_delete_backup",
+    "backup/generate": "ha_create_backup",
+    "backup/generate_with_automatic_settings": "ha_create_automatic_backup",
     "hassio/update/config/info": _PROXY_SUPERVISOR,
     "hassio/update/config/update": _PROXY_SUPERVISOR,
 
