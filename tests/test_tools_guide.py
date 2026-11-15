@@ -556,8 +556,10 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "automations": "7792fa788da1e1cc",
         # La 027 cambia `backups` (`success` y `child_errors` de los jobs) y la
         # 019 (tramo 2) también (`location` en sv_create_backup_*); sus
-        # CHANGELOG lo dicen. Huella recalculada al integrar la 019.
-        "backups": "284e226b8aaf6fed",
+        # CHANGELOG lo dicen. Huella recalculada al integrar la 019. La 031
+        # (tramo 4, T055) añade el cifrado de los safety backups; su
+        # CHANGELOG lo dice.
+        "backups": "4638cb5b7d7d079c",
         # La 016 cambia `config_entries` (remite a `integration_flows`; el
         # reconfigure va por su tool y el `reauth` pide token), `diagnostics`
         # (textos de los avisos y remite a `repair_flows`) y `helpers`
@@ -1088,6 +1090,34 @@ class TestTemaBackupIntegration(unittest.IsolatedAsyncioTestCase):
         for alias in ("restore_backup", "restore", "RESTORE"):
             with self.subTest(alias=alias):
                 self.assertEqual(await self.guide(alias), texto)
+
+
+class TestTemaBackupsCifrado031(unittest.IsolatedAsyncioTestCase):
+    """Spec 031, tramo 4 (T055, FR-021): el tema `backups` explica los
+    safety backups cifrados con la clave de HA, los tres valores de
+    `safety_backup_encryption`, cómo restaurarlos (sin `password` o con el
+    kit de emergencia), la clave anterior y que la retención los sigue
+    podando; el tema `backup_integration` no cambia por esto.
+
+    Control negativo, comprobado: sin el párrafo del cifrado caen
+    `test_cifrado_de_los_safety_backups` y la huella del tema `backups`.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_cifrado_de_los_safety_backups(self) -> None:
+        texto = await self.guide("backups")
+        for palabra in ("safety_backup_encryption", "`auto`", "`required`", "`off`",
+                        "kit de emergencia", "`encrypted`", "encryption_skipped_reason",
+                        "encryption_key_unavailable", "SIN cifrar",
+                        "sv_restore_backup_full", "password_source", "la anterior",
+                        "sigue podando", "no la guarda ni la devuelve"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        self.assertEqual(await self.guide("backup"), texto)
 
 
 if __name__ == "__main__":

@@ -762,6 +762,21 @@ backup automático correcto, Hermes conserva los N más recientes y borra el
 resto. Solo toca los que él mismo anotó al crearlos; nunca uno del usuario
 aunque se llame `hermes-safety-…`, ni protegidos, parciales o copiados a otra
 ubicación. Los anteriores a 1.1.0 no se podan: bórralos con `sv_delete_backup`.
+
+Cifrado (1.2.0, opción `safety_backup_encryption`, `auto` por defecto): los
+safety backups (la tool y el automático) se cifran con la clave de los backups
+de Home Assistant, la del kit de emergencia. Hermes la lee de HA en cada
+backup y no la guarda ni la devuelve nunca. `sv_create_safety_backup` dice
+siempre `encrypted`. Con `auto` y HA sin clave (backups automáticos sin
+configurar, HA anterior a 2025.1 o caído) el backup sale SIN cifrar, con
+`encryption_skipped_reason`, y el log lo avisa; con `required` no se crea
+(`encryption_key_unavailable`) y la escritura en /config no se hace; con
+`off`, sin cifrar, como antes. Restaurar uno cifrado: `sv_restore_backup_full`
+sin `password` usa la clave de HA (la vista previa lo dice en
+`password_source`); desde la interfaz o la CLI de HA, con el kit de
+emergencia. Si se cambió la clave en HA después, hace falta la anterior
+(pásala como `password`). La retención sigue podando los cifrados que Hermes
+anotó como suyos; un backup protegido que no anotó como cifrado no lo toca.
 """,
     "backup_integration": """\
 # Backups de Home Assistant (familia `backup_integration`)
