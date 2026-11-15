@@ -39,6 +39,7 @@ from tests.banco import cobertura_016 as c016
 from tests.banco import cobertura_017 as c017
 from tests.banco import cobertura_020 as c020
 from tests.banco import cobertura_021 as c021
+from tests.banco import cobertura_023 as c023
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -88,6 +89,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 021: sus escrituras, en su propio módulo.
         "PROBADAS_021": set(c021.PROBADAS_021),
         "NO_EJECUTABLES_021": set(c021.NO_EJECUTABLES_021),
+        # Spec 023: su escritura, en su propio módulo.
+        "PROBADAS_023": set(c023.PROBADAS_023),
+        "NO_EJECUTABLES_023": set(c023.NO_EJECUTABLES_023),
     }
 
 
@@ -118,8 +122,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # la de aplicar sugerencias del tramo 2), y las 9 de la 021 (3 del
         # tramo a, núcleo y exposición; 3 del b, usuarios; y 3 del c, red y
         # HTTP), y las 7 de la 032 (4 del tramo 1, control del host, y 3 del
-        # tramo 2, red del host).
-        self.assertEqual(len(reales), 191)
+        # tramo 2, red del host), y la de la 023 (`ha_process_conversation`).
+        self.assertEqual(len(reales), 192)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -151,6 +155,7 @@ class TestInventarioDeEscrituras(unittest.TestCase):
                 ("FUERA_DEL_BANCO", c028.FUERA_DEL_BANCO),
                 ("NO_EJECUTABLES_016", c016.NO_EJECUTABLES_016),
                 ("NO_EJECUTABLES_015", c015.NO_EJECUTABLES_015),
+                ("NO_EJECUTABLES_023", c023.NO_EJECUTABLES_023),
             )
             for tool, motivo in lista.items()
             if not str(motivo).strip()
@@ -180,10 +185,11 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
             | c016.PROBADAS_016 | c017.PROBADAS_017 | c020.PROBADAS_020
             | c020.LECTURAS_020 | c021.PROBADAS_021 | c021.LECTURAS_021
-            | c021.VISTA_PREVIA_021,
+            | c021.VISTA_PREVIA_021 | c023.PROBADAS_023 | c023.LECTURAS_023,
         )
         self.assertEqual(
-            c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}
+            c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028,
+                                 **c023.XFAIL_PERMITIDOS_023}
         )
         conftest = (RAIZ / "tests" / "banco" / "conftest.py").read_text(encoding="utf-8")
         self.assertIn("tools_exigidas=TOOLS_EXIGIDAS_DEL_JOB", conftest)

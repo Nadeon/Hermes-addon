@@ -1442,6 +1442,65 @@ de la 1.1.2.
   en la tanda 2 del procedimiento de la VM. La prueba en vivo de toda la
   sub-feature queda pendiente (VM de la 014, después instalación real).
 
+### Assist y conversación
+
+Spec 023: usar y depurar Assist desde Claude, en una familia nueva,
+`conversation`. Con la familia desactivada (y las demás de la 1.2.0), la
+lista de tools es la de la 1.1.2.
+
+- **Cuatro tools nuevas, familia `conversation`**:
+  - `ha_list_conversation_agents`: los agentes de conversación y sus idiomas.
+    El integrado de HA (`conversation.home_assistant`) sale primero, con
+    `is_default_agent`; es el único del que se sabe que funciona en local.
+    Con `include_language_scores=true`, además cuánto admite cada idioma.
+  - `ha_list_conversation_sentences`: las frases de los disparadores de frase
+    de las automatizaciones (solo esas), ordenadas, sin repetir y con
+    `search`.
+  - `ha_debug_conversation`: qué reconoce el agente integrado en hasta 20
+    frases (intent, huecos y entidades objetivo, o el disparador de frase con
+    el que coinciden) **sin ejecutar nada**.
+  - `ha_process_conversation`: manda una frase a Assist y la **ejecuta**,
+    siempre en **dos pasos**. La vista previa dice el agente y, con el
+    integrado, lo que HA reconoce; si coincide un disparador de frase, avisa
+    de que se ejecutará esa automatización entera. Con cualquier otro agente,
+    avisa de que el texto se le envía, que puede salir a un servicio externo
+    (un LLM en la nube) y que Hermes no puede prever qué hará (`local:
+    "unknown"`). El token se ata al texto, el agente, el idioma, la
+    conversación y el dispositivo, y solo guarda su hash. Si HA no contesta
+    en 90 s, la respuesta es `outcome_unknown`: la frase pudo ejecutarse
+    igualmente, y el token queda gastado. Si la conexión falla antes de
+    enviar nada, responde el error con `sent: false` y el token sigue
+    valiendo (`HAConnectionError` lleva el atributo `sent`, el mismo de la
+    spec 022). Se anuncia destructiva, no
+    idempotente y de mundo abierto.
+- **Tabla de comandos**: los cinco comandos de CAP-060 pasan a `dedicated`
+  (las genéricas ya no llegan a `conversation/process` sin la vista previa).
+  Pipelines, motores de voz, AI Task y satélites siguen por las genéricas,
+  revisados: en `assist_pipeline/pipeline_debug/get` el `token` del audio, su
+  `url` y su `media_id` salen tapados, y en cualquier respuesta de las
+  genéricas se tapa el token de `/api/tts_proxy/<token>` y de
+  `media-source://tts/-stream-/<token>`, que es el mismo (HA sirve ese audio
+  sin autenticación; el audio de STT no tiene URL); el motivo de
+  `ai_task/preferences/set` dice que la evaluación automática deja a HA usar
+  por su cuenta un LLM; `assist_pipeline/pipeline/create` trae un ejemplo
+  con sus once campos. `assist_pipeline/run` sigue rechazado.
+- **Guía**: tema `conversation` (alias `assist`, `voice`, `sentences`,
+  `intents`, `pipelines`, `tts`, `stt`, `wake_word`, `satellite`, `ai_task`,
+  `llm`…), que el índice y las instrucciones del servidor nombran solo con
+  la familia activa. Remite a las tools de exposición a asistentes
+  (`ha_list_exposed_entities`, `ha_set_entity_exposure`,
+  `ha_set_expose_new_entities`), porque Assist solo controla lo expuesto, y
+  el tema `assistant_exposure` remite a este. Los alias `assist` y `voice`,
+  que antes llevaban a `assistant_exposure`, llevan ahora a `conversation`.
+- **Banco de Core**: `ha_process_conversation` se ejecuta contra HA Core
+  2026.11.1 real con un disparador de frase que crea el test (la vista previa
+  no lo ejecuta; la confirmación sí, y el lector lo ve), y las tres de
+  lectura también. Pipelines (crear, editar, preferido y borrar) y las
+  preferencias de AI Task, por las genéricas. La configuración del banco
+  carga `assist_pipeline:`, `llm:` y `ai_task:`. Un agente que no es el
+  integrado y los satélites solo se prueban en unitarios: el banco no tiene
+  ninguno.
+
 ### Banco de pruebas
 
 - **HA Core real en el CI.** Un job nuevo del workflow `Tests`, `banco de

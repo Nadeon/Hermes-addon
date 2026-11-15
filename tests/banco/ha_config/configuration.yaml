@@ -118,6 +118,24 @@ kitchen_sink:
 # frases de los intents vienen en la propia imagen; nada sale a internet.
 conversation:
 
+# ── Spec 023: Assist, pipelines, voz y AI Task ──────────────────────────────
+#
+# assist_pipeline: registra los comandos `assist_pipeline/*` (pipelines,
+# idiomas, dispositivos y depuración) y arrastra `tts`, `stt` y `wake_word`,
+# cuyos `*/engine/*` e `info` se leen por las genéricas. Al arrancar crea un
+# pipeline por defecto con el agente integrado y sin voz: no hay motores en
+# el banco y nada sale a internet. llm: da `llm/api/list` (no admite
+# parámetros; vacío no avisa). ai_task: da `ai_task/preferences/get|set`.
+# AI Task solo se configura por config entry, así que cargarla por YAML deja
+# en el log un error y en Repairs el aviso `config_entry_only_ai_task` del
+# dominio `homeassistant`; es el único modo de tener sus comandos sin una
+# integración de LLM, y ningún test del banco cuenta los avisos de ese
+# dominio. Los tests crean y borran lo suyo (un pipeline de prueba) y dejan
+# las preferencias como estaban.
+assist_pipeline:
+llm:
+ai_task:
+
 # ── Spec 029 (tramo 1): estado del sistema ───────────────────────────────────
 #
 # system_health: registra `system_health/info` (sin la integración, HA

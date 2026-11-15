@@ -282,6 +282,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         from tests.banco.cobertura_016 import PROBADAS_016
         from tests.banco.cobertura_017 import PROBADAS_017
         from tests.banco.cobertura_020 import LECTURAS_020, PROBADAS_020
+        from tests.banco.cobertura_023 import LECTURAS_023, PROBADAS_023
         from tests.banco.cobertura_escrituras import PROBADAS_028
 
         # Desde la 029, también sus lecturas.
@@ -296,7 +297,9 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
             PROBADAS_EN_BANCO | PROBADAS_GENERICAS | PROBADAS_028 | PROBADAS_EN_BANCO_029
             | PROBADAS_012 | PROBADAS_015 | PROBADAS_016 | PROBADAS_017
             | PROBADAS_020 | LECTURAS_020 | PROBADAS_021 | LECTURAS_021
-            | VISTA_PREVIA_021,
+            | VISTA_PREVIA_021
+            # Spec 023: su escritura y sus tres lecturas.
+            | PROBADAS_023 | LECTURAS_023,
         )
 
 

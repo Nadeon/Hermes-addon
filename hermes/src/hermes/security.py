@@ -540,6 +540,32 @@ async def resolve_confirmation_token(
     return True, "", resueltos
 
 
+async def release_confirmation_token(token: str) -> None:
+    """Devuelve a `pending` un token en `executing` cuya acción NO salió.
+
+    Para cuando la tool sabe con certeza que no mandó nada (la conexión con
+    HA falló antes de enviar, `HAConnectionError.sent is False`): gastar el
+    token obligaría a repetir la vista previa por algo que no ha pasado. El
+    plazo de caducidad no se toca: el token vale hasta su hora, como antes
+    (spec 023, T020). Si el token ya no está en `executing`, no hace nada.
+    """
+    if not is_valid_confirmation_token_format(token):
+        return
+    token_path = CONFIRMATIONS_DIR / f"{token}.json"
+    try:
+        token_data = json.loads(token_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if token_data.get("state") != "executing":
+        return
+    token_data["state"] = "pending"
+    tmp_path = token_path.with_suffix(".tmp")
+    tmp_path.write_text(
+        json.dumps(token_data, ensure_ascii=False), encoding="utf-8"
+    )
+    os.replace(str(tmp_path), str(token_path))
+
+
 async def complete_confirmation_token(
     token: str,
     *,

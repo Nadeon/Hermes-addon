@@ -83,7 +83,7 @@ reintentar. `done` es true también si falla: cualquier entrada en `errors` da
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
 events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_CONTROL@@TEMA_HOST@@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
-backups@TEMA_MONTAJES@, lovelace, marketplace@TEMA_TIENDA@, security@TEMA_GENERICAS@) y
+backups@TEMA_MONTAJES@, lovelace, marketplace@TEMA_TIENDA@@TEMA_CONVERSACION@, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
 """
@@ -131,6 +131,10 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     # Spec 030: el de la tienda de apps, igual.
     texto = texto.replace(
         "@TEMA_TIENDA@", ", app_store" if "app_store" not in desactivadas else "")
+    # Spec 023: el de Assist y conversación, igual.
+    texto = texto.replace(
+        "@TEMA_CONVERSACION@",
+        ", conversation" if "conversation" not in desactivadas else "")
     return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
 
 
@@ -179,6 +183,7 @@ para el detalle de un área. Temas disponibles:
 - `assistant_exposure` — qué entidades ven y controlan Assist, los agentes y Alexa o Google
 - `users`          — usuarios de HA: listar, crear sin credenciales, editar y borrar
 - `core_network`   — adaptadores de red y servidor HTTP de Core (puerto, SSL, proxy inverso)
+- `conversation`   — Assist: agentes, frases, analizar una frase sin ejecutarla y procesarla (con confirmación); pipelines, voz y satélites
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -1972,6 +1977,9 @@ los de Home Assistant:
 
 Antes de exponer a la nube (`cloud.*`) o algo de `sensitive`, enseña la vista
 previa al usuario.
+
+Para usar Assist con lo expuesto (analizar una frase sin ejecutarla o
+mandarla a un agente), `hermes_guide("conversation")`.
 """,
     "users": """# Usuarios de Home Assistant (familia `users`)
 
@@ -2086,6 +2094,86 @@ AVISOS Y RECHAZOS
   el siguiente reinicio (`config_check`).
 - Un Home Assistant anterior a 2026.11 no tiene esta configuración en
   almacenamiento: `unsupported_by_ha_version`.
+""",
+    "conversation": """\
+# Assist y conversación (familia `conversation`)
+
+Assist es el asistente de voz y texto de Home Assistant. Una frase la
+entiende un AGENTE de conversación: `conversation.home_assistant` es el
+agente integrado de HA y reconoce en local; los demás los añaden
+integraciones (OpenAI, Google, Anthropic, Ollama…) y pueden mandar el texto a
+un servicio externo (un LLM en la nube).
+
+LEER Y ANALIZAR (no ejecutan nada)
+- `ha_list_conversation_agents(language=None, country=None,
+  include_language_scores=false)` — los agentes y sus idiomas
+  (`supported_languages`: `"*"` es cualquiera). El integrado sale primero con
+  `is_default_agent: true`. Con `include_language_scores=true`, además
+  cuánto admite cada idioma el agente integrado.
+- `ha_list_conversation_sentences(search=None, limit=100)` — SOLO las frases
+  de los disparadores de frase de las automatizaciones (`trigger:
+  conversation`). No incluye las frases integradas de HA ni las de
+  `custom_sentences/`.
+- `ha_debug_conversation(sentences, language=None, device_id=None)` — qué
+  reconoce el agente integrado en hasta 20 frases, SIN ejecutarlas: el intent,
+  sus huecos y las entidades sobre las que actuaría (como mucho 50 por
+  frase), o si coincide con un disparador de frase (`source: "trigger"`), cuyo
+  efecto no se puede prever sin ejecutar la automatización. `device_id` da el
+  área del dispositivo como contexto. Solo el agente integrado.
+
+PROCESAR UNA FRASE (la EJECUTA)
+- `ha_process_conversation(text, agent_id=None, language=None,
+  conversation_id=None, device_id=None)` — manda la frase a Assist como si
+  se dijera por voz: puede encender, apagar, abrir cerraduras o puertas,
+  desarmar alarmas o ejecutar la automatización de un disparador de frase.
+  SIEMPRE EN DOS PASOS: la vista previa dice el agente (`local: true` solo
+  el integrado; con cualquier otro, `local: "unknown"`) y, con el integrado,
+  lo que HA reconoce (`recognition`). Enseña al usuario la vista previa y
+  repite la llamada con los mismos argumentos y `confirmation_token`.
+- Con un agente que NO es el integrado, la vista previa avisa: el texto se
+  envía a ese agente, que puede ser un servicio externo (un LLM en la nube),
+  y Hermes no puede predecir qué hará. Díselo al usuario antes de confirmar.
+- Si coincide un disparador de frase, se ejecuta esa automatización entera.
+  Si el análisis no reconoce la frase, el token se emite igual (el análisis
+  no es el proceso), con un aviso.
+- `conversation_id` continúa una conversación anterior (la respuesta trae el
+  suyo y `continue_conversation`). La respuesta trae `response_type`
+  (`action_done`, `query_answer` o `error`), `speech` (lo que contestaría) y
+  `data` (las entidades con éxito y con fallo).
+- `outcome_unknown`: HA no contestó a tiempo (90 s). La frase PUDO
+  ejecutarse igualmente: comprueba las entidades o `ha_get_logbook` antes de
+  repetirla. El token ya no vale.
+- `sent: false`: Hermes no tenía conexión con HA y la frase NO se envió; no
+  se hizo nada y el mismo token sigue valiendo hasta que caduque.
+- Assist solo controla las entidades EXPUESTAS a Assist (por defecto, luces,
+  interruptores, persianas, climatización, reproductores…). Mira cuáles con
+  `ha_list_exposed_entities(assistant="conversation")` y cámbialo con
+  `ha_set_entity_exposure` (exponer pide confirmación) o
+  `ha_set_expose_new_entities`: `hermes_guide("assistant_exposure")`. Si una
+  frase no encuentra la entidad, puede que no esté expuesta.
+- `ha_call_service_response("conversation", "process", …)` sigue existiendo
+  (es la acción de HA, también con confirmación), pero la vía recomendada es
+  `ha_process_conversation`: su vista previa dice qué reconoce HA.
+
+PIPELINES, VOZ, AI TASK Y SATÉLITES (por las genéricas)
+- Leer, con `ha_read_ws_command`: `assist_pipeline/pipeline/list` y
+  `pipeline/get`, `assist_pipeline/language/list`, `device/list`,
+  `pipeline_debug/list` y `pipeline_debug/get` (el `token` del audio, su
+  `url` y su `media_id` salen tapados: HA sirve ese audio sin autenticación;
+  en cualquier respuesta de las genéricas se tapa lo que va tras
+  `/api/tts_proxy/` y `media-source://tts/-stream-/`), `tts/engine/list`,
+  `tts/engine/get`, `tts/engine/voices`, `stt/engine/list`, `wake_word/info`,
+  `llm/api/list`, `ai_task/preferences/get` y
+  `assist_satellite/get_configuration`.
+- Cambiar, con `ha_call_ws_command` (dos pasos):
+  `assist_pipeline/pipeline/create` (once campos obligatorios: pide el
+  ejemplo con `hermes_guide("generic_commands", search="pipeline/create")`),
+  `pipeline/update`, `pipeline/delete` (HA no deja borrar el preferido),
+  `pipeline/set_preferred`, `assist_satellite/set_wake_words` y
+  `ai_task/preferences/set` (con `allow_automatic_evaluation`, HA puede usar
+  por su cuenta el modelo de decisión, un LLM quizá en la nube).
+- No disponibles: `assist_pipeline/run` (audio y voz en tiempo real), la
+  captura de audio y los asistentes de configuración de los satélites.
 """,
     "workflows": """\
 # Flujos completos (recetas paso a paso)
@@ -2275,10 +2363,25 @@ _ALIASES: dict[str, str] = {
     "labs": "core_config",
     "exposure": "assistant_exposure",
     "expose": "assistant_exposure",
-    "voice": "assistant_exposure",
-    "assist": "assistant_exposure",
     "user": "users",
     "accounts": "users",
+    # Spec 023: Assist y conversación.
+    # «assist» y «voice» eran alias de `assistant_exposure` (021); al integrar
+    # la 023 pasan a este tema, que es el de Assist y la voz. Los dos temas
+    # se citan entre sí, así que desde cualquiera se llega al otro.
+    "assist": "conversation",
+    "voice": "conversation",
+    "conversation_agents": "conversation",
+    "sentences": "conversation",
+    "intents": "conversation",
+    "pipelines": "conversation",
+    "assist_pipeline": "conversation",
+    "tts": "conversation",
+    "stt": "conversation",
+    "wake_word": "conversation",
+    "satellite": "conversation",
+    "ai_task": "conversation",
+    "llm": "conversation",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -2390,7 +2493,7 @@ def register(mcp: object) -> None:
                 marketplace, security,
                 generic_commands, system_status, recorder, energy, core_diagnostics,
                 app_store, blueprints, automation_assist, core_config,
-                assistant_exposure, users, core_network, workflows. Acepta alias
+                assistant_exposure, users, core_network, conversation, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,

@@ -176,6 +176,15 @@ interfaz y su papel (sin la señal Wi-Fi ni `ready`). La PSK entra en el
 hash y nunca en el fichero del token: no hay `omitibles` y el hash es el
 HMAC de la 019. `sv_reload_network` no tiene token (D-032-1). Ningún
 hallazgo.
+
+Recuento: 134 desde la integración de la 023, que trae una tool con token,
+comprobada en el código (`tools/conversation.py`): `ha_process_conversation`
+ata los cinco argumentos que cambian el efecto (`text`, `agent_id`,
+`language`, `conversation_id` y `device_id`) tal como llegan, `None`
+incluido, que son justo los que manda a `conversation/process`; sin
+omitibles ni `estado` (la vista previa no promete conservar nada). Si la
+frase no llegó a salir (`sent is False`), el token se devuelve con
+`release_confirmation_token` en vez de gastarse. Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -452,6 +461,9 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "sv_create_vlan": {
         "interface": A, "vlan_id": A, "ipv4": A, "ipv6": A, "mdns": A, "llmnr": A,
     },
+    # Spec 023.
+    "ha_process_conversation": {"text": A, "agent_id": A, "language": A,
+                                "conversation_id": A, "device_id": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -548,8 +560,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # cuatro de montajes de la 019 + las cuatro de la 015 + las tres de la 030
         # + las tres de la 017 + las seis de la 020
         # + las seis del tramo 1 de la 022 y la del tramo 2 + las nueve de la
-        # 021 + las cuatro del host de la 032 y las dos de su red (tramo 2).
-        self.assertEqual(len(firmas_con_token(TOOLS)), 133)
+        # 021 + las cuatro del host de la 032 y las dos de su red (tramo 2)
+        # + la de la 023 (`ha_process_conversation`).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 134)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -569,7 +582,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 133)
+        self.assertEqual(len(publicadas), 134)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

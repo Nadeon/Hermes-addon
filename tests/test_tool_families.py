@@ -400,6 +400,25 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["host_network"]), frozenset({"host_network"}))
         self.assertEqual(validar_desactivadas(["host_control", "host_network"]),
                          frozenset({"host_control", "host_network"}))
+    def test_conversation_es_de_la_1_2_0(self) -> None:
+        """Spec 023, T002 (FR-010): familia nueva de la 1.2.0, desactivable,
+        con su módulo, y una descripción que no dice «read only» porque
+        `ha_process_conversation` ejecuta (principio V)."""
+        familia = FAMILIAS["conversation"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("conversation",))
+        self.assertEqual(
+            familia.descripcion,
+            "Assist conversation agents, custom sentences, sentence analysis "
+            "and sending a sentence to Assist (with confirmation).")
+        self.assertNotIn("read only", familia.descripcion)
+        self.assertEqual(familia_de_modulo("conversation"), "conversation")
+        # `ha_call_service_response` (con `conversation.process`) sigue en
+        # `services`, familia de la 1.1.2 (FR-010 de la 008).
+        self.assertEqual(familia_de_modulo("ha"), "services")
+        self.assertEqual(validar_desactivadas(["conversation"]),
+                         frozenset({"conversation"}))
 
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")

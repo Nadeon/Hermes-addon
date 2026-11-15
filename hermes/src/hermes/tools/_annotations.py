@@ -93,6 +93,10 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # escuchan (research R-8); `webhook`, `conversation` o el `turn_on` de
     # una tele, que hacen algo más mientras existen, se rechazan.
     "ha_wait_for_trigger",
+    # Spec 023: analiza frases con el agente integrado y devuelve lo que
+    # reconoce, sin ejecutar ni el intent ni el disparador de frase. Su
+    # nombre no tiene prefijo de lectura.
+    "ha_debug_conversation",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────
@@ -303,6 +307,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # relee el estado y no pide token (D-032-1).
     "sv_update_network_interface",
     "sv_create_vlan",
+    # Spec 023: procesar una frase la ejecuta como si se dijera por voz: puede
+    # abrir una cerradura o la puerta del garaje, desarmar una alarma o
+    # disparar una automatización cualquiera. Es el mismo motivo por el que la
+    # acción `conversation.process` está en la denylist. Pide token siempre.
+    "ha_process_conversation",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -375,6 +384,11 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # (tests/test_tools_registration.py, `TOKEN_SOLO_AL_AMPLIAR`).
     "ha_set_entity_exposure",
     "ha_set_expose_new_entities",
+    # Spec 023: con un agente que no es el integrado, el texto va a ese
+    # agente, que puede ser un LLM en la nube. La anotación es estática y dice
+    # el peor caso (principio V). `ha_debug_conversation` no: solo usa el
+    # agente integrado, que reconoce en local.
+    "ha_process_conversation",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────
@@ -419,6 +433,9 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # Spec 022, tramo 2 (R-10): aplicar dos veces no deja el mismo estado
     # (otro backup completo, otro reinicio).
     "sv_apply_resolution_suggestion",
+    # Spec 023: repetir una frase repite la acción («sube el volumen»,
+    # «alterna la luz») y abre o continúa una sesión de chat.
+    "ha_process_conversation",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

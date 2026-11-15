@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 341 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 345 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -194,6 +194,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `assistant_exposure` | 3 | Qué entidades ven y controlan Assist, los agentes conversacionales y los asistentes de voz de la nube (nueva en 1.2.0) |
 | `users` | 4 | Usuarios de Home Assistant: listar, crear sin credenciales, editar y borrar; nunca contraseñas ni tokens (nueva en 1.2.0) |
 | `core_network` | 3 | Adaptadores de red y servidor HTTP de Home Assistant (puerto, SSL, proxy inverso); cambiar el HTTP reinicia Home Assistant (nueva en 1.2.0) |
+| `conversation` | 4 | Assist: agentes de conversación y sus idiomas, frases de los disparadores de frase, analizar frases sin ejecutarlas y mandar una frase a Assist, que la ejecuta (siempre en dos pasos; con un agente que no es el integrado, el texto puede salir a un servicio externo) (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -210,8 +211,8 @@ familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
 `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`,
 `energy`, `system_control`, `resolution_fixes`, `core_config`,
-`assistant_exposure`, `users`, `core_network`, `host_control` y
-`host_network`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`assistant_exposure`, `users`, `core_network`, `host_control`,
+`host_network` y `conversation`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

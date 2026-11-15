@@ -116,7 +116,32 @@ class TestWsSendConcurrency(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("no disponible", str(ctx.exception))
         self.assertEqual(self.ws.sent, [])  # no se escribió en el socket muerto
+        # Y lo dice: nada salió (spec 023, T020).
+        self.assertIs(ctx.exception.sent, False)
         self.assertIsNone(await hog)
+
+    async def test_sin_socket_dice_que_no_se_envio(self) -> None:
+        """Sin WebSocket, `ws_send` marca `sent=False`; un plazo vencido no
+        (la orden ya salió). Spec 023, T020: `ha_process_conversation` lo usa
+        para no responder `outcome_unknown` de algo que no se mandó.
+
+        Control negativo comprobado: sin `sent=False` en la comprobación
+        previa al lock, `sent` vale `None` y el test cae.
+        """
+        self.client._ws = None
+        with self.assertRaises(HAConnectionError) as ctx:
+            await self.client.ws_send({"type": "nada"}, timeout_seconds=1)
+        self.assertIs(ctx.exception.sent, False)
+        self.client._ws = self.ws
+        with self.assertRaises(HAConnectionError) as ctx:
+            await self.client.ws_send({"type": "lento"}, timeout_seconds=0.05)
+        self.assertIsNot(ctx.exception.sent, False)
+        self.assertEqual(len(self.ws.sent), 1)
+
+    def test_sent_por_defecto_es_desconocido(self) -> None:
+        # El mismo defecto que la spec 022 ya integrada: un `False` por
+        # defecto haría pasar cualquier error por «no se hizo nada».
+        self.assertIsNone(HAConnectionError("x").sent)
 
 
 class TestFailPendingOnDisconnect(unittest.IsolatedAsyncioTestCase):

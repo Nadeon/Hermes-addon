@@ -1521,6 +1521,184 @@ class TestDedicadaDeLa017TramoD(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+# Spec 023 (CAP-060): los cinco comandos con tool dedicada en `conversation`.
+_DEDICADAS_023 = {
+    "conversation/agent/list": "ha_list_conversation_agents",
+    "conversation/agent/homeassistant/language_scores": "ha_list_conversation_agents",
+    "conversation/sentences/list": "ha_list_conversation_sentences",
+    "conversation/agent/homeassistant/debug": "ha_debug_conversation",
+    "conversation/process": "ha_process_conversation",
+}
+
+
+class TestDedicadasDeLa023(unittest.IsolatedAsyncioTestCase):
+    """Spec 023, T010 (FR-008): con la tabla real, las dos genéricas de Core
+    rechazan los cinco comandos de CAP-060 hacia su tool, sin llegar a HA; con
+    `conversation` desactivada, además `family_disabled: true`. Sobre todo
+    `conversation/process`: por la genérica se saltaría la vista previa de lo
+    que reconoce HA.
+
+    Control negativo (T016 e): dejar `conversation/process` en `deny` → cae
+    `test_rechazo_hacia_su_tool` (y `test_dedicadas_de_la_023` de la tabla)."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_023.items():
+            for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, generica=generica):
+                    r = await mcp.tools[generica](comando, {"text": "hola"})
+                    self.assertEqual(r["error"], "use_dedicated_tool")
+                    self.assertEqual((r["tool"], r["family"], r["family_disabled"]),
+                                     (tool, "conversation", False))
+                    self.assertIn(tool, mcp.tools)
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["conversation"])
+        for comando, tool in _DEDICADAS_023.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {"text": "hola"})
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+
+class TestAssistPorLaTabla(_Base):
+    """Spec 023, T010 (FR-009, FR-014): pipelines, motores, AI Task y
+    satélites (CAP-061…CAP-063) siguen por las genéricas según la tabla real.
+    CAP-063 solo se prueba aquí: el banco no tiene satélites.
+
+    Control negativo (T016 d): quitar `redact_extra=("url",)` de
+    `assist_pipeline/pipeline_debug/get` → caen `test_revisadas` de la tabla y
+    `test_pipeline_debug_tapa_el_audio` (la `url` sale solo con el token
+    tapado, no entera); quitar `_RE_TTS_PROXY` de `_redactar` → cae
+    `test_tts_proxy_tapado_en_cualquier_respuesta`."""
+
+    inyectadas = False
+
+    async def test_lecturas_y_escrituras_por_su_generica(self) -> None:
+        from hermes import command_table as ct
+
+        caps = ("CAP-061", "CAP-062", "CAP-063")
+        entradas = {k: e for k, e in ct.CORE_WS.items() if e.cap in caps}
+        self.assertGreaterEqual(len(entradas), 20)
+        for comando, e in entradas.items():
+            with self.subTest(comando=comando):
+                self.assertIn(e.category, ("read", "confirm"))
+                buena, mala = (("ha_read_ws_command", "ha_call_ws_command")
+                               if e.category == "read"
+                               else ("ha_call_ws_command", "ha_read_ws_command"))
+                r = await self.t[mala](comando, {})
+                self.assertEqual(r["error"], "wrong_generic_tool")
+                self.ha.ws_send.reset_mock()
+                r = await self.t[buena](comando, {})
+                if e.category == "read":
+                    self.ha.ws_send.assert_awaited_once()
+                    self.assertNotIn("error", r)
+                else:
+                    self.assertIn("confirmation_token", r)
+                    self.ha.ws_send.assert_not_awaited()
+
+    async def test_satelite(self) -> None:
+        self.ha.ws_send.return_value = {"available_wake_words": [{"id": "ok_nabu"}],
+                                        "active_wake_words": ["ok_nabu"],
+                                        "max_active_wake_words": 1}
+        r = await self.t["ha_read_ws_command"](
+            "assist_satellite/get_configuration", {"entity_id": "assist_satellite.salon"})
+        self.assertEqual(r["result"]["active_wake_words"], ["ok_nabu"])
+        carga = {"entity_id": "assist_satellite.salon", "wake_word_ids": ["ok_nabu"]}
+        self.ha.ws_send.reset_mock()
+        vista = await self.t["ha_call_ws_command"]("assist_satellite/set_wake_words", carga)
+        self.ha.ws_send.assert_not_awaited()
+        # El token está atado a la carga: con otra palabra no vale.
+        otra = await self.t["ha_call_ws_command"](
+            "assist_satellite/set_wake_words", {**carga, "wake_word_ids": ["hey_jarvis"]},
+            confirmation_token=vista["confirmation_token"])
+        self.assertIn("error", otra)
+        self.ha.ws_send.assert_not_awaited()
+        vista = await self.t["ha_call_ws_command"]("assist_satellite/set_wake_words", carga)
+        self.ha.ws_send.return_value = None
+        r = await self.t["ha_call_ws_command"](
+            "assist_satellite/set_wake_words", carga,
+            confirmation_token=vista["confirmation_token"])
+        self.assertTrue(r["executed"])
+        self.ha.ws_send.assert_awaited_once_with(
+            {"type": "assist_satellite/set_wake_words", **carga})
+
+    async def test_pipeline_debug_tapa_el_audio(self) -> None:
+        # Las formas REALES de Core 2026.11.1: el token es
+        # `secrets.token_urlsafe(16)` + extensión (`SpeechManager`), y el mismo
+        # token va en tres sitios del `tts_output`: `token`, `url`
+        # (`ResultStream.url`) y `media_id` (`ResultStream.media_source_id`, el
+        # evento `tts-end` de `default_pipeline.py`); `run-start` (`run.py`)
+        # lleva `token` y `url`.
+        # Control negativo (T019): con la regex solo para `/api/tts_proxy/`,
+        # el `media_id` sale con el centinela y el test cae; restaurada, pasa.
+        token = "Cn7tInElA023xYzAbCdEfG.mp3"
+        url = f"/api/tts_proxy/{token}"
+        self.ha.ws_send.return_value = {"events": [
+            {"type": "run-start", "data": {"pipeline": "01JPIPELINE", "tts_output": {
+                "token": token, "url": url, "mime_type": "audio/mpeg",
+                "stream_response": False}}},
+            {"type": "tts-end", "data": {"tts_output": {
+                "media_id": f"media-source://tts/-stream-/{token}", "token": token,
+                "url": url, "mime_type": "audio/mpeg"}}},
+        ]}
+        with capture_logs() as logs:
+            r = await self.t["ha_read_ws_command"](
+                "assist_pipeline/pipeline_debug/get",
+                {"pipeline_id": "01JPIPELINE", "pipeline_run_id": "01JRUN"})
+        self.assertNotIn("Cn7tInElA023", json.dumps(r))
+        salida = r["result"]["events"][1]["data"]["tts_output"]
+        self.assertEqual(salida["url"], security.REDACTED_MARKER)
+        self.assertEqual(salida["token"], security.REDACTED_MARKER)
+        self.assertEqual(salida["media_id"],
+                         f"media-source://tts/-stream-/{security.REDACTED_MARKER}")
+        self.assertEqual(salida["mime_type"], "audio/mpeg")
+        self.assertNotIn("Cn7tInElA023", json.dumps(logs, default=str))
+
+    async def test_media_id_del_audio_tapado_en_cualquier_respuesta(self) -> None:
+        # Fuera de `pipeline_debug/get` (sin `redact_extra`), un id de media
+        # source del audio en una respuesta de las genéricas también se tapa:
+        # es el mismo token que abre `/api/tts_proxy/` sin autenticación. Un id
+        # de media source de TTS que no es un stream (motor y mensaje) no lleva
+        # token y se deja como está.
+        self.ha.ws_send.return_value = {"provider": {
+            "engine_id": "tts.ejemplo",
+            "ultimo": "media-source://tts/-stream-/Cn7tInElA023xYzAbCdEfG.wav",
+            "otro": "media-source://tts/tts.ejemplo?message=hola"}}
+        r = await self.t["ha_read_ws_command"]("tts/engine/get", {"engine_id": "tts.ejemplo"})
+        texto = json.dumps(r)
+        self.assertNotIn("Cn7tInElA023", texto)
+        self.assertIn("media-source://tts/-stream-/***REDACTED***", texto)
+        self.assertEqual(r["result"]["provider"]["otro"],
+                         "media-source://tts/tts.ejemplo?message=hola")
+
+    async def test_tts_proxy_tapado_en_cualquier_respuesta(self) -> None:
+        # Una lectura sin `redact_extra` (`tts/engine/get`) cuya respuesta
+        # trajera una URL del proxy de audio, absoluta o dentro de un texto.
+        self.ha.ws_send.return_value = {
+            "provider": {"engine_id": "tts.ejemplo",
+                         "sample": "http://192.0.2.1:8123/api/tts_proxy/centinela-023.mp3",
+                         "texto": "oye /api/tts_proxy/centinela-023.wav ya"}}
+        r = await self.t["ha_read_ws_command"]("tts/engine/get", {"engine_id": "tts.ejemplo"})
+        texto = json.dumps(r)
+        self.assertNotIn("centinela-023", texto)
+        self.assertIn("/api/tts_proxy/***REDACTED***", texto)
+        self.assertEqual(r["result"]["provider"]["engine_id"], "tts.ejemplo")
+
+    async def test_lo_que_sigue_rechazado(self) -> None:
+        for comando in ("assist_pipeline/run", "assist_pipeline/device/capture",
+                        "assist_satellite/intercept_wake_word"):
+            for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, generica=generica):
+                    r = await self.t[generica](comando, {})
+                    self.assertEqual(r["error"], "command_denied")
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_one_shot_subscription.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()

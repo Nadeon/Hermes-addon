@@ -265,6 +265,16 @@ _CATALOGO: tuple[Familia, ...] = (
             "interface (never the primary one) and create VLANs (changes "
             "with confirmation).",
             "1.2.0", True, ("host_network",)),
+    # Spec 023 (research R-1): Assist y conversación. Una familia y un módulo
+    # porque es un solo caso de uso («usar y depurar Assist») y un tema de la
+    # guía. Va aparte de `services` (familia de la 1.1.2, donde vive
+    # `ha_call_service_response`) para que apagar las familias de la 1.2.0
+    # deje exactamente la lista de la 1.1.2 (FR-010 de la 008). No es de
+    # solo lectura: `ha_process_conversation` ejecuta, con confirmación.
+    Familia("conversation",
+            "Assist conversation agents, custom sentences, sentence analysis "
+            "and sending a sentence to Assist (with confirmation).",
+            "1.2.0", True, ("conversation",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

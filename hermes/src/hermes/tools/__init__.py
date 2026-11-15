@@ -511,6 +511,12 @@ def register_all_tools(
         from hermes.tools.core_network import register as register_core_network
         register_core_network(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Assist y conversación (spec 023): agentes, frases de los disparadores,
+    # análisis sin ejecutar y procesar una frase, esta siempre en dos pasos.
+    if _activa("conversation"):
+        from hermes.tools.conversation import register as register_conversation
+        register_conversation(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.
