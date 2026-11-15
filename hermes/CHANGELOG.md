@@ -162,9 +162,11 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Automatización
 
-**Automatización asistida (spec 017).** En curso: tramos A (blueprints que
-ya están en `/config/blueprints/` o que escribe el cliente), B (importar) y C
-(dispositivo y targets).
+**Automatización asistida (spec 017).** Blueprints (los que ya están en
+`/config/blueprints/`, los que escribe el cliente y los importados de una
+URL), lo que ofrece un dispositivo, targets y triggers por propósito, esperar
+a un trigger y validar al guardar una automatización o un script. Dos
+familias nuevas, `blueprints` y `automation_assist`, con 14 tools.
 Familia nueva
 `blueprints` (desactivable con `tool_families_disabled`):
 
@@ -246,6 +248,48 @@ solo lectura que ayudan a escribir automatizaciones:
   dispositivo» y «target → propósito → validar».
 - Banco de Core: las ocho contra un interruptor de `kitchen_sink`,
   contrastadas con lo que lee el lector directamente de Core.
+
+Tramo D: esperar a un trigger y validar al guardar.
+
+- `ha_wait_for_trigger` (familia `automation_assist`, solo lectura): espera
+  UNA vez a que salte un trigger escrito como en una automatización
+  (`subscribe_trigger`) y devuelve el disparo, o `timeout`, `cancelled` o
+  `ws_reconnect` como `ha_wait_for_event`. Solo admite una lista CERRADA de
+  triggers que solo escuchan: `state`, `numeric_state`, `event`, `time`,
+  `time_pattern`, `template`, `sun`, `zone`, `geo_location`,
+  `homeassistant`, `mqtt`, `tag`, `calendar`, `persistent_notification`, y
+  `<integración>.<nombre>` o `device` de integraciones incluidas en HA
+  (según `manifest/get`). Rechaza sin suscribirse (`trigger_not_allowed`)
+  `webhook`, `conversation`, el `turn_on` de `samsungtv`, `webostv` y
+  `lg_netcast`, los de integraciones personalizadas y todo lo que no está en
+  la lista (o si no se puede comprobar). Un trigger que HA no acepta da
+  `invalid_trigger`. El disparo sale con los valores sensibles tapados; si
+  no cabe, sin `from_state`/`to_state` y con `truncated: true`. Comparte con
+  `ha_wait_for_event` el tope de segundos y el de esperas a la vez, sale en
+  `ha_list_active_waits` con `kind: "trigger"` y se corta con
+  `ha_cancel_wait`; siempre cancela la suscripción al terminar.
+- Validación al guardar: la vista previa de `ha_create_or_update_automation`
+  y `ha_create_or_update_script` valida con HA (`validate_config`) los
+  triggers, condiciones y acciones; con `use_blueprint`, los de la
+  configuración que da el blueprint (`blueprint/substitute`). Si HA la
+  rechazaría, `invalid_config` con el error de cada parte y SIN token; si la
+  sustitución falla, `blueprint_substitution_failed` sin token; si no se
+  puede validar, `validation_unavailable` sin token. La vista previa trae
+  `validation` con lo validado, lo que HA solo comprueba al guardar
+  (`not_validated`: `alias`, `mode`…) y `via_blueprint`. La confirmación no
+  vuelve a validar (guarda lo previsualizado y HA valida al guardar). No
+  depende de que `core_diagnostics` o `blueprints` estén activas.
+  `ha_validate_config` no cambia.
+- Tabla de comandos e inventario: `subscribe_trigger` pasa de clase B a A
+  (CAP-038) en el inventario de la 008 y a `dedicated` hacia
+  `ha_wait_for_trigger`.
+- Guía: espera de trigger en el tema `automation_assist` (alias
+  `wait_for_trigger`), y el tema `automations` dice que la vista previa
+  valida y remite a `blueprints` y `automation_assist` (cambia su huella).
+- Banco de Core: la espera de trigger con un `input_boolean` que enciende el
+  lector, un trigger que HA rechaza y uno fuera de la lista; la vista previa
+  con un trigger inválido (sin token y sin automatización) y con un
+  blueprint al que le falta una entrada.
 
 ### Supervisor
 

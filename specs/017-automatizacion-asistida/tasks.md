@@ -255,35 +255,98 @@ paralelo con B si no se tocan a la vez los ficheros comunes); D necesita A
 
 ### Cliente y gestor de esperas
 
-- [ ] T038 [US4] Tests en `tests/test_ha_ws_subscribe_queue.py` (patrón de los tests de suscripción de `HAClient`): `ws_subscribe_queue(payload)` envía el payload con `id`, espera la confirmación, devuelve `(sub_id, cola, generación)` y los eventos llegan a la cola; error de HA en la confirmación → `HAConnectionError` con su `code` y sin cola ni future colgados, con `unsubscribe_events` enviado; plazo de confirmación → ídem; `ws_subscribe_events_queue("x")` envía exactamente `{"id", "type": "subscribe_events", "event_type": "x"}` como hoy. Luego el método en `hermes/src/hermes/ha.py` y `ws_subscribe_events_queue` delegando en él, con comentario. Los tests existentes de suscripciones pasan sin tocarlos (FR-009, FR-018)
-- [ ] T039 [US4] Tests en `tests/test_tools_wait_for_event.py`: `register` acepta un gestor; dos registros con el mismo gestor comparten cupo; `list_active` de una espera de evento devuelve exactamente las claves de hoy; de una de trigger, además `kind` y `trigger_platform`. Luego el cambio en `tools/wait_for_event.py` (parámetro opcional `manager`, campos opcionales en `_ActiveWait`) y en `tools/__init__.py` (un `_WaitManager` con `wait_for_event_max_concurrent`, creado una vez y pasado a los dos registros) (FR-009, FR-018)
+- [x] T038 [US4] Tests en `tests/test_ha_ws_subscribe_queue.py` (patrón de los tests de suscripción de `HAClient`): `ws_subscribe_queue(payload)` envía el payload con `id`, espera la confirmación, devuelve `(sub_id, cola, generación)` y los eventos llegan a la cola; error de HA en la confirmación → `HAConnectionError` con su `code` y sin cola ni future colgados, con `unsubscribe_events` enviado; plazo de confirmación → ídem; `ws_subscribe_events_queue("x")` envía exactamente `{"id", "type": "subscribe_events", "event_type": "x"}` como hoy. Luego el método en `hermes/src/hermes/ha.py` y `ws_subscribe_events_queue` delegando en él, con comentario. Los tests existentes de suscripciones pasan sin tocarlos (FR-009, FR-018)
+- [x] T039 [US4] Tests en `tests/test_tools_wait_for_event.py`: `register` acepta un gestor; dos registros con el mismo gestor comparten cupo; `list_active` de una espera de evento devuelve exactamente las claves de hoy; de una de trigger, además `kind` y `trigger_platform`. Luego el cambio en `tools/wait_for_event.py` (parámetro opcional `manager`, campos opcionales en `_ActiveWait`) y en `tools/__init__.py` (un `_WaitManager` con `wait_for_event_max_concurrent`, creado una vez y pasado a los dos registros) (FR-009, FR-018)
 
 ### Espera de trigger
 
-- [ ] T040 [P] [US4] Tests en `tests/test_tools_wait_for_trigger.py` con una cola simulada (`ws_subscribe_queue` en `AsyncMock`): disparo → `matched: true` con `trigger` y `waited_seconds`; plazo → `timeout`; `ha_cancel_wait` → `cancelled` sin esperar al keepalive; sentinel → `ws_reconnect` con nota; `timeout_seconds` mayor que el máximo o menor que 1 → los mismos errores que `ha_wait_for_event`; cupo lleno (compartido con una espera de evento) → `too_many_waits`; lista cerrada de research R-8: `state` y `light.turned_on` (con `manifest/get` simulado `is_built_in: true`) → se suscribe; `webhook`, `conversation`, `samsungtv.turn_on`, `device` con `domain: webostv`, una plataforma sin punto que no está en la lista, `mi_custom.algo` (`is_built_in: false`) y un `manifest/get` que falla → `trigger_not_allowed` sin `ws_subscribe_queue`; la regla se aplica a cada elemento de una lista y a `trigger` y a `platform`; HA rechaza el trigger → `invalid_trigger` redactado y la espera no queda registrada; siempre `ws_unsubscribe_events_queue` al salir (también con excepción); `to_state` con `attributes.access_token` = centinela → tapado; disparo que no cabe → sin `from_state`/`to_state` y `truncated: true`; `variables` se pasan en el payload (FR-009, FR-015, FR-016)
-- [ ] T041 [US4] `hermes/src/hermes/tools/wait_for_trigger.py` (research R-8): `register(mcp, ha_client, *, manager, wait_for_event_max_seconds, response_max_bytes)` y `ha_wait_for_trigger`, reutilizando el bucle de espera de `ha_wait_for_event` (extraer a una función común de `wait_for_event.py` si se puede sin cambiar su comportamiento; si no, duplicar con un comentario). Docstring: un solo disparo, triggers rechazados y por qué, mismo tope que `ha_wait_for_event`. T040 en verde (FR-009)
-- [ ] T042 [US6] Familia, registro y anotaciones: `wait_for_trigger` en los módulos de `automation_assist` (y su test); registro dentro de `if _activa("automation_assist")` con el gestor compartido; `ha_wait_for_trigger` en `_READ_ONLY_EXACT` con el comentario de contracts. Test en `tests/test_tools_registration.py` (FR-011, FR-013)
+- [x] T040 [P] [US4] Tests en `tests/test_tools_wait_for_trigger.py` con una cola simulada (`ws_subscribe_queue` en `AsyncMock`): disparo → `matched: true` con `trigger` y `waited_seconds`; plazo → `timeout`; `ha_cancel_wait` → `cancelled` sin esperar al keepalive; sentinel → `ws_reconnect` con nota; `timeout_seconds` mayor que el máximo o menor que 1 → los mismos errores que `ha_wait_for_event`; cupo lleno (compartido con una espera de evento) → `too_many_waits`; lista cerrada de research R-8: `state` y `light.turned_on` (con `manifest/get` simulado `is_built_in: true`) → se suscribe; `webhook`, `conversation`, `samsungtv.turn_on`, `device` con `domain: webostv`, una plataforma sin punto que no está en la lista, `mi_custom.algo` (`is_built_in: false`) y un `manifest/get` que falla → `trigger_not_allowed` sin `ws_subscribe_queue`; la regla se aplica a cada elemento de una lista y a `trigger` y a `platform`; HA rechaza el trigger → `invalid_trigger` redactado y la espera no queda registrada; siempre `ws_unsubscribe_events_queue` al salir (también con excepción); `to_state` con `attributes.access_token` = centinela → tapado; disparo que no cabe → sin `from_state`/`to_state` y `truncated: true`; `variables` se pasan en el payload (FR-009, FR-015, FR-016)
+- [x] T041 [US4] `hermes/src/hermes/tools/wait_for_trigger.py` (research R-8): `register(mcp, ha_client, *, manager, wait_for_event_max_seconds, response_max_bytes)` y `ha_wait_for_trigger`, reutilizando el bucle de espera de `ha_wait_for_event` (extraer a una función común de `wait_for_event.py` si se puede sin cambiar su comportamiento; si no, duplicar con un comentario). Docstring: un solo disparo, triggers rechazados y por qué, mismo tope que `ha_wait_for_event`. T040 en verde (FR-009)
+- [x] T042 [US6] Familia, registro y anotaciones: `wait_for_trigger` en los módulos de `automation_assist` (y su test); registro dentro de `if _activa("automation_assist")` con el gestor compartido; `ha_wait_for_trigger` en `_READ_ONLY_EXACT` con el comentario de contracts. Test en `tests/test_tools_registration.py` (FR-011, FR-013)
 
 ### Validación al guardar
 
-- [ ] T043 [P] [US5] Tests en `tests/test_tools_validacion_al_guardar.py`: para `ha_create_or_update_automation` y `ha_create_or_update_script`: (a) parte inválida → `invalid_config` con el error por parte, redactado (centinela), sin token y sin fichero en `CONFIRMATIONS_DIR`; (b) todo válido → vista previa de hoy más `validation` con `validated` y `not_validated`, y token; (c) `use_blueprint` → `blueprint/substitute` con dominio `automation`/`script`, `path` e `input`, y `validate_config` con las partes del resultado; `via_blueprint` en la vista previa; (d) sustitución fallida → `blueprint_substitution_failed` sin token; (e) `validate_config` con `HAConnectionError` o respuesta que no es mapa → `validation_unavailable` sin token; (f) sin partes (solo `alias`) → sin `validate_config`, `validation` lo dice, token; (g) script con `sequence` → se valida como `actions`; (h) la confirmación NO llama a `validate_config` y guarda lo previsualizado (spec 007 sin cambios); (i) con `blueprints`, `automation_assist` y `core_diagnostics` desactivadas, valida igual (FR-010, FR-011)
-- [ ] T044 [US5] `hermes/src/hermes/tools/core_validation.py` (de la 012): sacar `partes_de_config` y `validar_partes` a funciones de módulo, usadas por `ha_validate_config` sin cambiar su comportamiento (sus tests de la 012 pasan sin tocarlos); en `tools/blueprints.py`, `sustituir(ha_client, dominio, use_blueprint)` compartida con `ha_preview_blueprint_substitution`; en `tools/automations.py` y `tools/scripts.py`, la validación en la rama de vista previa, con comentario del porqué (research R-9). Docstrings de las dos tools: la vista previa valida. T043 en verde (FR-010)
+- [x] T043 [P] [US5] Tests en `tests/test_tools_validacion_al_guardar.py`: para `ha_create_or_update_automation` y `ha_create_or_update_script`: (a) parte inválida → `invalid_config` con el error por parte, redactado (centinela), sin token y sin fichero en `CONFIRMATIONS_DIR`; (b) todo válido → vista previa de hoy más `validation` con `validated` y `not_validated`, y token; (c) `use_blueprint` → `blueprint/substitute` con dominio `automation`/`script`, `path` e `input`, y `validate_config` con las partes del resultado; `via_blueprint` en la vista previa; (d) sustitución fallida → `blueprint_substitution_failed` sin token; (e) `validate_config` con `HAConnectionError` o respuesta que no es mapa → `validation_unavailable` sin token; (f) sin partes (solo `alias`) → sin `validate_config`, `validation` lo dice, token; (g) script con `sequence` → se valida como `actions`; (h) la confirmación NO llama a `validate_config` y guarda lo previsualizado (spec 007 sin cambios); (i) con `blueprints`, `automation_assist` y `core_diagnostics` desactivadas, valida igual (FR-010, FR-011)
+- [x] T044 [US5] `hermes/src/hermes/tools/core_validation.py` (de la 012): sacar `partes_de_config` y `validar_partes` a funciones de módulo, usadas por `ha_validate_config` sin cambiar su comportamiento (sus tests de la 012 pasan sin tocarlos); en `tools/blueprints.py`, `sustituir(ha_client, dominio, use_blueprint)` compartida con `ha_preview_blueprint_substitution`; en `tools/automations.py` y `tools/scripts.py`, la validación en la rama de vista previa, con comentario del porqué (research R-9). Docstrings de las dos tools: la vista previa valida. T043 en verde (FR-010)
 
 ### Tabla, guía y banco
 
-- [ ] T045 [US6] Tabla e inventario: tests primero (`tests/test_generar_tabla.py`: la fila de `subscribe_trigger` del inventario es clase A con CAP-038 y sale `dedicated`; la genérica con `subscribe_trigger` → `use_dedicated_tool`); `specs/008-cobertura-total/inventario/core-ws.tsv`: `subscribe_trigger` a clase `A`, nota «Esperar a un trigger (un solo disparo)», `CAP-038` (research R-13); `subscribe_trigger` en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py`; regenerar → sin diferencias, anotado en el commit. Comprobar que `tests/test_command_inventory.py` y el test de deriva siguen en verde (FR-012)
-- [ ] T046 [US6] Guía: espera de trigger en `automation_assist` (alias `wait_for_trigger`; frente a `ha_wait_for_event`; triggers rechazados; cancelación y qué pasa con `events` apagada); en el tema de automatizaciones, que la vista previa valida y remite a `blueprints` y `automation_assist` (FR-014)
-- [ ] T047 [US4] [US5] Banco: en `test_banco_automatizacion_asistida.py`, (1) espera de trigger de estado sobre un `input_boolean` del banco mientras el lector lo cambia → `matched: true` con `to_state.state`; (2) `ha_wait_for_trigger` con un trigger inválido → `invalid_trigger`; (3) `ha_create_or_update_automation` con un trigger inválido → `invalid_config` sin token, y el lector comprueba que `automation/config` no existe para ese id; (4) con `use_blueprint` de `homeassistant/motion_light.yaml` y una entrada que falta → `blueprint_substitution_failed` (FR-017, SC-005)
+- [x] T045 [US6] Tabla e inventario: tests primero (`tests/test_generar_tabla.py`: la fila de `subscribe_trigger` del inventario es clase A con CAP-038 y sale `dedicated`; la genérica con `subscribe_trigger` → `use_dedicated_tool`); `specs/008-cobertura-total/inventario/core-ws.tsv`: `subscribe_trigger` a clase `A`, nota «Esperar a un trigger (un solo disparo)», `CAP-038` (research R-13); `subscribe_trigger` en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py`; regenerar → sin diferencias, anotado en el commit. Comprobar que `tests/test_command_inventory.py` y el test de deriva siguen en verde (FR-012)
+- [x] T046 [US6] Guía: espera de trigger en `automation_assist` (alias `wait_for_trigger`; frente a `ha_wait_for_event`; triggers rechazados; cancelación y qué pasa con `events` apagada); en el tema de automatizaciones, que la vista previa valida y remite a `blueprints` y `automation_assist` (FR-014)
+- [x] T047 [US4] [US5] Banco: en `test_banco_automatizacion_asistida.py`, (1) espera de trigger de estado sobre un `input_boolean` del banco mientras el lector lo cambia → `matched: true` con `to_state.state`; (2) `ha_wait_for_trigger` con un trigger inválido → `invalid_trigger`; (3) `ha_create_or_update_automation` con un trigger inválido → `invalid_config` sin token, y el lector comprueba que `automation/config` no existe para ese id; (4) con `use_blueprint` de `homeassistant/motion_light.yaml` y una entrada que falta → `blueprint_substitution_failed` (FR-017, SC-005)
 
 ### Documentación final y cierre
 
-- [ ] T048 [US6] No regresión: los tests existentes de automatizaciones, scripts, `ha_wait_for_event`, `ha_list_active_waits`, `ha_cancel_wait` y de `ha_validate_config` pasan sin tocarlos (salvo los que esperaban una vista previa sin `validation`, que se amplían, no se cambian); la denylist no cambia (FR-018)
-- [ ] T049 CHANGELOG completo de la 017 en `## [1.2.0]` (blueprints, dispositivo, targets, espera de trigger, validación al guardar, familias, tabla, inventario reclasificado) (FR-019)
-- [ ] T050 `docs/HOJA-DE-RUTA.md`: fila 017 de la tabla del programa → «hecha»; en la lista de pendientes, quitar «Triggers y condiciones por propósito; resolución de targets (017)» y dejar la prueba manual de importación desde GitHub (FR-019)
-- [ ] T051 [P] `README.md` y `README.es.md` sincronizados (tools por área y recuento si lo llevan); `hermes/DOCS.md` si la opción de familias enumera las familias (`blueprints`, `automation_assist`) (FR-019)
-- [ ] T052 [P] Matriz de la 008 (`specs/008-cobertura-total/plan.md`): filas CAP-038, CAP-040, CAP-046, CAP-051 y CAP-052 con las tools y los ficheros de test (FR-019)
-- [ ] T053 Comprobación final: ninguna entrada «pendiente de tool dedicada (spec 017)» queda en `command_table.py`; cada FR de spec.md tiene su test (tabla de trazabilidad de plan.md al día); SC-001…SC-007 (FR-012, SC-006)
-- [ ] T054 Cierre del tramo D: suite completa; controles negativos anotados: (1) emitir token con una parte inválida → T043(a) en rojo; (2) dar token si `validate_config` falla → T043(e); (3) validar sin sustituir el blueprint → T043(c); (4) aceptar un trigger que no está en la lista cerrada (p. ej. quitar la comprobación de `is_built_in`) → T040; (5) gestor no compartido → T039 (cupo); (6) no cancelar la suscripción al salir → T040; (7) sin `redact_structure` en el disparo → T040; (8) `subscribe_trigger` de vuelta a clase B en el inventario → T045. Revisión del diff buscando datos personales e identificadores de modelo. Commit(s) del tramo (FR-020, SC-006, SC-007)
+- [x] T048 [US6] No regresión: los tests existentes de automatizaciones, scripts, `ha_wait_for_event`, `ha_list_active_waits`, `ha_cancel_wait` y de `ha_validate_config` pasan sin tocarlos (salvo los que esperaban una vista previa sin `validation`, que se amplían, no se cambian); la denylist no cambia (FR-018)
+- [x] T049 CHANGELOG completo de la 017 en `## [1.2.0]` (blueprints, dispositivo, targets, espera de trigger, validación al guardar, familias, tabla, inventario reclasificado) (FR-019)
+- [x] T050 `docs/HOJA-DE-RUTA.md`: fila 017 de la tabla del programa → «hecha»; en la lista de pendientes, quitar «Triggers y condiciones por propósito; resolución de targets (017)» y dejar la prueba manual de importación desde GitHub (FR-019)
+- [x] T051 [P] `README.md` y `README.es.md` sincronizados (tools por área y recuento si lo llevan); `hermes/DOCS.md` si la opción de familias enumera las familias (`blueprints`, `automation_assist`) (FR-019)
+- [x] T052 [P] Matriz de la 008 (`specs/008-cobertura-total/plan.md`): filas CAP-038, CAP-040, CAP-046, CAP-051 y CAP-052 con las tools y los ficheros de test (FR-019)
+- [x] T053 Comprobación final: ninguna entrada «pendiente de tool dedicada (spec 017)» queda en `command_table.py`; cada FR de spec.md tiene su test (tabla de trazabilidad de plan.md al día); SC-001…SC-007 (FR-012, SC-006)
+- [x] T054 Cierre del tramo D: suite completa; controles negativos anotados: (1) emitir token con una parte inválida → T043(a) en rojo; (2) dar token si `validate_config` falla → T043(e); (3) validar sin sustituir el blueprint → T043(c); (4) aceptar un trigger que no está en la lista cerrada (p. ej. quitar la comprobación de `is_built_in`) → T040; (5) gestor no compartido → T039 (cupo); (6) no cancelar la suscripción al salir → T040; (7) sin `redact_structure` en el disparo → T040; (8) `subscribe_trigger` de vuelta a clase B en el inventario → T045. Revisión del diff buscando datos personales e identificadores de modelo. Commit(s) del tramo (FR-020, SC-006, SC-007)
+
+### Notas del tramo D (desviaciones y decisiones)
+
+- **Línea base** al empezar (punta `d4c0475`): 2910 passed, 97 skipped, 6
+  failed (los 6 de Windows). Al cerrar: 2987 passed, 103 skipped y los
+  mismos 6 fallos.
+- **Desviación (T041), bucle duplicado y no extraído**: `ha_wait_for_trigger`
+  tiene su propio bucle de espera (mismo esquema que `ha_wait_for_event`) en
+  vez de una función común en `wait_for_event.py`. La 033, ya integrada en
+  `feat/cobertura-total` pero no en esta rama, reescribe justo ese bucle
+  (`ctx: Context` y el `try` del aviso de progreso): extraerlo aquí daría un
+  conflicto grande al integrar. `wait_for_event.py` solo cambia en lo
+  mínimo (gestor inyectable, `kind` y `trigger_platform`). La espera de
+  trigger ya nace con lo de la 033: `ctx: Context` (no sale en el esquema;
+  test del esquema y de `context_kwarg`) y el aviso de progreso que no
+  corta la espera si falla.
+- **Lista cerrada (D-23)**: las plataformas sin punto de research R-8 se
+  admiten sin consultar `manifest/get`; `<integración>.<nombre>` y `device`
+  exigen `is_built_in: true` y no estar en las excluidas. Además, fail-closed:
+  `device` sin `domain`, un elemento sin `trigger`/`platform` o con los dos,
+  y un `manifest/get` que falla se rechazan. Las dos listas llevan en el
+  código el aviso de revisarlas con cada versión de HA de referencia.
+- **`trigger_platform`** en `ha_list_active_waits`: las plataformas de la
+  lista, sin repetir, separadas por comas.
+- **Disparo que no cabe** ni sin `from_state`/`to_state`: se queda con los
+  valores simples del disparo (plataforma, `entity_id`, `id`…) y
+  `truncated: true`.
+- **Validación al guardar**: la función común es
+  `core_validation.validar_al_guardar` (no estaba nombrada en el plan). Con
+  `use_blueprint`, la ruta se manda a `blueprint/substitute` TAL CUAL se va
+  a guardar (sin añadir `.yaml`): si HA no la encuentra al sustituir,
+  tampoco al guardar. `not_validated` junta las claves de la configuración
+  (sin `use_blueprint`) y las que añade el blueprint fuera de las partes.
+  Una parte enviada sin resultado de HA da `validation_unavailable` (no se
+  sabe si es válida). `invalid_config` con blueprint lleva `via_blueprint`.
+- **D-22**: `validate_config` no mira `mode` ni el resto; la vista previa lo
+  dice en `validation.not_validated` y la guía y el CHANGELOG también.
+- **T048**: los tests existentes de vista previa de automatizaciones y
+  scripts se amplían con un `validate_config` simulado que da por buena
+  cada parte (su `ws_send` no existía); los de `ha_validate_config` de la
+  012 pasan sin tocarlos.
+- **Inventario de la 008**: con `subscribe_trigger` en clase A, el test de
+  recuentos pasa a A 148 y B 102 (con su comentario).
+- **Huella de la guía**: cambia la del tema `automations` (dice que la
+  vista previa valida); actualizada en `test_tools_guide.py` y dicho en el
+  CHANGELOG.
+- **Banco (T047)**: la espera de trigger va contra un `input_boolean` creado
+  por el lector, que lo apaga y enciende hasta que la tool responde (no se
+  sabe cuándo queda suscrita). También un trigger fuera de la lista
+  (`webhook`) y la vista previa con validación correcta (token y
+  `validation`). Ninguna de estas tools es nueva escritura: no entran en
+  `PROBADAS_017`.
+- **Inventario de argumentos atados al token (033)**: `ha_wait_for_trigger`
+  no pide token; la validación no cambia lo que atan los tokens de
+  `ha_create_or_update_automation`/`_script`. Nada nuevo de este tramo.
+- **Controles negativos (T054)**, vistos en rojo y restaurados: (1) token
+  con una parte inválida → 5 fallos; (2) token si `validate_config` falla →
+  4; (3) validar sin sustituir → 6; (4) sin mirar `is_built_in` → 2; (5)
+  gestor no compartido → 2; (6) sin cancelar en el `finally` → 4; (7) sin
+  `redact_structure` → 1; (8) `subscribe_trigger` de vuelta a B en el
+  inventario → `test_subscribe_trigger_es_clase_a`, y a `deny` en la tabla →
+  5. Además: sin `_ws_unsubscribe` en el rechazo de `ws_subscribe_queue`;
+  `ctx: Any`; fuera de `_READ_ONLY_EXACT`; sin el párrafo de la guía.
 
 ## Dependencias
 

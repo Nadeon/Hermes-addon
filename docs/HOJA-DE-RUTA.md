@@ -437,7 +437,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 014 | Banco del Supervisor: procedimiento, matriz y `hassio_role` | 006, 022, 034, 035 | hecha |
 | 015 | Actualizaciones del sistema | 064, 080 | pendiente |
 | 016 | Integraciones: flujos y Repairs | 036, 037, 044, 045, 048 | pendiente |
-| 017 | Automatización asistida | 038, 040, 046, 051, 052 | en curso (tramos A–C): familia `blueprints` con `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint`, `ha_delete_blueprint` e `ha_import_blueprint`; 5 entradas `blueprint/*` a `dedicated`; familia `automation_assist` con las tres listas de dispositivo, `ha_resolve_target`, `ha_explain_target` y las tres listas por target (solo lectura), 11 entradas a `dedicated` y probadas en el banco de Core; guardar, importar (desde `/local/` del banco) y borrar probados en el banco de Core. Pendiente manual: importar de GitHub, gist y foro |
+| 017 | Automatización asistida | 038, 040, 046, 051, 052 | hecha: familia `blueprints` con `ha_list_blueprints`, `ha_preview_blueprint_substitution`, `ha_save_blueprint`, `ha_delete_blueprint` e `ha_import_blueprint`; familia `automation_assist` con las tres listas de dispositivo, `ha_resolve_target`, `ha_explain_target`, las tres listas por target y `ha_wait_for_trigger` (solo lectura, lista cerrada de triggers); la vista previa de `ha_create_or_update_automation` y `_script` valida con HA y no da token si la rechazaría; 17 entradas a `dedicated` (`subscribe_trigger` reclasificado de B a A); todo probado en el banco de Core (guardar, importar desde `/local/` del banco, borrar, las lecturas, la espera de trigger y la validación al guardar). Pendiente manual: importar de GitHub, gist y foro |
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
@@ -785,7 +785,6 @@ programa:
 - **Flujos de reparación de Repairs y textos traducidos** (016).
 - **Subentries y reconfigure** (016). **Helpers por config entry**: ya se
   pueden crear con los flujos; falta explicarlo en la guía (016).
-  **Triggers y condiciones por propósito; resolución de targets** (017).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas

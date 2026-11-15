@@ -7,7 +7,7 @@
 
 Hermes is a **Home Assistant add-on** that exposes your installation to Claude as
 an **MCP** server (Model Context Protocol, the standard Claude uses to talk to
-external systems). It ships **264 tools**: turn on lights, write automations,
+external systems). It ships **265 tools**: turn on lights, write automations,
 edit files under `/config`, manage add-ons, create backups, query history.
 
 > Since Home Assistant 2026.2 the interface calls add-ons **apps**. This guide
@@ -21,7 +21,7 @@ You install it by adding this repository to the Home Assistant add-on store:
 [how to do that](#installation). First you need to expose Home Assistant to the
 internet; that is covered below too.
 
-## What it can do — 264 tools
+## What it can do — 265 tools
 
 These are the names Claude sees. You do not need to learn them: a tool called
 `hermes_guide` explains them to Claude on demand.
@@ -29,7 +29,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | Family | # | What it covers |
 |---|---:|---|
 | **States and services** | 7 | Read states, list and call services, fire events, render Jinja templates |
-| **Automations and scripts** | 14 | Create, edit, delete, enable, disable and run |
+| **Automations and scripts** | 14 | Create, edit, delete, enable, disable and run. Since 1.2.0 the preview of a create or edit is validated by Home Assistant (triggers, conditions and actions, also through a blueprint) and gives no confirmation token if Home Assistant would reject it |
 | **Scenes** | 7 | Including capturing the current state of the house as a new scene |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zones and people** | 10 | Geographic zones and person tracking |
@@ -50,7 +50,7 @@ These are the names Claude sees. You do not need to learn them: a tool called
 | **Recorder** | 3 | Read only: whether the recorder is recording (and whether one entity is recorded), the problems Home Assistant finds in long-term statistics, and the metadata of the statistics you name. Family `recorder`, new in 1.2.0; statistics maintenance will join it |
 | **Core diagnostics** | 12 | Home Assistant's system log (grouped errors, and clear it), the raw error log when HA writes one, log levels (read them, and raise an integration to DEBUG to troubleshoot it), validating automations and scripts before saving them, testing a condition, integration and device diagnostics, and persistent notifications (list and dismiss) |
 | **Blueprints** | 5 | List the automation, script and template blueprints, preview the config a blueprint gives with some inputs, save a blueprint you write, import one from a URL (Home Assistant downloads it; the preview shows the whole YAML and it is saved only if it has not changed) and delete one nobody uses (saving, importing and deleting, with confirmation). Family `blueprints`, new in 1.2.0 |
-| **Automation assist** | 8 | Read only: the device triggers, conditions and actions a device offers (ready to paste into an automation, with their extra fields), what a target (entities, devices, areas, floors, labels) really covers and why, and the names of the triggers, conditions and actions that apply to it. Family `automation_assist`, new in 1.2.0 |
+| **Automation assist** | 9 | Read only: the device triggers, conditions and actions a device offers (ready to paste into an automation, with their extra fields), what a target (entities, devices, areas, floors, labels) really covers and why, the names of the triggers, conditions and actions that apply to it, and waiting once for a trigger to fire (only triggers known to just listen). Family `automation_assist`, new in 1.2.0 |
 | **Generic commands** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` and `sv_call_api`: what no other tool covers, and only what Hermes' command table allows (writes always in two steps) |
 
 There is one more, auxiliary, tool that is only registered with `HERMES_DEV=1`

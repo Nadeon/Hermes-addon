@@ -7,7 +7,7 @@
 
 Hermes es un **add-on de Home Assistant** que expone tu instalación a Claude
 como servidor **MCP** (Model Context Protocol, el estándar con el que Claude
-habla con sistemas externos). Son **264 herramientas**: encender luces, escribir
+habla con sistemas externos). Son **265 herramientas**: encender luces, escribir
 automatizaciones, editar ficheros de `/config`, gestionar add-ons, crear
 backups, consultar el histórico.
 
@@ -23,7 +23,7 @@ Se instala añadiendo este repositorio a la tienda de add-ons de Home Assistant:
 [cómo hacerlo](#instalación). Antes necesitas exponer Home Assistant a internet;
 también está explicado abajo.
 
-## Qué puede hacer — 264 herramientas
+## Qué puede hacer — 265 herramientas
 
 Los nombres son los que ve Claude. No hace falta que te los aprendas: hay una
 herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
@@ -31,7 +31,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | Familia | Nº | Qué cubre |
 |---|---:|---|
 | **Estado y servicios** | 7 | Leer estados, listar y llamar servicios, disparar eventos, renderizar plantillas Jinja |
-| **Automatizaciones y scripts** | 14 | Crear, editar, borrar, activar, desactivar y ejecutar |
+| **Automatizaciones y scripts** | 14 | Crear, editar, borrar, activar, desactivar y ejecutar. Desde la 1.2.0, la vista previa de crear o editar la valida Home Assistant (triggers, condiciones y acciones, también a través de un blueprint) y no da token de confirmación si Home Assistant la rechazaría |
 | **Escenas** | 7 | Incluido capturar el estado actual de la casa como escena nueva |
 | **Helpers** | 59 | `input_boolean`, `input_number`, `input_select`, `input_text`, `input_button`, `input_datetime`, `counter`, `timer`, `schedule` |
 | **Zonas y personas** | 10 | Zonas geográficas y seguimiento de personas |
@@ -52,7 +52,7 @@ herramienta, `hermes_guide`, que se los explica a Claude cuando los necesita.
 | **Recorder** | 3 | De solo lectura: si el recorder está grabando (y si se graba una entidad), los problemas que Home Assistant ve en las estadísticas de largo plazo y los metadatos de las estadísticas que nombres. Familia `recorder`, nueva en 1.2.0; el mantenimiento de estadísticas se le sumará |
 | **Diagnóstico de Core** | 12 | El log del sistema de Home Assistant (errores agrupados, y limpiarlo), el log de errores en bruto cuando HA escribe uno, los niveles de log (leerlos y subir una integración a DEBUG para depurarla), validar automatizaciones y scripts antes de guardarlos, probar una condición, los diagnósticos de integraciones y dispositivos, y las notificaciones persistentes (listarlas y descartarlas) |
 | **Blueprints** | 5 | Listar los blueprints de automatizaciones, scripts y plantillas, ver la configuración que da un blueprint con unas entradas, guardar uno que escribas, importar uno de una URL (lo descarga Home Assistant; la vista previa enseña el YAML entero y solo se guarda si no ha cambiado) y borrar uno que nadie use (guardar, importar y borrar, con confirmación). Familia `blueprints`, nueva en 1.2.0 |
-| **Ayuda para automatizar** | 8 | Solo lectura: los triggers, condiciones y acciones de dispositivo que ofrece un dispositivo (listos para pegar en una automatización, con sus campos extra), qué abarca de verdad un target (entidades, dispositivos, áreas, plantas, etiquetas) y por qué, y los nombres de los triggers, condiciones y acciones que le sirven. Familia `automation_assist`, nueva en 1.2.0 |
+| **Ayuda para automatizar** | 9 | Solo lectura: los triggers, condiciones y acciones de dispositivo que ofrece un dispositivo (listos para pegar en una automatización, con sus campos extra), qué abarca de verdad un target (entidades, dispositivos, áreas, plantas, etiquetas) y por qué, los nombres de los triggers, condiciones y acciones que le sirven, y esperar una vez a que salte un trigger (solo los que se sabe que solo escuchan). Familia `automation_assist`, nueva en 1.2.0 |
 | **Comandos genéricos** | 4 | `ha_read_ws_command`, `ha_call_ws_command`, `sv_read_api` y `sv_call_api`: lo que ninguna otra tool cubre, y solo lo que permite la tabla de comandos de Hermes (las escrituras, siempre en dos pasos) |
 
 Hay una herramienta más, auxiliar, que solo se registra con `HERMES_DEV=1` y
