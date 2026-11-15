@@ -122,40 +122,66 @@ El tramo 2 necesita el tramo 1 integrado.
 
 ## Tramo 2 — desinstalar
 
-Tras la DV-1 solo queda `ha_marketplace_uninstall` (no exige el aviso). Duda
-para el supervisor (D-2): con una sola tool, ¿familia propia
-(`marketplace_install`, nombre heredado de la spec, o mejor
-`marketplace_uninstall`) o dentro de `marketplace_manage`? El plan original
-la separa porque toca ficheros de `/config` y hace backup (research R-3);
-por defecto, familia propia.
+Tras la DV-1 solo queda `ha_marketplace_uninstall` (no exige el aviso).
+**DECISIÓN D-2 (supervisor)**: va en la familia `marketplace_manage` (módulo
+`tools/marketplace_manage.py`), no en una familia de una sola tool; la
+familia `marketplace_install` no existe. Las tareas de abajo se leen así.
 
 ### Preparación
 
-- [ ] T016 Línea base del tramo 2 con el tramo 1 integrado; `grep -c "spec 026"` da 1; leer las notas del tramo 1
-- [ ] T017 [P] [US3] Tests de la familia (como T002) y la familia en `tool_families.py` (FR-020)
+- [x] T016 Línea base del tramo 2 con el tramo 1 integrado; `grep -c "spec 026"` da 1; leer las notas del tramo 1
+- [x] T017 [P] [US3] Tests de la familia (como T002) y la familia en `tool_families.py` (FR-020). Con la D-2: sin familia nueva; la descripción de `marketplace_manage` nombra desinstalar y un test comprueba que `marketplace_install` no existe
 
 ### Tests (escritos antes, en rojo)
 
-- [ ] T018 [P] [US2] Fixture: ampliar `tests/fixtures/marketplace_escritura.py` con `config_entries/get` (con y sin entradas del `domain`), `repository/uninstall` (como el manejador de HA) y un Supervisor simulado de `POST /backups/new/partial` (`{"slug"}`, error, o más lento que la espera); tests puros en `tests/test_marketplace_write_comun.py`: carga de desinstalar, `reinicio_probable` por categoría y por `config_flow`/cargada, nombre del backup `hermes_marketplace_uninstall_<AAAAMMDDTHHMMSSZ>` sin el repositorio, `uninstall` en `_WRITE_SUFFIXES` (FR-014, FR-017)
-- [ ] T019 [P] [US2] Tests en `tests/test_tools_marketplace_install.py` (`TestDesinstalar`): `repository_not_found`, `repository_not_installed` y `repository_in_use` (con la pista de `ha_delete_config_entry`) sin token; vista previa con `removes` (con el recurso de Lovelace en `plugin`), `restart`, `backup` y lo de terceros; funciona sin el aviso aceptado; confirmación → primero el backup parcial (`homeassistant: true`, `homeassistant_exclude_database: true`, `background: false`, `_LONG_OP_TIMEOUT`), después `marketplace/repository/uninstall`; backup fallido o sin terminar → `backup_failed` sin comando y token fallido; `backup=false` → sin backup y la vista previa lo avisa; versión instalada cambiada entre vista previa y confirmación → token rechazado sin backup ni comando (FR-004, FR-014, FR-017; SC-005)
-- [ ] T020 ~~Tests de fijar versión y betas~~ — no aplica (DV-1)
-- [ ] T021 [P] [US2] Tests comunes de desinstalar (`TestComun`): `unknown_command` → `marketplace_write_unsupported` sin `hacs/*`; ningún `type` con `hassio/`/`supervisor/`, `warning/accept` ni `github/connect`; evento sin id, `full_name`, versión ni textos (FR-001, FR-007)
-- [ ] T022 ~~Textos de lectura (FR-018)~~ — no aplica (DV-1): «Hermes does not install anything» sigue siendo verdad. Opcional: que el tema `marketplace` remita a `marketplace_manage` y a la tool de desinstalar, con su huella actualizada
+- [x] T018 [P] [US2] Fixture: ampliar `tests/fixtures/marketplace_escritura.py` con `config_entries/get` (con y sin entradas del `domain`), `repository/uninstall` (como el manejador de HA) y un Supervisor simulado de `POST /backups/new/partial` (`{"slug"}`, error, o más lento que la espera); tests puros en `tests/test_marketplace_write_comun.py`: carga de desinstalar, `reinicio_probable` por categoría y por `config_flow`/cargada, nombre del backup `hermes_marketplace_uninstall_<AAAAMMDDTHHMMSSZ>` sin el repositorio, `uninstall` en `_WRITE_SUFFIXES` (FR-014, FR-017)
+- [x] T019 [P] [US2] Tests en `tests/test_tools_marketplace_uninstall.py` (nombre por la D-2) (`TestDesinstalar`): `repository_not_found`, `repository_not_installed` y `repository_in_use` (con la pista de `ha_delete_config_entry`) sin token; vista previa con `removes` (con el recurso de Lovelace en `plugin`), `restart`, `backup` y lo de terceros; funciona sin el aviso aceptado; confirmación → primero el backup parcial (`homeassistant: true`, `homeassistant_exclude_database: true`, `background: false`, `_LONG_OP_TIMEOUT`), después `marketplace/repository/uninstall`; backup fallido o sin terminar → `backup_failed` sin comando y token fallido; `backup=false` → sin backup y la vista previa lo avisa; versión instalada cambiada entre vista previa y confirmación → token rechazado sin backup ni comando (FR-004, FR-014, FR-017; SC-005)
+- [x] T020 ~~Tests de fijar versión y betas~~ — no aplica (DV-1)
+- [x] T021 [P] [US2] Tests comunes de desinstalar (`TestComun`): `unknown_command` → `marketplace_write_unsupported` sin `hacs/*`; ningún `type` con `hassio/`/`supervisor/`, `warning/accept` ni `github/connect`; evento sin id, `full_name`, versión ni textos (FR-001, FR-007)
+- [x] T022 ~~Textos de lectura (FR-018)~~ — no aplica (DV-1): «Hermes does not install anything» sigue siendo verdad. Lo opcional no se hace: el tema `marketplace` no cambia (su huella sigue)
 
 ### Implementación
 
-- [ ] T023 [US2] `_marketplace_write.py` (backup previo, reinicio probable, carga de desinstalar) y el módulo de la tool; registro con la familia; `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD` (FR-001…FR-007, FR-014, FR-017, FR-021)
-- [ ] T024 ~~Textos de lectura~~ — no aplica (DV-1)
-- [ ] T025 [US2] [US3] Registro, inventario 033 y tabla: `repository/uninstall` a `dedicated` en `command_table.py` y en `_DEDICADAS_INICIALES`; ninguna entrada con «spec 026»; regenerar sin cambios, en su sitio y desde cero (FR-019, FR-020, FR-021, FR-024)
-- [ ] T026 [US2] [US3] Guía: tema de la familia de desinstalar (el backup parcial sin base de datos y qué pasa si falla, el reinicio y que Hermes no reinicia, `repository_in_use`); índice y marcador en las instrucciones; huellas (FR-022)
-- [ ] T027 [US2] Banco y matriz: desinstalar a `NO_EJECUTABLES_026` (sin catálogo en el banco), contrato del banco con su carga, su fila `instalación real | pendiente` (FR-023)
-- [ ] T028 Control negativo del tramo 2: (a) enviar el comando aunque el backup falle → cae `backup_failed`; (e) no rechazar `repository_in_use`; (g) dejar `marketplace/repository/uninstall` como `deny`; (h) incluir el `full_name` en el nombre del backup. Restaurar y comprobar verde
-- [ ] T029 Documentación final: CHANGELOG, HOJA-DE-RUTA («hecha», con la viñeta de pruebas en vivo y la DV-1), DOCS y READMEs, y la fila CAP-075 de la matriz de `specs/008-cobertura-total/plan.md` con las cinco tools, la DV-1 y sus ficheros de test, sin cambiar sus columnas de sub-feature ni de vía (FR-025)
-- [ ] T030 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), CI del banco en verde, revisión del diff (principio VIII), commit con los recuentos de T028
+- [x] T023 [US2] `_marketplace_write.py` (backup previo, reinicio probable, carga de desinstalar) y el módulo de la tool; registro con la familia; `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD` (FR-001…FR-007, FR-014, FR-017, FR-021)
+- [x] T024 ~~Textos de lectura~~ — no aplica (DV-1)
+- [x] T025 [US2] [US3] Registro, inventario 033 y tabla: `repository/uninstall` a `dedicated` en `command_table.py` y en `_DEDICADAS_INICIALES`; ninguna entrada con «spec 026»; regenerar sin cambios, en su sitio y desde cero (FR-019, FR-020, FR-021, FR-024)
+- [x] T026 [US2] [US3] Guía: tema de la familia de desinstalar (con la D-2, el tema `marketplace_manage`) (el backup parcial sin base de datos y qué pasa si falla, el reinicio y que Hermes no reinicia, `repository_in_use`); índice y marcador en las instrucciones; huellas (FR-022)
+- [x] T027 [US2] Banco y matriz: desinstalar a `NO_EJECUTABLES_026` (sin catálogo en el banco), contrato del banco con su carga, su fila `instalación real | pendiente` (FR-023)
+- [x] T028 Control negativo del tramo 2: (a) enviar el comando aunque el backup falle → cae `backup_failed`; (e) no rechazar `repository_in_use`; (g) dejar `marketplace/repository/uninstall` como `deny`; (h) incluir el `full_name` en el nombre del backup. Restaurar y comprobar verde
+- [x] T029 Documentación final: CHANGELOG, HOJA-DE-RUTA («hecha», con la viñeta de pruebas en vivo y la DV-1), DOCS y READMEs, y la fila CAP-075 de la matriz de `specs/008-cobertura-total/plan.md` con las cinco tools, la DV-1 y sus ficheros de test, sin cambiar sus columnas de sub-feature ni de vía (FR-025)
+- [x] T030 Cierre del tramo 2: suite completa (los 6 fallos conocidos y ninguno más), CI del banco en verde, revisión del diff (principio VIII), commit con los recuentos de T028
 
 ### Notas del tramo 2 (al cerrar)
 
-(Las escribe el agente del tramo.)
+- Línea base (punta `5189687`, sin traer `feat/cobertura-total`): 4138
+  passed, 136 skipped, 6 failed (los 6 conocidos de Windows).
+  `grep -c "spec 026"` daba 1; ahora 0, también en una tabla generada desde
+  cero. Regenerada en su sitio: solo cambia la línea de
+  `repository/uninstall`.
+- Comprobado en `fuentes/core` (HA 2026.11.1):
+  `marketplace_repository_uninstall` usa `marketplace_command()` sin el
+  aviso; rechaza `repository_not_installed`, `repository_busy` y
+  `repository_in_use` (entradas del `domain` de una integración, también
+  ignoradas: `async_entries`); con GitHub conectado refresca el repositorio
+  antes de borrar (por eso `openWorldHint`). `async_post_uninstall`: la
+  integración pide reiniciar si Core ya la cargó o si no tiene
+  `config_flow`; la tarjeta quita su recurso de Lovelace; tema y plantilla
+  recargan solos. Ninguna dice qué entidades o tarjetas usan el repositorio:
+  la vista previa lo avisa (`may_break.listed_by_home_assistant: false`).
+  En `fuentes/supervisor`, `_do_backup_partial` con `background: false`
+  devuelve `{job_id, slug}` o un `APIError` con «check job '…'».
+- DESVIACIONES: (1) D-2: misma familia, test en
+  `tests/test_tools_marketplace_uninstall.py`; (2) el backup no se cifra: la
+  integración de la 031 no está en esta rama, así que no se promete cifrado
+  (`backup.encrypted: false`); (3) `restart.likely` es `null` cuando depende
+  de si Core cargó la integración (no se adivina); (4) se mantiene
+  `backup=true` por defecto con la opción `backup=false` de FR-014, atada al
+  token.
+- Control negativo (T028), cada uno revertido y restaurado: (a) enviar el
+  comando aunque el backup falle → 3 failed; (e) no rechazar
+  `repository_in_use` → 3 failed; (g) `repository/uninstall` en `deny`
+  «pendiente» → 7 failed (tabla, generador desde cero, genérica y registro,
+  contando subtests); (h) el `full_name` en el nombre del backup → 2 failed.
 
 ---
 

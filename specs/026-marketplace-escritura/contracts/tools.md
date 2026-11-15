@@ -6,6 +6,12 @@
 > aceptado por el usuario de Hermes, que no puede aceptarlo); lo que aquí se
 > dice de ellas, de la URL de repositorio y de `marketplace/info` no aplica.
 > Sus comandos quedan en `deny` con el motivo de la duda D-29.
+>
+> **DECISIÓN D-2 (supervisor, tramo 2)**: `ha_marketplace_uninstall` va en
+> la familia `marketplace_manage` (módulo `tools/marketplace_manage.py`),
+> no en una familia de una sola tool: la familia `marketplace_install` y el
+> módulo `tools/marketplace_install.py` **no existen**. Donde este documento
+> los nombra para desinstalar, léase `marketplace_manage`.
 
 Descripciones, errores y respuestas al cliente en inglés (como el resto de
 tools); comentarios del código en español.

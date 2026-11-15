@@ -33,8 +33,8 @@ del tramo 1 recibe errores del manejador, nunca `invalid_format` ni
 
 ```bash
 python -m pytest -q -p no:cacheprovider \
-  tests/test_marketplace_write_comun.py tests/test_tools_marketplace_install.py \
-  tests/test_tools_marketplace.py tests/test_tools_hacs.py \
+  tests/test_marketplace_write_comun.py tests/test_tools_marketplace_uninstall.py \
+  tests/test_tools_marketplace_manage.py tests/test_tools_generic_commands.py \
   tests/test_command_table.py tests/test_generar_tabla.py \
   tests/test_tools_registration.py tests/test_tools_guide.py \
   tests/test_confirmation_args_inventory.py tests/test_matriz_pruebas.py

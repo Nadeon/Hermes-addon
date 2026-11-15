@@ -4,8 +4,8 @@
 
 **Creada**: 2026-11-15
 
-**Estado**: En curso (tramo 1 hecho; alcance reducido por la DESVIACIÓN DV-1,
-ver «Requisitos»)
+**Estado**: Hecha (tramos 1 y 2; alcance reducido por la DESVIACIÓN DV-1,
+ver «Requisitos»; desinstalar en `marketplace_manage` por la DECISIÓN D-2)
 
 **Programa**: cobertura total de HA 2026.11, spec paraguas
 [`specs/008-cobertura-total`](../008-cobertura-total/spec.md). Esta
@@ -92,6 +92,9 @@ en [research.md](research.md)):
   quitar repositorios personalizados, refrescar, ignorar un retirado y
   reconocer un aviso crítico: tocan el catálogo y los avisos). Así se puede
   apagar lo que instala código sin perder el mantenimiento (research R-3).
+  **Cambiado por la DECISIÓN D-2** (ver «Requisitos»): tras la DV-1 solo
+  queda desinstalar, que va en `marketplace_manage`; no hay
+  `marketplace_install`.
 - P: ¿`repository/beta` tiene tool? → R: **sí**, `ha_marketplace_set_beta`.
   CAP-075 lo incluye y su vía es D: la genérica no lo puede abrir sin pasar
   por `confirm` provisional, y en la tabla ninguna entrada de una CAP de vía D
@@ -283,8 +286,8 @@ descripciones y la guía.
 1. **Dado** la configuración por defecto, **cuando** se listan las tools,
    **entonces** todas las de antes (314 en `f108af0`) siguen igual y hay
    nueve más; con
-   `tool_families_disabled: [marketplace_install, marketplace_manage]`, la lista
-   es la de antes.
+   `tool_families_disabled: [marketplace_manage]` (D-2: no hay
+   `marketplace_install`), la lista es la de antes.
 2. **Dado** `tools/marketplace.py`, **cuando** se buscan los comandos que
    envía, **entonces** siguen siendo solo los de lectura (`_ALLOWED_SUFFIXES`):
    la escritura vive en otros módulos.
@@ -370,6 +373,22 @@ descripciones y la guía.
 > confirman en dos pasos y son destructivas por nombre exacto; el token se
 > ata al repositorio, a la categoría y a lo leído (`estado`); la vista previa
 > dice si el repositorio es de terceros y no está revisado.
+>
+> **DECISIÓN D-2 (supervisor, tramo 2)**: `ha_marketplace_uninstall` va en
+> la familia `marketplace_manage` (módulo `tools/marketplace_manage.py`), no
+> en una familia de una sola tool: **no existe** `marketplace_install`. En
+> FR-020 hay una sola familia nueva y en FR-022 un solo tema
+> (`marketplace_manage`, que explica también desinstalar, su backup y el
+> reinicio). Decisiones del supervisor para desinstalar: confirma en dos
+> pasos y es destructiva; el token ata el repositorio, la categoría y lo
+> leído (y `backup`); rechaza sin token `repository_not_installed` y
+> `repository_in_use`; antes de desinstalar hace un backup parcial sin la
+> base de datos y, si falla, no se envía nada a HA y la respuesta lo dice;
+> ese backup no se cifra (los safety backups cifrados de la 031 no están en
+> esta rama, y no se promete cifrado); la vista previa dice qué se quita, si
+> habrá que reiniciar Core y qué puede quedar roto (HA no dice qué
+> entidades o tarjetas usan un repositorio: se dice lo que implica su
+> categoría, y que HA no lo lista).
 
 Cada FR traza a la 008: **FR-091 / CAP-075** salvo donde se dice otra cosa.
 
@@ -462,7 +481,7 @@ Cada FR traza a la 008: **FR-091 / CAP-075** salvo donde se dice otra cosa.
   y `category`, y se relee el repositorio añadido. Las credenciales de la URL
   nunca se envían a HA ni salen en respuestas, errores, token guardado ni log.
 
-#### Código instalado (familia `marketplace_install`, tramo 2)
+#### Código instalado (tramo 2; familia `marketplace_manage` por la D-2)
 
 - **FR-013**: `ha_marketplace_install(repository_id, version=None,
   replace_built_in=False, backup=True, confirmation_token=None)`: comprueba
@@ -517,17 +536,17 @@ Cada FR traza a la 008: **FR-091 / CAP-075** salvo donde se dice otra cosa.
   idéntica. `github/connect` y `warning/accept` siguen `deny` (clase D);
   `repository/info`, `repositories/clear_new` y `subscribe`, `deny` (clase B)
   (FR-012 de la 008).
-- **FR-020**: Familias `marketplace_install` y `marketplace_manage` (desde
-  1.2.0, desactivables), una por módulo; `tool_families_disabled` las admite
-  (FR-010 de la 008).
+- **FR-020**: Familia `marketplace_manage` (desde 1.2.0, desactivable, un
+  módulo); `tool_families_disabled` la admite (FR-010 de la 008). (La
+  familia `marketplace_install` del diseño original no existe: D-2.)
 - **FR-021**: Anotaciones por nombre exacto (contracts/tools.md): las nueve
   sin `readOnlyHint` y con `destructiveHint`; `openWorldHint` las que hacen
   que HA hable con GitHub. Ninguna entra por un prefijo (FR-091; FR-018 de la
   008).
 - **FR-022**: Guía: un tema por familia nueva, con el nombre de la familia:
   `marketplace_manage` (sus cinco tools, ignorar frente a reconocer, las
-  credenciales de la URL) y `marketplace_install` (sus cuatro tools, el
-  backup, el reinicio, `replace_built_in`); los dos explican la condición del
+  credenciales de la URL; tras la D-2, también desinstalar, el backup y el
+  reinicio) y `marketplace_install` (no existe: D-2); explica la condición del
   aviso de riesgos y del usuario del Supervisor; alias de búsqueda; el índice
   los nombra y el tema `marketplace` remite a ellos (con su huella
   actualizada); las instrucciones del servidor nombran cada tema solo con su

@@ -27,6 +27,19 @@ punta `f108af0`, 314 tools) · **Spec**: [spec.md](spec.md) · **Paraguas**:
 > (`_READ_SUFFIXES`). En el generador de la tabla, una fila A con `_Deny` en
 > `_DEDICADAS_INICIALES` sale `deny` con su motivo (mismo mecanismo que la
 > 031 para `hassio/*`).
+>
+> **DECISIÓN D-2 (supervisor, tramo 2)**: `ha_marketplace_uninstall` va en
+> la familia `marketplace_manage` (módulo `tools/marketplace_manage.py`),
+> no en una familia de una sola tool: la familia `marketplace_install` y el
+> módulo `tools/marketplace_install.py` **no existen**. Donde este documento
+> los nombra para desinstalar, léase `marketplace_manage`.
+>
+> Desviaciones del tramo 2: el backup previo no se cifra (los safety backups
+> cifrados de la 031 no están integrados en esta rama); la vista previa
+> lleva `may_break` (lo que puede dejar de funcionar según la categoría, con
+> `listed_by_home_assistant: false`, porque HA no lo lista) y
+> `restart.likely: null` cuando depende de si Core ya cargó la integración,
+> que Hermes no ve. Tests en `tests/test_tools_marketplace_uninstall.py`.
 
 Nueve tools nuevas, todas en dos pasos, en dos familias nuevas:
 `marketplace_manage` (añadir y quitar repositorios personalizados, refrescar,
@@ -138,7 +151,7 @@ que cambian ficheros (research R-6); `refresh` e `ignore` llevan
 - Documentación del tramo (CHANGELOG, DOCS, READMEs, SECURITY, HOJA «en
   curso: tramo 1»).
 
-### Tramo 2 — código instalado (familia `marketplace_install`)
+### Tramo 2 — código instalado (familia `marketplace_manage` por la D-2)
 
 - `tool_families.py`: familia `marketplace_install` (módulo
   `marketplace_install`).

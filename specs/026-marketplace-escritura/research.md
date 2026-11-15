@@ -114,6 +114,12 @@ sin usuario (saltarse a sabiendas una salvaguarda de HA).
 
 ## R-3 — Nombres, familias y módulos
 
+> **DECISIÓN D-2 (supervisor, tramo 2)**: `ha_marketplace_uninstall` va en
+> la familia `marketplace_manage` (módulo `tools/marketplace_manage.py`),
+> no en una familia de una sola tool: la familia `marketplace_install` y el
+> módulo `tools/marketplace_install.py` **no existen**. Donde este documento
+> los nombra para desinstalar, léase `marketplace_manage`.
+
 - Nombres con el prefijo de las tools de lectura (`ha_marketplace_`), que es
   como el agente busca lo del Marketplace, y verbo explícito:
   `ha_marketplace_install`, `ha_marketplace_uninstall`,

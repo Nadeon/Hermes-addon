@@ -6,6 +6,12 @@
 > aceptado por el usuario de Hermes, que no puede aceptarlo); lo que aquí se
 > dice de ellas, de la URL de repositorio y de `marketplace/info` no aplica.
 > Sus comandos quedan en `deny` con el motivo de la duda D-29.
+>
+> **DECISIÓN D-2 (supervisor, tramo 2)**: `ha_marketplace_uninstall` va en
+> la familia `marketplace_manage` (módulo `tools/marketplace_manage.py`),
+> no en una familia de una sola tool: la familia `marketplace_install` y el
+> módulo `tools/marketplace_install.py` **no existen**. Donde este documento
+> los nombra para desinstalar, léase `marketplace_manage`.
 
 Formas de lo que leen, envían y devuelven las nueve tools. Nombres de campos y
 errores en inglés (los ve el cliente); los ejemplos usan datos ficticios
@@ -176,7 +182,7 @@ defecto tampoco sale en `repositories/list`),
 | Familia | Desde | Desactivable | Módulos | Descripción (inglés) |
 |---|---|---|---|---|
 | `marketplace_manage` | 1.2.0 | sí | `marketplace_manage` | «Marketplace catalogue and notices: add and remove custom repositories, refresh, ignore removed ones, acknowledge critical ones.» |
-| `marketplace_install` | 1.2.0 | sí | `marketplace_install` | «Install, uninstall and pin versions of Marketplace (HACS) repositories: third-party code.» |
+| ~~`marketplace_install`~~ | — | — | — | No existe (D-2): desinstalar va en `marketplace_manage`, cuya descripción real es «Marketplace catalogue, notices and uninstalling: acknowledge critical repositories, ignore removed ones, remove custom ones, refresh them and uninstall installed ones (backup first).» |
 
 ## Tabla (`command_table.py`)
 
@@ -192,6 +198,6 @@ Las 10 entradas «pendiente de tool dedicada (spec 026)» a `dedicated`,
 | `marketplace/repositories/add` | `ha_marketplace_add_repository` | `marketplace_manage` | 1 |
 | `marketplace/repositories/detect` | `ha_marketplace_add_repository` (`_ConMatiz`: «la usa su vista previa para saber las categorías») | `marketplace_manage` | 1 |
 | `marketplace/repository/install` | `ha_marketplace_install` | `marketplace_install` | 2 |
-| `marketplace/repository/uninstall` | `ha_marketplace_uninstall` | `marketplace_install` | 2 |
+| `marketplace/repository/uninstall` | `ha_marketplace_uninstall` | `marketplace_manage` (D-2) | 2 |
 | `marketplace/repository/version` | `ha_marketplace_set_version` | `marketplace_install` | 2 |
 | `marketplace/repository/beta` | `ha_marketplace_set_beta` | `marketplace_install` | 2 |

@@ -208,7 +208,12 @@ report about one of them will be closed with a pointer to this section:
     preview read (the critical or removed entry, the repository name,
     category, `custom` and `installed`). The preview states that the
     repository is third-party code that neither Home Assistant nor Hermes
-    reviews. Only `marketplace/*` commands from a closed list are sent;
+    reviews. Uninstalling also takes two steps; an integration with config
+    entries is refused without a token, and on confirmation Hermes first
+    asks the Supervisor for a partial backup of the Home Assistant
+    configuration without the database (not encrypted, with a generic name
+    that does not include the repository) and sends nothing to Home
+    Assistant if it fails. Only `marketplace/*` commands from a closed list are sent;
     Hermes never accepts the Marketplace risk warning nor connects GitHub,
     and it has no tool to install, pin versions, show betas or add
     repositories: Home Assistant requires the risk warning accepted by the
