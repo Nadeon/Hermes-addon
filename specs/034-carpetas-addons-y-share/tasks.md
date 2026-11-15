@@ -122,7 +122,10 @@ separado. Cada uno necesita el anterior integrado en la rama.
   20 en Windows (los de byte nulo de `test_folders` y `test_tools_folders`; en
   Linux lo sigue rechazando `resolve()`); (c) seguir symlinks en el recorrido
   o en el listado → 0 en Windows (los tests de symlinks se saltan) y comprobado
-  en el CI de Linux con una rama desechable (ver el commit); (d) sin excluir
+  en el CI de Linux con una rama desechable, ya borrada: 4 caen en
+  pytest 3.12 y 3.13 (`test_carpeta_no_sigue_symlinks`,
+  `test_cuenta_symlinks_sin_seguirlos` y `test_listar_no_sigue` en las dos
+  carpetas); (d) sin excluir
   `rootfs` → 1 (`test_indice`); (e) sin `blacklisted_name` en la lectura → 2
   (`test_leer_se_rechaza` en las dos carpetas); (f) registro fuera de
   `_activa("addons_share")` → 7 de `test_tools_registration`; (g) sin el tope
