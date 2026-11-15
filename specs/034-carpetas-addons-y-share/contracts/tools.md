@@ -185,6 +185,11 @@ sin token en la vista previa y al confirmar, bajo el candado de `/addons`.
   `fs_move_in_folder` responden en `addons`, sin token, `{"error":
   "path_too_long", "path", "detail", "hint"}` si la ruta (o, al mover una
   carpeta, lo que cuelga de ella) pasa de ese tope.
+- Convergencia 4 (T063): en la vista previa de `sv_install_addon` y de
+  `sv_update_addon` de una app que no es `local_*`, `privileges` gana
+  `not_in_store_data: {"fields": [...], "note"}` con los campos de
+  privilegio que la ficha de la tienda no da (`_store.NO_LOS_DA_LA_TIENDA`).
+  Es fijo: no va al estado del token. El esquema de entrada no cambia.
 - `folder_busy`: `{"error": "folder_busy", "folder", "detail"}` (y `slug` en
   las `sv_*`) si el candado de la carpeta no se consigue en
   `ESPERA_MAX_CANDADO_S` (15 s); el token no se gasta (T056).
