@@ -581,7 +581,9 @@ def exigir_regular_o_ausente(p: Path) -> None:
     """
     try:
         modo = os.lstat(p).st_mode
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
+        # No existe (o un padre es un fichero: lo rechaza `_faltan_padres`
+        # con `not_a_directory`).
         return
     if not _stat.S_ISREG(modo):
         raise NoRegular(f"{p.name!r} is not a regular file")

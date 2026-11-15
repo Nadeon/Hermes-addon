@@ -1111,7 +1111,9 @@ def test_carpetas_distintas_no_se_esperan(raices, monkeypatch) -> None:
             for f in CARPETAS))
 
     asyncio.run(dos())
-    assert traza[:2] == ["entra addons", "entra share"]
+    # Las dos entran antes de que salga ninguna (el orden entre ellas no
+    # está garantizado).
+    assert sorted(traza[:2]) == ["entra addons", "entra share"]
 
 
 @pytest.mark.parametrize("tool", list(CASOS))
