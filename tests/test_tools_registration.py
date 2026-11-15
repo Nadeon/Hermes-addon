@@ -445,6 +445,16 @@ class TestDestructiveToolsAskBeforeActing:
     # sigue respondiendo a la primera: leer el tiempo no pide dos pasos.
     SIN_TOKEN_A_PROPOSITO: set[str] = set()
 
+    # Excepción inversa (spec 021, decisión D-4 del supervisor): piden token
+    # solo cuando AMPLÍAN lo que un asistente puede ver o controlar (exponer
+    # entidades, exponer las nuevas); ocultar se aplica a la primera porque
+    # solo reduce lo expuesto. Anunciarlas destructivas mentiría dos veces:
+    # exponer no destruye nada, y una destructiva promete no actuar a la
+    # primera, que ocultar sí hace. Su descripción dice cuándo piden token.
+    TOKEN_SOLO_AL_AMPLIAR: set[str] = {
+        "ha_set_entity_exposure", "ha_set_expose_new_entities",
+    }
+
     @staticmethod
     def _firmas() -> dict:
         import ast as _ast
@@ -484,7 +494,8 @@ class TestDestructiveToolsAskBeforeActing:
         firmas = self._firmas()
         incumplen = sorted(
             n for n, tiene in firmas.items()
-            if tiene and not classify(n).destructive_hint)
+            if tiene and not classify(n).destructive_hint
+            and n not in self.TOKEN_SOLO_AL_AMPLIAR)
         assert incumplen == [], (
             "piden confirmación pero se anuncian inofensivas: " + str(incumplen))
 
@@ -492,6 +503,21 @@ class TestDestructiveToolsAskBeforeActing:
         """Ya no queda ninguna (spec 018): si mañana aparece una, que haya
         que justificarla a mano."""
         assert len(self.SIN_TOKEN_A_PROPOSITO) == 0
+
+    def test_token_solo_al_ampliar_son_las_de_exposicion(self):
+        """La excepción inversa de la 021 es exactamente esta pareja, sigue
+        pidiendo token (al exponer), no es destructiva y su descripción dice
+        que ocultar va sin token."""
+        from hermes.tools._annotations import classify
+
+        firmas = self._firmas()
+        assert self.TOKEN_SOLO_AL_AMPLIAR == {
+            "ha_set_entity_exposure", "ha_set_expose_new_entities"}
+        tools = _real_registry()
+        for nombre in sorted(self.TOKEN_SOLO_AL_AMPLIAR):
+            assert firmas[nombre] is True, nombre
+            assert classify(nombre).destructive_hint is False, nombre
+            assert "without a token" in tools[nombre].description, nombre
 
 
 # ── title (spec 003, FR-040) e hints intactos (FR-043) ───────────────────────
@@ -789,6 +815,19 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_get_device_diagnostics": ("R-I-", "Get device diagnostics (Home Assistant)"),
     "ha_list_persistent_notifications": ("R-I-", "List persistent notifications (Home Assistant)"),
     "ha_dismiss_persistent_notification": ("-DI-", "Dismiss persistent notification (Home Assistant)"),
+    # Spec 021, tramo a (contracts/tools.md con la decisión D-4 del
+    # supervisor): las de lectura por su prefijo; cambiar la configuración del
+    # núcleo pide token y va en `_DESTRUCTIVE_EXACT`. Las dos de exposición
+    # son de mundo abierto (la nube de Amazon y Google) y NO destructivas:
+    # exponer no destruye nada y ocultar no pide token (ver
+    # `TOKEN_SOLO_AL_AMPLIAR`). Control negativo (T018 g): quitar
+    # `ha_set_entity_exposure` de `_OPEN_WORLD` → cae
+    # `test_hints_y_titulos_de_las_nuevas` (sale `--I-`).
+    "ha_get_core_config": ("R-I-", "Get core config (Home Assistant)"),
+    "ha_update_core_config": ("-DI-", "Update core config (Home Assistant)"),
+    "ha_list_exposed_entities": ("R-I-", "List exposed entities (Home Assistant)"),
+    "ha_set_entity_exposure": ("--IO", "Set entity exposure (Home Assistant)"),
+    "ha_set_expose_new_entities": ("--IO", "Set expose new entities (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1572,6 +1611,43 @@ class TestResolutionAndHABackupsRegistration:
 
 
 # ── Recuento de tools en la documentación ────────────────────────────────────
+
+# ── Spec 021, tramo a: núcleo y exposición a asistentes (T007) ──────────────
+
+_CORE_CONFIG_021 = ("ha_get_core_config", "ha_update_core_config")
+_EXPOSICION_021 = ("ha_list_exposed_entities", "ha_set_entity_exposure",
+                   "ha_set_expose_new_entities")
+
+
+class TestConfiguracionDelSistemaTramoA:
+    """Las cinco tools del tramo a se registran bajo `core_config` y
+    `assistant_exposure`; las tres que escriben toman `confirmation_token`;
+    con las dos familias desactivadas no queda ninguna y el resto no cambia
+    (FR-017, FR-019, SC-001). Hints y títulos: `_HINTS_NUEVAS_1_2_0`."""
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _CORE_CONFIG_021 + _EXPOSICION_021 if n not in mcp.tools] == []
+
+    def test_las_que_escriben_toman_token(self):
+        tools = _real_registry()
+        for nombre in ("ha_update_core_config", "ha_set_entity_exposure",
+                       "ha_set_expose_new_entities"):
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" in props, nombre
+        for nombre in ("ha_get_core_config", "ha_list_exposed_entities"):
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" not in props, nombre
+
+    def test_cada_familia_quita_las_suyas(self):
+        todas = set(_do_register().tools)
+        sin_nucleo = set(_do_register(["core_config"]).tools)
+        sin_exposicion = set(_do_register(["assistant_exposure"]).tools)
+        assert todas - sin_nucleo == set(_CORE_CONFIG_021)
+        assert todas - sin_exposicion == set(_EXPOSICION_021)
+        sin_las_dos = set(_do_register(["core_config", "assistant_exposure"]).tools)
+        assert todas - sin_las_dos == set(_CORE_CONFIG_021 + _EXPOSICION_021)
+
 
 class TestToolCountInDocs:
     """El número de tools que anuncian los README y DOCS.md es el del registro

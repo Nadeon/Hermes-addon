@@ -758,5 +758,51 @@ class TestGuiaApps(unittest.TestCase):
                 self.assertIn(f"`{nombre}", _GUIDE["supervisor"])
 
 
+class TestTemasDeLa021TramoA(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T013 (FR-022): temas `core_config` y `assistant_exposure`
+    con sus tools, sus alias y su entrada en el índice y en el docstring de
+    `hermes_guide`. Las huellas de los temas de antes de la 013 no cambian
+    (`test_los_demas_temas_no_cambian`)."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_core_config(self) -> None:
+        texto = await self.guide("core_config")
+        self.assertIs(texto, _GUIDE["core_config"])
+        for palabra in ("ha_get_core_config", "ha_update_core_config", "DOS PASOS",
+                        "yaml_source", "update_units", "partial", "no_changes",
+                        'ha_read_ws_command(type="config/core/detect")',
+                        "sale a internet", "No guarda nada"):
+            self.assertIn(palabra, texto)
+        for alias in ("location", "units", "time_zone", "CORE_CONFIG"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_assistant_exposure(self) -> None:
+        texto = await self.guide("assistant_exposure")
+        self.assertIs(texto, _GUIDE["assistant_exposure"])
+        for palabra in ("ha_list_exposed_entities", "ha_set_entity_exposure",
+                        "ha_set_expose_new_entities", "conversation", "cloud.alexa",
+                        "cloud.google_assistant", "MCP Server", "Home Assistant Cloud",
+                        "sensitive", "sin token", "dos pasos"):
+            self.assertIn(palabra, texto)
+        for alias in ("exposure", "expose", "voice", "assist"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_indice_y_docstring(self) -> None:
+        indice = await self.guide()
+        doc = self.mcp.tools["hermes_guide"].__doc__
+        for tema in ("core_config", "assistant_exposure"):
+            self.assertIn(f"`{tema}`", indice)
+            self.assertIn(tema, doc)
+
+    def test_system_status_remite_las_urls_a_core_config(self) -> None:
+        self.assertIn("ha_update_core_config", _GUIDE["system_status"])
+
+
 if __name__ == "__main__":
     unittest.main()

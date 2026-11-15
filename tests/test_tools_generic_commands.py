@@ -1053,5 +1053,62 @@ class TestRegistro(unittest.TestCase):
         self.assertIn("| `tag/create` | confirm |", texto)
 
 
+# Spec 021, tramo a: comando → (tool dedicada, familia).
+_DEDICADAS_021_A = {
+    "config/core/update": ("ha_update_core_config", "core_config"),
+    "homeassistant/expose_entity": ("ha_set_entity_exposure", "assistant_exposure"),
+    "homeassistant/expose_entity/list": ("ha_list_exposed_entities", "assistant_exposure"),
+    "homeassistant/expose_new_entities/get": ("ha_list_exposed_entities", "assistant_exposure"),
+    "homeassistant/expose_new_entities/set": ("ha_set_expose_new_entities", "assistant_exposure"),
+}
+
+
+class TestDedicadasDeLa021TramoA(unittest.IsolatedAsyncioTestCase):
+    """Spec 021, T003 (FR-003, FR-018, FR-021): con la tabla real, las dos
+    genéricas rechazan los cinco comandos del tramo a hacia su tool, sin
+    llegar a HA; con su familia desactivada, `family_disabled: true`.
+    `config/core/detect` se lee por la genérica de lectura, redactado, y el
+    log no lleva lo que responde HA.
+
+    Control negativo (T018 f): `homeassistant/expose_entity` en `deny` → cae
+    `test_rechazo_hacia_su_tool` (`command_denied`)."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, (tool, familia) in _DEDICADAS_021_A.items():
+            with self.subTest(comando=comando):
+                self.assertIn(tool, mcp.tools)
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, familia, False))
+                r = await mcp.tools["ha_call_ws_command"](comando, {})
+                self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", tool))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["core_config", "assistant_exposure"])
+        for comando, (tool, _familia) in _DEDICADAS_021_A.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {})
+                self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_detect_se_lee_y_el_log_no_lleva_la_respuesta(self) -> None:
+        mcp, ha = _registrar_todo([])
+        ha.ws_send = AsyncMock(return_value={
+            "unit_system": "metric", "latitude": 40.125, "longitude": -3.875,
+            "time_zone": "Europe/Madrid", "currency": "EUR", "country": "ES"})
+        with capture_logs() as logs:
+            r = await mcp.tools["ha_read_ws_command"]("config/core/detect")
+        ha.ws_send.assert_awaited_once()
+        self.assertEqual(ha.ws_send.await_args.args[0]["type"], "config/core/detect")
+        self.assertEqual((r["category"], r["result"]["time_zone"]), ("read", "Europe/Madrid"))
+        texto = json.dumps(logs, default=str)
+        for valor in ("40.125", "-3.875", "Europe/Madrid"):
+            self.assertNotIn(valor, texto)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -173,6 +173,9 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # anunciaba no destructiva (`----`, por el prefijo `ha_create_`) y su
     # descripción decía que una colisión daba error, que no es lo que hace HA.
     "ha_create_scene_from_current",
+    # Spec 021: cambia cómo HA interpreta las horas (zona horaria) y las
+    # unidades, y mueve `zone.home` (presencia). Siempre pide token.
+    "ha_update_core_config",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -205,6 +208,14 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
     # Es de solo lectura, pero no puede decir que no sale.
     "ha_get_system_health",
+    # Spec 021 (CAP-055): exponer a `cloud.alexa` o `cloud.google_assistant`
+    # manda las entidades a Amazon o Google a través de Home Assistant Cloud.
+    # NO son destructivas (decisión D-4 del supervisor): exponer no destruye
+    # nada y ocultar ni siquiera pide token. Exponer sí lo pide: son la única
+    # excepción documentada al invariante «token ⇒ destructiva»
+    # (tests/test_tools_registration.py, `TOKEN_SOLO_AL_AMPLIAR`).
+    "ha_set_entity_exposure",
+    "ha_set_expose_new_entities",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

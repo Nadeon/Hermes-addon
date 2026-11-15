@@ -320,6 +320,14 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "diagnostics/list": "ha_list_diagnostics_handlers",
     "diagnostics/get": "ha_list_diagnostics_handlers",
     "persistent_notification/get": "ha_list_persistent_notifications",
+    # 021 (tramo a): configuración del núcleo (CAP-053) y exposición a
+    # asistentes (CAP-055), clase A de vía D. `config/core/detect` no está:
+    # va `read` en la tabla (FR-071 de la 008), revisada a mano.
+    "config/core/update": "ha_update_core_config",
+    "homeassistant/expose_entity": "ha_set_entity_exposure",
+    "homeassistant/expose_entity/list": "ha_list_exposed_entities",
+    "homeassistant/expose_new_entities/get": "ha_list_exposed_entities",
+    "homeassistant/expose_new_entities/set": "ha_set_expose_new_entities",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

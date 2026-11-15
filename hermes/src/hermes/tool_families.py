@@ -122,6 +122,19 @@ _CATALOGO: tuple[Familia, ...] = (
             "1.2.0", True,
             ("core_logs", "core_validation", "integration_diagnostics",
              "persistent_notifications")),
+    # Spec 021 (research R-9): la configuración del sistema va en familias
+    # por área y por riesgo, para que quien quiera apagar lo de riesgo alto
+    # (usuarios, red y HTTP, en los tramos b y c) lo haga sin perder el resto.
+    # El tramo a trae dos: el núcleo y la exposición a asistentes (esta,
+    # aparte, porque puede mandar entidades a la nube de un tercero).
+    Familia("core_config",
+            "Core configuration: name, location, units, time zone, currency, "
+            "country, language and URLs.",
+            "1.2.0", True, ("core_config",)),
+    Familia("assistant_exposure",
+            "Which entities Assist, conversation agents and the cloud voice "
+            "assistants can see and control.",
+            "1.2.0", True, ("assistant_exposure",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

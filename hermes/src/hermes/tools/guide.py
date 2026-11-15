@@ -146,6 +146,8 @@ para el detalle de un área. Temas disponibles:
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
 - `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
+- `core_config`    — configuración general: nombre, ubicación, unidades, zona horaria, moneda, idioma y URLs
+- `assistant_exposure` — qué entidades ven y controlan Assist, los agentes y Alexa o Google
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -825,8 +827,9 @@ RED, URLS Y HTTP DE CORE (por la genérica de lectura, sin tool dedicada)
 - `ha_read_ws_command(type="http/config")` — la configuración del servidor
   HTTP: `stable` (la que funciona), `pending` (una sin confirmar, si la hay) y
   `default`.
-Las tres solo leen y no llevan carga. Hermes aún NO tiene tool para cambiar la
-red, las URLs ni el HTTP: `network/configure` y `http/config/*` están
+Las tres solo leen y no llevan carga. Las URLs internal y external se cambian
+con `ha_update_core_config` (tema `core_config`). Hermes aún NO tiene tool para
+cambiar la red ni el HTTP: `network/configure` y `http/config/*` están
 denegadas a la espera de su tool dedicada (CAP-069).
 """,
     "recorder": """\
@@ -861,6 +864,76 @@ llamaron en ese intervalo: `domain`, `service`, `service_data`, `when` y el
 `context_id` de quien la lanzó. `start_time` es obligatorio; sin `end_time`,
 hasta ahora. Los `code` de `service_data` (alarmas, cerraduras) salen
 tapados. Lee lo que el recorder grabó: sin recorder no hay auditoría.
+""",
+    "core_config": """\
+# Configuración del núcleo (familia `core_config`)
+
+La configuración general de Home Assistant (Ajustes → Sistema → General).
+
+- `ha_get_core_config()` — SOLO LECTURA: `location_name`, `latitude`,
+  `longitude`, `elevation`, `radius` (de `zone.home`), `unit_system`
+  (`metric` o `us_customary`), `time_zone`, `currency`, `country`,
+  `language`, `internal_url`, `external_url`, `config_source` (`storage`, o
+  `yaml` si está en `configuration.yaml`) y `version`.
+- `ha_update_core_config(...campos..., update_units=False)` — cambia SOLO los
+  campos que pases, en DOS PASOS: la vista previa enseña el antes y el
+  después de lo que cambia (lo que ya estaba igual sale solo por nombre en
+  `unchanged`) y los avisos (`warnings`) de lo que arrastra cada cambio:
+  `time_zone` (disparadores por hora, horarios, historial), `unit_system` y
+  `update_units` (cómo se leen los sensores y las estadísticas), `location`
+  (mueve `zone.home` y la presencia), `urls` (apps, enlaces, nube) y
+  `regional` (país, moneda, idioma). Sin diferencias: `no_changes`, sin
+  token. `""` quita una URL. `update_units` solo con `unit_system`.
+
+TRAMPAS
+- `yaml_source`: si la configuración está en `configuration.yaml`, HA aplica
+  el cambio, pero al reiniciar vuelve a mandar el YAML. Para que dure, edita
+  el bloque `homeassistant:` del YAML (tema `filesystem`).
+- La zona horaria se aplica sola y primero: una zona que HA no conoce no deja
+  nada a medias. Si la zona pasa y el resto falla, `result: "partial"` dice
+  qué se aplicó (`applied`) y qué no (`failed`).
+- Si alguien cambia la configuración entre la vista previa y la
+  confirmación, no se aplica nada: pide otra vista previa.
+- La confirmación devuelve releídos solo los campos que pasaste.
+
+PROPONER VALORES DESDE LA IP (sale a internet)
+`ha_read_ws_command(type="config/core/detect")` — HA consulta un servicio
+externo de geolocalización por IP y propone `unit_system`, `latitude`,
+`longitude`, `time_zone`, `currency` y `country`. No guarda nada; sin salida a
+internet responde `{}`. Enseña la propuesta al usuario antes de aplicarla con
+`ha_update_core_config`.
+""",
+    "assistant_exposure": """\
+# Exposición a asistentes (familia `assistant_exposure`)
+
+Qué entidades puede ver y controlar cada asistente de voz. Los asistentes son
+los de Home Assistant:
+- `conversation` — Assist y todo lo que lo usa: los agentes conversacionales
+  (también los de LLM en la nube) y la integración MCP Server.
+- `cloud.alexa` y `cloud.google_assistant` — Amazon Alexa y Google Assistant a
+  través de Home Assistant Cloud: con la nube activa, las entidades expuestas
+  se mandan a Amazon o a Google. Sin nube, HA guarda la preferencia igual.
+
+- `ha_list_exposed_entities(assistant=None, domain=None)` — SOLO LECTURA:
+  `items` con `{entity_id, assistants}`, `total` y `expose_new` por
+  asistente. Lista las que tienen el ajuste guardado; con `expose_new`
+  activo, una entidad nueva de un dominio expuesto por defecto puede estar
+  expuesta sin salir aún en la lista.
+- `ha_set_entity_exposure(entity_ids, assistants, expose)` — de 1 a 200
+  entidades (que existan; si no, `not_found` con `missing`) y de 1 a 3
+  asistentes, en una sola llamada a HA.
+  - `expose=true` CONFIRMA en dos pasos: la vista previa dice, por asistente,
+    qué entidades cambian (`change`), cuáles ya estaban (`already`) y su aviso,
+    y `sensitive` marca cerraduras, alarmas, persianas y válvulas. Todo ya
+    expuesto: `no_changes`.
+  - `expose=false` (ocultar) se aplica a la primera, sin token: solo reduce lo
+    que el asistente ve.
+- `ha_set_expose_new_entities(assistant, expose_new)` — si las entidades que se
+  creen a partir de ahora se exponen solas. `true` confirma en dos pasos;
+  `false` va sin token. No cambia las que ya existen.
+
+Antes de exponer a la nube (`cloud.*`) o algo de `sensitive`, enseña la vista
+previa al usuario.
 """,
     "workflows": """\
 # Flujos completos (recetas paso a paso)
@@ -988,6 +1061,13 @@ _ALIASES: dict[str, str] = {
     "statistics_validation": "recorder",
     "action_calls": "recorder",
     "audit": "recorder",
+    "location": "core_config",
+    "units": "core_config",
+    "time_zone": "core_config",
+    "exposure": "assistant_exposure",
+    "expose": "assistant_exposure",
+    "voice": "assistant_exposure",
+    "assist": "assistant_exposure",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -1096,7 +1176,8 @@ def register(mcp: object) -> None:
                 helpers, events, data, registries, diagnostics, config_entries,
                 filesystem, supervisor, system_diagnostics, backups, lovelace,
                 marketplace, security, generic_commands, system_status, recorder,
-                core_diagnostics, workflows. Acepta alias
+                core_diagnostics, core_config, assistant_exposure, workflows.
+                Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,

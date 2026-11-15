@@ -361,6 +361,18 @@ def register_all_tools(
         )
         register_persistent_notifications(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Configuración del sistema (spec 021, tramo a): el núcleo (nombre,
+    # ubicación, unidades, zona horaria, URLs) y la exposición de entidades a
+    # los asistentes de voz. Dos familias para poder apagar la exposición,
+    # que puede mandar entidades a la nube de un tercero, sin perder el resto.
+    if _activa("core_config"):
+        from hermes.tools.core_config import register as register_core_config
+        register_core_config(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    if _activa("assistant_exposure"):
+        from hermes.tools.assistant_exposure import register as register_assistant_exposure
+        register_assistant_exposure(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

@@ -190,6 +190,28 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["core_diagnostics"]),
                          frozenset({"core_diagnostics"}))
 
+    def test_familias_de_la_021_tramo_a(self) -> None:
+        """Spec 021 (FR-017, T007): `core_config` y `assistant_exposure`,
+        nuevas de la 1.2.0, desactivables y con su módulo cada una (research
+        R-9: la exposición, aparte, porque puede mandar entidades a la nube
+        de un tercero)."""
+        esperadas = {
+            "core_config": ("core_config", "Core configuration: name, location, "
+                            "units, time zone, currency, country, language and URLs."),
+            "assistant_exposure": ("assistant_exposure", "Which entities Assist, "
+                                   "conversation agents and the cloud voice "
+                                   "assistants can see and control."),
+        }
+        for nombre, (modulo, descripcion) in esperadas.items():
+            with self.subTest(familia=nombre):
+                familia = FAMILIAS[nombre]
+                self.assertEqual(familia.desde, "1.2.0")
+                self.assertTrue(familia.desactivable)
+                self.assertEqual(familia.modulos, (modulo,))
+                self.assertEqual(familia.descripcion, descripcion)
+                self.assertEqual(familia_de_modulo(modulo), nombre)
+                self.assertEqual(validar_desactivadas([nombre]), frozenset({nombre}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

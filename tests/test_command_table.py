@@ -281,6 +281,42 @@ class TestDedicadas(unittest.TestCase):
         pendientes = sorted(str(k) for k, e in _todas() if "(spec 029)" in e.reason)
         self.assertEqual(pendientes, [])
 
+    def test_dedicadas_de_la_021(self) -> None:
+        """Spec 021, tramo a (T002; FR-003, FR-018): los cinco comandos de
+        CAP-053 y CAP-055 son `dedicated` hacia su tool, con la forma que
+        escribe el generador y su clave en `_DEDICADAS_INICIALES`; y
+        `config/core/detect` es `read` de mundo abierto con su porqué en
+        `_POR_LA_TABLA`.
+        Control negativo (T018 f): `homeassistant/expose_entity` en `deny` →
+        cae."""
+        from scripts.inventario.generar_tabla import _DEDICADAS_INICIALES
+
+        cinco = {
+            "config/core/update": ("ha_update_core_config", "core_config", "CAP-053"),
+            "homeassistant/expose_entity": (
+                "ha_set_entity_exposure", "assistant_exposure", "CAP-055"),
+            "homeassistant/expose_entity/list": (
+                "ha_list_exposed_entities", "assistant_exposure", "CAP-055"),
+            "homeassistant/expose_new_entities/get": (
+                "ha_list_exposed_entities", "assistant_exposure", "CAP-055"),
+            "homeassistant/expose_new_entities/set": (
+                "ha_set_expose_new_entities", "assistant_exposure", "CAP-055"),
+        }
+        for comando, (tool, familia, cap) in cinco.items():
+            with self.subTest(comando=comando):
+                e = ct.CORE_WS[comando]
+                self.assertEqual(
+                    (e.category, e.reason, e.family, e.tool, e.cap),
+                    ("dedicated", f"cubierto por {tool}", familia, tool, cap))
+                self.assertEqual(_DEDICADAS_INICIALES[comando], tool)
+        e = ct.CORE_WS["config/core/detect"]
+        self.assertEqual((e.category, e.family, e.cap, e.open_world, e.tool),
+                         ("read", "generic_commands", "CAP-053", True, None))
+        self.assertIn("servicio externo", e.reason)
+        self.assertIn("no guarda nada", e.reason)
+        self.assertTrue(_POR_LA_TABLA["config/core/detect"].startswith("spec 021: "))
+        self.assertNotIn("config/core/detect", _DEDICADAS_INICIALES)
+
     def test_lo_no_dedicado_es_de_las_genericas(self) -> None:
         # Hasta que una sub-feature asigne otra familia (data-model).
         otras = sorted(str(k) for k, e in _todas()
@@ -295,6 +331,9 @@ class TestDedicadas(unittest.TestCase):
 _READ_QUE_SALEN: dict[str | tuple[str, str], str] = {
     "media_source/browse_media": "las fuentes remotas consultan su API al navegar",
     "media_source/search_media": "las fuentes remotas consultan su API al buscar",
+    # Spec 021 (FR-003, FR-071 de la 008): propone la configuración del
+    # núcleo consultando un servicio externo de geolocalización por IP.
+    "config/core/detect": "consulta un servicio externo de geolocalización por IP",
 }
 
 
@@ -396,6 +435,9 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
     ("GET", "/host/disks"): (
         "spec 013: lectura menor de CAP-085 (discos con particiones montables, "
         "para los montajes de la 019); sin tool en el research de la 008"),
+    "config/core/detect": (
+        "spec 021: FR-071 de la 008 la deja `read` en la tabla; consulta un "
+        "servicio externo de geolocalización y no guarda nada"),
 }
 
 
@@ -578,7 +620,10 @@ class TestDiscoHostYOsDeLa013(unittest.TestCase):
             elif "solo lee" not in e.reason:
                 malas.append(f"{k}: el motivo no dice que solo lee: {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
-        self.assertEqual(set(_READ_013), set(_POR_LA_TABLA))
+        # Las de la 013 en `_POR_LA_TABLA` son exactamente estas tres (la 021
+        # añade `config/core/detect`, que se comprueba en su clase).
+        self.assertEqual(set(_READ_013),
+                         {k for k, v in _POR_LA_TABLA.items() if v.startswith("spec 013: ")})
 
     def test_hardware_y_red_siguen_read(self) -> None:
         malas = sorted(
