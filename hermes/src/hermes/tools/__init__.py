@@ -367,6 +367,8 @@ def register_all_tools(
     if _activa("backup_integration"):
         from hermes.tools.ha_backup_settings import register as register_ha_backup_settings
         register_ha_backup_settings(mcp, ha_client, response_max_bytes=response_max_bytes)
+        from hermes.tools.ha_backup_actions import register as register_ha_backup_actions
+        register_ha_backup_actions(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

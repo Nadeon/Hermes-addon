@@ -253,6 +253,19 @@ async def record_launch(name: str, job_id: str | None, origin: str,
         _guardar(entradas)
 
 
+def es_safety_backup_confirmado(slug: str) -> bool:
+    """¿Es `slug` un safety backup de Hermes CONFIRMADO en la anotación?
+
+    Lectura pública y de solo lectura (spec 031: la vista previa de
+    `ha_delete_backup` dice si borra un safety backup). No toma el lock de
+    escritura ni repara nada: una anotación ilegible responde `False`, y
+    `_cargar` no la reescribe al leer. Con la integración `hassio`, el
+    `backup_id` de HA es el slug del Supervisor.
+    """
+    entradas, _ = _cargar()
+    return any(e.get("slug") == slug and e.get("confirmed_by") for e in entradas)
+
+
 def _apartar_ilegible() -> bool:
     """Renombra la anotación ilegible a `.corrupt-<ts>` antes de rehacerla.
 

@@ -795,6 +795,11 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # escriben ajustes de HA.
     "ha_list_backup_agents": ("R-I-", "List backup agents (Home Assistant)"),
     "ha_update_backup_config": ("-DI-", "Update backup config (Home Assistant)"),
+    # Spec 031, tramo 2 (T025): crear no es idempotente (otro backup cada
+    # vez); borrar sí. Las tres salen a internet con un agente remoto.
+    "ha_create_backup": ("-D-O", "Create backup (Home Assistant)"),
+    "ha_create_automatic_backup": ("-D-O", "Create automatic backup (Home Assistant)"),
+    "ha_delete_backup": ("-DIO", "Delete backup (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1322,8 +1327,11 @@ class TestBackupIntegrationRegistration:
     `--I-`) y `test_every_tool_that_asks_for_a_token_says_it_is_destructive`.
     """
 
-    _DOS = {"ha_list_backup_agents", "ha_update_backup_config"}
-    _CON_TOKEN = {"ha_update_backup_config"}
+    # Tramo 2 (T025): las tres de crear y borrar, todas con token.
+    _DOS = {"ha_list_backup_agents", "ha_update_backup_config",
+            "ha_create_backup", "ha_create_automatic_backup", "ha_delete_backup"}
+    _CON_TOKEN = {"ha_update_backup_config", "ha_create_backup",
+                  "ha_create_automatic_backup", "ha_delete_backup"}
     # HALLAZGO del tramo 1: el proxy WebSocket del Supervisor rechaza
     # `hassio/*` a las apps, así que estas dos no podían funcionar
     # (principio V) y se quitaron. No pueden volver sin otra vía hacia HA.
@@ -1347,13 +1355,14 @@ class TestBackupIntegrationRegistration:
     def test_recibe_response_max_bytes(self):
         from unittest.mock import patch
 
-        with patch("hermes.tools.ha_backup_settings.register") as reg:
-            register_all_tools(
-                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
-                response_max_bytes=54_321, call_service_auto_classify=False,
-                tool_families_disabled=[],
-            )
-        assert reg.call_args.kwargs.get("response_max_bytes") == 54_321
+        for modulo in ("ha_backup_settings", "ha_backup_actions"):
+            with patch(f"hermes.tools.{modulo}.register") as reg:
+                register_all_tools(
+                    _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                    response_max_bytes=54_321, call_service_auto_classify=False,
+                    tool_families_disabled=[],
+                )
+            assert reg.call_args.kwargs.get("response_max_bytes") == 54_321, modulo
 
 
 class TestMarketplaceRegistration:

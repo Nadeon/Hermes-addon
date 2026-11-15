@@ -179,6 +179,13 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # aquí, el prefijo `ha_update_` la dejaría sin `destructiveHint`
     # (invariante «pide token ⇔ destructiva»).
     "ha_update_backup_config",
+    # Spec 031, tramo 2: crear un backup ocupa GB en cada agente y, en uno
+    # remoto, sube la casa entera fuera; con los ajustes automáticos, al
+    # terminar HA aplica la retención y BORRA backups. Las dos piden token
+    # y su prefijo `ha_create_` las dejaría sin `destructiveHint`.
+    # (`ha_delete_backup` ya lo es por el prefijo `ha_delete_`.)
+    "ha_create_backup",
+    "ha_create_automatic_backup",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -211,6 +218,12 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # hace un GET a internet (nube, Marketplace en GitHub, Spotify, NextDNS…).
     # Es de solo lectura, pero no puede decir que no sale.
     "ha_get_system_health",
+    # Spec 031, tramo 2: con un agente remoto (la nube, otro servicio) crear
+    # sube el backup a internet y borrar lo borra allí; quien sale es HA,
+    # pero lo provoca la tool.
+    "ha_create_backup",
+    "ha_create_automatic_backup",
+    "ha_delete_backup",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

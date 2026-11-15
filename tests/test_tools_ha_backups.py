@@ -321,5 +321,49 @@ class TestBackupsHA2025_1(_Base):
         })
 
 
+class TestLastActionEvent(_Base):
+    """Spec 031, tramo 2 (T018; FR-010): `last_action_event` por lista blanca.
+
+    Control negativo (T030 e), comprobado: copiando el evento entero cae
+    `test_solo_los_cuatro_escalares`.
+    """
+
+    async def test_solo_los_cuatro_escalares(self) -> None:
+        evento = {"manager_state": "create_backup", "state": "completed",
+                  "stage": None, "reason": None, "agent_id": "hassio.nas",
+                  "uploaded_bytes": 10, "total_bytes": 20}
+        res = await self._llamar(_HA({"backup/info": _info(last_action_event=evento)}),
+                                 "ha_list_backups")
+        self.assertEqual(res["last_action_event"], {
+            "manager_state": "create_backup", "state": "completed",
+            "stage": None, "reason": None})
+
+    async def test_valores_no_escalares_no_salen(self) -> None:
+        evento = {"manager_state": "restore_backup", "state": "failed",
+                  "stage": {"x": "SENTINEL-EV"}, "reason": ["SENTINEL-EV"]}
+        res = await self._llamar(_HA({"backup/info": _info(last_action_event=evento)}),
+                                 "ha_list_backups")
+        self.assertEqual(res["last_action_event"], {
+            "manager_state": "restore_backup", "state": "failed",
+            "stage": None, "reason": None})
+
+    async def test_sin_evento_es_null(self) -> None:
+        for valor in (None, "raro"):
+            res = await self._llamar(_HA({"backup/info": _info(last_action_event=valor)}),
+                                     "ha_list_backups")
+            self.assertIsNone(res["last_action_event"])
+        info = _info()
+        del info["last_action_event"]
+        res = await self._llamar(_HA({"backup/info": info}), "ha_list_backups")
+        self.assertIsNone(res["last_action_event"])
+
+    async def test_el_resto_no_cambia(self) -> None:
+        res = await self._llamar(_HA({"backup/info": _info()}), "ha_list_backups")
+        self.assertEqual(set(res), {
+            "count", "total", "truncated", "backups", "last_attempted_automatic_backup",
+            "last_completed_automatic_backup", "next_automatic_backup", "state",
+            "agent_errors", "last_action_event"})
+
+
 if __name__ == "__main__":
     unittest.main()

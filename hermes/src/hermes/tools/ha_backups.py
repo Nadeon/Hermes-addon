@@ -146,6 +146,18 @@ def _backup_permitido(b: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _ultimo_evento(valor: Any) -> dict[str, Any] | None:
+    """`last_action_event` por lista blanca (spec 031, FR-010).
+
+    Sirve para ver si un backup creado o restaurado terminó bien o falló. Los
+    eventos de subida traen además `agent_id` y bytes, que no hacen falta para
+    eso y no se copian; un valor que no sea escalar sale como `null`.
+    """
+    if not isinstance(valor, dict):
+        return None
+    return {k: _escalar(valor.get(k)) for k in ("manager_state", "state", "stage", "reason")}
+
+
 def _retencion(valor: Any) -> dict[str, Any] | None:
     if not isinstance(valor, dict):
         return None
@@ -260,7 +272,11 @@ def register(
         Covers every backup location HA knows (local, network storage, cloud).
         Returns {"count", "total", "truncated", "backups": [...], "last_attempted_automatic_backup",
         "last_completed_automatic_backup", "next_automatic_backup", "state",
-        "agent_errors"}. Each backup has backup_id, name, date, agents
+        "agent_errors", "last_action_event"}. last_action_event is
+        {manager_state, state, stage, reason} of HA's last backup action (or
+        null): after creating or restoring, `state` back to "idle" and
+        last_action_event.state "completed" or "failed" tell how it ended.
+        Each backup has backup_id, name, date, agents
         ({agent_id: {protected, size}}), addons, folders, database_included,
         homeassistant_included, homeassistant_version, failed_* lists and
         with_automatic_settings. The installation id is never returned.
@@ -291,6 +307,7 @@ def register(
             "next_automatic_backup": _escalar(data.get("next_automatic_backup")),
             "state": _escalar(data.get("state")),
             "agent_errors": _errores_agentes(data.get("agent_errors")),
+            "last_action_event": _ultimo_evento(data.get("last_action_event")),
         })
 
         def construir(items: list[Any], recortada: bool) -> dict[str, Any]:

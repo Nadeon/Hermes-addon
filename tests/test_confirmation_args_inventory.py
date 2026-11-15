@@ -50,6 +50,13 @@ Spec 031, tramo 1: 87. Suma `ha_update_backup_config`, que ata todos sus
 argumentos (además del estado leído en la vista previa, que va aparte con
 `estado=`). `ha_set_update_backup_settings` entró y salió en el mismo tramo
 (el proxy del Supervisor rechaza `hassio/*` a las apps).
+
+Spec 031, tramo 2: 90. Suma `ha_create_backup`, `ha_create_automatic_backup`
+y `ha_delete_backup`, que atan todos sus argumentos; además, el estado de la
+vista previa (agentes y cifrado; configuración y retención; el backup y todas
+sus ubicaciones) va aparte con `estado=`. La clave de cifrado de HA que manda
+`ha_create_backup` no es un argumento: se lee en la confirmación y no entra
+en el hash ni en el estado (que lleva solo `key_set`).
 """
 
 from __future__ import annotations
@@ -180,6 +187,18 @@ INVENTARIO: dict[str, dict[str, str]] = {
         "create_backup": A,
         "automatic_backups_configured": A,
     },
+    "ha_create_backup": {
+        "agent_ids": A,
+        "include_homeassistant": A,
+        "include_database": A,
+        "include_addons": A,
+        "include_all_addons": A,
+        "include_folders": A,
+        "name": A,
+        "encrypt": A,
+    },
+    "ha_create_automatic_backup": {},
+    "ha_delete_backup": {"backup_id": A},
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
     "sv_set_addon_options": {"slug": A, "options": A},
@@ -287,8 +306,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman (86) + `ha_update_backup_config`
-        # (031).
-        self.assertEqual(len(firmas_con_token(TOOLS)), 87)
+        # (031, tramo 1) + crear, crear con los ajustes automáticos y borrar
+        # (031, tramo 2).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 90)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -308,7 +328,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 87)
+        self.assertEqual(len(publicadas), 90)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).
