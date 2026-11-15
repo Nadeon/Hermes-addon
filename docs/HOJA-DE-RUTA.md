@@ -440,6 +440,14 @@ un cliente contra la instalación real.
   varios pasos, una reautenticación real con
   `ha_continue_config_entry_flow` y los textos de los avisos con HA en un
   idioma distinto del inglés.
+- [ ] (instalación real con hardware, tras publicar) **Integraciones
+  específicas (spec 025), en vivo**: con Z-Wave, Zigbee o Matter/Thread,
+  pedir a un cliente MCP el estado de la red Z-Wave, los parámetros de un
+  nodo, los dispositivos y los ajustes de la red Zigbee y los routers de
+  borde OTBR, y comprobar que las claves salen `***REDACTED***`
+  (`specs/025-integraciones-especificas/quickstart.md`). Sin tools nuevas:
+  no hay filas en la matriz de pruebas; el banco de Core solo puede cargar
+  `usb`.
 
 ### Programa de cobertura total (spec 008) — 1.2.0
 
@@ -472,7 +480,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | hecha: familia `system_control` con siete tools (arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor) y familia `resolution_fixes` con `sv_apply_resolution_suggestion` (vista previa que traduce el arreglo, rechazos y arreglos automáticos atados al token); 8 rutas a `dedicated`, estadísticas `read`, `/host/reload` y los chequeos del centro de resolución `confirm`; plugins, Docker, placas y hora probados por la tabla sin cambiarla; prueba en la VM pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
-| 025 | Integraciones específicas por la tabla | 100–106 | en curso (tramo 2 de 3): redacción de valor entero bajo claves sensibles (también `redact_structure`) y claves S0/S2 de Z-Wave como secretos; mapa de la clase C del generador; las 55 `zwave_js/*` clasificadas (18 de lectura, 13 en dos pasos, 24 rechazadas) y tema `zwave` de la guía; las 50 de ZHA, Matter, Thread y OTBR (18 de lectura, 13 en dos pasos, 19 rechazadas), con las claves de red Zigbee y Thread y el código de la alarma de ZHA tapados, y temas `zigbee` y `matter_thread` |
+| 025 | Integraciones específicas por la tabla | 100–106 | hecha: las 192 entradas de la clase C clasificadas con el handler leído (73 de lectura, 57 en dos pasos, 62 rechazadas; ninguna «pendiente»), sin tools nuevas (no hay filas en la matriz de pruebas): Z-Wave JS 18/13/24; ZHA, Matter, Thread y OTBR 18/13/19; MQTT, USB, Bluetooth y el resto 37/31/19. Redacción de valor entero bajo claves sensibles y claves S0/S2 como secretos; nueve entradas tapan secretos con su centinela; mapa de la clase C del generador (desde cero igual que la tabla; lo nuevo, «sin revisar»); temas `zwave`, `zigbee`, `matter_thread` y `other_integrations`; `usb` en el banco de Core |
 | 026 | Escritura en el Marketplace | 075 | pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |

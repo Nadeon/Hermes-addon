@@ -65,7 +65,7 @@ diagnóstico, US5 qué está probado, US6 deriva, US7 familias.
 - [ ] T021 [P] [US2] Sub-feature 032 `host-y-red-del-host` en `specs/032-host-y-red-del-host/`: CAP-086, CAP-090 (FR-081, FR-082). M, 2 tramos. Depende de T008
 - [ ] T022 [P] [US1] Sub-feature 023 `assist-y-conversacion` en `specs/023-assist-y-conversacion/`: CAP-060 dedicada; CAP-061, CAP-062, CAP-063 por la tabla (FR-083, FR-084). S, 1 tramo. Depende de T011
 - [ ] T023 [P] [US1] Sub-feature 024 `menores-core` en `specs/024-menores-core/`: CAP-059, CAP-071 dedicadas; CAP-065, CAP-066, CAP-067, CAP-070, CAP-072, CAP-073 por la tabla (FR-085…FR-088). M, 2 tramos. Depende de T004
-- [ ] T024 [P] [US1] Sub-feature 025 `integraciones-especificas` en `specs/025-integraciones-especificas/`: los 192 comandos de clase C clasificados uno a uno en la tabla y temas de la guía (CAP-100…CAP-106; FR-089, FR-090). M, 2 tramos: (a) Z-Wave JS y ZHA; (b) el resto. Depende de T004
+- [x] T024 [P] [US1] Sub-feature 025 `integraciones-especificas` en `specs/025-integraciones-especificas/`: los 192 comandos de clase C clasificados uno a uno en la tabla y temas de la guía (CAP-100…CAP-106; FR-089, FR-090). L, 3 tramos (research R-9 de la 025): (1) Z-Wave JS; (2) ZHA, Matter, Thread y OTBR; (3) el resto. Depende de T004
 
 ## Fase 6: Ola 4
 

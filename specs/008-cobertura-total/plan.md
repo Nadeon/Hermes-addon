@@ -101,10 +101,10 @@ paralelo.
 | 032 | `host-y-red-del-host` | 086, 090 | FR-081, FR-082 | 013 | 3 | ~7 | M | 2 |
 | 023 | `assist-y-conversacion` | 060, 061, 062, 063 | FR-083, FR-084 | 018 | 3 | ~4 | S | 1 |
 | 024 | `menores-core` | 059, 065, 066, 067, 070, 071, 072, 073 | FR-085…FR-088 | 011 | 3 | ~3 | M | 2 |
-| 025 | `integraciones-especificas` (clase C por la tabla) | 100–106 | FR-089, FR-090 | 011 | 3 | 0 | M | 2 |
+| 025 | `integraciones-especificas` (clase C por la tabla) | 100–106 | FR-089, FR-090 | 011 | 3 | 0 | L | 3 |
 | 026 | `marketplace-escritura` | 075 | FR-091 | 030 | 4 | ~8 | M | 2 |
 
-Totales: 25 sub-features, 51 tramos. Transversales a todas: FR-012, FR-015,
+Totales: 25 sub-features, 52 tramos (la 025 pasó de 2 a 3 tramos: research R-9 de la 025). Transversales a todas: FR-012, FR-015,
 FR-018…FR-021, FR-023, FR-024. Cierre: FR-098.
 
 ### Cambios respecto a research R-6
@@ -279,13 +279,13 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-092 | baja | 022 | FR-079 | T | registros y opciones de Docker por la tabla (sin cambios), con centinela en la contraseña (vista previa, log y error del Supervisor): `TestRegistroDocker` y `TestPluginsDockerPlacas` (`tests/test_tools_control_tabla.py`); en vivo, pendiente (VM de la 014) |
 | CAP-093 | media | 030 | FR-052 | D+X | `sv_rebuild_addon` y la validación de opciones en la vista previa de `sv_set_addon_options`, con Supervisor simulado: `TestReconstruir` (`tests/test_tools_store_apps.py`), `TestValidarOpciones` (`tests/test_tools_addons_tienda.py`), `TestFugaPorElMensaje` y `TestErrorAlGuardar` (`tests/test_tools_addons_convergencia_030.py`); tabla: `TestTiendaDeLa030` (`tests/test_command_table.py`); en vivo, pendiente (VM de la 014, después instalación real) |
 | CAP-094 | baja | 022 | FR-080 | T | placas (`/os/boards/*`) y `POST /time/options` por la tabla (sin cambios), con Supervisor simulado: `TestPluginsDockerPlacas` (`tests/test_tools_control_tabla.py`); en vivo, pendiente (VM de la 014) |
-| CAP-100 | media | 025 | FR-089, FR-090 | T | Z-Wave por la tabla (unitario) |
-| CAP-101 | media | 025 | FR-089, FR-090 | T | ZHA por la tabla (unitario) |
-| CAP-102 | baja | 025 | FR-089, FR-090 | T | Matter por la tabla (unitario) |
-| CAP-103 | baja | 025 | FR-089, FR-090 | T | Thread/OTBR; clave de red `deny` (unitario) |
-| CAP-104 | media | 025 | FR-089, FR-090 | T | MQTT por la tabla (banco con MQTT si es viable) |
-| CAP-105 | baja | 025 | FR-089, FR-090 | T | USB por la tabla (unitario) |
-| CAP-106 | baja | 025 | FR-089, FR-090 | T | resto; secretos `deny` (unitario) |
+| CAP-100 | media | 025 | FR-089, FR-090 | T | Z-Wave JS por la tabla: 55 entradas `zwave_js/*` (18 `read`, 13 `confirm`, 24 `deny`), tema `zwave`; unitario, sin hardware en el banco (`tests/test_command_table_clase_c.py`: `test_clasificacion`, `test_recuento_*`, `test_redact_extra_de_las_claves`; `tests/test_tools_generic_commands_clase_c.py`: `TestZwave`; `tests/test_tools_guide.py`: `TestTemasDeIntegraciones`; `tests/test_generar_tabla.py`: `test_desde_cero_clase_c_igual_que_la_tabla`) |
+| CAP-101 | media | 025 | FR-089, FR-090 | T | ZHA por la tabla: 28 entradas `zha/*` (13/10/5), claves de red tapadas, tema `zigbee`; unitario, sin hardware en el banco (`tests/test_command_table_clase_c.py`: `test_clasificacion`, `test_recuento_*`, `test_redact_extra_de_las_claves`; `tests/test_tools_generic_commands_clase_c.py`: `TestZha`; `tests/test_tools_guide.py`: `TestTemasDeIntegraciones`; `tests/test_generar_tabla.py`: `test_desde_cero_clase_c_igual_que_la_tabla`) |
+| CAP-102 | baja | 025 | FR-089, FR-090 | T | Matter por la tabla: 11 entradas `matter/*` (3/1/7), tema `matter_thread`; unitario, sin hardware en el banco (`tests/test_command_table_clase_c.py`: `test_clasificacion`, `test_recuento_*`, `test_redact_extra_de_las_claves`; `tests/test_tools_generic_commands_clase_c.py`: `TestMatterThread`; `tests/test_tools_guide.py`: `TestTemasDeIntegraciones`; `tests/test_generar_tabla.py`: `test_desde_cero_clase_c_igual_que_la_tabla`) |
+| CAP-103 | baja | 025 | FR-089, FR-090 | T | Thread y OTBR por la tabla: 11 entradas (2/2/7), `thread/get_dataset_tlv` `deny` y dataset de `otbr/info` tapado; unitario, sin hardware en el banco (`tests/test_command_table_clase_c.py`: `test_clasificacion`, `test_recuento_*`, `test_redact_extra_de_las_claves`; `tests/test_tools_generic_commands_clase_c.py`: `TestMatterThread`; `tests/test_tools_guide.py`: `TestTemasDeIntegraciones`; `tests/test_generar_tabla.py`: `test_desde_cero_clase_c_igual_que_la_tabla`) |
+| CAP-104 | media | 025 | FR-089, FR-090 | T | MQTT por la tabla: `mqtt/device/debug_info` `read` con `code` y `transmitted` tapados, `mqtt/subscribe` `deny`, tema `other_integrations`; unitario, sin broker en el banco (`tests/test_command_table_clase_c.py`: `test_clasificacion`, `test_recuento_*`, `test_redact_extra_de_las_claves`; `tests/test_tools_generic_commands_clase_c.py`: `TestResto`; `tests/test_tools_guide.py`: `TestTemasDeIntegraciones`; `tests/test_generar_tabla.py`: `test_desde_cero_clase_c_igual_que_la_tabla`) |
+| CAP-105 | baja | 025 | FR-089, FR-090 | T | USB y Bluetooth por la tabla: 7 entradas (4/0/3); banco: `tests/banco/test_banco_integraciones_c.py` (`usb/list_serial_ports` y `usb/list_serial_integrations` contra HA real, rechazos y `unknown_command`); Bluetooth, unitario (`tests/test_command_table_clase_c.py`: `test_clasificacion`, `test_recuento_*`, `test_redact_extra_de_las_claves`; `tests/test_tools_generic_commands_clase_c.py`: `TestResto`; `tests/test_tools_guide.py`: `TestTemasDeIntegraciones`; `tests/test_generar_tabla.py`: `test_desde_cero_clase_c_igual_que_la_tabla`) |
+| CAP-106 | baja | 025 | FR-089, FR-090 | T | el resto por la tabla: 78 entradas (32/31/15), secretos `deny` o tapados (contraseña del hub Insteon); unitario, sin hardware en el banco (`tests/test_command_table_clase_c.py`: `test_clasificacion`, `test_recuento_*`, `test_redact_extra_de_las_claves`; `tests/test_tools_generic_commands_clase_c.py`: `TestResto`; `tests/test_tools_guide.py`: `TestTemasDeIntegraciones`; `tests/test_generar_tabla.py`: `test_desde_cero_clase_c_igual_que_la_tabla`) |
 
 96 CAP, todas con sub-feature y FR. Ninguna CAP queda excluida: lo excluido es
 la clase B y la clase D (spec, «Exclusiones»), que no tiene CAP.

@@ -531,7 +531,10 @@ Ver `config.yaml` para el schema completo con sus rangos válidos.
   solo ejecutan los comandos y rutas que permite la tabla de comandos de
   Hermes; lo demás, el proxy de Core del Supervisor y cualquier ruta dirigida
   al propio Hermes se rechazan antes de llegar a Home Assistant. Las escrituras
-  pasan siempre por una vista previa y un token.
+  pasan siempre por una vista previa y un token. Cubren también las
+  integraciones concretas (Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX…), sin
+  tools propias: lo que devuelve o pide claves de red, códigos de
+  emparejamiento, tokens o contraseñas se rechaza o sale tapado.
 - **Filesystem `/config`**: anti-traversal, blacklist de secretos, allowlist
   *default-deny* en `.storage/`, *managed paths*, backup antes de cada escritura.
 - **Validación anti path-injection** de identificadores (slug, `entry_id`…)

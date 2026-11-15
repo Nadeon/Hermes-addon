@@ -417,9 +417,11 @@ forma parte de estos requisitos.
   0 «pendiente de revisión (spec 025)» en la tabla y en una generación desde
   cero. Recuento final: 73 `read`, 57 `confirm`, 62 `deny`.
 - **SC-002**: 0 valores centinela (claves de red Zigbee/Thread, DSK,
-  contraseña del hub Insteon, código de alarma MQTT) en respuestas, vistas
-  previas, errores o log de las genéricas en los tests de las siete entradas
-  que tapan secretos.
+  contraseña del hub Insteon, código de alarma MQTT, código maestro de la
+  alarma de ZHA) en respuestas, vistas previas, errores o log de las
+  genéricas en los tests de las nueve entradas que tapan secretos (siete al
+  especificar; el tramo 2 añadió `zha/configuration` y
+  `zha/configuration/update`; el tramo 3, al releer los handlers, ninguna).
 - **SC-003**: 130 de 130 entradas `read`/`confirm` nuevas nombradas por un
   test de clasificación; 5 de 5 `one_shot` probadas con la lectura de un solo
   mensaje.

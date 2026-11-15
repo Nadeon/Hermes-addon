@@ -16,8 +16,8 @@ Qué demuestra cada uno:
 
 | Test | Comprueba |
 |---|---|
-| `test_command_table_clase_c.py` | la categoría y las marcas de cada comando de clase C revisado; que ninguno dice «spec 025»; motivos concretos; nada del proxy del Supervisor |
-| `test_tools_generic_commands_clase_c.py` | lecturas, `one_shot`, dos pasos y rechazos por las genéricas; los siete centinelas; la redacción de valor entero |
+| `test_command_table_clase_c.py` | la categoría y las marcas de los 192 comandos de clase C; que nada de la tabla dice «spec 025» ni queda «sin revisar»; motivos concretos; nada del proxy del Supervisor |
+| `test_tools_generic_commands_clase_c.py` | lecturas, `one_shot`, dos pasos y rechazos por las genéricas; los nueve centinelas; la redacción de valor entero |
 | `test_command_table.py` | excepciones de verbos, mundo abierto, deriva, estructura |
 | `test_generar_tabla.py` | desde cero = tabla en las filas de clase C; la fila C nueva entra «sin revisar» |
 | `test_tools_guide.py` | los cuatro temas, sus alias, el cruce con la tabla y las huellas de los demás |

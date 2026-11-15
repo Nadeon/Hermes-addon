@@ -1175,9 +1175,12 @@ de la 1.1.2.
 Spec 025: los comandos WebSocket de integraciones concretas (clase C:
 Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX, Insteon…) se clasifican uno a uno
 en la tabla de las genéricas, con el handler de HA leído. Sin tools nuevas: se
-usan con `ha_read_ws_command` y, en dos pasos, `ha_call_ws_command`. Se hace
-en tres tramos; van el 1 (mecanismo y Z-Wave JS) y el 2 (ZHA, Matter,
-Thread y OTBR).
+usan con `ha_read_ws_command` y, en dos pasos, `ha_call_ws_command`. Son 192
+comandos: **73 de lectura, 57 en dos pasos y 62 rechazados**, y ninguno queda
+«pendiente de revisión». Lo que no tiene sentido por MCP (suscripciones que
+quedarían abiertas, lo que no responde, la inclusión interactiva) o devuelve
+o pide un secreto (claves de red, DSK, códigos de emparejamiento, tokens,
+contraseñas) se rechaza o se tapa.
 
 - **Z-Wave JS** (55 comandos): 18 de lectura (estado de la red y de los
   nodos, parámetros de configuración, avisos, capacidades; las estadísticas
@@ -1209,9 +1212,44 @@ Thread y OTBR).
   cambiar la red y su canal, y el descubrimiento de routers por eventos).
 - **Temas `zigbee` (alias `zha`) y `matter_thread` (alias `matter`,
   `thread`, `otbr`) de `hermes_guide`**, con el mismo esquema que `zwave`.
+- **MQTT** (2): `mqtt/device/debug_info` de lectura (topics, suscripciones,
+  descubrimiento y mensajes recibidos de un dispositivo) y `mqtt/subscribe`
+  rechazado (streaming). Para publicar queda la acción `mqtt.publish`.
+- **USB y Bluetooth** (7): 4 de lectura (puertos serie y quién los usa,
+  integraciones que usan un puerto serie, pedir un escaneo USB y los anuncios
+  Bluetooth, como lectura de un solo mensaje) y 3 rechazados (suscripciones
+  de Bluetooth que solo emiten si hay datos o mandan un mensaje por
+  escáner).
+- **El resto** (78 comandos de KNX, Insteon, LCN, ESPHome, Dynalite,
+  LoRaWAN, Modbus, Wyoming, HTML5, DHCP, SSDP, zeroconf, Sendspin, la app
+  móvil y la cámara genérica): 32 de lectura, 31 en dos pasos (entidades y
+  exposiciones KNX, ALDB, propiedades y escenas Insteon, módulos y entidades
+  LCN, la configuración de Dynalite, que se REEMPLAZA entera) y 15
+  rechazados (la clave de cifrado de ESPHome, el token de Sendspin, el
+  esquema del hub Insteon, que lleva su contraseña, las credenciales del hub
+  y del proyecto ETS, el enlace interactivo de Insteon, el canal de la app
+  móvil y las suscripciones). Los equipos vistos por DHCP y el estado de
+  carga de la ALDB de Insteon se leen en un solo mensaje.
+- **Tema `other_integrations` de `hermes_guide`** (alias `mqtt`, `usb`,
+  `bluetooth`, `knx`, `insteon`, `lcn`, `esphome`, `dynalite`, `lorawan`,
+  `modbus`, `wyoming`), con el mismo esquema que los otros tres.
+- **Banco de pruebas**: el banco de Core carga `usb:` y prueba sus lecturas
+  por la genérica contra HA real, más los rechazos y la respuesta de una
+  integración no cargada (`unknown_command`). El resto de la clase C
+  necesita radios o servidores y se prueba con unitarios.
 - **Generador de la tabla**: `scripts/inventario/clase_c.py` guarda la
   clasificación revisada de la clase C, así que generar la tabla desde cero
-  da la misma que la revisada a mano (un test lo compara fila a fila).
+  da la misma que la revisada a mano (un test lo compara en las 192 filas).
+  Un comando nuevo de una integración que llegue con una versión nueva de HA
+  entra como `deny` «sin revisar» y un test lo nombra hasta clasificarlo;
+  si una versión nueva cambia un handler de la clase C, hay que volver a
+  leerlo antes de subir la versión probada.
+- Desviaciones frente a las notas de la spec 008, tras leer los handlers:
+  `zwave_js/refresh_node_info`, `zha/devices/permit` y `reconfigure` y
+  `thread/discover_routers` se rechazan (dejan suscripciones abiertas);
+  `matter/open_commissioning_window` y `thread/get_dataset_tlv`, también
+  (devuelven secretos); `usb/scan` y `notify/html5/appkey` (la clave
+  PÚBLICA VAPID) quedan de lectura.
 - Las tools dedicadas de Z-Wave que la spec 008 citaba como opcionales se
   descartan: la genérica cubre lo mismo.
 
@@ -1244,6 +1282,12 @@ Seguridad:
   la clave de red y el PSKc), y `zha/configuration` el código maestro de la
   alarma de ZHA (`alarm_master_code`), también en la vista previa de
   `zha/configuration/update`.
+- `insteon/config/get` devuelve la contraseña del hub tapada, y
+  `mqtt/device/debug_info`, el `code` del descubrimiento de alarmas y
+  cerraduras MQTT y la lista entera de mensajes que HA envió (el de armar
+  una alarma puede llevar el código dentro del texto); los recibidos siguen
+  visibles. En total, nueve entradas de la clase C tapan secretos, cada una
+  con un test centinela con la forma real de los datos de HA.
 
 ### Banco de pruebas
 

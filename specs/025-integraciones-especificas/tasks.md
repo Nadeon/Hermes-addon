@@ -266,12 +266,12 @@ Desviaciones del tramo 2 (anotadas al hacerlo):
 
 ## Tramo 3 — resto y cierre (US4, US5, US6)
 
-- [ ] T030 Comprobar que la rama tiene el tramo 2 y tomar la línea base.
-- [ ] T031 [P] [US4] En `tests/test_command_table_clase_c.py`: añadir a
+- [x] T030 Comprobar que la rama tiene el tramo 2 y tomar la línea base.
+- [x] T031 [P] [US4] En `tests/test_command_table_clase_c.py`: añadir a
   `_ESPERADO` las 87 restantes de R-1 (CAP-104, CAP-105 y CAP-106) y dejar
   `_REVISADAS` con todos los prefijos de clase C del inventario. Verlos en
   rojo.
-- [ ] T032 [P] [US4] En `tests/test_tools_generic_commands_clase_c.py`,
+- [x] T032 [P] [US4] En `tests/test_tools_generic_commands_clase_c.py`,
   clase `TestResto`: `mqtt/device/debug_info` y `usb/list_serial_ports`
   (con su ejemplo) por la de lectura; `bluetooth/subscribe_advertisements`,
   `dhcp/subscribe_discovery` e `insteon/aldb/notify_all` por
@@ -286,35 +286,35 @@ Desviaciones del tramo 2 (anotadas al hacerlo):
   `mqtt/device/debug_info` (código de alarma en
   `discovery_data.payload.code` y dentro del texto de un mensaje de
   `transmitted`; los de `subscriptions` siguen visibles). Verlos en rojo.
-- [ ] T033 [US4] En `command_table.py` y en `CLASE_C`, las 87 entradas de
+- [x] T033 [US4] En `command_table.py` y en `CLASE_C`, las 87 entradas de
   R-1 con sus marcas y ejemplos; comentarios de `insteon/config/get`,
   `insteon/config/get_modem_schema`, `notify/html5/appkey`, las tres
   `one_shot` y las suscripciones descartadas por R-2.
-- [ ] T034 [US4] CAP-104 y CAP-105 en verde.
-- [ ] T035 [US4] CAP-106 en verde. Control negativo: pasar
+- [x] T034 [US4] CAP-104 y CAP-105 en verde.
+- [x] T035 [US4] CAP-106 en verde. Control negativo: pasar
   `esphome/get_encryption_key` a `read` → caen la clasificación y el
   rechazo; renombrar `password` del centinela de Insteon a `pass_hub` (que
   no es marcador) → cae el centinela, lo que demuestra que lo tapa el
   marcador y no otra cosa; quitar `transmitted` de `redact_extra` de
   `mqtt/device/debug_info` → cae su centinela. Restaurar y anotarlo.
-- [ ] T036 [US6] `test_ninguna_pendiente_de_la_025` sin filtro (la tabla
+- [x] T036 [US6] `test_ninguna_pendiente_de_la_025` sin filtro (la tabla
   entera) y borrar `test_clase_c_pendiente_de_la_025` de
   `tests/test_command_table.py` (y el control negativo de su docstring, que
   pasa al test nuevo). Control negativo: devolver una entrada cualquiera a
   «pendiente de revisión (spec 025)» → cae nombrándola.
-- [ ] T037 [US6] En `generar_tabla.py`, la fila C fuera del mapa pasa a
+- [x] T037 [US6] En `generar_tabla.py`, la fila C fuera del mapa pasa a
   `deny("sin revisar")`; docstring. En `test_generar_tabla.py`,
   `test_clase_c` espera «sin revisar»; el desde cero compara las 192 filas y
   comprueba además que ninguna entrada generada dice «spec 025». Control
   negativo: volver al texto anterior → caen los dos.
-- [ ] T038 [US5] En `TestTemasDeIntegraciones`, el tema `other_integrations`
+- [x] T038 [US5] En `TestTemasDeIntegraciones`, el tema `other_integrations`
   y sus alias (`mqtt`, `usb`, `bluetooth`, `knx`, `insteon`, `lcn`,
   `esphome`, `dynalite`, `lorawan`, `modbus`, `wyoming`) con las mismas
   comprobaciones. Verlos en rojo.
-- [ ] T039 [US5] En `guide.py`, el tema `other_integrations` (por
+- [x] T039 [US5] En `guide.py`, el tema `other_integrations` (por
   integración: lo útil por la genérica, lo rechazado y por qué); alias;
   índice; docstring. T038 en verde; huellas iguales.
-- [ ] T040 [US4] Banco: `usb:` en `tests/banco/ha_config/configuration.yaml`
+- [x] T040 [US4] Banco: `usb:` en `tests/banco/ha_config/configuration.yaml`
   (comentario del porqué) y `tests/banco/test_banco_integraciones_c.py`
   (`pytestmark = pytest.mark.banco`): `usb/list_serial_ports` y
   `usb/list_serial_integrations` por `ha_read_ws_command` devuelven una
@@ -323,15 +323,15 @@ Desviaciones del tramo 2 (anotadas al hacerlo):
   real; `zha/devices` sin ZHA cargado devuelve `ha_command_failed` con
   `ha_code` `unknown_command` y la pista de versión. Comprobar que el resto
   del banco sigue verde con `usb:` cargado (arranque y avisos del log).
-- [ ] T041 [US4] Comprobar en el CI (job `banco-core`) que T040 pasa. Si
+- [x] T041 [US4] Comprobar en el CI (job `banco-core`) que T040 pasa. Si
   `usb` no arranca en el contenedor: `xfail` estricto que espera ese fallo
   concreto (hallazgo), con su motivo. Anotar en la matriz de la 008 qué se
   ejecuta en el banco y qué queda en unitarios («sin hardware en el banco»).
-- [ ] T042 [P] `SECURITY.md`, viñeta de las genéricas: `redact_extra` tapa
+- [x] T042 [P] `SECURITY.md`, viñeta de las genéricas: `redact_extra` tapa
   el valor entero, y los comandos de integraciones que devuelven o
   introducen claves de red, DSK, códigos de emparejamiento o tokens se
   rechazan o se tapan.
-- [ ] T043 [P] `hermes/CHANGELOG.md`: sección «Integraciones específicas»
+- [x] T043 [P] `hermes/CHANGELOG.md`: sección «Integraciones específicas»
   completa (recuento final 73/57/62, desviaciones de R-3, aviso de que una
   versión nueva de HA exige volver a leer los handlers de la clase C que
   cambien); `docs/HOJA-DE-RUTA.md`: la 025 «hecha» con el recuento (sin
@@ -341,13 +341,40 @@ Desviaciones del tramo 2 (anotadas al hacerlo):
   (`test_command_table_clase_c.py`, `test_tools_generic_commands_clase_c.py`
   y, CAP-105, el banco), y la fila de la 025 en la tabla de sub-features
   del mismo plan (3 tramos en vez de 2, y el total de tramos del programa).
-- [ ] T044 Comprobar que README, README.es y DOCS no cambian (mismo número
+- [x] T044 Comprobar que README, README.es y DOCS no cambian (mismo número
   de tools; `TestToolCountInDocs` en verde).
 - [ ] T045 Suite completa: exactamente los 6 fallos conocidos; CI de Linux en
   verde (tests, banco, Semgrep, CodeQL).
-- [ ] T046 Revisar el diff entero de la 025 (privacidad, rutas, modelos);
+- [x] T046 Revisar el diff entero de la 025 (privacidad, rutas, modelos);
   commit(s) con los controles negativos de T035, T036 y T037; marcar T024
   de `specs/008-cobertura-total/tasks.md` como hecha.
+
+Desviaciones del tramo 3 (anotadas al hacerlo):
+- T030–T033: los handlers de las 87 se volvieron a leer en `fuentes`
+  (decisión del supervisor) y la clasificación de R-1 se mantiene entera; no
+  aparece ninguna entrada nueva que tape secretos, así que SC-002 queda en
+  nueve (spec.md actualizada). La tabla y el mapa se escribieron con un
+  script de un solo uso que lee R-1 y usa `_render` del generador, para que
+  el texto y las marcas salgan idénticos en los dos sitios; por eso los
+  tests de T031–T032 se vieron en rojo con los controles negativos de T035
+  y no antes del código.
+- T031: `test_motivos_concretos` (tramo 1) buscaba «pendiente» a secas, y
+  siete motivos de Insteon dicen con razón que un cambio queda «pendiente
+  hasta aldb/write» o «las propiedades pendientes». Se cambia a una regex de
+  los textos provisionales («sin revisar», «pendiente de revisión/tool»), que
+  comparte con el test nuevo `test_ninguna_c_sin_revisar`. Tests nuevos:
+  `test_revisadas_cubre_el_inventario`, `test_recuento_del_tramo_3` y
+  `test_recuento_total`.
+- T036: el control negativo del generador (T037) solo tira `test_clase_c`:
+  el desde cero real no cae con eso solo porque las 192 están en el mapa; su
+  comprobación de «spec 025» cae si además una fila sale del mapa
+  (comprobado quitando `wyoming/info`).
+- T040: el banco lee también `usb/list_serial_ports` con `include_usage` y
+  compara con el lector independiente (misma longitud; `list_serial_integrations`,
+  la misma lista).
+- T044: por decisión del supervisor, README, README.es y DOCS sí cambian:
+  una frase dice que las genéricas cubren la clase C (sin tools nuevas; el
+  recuento de tools no cambia).
 
 ---
 

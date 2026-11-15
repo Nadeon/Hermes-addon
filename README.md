@@ -529,7 +529,10 @@ See `config.yaml` for the full schema with valid ranges.
   `ha_call_ws_command`, `sv_read_api` and `sv_call_api` run only the commands
   and routes Hermes' command table allows; anything else, the Supervisor's Core
   proxy and any route aimed at Hermes itself are refused before reaching Home
-  Assistant. Writes always go through a preview and a token.
+  Assistant. Writes always go through a preview and a token. They also cover
+  specific integrations (Z-Wave JS, ZHA, Matter, Thread, MQTT, KNX…) with no
+  tools of their own: whatever returns or takes network keys, pairing codes,
+  tokens or passwords is refused or masked.
 - **`/config` filesystem**: anti-traversal, secret blacklist, *default-deny*
   allowlist under `.storage/`, *managed paths*, backup before every write.
 - **Anti path-injection validation** of identifiers (slug, `entry_id`…) plus a
