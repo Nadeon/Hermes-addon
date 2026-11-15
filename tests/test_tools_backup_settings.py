@@ -130,6 +130,26 @@ class TestDiasHastaViejo(_Base):
                 self.assertIn("days_until_stale", r["detail"])
                 self.assertEqual(self.sv.llamadas, [])
 
+    async def test_tope_superior_sin_llamada(self) -> None:
+        """T037: por encima de 3650 días, error claro y sin llamar al
+        Supervisor (con N ≥ ~740 000 su `is_current` lanza `OverflowError`
+        en cada comprobación y el aviso desaparece sin decirlo). El tope
+        exacto se acepta, y la descripción de la tool lo dice.
+
+        Control negativo comprobado: con `_valido` sin el tope (`dias >= 1`)
+        caen los 3 subtests de valores por encima; restaurado, verde."""
+        for valor in (3651, 1_000_000, 10**12):
+            with self.subTest(valor=valor):
+                self.sv.llamadas.clear()
+                r = await self.t["sv_set_backup_settings"](days_until_stale=valor)
+                self.assertEqual(r["error"], "invalid_argument")
+                self.assertIn("3650", r["detail"])
+                self.assertEqual(self.sv.llamadas, [])
+        r = await self.t["sv_set_backup_settings"](days_until_stale=3650)
+        self.assertEqual(r["result"], "ok")
+        self.assertEqual(self.sv.days_until_stale, 3650)
+        self.assertIn("3650", self.t["sv_set_backup_settings"].__doc__)
+
     async def test_error_del_supervisor_redactado(self) -> None:
         self.sv.errores[("POST", "/backups/options")] = HAConnectionError(
             "Supervisor error: token=abc123secreto rejected")

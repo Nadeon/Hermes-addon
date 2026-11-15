@@ -215,8 +215,27 @@ Revisión independiente y converge (2026-11-15) sobre la punta `e96660b`.
 Severidad entre corchetes. Cada hallazgo se verificó con un script fuera del
 repositorio contra el código de Hermes y el del Supervisor 2026.11.0.
 
-- [ ] T033 [MEDIO] Al integrar con la 033: añadir al inventario de argumentos atados (`tests/test_confirmation_args_inventory.py`) `sv_create_mount` y `sv_update_mount` con sus 13 argumentos `atado` y `sv_delete_mount` y `sv_set_default_backup_mount` con `name` `atado`, con el comentario de la huella del estado (`estado=`) y `test_recuento` +4, como dicen las notas de T013, per FR-009 (partial)
-- [ ] T034 [BAJO] `security.py`, `resolve_confirmation_token`: `hmac.compare_digest(str(expected_hash), actual_hash)` lanza `TypeError` si el `action_hash` del fichero del token tiene caracteres no ASCII (fichero dañado o manipulado en /data), en vez de responder «corrupted»/«does not match»; comparar bytes (`str(expected_hash).encode("utf-8")` contra `actual_hash.encode("ascii")`), con un test, per principio III (fail-closed limpio) (contradicts)
-- [ ] T035 [BAJO] Honestidad del cambio a HMAC: la entrada «Tokens de confirmación con HMAC» de `hermes/CHANGELOG.md` («Nada visible cambia: un token de antes de un reinicio ya se daba por perdido») y el comentario de `_CLAVE_HASH` en `security.py` no son ciertos: en la 1.1.2 el hash era determinista y el arranque solo barre los caducados, así que un token vigente sobrevivía a un reinicio de Hermes; ahora no (falla cerrado con «lost across restart»). Decirlo así, per principio V (contradicts)
-- [ ] T036 [BAJO] `tools/mounts.py`, `_limpiar_error`: la sustitución literal no cubre las credenciales escapadas (una contraseña con `\` o `"` llega como `\`/`\"` en el JSON de error del Supervisor o en el `repr` de `humanize_error`), ni un usuario entre comillas con espacios (`username='ana lopez'`), `DOMINIO\usuario` o `//usuario@servidor`; sustituir también `json.dumps(s)[1:-1]` y `repr(s)[1:-1]` de cada secreto y ampliar `_USUARIO_CLAVE` a valores entre comillas con espacios, con tests de centinela, per FR-008 y FR-019 (partial)
-- [ ] T037 [BAJO] `sv_set_backup_settings` sin tope superior: con `days_until_stale` ≥ ~740 000 el `is_current` del Supervisor (`utcnow() - timedelta(days=N)`) lanza `OverflowError` en cada comprobación del centro de resolución (la captura, la registra como error y la manda a Sentry) y el aviso de backups viejos deja de existir sin decirlo; acotar a un máximo razonable (p. ej. 3650) y decirlo en el docstring, la guía y el error, con test, per FR-012 y principio V (partial)
+- [ ] T033 [MEDIO] **Se hace al integrar** (decisión del supervisor: el inventario de la 033 no está en esta rama; lo añade el agente que integre la 019). Al integrar con la 033: añadir al inventario de argumentos atados (`tests/test_confirmation_args_inventory.py`) `sv_create_mount` y `sv_update_mount` con sus 13 argumentos `atado` y `sv_delete_mount` y `sv_set_default_backup_mount` con `name` `atado`, con el comentario de la huella del estado (`estado=`) y `test_recuento` +4, como dicen las notas de T013, per FR-009 (partial)
+- [x] T034 [BAJO] `security.py`, `resolve_confirmation_token`: `hmac.compare_digest(str(expected_hash), actual_hash)` lanza `TypeError` si el `action_hash` del fichero del token tiene caracteres no ASCII (fichero dañado o manipulado en /data), en vez de responder «corrupted»/«does not match»; comparar bytes (`str(expected_hash).encode("utf-8")` contra `actual_hash.encode("ascii")`), con un test, per principio III (fail-closed limpio) (contradicts)
+- [x] T035 [BAJO] Honestidad del cambio a HMAC: la entrada «Tokens de confirmación con HMAC» de `hermes/CHANGELOG.md` («Nada visible cambia: un token de antes de un reinicio ya se daba por perdido») y el comentario de `_CLAVE_HASH` en `security.py` no son ciertos: en la 1.1.2 el hash era determinista y el arranque solo barre los caducados, así que un token vigente sobrevivía a un reinicio de Hermes; ahora no (falla cerrado con «lost across restart»). Decirlo así, per principio V (contradicts)
+- [x] T036 [BAJO] `tools/mounts.py`, `_limpiar_error`: la sustitución literal no cubre las credenciales escapadas (una contraseña con `\` o `"` llega como `\`/`\"` en el JSON de error del Supervisor o en el `repr` de `humanize_error`), ni un usuario entre comillas con espacios (`username='ana lopez'`), `DOMINIO\usuario` o `//usuario@servidor`; sustituir también `json.dumps(s)[1:-1]` y `repr(s)[1:-1]` de cada secreto y ampliar `_USUARIO_CLAVE` a valores entre comillas con espacios, con tests de centinela, per FR-008 y FR-019 (partial)
+- [x] T037 [BAJO] `sv_set_backup_settings` sin tope superior: con `days_until_stale` ≥ ~740 000 el `is_current` del Supervisor (`utcnow() - timedelta(days=N)`) lanza `OverflowError` en cada comprobación del centro de resolución (la captura, la registra como error y la manda a Sentry) y el aviso de backups viejos deja de existir sin decirlo; acotar a un máximo razonable (p. ej. 3650) y decirlo en el docstring, la guía y el error, con test, per FR-012 y principio V (partial)
+
+Notas de la convergencia:
+
+- T034: se comparan bytes; test `test_hash_danado_no_ascii_da_error_limpio`
+  (`tests/test_security.py`): seis hashes dañados dan «does not match» y el
+  token sigue `pending`. Control negativo: con dos `str`, `TypeError`.
+- T035: el CHANGELOG y el comentario de `_CLAVE_HASH` dicen ahora que es un
+  cambio de comportamiento intencionado y fail-closed (en la 1.1.2 un token
+  vigente sobrevivía a un reinicio de Hermes; ahora no).
+- T036: `_limpiar_error` tapa las formas escapadas de la contraseña conocida
+  (JSON y `repr`), los valores entre comillas con espacios tras una clave de
+  usuario o de contraseña, `DOMINIO\usuario`, `usuario@servidor` y
+  `//usuario:clave@servidor`. Test `TestRedaccionDeFormasEscapadas`
+  (`tests/test_tools_mounts.py`). Control negativo: con el anterior caen 10
+  de 11 subtests y el del JSON válido.
+- T037: tope de 3650 días (diez años) en `sv_set_backup_settings`, con error
+  claro sin llamar al Supervisor; dicho en la descripción, la guía y el
+  CHANGELOG. Test `test_tope_superior_sin_llamada`. Control negativo: sin el
+  tope caen los 3 subtests.

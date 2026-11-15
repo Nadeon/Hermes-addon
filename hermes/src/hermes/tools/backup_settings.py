@@ -47,9 +47,18 @@ def _dias(datos: Any) -> int:
     return valor
 
 
+# Tope superior de `days_until_stale` (T037): diez años. El Supervisor no
+# pone ninguno, pero su `Backup.is_current` hace `utcnow() -
+# timedelta(days=N)`, y con N ≥ ~740 000 eso lanza `OverflowError` en cada
+# comprobación del centro de resolución: el aviso de «sin backup reciente»
+# desaparece sin que nadie lo diga. Diez años ya equivale a no avisar nunca.
+_DIAS_MAX = 3650
+
+
 def _valido(dias: Any) -> bool:
     # `bool` es un `int` en Python: `True` llegaría como 1 al Supervisor.
-    return isinstance(dias, int) and not isinstance(dias, bool) and dias >= 1
+    return (isinstance(dias, int) and not isinstance(dias, bool)
+            and 1 <= dias <= _DIAS_MAX)
 
 
 def register(mcp: object, ha_client: HAClient) -> None:
@@ -87,15 +96,17 @@ def register(mcp: object, ha_client: HAClient) -> None:
     @mcp.tool()
     async def sv_set_backup_settings(days_until_stale: int) -> object:
         """Set days_until_stale: after how many days without a new full
-        backup the Supervisor reports that backups are stale (an integer of
-        at least 1; the Supervisor's default is 30). Only changes when that
-        warning appears; no backup is created or deleted. No confirmation
-        needed. Returns the new and the previous value. To change where
-        backups go, use sv_set_default_backup_mount.
+        backup the Supervisor reports that backups are stale (an integer
+        from 1 to 3650, ten years; the Supervisor's default is 30). Only
+        changes when that warning appears; no backup is created or deleted.
+        Values above 3650 are refused without calling the Supervisor. No
+        confirmation needed. Returns the new and the previous value. To
+        change where backups go, use sv_set_default_backup_mount.
         """
         if not _valido(days_until_stale):
             return {"error": "invalid_argument",
-                    "detail": "days_until_stale must be an integer of at least 1."}
+                    "detail": f"days_until_stale must be an integer from 1 to "
+                              f"{_DIAS_MAX} (ten years)."}
         try:
             anterior = _dias(await ha_client.sv_request("GET", "/backups/info"))
             await ha_client.sv_request("POST", "/backups/options",

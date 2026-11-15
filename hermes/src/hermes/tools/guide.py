@@ -565,7 +565,7 @@ si el montaje cambia entre la vista previa y la confirmación, la respuesta es
   `sv_list_backups`).
 - `sv_set_backup_settings(days_until_stale)` — días sin un backup completo
   nuevo tras los que el Supervisor avisa de que los backups están viejos
-  (entero ≥ 1; 30 por defecto). Solo cambia el aviso.
+  (entero de 1 a 3650, diez años; 30 por defecto). Solo cambia el aviso.
 - `sv_reload_backups` — el Supervisor relee los backups de todas las
   ubicaciones (p. ej., tras copiar a mano un backup al NAS) y dice cuántos ve.
 """,

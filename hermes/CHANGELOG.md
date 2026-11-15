@@ -113,7 +113,7 @@ _Pendiente: la añade la sub-feature que lo implemente._
   - Tres para los ajustes de backup del Supervisor, sin confirmación:
     `sv_get_backup_settings` (`days_until_stale`, el montaje por defecto y
     los montajes de backup con su estado), `sv_set_backup_settings`
-    (`days_until_stale`, entero ≥ 1; devuelve el anterior) y
+    (`days_until_stale`, entero de 1 a 3650; devuelve el anterior) y
     `sv_reload_backups` (el Supervisor relee los backups de todas las
     ubicaciones y dice cuántos ve).
   - `sv_create_backup_full` y `sv_create_backup_partial` aceptan `location`
