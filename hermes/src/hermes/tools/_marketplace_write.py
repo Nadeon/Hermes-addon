@@ -564,27 +564,11 @@ def _objetivo_indirecto(data: dict[str, Any]) -> bool:
     """True si la llamada apunta a entidades SIN nombrarlas: `area_id`,
     `device_id`, `label_id`, `floor_id`, `entity_id: all` o una forma que no
     se entiende (fail-closed). Sin objetivo (o `none`) HA no alcanza ninguna
-    entidad: no es indirecto."""
-    from hermes.service_policy import _INDIRECT_TARGET_KEYS
+    entidad: no es indirecto. Es la misma lectura que la guarda de
+    `update.install` de la 015 (`leer_objetivo`), no una copia."""
+    from hermes.tools.update_entities import leer_objetivo
 
-    contenedores: list[Any] = [data]
-    if "target" in data:
-        contenedores.append(data["target"])
-    for c in contenedores:
-        if not isinstance(c, dict):
-            return True
-        if any(k in c for k in _INDIRECT_TARGET_KEYS):
-            return True
-        raw = c.get("entity_id")
-        if raw is None:
-            continue
-        valores = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
-        if valores is None or not all(isinstance(v, str) for v in valores):
-            return True
-        partes = {p.strip().lower() for v in valores for p in v.split(",")}
-        if "all" in partes:
-            return True
-    return False
+    return leer_objetivo(data)[0]
 
 
 async def _hay_interruptores_marketplace(ha_client: HAClient) -> bool:

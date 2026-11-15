@@ -1097,3 +1097,39 @@ class TestClasificarAlGuardarConLaDenylistExtra(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLecturaDelObjetivoCompartida(unittest.TestCase):
+    """Integración de la 026: la guarda de `update.install` (015, T051) y la
+    del interruptor «pre-release» del Marketplace (026, T032) leen el objetivo
+    con UNA sola función (`leer_objetivo`), para que una misma llamada no se
+    entienda de dos maneras. Fija lo que da cada forma en las dos.
+
+    Control negativo (comprobado): quitar en `leer_objetivo` la comprobación
+    de `all` → caen los dos subtests de `{"entity_id": "all"}` (y los de
+    `TestUpdateInstallPorCallService.test_objetivo_indirecto`)."""
+
+    FORMAS: tuple[tuple[dict, bool, list[str] | None], ...] = (
+        # (datos, indirecto para la 026, lista explícita para la 015)
+        ({"entity_id": "switch.a, SWITCH.B"}, False, ["switch.a", "switch.b"]),
+        ({"target": {"entity_id": ["switch.a"]}}, False, ["switch.a"]),
+        ({}, False, None),
+        ({"entity_id": "none"}, False, None),
+        ({"entity_id": "all"}, True, None),
+        ({"entity_id": "switch.a, all"}, True, None),
+        ({"area_id": "salon"}, True, None),
+        ({"target": {"label_id": "l"}}, True, None),
+        ({"target": "switch.a"}, True, None),
+        ({"entity_id": 5}, True, None),
+        ({"entity_id": ["switch.a", 3]}, True, None),
+    )
+
+    def test_las_dos_guardas_leen_igual(self) -> None:
+        from hermes.tools._marketplace_write import _objetivo_indirecto
+        from hermes.tools.update_entities import _entidades_explicitas, leer_objetivo
+
+        for datos, indirecto, explicitas in self.FORMAS:
+            with self.subTest(datos=datos):
+                self.assertEqual(leer_objetivo(datos)[0], indirecto)
+                self.assertEqual(_objetivo_indirecto(datos), indirecto)
+                self.assertEqual(_entidades_explicitas(datos), explicitas)

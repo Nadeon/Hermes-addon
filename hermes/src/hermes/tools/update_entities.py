@@ -328,36 +328,50 @@ async def _encaminar_hassio(
                   "does not recognise it; nothing was done")
 
 
-def _entidades_explicitas(data: dict[str, Any]) -> list[str] | None:
-    """Los `entity_id` de un `service_data` si el objetivo es SOLO una lista
-    explícita de entidades; `None` si no (T051).
+def leer_objetivo(data: dict[str, Any]) -> tuple[bool, set[str]]:
+    """Lee el objetivo de un `service_data`: `(indirecto, ids)`.
 
-    Normaliza como `cv.entity_ids` de Home Assistant (comas, espacios,
-    minúsculas), igual que `service_policy._collect_entity_ids`. Cualquier
-    otra forma de apuntar (`area_id`, `device_id`, `label_id`, `floor_id`,
-    `all`, `none`, un `target` que no es un objeto, sin objetivo) da `None`:
-    alcanzaría entidades sin nombrarlas, y no se pueden comprobar.
+    ÚNICA lectura del objetivo para las guardas de `ha_call_service` (la de
+    `update.install` de la 015 y la del interruptor «pre-release» de la 026):
+    así las dos entienden igual una misma llamada. Normaliza como
+    `cv.entity_ids` de Home Assistant (comas, espacios, minúsculas), igual que
+    `service_policy._collect_entity_ids`.
+
+    `indirecto` es True si la llamada puede alcanzar entidades SIN nombrarlas
+    o no se entiende (fail-closed): `area_id`, `device_id`, `label_id`,
+    `floor_id`, un `target` que no es un objeto, un `entity_id` que no es
+    texto ni lista de textos, o `all`. `ids` son los nombrados, `none`
+    incluido si aparece (cada guarda decide qué hacer con él).
     """
-    contenedores: list[dict[str, Any]] = [data]
+    contenedores: list[Any] = [data]
     if "target" in data:
-        if not isinstance(data["target"], dict):
-            return None
         contenedores.append(data["target"])
     ids: set[str] = set()
     for c in contenedores:
-        if any(k in c for k in _INDIRECT_TARGET_KEYS):
-            return None
+        if not isinstance(c, dict) or any(k in c for k in _INDIRECT_TARGET_KEYS):
+            return True, set()
         raw = c.get("entity_id")
         if raw is None:
             continue
         valores = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
-        if valores is None:
-            return None
-        for v in valores:
-            if not isinstance(v, str):
-                return None
-            ids.update(p.strip().lower() for p in v.split(",") if p.strip())
-    if not ids or ids & {"all", "none"}:
+        if valores is None or not all(isinstance(v, str) for v in valores):
+            return True, set()
+        ids.update(p.strip().lower() for v in valores for p in v.split(",") if p.strip())
+    if "all" in ids:
+        return True, set()
+    return False, ids
+
+
+def _entidades_explicitas(data: dict[str, Any]) -> list[str] | None:
+    """Los `entity_id` de un `service_data` si el objetivo es SOLO una lista
+    explícita de entidades; `None` si no (T051).
+
+    Cualquier otra forma de apuntar (objetivo indirecto según
+    `leer_objetivo`, `none`, sin objetivo) da `None`: alcanzaría entidades
+    sin nombrarlas, o ninguna, y no se pueden comprobar.
+    """
+    indirecto, ids = leer_objetivo(data)
+    if indirecto or not ids or "none" in ids:
         return None
     return sorted(ids)
 
