@@ -28,13 +28,14 @@ puede renombrar. Para ellas no se emite token nunca.
 Hermes no se actualiza a sí mismo (D-1, decisión del supervisor): la
 actualización se corta al reiniciarse Hermes a mitad. Para saber si una
 entidad de app es la de Hermes NO se compara por subcadena ni por sufijo del
-slug (`_es_hermes` de `addons.py` da por Hermes cualquier `*_hermes`, duda
-D-13): se compara EXACTAMENTE con el slug que el Supervisor da para el propio
+slug (`_es_hermes` de `addons.py` sin el slug propio da por Hermes cualquier
+`*_hermes`, duda D-13): se compara EXACTAMENTE con el slug que el Supervisor da para el propio
 add-on en `GET /addons/self/info` (campo `slug`). Si ese slug no se puede leer,
 no se sabe con certeza y se rechaza igual, sin token (fail-closed). Ese
 criterio (`lector_slug_propio`) es el mismo en toda la familia (T048). Otra app
-con slug `*_hermes` no se remite a `sv_update_addon`, que la rechazaría (D-13):
-se dice que no tiene tool.
+con slug `*_hermes` se remite a `sv_update_addon` como cualquier otra: desde el
+cierre de seguridad (D-13) esa tool también compara con el slug exacto. Solo
+sin el slug propio se dice que la rechazaría (cae al sufijo).
 
 `ha_call_service("update", "install", …)` pasa por `comprobar_update_install`
 (T051): sin ese cierre, esa vía saltaba D-1 y D-3. Reutiliza el
@@ -316,10 +317,8 @@ async def _encaminar_hassio(
         rechazo = await _rechazo_por_hermes(dato, slug_propio, tool)
         if rechazo is not None:
             return rechazo
-        if dato is not None and _es_hermes(dato):
-            # D-13 (T048): `sv_update_addon` rechaza cualquier `*_hermes`;
-            # remitir a ella sería remitir a un rechazo seguro.
-            return _error("unsupported_entity", NOTA_OTRO_HERMES)
+        # Aquí el slug propio se leyó y no es este: otra app `*_hermes` va a
+        # `sv_update_addon`, que con el slug exacto tampoco la rechaza (D-13).
         return _error("use_dedicated_tool",
                       "apps are updated with sv_update_addon",
                       tool="sv_update_addon", arguments={"slug": dato})
@@ -479,9 +478,8 @@ def register(
                 return None, f"{nota}; if it is not, use sv_update_addon"
             if dato == slug_propio:
                 return None, _COMO_ACTUALIZAR_HERMES
-            if dato is not None and _es_hermes(dato):
-                # D-13 (T048): `sv_update_addon` la rechazaría; no se remite.
-                return None, NOTA_OTRO_HERMES
+            # Con el slug propio leído, otra app `*_hermes` es una app más:
+            # `sv_update_addon` también la compara con el slug exacto (D-13).
             return "sv_update_addon", None
         return None, "entity of the Supervisor integration not recognised by Hermes"
 
@@ -502,9 +500,9 @@ def register(
         characters), `release_url`, `platform` (the integration) and
         `install_with`: ha_install_update, the sv_* tool for Core, OS,
         Supervisor and apps (sv_update_core, sv_update_os,
-        sv_update_supervisor, sv_update_addon), or null (Hermes itself, any
-        other app whose slug ends in _hermes, which sv_update_addon refuses,
-        or an entity that cannot be installed) with a `note`.
+        sv_update_supervisor, sv_update_addon), or null (Hermes itself, an
+        app whose slug ends in _hermes while Hermes cannot read its own app
+        slug, or an entity that cannot be installed) with a `note`.
 
         Returns:
             {"count", "items", "truncated", "_third_party_text"}
@@ -712,8 +710,7 @@ def register(
         tool and its arguments. Hermes never updates itself:
         `self_update_not_supported` (update it from the Home Assistant UI or
         with the add-on's automatic update). Another app whose slug ends in
-        _hermes has no tool either (sv_update_addon refuses those):
-        `unsupported_entity`.
+        _hermes is routed to sv_update_addon like any other app.
 
         With confirmation_token: same arguments. The token is bound to the
         arguments AND to the from/to versions of the preview; if they changed

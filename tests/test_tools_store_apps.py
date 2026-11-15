@@ -368,6 +368,22 @@ class TestReconstruir(_Base):
         self.assertIn("Hermes itself", r["preview"]["critical_warning"])
         self.assertIn("confirmation_token", r)
 
+    async def test_aviso_por_el_slug_exacto(self) -> None:
+        """D-13 (cierre de seguridad, remate): con el slug propio de
+        `/addons/self/info`, reconstruir otra app `<x>_hermes` no avisa de que
+        se reconstruye Hermes; el propio, sí. Sin poder leerlo, el sufijo
+        (test de arriba: el simulado no tiene `/addons/self/info`).
+
+        Control negativo comprobado: volver a `_self_warning(slug, …)` sin
+        `es_hermes` → cae (avisa por `e5f6a7b8_hermes`)."""
+        self.sv.respuesta("GET", "/addons/self/info", {"slug": "a1b2c3d4_hermes"})
+        for slug, avisa in (("e5f6a7b8_hermes", False), ("a1b2c3d4_hermes", True)):
+            with self.subTest(slug=slug):
+                self.info(slug=slug)
+                r = await self.t["sv_rebuild_addon"](slug)
+                self.assertEqual("critical_warning" in r["preview"], avisa, r)
+                self.assertIn("confirmation_token", r)
+
     async def test_confirmacion(self) -> None:
         for force, build in ((False, True), (True, False)):
             with self.subTest(force=force):

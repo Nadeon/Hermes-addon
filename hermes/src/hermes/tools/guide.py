@@ -1291,8 +1291,9 @@ que en Core.
 
 Hermes no se actualiza a sí mismo: en la lista sale con `update_with: null`;
 se actualiza desde la interfaz de Home Assistant. Las demás apps, con
-`sv_update_addon(slug)`, salvo las que tienen un slug acabado en `_hermes`
-(`sv_update_addon` las rechaza: `update_with: null` y una nota). Los plugins los actualiza el Supervisor (o
+`sv_update_addon(slug)`, también una cuyo slug acabe en `_hermes` y no sea
+Hermes (solo si Hermes no puede leer su propio slug, esas salen con
+`update_with: null` y una nota). Los plugins los actualiza el Supervisor (o
 `sv_call_api("POST", "/<plugin>/update")`).
 
 ## Entidades `update` (firmware, integraciones, HACS…)
@@ -1326,9 +1327,11 @@ argumentos. La de Hermes responde `self_update_not_supported` (Hermes se
 compara con el slug exacto que da el Supervisor; si no lo puede leer,
 `self_check_unavailable`, sin token).
 
-Otra app cuyo slug también termina en `_hermes` no es Hermes, pero
-`sv_update_addon` la rechaza igual: sale con `install_with`/`update_with: null`
-(`unsupported_entity` en `ha_install_update`); se actualiza desde la interfaz.
+Otra app cuyo slug también termina en `_hermes` no es Hermes: se remite a
+`sv_update_addon` como cualquier otra. Solo si Hermes no puede leer su propio
+slug sale con `install_with`/`update_with: null` (`self_check_unavailable` en
+`ha_install_update`), porque entonces `sv_update_addon` la rechaza por el
+sufijo.
 
 `ha_call_service("update", "install", …)` pide token y su vista previa no dice
 versiones (trae una `hint` hacia `ha_install_update`). Desde la 1.2.0 solo

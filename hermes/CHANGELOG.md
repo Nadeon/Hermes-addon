@@ -2215,6 +2215,12 @@ Revisión de seguridad de todo el programa, con las 359 tools ya integradas.
   `*_hermes`. Ahora usan el slug que da el Supervisor en `/addons/self/info`
   cuando se puede leer: otra app `<algo>_hermes` deja de bloquearse. Si no se
   puede leer, sigue el criterio del sufijo, que bloquea de más.
+  Lo mismo, desde el remate del cierre, el aviso de `sv_rebuild_addon`, el
+  de `ha_restore_backup` al restaurar apps, y `ha_list_updates`,
+  `ha_install_update` y `sv_list_available_updates`: otra app
+  `<algo>_hermes` se remite a `sv_update_addon` como cualquier app (antes
+  salía sin tool, con la nota de que `sv_update_addon` la rechazaría, que ya
+  no era verdad). La guía (`updates`) lo dice.
 - **El backup previo de `ha_marketplace_uninstall` se cifra como un safety
   backup.** Sigue `safety_backup_encryption`: la vista previa dice si irá
   cifrado y que restaurarlo necesita la clave del kit de emergencia; con

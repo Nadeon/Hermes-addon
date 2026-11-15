@@ -43,6 +43,7 @@ from tests.fixtures.supervisor_actualizaciones import (
     FIRMWARE_ACTUAL,
     FIRMWARE_ULTIMA,
     SLUG_APP,
+    SLUG_HERMES,
     SLUG_OTRO_HERMES,
     SupervisorActualizaciones,
     con_entidades_update,
@@ -148,11 +149,11 @@ class TestListarEntidades(_Base):
         # Hermes: null con la nota de cómo hacerlo (D-1).
         self.assertIsNone(por_id[ENTIDAD_HERMES]["install_with"])
         self.assertIn("Home Assistant UI", por_id[ENTIDAD_HERMES]["note"])
-        # Otra app con sufijo `_hermes` NO es Hermes (criterio estricto), pero
-        # tampoco se remite a `sv_update_addon`, que la rechazaría (T048, D-13).
-        self.assertIsNone(por_id[ENTIDAD_OTRO_HERMES]["install_with"])
-        self.assertIn("sv_update_addon refuses", por_id[ENTIDAD_OTRO_HERMES]["note"])
-        self.assertNotIn("cannot update itself", por_id[ENTIDAD_OTRO_HERMES]["note"])
+        # Otra app con sufijo `_hermes` NO es Hermes (criterio estricto) y,
+        # desde el cierre de seguridad (D-13), `sv_update_addon` tampoco la
+        # rechaza: se remite a ella como a cualquier app.
+        self.assertEqual(por_id[ENTIDAD_OTRO_HERMES]["install_with"], "sv_update_addon")
+        self.assertIsNone(por_id[ENTIDAD_OTRO_HERMES].get("note"))
         # Una sola lectura del registro, con todos los entity_id.
         registro = [c for c in self.sv.ws_llamadas
                     if c["type"] == "config/entity_registry/get_entries"]
@@ -458,18 +459,20 @@ class TestEncaminar(_Base):
         self.assertEqual(r["error"], "self_update_not_supported")
 
     async def test_otra_app_con_sufijo_hermes_no_es_hermes(self) -> None:
-        # No es Hermes (no es `self_update_not_supported`), pero tampoco se
-        # remite a `sv_update_addon`, que la rechaza por el sufijo (T048,
-        # D-13): antes salía `use_dedicated_tool` hacia un rechazo seguro.
+        # No es Hermes (no es `self_update_not_supported`) y, desde el cierre
+        # de seguridad (D-13), `sv_update_addon` compara con el slug exacto:
+        # se remite a ella como a cualquier app. Control negativo comprobado
+        # (remate del cierre): volver a la rama `_es_hermes(dato)` →
+        # `unsupported_entity` y cae.
         r = await self._encaminada(ENTIDAD_OTRO_HERMES)
-        self.assertEqual(r["error"], "unsupported_entity")
-        self.assertNotIn("tool", r)
-        self.assertIn("sv_update_addon refuses", r["detail"])
-        self.assertIn("Home Assistant UI", r["detail"])
+        self.assertEqual((r["tool"], r["arguments"]),
+                         ("sv_update_addon", {"slug": SLUG_OTRO_HERMES}))
 
-    async def test_otra_app_con_sufijo_hermes_es_un_rechazo_real(self) -> None:
-        # Lo que dice la nota es verdad: `sv_update_addon` (009) la rechaza.
+    async def test_otra_app_con_sufijo_hermes_no_es_un_rechazo(self) -> None:
+        # Lo que dice la remisión es verdad: con el slug propio leído,
+        # `sv_update_addon` (009) no la toma por Hermes.
         from hermes.tools import addons as addons_mod
+        self.assertFalse(addons_mod._es_hermes(SLUG_OTRO_HERMES, SLUG_HERMES))
         self.assertTrue(addons_mod._es_hermes(SLUG_OTRO_HERMES))
 
     async def test_otra_app_sin_slug_propio_no_remite_a_sv_update_addon(self) -> None:

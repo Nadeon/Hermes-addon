@@ -54,7 +54,7 @@ from hermes.tools._store import (
     trozo_de_texto,
 )
 from hermes.tools._validation import InvalidIdentifier, validate_slug
-from hermes.tools.addons import _LONG_OP_TIMEOUT, _self_warning
+from hermes.tools.addons import _LONG_OP_TIMEOUT, _self_warning, es_hermes
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +103,14 @@ def register(
     response_max_bytes: int = RESPONSE_MAX_BYTES_DEFAULT,
 ) -> None:
     """Registra las cuatro tools de fichas y reconstrucción de apps."""
+
+    # D-13 (cierre de seguridad): Hermes por el slug EXACTO de
+    # `/addons/self/info`, con el sufijo `_hermes` de respaldo si no se puede
+    # leer. Antes, reconstruir otra app `<x>_hermes` avisaba de que se
+    # reconstruía Hermes. Import aquí: `system_updates` importa `addons`.
+    from hermes.tools.system_updates import lector_slug_propio
+
+    slug_propio = lector_slug_propio(ha_client)
 
     def _log(tool: str, outcome: str, **campos: Any) -> None:
         logger.info(_EVENTO, tool=tool, outcome=outcome, **campos)
@@ -388,7 +396,8 @@ def register(
                 ),
                 "_third_party_text": texto_de_terceros(["name"]),
             }
-            aviso = _self_warning(slug, "rebuilding")
+            aviso = (_self_warning(slug, "rebuilding")
+                     if await es_hermes(slug, slug_propio) else None)
             if aviso:
                 preview["critical_warning"] = aviso
             _log(tool, "preview", slug=slug)
