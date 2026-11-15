@@ -1214,7 +1214,9 @@ class TestTemasDeIntegraciones(unittest.IsolatedAsyncioTestCase):
     `z-wave` → cae `test_tema_y_alias`. Tramo 2: citar
     `thread/get_dataset_tlv` en `POR LA GENÉRICA` de `matter_thread` → cae
     `test_cruce_con_la_tabla`; quitar el alias `otbr` → cae
-    `test_tema_y_alias`.
+    `test_tema_y_alias`. Tramo 3: citar `esphome/get_encryption_key` en
+    `POR LA GENÉRICA` de `other_integrations` → cae `test_cruce_con_la_tabla`;
+    quitar el alias `knx` → cae `test_tema_y_alias`.
     """
 
     # Tema → (prefijos de sus comandos, alias).
@@ -1223,6 +1225,13 @@ class TestTemasDeIntegraciones(unittest.IsolatedAsyncioTestCase):
         "zigbee": (("zha/",), ("zha", "ZHA", "Zigbee")),
         "matter_thread": (("matter/", "thread/", "otbr/"),
                           ("matter", "thread", "otbr", "Matter", "OTBR")),
+        "other_integrations": (
+            ("mqtt/", "usb/", "bluetooth/", "dhcp/", "dynalite/", "esphome/",
+             "generic_camera/", "insteon/", "knx/", "lcn/", "lorawan/",
+             "mobile_app/", "modbus/", "notify/", "sendspin/", "ssdp/",
+             "wyoming/", "zeroconf/"),
+            ("mqtt", "usb", "bluetooth", "knx", "insteon", "lcn", "esphome",
+             "dynalite", "lorawan", "modbus", "wyoming", "MQTT", "KNX")),
     }
 
     def setUp(self) -> None:
@@ -1295,6 +1304,15 @@ class TestTemasDeIntegraciones(unittest.IsolatedAsyncioTestCase):
                         "matter/open_commissioning_window", "interfaz"):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
+
+    async def test_otras_integraciones_secretos_y_vias(self) -> None:
+        texto = _GUIDE["other_integrations"]
+        for palabra in ("mqtt.publish", "ha_call_service", "tapad", "dynalite/get-config",
+                        "REEMPLAZA", "un solo mensaje", "webhook_id", "unknown_command",
+                        "interfaz"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        self.assertIn("mqtt.publish", self._secciones(texto)["OTRA VÍA"])
 
     async def test_zwave_avisa_de_la_radio(self) -> None:
         texto = _GUIDE["zwave"]

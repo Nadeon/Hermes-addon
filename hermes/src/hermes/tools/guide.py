@@ -171,6 +171,7 @@ para el detalle de un área. Temas disponibles:
 - `zwave`          — Z-Wave JS por las genéricas: qué se lee, qué se cambia en dos pasos y qué no
 - `zigbee`         — Zigbee (ZHA) por las genéricas: dispositivos, grupos y vínculos; claves de red tapadas
 - `matter_thread`  — Matter, Thread y OTBR por las genéricas, sin códigos de emparejamiento ni claves
+- `other_integrations` — MQTT, USB, Bluetooth, KNX, Insteon, LCN, ESPHome y el resto de integraciones por las genéricas
 - `app_store`      — tienda de apps del Supervisor: repositorios, recarga, changelog, documentación, disponibilidad y reconstrucción
 - `workflows`      — recetas paso a paso para tareas completas
 
@@ -1963,6 +1964,90 @@ El resto, con su categoría y su motivo:
 `hermes_guide("generic_commands", search="matter/")`, `search="thread/"` y
 `search="otbr/"`.
 """,
+    "other_integrations": """\
+# Otras integraciones por las genéricas (MQTT, USB, Bluetooth, KNX, Insteon…)
+
+No hay tools dedicadas: todo va por `ha_read_ws_command` (lee) y
+`ha_call_ws_command` (cambia algo, siempre en dos pasos con
+`confirmation_token`). Si la familia `generic_commands` está desactivada en las
+opciones del add-on, nada de esto existe. Cada comando solo responde si su
+integración está configurada; si no, Home Assistant contesta
+`unknown_command`. Hermes no devuelve ni acepta claves de cifrado, tokens de
+emparejamiento ni contraseñas.
+
+POR LA GENÉRICA
+Lecturas (`ha_read_ws_command`):
+- MQTT: `type="mqtt/device/debug_info", payload={"device_id": "<device_id>"}`
+  — topics, suscripciones, descubrimiento y últimos mensajes recibidos de un
+  dispositivo; los mensajes ENVIADOS por Home Assistant y el `code` de
+  alarmas y cerraduras salen tapados.
+- USB y Bluetooth: `type="usb/list_serial_ports", payload={"include_usage":
+  true}` — puertos serie y dongles y quién los usa; `usb/list_serial_integrations`,
+  qué integraciones se configuran con un puerto serie; `usb/scan` pide un
+  escaneo nuevo (no configura nada). `bluetooth/subscribe_advertisements` —
+  anuncios Bluetooth vistos, en un solo mensaje.
+- Descubrimiento: `dhcp/subscribe_discovery` — equipos vistos por DHCP (MAC,
+  nombre, IP), en un solo mensaje.
+- KNX: `knx/get_base_data` (conexión y proyecto), `knx/group_monitor_info` y
+  `knx/query_telegrams` (telegramas), `knx/get_entity_config`,
+  `knx/get_knx_project` (grande), `knx/validate_entity` (valida sin guardar).
+- Insteon: `insteon/device/get`, `insteon/aldb/get` (enlaces),
+  `insteon/properties/get`, `insteon/scenes/get`, `insteon/config/get` (la
+  contraseña del hub sale tapada) e `insteon/aldb/notify_all` (si alguna
+  ALDB se está cargando, en un solo mensaje).
+- LCN: `lcn/devices` y `lcn/entities`, con `payload={"entry_id": "<entry_id>"}`.
+- Otras: `esphome/get_device_capabilities` y `esphome/get_device_wizard`
+  (por `device_id`), `dynalite/get-config`, `lorawan/devices/list`,
+  `modbus/connections/list`, `wyoming/info` y `notify/html5/appkey` (la clave
+  PÚBLICA de las notificaciones HTML5).
+Escrituras (`ha_call_ws_command`, dos pasos):
+- KNX: `knx/create_entity`, `knx/update_entity`, `knx/delete_entity`,
+  exposiciones (`knx/update_expose`, `knx/delete_expose`) y
+  `knx/update_time_server_config` (estas envían telegramas al bus).
+- Insteon: los cambios de la ALDB y de las propiedades quedan pendientes
+  hasta escribirlos (`insteon/aldb/change` + `insteon/aldb/write`,
+  `insteon/properties/change` + `insteon/properties/write`); escenas
+  (`insteon/scene/save`, `insteon/scene/delete`) e `insteon/device/remove`.
+- LCN: `lcn/devices/scan` (escanea el bus y añade lo que encuentra),
+  `lcn/devices/add`, `lcn/entities/add` y sus borrados.
+- Dynalite: `dynalite/save-config` REEMPLAZA la configuración entera del
+  puente: lee antes con `dynalite/get-config` y manda el objeto completo.
+
+RECHAZADO (`command_denied`, sin llamar a Home Assistant)
+- Secretos devueltos: `esphome/get_encryption_key` (clave de la API de
+  ESPHome), `sendspin/get_pairing_token` (token de emparejamiento) e
+  `insteon/config/get_modem_schema` (lleva la contraseña del hub como valor
+  por defecto).
+- Secretos introducidos: `insteon/config/update_modem_config` (credenciales
+  del hub) y `knx/project_file_process` (contraseña del proyecto ETS y un
+  fichero subido).
+- Suscripciones y streaming, que MCP no puede servir: `mqtt/subscribe`,
+  `knx/subscribe_telegrams`, `insteon/aldb/notify`, `lorawan/devices/subscribe`
+  (los mismos datos los da la lectura de dispositivos LoRaWAN de arriba),
+  `sendspin/subscribe_clients` y las de un mensaje por elemento o solo si hay
+  datos (`ssdp/subscribe_discovery`, `zeroconf/subscribe_discovery`,
+  `bluetooth/subscribe_scanner_state`, `bluetooth/subscribe_scanner_details`,
+  `bluetooth/subscribe_connection_allocations`).
+- Interactivo o de la interfaz: `insteon/device/add` (modo de enlace y
+  pulsar el botón del dispositivo) y `generic_camera/start_preview` (no
+  envía respuesta).
+- La app móvil: `mobile_app/push_notification_channel` y
+  `mobile_app/push_notification_confirm` (suplantarían el canal de la app y
+  necesitan su `webhook_id`).
+
+OTRA VÍA
+- Publicar en MQTT: la acción `mqtt.publish` por `ha_call_service`.
+- Añadir dispositivos (enlace Insteon, cargar un proyecto ETS, emparejar
+  ESPHome o Sendspin) y cambiar credenciales: desde la interfaz de Home
+  Assistant (Ajustes → Dispositivos y servicios).
+- Ver lo que pasa por un topic MQTT o por el bus KNX en directo: la página de
+  la integración en la interfaz; por aquí, `mqtt/device/debug_info` y
+  `knx/query_telegrams` dan lo último que pasó.
+
+El resto, con su categoría y su motivo:
+`hermes_guide("generic_commands", search="<integración>/")`, p. ej.
+`search="knx/"` o `search="insteon/"`.
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -2135,6 +2220,17 @@ _ALIASES: dict[str, str] = {
     "matter": "matter_thread",
     "thread": "matter_thread",
     "otbr": "matter_thread",
+    "mqtt": "other_integrations",
+    "usb": "other_integrations",
+    "bluetooth": "other_integrations",
+    "knx": "other_integrations",
+    "insteon": "other_integrations",
+    "lcn": "other_integrations",
+    "esphome": "other_integrations",
+    "dynalite": "other_integrations",
+    "lorawan": "other_integrations",
+    "modbus": "other_integrations",
+    "wyoming": "other_integrations",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -2246,7 +2342,7 @@ def register(mcp: object) -> None:
                 marketplace, security,
                 generic_commands, system_status, recorder, energy, core_diagnostics,
                 app_store, blueprints, automation_assist, zwave, zigbee,
-                matter_thread, workflows. Acepta alias
+                matter_thread, other_integrations, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,
