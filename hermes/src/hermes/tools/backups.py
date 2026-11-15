@@ -33,6 +33,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 import structlog
 
 from hermes import safety_retention as _retencion
@@ -312,7 +313,7 @@ def register(
                           "key could not be read; nothing was restored. Retry with the "
                           "same token while it is valid, or pass password."}
 
-    def _error_restaurar(exc: HAConnectionError, fuente: str,
+    def _error_restaurar(exc: Exception, fuente: str,
                          carga: dict[str, Any]) -> dict[str, Any]:
         # `exc` ya viene sin la clave ni la contraseña (`sin_secretos`); el
         # eco del resto de la carga se quita igual que en todas las `sv_*`
@@ -712,9 +713,11 @@ def register(
                 }
             return {"reused": False, "result": "ok", "slug": slug,
                     "backup_name": backup_name, **cifrado}
-        except HAConnectionError as exc:
+        except (HAConnectionError, aiohttp.ClientError) as exc:
             # Ya sin la clave (`sin_secretos`), y sin el eco del resto de la
-            # carga (cierre de seguridad).
+            # carga (cierre de seguridad). `aiohttp.ClientError`: el
+            # Supervisor caído (conexión rechazada) no es `HAConnectionError`
+            # y, sin capturarlo, salía el error genérico del SDK.
             return {"error": sin_eco_del_supervisor(str(exc), cuerpo)}
 
     @mcp.tool()
@@ -867,7 +870,9 @@ def register(
             logger.info("sv_restore_backup_full_started", slug=slug, job_id=job_id,
                         password_source=fuente)
             return result
-        except HAConnectionError as exc:
+        except (HAConnectionError, aiohttp.ClientError) as exc:
+            # `aiohttp.ClientError`: el Supervisor caído; sin capturarlo, el
+            # error genérico del SDK y el token en `executing` hasta caducar.
             out = _error_restaurar(exc, fuente, payload)
             await complete_confirmation_token(confirmation_token, success=False,
                                               error=out["error"])
@@ -993,7 +998,9 @@ def register(
             logger.info("sv_restore_backup_partial_started", slug=slug, job_id=job_id,
                         password_source=fuente)
             return result
-        except HAConnectionError as exc:
+        except (HAConnectionError, aiohttp.ClientError) as exc:
+            # `aiohttp.ClientError`: el Supervisor caído; sin capturarlo, el
+            # error genérico del SDK y el token en `executing` hasta caducar.
             out = _error_restaurar(exc, fuente, payload)
             await complete_confirmation_token(confirmation_token, success=False,
                                               error=out["error"])

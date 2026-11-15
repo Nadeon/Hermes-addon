@@ -29,6 +29,7 @@ clave (fail-closed).
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Awaitable
 from dataclasses import dataclass
@@ -184,7 +185,15 @@ def _tapar_valor(valor: Any, formas: list[str]) -> Any:
     if isinstance(valor, list):
         return [_tapar_valor(v, formas) for v in valor]
     if isinstance(valor, tuple):
-        return tuple(_tapar_valor(v, formas) for v in valor)
+        items = tuple(_tapar_valor(v, formas) for v in valor)
+        if all(a is b for a, b in zip(items, valor)):
+            # Sin nada que tapar se devuelve LA MISMA tupla: una subclase
+            # (el `ConnectionKey` de aiohttp, con sus atributos) no puede
+            # quedarse en tupla simple, o el `__str__` de su excepción falla.
+            return valor
+        if hasattr(valor, "_fields"):
+            return type(valor)(*items)
+        return items
     return valor
 
 
@@ -203,8 +212,37 @@ def tapar_clave(valor: Any, *secretos: str | None) -> Any:
     return _tapar_valor(valor, sorted(formas, key=len, reverse=True))
 
 
+def _copia_tapada(exc: Exception, args: tuple[Any, ...],
+                  secretos: tuple[str, ...]) -> Exception:
+    """Copia de `exc` de su misma clase, con los args y los atributos tapados.
+
+    `copy.copy` rehace la excepción como lo haría `pickle` (clase, args y
+    `__dict__`), así que conserva lo que su `__str__` necesita: el
+    `ClientConnectorError` de aiohttp lee `_conn_key` y `_os_error`, no sus
+    args, y rehacerla con `type(exc)(*args)` la rompía. No copia la traza
+    ni `__context__`: la original no viaja con ella.
+    """
+    nueva = copy.copy(exc)
+    nueva.args = args
+    for nombre, valor in list(vars(nueva).items()):
+        setattr(nueva, nombre, tapar_clave(valor, *secretos))
+    # Los de `OSError` no viven en `__dict__` y su `__str__` sale de ellos.
+    for nombre in ("strerror", "filename", "filename2"):
+        valor = getattr(nueva, nombre, None)
+        if isinstance(valor, str):
+            setattr(nueva, nombre, tapar_clave(valor, *secretos))
+    return nueva
+
+
 def _excepcion_tapada(exc: Exception, secretos: tuple[str, ...]) -> Exception:
-    """La misma excepción (tipo, `status`, `code`, `sent`) con el texto tapado."""
+    """La misma excepción (tipo, `status`, `code`, `sent`) con el texto tapado.
+
+    Conserva la clase también con los errores de aiohttp (`ClientConnectorError`
+    con el Supervisor caído, `ClientResponseError` con su `status`…): cada
+    tool los captura por su clase para dar su error honesto (`backup_failed`,
+    `safety_backup_failed`…), así que una copia que no se deja ni pintar no
+    vale. Si no hay copia fiable, `RuntimeError` con el texto tapado.
+    """
     args = tuple(tapar_clave(a, *secretos) for a in exc.args)
     if isinstance(exc, HAConnectionError):
         # El plazo agotado conserva su clase: las tools lo distinguen con
@@ -212,13 +250,21 @@ def _excepcion_tapada(exc: Exception, secretos: tuple[str, ...]) -> Exception:
         clase = HATimeoutError if isinstance(exc, HATimeoutError) else HAConnectionError
         return clase(*args, status=exc.status, code=exc.code, sent=exc.sent)
     try:
-        nueva = type(exc)(*args)
+        nueva = _copia_tapada(exc, args, secretos)
+        # Pintarla va DENTRO del `try`: un `__str__` que lee atributos puede
+        # reventar, y eso no puede sustituir al error de verdad.
+        texto = str(nueva)
+        fiable = texto == tapar_clave(texto, *secretos)
     except Exception:  # noqa: BLE001 — un tipo que no se deja copiar así
-        nueva = RuntimeError(*args)
-    if str(nueva) != tapar_clave(str(nueva), *secretos):
-        # Su texto no sale solo de los args: no se puede fiar de la copia.
-        nueva = RuntimeError(tapar_clave(str(exc), *secretos))
-    return nueva
+        fiable = False
+    if fiable:
+        return nueva
+    # Su texto no sale solo de lo copiado: no se puede fiar de la copia.
+    try:
+        original = str(exc)
+    except Exception:  # noqa: BLE001
+        original = type(exc).__name__
+    return RuntimeError(tapar_clave(original, *secretos))
 
 
 async def sin_secretos(llamada: Awaitable[_T], *secretos: str | None) -> _T:
