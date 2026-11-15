@@ -77,6 +77,19 @@ sin cuerpo por diseño de la 015, y en una entidad sin `specific_version`).
 `sv_check_for_updates` no pide token. `ha_call_service` con `update.install`
 sigue atando `domain`, `service` y `service_data` como en la 1.1.2. Ningún
 hallazgo.
+
+Recuento: 102 desde la integración de la 030, que trae tres tools con
+token, comprobadas en el código: `sv_add_store_repository` ata
+`repository`, la URL completa ya validada (credenciales y `#rama`
+incluidas, aunque la vista previa las tape); `sv_remove_store_repository`,
+`repository`, y además el repositorio y sus apps instaladas en el `estado`;
+y `sv_rebuild_addon`, `slug` y `force`. La 030 cambia también tres de la
+1.1.2 sin cambiar sus argumentos: `sv_install_addon` y `sv_update_addon`
+siguen atando `slug` y ahora también la `version_latest` de la vista previa
+en el `estado` (si la tienda ofrece otra al confirmar, `preview_outdated`);
+`sv_set_addon_options` sigue atando `slug` y `options`.
+`sv_repair_store_repository` y `sv_reload_store` no piden token. Ningún
+hallazgo.
 """
 
 from __future__ import annotations
@@ -223,6 +236,8 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "ha_dismiss_persistent_notification": {"notification_id": A},
     # ── Supervisor ──────────────────────────────────────────────────────
     **{t: {"slug": A} for t in _ADDONS},
+    # Spec 030: instalar y actualizar atan además la `version_latest` de la
+    # vista previa en el `estado`.
     "sv_set_addon_options": {"slug": A, "options": A},
     "sv_delete_backup": {"slug": A},
     "sv_restore_backup_full": {"slug": A, "password": A},
@@ -254,6 +269,13 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "sv_update_os": {"version": A},
     "sv_update_supervisor": {},
     "ha_install_update": {"entity_id": A, "version": A, "backup": A},
+    # ── tienda de apps (spec 030) ───────────────────────────────────────
+    # `repository` es la URL completa ya validada: el token se ata a ella
+    # con sus credenciales, aunque la vista previa las tape. Quitar ata
+    # además el repositorio y sus apps instaladas en el `estado`.
+    "sv_add_store_repository": {"repository": A},
+    "sv_remove_store_repository": {"repository": A},
+    "sv_rebuild_addon": {"slug": A, "force": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -348,7 +370,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 99)
+        self.assertEqual(len(firmas_con_token(TOOLS)), 102)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -368,7 +390,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 99)
+        self.assertEqual(len(publicadas), 102)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).
