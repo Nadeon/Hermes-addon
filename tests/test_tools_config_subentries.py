@@ -46,7 +46,7 @@ import hermes.security as security
 import hermes.tools.config_entry_flows as flujos_112
 import hermes.tools.config_subentries as mod
 from hermes.ha import HAConnectionError
-from hermes.tools import _reconfigure
+from hermes.tools import _flujos_propios, _reconfigure
 from tests._ha_fixture import make_ready_client
 
 _CENTINELA = "centinela-016"
@@ -697,6 +697,8 @@ class TestToolGeneralRechazaReconfigure(_ConReconfigure):
         self.assertEqual(self.fake.rest, [])
 
     async def test_otro_flujo_como_en_la_1_1_2(self) -> None:
+        # Un flujo `user` que abrió esta instancia de Hermes (T048).
+        _flujos_propios.registrar("flujo-u1")
         self.fake.respuestas[("POST", f"{_RUTA_FLUJOS}/flujo-u1")] = {
             "type": "create_entry", "flow_id": "flujo-u1", "result": {"entry_id": "e2"}}
         r = await self.llamar("ha_continue_config_entry_flow", "flujo-u1", {"a": 1})

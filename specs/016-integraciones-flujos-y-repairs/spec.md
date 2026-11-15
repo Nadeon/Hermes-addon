@@ -435,7 +435,13 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   (o desde la interfaz de HA) se podría continuar con la tool general si se
   conoce su `flow_id` (HA no lista los reconfigure en ningún comando).
   Aceptado por el supervisor (tramo C) y documentado en la guía y en
-  `SECURITY.md` como límite conocido.
+  `SECURITY.md` como límite conocido. **Cerrado en la convergencia (T048,
+  decisión del supervisor)**: Hermes apunta también los flujos que abre
+  `ha_start_config_entry_flow`, y `ha_continue_config_entry_flow` rechaza con
+  `unknown_flow`, sin enviar nada, un flujo que no esté en ese registro ni en
+  `config_entries/flow/progress`, o si esa lista no se puede leer. Desviación
+  aceptada: un flujo `user` abierto antes de reiniciar Hermes o desde la
+  interfaz de HA ya no se puede continuar (en la 1.1.2 sí).
 - **FR-010d** (decisión del supervisor, tramo C): los flujos `reauth` también
   piden token en cada paso (principio IV), porque cambian las credenciales de
   una entrada y HA la recarga. HA sí los lista en

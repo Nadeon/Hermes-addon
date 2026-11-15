@@ -14,10 +14,11 @@ general volvería a aceptarlo. Se aborta en HA y solo sale del registro cuando
 el abort sale o HA dice que el flujo ya no existe; mientras tanto sigue
 rechazado por la vía general.
 
-Riesgo residual (documentado en la spec, FR-010c): al reiniciar Hermes el
-registro empieza vacío. Un reconfigure abierto antes del reinicio solo se
-podría continuar por la vía general conociendo su `flow_id`, que HA no lista
-en ningún comando.
+Al reiniciar Hermes el registro empieza vacío. Un reconfigure abierto antes
+del reinicio tampoco se puede continuar por la vía general: desde T048
+`ha_continue_config_entry_flow` solo continúa los flujos que abrió Hermes
+(`_flujos_propios.py`) o que HA lista en `flow/progress`, y HA excluye de ahí
+los `reconfigure`.
 """
 
 from __future__ import annotations

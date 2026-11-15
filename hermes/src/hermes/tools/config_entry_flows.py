@@ -46,7 +46,7 @@ from hermes.security import (
     redact_secrets,
     validate_confirmation_token,
 )
-from hermes.tools import _reconfigure
+from hermes.tools import _flujos_propios, _reconfigure
 from hermes.tools._flujos import (
     _ERROR_MARCADOR,
     _campos_secretos,
@@ -86,23 +86,38 @@ def _invalid(field: str, detail: str) -> str:
     return json.dumps({"error": "invalid_argument", "field": field, "detail": detail})
 
 
+class _ProgresoIlegible(Exception):
+    """`config_entries/flow/progress` falló o devolvió otra forma."""
+
+
 async def _flujo_en_curso(ha_client: HAClient, flow_id: str) -> dict[str, Any] | None:
     """El flujo tal como lo lista `config_entries/flow/progress`, o `None`.
 
     HA lista ahí los flujos que no abrió un usuario, `reauth` incluidos (los
-    `reconfigure` y los `user` no salen). `None` si no está o si no se puede
-    leer: entonces la tool sigue como en la 1.1.2 (riesgo aceptado por el
-    supervisor; ver SECURITY.md).
+    `reconfigure` y los `user` no salen). `None` si no está. Si no se puede
+    leer, lanza `_ProgresoIlegible`: desde T048 la tool no envía nada sin
+    saber el origen (fail-closed).
     """
     try:
         raw: Any = await ha_client.ws_send({"type": "config_entries/flow/progress"})
     except HAConnectionError as exc:
         logger.warning("ha_continue_config_entry_flow_progress_read_failed",
                        flow_id=flow_id, error=redact_secrets(str(exc)))
-        return None
+        raise _ProgresoIlegible from exc
     if not isinstance(raw, list):
-        return None
+        logger.warning("ha_continue_config_entry_flow_progress_read_failed",
+                       flow_id=flow_id, error="unexpected_response")
+        raise _ProgresoIlegible
     return next((f for f in raw if isinstance(f, dict) and f.get("flow_id") == flow_id), None)
+
+
+# T048: lo que se responde a un flujo cuyo origen Hermes no conoce. No remite
+# a ninguna tool que envíe un paso sin token.
+_ABRIR_DE_NUEVO = (
+    "Nothing was sent. Start the flow again: ha_start_config_entry_flow(domain) "
+    "to set up an integration, or ha_start_reconfigure_flow(entry_id) to "
+    "reconfigure an entry; abort the old flow with ha_abort_config_entry_flow "
+    "if it is still open.")
 
 
 def _flow_path(flow_id: str, *, options: bool = False) -> str:
@@ -263,6 +278,11 @@ def register(mcp: object, ha_client: HAClient) -> None:
                 }
             )
 
+        # T048: Hermes apunta los flujos que abre (origen `user`) para que
+        # ha_continue_config_entry_flow los reconozca; HA no los lista.
+        if flow_type in ("form", "menu") and isinstance(flow_id, str) and flow_id:
+            _flujos_propios.registrar(flow_id)
+
         logger.info(
             "ha_start_config_entry_flow_ok",
             handler=handler,
@@ -298,9 +318,16 @@ def register(mcp: object, ha_client: HAClient) -> None:
         confirmation_token devuelve una vista previa (entrada, paso, campos
         con los secretos tapados, efecto) y un token; repite la misma llamada
         con el token para enviar. El token se ata al flujo, a su paso actual
-        y al user_input entero. Hermes lo sabe por config_entries/flow/progress;
-        si el flujo no sale ahí (los demás flujos, como en la 1.1.2) o no se
-        puede leer, se envía sin token y confirmation_token se ignora.
+        y al user_input entero. Hermes lo sabe por config_entries/flow/progress.
+
+        Solo se continúan los flujos que abrió ha_start_config_entry_flow en
+        esta sesión de Hermes (sin usar más de una hora) y los que HA lista
+        como descubiertos o de reautenticación
+        (ha_list_discovered_integrations); esos van sin token, salvo los
+        reauth, como en la 1.1.2. Cualquier otro flow_id (uno abierto antes
+        de reiniciar Hermes o desde la interfaz de HA, o un reconfigure) se
+        rechaza con {"error": "unknown_flow"} sin enviar nada, y también si
+        no se puede leer config_entries/flow/progress: ábrelo de nuevo.
 
         Args:
             flow_id:    ID del flow (obtenido de ha_start_config_entry_flow).
@@ -320,13 +347,14 @@ def register(mcp: object, ha_client: HAClient) -> None:
             type="abort":        {"type": "abort", "reason": "..."}
             type="menu":         {"type": "menu", "menu_options": [...]}
             Reautenticación sin token: vista previa y confirmation_token.
+            Flujo desconocido:   {"error": "unknown_flow", "reason": ...}
             Error:               {"error": "..."}
         """
         # Spec 016 (decisión del supervisor): un reconfigure puede cambiar
         # credenciales y recarga la integración, así que cada paso pide token
         # y va por su tool dedicada. HA no dice el `source` de un flujo: lo
         # sabe el registro de los que abrió Hermes. Caducado o no, se rechaza
-        # (ver `_reconfigure.buscar`). Cualquier otro flujo, como en la 1.1.2.
+        # (ver `_reconfigure.buscar`). Los demás, abajo (T048).
         if isinstance(flow_id, str) and _reconfigure.buscar(flow_id) is not None:
             logger.warning("ha_continue_config_entry_flow_reconfigure_refused",
                            flow_id=flow_id)
@@ -343,16 +371,47 @@ def register(mcp: object, ha_client: HAClient) -> None:
         except InvalidIdentifier as exc:
             return json.dumps(identifier_error(exc))
 
-        # Spec 016, tramo C (decisión del supervisor): un `reauth` cambia
-        # credenciales, así que cada paso pide token (principio IV). A
-        # diferencia de los reconfigure, HA sí los lista en flow/progress: se
-        # mira ahí su `source` antes de enviar nada. Si no sale o no se puede
-        # leer, como en la 1.1.2 (riesgo aceptado; SECURITY.md).
-        en_curso = await _flujo_en_curso(ha_client, flow_id)
-        contexto = en_curso.get("context") if en_curso else None
-        if isinstance(contexto, dict) and contexto.get("source") == "reauth":
-            return await _continuar_reauth(
-                flow_id, ruta, user_input, confirmation_token, en_curso, contexto)
+        # T048 (decisión del supervisor, fail-closed): un flujo que abrió
+        # Hermes con ha_start_config_entry_flow se continúa como en la 1.1.2,
+        # sin leer nada más (es de origen `user`).
+        propio = _flujos_propios.conocido(flow_id)
+        if not propio:
+            # Spec 016, tramo C (decisión del supervisor): un `reauth` cambia
+            # credenciales, así que cada paso pide token (principio IV). A
+            # diferencia de los reconfigure, HA sí los lista en flow/progress:
+            # se mira ahí su `source` antes de enviar nada.
+            try:
+                en_curso = await _flujo_en_curso(ha_client, flow_id)
+            except _ProgresoIlegible:
+                return json.dumps({
+                    "error": "unknown_flow", "reason": "flow_progress_unavailable",
+                    "flow_id": flow_id,
+                    "detail": ("Hermes could not read the flows in progress from Home "
+                               "Assistant, so it cannot tell where this flow comes from. "
+                               "Nothing was sent; try again."),
+                })
+            if en_curso is None:
+                # Ni lo abrió Hermes ni HA lo lista: puede ser un `user` de
+                # antes de reiniciar Hermes o de la interfaz de HA, o un
+                # `reconfigure` (HA excluye los dos de flow/progress). La
+                # 1.1.2 lo enviaba sin token; ahora se rechaza sin tocar HA.
+                logger.warning("ha_continue_config_entry_flow_unknown_flow",
+                               flow_id=flow_id)
+                return json.dumps({
+                    "error": "unknown_flow", "reason": "not_opened_by_hermes",
+                    "flow_id": flow_id,
+                    "detail": ("Hermes cannot continue this flow: it was not opened with "
+                               "ha_start_config_entry_flow in this Hermes session (or it "
+                               "was idle for more than an hour), and Home Assistant does "
+                               "not list it as a discovered or re-authentication flow. "
+                               "It may be a reconfigure flow, a flow opened in the Home "
+                               "Assistant UI, or one opened before Hermes restarted. "
+                               + _ABRIR_DE_NUEVO),
+                })
+            contexto = en_curso.get("context")
+            if isinstance(contexto, dict) and contexto.get("source") == "reauth":
+                return await _continuar_reauth(
+                    flow_id, ruta, user_input, confirmation_token, en_curso, contexto)
 
         try:
             raw: Any = await ha_client._request_json(  # noqa: SLF001
@@ -374,6 +433,13 @@ def register(mcp: object, ha_client: HAClient) -> None:
             )
 
         flow_type = raw.get("type", "")
+        if propio:
+            # Un flujo terminado ya no existe en HA; uno que sigue renueva su
+            # caducidad.
+            if flow_type in ("form", "menu"):
+                _flujos_propios.tocar(flow_id)
+            else:
+                _flujos_propios.olvidar(flow_id)
         if flow_type == "create_entry":
             # OJO: en un config flow, `result` es de HA y trae la config entry
             # creada serializada (entry_id, domain, title, source, state...).
@@ -517,8 +583,9 @@ def register(mcp: object, ha_client: HAClient) -> None:
             )
             return json.dumps({"error": str(exc)})
 
-        # Un reconfigure abortado ya no existe en HA: sale del registro.
+        # Un flujo abortado ya no existe en HA: sale de los registros.
         _reconfigure.olvidar(flow_id)
+        _flujos_propios.olvidar(flow_id)
         logger.info("ha_abort_config_entry_flow_ok", flow_id=flow_id)
         return json.dumps({"result": "ok"})
 

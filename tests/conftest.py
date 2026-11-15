@@ -121,3 +121,15 @@ def _aislar_directorio_de_datos(tmp_path_factory):
 
     for (modulo, nombre), valor in previos.items():
         setattr(modulo, nombre, valor)
+
+
+@_pytest.fixture(autouse=True)
+def _vaciar_registro_de_flujos_propios():
+    """Spec 016, T048: el registro en memoria de los flujos que abre Hermes
+    no pasa de un test a otro (un `flow_id` de prueba como `flow1` se repite
+    en muchos, y uno abierto en un test haría pasar otro por casualidad)."""
+    from hermes.tools import _flujos_propios
+
+    _flujos_propios.limpiar()
+    yield
+    _flujos_propios.limpiar()

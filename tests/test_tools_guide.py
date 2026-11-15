@@ -338,6 +338,19 @@ class TestTemaIntegrationFlows(unittest.IsolatedAsyncioTestCase):
         self.assertIn("CADA paso", texto)
         self.assertIn("rechaza estos flujos", texto)
 
+    def test_convergencia_t046_t048(self) -> None:
+        # T046: ignorar no es inocuo y solo vale para descubrimientos.
+        # T048: un flujo desconocido no se envía. Control negativo comprobado:
+        # con los textos de antes («no toca nada en marcha», «se envía como
+        # cualquier otro», «pasaría por … sin token») cae este test.
+        texto = _GUIDE["integration_flows"]
+        self.assertNotIn("no toca nada en marcha", texto)
+        self.assertIn("not_a_discovery", texto)
+        self.assertIn("unknown_flow", texto)
+        self.assertIn("unknown_flow", _GUIDE["config_entries"])
+        self.assertNotIn("se envía como cualquier otro", texto)
+        self.assertNotIn("token si se conociera", texto)
+
     async def test_cada_tool_de_la_familia_nombrada(self) -> None:
         tools = _tools_de_la_familia("integration_flows")
         self.assertTrue(tools)
@@ -413,7 +426,9 @@ class TestTemaRepairFlows(unittest.IsolatedAsyncioTestCase):
         texto = _GUIDE["integration_flows"]
         self.assertIn("REAUTENTICACIÓN", texto)
         self.assertIn('`source: "reauth"`', texto)
-        self.assertIn("Límite conocido", texto)
+        # T048: el límite del reconfigure tras reiniciar está cerrado; la
+        # guía dice que no se puede continuar por ninguna vía.
+        self.assertIn("Tras reiniciar Hermes no se reconoce un reconfigure", texto)
         self.assertIn("reauth", _GUIDE["config_entries"])
 
     def test_no_nombra_tools_que_no_existen(self) -> None:

@@ -245,22 +245,21 @@ them into account:
    re-authentication (`reauth`) flow needs a preview and a
    `confirmation_token`, because both can change the credentials of an
    integration. Home Assistant does not say which kind of flow a `flow_id`
-   is when it is continued, so:
+   is when it is continued, so Hermes fails closed:
    - a reconfigure is recognised only because Hermes opened it
-     (`ha_start_reconfigure_flow`) and keeps its `flow_id` in memory. After
-     Hermes restarts that record is empty: a reconfigure opened before the
-     restart, or from the Home Assistant UI, could be continued with
-     `ha_continue_config_entry_flow` without a token by a client that knew its
-     `flow_id`. The `flow_id` is random and Home Assistant does not list
-     reconfigure flows anywhere, so the client would have to obtain it
-     elsewhere;
+     (`ha_start_reconfigure_flow`) and keeps its `flow_id` in memory;
    - a re-authentication is recognised because Home Assistant lists it, with
-     its source, among the flows in progress. If that list cannot be read, or
-     the flow is not in it, `ha_continue_config_entry_flow` sends the step as
-     in 1.1.2, without a token.
+     its source, among the flows in progress;
+   - `ha_continue_config_entry_flow` only continues a flow that
+     `ha_start_config_entry_flow` opened in the same Hermes session (also
+     kept in memory, for an hour since its last use) or that Home Assistant
+     lists among the flows in progress. Any other `flow_id` (a flow opened
+     before Hermes restarted or from the Home Assistant UI, or a reconfigure)
+     is refused without sending anything, and so is every flow while the
+     list of flows in progress cannot be read.
 
-   Both are accepted residual risks; the client already holds administrator
-   capability over Home Assistant (items 1 and 2).
+   The cost: after Hermes restarts, a flow that was half-way has to be
+   started again.
 
 ## Deployment recommendations
 

@@ -21,9 +21,13 @@ _Pendiente: la añade la sub-feature que lo implemente._
     espera configuración (también los flujos de reautenticación), con
     `ignorable` y los datos del descubrimiento redactados. Un descubierto se
     configura con `ha_continue_config_entry_flow`, como cualquier flujo.
-  - `ha_ignore_discovery` — lo ignora como el botón «Ignorar» de la interfaz;
-    se deshace borrando la entrada `ignore` con `ha_delete_config_entry`. Sin
-    confirmación.
+  - `ha_ignore_discovery` — lo ignora como el botón «Ignorar» de la interfaz:
+    Home Assistant crea una entrada `ignore` y deja de ofrecer ese
+    descubrimiento; se deshace borrando esa entrada con
+    `ha_delete_config_entry`. Sin confirmación. Solo flujos de
+    descubrimiento: un `reauth`, `reconfigure`, `user` o `import` se rechaza,
+    porque Home Assistant sustituiría por la ignorada la entrada real con el
+    mismo identificador y la borraría con sus dispositivos y entidades.
   - `ha_list_config_flow_domains` — el catálogo de dominios que se configuran
     por flujo (filtrable por `device`, `helper`, `hub` o `service`), incluidas
     las integraciones personalizadas instaladas.
@@ -31,7 +35,7 @@ _Pendiente: la añade la sub-feature que lo implemente._
     Desactivar el sondeo o las entidades nuevas pide confirmación, con una
     vista previa que dice si Home Assistant recarga la integración y qué deja
     de actualizarse; renombrar y volver a activarlas, no. Solo envía lo que
-    cambia.
+    cambia. El título sale redactado, en la vista previa y en la respuesta.
 - **`ha_list_configured_domains`**: su descripción ya no dice que no existe
   la lista de dominios configurables; remite a `ha_list_config_flow_domains`.
   Nombre, argumentos y anotaciones, sin cambios.
@@ -64,12 +68,13 @@ _Pendiente: la añade la sub-feature que lo implemente._
   integración al terminar. Hermes recuerda los reconfigure que abre (en
   memoria; tras una hora sin usarse caducan y los aborta al abrir o
   continuar otro) y
-  `ha_continue_config_entry_flow` los rechaza y remite a la tool dedicada;
-  con cualquier otro flujo se comporta como antes. Ninguna otra vía de Hermes
+  `ha_continue_config_entry_flow` los rechaza y remite a la tool dedicada.
+  Ninguna otra vía de Hermes
   abre un reconfigure: `ha_start_config_entry_flow` solo manda el dominio, no
   hay comando WebSocket que abra flujos y el proxy REST de Core del
   Supervisor está cerrado. Tras reiniciar Hermes, un reconfigure abierto antes
-  ya no se reconoce (Home Assistant no los lista).
+  ya no se reconoce (Home Assistant no los lista) y no se puede continuar por
+  ninguna vía: hay que abrir otro.
 - Los flujos de subentry y de reconfigure devuelven tapados los valores
   sugeridos de los campos de contraseña, y rechazan `***REDACTED***` en
   `user_input` (se guardaría tal cual).
@@ -85,11 +90,20 @@ _Pendiente: la añade la sub-feature que lo implemente._
   valer) se siguen con `ha_continue_config_entry_flow`, pero ahora cada paso
   pide confirmación, con una vista previa de los campos y los secretos
   tapados, porque cambian credenciales. Hermes lo sabe porque Home Assistant
-  los lista entre los flujos en curso; si un flujo no sale ahí, se envía como
-  antes. Por eso esa tool gana el argumento opcional `confirmation_token` y
-  se anuncia destructiva: son los dos únicos cambios de una tool de la 1.1.2
-  en esta sección. `SECURITY.md` documenta los límites conocidos (reconfigure
-  tras reiniciar Hermes y `reauth` que no sale en la lista).
+  los lista entre los flujos en curso. Por eso esa tool gana el argumento
+  opcional `confirmation_token` y se anuncia destructiva.
+- **Cambio de comportamiento de `ha_continue_config_entry_flow`**: solo
+  continúa los flujos que abrió `ha_start_config_entry_flow` en la misma
+  sesión de Hermes (sin usar más de una hora; Hermes los recuerda en memoria)
+  y los que Home Assistant lista como descubiertos o de reautenticación.
+  Cualquier otro, por ejemplo un flujo abierto antes de reiniciar Hermes o
+  desde la interfaz de Home Assistant, o un reconfigure, se rechaza con
+  `unknown_flow` sin enviar nada, y también si Hermes no puede leer la lista
+  de flujos en curso: hay que abrirlo de nuevo. En la 1.1.2 se enviaba sin
+  confirmación. Abrir y continuar un flujo en la misma sesión sigue igual que
+  en la 1.1.2. Con el token y la anotación, son los tres cambios de una tool
+  de la 1.1.2 en esta sección; su esquema no cambia más. `SECURITY.md` lo
+  explica.
 - **Familia nueva `repair_flows`** (tramo C, desactivable), con cuatro tools:
   - `ha_get_repair` — un aviso de Repairs con su texto entero y sus datos
     internos, redactados (si no caben, sus claves y su tamaño).

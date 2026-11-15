@@ -5,8 +5,8 @@ Un flujo `reauth` cambia las credenciales de una entrada, así que cada paso
 que se envía pide token (principio IV), con vista previa de los campos y los
 secretos tapados. HA SÍ lista los `reauth` en `config_entries/flow/progress`
 (al contrario que los `reconfigure`): la tool mira ahí el `source` antes de
-enviar. Si el flujo no aparece o no se puede saber su `source`, sigue como en
-la 1.1.2 (riesgo aceptado por el supervisor).
+enviar. Desde T048, si el flujo no aparece (y no lo abrió Hermes) o no se
+puede leer `flow/progress`, se rechaza con `unknown_flow` sin enviar nada.
 
 Home Assistant se simula con un `ws_send` y un `_request_json` falsos.
 Centinelas de secreto que no deben salir en ninguna respuesta, log ni fichero
@@ -31,7 +31,7 @@ from structlog.testing import capture_logs
 import hermes.security as security
 import hermes.tools.config_entry_flows as mod
 from hermes.ha import HAConnectionError
-from hermes.tools import _reconfigure
+from hermes.tools import _flujos_propios, _reconfigure
 from tests._ha_fixture import make_ready_client
 
 _CENTINELA = "centinela-016"
@@ -237,23 +237,54 @@ class TestOtrosFlujosComoEnLa112(_Base):
         self.assertEqual((r["type"], r["status"]), ("create_entry", "ok"))
         self.assertEqual(r["result"], {"entry_id": "nueva"})
 
-    async def test_flujo_que_no_esta_en_progress(self) -> None:
-        # Un flujo `user` (abierto con ha_start_config_entry_flow) no sale en
-        # flow/progress: como en la 1.1.2.
+    async def test_flujo_propio_sin_leer_progress(self) -> None:
+        # Un flujo `user` que abrió Hermes (ha_start_config_entry_flow) no
+        # sale en flow/progress: se envía como en la 1.1.2, sin leer nada más.
+        _flujos_propios.registrar("flujo-x")
         r = await self.llamar(flow_id="flujo-x", user_input={"a": 1})
         self.assertEqual(self.fake.posts(), [("POST", f"{_RUTA}/flujo-x", {"a": 1})])
+        self.assertEqual(self.fake.ws, [])
         self.assertEqual(r["step_id"], "user")
 
-    async def test_si_no_se_puede_leer_progress_como_en_la_112(self) -> None:
+
+class TestFlujoDesconocidoRechazado(_Base):
+    """T048 (decisión del supervisor, fail-closed): la vía general no continúa
+    un flujo que ni abrió Hermes ni HA lista en flow/progress.
+
+    Control negativo comprobado: con el código de antes (enviar si no está en
+    flow/progress o no se puede leer) caen los 4 tests de esta clase.
+    """
+
+    async def test_flujo_que_no_esta_en_progress(self) -> None:
+        # Un reconfigure abierto antes de reiniciar Hermes, o un flujo de la
+        # interfaz de HA: HA no los lista.
+        r = await self.llamar(flow_id="flujo-x", user_input={"a": 1})
+        self.assertEqual((r["error"], r["reason"], r["flow_id"]),
+                         ("unknown_flow", "not_opened_by_hermes", "flujo-x"))
+        self.assertEqual(self.fake.posts(), [])
+        self.assertEqual(self.fake.rest, [])
+        self.assertIn("ha_start_reconfigure_flow", r["detail"])
+        self.assertIn("ha_start_config_entry_flow", r["detail"])
+        self.assertNotIn("ha_continue_config_entry_flow", r["detail"])
+
+    async def test_token_no_lo_desbloquea(self) -> None:
+        r = await self.llamar(flow_id="flujo-x", user_input={"a": 1}, token="cualquiera")
+        self.assertEqual(r["error"], "unknown_flow")
+        self.assertEqual(self.fake.rest, [])
+
+    async def test_si_no_se_puede_leer_progress(self) -> None:
         self.fake.error_progreso = HAConnectionError("offline")
         r = await self.llamar(flow_id="flujo-a", user_input={"usuario": "b"})
-        self.assertEqual(len(self.fake.posts()), 1)
-        self.assertEqual(r["type"], "abort")
+        self.assertEqual((r["error"], r["reason"]),
+                         ("unknown_flow", "flow_progress_unavailable"))
+        self.assertEqual(self.fake.rest, [])
 
-    async def test_progress_raro_como_en_la_112(self) -> None:
+    async def test_progress_raro(self) -> None:
         self.fake.progreso = {"no": "lista"}
-        await self.llamar(flow_id="flujo-a", user_input={"usuario": "b"})
-        self.assertEqual(len(self.fake.posts()), 1)
+        r = await self.llamar(flow_id="flujo-a", user_input={"usuario": "b"})
+        self.assertEqual((r["error"], r["reason"]),
+                         ("unknown_flow", "flow_progress_unavailable"))
+        self.assertEqual(self.fake.rest, [])
 
     async def test_flow_id_invalido_sin_leer_nada(self) -> None:
         r = await self.llamar(flow_id="../x", user_input={})

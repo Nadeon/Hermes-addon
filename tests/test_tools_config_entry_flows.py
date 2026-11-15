@@ -8,6 +8,7 @@ import unittest
 from aiohttp import ClientSession
 
 import hermes.tools.config_entry_flows as flows_mod
+from hermes.tools import _flujos_propios
 from tests._ha_fixture import make_ready_client
 
 
@@ -204,6 +205,12 @@ class TestStartConfigEntryFlow(unittest.IsolatedAsyncioTestCase):
 class TestContinueConfigEntryFlow(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.session = ClientSession()
+        # T048: desde la 1.2.0 la tool solo continúa los flujos que abrió esta
+        # instancia de Hermes (o los que HA lista en flow/progress). Estos
+        # tests son el camino de la 1.1.2: el flujo lo abrió
+        # ha_start_config_entry_flow (ver TestAbrirYContinuarComoEnLa112).
+        for flow_id in ("flow1", "f1"):
+            _flujos_propios.registrar(flow_id)
 
     async def asyncTearDown(self) -> None:
         await self.session.close()

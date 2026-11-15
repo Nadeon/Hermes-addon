@@ -347,7 +347,10 @@ hace falta, `ha_get_trace` con su `run_id`.
   `ha_continue_options_flow`.
 
 Los flujos `external` (OAuth de la integración) y `progress` NO son
-automatizables: Hermes los aborta y lo indica. Para deshabilitar de forma
+automatizables: Hermes los aborta y lo indica. `ha_continue_config_entry_flow`
+solo continúa los flujos que abrió `ha_start_config_entry_flow` en esta
+sesión de Hermes y los descubiertos o de reautenticación que lista HA; con
+otro responde `unknown_flow` sin enviar nada (ábrelo de nuevo). Para deshabilitar de forma
 reversible usa `disable`, no `delete`. Ver el flujo completo en
 `hermes_guide("workflows")`.
 
@@ -382,7 +385,15 @@ DESCUBIERTOS (lo que HA ha encontrado solo y espera configuración)
   una vista previa (entrada, paso, campos con los secretos tapados, efecto) y
   un `confirmation_token`; repite la misma llamada con el token. Enséñale la
   vista previa al usuario. Hermes lo sabe porque HA lista los `reauth` en los
-  descubiertos; si un flujo no sale ahí, se envía como cualquier otro.
+  descubiertos.
+- QUÉ FLUJOS CONTINÚA `ha_continue_config_entry_flow`: los que abriste con
+  `ha_start_config_entry_flow` en esta sesión de Hermes (sin usar más de una
+  hora) y los que HA lista en los descubiertos (descubrimientos y
+  `reauth`). Cualquier otro (`unknown_flow`): uno abierto antes de reiniciar
+  Hermes o desde la interfaz de HA, o un reconfigure. No se envía nada;
+  ábrelo de nuevo (`ha_start_config_entry_flow` o
+  `ha_start_reconfigure_flow`) y aborta el viejo con
+  `ha_abort_config_entry_flow` si sigue abierto.
 - Ignorar uno: `ha_ignore_discovery(flow_id, title=…)`. Solo si
   `ignorable: true`: un flujo de DESCUBRIMIENTO (zeroconf, ssdp, dhcp,
   bluetooth, descubrimiento de la integración…) con unique ID. HA aborta el
@@ -452,12 +463,10 @@ RECONFIGURE DE UNA ENTRADA (el «Reconfigurar» de la interfaz)
   una hora caduca: Hermes lo aborta la próxima vez que se abre o se continúa
   un reconfigure. Tras reiniciar Hermes no se reconocen los de antes: abre
   otro.
-- Límite conocido: Hermes reconoce un reconfigure solo por su registro en
-  memoria (HA no los lista en ningún comando). Tras reiniciar Hermes el
-  registro está vacío, así que un reconfigure abierto antes del reinicio, o
-  desde la interfaz de HA, pasaría por `ha_continue_config_entry_flow` sin
-  token si se conociera su `flow_id` (es aleatorio y HA no lo publica). No lo
-  hagas: abre uno nuevo con `ha_start_reconfigure_flow`.
+- Tras reiniciar Hermes no se reconoce un reconfigure abierto antes (ni uno
+  abierto desde la interfaz de HA): `ha_continue_reconfigure_flow` responde
+  `not_a_reconfigure_flow` y `ha_continue_config_entry_flow`, `unknown_flow`;
+  ninguna lo envía. Abre uno nuevo con `ha_start_reconfigure_flow`.
 - Los valores sugeridos de los campos de contraseña salen tapados (también
   en los flujos de subentry). El valor tapado no se puede reenviar: Hermes
   rechaza `***REDACTED***` en `user_input`. Si el usuario no quiere cambiar
