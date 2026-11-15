@@ -211,6 +211,43 @@ asistentes, en dos familias nuevas que se pueden desactivar.
 - Banco de Core: las cinco, contra HA real, con el lector independiente, y el
   banco queda como estaba.
 
+Tramo b: los usuarios, en su propia familia (que se puede desactivar).
+
+- **`users`** (CAP-056):
+  - `ha_list_users`: los usuarios con su papel (`is_owner`, `is_admin`,
+    `is_active`, grupos, `local_only`), el tipo de sus credenciales y nada
+    más, `is_hermes` (el usuario por el que entra Hermes; en un add-on, el de
+    sistema del Supervisor) y los administradores activos. Los de sistema,
+    solo con `include_system` (el de Hermes sale siempre).
+  - `ha_create_user`: crea un usuario SIN credenciales, en dos pasos. La
+    vista previa avisa de que no podrá iniciar sesión hasta que se le añadan
+    usuario y contraseña, y de que Hermes no ha comprobado que la interfaz
+    de Home Assistant permita añadírselos a un usuario ya creado.
+  - `ha_update_user` (nombre, activo, grupo y solo red local) y
+    `ha_delete_user`, en dos pasos, con el antes y el después, si da o quita
+    el grupo de administrador, si desactiva o restringe al usuario, los
+    administradores activos antes y después y, al borrar, las personas
+    vinculadas.
+  - Protecciones, en la vista previa y otra vez al confirmar, releyendo los
+    usuarios de HA antes de llamar a nada: el propietario, el usuario de
+    Hermes y los de sistema no se editan ni se borran (`protected_user`, con
+    todos los motivos en `reasons`), y nada deja la casa sin administrador
+    activo (`last_admin`). Si Hermes no puede saber con qué usuario entra, no
+    escribe (`preview_unavailable`).
+  - Ninguna acepta ni devuelve contraseñas, nombres de acceso nuevos ni
+    tokens: lo que devuelve HA se copia de una lista cerrada de campos. El log
+    solo lleva el nombre de la tool y el `user_id`.
+- Las sesiones de los usuarios no se pueden listar: `auth/refresh_tokens` solo
+  devuelve las del usuario de la propia conexión (el de Hermes). Pasa a
+  `deny` revisado en la tabla, con su motivo. Las contraseñas, los nombres de
+  acceso y las sesiones (`config/auth_provider/*`, `auth/*`) siguen denegados.
+- Los cuatro `config/auth/*` pasan a `dedicated`: las genéricas los rechazan
+  hacia su tool. Tema `users` en `hermes_guide`.
+- Banco de Core: el ciclo completo de un usuario creado por la tool (crear,
+  renombrar, dar y quitar el grupo de administrador, solo red local,
+  desactivar y borrar) y el rechazo sobre el propietario, comprobados por el
+  lector independiente; el banco queda como estaba.
+
 ### Mejoras de tools existentes
 
 - **Guardar una sola vista de un dashboard**: `ha_save_lovelace_dashboard`

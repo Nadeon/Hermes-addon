@@ -90,8 +90,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B) y las 3 del tramo a de la 021 (núcleo y exposición).
-        self.assertEqual(len(reales), 132)
+        # del tramo B), las 3 del tramo a de la 021 (núcleo y exposición) y
+        # las 3 del tramo b (usuarios).
+        self.assertEqual(len(reales), 135)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()

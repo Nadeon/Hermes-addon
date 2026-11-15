@@ -132,41 +132,74 @@ El b necesita el a integrado (comparte `cobertura_021.py`, el test de
 
 ### Preparación
 
-- [ ] T020 Línea base del tramo (suite) y comprobación de que el tramo a está integrado (`tests/banco/cobertura_021.py`, `test_dedicadas_de_la_021`)
+- [x] T020 Línea base del tramo (suite) y comprobación de que el tramo a está integrado (`tests/banco/cobertura_021.py`, `test_dedicadas_de_la_021`)
 
 ### Tests de las tools (antes del código)
 
-- [ ] T021 [P] [US3] Tests en `tests/test_tools_users.py`, `ha_list_users`: de `config/auth/list` simulado (propietario, usuario de sistema «Supervisor» que es el de Hermes según `auth/current_user`, otro de sistema, un administrador, un usuario normal, uno inactivo con `system-admin`) salen los campos de data-model, `is_admin` (propietario o activo con `system-admin`: el inactivo no cuenta), `credential_types` solo con el tipo, `is_hermes`, `active_admins` (sin los de sistema); sin `include_system` no salen los de sistema salvo el de Hermes; `auth/current_user` falla → `is_hermes: null` y `hermes_user_known: false`; sobre común ordenado por nombre; respuesta sin ninguna clave de credencial aunque HA mande una de más (centinela); log sin nombres ni ids (FR-007, FR-020, FR-021)
-- [ ] T022 [P] [US3] Tests de las protecciones en `tests/test_tools_users.py` (con un `ws_send` que falla si recibe `config/auth/update|delete|create` sin esperarlo): `ha_update_user` y `ha_delete_user` sobre el propietario, el usuario de Hermes y uno de sistema → `protected_user` con `reasons` (todos los que aplican) y sin token; quitar `system-admin` o desactivar al único administrador activo no protegido (escenario sin propietario activo, construido a mano) → `last_admin`; `auth/current_user` falla → `preview_unavailable` en las tres que escriben; las protecciones se vuelven a comprobar al confirmar (el usuario pasa a ser el de Hermes, o a ser el último administrador, entre la vista previa y la confirmación → rechazo sin escritura) (FR-008, SC-005)
-- [ ] T023 [P] [US3] Tests de las escrituras en `tests/test_tools_users.py`: `ha_create_user` (validación de `name` y `group`; vista previa con `credentials: none…`, `grants_admin` con `system-admin`, `same_name`; confirmación con `config/auth/create` y `group_ids=[group]`, respuesta con la forma de la lista); `ha_update_user` (`user_id` sin forma de HA → `invalid_argument`; inexistente → `not_found`; vista previa con `changes`, `grants_admin`, `removes_admin`, `deactivates`, `restricts_remote` y `active_admins` antes/después; `no_changes`; confirmación con solo los campos dados; estado cambiado → nada); `ha_delete_user` (vista previa con `linked_persons` de `person/list`, `irreversible`, `active_admins`; confirmación con `config/auth/delete`); errores de HA (`no_delete_self`, `cannot_deactivate_owner`, `cannot_modify_system_generated`) traducidos y redactados; ninguna firma tiene argumento de contraseña ni de nombre de acceso; el fichero del token (en `CONFIRMATIONS_DIR` de la carpeta de tests) no contiene ningún valor de credencial (no hay ninguno que meter: el test lo fija con un centinela en la respuesta de HA) (FR-009…FR-012, SC-004, SC-006)
+- [x] T021 [P] [US3] Tests en `tests/test_tools_users.py`, `ha_list_users`: de `config/auth/list` simulado (propietario, usuario de sistema «Supervisor» que es el de Hermes según `auth/current_user`, otro de sistema, un administrador, un usuario normal, uno inactivo con `system-admin`) salen los campos de data-model, `is_admin` (propietario o activo con `system-admin`: el inactivo no cuenta), `credential_types` solo con el tipo, `is_hermes`, `active_admins` (sin los de sistema); sin `include_system` no salen los de sistema salvo el de Hermes; `auth/current_user` falla → `is_hermes: null` y `hermes_user_known: false`; sobre común ordenado por nombre; respuesta sin ninguna clave de credencial aunque HA mande una de más (centinela); log sin nombres ni ids (FR-007, FR-020, FR-021)
+- [x] T022 [P] [US3] Tests de las protecciones en `tests/test_tools_users.py` (con un `ws_send` que falla si recibe `config/auth/update|delete|create` sin esperarlo): `ha_update_user` y `ha_delete_user` sobre el propietario, el usuario de Hermes y uno de sistema → `protected_user` con `reasons` (todos los que aplican) y sin token; quitar `system-admin` o desactivar al único administrador activo no protegido (escenario sin propietario activo, construido a mano) → `last_admin`; `auth/current_user` falla → `preview_unavailable` en las tres que escriben; las protecciones se vuelven a comprobar al confirmar (el usuario pasa a ser el de Hermes, o a ser el último administrador, entre la vista previa y la confirmación → rechazo sin escritura) (FR-008, SC-005)
+- [x] T023 [P] [US3] Tests de las escrituras en `tests/test_tools_users.py`: `ha_create_user` (validación de `name` y `group`; vista previa con `credentials: none…`, `grants_admin` con `system-admin`, `same_name`; confirmación con `config/auth/create` y `group_ids=[group]`, respuesta con la forma de la lista); `ha_update_user` (`user_id` sin forma de HA → `invalid_argument`; inexistente → `not_found`; vista previa con `changes`, `grants_admin`, `removes_admin`, `deactivates`, `restricts_remote` y `active_admins` antes/después; `no_changes`; confirmación con solo los campos dados; estado cambiado → nada); `ha_delete_user` (vista previa con `linked_persons` de `person/list`, `irreversible`, `active_admins`; confirmación con `config/auth/delete`); errores de HA (`no_delete_self`, `cannot_deactivate_owner`, `cannot_modify_system_generated`) traducidos y redactados; ninguna firma tiene argumento de contraseña ni de nombre de acceso; el fichero del token (en `CONFIRMATIONS_DIR` de la carpeta de tests) no contiene ningún valor de credencial (no hay ninguno que meter: el test lo fija con un centinela en la respuesta de HA) (FR-009…FR-012, SC-004, SC-006)
 
 ### Implementación
 
-- [ ] T024 [US3] `hermes/src/hermes/tools/users.py` con las cuatro tools según contracts y data-model: lectura de usuarios y de `auth/current_user` (uso interno, comentado: la entrada de la tabla sigue `deny` para la genérica), helper `_protecciones` llamado en la vista previa y al confirmar antes de escribir, `estado=` con el registro del usuario (y la lista de administradores activos), recuento de administradores, `person/list` para la vista previa de borrar, comentarios del porqué (lo que HA ya rechaza y lo que no; R-4 de research). T021…T023 en verde (FR-007…FR-012)
-- [ ] T025 [US6] Tests y luego `tool_families.py` (familia `users`), `tools/__init__.py` (registro), `_annotations.py` (`ha_create_user` y `ha_update_user` en `_DESTRUCTIVE_EXACT` con su porqué) y `_HINTS_NUEVAS_1_2_0` (`ha_list_users` `R-I-`, `ha_create_user` `-D--`, `ha_update_user` y `ha_delete_user` `-DI-`); con `users` desactivada no se registra ninguna (FR-017, FR-019, SC-001)
+- [x] T024 [US3] `hermes/src/hermes/tools/users.py` con las cuatro tools según contracts y data-model: lectura de usuarios y de `auth/current_user` (uso interno, comentado: la entrada de la tabla sigue `deny` para la genérica), helper `_protecciones` llamado en la vista previa y al confirmar antes de escribir, `estado=` con el registro del usuario (y la lista de administradores activos), recuento de administradores, `person/list` para la vista previa de borrar, comentarios del porqué (lo que HA ya rechaza y lo que no; R-4 de research). T021…T023 en verde (FR-007…FR-012)
+- [x] T025 [US6] Tests y luego `tool_families.py` (familia `users`), `tools/__init__.py` (registro), `_annotations.py` (`ha_create_user` y `ha_update_user` en `_DESTRUCTIVE_EXACT` con su porqué) y `_HINTS_NUEVAS_1_2_0` (`ha_list_users` `R-I-`, `ha_create_user` `-D--`, `ha_update_user` y `ha_delete_user` `-DI-`); con `users` desactivada no se registra ninguna (FR-017, FR-019, SC-001)
 
 ### Tabla
 
-- [ ] T026 [P] [US6] Tests en `tests/test_tools_generic_commands.py`: los cuatro `config/auth/*` → `use_dedicated_tool` sin `ws_send`; con `users` desactivada → `family_disabled: true`; `auth/refresh_tokens` y `config/auth_provider/homeassistant/admin_change_password` → rechazo `deny` sin `ws_send` (FR-012, FR-018)
-- [ ] T027 [US6] Tests en `tests/test_command_table.py`: `test_dedicadas_de_la_021` con los cuatro de CAP-056 (familia `users`); `_DENY_TRAS_REVISION` nuevo en el test de la clase A (claves de clase A de vía D que, tras leer el código, quedan `deny` con un motivo que no es «pendiente» y con la spec que lo revisa en el porqué), con `auth/refresh_tokens`; las cinco `config/auth_provider/homeassistant/*` y `auth/delete_refresh_token`, `auth/refresh_token_set_expiry` siguen `deny` (clase D, D-01) (FR-012, FR-018)
-- [ ] T028 [US6] `command_table.py`: los cuatro a `dedicated` y sus claves en `_DEDICADAS_INICIALES`; `auth/refresh_tokens` a `deny` con el motivo de data-model (y comentario del porqué encima: research R-5); regenerar y comprobar que no cambia nada; T026 y T027 en verde (FR-012, FR-018)
+- [x] T026 [P] [US6] Tests en `tests/test_tools_generic_commands.py`: los cuatro `config/auth/*` → `use_dedicated_tool` sin `ws_send`; con `users` desactivada → `family_disabled: true`; `auth/refresh_tokens` y `config/auth_provider/homeassistant/admin_change_password` → rechazo `deny` sin `ws_send` (FR-012, FR-018)
+- [x] T027 [US6] Tests en `tests/test_command_table.py`: `test_dedicadas_de_la_021` con los cuatro de CAP-056 (familia `users`); `_DENY_TRAS_REVISION` nuevo en el test de la clase A (claves de clase A de vía D que, tras leer el código, quedan `deny` con un motivo que no es «pendiente» y con la spec que lo revisa en el porqué), con `auth/refresh_tokens`; las cinco `config/auth_provider/homeassistant/*` y `auth/delete_refresh_token`, `auth/refresh_token_set_expiry` siguen `deny` (clase D, D-01) (FR-012, FR-018)
+- [x] T028 [US6] `command_table.py`: los cuatro a `dedicated` y sus claves en `_DEDICADAS_INICIALES`; `auth/refresh_tokens` a `deny` con el motivo de data-model (y comentario del porqué encima: research R-5); regenerar y comprobar que no cambia nada; T026 y T027 en verde (FR-012, FR-018)
 
 ### Guía
 
-- [ ] T029 [US3] Tests y luego el tema `users` en `guide.py` (qué hace cada tool, que nada maneja contraseñas ni tokens, que el usuario creado no puede entrar hasta que una persona le dé credenciales en HA, las protecciones, que las sesiones no se pueden listar, que todo confirma); alias `user`, `accounts`; índice y docstring (FR-022)
+- [x] T029 [US3] Tests y luego el tema `users` en `guide.py` (qué hace cada tool, que nada maneja contraseñas ni tokens, que el usuario creado no puede entrar hasta que una persona le dé credenciales en HA, las protecciones, que las sesiones no se pueden listar, que todo confirma); alias `user`, `accounts`; índice y docstring (FR-022)
 
 ### Banco de Core
 
-- [ ] T030 [US3] `tests/banco/test_banco_usuarios.py` (lector con `config/auth/list` directo a Core): (a) `ha_list_users` coincide con el lector y marca `is_hermes` y `is_owner` en el propietario del onboarding; (b) `ha_create_user` sin token → el lector no ve usuario nuevo; con token → lo ve sin credenciales y en `system-users`; (c) `ha_update_user`: renombrar, dar `system-admin` (vista previa con `grants_admin` y `active_admins` 1→2), quitarlo, `local_only`, desactivar; cada paso comprobado por el lector; (d) `ha_update_user` y `ha_delete_user` sobre el propietario (que en el banco es también el usuario de Hermes) → `protected_user` y el lector ve al propietario igual; (e) `ha_delete_user` del creado → el lector ya no lo ve; limpieza en `finally` por el lector si un paso falla; (f) `ha_call_ws_command("config/auth/delete", …)` → `use_dedicated_tool`. Hallazgos como `xfail` estricto (FR-023, SC-003, SC-005)
-- [ ] T031 [US6] `cobertura_021.py`: `ha_create_user`, `ha_update_user`, `ha_delete_user` en `PROBADAS_021`; `ha_list_users` en `LECTURAS_021` (FR-023)
+- [x] T030 [US3] `tests/banco/test_banco_usuarios.py` (lector con `config/auth/list` directo a Core): (a) `ha_list_users` coincide con el lector y marca `is_hermes` y `is_owner` en el propietario del onboarding; (b) `ha_create_user` sin token → el lector no ve usuario nuevo; con token → lo ve sin credenciales y en `system-users`; (c) `ha_update_user`: renombrar, dar `system-admin` (vista previa con `grants_admin` y `active_admins` 1→2), quitarlo, `local_only`, desactivar; cada paso comprobado por el lector; (d) `ha_update_user` y `ha_delete_user` sobre el propietario (que en el banco es también el usuario de Hermes) → `protected_user` y el lector ve al propietario igual; (e) `ha_delete_user` del creado → el lector ya no lo ve; limpieza en `finally` por el lector si un paso falla; (f) `ha_call_ws_command("config/auth/delete", …)` → `use_dedicated_tool`. Hallazgos como `xfail` estricto (FR-023, SC-003, SC-005)
+- [x] T031 [US6] `cobertura_021.py`: `ha_create_user`, `ha_update_user`, `ha_delete_user` en `PROBADAS_021`; `ha_list_users` en `LECTURAS_021` (FR-023)
 
 ### Inventarios, documentación y cierre
 
-- [ ] T032 [US6] Matriz de la 014 (tres filas `banco de Core | ok`) e inventario de argumentos atados (tres entradas) (FR-024)
-- [ ] T033 [P] [US3] Test de seguridad en `tests/test_tools_users.py`: por AST, ninguna tool de `users.py` tiene un argumento cuyo nombre contenga `password`, `secret` o `token` salvo `confirmation_token`; y, con `capture_logs`, una sesión completa (lista, crear, actualizar, borrar) no registra ningún nombre, id ni `username` (FR-012, FR-021, SC-006)
-- [ ] T034 Documentación parcial: recuento (+4) y fila de `users` en README, README.es y DOCS; sección «Sistema» del CHANGELOG con usuarios, las protecciones y que las sesiones no se pueden listar (FR-025)
-- [ ] T035 Control negativo del tramo b, anotando recuentos: (a) quitar la comprobación del usuario de Hermes → caen los de `protected_user` con `hermes` (unitarios y banco); (b) no recomprobar las protecciones al confirmar → cae el de T022 de cambio entre pasos; (c) contar inactivos como administradores → caen `active_admins` y `last_admin`; (d) `auth/current_user` fallido tratado como «no es Hermes» → cae `preview_unavailable`; (e) devolver `credentials` tal cual de HA → cae el centinela; (f) `auth/refresh_tokens` sin entrada en `_DENY_TRAS_REVISION` → cae el test de la clase A; (g) quitar `ha_delete_user` de `PROBADAS_021` → cae el invariante. Restaurar y comprobar verde
-- [ ] T036 Cierre: suite completa (los 6 conocidos), revisión del diff (principio VIII), commit con línea base, regeneración de T028 y recuentos de T035
+- [x] T032 [US6] Matriz de la 014 (tres filas `banco de Core | ok`) e inventario de argumentos atados (tres entradas) (FR-024)
+- [x] T033 [P] [US3] Test de seguridad en `tests/test_tools_users.py`: por AST, ninguna tool de `users.py` tiene un argumento cuyo nombre contenga `password`, `secret` o `token` salvo `confirmation_token`; y, con `capture_logs`, una sesión completa (lista, crear, actualizar, borrar) no registra ningún nombre, id ni `username` (FR-012, FR-021, SC-006)
+- [x] T034 Documentación parcial: recuento (+4) y fila de `users` en README, README.es y DOCS; sección «Sistema» del CHANGELOG con usuarios, las protecciones y que las sesiones no se pueden listar (FR-025)
+- [x] T035 Control negativo del tramo b, anotando recuentos: (a) quitar la comprobación del usuario de Hermes → caen los de `protected_user` con `hermes` (unitarios y banco); (b) no recomprobar las protecciones al confirmar → cae el de T022 de cambio entre pasos; (c) contar inactivos como administradores → caen `active_admins` y `last_admin`; (d) `auth/current_user` fallido tratado como «no es Hermes» → cae `preview_unavailable`; (e) devolver `credentials` tal cual de HA → cae el centinela; (f) `auth/refresh_tokens` sin entrada en `_DENY_TRAS_REVISION` → cae el test de la clase A; (g) quitar `ha_delete_user` de `PROBADAS_021` → cae el invariante. Restaurar y comprobar verde
+- [x] T036 Cierre: suite completa (los 6 conocidos), revisión del diff (principio VIII), commit con línea base, regeneración de T028 y recuentos de T035
+
+### Desviaciones y notas del tramo b
+
+- **Log con `user_id`** (decisión del supervisor): las escrituras registran el
+  nombre de la tool, el paso, el resultado y el `user_id` (para auditar a quién
+  se tocó); nunca nombres ni nombres de acceso. R-11 y T033 decían «ni ids»;
+  T033 comprueba ahora que ningún id sale bajo otra clave que `user_id` y que
+  la lista no registra ninguno.
+- Usuarios protegidos: cualquier escritura sobre el propietario, el usuario
+  de Hermes o uno de sistema es `protected_user` (FR-008), también renombrar o
+  `local_only`. `last_admin` solo cuando el cambio le quita a la casa su
+  último administrador activo (quitar el grupo, desactivar, borrar); renombrar
+  al último administrador sí se puede.
+- `ha_create_user` también lee `auth/current_user` y falla cerrado
+  (`preview_unavailable`), como las otras dos; ata al token los ids con el
+  mismo nombre (`same_name`).
+- `linked_persons` va como `[{id, name}]` de `person/list` (almacenamiento y
+  YAML), no como `entity_id`: `person/list` no da el `entity_id` y deducirlo
+  podría mentir si se renombró. Sin la integración `person`, lista vacía.
+- Errores de HA conocidos (`no_delete_self`, `cannot_*`, `not_found`) llevan
+  además `explanation` en inglés; `detail` sigue siendo el texto de HA
+  redactado.
+- D-2 / D-27 (credenciales): Core 2026.11 tiene
+  `config/auth_provider/homeassistant/create`, que añade usuario y contraseña
+  a un usuario existente que no los tenga (`credentials_exist` si ya los
+  tiene), pero no hay copia de la interfaz para comprobar que ofrezca hacerlo
+  con un usuario creado sin ellos. La vista previa lo dice tal cual: la API
+  existe, Hermes no la usa y no ha comprobado la interfaz; si no lo ofrece,
+  borrar y crear desde Ajustes → Personas. Admitir credenciales no se
+  implementa (D-27, para el final).
+- Desde cero, el generador deja `auth/refresh_tokens` como `deny`
+  «pendiente (spec 021)» (no está en `_DEDICADAS_INICIALES`): revisión manual,
+  como `config/core/detect` en el tramo a. Las cuatro `dedicated`, iguales.
 
 ---
 

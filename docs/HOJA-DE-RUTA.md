@@ -453,7 +453,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 018 | Mejoras de tools existentes | 019, 020, 023 | hecha: guardado por vista, `ha_call_service_response` con token para la denylist (y la denylist también en la capa de cliente) y sobre común de las listas nuevas con su test transversal; las pruebas de banco (guardado por vista y `conversation.process`) corren en el job del banco de Core |
 | 019 | Montajes y ajustes de backup | 083 | pendiente |
 | 020 | Estadísticas y energía | 050, 054 | pendiente |
-| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | en curso: tramo a (núcleo y exposición a asistentes: `ha_get_core_config`, `ha_update_core_config`, `ha_list_exposed_entities`, `ha_set_entity_exposure`, `ha_set_expose_new_entities`) hecho y probado en el banco de Core; faltan usuarios (b) y red y HTTP (c) |
+| 021 | Configuración del sistema | 053, 055, 056, 069, 074 | en curso: tramo a (núcleo y exposición a asistentes: `ha_get_core_config`, `ha_update_core_config`, `ha_list_exposed_entities`, `ha_set_entity_exposure`, `ha_set_expose_new_entities`) hecho y probado en el banco de Core; tramo b (usuarios: `ha_list_users`, `ha_create_user`, `ha_update_user`, `ha_delete_user`, con protecciones del propietario, el usuario de Hermes, los de sistema y el último administrador) hecho y probado en el banco de Core; falta red y HTTP (c) |
 | 022 | Control de Core y del Supervisor | 084, 087 (escritura), 091, 092, 094 | pendiente |
 | 023 | Assist y conversación | 060–063 | pendiente |
 | 024 | Menores de Core | 059, 065–067, 070–073 | pendiente |
@@ -668,6 +668,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_create_or_update_zone` | banco de Core | ok | |
 | `ha_create_person` | banco de Core | ok | |
 | `ha_create_scene_from_current` | banco de Core | ok | |
+| `ha_create_user` | banco de Core | ok | |
 | `ha_cycle_input_select` | banco de Core | ok | |
 | `ha_decrement_counter` | banco de Core | ok | |
 | `ha_decrement_input_number` | banco de Core | ok | |
@@ -691,6 +692,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_delete_schedule` | banco de Core | ok | |
 | `ha_delete_script` | banco de Core | ok | |
 | `ha_delete_timer` | banco de Core | ok | |
+| `ha_delete_user` | banco de Core | ok | |
 | `ha_delete_zone` | banco de Core | ok | |
 | `ha_disable_automation` | banco de Core | ok | |
 | `ha_disable_config_entry` | banco de Core | ok | |
@@ -743,6 +745,7 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_update_lovelace_dashboard_metadata` | banco de Core | ok | |
 | `ha_update_lovelace_resource` | banco de Core | ok | |
 | `ha_update_person` | banco de Core | ok | |
+| `ha_update_user` | banco de Core | ok | |
 | `sv_call_api` | VM | pendiente | |
 | `sv_check_core_config` | VM | pendiente | |
 | `sv_create_backup_full` | VM | pendiente | |
