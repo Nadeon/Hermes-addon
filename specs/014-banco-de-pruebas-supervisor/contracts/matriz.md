@@ -18,7 +18,8 @@ simuladores de la suite normal corren siempre para todas. Después:
 |---|---|---|---|
 | `fs_delete_file` | VM | pendiente | |
 | `ha_create_or_update_input_boolean` | banco de Core | ok | |
-| `ha_reload_counters` | banco de Core | falla | `counter.reload` no existe en Core 2026.11.1 (spec 033) |
+| `ha_marketplace_uninstall` | instalación real | pendiente | no ejecutable en el banco: sin internet no hay catálogo |
+| `ha_reload_counters` | banco de Core | no ejecutable | `counter.reload` no existe en Core 2026.11.1: responde `not_supported` sin llamar a HA (spec 033) |
 | `sv_reboot_host` | VM | pendiente | instantánea antes |
 <!-- matriz-pruebas:fin -->
 ```
@@ -26,8 +27,20 @@ simuladores de la suite normal corren siempre para todas. Después:
 - Filas en orden alfabético de tool (diffs de una línea).
 - Una fila por tool; la celda Tool lleva exactamente un nombre entre comillas
   invertidas.
-- Celdas Entorno y Resultado en minúsculas, con los valores exactos de
-  [data-model.md](../data-model.md).
+- Celdas Entorno y Resultado con los valores exactos de
+  [data-model.md](../data-model.md) (los de `ENTORNOS` y `RESULTADOS` de
+  `tests/test_matriz_pruebas.py`):
+  - Entorno: `banco de Core`, `VM` o `instalación real`.
+  - Resultado: `ok`, `falla`, `pendiente` o `no ejecutable`. `no ejecutable`
+    (desde la integración de la 033) solo vale con `banco de Core`, para una
+    tool de algún `NO_EJECUTABLES*` del banco y con el motivo en la nota: es
+    una tool que no hace nada que se pueda comprobar en ningún entorno, como
+    `ha_reload_counters`. Una tool que no se puede probar en el banco pero sí
+    fuera (las del Marketplace de la 026) va a `instalación real` o `VM` con
+    `pendiente`.
+  - En la versión inicial de este contrato el ejemplo era
+    `ha_reload_counters` con `falla`, el hallazgo de la 010; la 033 lo
+    arregló y ya no es un resultado válido para esa tool.
 - La nota no puede contener `|`.
 
 ## Test `tests/test_matriz_pruebas.py` (suite normal)
@@ -43,7 +56,7 @@ Sin HA, Docker ni red; corre en Windows y en Linux.
 | `test_sv_y_fs_en_la_vm` | toda `sv_*`/`fs_*` de la matriz tiene `VM` | las que no |
 | `test_coherente_con_los_inventarios` | reglas de data-model (probadas, fallan, no ejecutables, fuera del banco) | tool, regla y módulo del inventario |
 | `test_ok_en_banco_solo_si_probada` | `banco de Core`+`ok` ⇒ en algún `PROBADAS*` | las que no |
-| `test_notas_obligatorias` | `falla` con nota; `ok` en `VM`/`instalación real` con versión (`\d+\.\d+\.\d+`) y fecha (`AAAA-MM-DD`) | las que no |
+| `test_notas_obligatorias` | `falla` y `no ejecutable` con nota; `ok` en `VM`/`instalación real` con versión (`\d+\.\d+\.\d+`) y fecha (`AAAA-MM-DD`) | las que no |
 | `test_inventarios_descubiertos` | al menos `tests/banco/cobertura.py`; tipos según la convención | el módulo y la constante |
 | `test_hoja_de_ruta_enlaza_el_procedimiento` | enlace a `docs/BANCO-SUPERVISOR.md` y el fichero existe | — |
 | `test_casillas_manuales` | en «Pruebas manuales pendientes», una casilla (`- [ ]` o `- [x]`) que contiene cada clave de la lista de abajo, y la de `hassio_role: manager` sin `bashio::config` | la clave que falta |
