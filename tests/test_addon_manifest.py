@@ -284,18 +284,15 @@ if __name__ == "__main__":
 
 CHANGELOG = Path(__file__).resolve().parent.parent / "hermes" / "CHANGELOG.md"
 
-# Secciones de la entrada de la 1.2.0, en este orden (FR-012 de la 009, que
-# toma los bloques de la spec paraguas 008). Cada sub-feature del programa
-# escribe en la suya; si una falta o cambia de sitio, alguna se queda sin hueco.
-SECCIONES_1_2_0 = (
-    "### Diagnóstico",
-    "### Integraciones",
-    "### Automatización",
-    "### Supervisor",
-    "### Sistema",
-    "### Política y genéricas",
-    "### Banco de pruebas",
-    "### Correcciones",
+# Secciones de la entrada que se publica (la de `__version__`), en este orden.
+# Hasta la 1.2.0 eran las del programa de cobertura total (FR-012 de la 009,
+# los bloques de la spec paraguas 008). La 1.2.1 (spec 034, FR-034) abre otra
+# entrada con sus propias secciones: comprobar las de la 1.2.0 contra ella
+# fallaría siempre, y la 1.2.0 ya está publicada y no se toca.
+SECCIONES_1_2_1 = (
+    "### Carpetas /addons y /share",
+    "### Privilegios al instalar y reconstruir",
+    "### Pruebas",
 )
 
 
@@ -393,14 +390,14 @@ class TestEntradaDelChangelog(unittest.TestCase):
         )
 
     def test_la_entrada_tiene_las_secciones_del_programa(self) -> None:
-        # Las secciones son las del programa de cobertura total (1.2.0). La
-        # versión siguiente que abra otra entrada tendrá que revisar esta lista.
+        # Las secciones de la 1.2.1 (spec 034). La versión siguiente que abra
+        # otra entrada tendrá que revisar esta lista.
         entrada = self._entrada()
         cabeceras = re.findall(r"^### .*$", entrada, re.MULTILINE)
-        presentes = [c.strip() for c in cabeceras if c.strip() in SECCIONES_1_2_0]
+        presentes = [c.strip() for c in cabeceras if c.strip() in SECCIONES_1_2_1]
         self.assertEqual(
             presentes,
-            list(SECCIONES_1_2_0),
+            list(SECCIONES_1_2_1),
             "faltan secciones o no están en el orden del programa",
         )
 

@@ -1,5 +1,146 @@
 # Changelog
 
+## [1.2.1] — <fecha de publicación>
+
+Claude puede trabajar ahora con dos carpetas más, `/addons` (el código de las
+apps locales) y `/share` (la carpeta compartida entre apps), y la vista previa
+de instalar o reconstruir una app enseña los privilegios que pide. Es
+compatible con la 1.2.0: ninguna tool cambia de nombre y ningún argumento
+existente cambia ni pasa a ser obligatorio (spec 034).
+
+### Carpetas /addons y /share
+
+- **Siete tools nuevas en la familia nueva `addons_share`** (activa por
+  defecto; se apaga con `tool_families_disabled`). De lectura:
+  `fs_list_dir_in_folder` (hasta 500 entradas y 3 niveles; los symlinks se
+  listan y no se siguen), `fs_stat_in_folder` (en `/addons`, si una carpeta
+  es una app local, su `local_<slug>` y si está instalada) y
+  `fs_read_file_in_folder` (texto por líneas, hasta 5000 por llamada, sin
+  cargar el fichero entero; de un binario, solo los metadatos). Las que
+  modifican, **siempre en dos pasos**: `fs_write_file_in_folder` (crea o
+  sobrescribe un fichero de texto con la misma escritura atómica de
+  `/config`; al confirmar basta con el token), `fs_create_dir_in_folder`,
+  `fs_move_in_folder` (dentro de la misma carpeta) y `fs_delete_in_folder`
+  (una carpeta con contenido solo con `recursive=true`; la vista previa
+  cuenta ficheros, carpetas y bytes, con una muestra de 20 rutas). Hermes
+  pasa de 359 a 366 tools; con `addons_share` apagada, la lista es la de la
+  1.2.0.
+- Todas reciben `folder` (`addons` o `share`) y una ruta relativa a esa
+  carpeta. Las rutas pasan la misma validación que en `/config`: `..`, un
+  symlink que sale de la carpeta o cualquier otra ruta absoluta se rechazan
+  (`traversal`). Borrar o mover un symlink actúa sobre el enlace, nunca sobre
+  su destino.
+- **El token se ata a lo que vio la vista previa**: además de los
+  argumentos, a una huella del objetivo (el SHA-256 del fichero, o la lista
+  de todo lo que hay dentro de la carpeta). Si algo cambia antes de
+  confirmar, la respuesta es `preview_outdated: true` y no se toca nada. Una
+  carpeta en la que otra app está escribiendo no casa nunca: hay que parar
+  antes esa app. Al confirmar se repiten todas las comprobaciones.
+- **No hay backup automático** antes de escribir, mover ni borrar en estas
+  carpetas. Cada vista previa lo dice (`backup: null`, que no se puede
+  deshacer desde Hermes salvo crear una carpeta) y trae la llamada exacta
+  para hacerlo antes: `sv_create_backup_partial(folders='["addons/local"]')`
+  o `sv_create_backup_partial(folders='["share"]')`.
+- **Apps locales instaladas protegidas**: borrar o mover la carpeta de una
+  app local instalada, su `config.*` o una carpeta que la contiene se
+  rechaza sin token (`installed_app`, con la pista de desinstalarla antes
+  con `sv_uninstall_addon`). Si el Supervisor no responde y la ruta contiene
+  un `config.*`, se rechaza (`installed_check_failed`) en vez de suponer; si
+  hay apps locales instaladas sin carpeta reconocible y la ruta contiene un
+  `config.*` ilegible, también (`installed_check_inconclusive`). Escribir
+  dentro de una app instalada se admite con el aviso `inside_installed_app`
+  (el cambio se aplica al reconstruirla); cambiar el `slug` de su
+  `config.*` se rechaza.
+- La raíz de cada carpeta no se borra ni se mueve (`root_protected`), ni un
+  punto de montaje de `/share` o una carpeta que lo contiene
+  (`mount_point`). Un árbol de más de 50 000 entradas o que tarda más de
+  10 s en recorrerse no se previsualiza (`too_large_to_preview`).
+- Toda vista previa que modifica `/addons` avisa de que es el código que el
+  Supervisor construye y ejecuta.
+- Los ficheros con nombre sensible de la lista negra de `/config`
+  (`secrets.yaml`, `*.key`, `*.pem`, `*token*`, `*.db`…) no se leen nunca y
+  los listados los marcan con `is_blacklisted`; se pueden escribir, mover o
+  borrar con token, y ninguna vista previa enseña contenido. El resto se
+  devuelve tal cual, sin redactar, igual que `fs_read_file` en `/config`.
+- El log anota cada llamada (`folder_action`) con la tool, la carpeta, la
+  ruta relativa y el resultado; nunca contenido ni huellas completas.
+- **Montaje nuevo**: Hermes monta `/addons` con escritura. Usa el tipo
+  `addons`, que el Supervisor da por heredado desde la 2026.07, así que **su
+  log avisa al arrancar Hermes de que usa el tipo heredado `addons`** en vez
+  de `local_apps`: es esperado. `local_apps` no se usa porque un Supervisor
+  anterior a la 2026.07 no lo conoce y rechazaría la app entera. Apagar la
+  familia quita las tools; el montaje sigue.
+- Guía: tema nuevo `folders` (alias `share`, `local_apps`, `carpetas`…); los
+  temas `filesystem`, `supervisor` y `app_store` remiten a él, y las
+  instrucciones del servidor dicen que `fs_` es también `/addons` y `/share`
+  solo con la familia activa.
+
+### Privilegios al instalar y reconstruir
+
+- **`sv_install_addon`**: la vista previa enseña los privilegios que pide la
+  app (`privileges`): los campos de privilegio de la ficha de la tienda
+  (`store`), cuáles son elevados (`elevated`: acceso completo al hardware,
+  la API de Docker, la red, el PID, el IPC, el UTS o el D-Bus del host,
+  módulos del kernel, udev, capacidades `privileged`, `devices`, un rol del
+  Supervisor `manager` o `admin`, AppArmor desactivado, un `map` con
+  escritura) y, para una app local, lo que declara ahora su `config.*` en
+  `/addons` (`declared_in_folder`, con el aviso de que el Supervisor usa su
+  copia hasta recargar la tienda). Si la ficha no se puede leer,
+  `privileges: null` y `privileges_unavailable`. El token se ata a la
+  versión de la tienda y a ese bloque: si cualquiera cambia antes de
+  confirmar, `preview_outdated` y no se instala nada.
+- **`sv_rebuild_addon`**: la vista previa enseña lo que se aplicará (la ficha
+  de la tienda, que la reconstrucción copia), lo actual de la app instalada,
+  `elevated` y, para una app local, `declared_in_folder`. **Su token se ata
+  ahora al estado** (antes, solo a los argumentos): si el bloque cambia
+  antes de confirmar, `preview_outdated` sin reconstruir nada y sin gastar
+  el token.
+- Los campos se eligen uno a uno (nunca la ficha en crudo, que trae texto
+  libre del autor y, en la instalada, las opciones), y el texto del autor
+  pasa por la redacción de secretos. El esquema de entrada de las dos no
+  cambia.
+
+### Pruebas
+
+- Tests nuevos con ficheros reales en carpetas temporales y un Supervisor
+  simulado con respuestas de la forma de 2026.11.0: rutas, symlinks (en el
+  CI de Linux), huellas, cambios entre la vista previa y la confirmación,
+  apps instaladas, puntos de montaje, log y tope de respuesta; cada
+  protección, con su control negativo anotado.
+- Invariantes del programa al día: con `addons_share` apagada, las 359 de
+  la 1.2.0 con sus mismas anotaciones, y apagando además las de la 1.2.0,
+  las 216 de la 1.1.2; la instantánea de esquemas de la 1.1.2 no cambia; las
+  cuatro que modifican, fuera del banco de Core (no hablan con Core: 55
+  entradas) y con su fila «VM / pendiente» en la matriz de pruebas; el
+  inventario de argumentos atados pasa de 145 a 149 filas.
+- **Prueba en vivo pendiente**: las cuatro que modifican, borrar una app
+  local instalada, el aviso del montaje en el log del Supervisor y los
+  privilegios de una app local, primero en la VM de pruebas y después en
+  una instalación real (`docs/HOJA-DE-RUTA.md`, «Pruebas manuales
+  pendientes»). `HA_CORE_LAST_TESTED` sigue en 2026.11.1.
+
+### Desviaciones
+
+- Montaje del tipo heredado `addons`, no `local_apps` (ver arriba); pasar a
+  `local_apps` queda como duda para cuando suba el mínimo admitido del
+  Supervisor (D-31 de la hoja de ruta).
+- Sin backup automático, a diferencia de `/config`: `/share` puede ocupar
+  muchos GB (grabaciones, bases de datos de otras apps, un NAS montado), un
+  backup parcial por cada escritura llenaría el disco y bloquearía la
+  confirmación, y la copia por fichero de `/config` no sirve para un borrado
+  recursivo. La vista previa da la llamada para hacerlo a mano.
+- El contenido de los ficheros que no están en la lista negra sale sin
+  redactar, igual que en `/config` (D-32 de la hoja de ruta).
+- En la guía, `addons` sigue llevando al tema `supervisor`, como en la
+  1.1.2; el tema nuevo es `folders`. El índice de la guía lo nombra aunque la
+  familia esté apagada, como pasa con las demás familias; las instrucciones
+  del servidor, no.
+- Crear una carpeta sobre la raíz responde `already_exists`. Un symlink que
+  apunta a la raíz se puede borrar o mover como enlace.
+- En la API del Supervisor `apparmor` es texto (`disable`, `default` o
+  `profile`), no booleano: «AppArmor desactivado» es `false` en el
+  `config.*` o `disable` en la ficha.
+
 ## [1.2.0] — 2026-11-15
 
 Programa de cobertura total de Home Assistant 2026.11 (Core 2026.11.1,
