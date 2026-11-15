@@ -220,6 +220,17 @@ _CATALOGO: tuple[Familia, ...] = (
             "Apply Supervisor resolution suggestions after a preview that "
             "explains their effect.",
             "1.2.0", True, ("resolution_fixes",)),
+    # Spec 026, tramo 1 (research R-3): mantener el catálogo y los avisos del
+    # Marketplace (reconocer críticos, ignorar retirados, quitar
+    # personalizados, refrescar). Familia propia y no `marketplace` (1.1.2,
+    # que solo lee), para que apagar las de la 1.2.0 deje la lista de la
+    # 1.1.2 y para que quien no quiera que un agente toque el Marketplace la
+    # apague sin perder la lectura.
+    Familia("marketplace_manage",
+            "Marketplace catalogue and notices: acknowledge critical "
+            "repositories, ignore removed ones, remove custom ones and "
+            "refresh them.",
+            "1.2.0", True, ("marketplace_manage",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

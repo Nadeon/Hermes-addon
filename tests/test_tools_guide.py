@@ -1191,7 +1191,9 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
         sin = instrucciones(frozenset({"app_store"}))
         self.assertNotIn("app_store", sin)
         self.assertNotIn("@", sin)
-        self.assertIn("marketplace, security", sin)
+        # Desde la 026, con `marketplace_manage` activa su tema va detrás de
+        # `marketplace`.
+        self.assertIn("marketplace, marketplace_manage, security", sin)
 
     def test_los_temas_que_no_toca_no_cambian(self) -> None:
         import hashlib
@@ -1204,6 +1206,90 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTemaMarketplaceManage(unittest.IsolatedAsyncioTestCase):
+    """Spec 026, tramo 1 (T012; FR-022 tras la DV-1): tema
+    `marketplace_manage` con las cuatro tools, ignorar frente a reconocer,
+    quitar solo personalizados no instalados, la condición del aviso de
+    riesgos y del usuario del Supervisor (lo que Hermes no puede hacer); sus
+    alias; el índice y las instrucciones lo nombran solo con su familia
+    activa; los temas que este tramo no toca no cambian (huellas).
+
+    Control negativo (T013): sin `@TEMA_MARKETPLACE@` en las instrucciones →
+    cae `test_indice_e_instrucciones`."""
+
+    # sha256 (16 hex) de temas que el tramo 1 de la 026 no toca. `marketplace`
+    # sigue siendo verdad: Hermes no instala ni acepta nada.
+    _HUELLAS = {
+        "marketplace": "f83ec233a87ad95b",
+        "security": "157ee929e7db08ae",
+        "workflows": "53b81454a6708b9a",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_cuatro_tools(self) -> None:
+        texto = await self.guide("marketplace_manage")
+        self.assertIs(texto, _GUIDE["marketplace_manage"])
+        plano = " ".join(texto.split())
+        for palabra in ("ha_marketplace_acknowledge_critical",
+                        "ha_marketplace_ignore_repository",
+                        "ha_marketplace_remove_repository",
+                        "ha_marketplace_refresh_repository",
+                        "DOS PASOS", "not_critical", "already_acknowledged",
+                        "repository_not_removed", "critical_repository",
+                        "not_custom_repository", "repository_installed",
+                        "github_rate_limited", "marketplace_write_unsupported",
+                        "Ignorar frente a reconocer", "PERSONALIZADO",
+                        "aviso de riesgos", "usuario del Supervisor",
+                        "Hermes nunca lo acepta", "interfaz del Marketplace",
+                        "third_party", "reviewed_by_home_assistant",
+                        "_third_party_text"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b",
+                                   _GUIDE["marketplace_manage"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_alias(self) -> None:
+        texto = _GUIDE["marketplace_manage"]
+        for alias in ("marketplace write", "marketplace_write", "hacs install",
+                      "critical", "custom repository", "repositorio personalizado",
+                      "CRITICAL"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), texto)
+        # `hacs` sigue llevando al de lectura, como en la 1.1.2.
+        self.assertIs(await self.guide("hacs"), _GUIDE["marketplace"])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`marketplace_manage`", await self.guide())
+        self.assertIn("marketplace, marketplace_manage", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"marketplace_manage"}))
+        self.assertNotIn("marketplace_manage", sin)
+        self.assertNotIn("@", sin)
+        self.assertIn("marketplace, app_store", sin)
+
+    def test_los_temas_que_no_toca_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)
 
 
 class TestTemaMounts(unittest.IsolatedAsyncioTestCase):

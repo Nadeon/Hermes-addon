@@ -134,6 +134,18 @@ contexto y la referencia de la sugerencia, los backups a borrar con sus
 ubicaciones, los contenedores a reconstruir y los arreglos automáticos que el
 Supervisor aplicaría de paso (`also_auto_applied`). `sv_reload_supervisor`
 no pide token (FR-076 de la 008). Ningún hallazgo.
+
+Recuento: 122 desde el tramo 1 de la 026, que trae cuatro tools con token,
+comprobadas en el código (`tools/marketplace_manage.py`):
+`ha_marketplace_acknowledge_critical` ata `repository` (el `owner/repo` tal
+como llega) y, en el `estado`, la entrada crítica leída (`repository`,
+`reason`, `link`, `acknowledged`); `ha_marketplace_ignore_repository`,
+`ha_marketplace_remove_repository` y `ha_marketplace_refresh_repository` atan
+`repository_id` (normalizado a texto) y, en el `estado`, el `full_name` y la
+categoría leídos (ignorar, además, la entrada de retirados; quitar, además,
+`custom` e `installed`). Las que exigen el aviso de riesgos (añadir,
+instalar, fijar versión, betas) no existen (DESVIACIÓN DV-1 de la 026).
+Ninguna usa `allow_dangerous`. Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -365,6 +377,13 @@ INVENTARIO: dict[str, dict[str, str]] = {
     # El uuid normalizado; la sugerencia, los backups a borrar, los
     # contenedores y los arreglos automáticos van en el `estado`.
     "sv_apply_resolution_suggestion": {"suggestion_uuid": A},
+    # ── mantenimiento del Marketplace (spec 026, tramo 1) ───────────────
+    # Lo leído en la vista previa (la entrada crítica o retirada, el
+    # `full_name`, la categoría, `custom`, `installed`) va en el `estado`.
+    "ha_marketplace_acknowledge_critical": {"repository": A},
+    "ha_marketplace_ignore_repository": {"repository_id": A},
+    "ha_marketplace_remove_repository": {"repository_id": A},
+    "ha_marketplace_refresh_repository": {"repository_id": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -460,8 +479,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019 + las cuatro de la 015 + las tres de la 030
         # + las tres de la 017 + las seis de la 020
-        # + las seis del tramo 1 de la 022 y la del tramo 2.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 118)
+        # + las seis del tramo 1 de la 022 y la del tramo 2
+        # + las cuatro del tramo 1 de la 026.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 122)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -481,7 +501,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 118)
+        self.assertEqual(len(publicadas), 122)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

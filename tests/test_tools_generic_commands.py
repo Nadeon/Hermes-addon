@@ -1266,6 +1266,50 @@ class TestDedicadasDelTramoBDeLa012(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+class TestMarketplaceDeLa026(unittest.IsolatedAsyncioTestCase):
+    """Spec 026, tramo 1 (T011; FR-019): con la tabla real, la genérica de
+    escritura rechaza los comandos de mantenimiento del Marketplace hacia su
+    tool de `marketplace_manage` (con la familia apagada, además
+    `family_disabled: true`), y los que exigen el aviso de riesgos con
+    `command_denied` y su motivo. Nunca llega a HA.
+
+    Control negativo (T013 h): dejar `marketplace/repository/ignore` como
+    `deny` → cae `test_hacia_su_tool` (sale `command_denied`)."""
+
+    _CASOS = (
+        ("marketplace/critical/acknowledge", {"repository": "ejemplo/x"},
+         "ha_marketplace_acknowledge_critical"),
+        ("marketplace/repository/ignore", {"repository": "123456"},
+         "ha_marketplace_ignore_repository"),
+        ("marketplace/repositories/remove", {"repository": "123456"},
+         "ha_marketplace_remove_repository"),
+        ("marketplace/repository/refresh", {"repository": "123456"},
+         "ha_marketplace_refresh_repository"),
+    )
+
+    async def test_hacia_su_tool(self) -> None:
+        for desactivadas, apagada in (([], False), (["marketplace_manage"], True)):
+            mcp, ha = _registrar_todo(desactivadas)
+            for tipo, carga, tool in self._CASOS:
+                with self.subTest(tipo=tipo, apagada=apagada):
+                    r = await mcp.tools["ha_call_ws_command"](tipo, carga)
+                    self.assertEqual(
+                        (r["error"], r["tool"], r["family"], r["family_disabled"]),
+                        ("use_dedicated_tool", tool, "marketplace_manage", apagada))
+            ha.ws_send.assert_not_awaited()
+
+    async def test_las_del_aviso_denegadas(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for tipo in ("marketplace/repositories/add", "marketplace/repository/install",
+                     "marketplace/repository/version", "marketplace/repository/beta",
+                     "marketplace/repositories/detect"):
+            with self.subTest(tipo=tipo):
+                r = await mcp.tools["ha_call_ws_command"](tipo, {"repository": "123456"})
+                self.assertEqual(r["error"], "command_denied")
+                self.assertIn("aviso de riesgos", r["reason"])
+        ha.ws_send.assert_not_awaited()
+
+
 class TestTiendaDeLa030(unittest.IsolatedAsyncioTestCase):
     """Spec 030, T009 (FR-014, FR-015): con la tabla real, las genéricas del
     Supervisor rechazan las rutas de repositorios y recarga hacia su tool de

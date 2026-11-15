@@ -202,6 +202,18 @@ class _ConMotivo:
 
 
 _INTERNO = _Deny("uso interno de Hermes")
+# Spec 026 (DESVIACIÓN DV-1, decisión del supervisor del programa): HA
+# 2026.11.1 exige que el usuario de HA que manda el comando haya aceptado el
+# aviso de riesgos del Marketplace (`requires_accepted_warning=True`) para
+# instalar, fijar versión, mostrar betas, detectar y añadir repositorios. El
+# usuario de Hermes es el del Supervisor y no puede aceptarlo (Hermes nunca lo
+# acepta): no se publican tools que no pueden funcionar y esas filas A quedan
+# en `deny` con este motivo, también en una generación desde cero.
+MOTIVO_AVISO_MARKETPLACE = (
+    "HA exige que el usuario que lo pide haya aceptado el aviso de riesgos del "
+    "Marketplace; el usuario de Hermes no puede aceptarlo (duda D-29)"
+)
+_AVISO_MARKETPLACE = _Deny(MOTIVO_AVISO_MARKETPLACE)
 _SUSCRIPCION_NO_USADA = _Deny(
     "suscripción/streaming: MCP es petición-respuesta (Hermes no la usa)"
 )
@@ -525,6 +537,18 @@ _DEDICADAS_INICIALES: dict[
     ("POST", "/addons/{app}/options/validate"): _ConMatiz(
         "sv_set_addon_options", "valida en la vista previa"),
     ("POST", "/addons/{app}/rebuild"): "sv_rebuild_addon",
+    # Spec 026, tramo 1 (CAP-075): mantenimiento del Marketplace, clase A de
+    # vía D, con sus tools dedicadas; ninguna exige el aviso de riesgos.
+    "marketplace/critical/acknowledge": "ha_marketplace_acknowledge_critical",
+    "marketplace/repository/ignore": "ha_marketplace_ignore_repository",
+    "marketplace/repositories/remove": "ha_marketplace_remove_repository",
+    "marketplace/repository/refresh": "ha_marketplace_refresh_repository",
+    # Spec 026 (DV-1): las que exigen el aviso de riesgos, sin tool.
+    "marketplace/repositories/add": _AVISO_MARKETPLACE,
+    "marketplace/repositories/detect": _AVISO_MARKETPLACE,
+    "marketplace/repository/install": _AVISO_MARKETPLACE,
+    "marketplace/repository/version": _AVISO_MARKETPLACE,
+    "marketplace/repository/beta": _AVISO_MARKETPLACE,
 }
 
 # Colecciones de helpers: list/create/update/delete con el mismo patrón de
@@ -662,6 +686,12 @@ def _clasificar(
         destino = _DEDICADAS_INICIALES.get(clave)
         if isinstance(destino, (str, _ConMatiz, _ConMotivo)):
             return dedicada(destino)
+        # Una fila A que ninguna tool puede cubrir (spec 026: lo que exige el
+        # aviso de riesgos del Marketplace) sale con su motivo y no como
+        # «pendiente de tool dedicada». Mismo mecanismo que la 031 para
+        # `hassio/*`.
+        if isinstance(destino, _Deny):
+            return deny(destino.motivo)
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")
         if via in ("D", "D+T", "D+X"):

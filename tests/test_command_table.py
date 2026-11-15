@@ -34,6 +34,7 @@ import unittest
 from hermes import command_table as ct
 from hermes.config import HA_CORE_LAST_TESTED
 from hermes.tool_families import FAMILIAS, familia_de_modulo
+from scripts.inventario.generar_tabla import MOTIVO_AVISO_MARKETPLACE
 
 _RAIZ = pathlib.Path(__file__).resolve().parents[1]
 _INVENTARIO = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
@@ -584,6 +585,12 @@ class TestReglasDeLaClasificacionInicial(unittest.TestCase):
                     spec = re.match(r"spec (\d{3}): ", _POR_LA_TABLA[k])
                     if spec and spec.group(1) in subs:
                         continue
+                # Spec 026 (DV-1): lo que exige el aviso de riesgos del
+                # Marketplace aceptado por el usuario de Hermes no puede tener
+                # tool; queda `deny` con ese motivo.
+                if k in _AVISO_026 and (e.category, e.reason) == (
+                        "deny", MOTIVO_AVISO_MARKETPLACE):
+                    continue
                 m = re.fullmatch(r"pendiente de tool dedicada \(spec (\d{3})\)", e.reason)
                 if e.category != "deny" or not m or m.group(1) not in subs:
                     malas.append(f"{k} ({f['cap']}, {via}, {subs}): {e.category} {e.reason!r}")
@@ -1000,6 +1007,70 @@ class TestTiendaDeLa030(unittest.TestCase):
         texto = (_RAIZ / "hermes" / "src" / "hermes" / "command_table.py").read_text(
             encoding="utf-8")
         self.assertEqual(texto.count("spec 030"), 0)
+
+
+# Spec 026, tramo 1 (data-model «Tabla», tras la DESVIACIÓN DV-1).
+_MARKETPLACE_026: dict[str, str] = {
+    "marketplace/critical/acknowledge": "ha_marketplace_acknowledge_critical",
+    "marketplace/repository/ignore": "ha_marketplace_ignore_repository",
+    "marketplace/repositories/remove": "ha_marketplace_remove_repository",
+    "marketplace/repository/refresh": "ha_marketplace_refresh_repository",
+}
+# Las que exigen el aviso de riesgos aceptado por el usuario de Hermes (HA
+# 2026.11.1, `requires_accepted_warning=True`): sin tool, `deny`.
+_AVISO_026 = frozenset({
+    "marketplace/repositories/add", "marketplace/repositories/detect",
+    "marketplace/repository/install", "marketplace/repository/version",
+    "marketplace/repository/beta",
+})
+
+
+class TestEntradasDeLa026(unittest.TestCase):
+    """Spec 026, tramo 1 (T011; FR-019 tras la DV-1): las cuatro de
+    mantenimiento pasan a `dedicated` (familia `marketplace_manage`); las
+    cinco que exigen el aviso de riesgos quedan `deny` con su motivo; las de
+    clase B y D no cambian; solo `repository/uninstall` sigue «spec 026»
+    (tramo 2).
+
+    Control negativo (T013 h): dejar `marketplace/repository/ignore` como
+    `deny` «pendiente» → cae `test_cuatro_dedicadas` nombrándola."""
+
+    def test_cuatro_dedicadas(self) -> None:
+        malas = []
+        for k, tool in _MARKETPLACE_026.items():
+            e = ct.CORE_WS[k]
+            real = (e.category, e.tool, e.family, e.cap, e.reason)
+            if real != ("dedicated", tool, "marketplace_manage", "CAP-075",
+                        f"cubierto por {tool}"):
+                malas.append(f"{k}: {real}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_las_del_aviso_deny_con_su_motivo(self) -> None:
+        for k in sorted(_AVISO_026):
+            with self.subTest(k=k):
+                e = ct.CORE_WS[k]
+                self.assertEqual((e.category, e.reason, e.family, e.cap),
+                                 ("deny", MOTIVO_AVISO_MARKETPLACE, "generic_commands",
+                                  "CAP-075"))
+        self.assertIn("D-29", MOTIVO_AVISO_MARKETPLACE)
+
+    def test_clase_b_y_d_no_cambian(self) -> None:
+        for k in ("marketplace/github/connect", "marketplace/warning/accept"):
+            with self.subTest(k=k):
+                self.assertEqual(ct.CORE_WS[k].category, "deny")
+                self.assertIn("(clase D)", ct.CORE_WS[k].reason)
+        for k in ("marketplace/repository/info", "marketplace/repositories/clear_new",
+                  "marketplace/subscribe"):
+            with self.subTest(k=k):
+                self.assertEqual(ct.CORE_WS[k].category, "deny")
+                self.assertIn("(clase B)", ct.CORE_WS[k].reason)
+
+    def test_solo_queda_desinstalar_pendiente(self) -> None:
+        pendientes = sorted(k for k, e in ct.CORE_WS.items() if "spec 026" in e.reason)
+        self.assertEqual(pendientes, ["marketplace/repository/uninstall"])
+        texto = (_RAIZ / "hermes" / "src" / "hermes" / "command_table.py").read_text(
+            encoding="utf-8")
+        self.assertEqual(texto.count("spec 026"), 1)
 
 
 # Spec 022, tramo 1 (data-model, «Entradas de la tabla que cambian»).

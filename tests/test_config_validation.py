@@ -330,6 +330,8 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         self._cfg(["system_control"]).validate()
         # Spec 022, tramo 2: y la de aplicar sugerencias del Supervisor.
         self._cfg(["resolution_fixes"]).validate()
+        # Spec 026: y la del mantenimiento del Marketplace.
+        self._cfg(["marketplace_manage"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

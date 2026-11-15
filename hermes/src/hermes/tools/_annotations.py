@@ -274,6 +274,15 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Spec 022, tramo 2 (R-10): aplicar una sugerencia puede desinstalar una
     # app, borrar backups completos o reiniciar el host.
     "sv_apply_resolution_suggestion",
+    # Spec 026, tramo 1 (contracts/tools.md): las cuatro de escritura del
+    # Marketplace piden token (reconocer e ignorar no se pueden deshacer;
+    # quitar cambia la lista; refrescar escribe en el storage). Por nombre
+    # exacto, NUNCA por el prefijo `ha_marketplace_`, que también llevan las
+    # siete de lectura (FR-018 de la 004).
+    "ha_marketplace_acknowledge_critical",
+    "ha_marketplace_ignore_repository",
+    "ha_marketplace_remove_repository",
+    "ha_marketplace_refresh_repository",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -290,6 +299,8 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # tiene en memoria; antes de 1.1.0 los alias se anunciaban de mundo abierto
     # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
     "ha_marketplace_list_releases",
+    # Spec 026: refrescar hace que HA vuelva a pedir el repositorio a GitHub.
+    "ha_marketplace_refresh_repository",
     # Genéricas de escritura (spec 011): algunas entradas `confirm` salen a
     # internet (actualizar un plugin, calendarios remotos).
     "ha_call_ws_command",

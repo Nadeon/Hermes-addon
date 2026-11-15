@@ -330,6 +330,19 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(validar_desactivadas(["resolution_fixes"]),
                          frozenset({"resolution_fixes"}))
 
+    def test_marketplace_manage_es_de_la_1_2_0(self) -> None:
+        # Spec 026, tramo 1 (FR-020, research R-3): el mantenimiento del
+        # Marketplace, en una familia propia de la 1.2.0, desactivable y
+        # distinta de `marketplace` (1.1.2, solo lectura).
+        familia = FAMILIAS["marketplace_manage"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("marketplace_manage",))
+        self.assertEqual(familia_de_modulo("marketplace_manage"), "marketplace_manage")
+        self.assertEqual(FAMILIAS["marketplace"].modulos, ("marketplace", "hacs"))
+        self.assertEqual(validar_desactivadas(["marketplace_manage"]),
+                         frozenset({"marketplace_manage"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

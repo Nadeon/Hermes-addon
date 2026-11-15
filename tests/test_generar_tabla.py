@@ -341,6 +341,35 @@ class TestClaseAConToolDedicada(_Base):
                 self.assertEqual((g.category, g.reason, g.family, g.tool, g.cap),
                                  (r.category, r.reason, r.family, r.tool, r.cap))
 
+    def test_desde_cero_las_de_la_026(self) -> None:
+        """Spec 026, tramo 1 (T011): desde cero, las cuatro de mantenimiento
+        del Marketplace salen `dedicated` como en la tabla revisada, y las
+        cinco que exigen el aviso de riesgos (DV-1), `deny` con su motivo
+        (`_Deny` en una fila A) y no «pendiente de tool dedicada».
+
+        Control negativo comprobado: sin la rama `_Deny` de las filas A en
+        `_clasificar` → caen las cinco del aviso (salen «pendiente (spec
+        026)»); quitar `"marketplace/repository/ignore"` del mapa → caen esta
+        y `test_desde_cero_igual_que_la_tabla_real` nombrándola."""
+        from hermes import command_table as real
+
+        inventario = _RAIZ / "specs" / "008-cobertura-total" / "inventario"
+        self.salida.unlink(missing_ok=True)
+        gt.generar(inventario / "core-ws.tsv", inventario / "supervisor-rutas.tsv",
+                   self.salida, ha_core="2026.11.1", supervisor="2026.11.0")
+        cero = self._tabla()
+        for k in ("marketplace/critical/acknowledge", "marketplace/repository/ignore",
+                  "marketplace/repositories/remove", "marketplace/repository/refresh",
+                  "marketplace/repositories/add", "marketplace/repositories/detect",
+                  "marketplace/repository/install", "marketplace/repository/version",
+                  "marketplace/repository/beta"):
+            with self.subTest(k=k):
+                g, r = cero.CORE_WS[k], real.CORE_WS[k]
+                self.assertEqual((g.category, g.reason, g.family, g.tool, g.cap),
+                                 (r.category, r.reason, r.family, r.tool, r.cap))
+        self.assertEqual(cero.CORE_WS["marketplace/repository/install"].reason,
+                         gt.MOTIVO_AVISO_MARKETPLACE)
+
     def test_desde_cero_las_de_la_015_con_su_matiz(self) -> None:
         """Integración de la 015: las dos entradas cuya tool no usa esa misma
         ruta o comando salen desde cero con el matiz de la tabla revisada.
