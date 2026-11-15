@@ -90,6 +90,20 @@ en [research.md](research.md)):
   el log, ni en el fichero del token (no es omitible; solo el HMAC de la
   acción) (research R-9).
 
+### Decisiones del supervisor al validar la spec (para el cierre)
+
+- **D-032-1**: `sv_reload_network` va **sin token**, porque solo vuelve a
+  leer el estado. **Desviación literal de FR-082 de la 008**, que pide
+  confirmación para las tres operaciones de red; se anota aquí para el
+  cierre del programa.
+- **D-032-2**: editar la interfaz principal, la única conectada o una
+  interfaz cuando no se sabe cuál es la principal se rechaza **siempre**,
+  sin token (fail-closed), también los cambios inocuos como `mdns`. El
+  mensaje explica cómo hacerlo desde la interfaz de HA.
+- **D-032-3**: una puerta de enlace en una interfaz secundaria o en una VLAN
+  solo avisa (aviso fuerte de que puede quedarse con la ruta por defecto);
+  hay token.
+
 ## Escenarios de usuario y pruebas *(obligatorio)*
 
 El «usuario» es el administrador de Home Assistant que gestiona su sistema

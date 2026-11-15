@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 280 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 283 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -176,6 +176,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `generic_commands` | 4 | Las tools genéricas (nueva en 1.2.0, ver abajo) |
 | `mounts` | 9 | Montajes de red (CIFS y NFS) y de discos locales del Supervisor para backups, medios y `share`, el montaje por defecto de los backups y los ajustes de backup del Supervisor (`days_until_stale`, releer backups) (nueva en 1.2.0; crear, editar, borrar y el montaje por defecto, con confirmación; las credenciales nunca se devuelven) |
 | `host_control` | 4 | Apagar el host y cambiar su hostname, la swap y la ranura de arranque de Home Assistant OS (nueva en 1.2.0; todo con confirmación y vista previa del estado actual; nadie puede encender el host a distancia después de apagarlo) |
+| `host_network` | 3 | Red del host: releer su estado, editar una interfaz secundaria y crear VLAN (nueva en 1.2.0; los cambios, con confirmación y vista previa del antes y el después; la interfaz principal, la única conectada o cualquiera si no se sabe cuál es la principal se rechazan siempre; la clave Wi-Fi nunca se devuelve) |
 | `system_diagnostics` | 11 | Logs de Core, del Supervisor, de los plugins y del journal del host, también de arranques anteriores; servicios del host, uso de disco, Home Assistant OS y swap (nueva en 1.2.0, solo lectura) |
 | `system_status` | 5 | Salud del sistema, reinicio pendiente, tiempos de arranque y manifiestos de las integraciones; solo lectura (nueva en 1.2.0) |
 | `recorder` | 3 | Estado del recorder, validación y metadatos de las estadísticas de largo plazo; hoy solo lectura (nueva en 1.2.0). El mantenimiento de estadísticas se sumará a esta familia |
@@ -196,7 +197,7 @@ valor falla y cuáles valen. Al arrancar, el log anota `tool_families` con las
 familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 1.2.0 (`generic_commands`, `system_diagnostics`, `system_status`,
 `recorder`, `core_diagnostics`, `integration_flows`, `repair_flows`,
-`mounts` y `host_control`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`mounts`, `host_control` y `host_network`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

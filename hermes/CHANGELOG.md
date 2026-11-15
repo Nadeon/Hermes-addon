@@ -390,6 +390,65 @@ _Pendiente: la añade la sub-feature que lo implemente._
   - Guía: tema nuevo `hermes_guide("host_control")` (alias `hostname`,
     `swap`, `boot_slot`, `shutdown`); el tema `supervisor` remite a él.
   - Prueba contra un Supervisor real: pendiente (VM de la 014).
+- **Host y red del host (032), tramo 2: red del host.** Familia nueva
+  `host_network` (desactivable con `tool_families_disabled`; con
+  `host_control` y `host_network` desactivadas, las siete tools de la 032
+  desaparecen) con tres tools:
+  - `sv_reload_network` hace que el Supervisor vuelva a leer el estado de la
+    red y compruebe la conectividad, y responde con `host_internet` y
+    `supervisor_internet`. **Sin token**: no cambia ninguna configuración
+    (es una desviación consciente del texto de FR-082 de la 008, que pedía
+    confirmación para las tres; anotada en la spec).
+  - `sv_update_network_interface` edita una interfaz **secundaria** (un
+    Wi-Fi de respaldo, una segunda tarjeta, una VLAN) en dos pasos. La vista
+    previa enseña la interfaz antes (sin la MAC), lo que se enviará (la clave
+    Wi-Fi como `"psk": "set"`), su papel y un aviso fuerte: el Supervisor
+    aplica el cambio en el acto y **no lo revierte**. Con una puerta de
+    enlace, un aviso más de que puede quedarse con la ruta por defecto. La
+    respuesta trae la interfaz releída.
+  - **Guarda de la interfaz de acceso**: la interfaz principal (la de la
+    ruta por defecto), la única conectada y cualquier interfaz cuando no se
+    sabe cuál es la principal (lectura fallida, ninguna o varias, forma
+    inesperada) se rechazan **siempre**, sin token y sin escribir nada,
+    también para un cambio inocuo como `mdns` (`primary_interface`,
+    `only_connected_interface`, `primary_unknown`); el nombre `default`
+    también. El mensaje dice que se cambie desde la interfaz de Home
+    Assistant con acceso local. La guarda se repite justo antes de enviar.
+  - **Bloques completos**: el Supervisor reemplaza cada bloque entero y
+    rellena lo que falta (un `ipv4` sin `method` pasaría a estático sin
+    dirección; un `wifi` sin `auth`, a red abierta). Hermes exige `method`
+    en `ipv4`/`ipv6` y `mode`, `auth` y `ssid` en `wifi`, y rechaza antes de
+    llamar los bloques incompletos o contradictorios (una dirección con
+    `auto`, una IP de la otra familia, una clave en una red abierta, una
+    clave WPA de menos de 8 caracteres…), diciendo la regla y nunca el
+    valor.
+  - `sv_create_vlan` crea `<interfaz>.<id>` (1–4094) sobre una tarjeta
+    ethernet, también la principal (no la modifica). La vista previa avisa
+    de que una puerta de enlace de la VLAN (fija o por DHCP) puede quedarse
+    con la ruta por defecto. Una VLAN que ya existe, una madre que no es
+    ethernet o que no existe se rechazan sin token. No hay tool para
+    borrarla.
+  - **La clave Wi-Fi nunca sale**: ni en la vista previa, ni en la
+    respuesta, ni en los errores (aunque el texto del Supervisor la repita),
+    ni en el log, ni en el fichero del token (solo el HMAC de la acción).
+    Una clave igual al marcador de redacción o con caracteres de control se
+    rechaza.
+  - El token ata todos los argumentos (la clave, por el HMAC) y la huella
+    de la interfaz, su papel y las interfaces conectadas; no la señal Wi-Fi
+    ni `ready`, que cambian solos. Las dos tools con token están en el
+    inventario de argumentos atados de la 033.
+  - Si la conexión se corta después de enviar, `outcome: "unknown"` con
+    `verify_with`. El log (`host_network`) lleva la tool, el resultado, la
+    interfaz y los bloques que cambian; nunca IP, puerta de enlace, DNS,
+    SSID, MAC ni la clave.
+  - Las tres rutas de CAP-090 (`POST /network/reload`,
+    `/network/interface/{interface}/update` y
+    `/network/interface/{interface}/vlan/{vlan}`) pasan de `deny` a
+    `dedicated`; las lecturas de red siguen por `sv_read_api`.
+  - Guía: el tema `host_control` cubre también la red (alias
+    `host_network`, `network_config`, `vlan`, `wifi`).
+  - Prueba contra un Supervisor real: pendiente (VM de la 014, con una
+    segunda interfaz).
 
 ### Mejoras de tools existentes
 

@@ -386,6 +386,22 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
     `sv_set_boot_slot` a la de antes) y `sv_shutdown_host` (la VM se apaga;
     la respuesta es `ok` o `outcome: "unknown"`, nunca un error; encenderla
     a mano).
+- Red del host (spec 032, tramo 2). Hace falta una VM con dos interfaces:
+  la principal (por la que se llega a Home Assistant) y una segunda (otra
+  tarjeta de red virtual, o un Wi-Fi USB pasado a la VM). Instantánea antes
+  de cada una. En todas: la vista previa casa con lo que enseña
+  `ha network info`, la clave Wi-Fi no sale en ninguna respuesta, vista
+  previa, error ni en el log de Hermes, y el log no lleva IP, SSID ni MAC.
+  - `sv_reload_network`: responde `ok` con la conectividad, sin token.
+  - `sv_update_network_interface`: sobre la principal, con cualquier cambio
+    (también solo `mdns`), `primary_interface` sin token; sobre la segunda,
+    cambiar a una IP fija y volver a `auto`, y configurar un Wi-Fi con
+    `wpa-psk` (la vista previa dice `"psk": "set"`); con la segunda como
+    única conectada (desconectando la principal en la VM),
+    `only_connected_interface`.
+  - `sv_create_vlan`: crear una VLAN sobre la tarjeta principal, comprobar
+    que aparece en `ha network info` y que la VM sigue accesible; borrarla
+    desde la interfaz de HA (no hay tool para borrarla).
 
 ## Probar hassio_role: manager
 

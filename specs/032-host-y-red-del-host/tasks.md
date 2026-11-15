@@ -120,26 +120,81 @@ El tramo 2 necesita el tramo 1 integrado.
 
 ### Preparación
 
-- [ ] T014 Línea base y requisito: tramo 1 integrado; `compute_action_hash` de `hermes/src/hermes/security.py` es HMAC con clave en memoria (019). Si no lo es, **detenerse** y anotarlo (research R-9). Suite y `grep -c "spec 032"` = 3
-- [ ] T015 [P] [US4] Familia `host_network`: tests en `tests/test_tool_families.py` y `tests/test_config_validation.py`, después la familia en `tool_families.py` (FR-015)
-- [ ] T016 [P] Fixtures de red en `tests/fixtures/supervisor_host.py`: `GET /network/info` con `eth0` (ethernet, principal, conectada), `wlan0` (wireless, no principal, no conectada) y `eth0.10` (vlan); variantes: sin principal, `wlan0` única conectada y no principal, forma inesperada; `GET /network/interface/{i}/info`; 404 de interfaz; error del Supervisor que repite la PSK centinela. Solo datos genéricos
+- [x] T014 Línea base y requisito: tramo 1 integrado; `compute_action_hash` de `hermes/src/hermes/security.py` es HMAC con clave en memoria (019). Si no lo es, **detenerse** y anotarlo (research R-9). Suite y `grep -c "spec 032"` = 3
+- [x] T015 [P] [US4] Familia `host_network`: tests en `tests/test_tool_families.py` y `tests/test_config_validation.py`, después la familia en `tool_families.py` (FR-015)
+- [x] T016 [P] Fixtures de red en `tests/fixtures/supervisor_host.py`: `GET /network/info` con `eth0` (ethernet, principal, conectada), `wlan0` (wireless, no principal, no conectada) y `eth0.10` (vlan); variantes: sin principal, `wlan0` única conectada y no principal, forma inesperada; `GET /network/interface/{i}/info`; 404 de interfaz; error del Supervisor que repite la PSK centinela. Solo datos genéricos
 
 ### Tests (escritos antes, en rojo)
 
-- [ ] T017 [P] [US3] `TestRecargar`, `TestEditarInterfaz` y `TestCrearVlan` en `tests/test_tools_host_network.py`: `sv_reload_network` → `POST /network/reload` sin token y respuesta con la conectividad; `sv_update_network_interface("wlan0", …)` → vista previa con `role`, `before`, `after` (`"psk": "set"`), `replaces_blocks` y `warning`; `route_warning` con `gateway`; confirmación con la carga exacta (PSK incluida) y la interfaz releída sin PSK; relectura fallida → `"interface": null` y `verify_with`; `sv_create_vlan("eth0", 20, …)` → vista previa y `POST /network/interface/eth0/vlan/20`; `vlan_exists` (`eth0.10`), `not_ethernet` (`wlan0`), `interface_not_found`, `vlan_id` 0, 4095 y `True` → error sin token; crear sobre la madre principal se permite (FR-005, FR-006, FR-009)
-- [ ] T018 [P] [US3] `TestGuardaDeAcceso` y `TestValidacionDeBloques`: (a) `eth0` principal con cualquier cambio (también solo `mdns`) → `primary_interface`; `default` → `invalid_argument`; `wlan0` única conectada → `only_connected_interface`; sin principal, lectura fallida o forma inesperada → `primary_unknown`; en todos, **ninguna llamada de escritura** y sin token; (b) la guarda se repite al confirmar: si entre medias `wlan0` pasa a principal → no se ejecuta; (c) cada regla de FR-008 con un valor que la incumple (bloque sin `method`, `static` sin dirección, `auto` con `address` o `gateway`, IPv6 en `ipv4`, prefijo ausente, `route_metric` `True`, `addr_gen_mode` desconocido, `wifi` sin `auth`/`ssid`/`mode`, `ssid` de 33 bytes, `wpa-psk` sin `psk` o con 7 caracteres, `psk` con `open`, clave desconocida, `enabled` `"yes"`, `mdns` `"on"`, ningún cambio) → `invalid_argument` con `field` y sin el valor (FR-007, FR-008)
-- [ ] T019 [US3] `TestPsk`, `TestTokenAtado`, `TestCorteTrasEnviar` y `TestLog`: (a) la PSK centinela no aparece en la vista previa, la confirmación, la respuesta, el error del Supervisor que la repite, ningún evento de `capture_logs` ni **ningún fichero** de `CONFIRMATIONS_DIR` tras la vista previa y tras la confirmación; PSK igual al marcador de redacción o con salto de línea → `invalid_argument`; (b) confirmar con otra PSK, otro SSID u otra IP → no se ejecuta; cambio de la configuración o del papel de la interfaz → no se ejecuta; cambio solo de `wifi.signal` o `ready` → sí se ejecuta; (c) corte tras enviar el cambio → `outcome: "unknown"`; (d) los eventos no llevan IP, gateway, DNS, SSID, MAC ni PSK de los fixtures y sí `tool`, `interface`, `changed`, `outcome` (FR-010…FR-013)
+- [x] T017 [P] [US3] `TestRecargar`, `TestEditarInterfaz` y `TestCrearVlan` en `tests/test_tools_host_network.py`: `sv_reload_network` → `POST /network/reload` sin token y respuesta con la conectividad; `sv_update_network_interface("wlan0", …)` → vista previa con `role`, `before`, `after` (`"psk": "set"`), `replaces_blocks` y `warning`; `route_warning` con `gateway`; confirmación con la carga exacta (PSK incluida) y la interfaz releída sin PSK; relectura fallida → `"interface": null` y `verify_with`; `sv_create_vlan("eth0", 20, …)` → vista previa y `POST /network/interface/eth0/vlan/20`; `vlan_exists` (`eth0.10`), `not_ethernet` (`wlan0`), `interface_not_found`, `vlan_id` 0, 4095 y `True` → error sin token; crear sobre la madre principal se permite (FR-005, FR-006, FR-009)
+- [x] T018 [P] [US3] `TestGuardaDeAcceso` y `TestValidacionDeBloques`: (a) `eth0` principal con cualquier cambio (también solo `mdns`) → `primary_interface`; `default` → `invalid_argument`; `wlan0` única conectada → `only_connected_interface`; sin principal, lectura fallida o forma inesperada → `primary_unknown`; en todos, **ninguna llamada de escritura** y sin token; (b) la guarda se repite al confirmar: si entre medias `wlan0` pasa a principal → no se ejecuta; (c) cada regla de FR-008 con un valor que la incumple (bloque sin `method`, `static` sin dirección, `auto` con `address` o `gateway`, IPv6 en `ipv4`, prefijo ausente, `route_metric` `True`, `addr_gen_mode` desconocido, `wifi` sin `auth`/`ssid`/`mode`, `ssid` de 33 bytes, `wpa-psk` sin `psk` o con 7 caracteres, `psk` con `open`, clave desconocida, `enabled` `"yes"`, `mdns` `"on"`, ningún cambio) → `invalid_argument` con `field` y sin el valor (FR-007, FR-008)
+- [x] T019 [US3] `TestPsk`, `TestTokenAtado`, `TestCorteTrasEnviar` y `TestLog`: (a) la PSK centinela no aparece en la vista previa, la confirmación, la respuesta, el error del Supervisor que la repite, ningún evento de `capture_logs` ni **ningún fichero** de `CONFIRMATIONS_DIR` tras la vista previa y tras la confirmación; PSK igual al marcador de redacción o con salto de línea → `invalid_argument`; (b) confirmar con otra PSK, otro SSID u otra IP → no se ejecuta; cambio de la configuración o del papel de la interfaz → no se ejecuta; cambio solo de `wifi.signal` o `ready` → sí se ejecuta; (c) corte tras enviar el cambio → `outcome: "unknown"`; (d) los eventos no llevan IP, gateway, DNS, SSID, MAC ni PSK de los fixtures y sí `tool`, `interface`, `changed`, `outcome` (FR-010…FR-013)
 
 ### Implementación
 
-- [ ] T020 [US3] `hermes/src/hermes/tools/host_network.py` con las tres tools según contracts/tools.md: lectura de la red y guarda (dos veces), validadores de bloques con `ipaddress`, `_interfaz_publica`, `_limpiar_error`, huella como `estado=`, sin `omitibles`, eventos `host_network`, descripciones en inglés (reemplaza bloques; principal rechazada; sin reversión; PSK no se devuelve; recargar no cambia nada). Comentarios en español con el porqué (research R-2, R-4, R-9). T017–T019 en verde
-- [ ] T021 [US4] Registro y anotaciones: tests primero en `tests/test_tools_registration.py` (las 3 por defecto y ninguna con `host_network` desactivada; las 2 con token `destructiveHint`; `sv_reload_network` ni de solo lectura ni destructiva e idempotente; `sv_create_vlan` no idempotente; títulos); después registro y `_DESTRUCTIVE_EXACT` (FR-016)
-- [ ] T022 [US4] Tabla: tests primero (las 3 rutas `dedicated` con `cap="CAP-090"` y familia `host_network`; `sv_call_api("POST", "/network/interface/eth0/update", …)` → `use_dedicated_tool` sin llamada; `sv_read_api("/network/info")` sigue `read`); después `_DEDICADAS_INICIALES` y `command_table.py`; regenerar sin cambios; `grep -c "spec 032"` = 0 (FR-014)
-- [ ] T023 Inventario de la 033: `sv_update_network_interface` y `sv_create_vlan` con todos sus argumentos `atado` (y `confirmation_token` exento) (la PSK dentro de `wifi`, sin guardarse) y el comentario de la huella; `test_recuento` + 2 (FR-011)
-- [ ] T024 [P] Matriz: 3 filas `VM` / `pendiente` y sus líneas en el procedimiento (VM con segunda interfaz; comprobar el rechazo de la principal y que la PSK no sale) (FR-018)
-- [ ] T025 [P] Guía completa: tests primero (alias `host_network`, `network_config`, `vlan`, `wifi`; nombra las 3 tools, la guarda de la principal, que la red se lee con `sv_read_api("/network/info")`, que los bloques se reemplazan enteros y que la PSK no se devuelve); después el tema (FR-017)
-- [ ] T026 Control negativo del tramo 2, anotando recuentos: (a) quitar la guarda de la principal → caen los de `primary_interface` y SC-002; (b) quitar la de la única conectada → cae; (c) tratar «sin principal» como permitido → cae; (d) pasar `omitibles=("wifi",)` → cae el del directorio de tokens; (e) no limpiar la PSK del error → cae; (f) aceptar `ipv4` sin `method` → cae; (g) añadir `ssid` al evento → cae `TestLog`; (h) dejar `/network/reload` como `deny` → caen tabla y genérica. Restaurar y comprobar verde
-- [ ] T027 Documentación completa: CHANGELOG (tramo 2), familia `host_network` en DOCS y README (sincronizados), hoja de ruta «hecha», filas CAP-086 y CAP-090 de la matriz de `specs/008-cobertura-total/plan.md` con las tools y los tests reales; revisar el diff buscando datos personales; commit del tramo (FR-020)
+- [x] T020 [US3] `hermes/src/hermes/tools/host_network.py` con las tres tools según contracts/tools.md: lectura de la red y guarda (dos veces), validadores de bloques con `ipaddress`, `_interfaz_publica`, `_limpiar_error`, huella como `estado=`, sin `omitibles`, eventos `host_network`, descripciones en inglés (reemplaza bloques; principal rechazada; sin reversión; PSK no se devuelve; recargar no cambia nada). Comentarios en español con el porqué (research R-2, R-4, R-9). T017–T019 en verde
+- [x] T021 [US4] Registro y anotaciones: tests primero en `tests/test_tools_registration.py` (las 3 por defecto y ninguna con `host_network` desactivada; las 2 con token `destructiveHint`; `sv_reload_network` ni de solo lectura ni destructiva e idempotente; `sv_create_vlan` no idempotente; títulos); después registro y `_DESTRUCTIVE_EXACT` (FR-016)
+- [x] T022 [US4] Tabla: tests primero (las 3 rutas `dedicated` con `cap="CAP-090"` y familia `host_network`; `sv_call_api("POST", "/network/interface/eth0/update", …)` → `use_dedicated_tool` sin llamada; `sv_read_api("/network/info")` sigue `read`); después `_DEDICADAS_INICIALES` y `command_table.py`; regenerar sin cambios; `grep -c "spec 032"` = 0 (FR-014)
+- [x] T023 Inventario de la 033: `sv_update_network_interface` y `sv_create_vlan` con todos sus argumentos `atado` (y `confirmation_token` exento) (la PSK dentro de `wifi`, sin guardarse) y el comentario de la huella; `test_recuento` + 2 (FR-011)
+- [x] T024 [P] Matriz: 3 filas `VM` / `pendiente` y sus líneas en el procedimiento (VM con segunda interfaz; comprobar el rechazo de la principal y que la PSK no sale) (FR-018)
+- [x] T025 [P] Guía completa: tests primero (alias `host_network`, `network_config`, `vlan`, `wifi`; nombra las 3 tools, la guarda de la principal, que la red se lee con `sv_read_api("/network/info")`, que los bloques se reemplazan enteros y que la PSK no se devuelve); después el tema (FR-017)
+- [x] T026 Control negativo del tramo 2, anotando recuentos: (a) quitar la guarda de la principal → caen los de `primary_interface` y SC-002; (b) quitar la de la única conectada → cae; (c) tratar «sin principal» como permitido → cae; (d) pasar `omitibles=("wifi",)` → cae el del directorio de tokens; (e) no limpiar la PSK del error → cae; (f) aceptar `ipv4` sin `method` → cae; (g) añadir `ssid` al evento → cae `TestLog`; (h) dejar `/network/reload` como `deny` → caen tabla y genérica. Restaurar y comprobar verde
+- [x] T027 Documentación completa: CHANGELOG (tramo 2), familia `host_network` en DOCS y README (sincronizados), hoja de ruta «hecha», filas CAP-086 y CAP-090 de la matriz de `specs/008-cobertura-total/plan.md` con las tools y los tests reales; revisar el diff buscando datos personales; commit del tramo (FR-020)
+
+
+### Notas del tramo 2 (al implementar)
+
+- **T014**: base `feat/032-host-y-red-del-host` en `0cc8bec` (tramo 1 hecho;
+  `compute_action_hash` es HMAC-SHA256 con clave en memoria, de la 019):
+  3316 passed, 106 skipped, 6 failed (los 6 conocidos de Windows);
+  `grep -c "spec 032"` = 3.
+- **Decisiones del supervisor aplicadas**: D-032-1 (`sv_reload_network` sin
+  token; desviación literal de FR-082 de la 008, anotada en la spec), D-032-2
+  (la principal, la única conectada y la principal desconocida se rechazan
+  siempre, sin token, también con `mdns`; el mensaje remite a la interfaz de
+  HA) y D-032-3 (puerta de enlace en una secundaria o en una VLAN: aviso
+  fuerte `route_warning`, con token).
+- **Desviaciones**:
+  - Título de `sv_update_network_interface`: «Update network interface
+    (Supervisor)», el que genera `title_for`, y no «Update host network
+    interface» del contrato (no hay mecanismo de títulos a mano). Para
+    `sv_create_vlan` se añade `vlan → VLAN` a `_TITLE_WORDS`.
+  - Varias principales en `/network/info` también es `primary_unknown`
+    (fail-closed: no se sabe cuál es la de acceso).
+  - La vista previa de `sv_create_vlan` lleva `parent_is_primary` y siempre
+    `route_warning` (con `auto` por defecto, el DHCP de la VLAN puede dar
+    puerta de enlace). `sv_update_network_interface` solo da `route_warning`
+    con una `gateway` explícita; el aviso principal ya nombra el DHCP.
+  - La PSK `"set"` también se rechaza (es lo que enseña la vista previa).
+  - La vista previa no pasa entera por `redact_structure`: taparía el
+    `confirmation_token` y el `"psk": "set"`; solo `before`.
+  - El tema de la guía es uno (`host_control`, FR-017) y las instrucciones
+    del `initialize` lo nombran salvo con las dos familias desactivadas; se
+    adapta el test del tramo 1 (`test_indice_e_instrucciones`).
+  - No estaba en las tareas y lo piden los invariantes: las tres tools van a
+    `FUERA_DEL_BANCO` (recuentos 155 y 38) y `_enviar` a
+    `LLAMADAS_DECLARADAS` de `tests/test_rutas_supervisor_rol.py`.
+- **T026, controles negativos** (cada uno aplicado, visto en rojo y
+  restaurado; ficheros de la tabla, la genérica, el generador, el registro y
+  `test_tools_host_network.py`):
+  - (a) sin la guarda de la principal → 5 failed (3 subtests de
+    `test_principal_rechazada_siempre`, `test_la_guarda_se_repite_al_confirmar`
+    y `TestLog`);
+  - (b) sin la de la única conectada → 2 failed (`test_unica_conectada` y
+    `test_pasa_a_unica_conectada_al_confirmar`);
+  - (c) «sin principal» permitido → 1 failed (`test_principal_desconocida`,
+    caso «sin principal»);
+  - (d) `omitibles=("wifi",)` → 2 failed (`TestPsk`: la PSK aparece en el
+    fichero del token);
+  - (e) sin limpiar la PSK del error → 3 failed (`TestPsk`);
+  - (f) `ipv4` sin `method` aceptado → 1 failed (`test_cada_regla`, «sin
+    method»);
+  - (g) `ssid` en el evento → 2 failed (`TestLog`);
+  - (h) `POST /network/reload` como `deny` → 5 failed (2 de la tabla, la
+    genérica, la generación desde cero y el registro con la familia
+    apagada).
+- Al cerrar: `grep -c "spec 032"` = 0; tabla regenerada sin cambios.
+- Suite al cerrar: 3365 passed, 106 skipped, 6 failed (los 6 conocidos).
 
 ## Dependencias y paralelismo
 
