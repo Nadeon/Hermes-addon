@@ -10,7 +10,10 @@ en dos pasos (vista previa con token y confirmación):
 - `ha_update_statistics_metadata`: cambia la unidad y la clase guardadas SIN
   convertir los valores (`recorder/update_statistics_metadata`).
 
-(El tramo 2 añade aquí ajustar sumas e importar, con el mismo ayudante.)
+- `ha_adjust_statistics_sum`: suma una cantidad a la suma de cada fila desde
+  un instante (`recorder/adjust_sum_statistics`). NO es idempotente.
+- `ha_import_statistics`: importa filas horarias y crea o actualiza los
+  metadatos (`recorder/import_statistics`).
 
 POR QUÉ DOS PASOS Y UNA VISTA PREVIA QUE LEE ANTES (research R-1, R-2)
 ----------------------------------------------------------------------
@@ -32,8 +35,9 @@ El token ata los argumentos NORMALIZADOS tal como se envían a HA: ids
 ordenados y sin repetir, fechas en UTC. Así, la misma hora escrita en otra
 zona es la misma acción.
 
-`queued: true` (decisión D-1 del supervisor): `change_statistics_unit` solo
-encola el trabajo en el recorder y HA contesta antes de hacerlo. Hermes no
+`queued: true` (decisión D-1 del supervisor): `change_statistics_unit`,
+`adjust_sum_statistics` e `import_statistics` solo encolan el trabajo en el
+recorder y HA contesta antes de hacerlo. Hermes no
 espera a que la cola se vacíe; dice que se aplica en segundo plano y cómo
 comprobarlo. Borrar y editar metadatos sí esperan en HA (10 s); si vence,
 `ha_timeout` avisa de que el trabajo puede seguir en la cola.
@@ -44,6 +48,8 @@ fechas ni valores (FR-018): dicen qué hay en la casa.
 
 from __future__ import annotations
 
+import inspect
+import math
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -65,6 +71,14 @@ logger = structlog.get_logger(__name__)
 
 _IDS_MAX = 100
 _UNIDAD_MAX = 64
+_NOMBRE_MAX = 255
+# Tope de filas por importación: 5000 horas son casi siete meses. Basta para
+# rellenar un hueco o migrar un contador, y el documento (unos 400 KB) sigue
+# cabiendo en el token y en una respuesta. Para más, varias importaciones.
+_FILAS_MAX = 5000
+# Rango máximo en el que la vista previa cuenta las filas que ya existen: 31
+# días son 744 filas horarias, una lectura acotada (research R-4).
+_RANGO_RECUENTO = timedelta(days=31)
 
 _UNDO = (
     "Cannot be undone from Hermes: only restoring a backup that includes the "
@@ -149,9 +163,9 @@ async def _dos_pasos(
     ids: list[str],
     confirmation_token: str | None,
     comprobar: Callable[[list[dict[str, Any]]], dict[str, Any] | None],
-    vista: Callable[[list[dict[str, Any]]], dict[str, Any]],
-    comando: dict[str, Any],
-    resultado: dict[str, Any],
+    vista: Callable[[list[dict[str, Any]]], Any],
+    comando: dict[str, Any] | Callable[[dict[str, Any]], dict[str, Any]],
+    resultado: dict[str, Any] | Callable[[dict[str, Any]], dict[str, Any]],
     omitibles: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Lectura de metadatos → comprobaciones → vista previa o ejecución.
@@ -160,6 +174,13 @@ async def _dos_pasos(
     acaban en `comando`). `comprobar` devuelve un error (sin token) para lo
     que HA aceptaría sin hacer nada. `resultado` es lo que se devuelve si HA
     responde bien.
+
+    `vista` puede ser asíncrona cuando la vista previa lee algo más (la suma
+    de una hora, las filas que se sobrescriben); si esa lectura falla, no hay
+    token: una vista previa a medias no dice lo que se va a hacer. `comando`
+    y `resultado` pueden ser funciones de los argumentos RESUELTOS por el
+    token: con un omitible (`stats`), lo que se envía es lo guardado en la
+    vista previa, no lo que llegó (nada) en la confirmación.
     """
     try:
         metas = await _leer_metadatos(ha_client, ids)
@@ -172,12 +193,18 @@ async def _dos_pasos(
         error = comprobar(metas)
         if error is not None:
             return error
-        preview = _limpio(vista(metas))
+        try:
+            preview = vista(metas)
+            if inspect.isawaitable(preview):
+                preview = await preview
+        except HAConnectionError as exc:
+            return _error_de_ha(tool, exc)
+        preview = _limpio(preview)
         logger.info(f"{tool}_preview", statistics=len(ids))
         return await create_confirmation_token(
             tool, args, preview, omitibles=omitibles, estado=metas)
 
-    valido, motivo, _ = await resolve_confirmation_token(
+    valido, motivo, resueltos = await resolve_confirmation_token(
         confirmation_token, tool, args, omitibles=omitibles, estado=metas)
     if not valido:
         if motivo == ESTADO_CAMBIADO:
@@ -193,6 +220,10 @@ async def _dos_pasos(
             confirmation_token, success=False, error=str(error.get("error")))
         return error
 
+    if callable(comando):
+        comando = comando(resueltos)
+    if callable(resultado):
+        resultado = resultado(resueltos)
     try:
         await ha_client.ws_send(comando)
     except HAConnectionError as exc:
@@ -216,6 +247,139 @@ def _resumen(meta: Mapping[str, Any]) -> dict[str, Any]:
 
 def _iso(fecha: datetime) -> str:
     return fecha.isoformat()
+
+
+def _numero_finito(valor: Any) -> bool:
+    """int o float finito; `bool` no cuenta (en Python es un int)."""
+    return (isinstance(valor, (int, float)) and not isinstance(valor, bool)
+            and math.isfinite(valor))
+
+
+def _inicio_ms(fila: Mapping[str, Any]) -> float | None:
+    """`start` de una fila de `statistics_during_period` en milisegundos.
+
+    HA da milisegundos desde la época; se acepta también un ISO por si una
+    versión lo devuelve así.
+    """
+    inicio = fila.get("start")
+    if _numero_finito(inicio):
+        return float(inicio)
+    fecha = _fecha_utc(inicio)
+    return fecha.timestamp() * 1000 if fecha is not None else None
+
+
+async def _leer_filas(ha_client: HAClient, statistic_id: str, desde: datetime,
+                      hasta: datetime, types: list[str] | None = None) -> list[dict[str, Any]]:
+    """Filas horarias de `statistic_id` en [desde, hasta) según HA.
+
+    Lanza `HAConnectionError` si HA falla o la respuesta no tiene forma.
+    """
+    mensaje: dict[str, Any] = {
+        "type": "recorder/statistics_during_period", "statistic_ids": [statistic_id],
+        "start_time": _iso(desde), "end_time": _iso(hasta), "period": "hour"}
+    if types is not None:
+        mensaje["types"] = types
+    bruto = await ha_client.ws_send(mensaje)
+    filas = (bruto.get(statistic_id) or []) if isinstance(bruto, Mapping) else None
+    if not isinstance(filas, list):
+        raise HAConnectionError(
+            "recorder/statistics_during_period returned an unexpected shape",
+            code="unexpected_response")
+    return [f for f in filas if isinstance(f, Mapping)]
+
+
+# ── Validación de la importación ─────────────────────────────────────────────
+
+_META_CLAVES = ("statistic_id", "source", "name", "unit_of_measurement",
+                "unit_class", "mean_type", "has_sum")
+_FILA_NUMEROS = ("mean", "min", "max", "state", "sum")
+
+
+def _validar_metadata(metadata: Any) -> tuple[dict[str, Any] | None, str, str]:
+    """`metadata` normalizado, o (None, campo, detalle) si no vale.
+
+    Se exigen las siete claves: sin `mean_type` ni `unit_class` HA las deduce
+    y avisa de que esa forma deja de funcionar (research R-1); `has_mean` no
+    se admite porque `mean_type` manda y las dos podrían contradecirse.
+    """
+    if not isinstance(metadata, Mapping):
+        return None, "metadata", "metadata must be an object."
+    sobran = sorted(set(map(str, metadata)) - set(_META_CLAVES))
+    if sobran:
+        return None, "metadata", (f"Unknown metadata keys: {', '.join(sobran)}. Allowed: "
+                                  f"{', '.join(_META_CLAVES)} (has_mean is replaced by "
+                                  "mean_type).")
+    faltan = [k for k in _META_CLAVES if k not in metadata]
+    if faltan:
+        return None, "metadata", f"Missing metadata keys: {', '.join(faltan)}."
+    sid, fuente = metadata["statistic_id"], metadata["source"]
+    if not _con_forma(sid, _STATISTIC_ID_RE):
+        return None, "metadata.statistic_id", "statistic_id " + _ID_DETALLE + "."
+    # La misma regla que HA (`async_import_statistics` y
+    # `async_add_external_statistics`): un id de entidad solo se importa con
+    # la fuente `recorder`, y uno externo con la fuente de su prefijo. Si no,
+    # HA lo rechaza al validar y no importa nada.
+    esperada = "recorder" if "." in sid else sid.split(":", 1)[0]
+    if fuente != esperada:
+        return None, "metadata.source", (f"source must be '{esperada}' for this statistic_id "
+                                         "('recorder' for an entity id, the prefix for "
+                                         "'source:statistic').")
+    nombre = metadata["name"]
+    if not (nombre is None or (isinstance(nombre, str) and len(nombre) <= _NOMBRE_MAX)):
+        return None, "metadata.name", f"name must be a text (up to {_NOMBRE_MAX}) or null."
+    for campo in ("unit_of_measurement", "unit_class"):
+        if not _unidad_valida(metadata[campo]):
+            return None, f"metadata.{campo}", (f"{campo} must be a text (up to "
+                                               f"{_UNIDAD_MAX} characters) or null.")
+    tipo = metadata["mean_type"]
+    if isinstance(tipo, bool) or tipo not in (0, 1, 2):
+        return None, "metadata.mean_type", ("mean_type must be 0 (no mean), 1 (arithmetic) "
+                                            "or 2 (circular).")
+    if not isinstance(metadata["has_sum"], bool):
+        return None, "metadata.has_sum", "has_sum must be true or false."
+    return {k: metadata[k] for k in _META_CLAVES}, "", ""
+
+
+def _validar_stats(stats: Any) -> tuple[list[dict[str, Any]] | None, str]:
+    """Filas normalizadas (UTC, ordenadas), o (None, detalle) si no valen.
+
+    `start` tiene que ser una hora en punto EN UTC: HA solo comprueba los
+    minutos en la zona que llega, y con una zona de media hora (+05:30)
+    guardaría una fila a y media.
+    """
+    if not isinstance(stats, list) or not 1 <= len(stats) <= _FILAS_MAX:
+        return None, (f"stats must be a list of 1 to {_FILAS_MAX} rows; for more, import "
+                      "in several calls.")
+    filas: dict[datetime, dict[str, Any]] = {}
+    for n, fila in enumerate(stats):
+        if not isinstance(fila, Mapping):
+            return None, f"stats[{n}] must be an object."
+        sobran = sorted(set(map(str, fila)) - {"start", "last_reset", *_FILA_NUMEROS})
+        if sobran:
+            return None, f"stats[{n}] has unknown keys: {', '.join(sobran)}."
+        inicio = _fecha_utc(fila.get("start"))
+        if inicio is None:
+            return None, f"stats[{n}].start must be ISO 8601 with a time zone."
+        if inicio.minute or inicio.second or inicio.microsecond:
+            return None, f"stats[{n}].start must be at the top of an hour (in UTC)."
+        if inicio in filas:
+            return None, f"stats[{n}].start is repeated: one row per hour."
+        normal: dict[str, Any] = {"start": _iso(inicio)}
+        if fila.get("last_reset") is not None:
+            reinicio = _fecha_utc(fila["last_reset"])
+            if reinicio is None:
+                return None, (f"stats[{n}].last_reset must be ISO 8601 with a time zone "
+                              "or null.")
+            normal["last_reset"] = _iso(reinicio)
+        elif "last_reset" in fila:
+            normal["last_reset"] = None
+        for campo in _FILA_NUMEROS:
+            if campo in fila:
+                if not _numero_finito(fila[campo]):
+                    return None, f"stats[{n}].{campo} must be a finite number."
+                normal[campo] = fila[campo]
+        filas[inicio] = normal
+    return [filas[k] for k in sorted(filas)], ""
 
 
 # ── Registro ─────────────────────────────────────────────────────────────────
@@ -497,4 +661,234 @@ def register(mcp: Any, ha_client: HAClient, *, response_max_bytes: int) -> None:
                      "unit_of_measurement": unit_of_measurement,
                      "unit_class": unit_class},
             resultado={"updated": True},
+        )
+
+    @mcp.tool()
+    @ready
+    async def ha_adjust_statistics_sum(
+        statistic_id: str,
+        start_time: str,
+        adjustment: float,
+        adjustment_unit: str | None,
+        confirmation_token: str | None = None,
+    ) -> object:
+        """Add `adjustment` to the sum of a statistic in every row from start_time on (to fix a jump or a reset in an energy or gas meter).
+
+        NOT idempotent: confirming twice (two previews, two tokens) adds it
+        twice. Cannot be undone except by restoring a backup, or by adjusting
+        again with the opposite amount. Two steps: without confirmation_token
+        it returns a preview (the sum stored in the hour of start_time before
+        and, when the units match, after) and changes nothing. Each token is
+        valid once. Home Assistant converts adjustment_unit to the unit of the
+        statistic and applies the change from the recorder queue in the
+        background: the confirmation answers `queued: true`; check it with
+        ha_statistics_during_period.
+
+        Args:
+            statistic_id: A statistic with a sum, e.g. "sensor.energy".
+            start_time: ISO 8601 with time zone. Every 5-minute row from this
+                instant and every hourly row from its hour on is adjusted.
+            adjustment: The amount to add (negative to subtract); not 0.
+            adjustment_unit: The unit of adjustment, e.g. "kWh" (null if the
+                statistic has no unit).
+            confirmation_token: Token from the preview call.
+
+        Returns:
+            Preview: {confirmation_token, expires_in_seconds, preview}.
+            Confirmed: {queued: true, check_with, detail}. Errors:
+            invalid_argument, statistics_not_found, statistic_has_no_sum,
+            recorder_not_loaded, ha_command_failed (e.g. invalid_units).
+        """
+        tool = "ha_adjust_statistics_sum"
+        if not _con_forma(statistic_id, _STATISTIC_ID_RE):
+            return _invalido(tool, "statistic_id", "statistic_id " + _ID_DETALLE + ".")
+        inicio = _fecha_utc(start_time)
+        if inicio is None:
+            return _invalido(tool, "start_time", "start_time must be ISO 8601 with a time "
+                             "zone, e.g. '2026-01-01T00:00:00+00:00'.")
+        if not _numero_finito(adjustment) or adjustment == 0:
+            return _invalido(tool, "adjustment", "adjustment must be a finite number other "
+                             "than 0.")
+        if not _unidad_valida(adjustment_unit):
+            return _invalido(tool, "adjustment_unit", "adjustment_unit must be a unit text "
+                             f"(up to {_UNIDAD_MAX} characters) or null.")
+        # El token ata los cuatro: la cantidad, la estadística, el instante (en
+        # UTC, como se envía) y la unidad. Es de un solo uso, así que un
+        # reintento con el mismo token no suma dos veces.
+        args = {"statistic_id": statistic_id, "start_time": _iso(inicio),
+                "adjustment": adjustment, "adjustment_unit": adjustment_unit}
+
+        def comprobar(metas: list[dict[str, Any]]) -> dict[str, Any] | None:
+            error = _no_encontradas(tool, [statistic_id], metas)
+            if error is not None:
+                return error
+            # Sin suma, HA encola el ajuste y no cambia nada (research R-1).
+            if not metas[0].get("has_sum"):
+                logger.info(f"{tool}_failed", error="statistic_has_no_sum")
+                return {"error": "statistic_has_no_sum",
+                        "detail": ("This statistic has no sum (has_sum is false): there is "
+                                   "nothing to adjust. Nothing was done.")}
+            return None
+
+        async def vista(metas: list[dict[str, Any]]) -> dict[str, Any]:
+            unidad = metas[0].get("statistics_unit_of_measurement")
+            hora = inicio.replace(minute=0, second=0, microsecond=0)
+            filas = await _leer_filas(ha_client, statistic_id, hora,
+                                      hora + timedelta(hours=1), types=["sum"])
+            fila = next((f for f in filas if _inicio_ms(f) == hora.timestamp() * 1000), None)
+            suma: dict[str, Any] | None = None
+            if fila is not None and _numero_finito(fila.get("sum")):
+                suma = {"before": fila["sum"]}
+                # Solo con la misma unidad se puede decir la suma que queda
+                # sin repetir la conversión de HA.
+                if adjustment_unit == unidad:
+                    suma["after"] = fila["sum"] + adjustment
+            return {
+                "action": "adjust_statistics_sum",
+                "statistic_id": statistic_id,
+                "from": args["start_time"],
+                "adjustment": adjustment,
+                "adjustment_unit": adjustment_unit,
+                "statistics_unit": unidad,
+                "sum_at_start": suma,
+                "applies_to": "every row from this hour on (hourly and 5-minute)",
+                "repeat_warning": ("Not idempotent: adjusting twice adds the amount twice. "
+                                   "Check with ha_statistics_during_period before "
+                                   "repeating."),
+                "irreversible": True,
+                "undo": _UNDO + " Or adjust again with the opposite amount.",
+            }
+
+        return await _dos_pasos(
+            ha_client, tool=tool, args=args, ids=[statistic_id],
+            confirmation_token=confirmation_token, comprobar=comprobar, vista=vista,
+            comando={"type": "recorder/adjust_sum_statistics",
+                     "statistic_id": statistic_id,
+                     "start_time": args["start_time"],
+                     "adjustment": adjustment,
+                     "adjustment_unit_of_measurement": adjustment_unit},
+            resultado={
+                "queued": True,
+                "check_with": "ha_statistics_during_period",
+                "detail": ("Home Assistant queued the adjustment in the recorder and "
+                           "applies it in the background, usually within seconds. Do "
+                           "not repeat it: check the sum with "
+                           "ha_statistics_during_period first."),
+            },
+        )
+
+    @mcp.tool()
+    @ready
+    async def ha_import_statistics(
+        metadata: dict,
+        stats: list[dict] | None = None,
+        confirmation_token: str | None = None,
+    ) -> object:
+        """Import hourly long-term statistics: insert rows, overwrite the rows that have the same start, and create or update the statistic's metadata.
+
+        Cannot be undone except by restoring a backup (overwritten rows are
+        lost). Two steps: without confirmation_token it returns a preview
+        (whether the statistic exists, current and new metadata, number of
+        rows, first and last hour, and how many existing rows are
+        overwritten) and changes nothing. To confirm, repeat the call with
+        metadata and confirmation_token; stats can be omitted (the server
+        keeps the one from the preview) and, if sent, must be identical. Home
+        Assistant imports from the recorder queue in the background: the
+        confirmation answers `queued: true`; check it with
+        ha_statistics_during_period.
+
+        Args:
+            metadata: {statistic_id, source, name, unit_of_measurement,
+                unit_class, mean_type, has_sum}, all required. statistic_id
+                "sensor.x" needs source "recorder"; "mysource:x" needs source
+                "mysource". mean_type: 0 none, 1 arithmetic, 2 circular
+                (angles).
+            stats: 1-5000 rows {start, mean?, min?, max?, state?, sum?,
+                last_reset?}. start: ISO 8601 with time zone at the top of an
+                hour (in UTC), one row per hour. Required in the preview.
+            confirmation_token: Token from the preview call.
+
+        Returns:
+            Preview: {confirmation_token, expires_in_seconds, preview,
+            confirm_with, omit_on_confirm, confirm_hint}. Confirmed:
+            {queued: true, rows, check_with, detail}. Errors:
+            invalid_argument, recorder_not_loaded, ha_command_failed.
+        """
+        tool = "ha_import_statistics"
+        meta, campo, detalle = _validar_metadata(metadata)
+        if meta is None:
+            return _invalido(tool, campo, detalle)
+        filas: list[dict[str, Any]] | None = None
+        if stats is not None or not confirmation_token:
+            # En la vista previa `stats` es obligatorio; al confirmar, si
+            # llega, se normaliza igual para compararlo con lo previsualizado.
+            filas, detalle = _validar_stats(stats)
+            if filas is None:
+                return _invalido(tool, "stats", detalle)
+        statistic_id = meta["statistic_id"]
+        # El token ata el documento COMPLETO normalizado (su hash): una fila
+        # distinta da «does not match». `stats` se guarda con el token para
+        # no tener que reenviarlo (spec 018); si no cabe, hay que reenviarlo.
+        args = {"metadata": meta, "stats": filas}
+
+        async def vista(metas: list[dict[str, Any]]) -> dict[str, Any]:
+            assert filas is not None
+            primera = datetime.fromisoformat(filas[0]["start"])
+            ultima = datetime.fromisoformat(filas[-1]["start"])
+            preview: dict[str, Any] = {
+                "action": "import_statistics",
+                "statistic_id": statistic_id,
+                "exists": bool(metas),
+            }
+            if metas:
+                preview["current_metadata"] = _resumen(metas[0])
+            preview.update(
+                new_metadata=meta, rows=len(filas),
+                columns=sorted({k for f in filas for k in f} - {"start"}),
+                first_start=filas[0]["start"], last_start=filas[-1]["start"])
+            if not metas:
+                preview["overwritten_rows"] = 0
+            elif ultima - primera <= _RANGO_RECUENTO:
+                existentes = await _leer_filas(ha_client, statistic_id, primera,
+                                               ultima + timedelta(hours=1))
+                nuevas = {datetime.fromisoformat(f["start"]).timestamp() * 1000 for f in filas}
+                preview["overwritten_rows"] = sum(
+                    1 for f in existentes if _inicio_ms(f) in nuevas)
+            else:
+                # Contar en un rango de meses o años exigiría leerlo entero.
+                preview["overwritten_rows"] = None
+                preview["overwritten_rows_reason"] = (
+                    "Not counted: the rows span more than 31 days. Rows with the same "
+                    "start as an existing row overwrite it.")
+            if "." in statistic_id and await ha_client.get_state(statistic_id) is not None:
+                preview["recorded_entity_warning"] = (
+                    "This statistic belongs to an existing entity: the recorder keeps "
+                    "compiling its statistics every hour and may overwrite imported rows "
+                    "for new hours.")
+            preview["effect"] = ("Inserts the rows, overwrites existing rows with the same "
+                                 "start, and stores new_metadata.")
+            preview["irreversible"] = True
+            preview["undo"] = _UNDO
+            return preview
+
+        def comando(resueltos: dict[str, Any]) -> dict[str, Any]:
+            return {"type": "recorder/import_statistics", "metadata": resueltos["metadata"],
+                    "stats": resueltos["stats"]}
+
+        def resultado(resueltos: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "queued": True,
+                "rows": len(resueltos["stats"]),
+                "check_with": "ha_statistics_during_period",
+                "detail": ("Home Assistant queued the import in the recorder and applies "
+                           "it in the background, usually within seconds."),
+            }
+
+        return await _dos_pasos(
+            ha_client, tool=tool, args=args, ids=[statistic_id],
+            confirmation_token=confirmation_token,
+            # Puede no existir: importar también crea. Lo que HA rechazaría ya
+            # lo rechazó la validación (fuente, horas en punto, `mean_type`).
+            comprobar=lambda metas: None,
+            vista=vista, comando=comando, resultado=resultado, omitibles=("stats",),
         )

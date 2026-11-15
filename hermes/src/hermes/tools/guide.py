@@ -855,7 +855,7 @@ del tema responden `recorder_not_loaded`.
 
 MANTENIMIENTO DE ESTADÍSTICAS (escriben; dos pasos con token)
 Reescriben el histórico: solo restaurar un backup (el de HA incluye la base)
-lo deshace. Las tres en dos pasos: sin `confirmation_token` devuelven una
+lo deshace. Las cinco en dos pasos: sin `confirmation_token` devuelven una
 vista previa y no cambian nada; repite la MISMA llamada con el token para
 ejecutar. Antes del token leen los metadatos y rechazan lo que HA aceptaría
 sin hacer nada (`statistics_not_found` con `missing`); si los metadatos
@@ -879,8 +879,36 @@ cambian antes de confirmar, `statistics_changed` y nada se ejecuta.
   (`converts_values: false`): para arreglar un aviso de «unidad cambiada»
   cuando los valores ya están en la unidad nueva. Si hay que convertirlos,
   `ha_change_statistics_unit`.
+- `ha_adjust_statistics_sum(statistic_id, start_time, adjustment,
+  adjustment_unit)` — suma `adjustment` (negativo para restar) a la suma de
+  cada fila desde `start_time` (la horaria, desde su hora): para arreglar un
+  salto o un reinicio de un contador. NO es idempotente: dos ajustes suman
+  dos veces (cada token sirve una vez, pero otra vista previa da otro). La
+  vista previa da `sum_at_start` (la suma guardada en esa hora antes y, si la
+  unidad del ajuste es la de la estadística, después). Sin suma,
+  `statistic_has_no_sum`. Responde `queued: true`: comprueba con
+  `ha_statistics_during_period` ANTES de repetir.
+- `ha_import_statistics(metadata, stats)` — importa filas horarias (de 1 a
+  5000; para más, varias llamadas) y crea o actualiza los metadatos. Una fila
+  con la misma hora que una existente la SOBRESCRIBE. `metadata` lleva las
+  siete claves: `statistic_id`, `source` (`source: recorder` para un id de
+  entidad como `sensor.x`; el prefijo para `fuente:x`), `name`,
+  `unit_of_measurement`, `unit_class`, `mean_type` (0 sin media, 1
+  aritmética, 2 circular) y `has_sum`. Cada fila: `start` en hora en punto
+  (en UTC) con zona, y `mean`, `min`, `max`, `state`, `sum`, `last_reset`
+  opcionales. La vista previa resume (si existe, metadatos, filas, primera y
+  última hora y `overwritten_rows`, las que se sobrescriben, contadas si
+  abarcan 31 días o menos) sin volcar las filas, y avisa si el id es de una
+  entidad que se graba (el recorder puede pisar las horas nuevas). Al
+  confirmar, `stats` se puede omitir (`omit_on_confirm`): el servidor guarda
+  el de la vista previa; si lo mandas, tiene que ser idéntico. Responde
+  `queued: true`.
 Diferencia clave: cambiar la unidad convierte los números; editar los
 metadatos solo cambia la etiqueta.
+
+Avisos de Repairs de las estadísticas: tras arreglar una estadística,
+`ha_call_ws_command(type="recorder/update_statistics_issues")` (dos pasos,
+sin carga) los vuelve a calcular; no toca filas ni metadatos.
 
 AUDITORÍA DE LLAMADAS A ACCIONES (por la genérica de lectura)
 `ha_read_ws_command(type="logbook/get_action_calls",

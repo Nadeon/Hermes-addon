@@ -325,6 +325,8 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "recorder/clear_statistics": "ha_clear_statistics",
     "recorder/change_statistics_unit": "ha_change_statistics_unit",
     "recorder/update_statistics_metadata": "ha_update_statistics_metadata",
+    "recorder/adjust_sum_statistics": "ha_adjust_statistics_sum",
+    "recorder/import_statistics": "ha_import_statistics",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

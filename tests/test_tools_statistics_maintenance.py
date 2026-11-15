@@ -536,5 +536,391 @@ class TestToken(_Base):
         self.assertIn("error", r)
 
 
+# ── Tramo 2: ajustar la suma e importar (T021–T023) ──────────────────────────
+#
+# Controles negativos (T033), con recuentos en el commit del tramo:
+# - (a) quitar `adjustment_unit` del dict del token → cae
+#   `test_cambiar_ajuste_unidad_o_instante_no_casa` (1);
+# - (b) no comprobar `has_sum` → cae `test_sin_suma_sin_token` (1);
+# - (c) aceptar `start` con minutos → caen 3 casos de
+#   `test_argumentos_invalidos_sin_llamar` de la importación;
+# - (d) no declarar `stats` omitible → caen 4: `test_vista_previa_de_una_nueva`,
+#   `test_confirmar_sin_stats_usa_lo_guardado`, `test_metadatos_cambiados_entre_medias`
+#   y `test_tope_lleno_pide_reenviar_stats`.
+
+_HORA = "2026-03-01T10:00:00+00:00"
+_HORA_MS = 1772359200000.0  # 2026-03-01T10:00:00Z en milisegundos
+
+
+class _BaseTramo2(_Base):
+    """El doble de T002 más las filas de `statistics_during_period` y los
+    estados de entidades (para el aviso de la importación)."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.filas: dict[str, list[dict[str, Any]]] = {}
+        self.estados: dict[str, dict[str, Any]] = {}
+        self.ha.get_state = AsyncMock(side_effect=lambda eid: self.estados.get(eid))
+
+    async def _ws_send(self, payload: dict[str, Any], timeout_seconds: int = 30) -> Any:
+        if payload["type"] == "recorder/statistics_during_period":
+            self.enviados.append(payload)
+            if payload["type"] in self.fallos:
+                raise self.fallos[payload["type"]]
+            return {s: self.filas[s] for s in payload["statistic_ids"] if s in self.filas}
+        return await super()._ws_send(payload, timeout_seconds)
+
+
+class TestAjustarSuma(_BaseTramo2):
+    """T021 — `ha_adjust_statistics_sum` (FR-004, FR-006, FR-008, FR-017, FR-018)."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.tool = self.t["ha_adjust_statistics_sum"]
+        self.args = {"statistic_id": "sensor.consumo", "start_time": "2026-03-01T12:00:00+02:00",
+                     "adjustment": 500, "adjustment_unit": "Wh"}
+
+    async def test_vista_previa_con_la_suma_antes_y_despues(self) -> None:
+        self.filas["sensor.consumo"] = [{"start": _HORA_MS, "end": _HORA_MS + 3600000,
+                                         "sum": 1200.0}]
+        r = await self.tool(**self.args)
+        self._sin_escrituras()
+        p = r["preview"]
+        self.assertEqual(p["action"], "adjust_statistics_sum")
+        self.assertEqual(p["from"], _HORA)
+        self.assertEqual((p["adjustment"], p["adjustment_unit"], p["statistics_unit"]),
+                         (500, "Wh", "Wh"))
+        self.assertEqual(p["sum_at_start"], {"before": 1200.0, "after": 1700.0})
+        self.assertIn("twice", p["repeat_warning"])
+        self.assertIs(p["irreversible"], True)
+        self.assertIn("backup", p["undo"])
+        lectura = [x for x in self.enviados if x["type"] == "recorder/statistics_during_period"]
+        self.assertEqual(lectura, [{
+            "type": "recorder/statistics_during_period", "statistic_ids": ["sensor.consumo"],
+            "start_time": _HORA, "end_time": "2026-03-01T11:00:00+00:00",
+            "period": "hour", "types": ["sum"]}])
+
+    async def test_hora_con_minutos_lee_su_hora(self) -> None:
+        self.filas["sensor.consumo"] = [{"start": _HORA_MS, "sum": 10.0}]
+        r = await self.tool(**{**self.args, "start_time": "2026-03-01T10:25:00+00:00"})
+        self.assertEqual(r["preview"]["from"], "2026-03-01T10:25:00+00:00")
+        self.assertEqual(r["preview"]["sum_at_start"]["before"], 10.0)
+
+    async def test_otra_unidad_solo_da_la_de_antes(self) -> None:
+        self.filas["sensor.consumo"] = [{"start": _HORA_MS, "sum": 1200.0}]
+        r = await self.tool(**{**self.args, "adjustment": 0.5, "adjustment_unit": "kWh"})
+        self.assertEqual(r["preview"]["sum_at_start"], {"before": 1200.0})
+
+    async def test_sin_fila_es_null(self) -> None:
+        r = await self.tool(**self.args)
+        self.assertIsNone(r["preview"]["sum_at_start"])
+        self.assertIn("confirmation_token", r)
+
+    async def test_confirmacion_encolada(self) -> None:
+        r = await self.tool(**self.args)
+        hecho = await self.tool(**self.args, confirmation_token=r["confirmation_token"])
+        self.assertIs(hecho["queued"], True)
+        self.assertEqual(hecho["check_with"], "ha_statistics_during_period")
+        self.assertEqual(self._escrituras(), [{
+            "type": "recorder/adjust_sum_statistics", "statistic_id": "sensor.consumo",
+            "start_time": _HORA, "adjustment": 500,
+            "adjustment_unit_of_measurement": "Wh"}])
+
+    async def test_sin_suma_sin_token(self) -> None:
+        self.metadatos["sensor.consumo"]["has_sum"] = False
+        r = await self.tool(**self.args)
+        self.assertEqual(r["error"], "statistic_has_no_sum")
+        self.assertNotIn("confirmation_token", r)
+        self._sin_escrituras()
+
+    async def test_id_desconocido_sin_token(self) -> None:
+        r = await self.tool(**{**self.args, "statistic_id": "sensor.no_existe"})
+        self.assertEqual(r["error"], "statistics_not_found")
+        self.assertNotIn("confirmation_token", r)
+
+    async def test_argumentos_invalidos_sin_llamar(self) -> None:
+        for cambio in ({"adjustment": 0}, {"adjustment": 0.0}, {"adjustment": float("nan")},
+                       {"adjustment": float("inf")}, {"adjustment": True},
+                       {"adjustment": "5"}, {"start_time": "2026-03-01T10:00:00"},
+                       {"start_time": "ayer"}, {"statistic_id": "Sensor"},
+                       {"adjustment_unit": 3}):
+            with self.subTest(cambio=cambio):
+                r = await self.tool(**{**self.args, **cambio})
+                self.assertEqual(r["error"], "invalid_argument")
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_unidades_invalidas_de_ha(self) -> None:
+        r = await self.tool(**{**self.args, "adjustment_unit": "L"})
+        self.fallos["recorder/adjust_sum_statistics"] = _ha_error(
+            "invalid_units", "Can't convert Wh to L")
+        hecho = await self.tool(**{**self.args, "adjustment_unit": "L"},
+                                confirmation_token=r["confirmation_token"])
+        self.assertEqual(hecho["error"], "ha_command_failed")
+        self.assertEqual(hecho["ha_code"], "invalid_units")
+
+    async def test_lectura_de_la_suma_fallida_sin_token(self) -> None:
+        self.fallos["recorder/statistics_during_period"] = HAConnectionError("Core caído")
+        r = await self.tool(**self.args)
+        self.assertIn("error", r)
+        self.assertNotIn("confirmation_token", r)
+
+    async def test_log_sin_ids_ni_valores(self) -> None:
+        self.filas["sensor.consumo"] = [{"start": _HORA_MS, "sum": 1234.5}]
+        with capture_logs() as logs:
+            r = await self.tool(**self.args)
+            await self.tool(**self.args, confirmation_token=r["confirmation_token"])
+            self.metadatos["sensor.solar"]["has_sum"] = False
+            await self.tool(**{**self.args, "statistic_id": "sensor.solar"})
+        texto = json.dumps(logs, default=str)
+        for prohibido in ("sensor.consumo", "sensor.solar", "1234.5", "500", '"Wh"', "2026-03"):
+            self.assertNotIn(prohibido, texto)
+        self.assertIn("ha_adjust_statistics_sum_ok", texto)
+
+
+def _metadata(statistic_id: str = "banco:importada", **cambios: Any) -> dict[str, Any]:
+    base = {"statistic_id": statistic_id,
+            "source": statistic_id.split(":")[0] if ":" in statistic_id else "recorder",
+            "name": "Importada", "unit_of_measurement": "kWh", "unit_class": "energy",
+            "mean_type": 0, "has_sum": True}
+    base.update(cambios)
+    return base
+
+
+def _stats(n: int = 3, desde: str = "2026-03-01T12:00:00+02:00") -> list[dict[str, Any]]:
+    from datetime import datetime, timedelta
+    inicio = datetime.fromisoformat(desde)
+    return [{"start": (inicio + timedelta(hours=i)).isoformat(), "state": float(i),
+             "sum": float(i + 1)} for i in range(n)]
+
+
+class TestImportar(_BaseTramo2):
+    """T022 — `ha_import_statistics` (FR-005, FR-006, FR-017)."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.tool = self.t["ha_import_statistics"]
+
+    async def test_vista_previa_de_una_nueva(self) -> None:
+        r = await self.tool(metadata=_metadata(), stats=list(reversed(_stats())))
+        self._sin_escrituras()
+        p = r["preview"]
+        self.assertEqual(p["action"], "import_statistics")
+        self.assertEqual(p["statistic_id"], "banco:importada")
+        self.assertIs(p["exists"], False)
+        self.assertNotIn("current_metadata", p)
+        self.assertEqual(p["new_metadata"]["unit_of_measurement"], "kWh")
+        self.assertEqual((p["rows"], p["first_start"], p["last_start"]),
+                         (3, _HORA, "2026-03-01T12:00:00+00:00"))
+        self.assertEqual(p["overwritten_rows"], 0)
+        self.assertNotIn("recorded_entity_warning", p)
+        self.assertIs(p["irreversible"], True)
+        # Resumen, no volcado: ninguna fila en la vista previa.
+        self.assertNotIn("stats", p)
+        self.assertEqual(r["omit_on_confirm"], ["stats"])
+        self.assertIn("stats", r["confirm_hint"])
+
+    async def test_vista_previa_de_una_que_existe_cuenta_las_sobrescritas(self) -> None:
+        self.metadatos["banco:importada"] = _meta("banco:importada", source="banco",
+                                                  statistics_unit_of_measurement="kWh")
+        self.filas["banco:importada"] = [{"start": _HORA_MS}, {"start": _HORA_MS + 3600000},
+                                         {"start": _HORA_MS - 3600000}]
+        r = await self.tool(metadata=_metadata(), stats=_stats())
+        p = r["preview"]
+        self.assertIs(p["exists"], True)
+        self.assertEqual(p["current_metadata"]["statistics_unit_of_measurement"], "kWh")
+        self.assertEqual(p["overwritten_rows"], 2)
+        lectura = [x for x in self.enviados if x["type"] == "recorder/statistics_during_period"]
+        self.assertEqual(len(lectura), 1)
+        self.assertEqual((lectura[0]["start_time"], lectura[0]["end_time"], lectura[0]["period"]),
+                         (_HORA, "2026-03-01T13:00:00+00:00", "hour"))
+
+    async def test_rango_largo_no_cuenta(self) -> None:
+        self.metadatos["banco:importada"] = _meta("banco:importada", source="banco")
+        stats = _stats(2)
+        stats.append({"start": "2026-04-15T00:00:00+00:00", "sum": 9.0})
+        r = await self.tool(metadata=_metadata(), stats=stats)
+        p = r["preview"]
+        self.assertIsNone(p["overwritten_rows"])
+        self.assertIn("31 days", p["overwritten_rows_reason"])
+        self.assertFalse([x for x in self.enviados
+                          if x["type"] == "recorder/statistics_during_period"])
+
+    async def test_aviso_si_es_de_una_entidad(self) -> None:
+        self.estados["sensor.consumo"] = {"entity_id": "sensor.consumo", "state": "1"}
+        r = await self.tool(metadata=_metadata("sensor.consumo"), stats=_stats())
+        self.assertIn("recorder", r["preview"]["recorded_entity_warning"])
+
+    async def test_confirmacion_normalizada(self) -> None:
+        meta = _metadata()
+        stats = list(reversed(_stats()))
+        stats[0]["last_reset"] = "2026-03-01T02:00:00+02:00"
+        r = await self.tool(metadata=meta, stats=stats)
+        hecho = await self.tool(metadata=meta, stats=stats,
+                                confirmation_token=r["confirmation_token"])
+        self.assertEqual(hecho["queued"], True)
+        self.assertEqual(hecho["rows"], 3)
+        [enviado] = self._escrituras()
+        self.assertEqual(enviado["type"], "recorder/import_statistics")
+        self.assertEqual(enviado["metadata"], meta)
+        self.assertNotIn("has_mean", enviado["metadata"])
+        self.assertEqual([f["start"] for f in enviado["stats"]],
+                         [_HORA, "2026-03-01T11:00:00+00:00", "2026-03-01T12:00:00+00:00"])
+        self.assertEqual(enviado["stats"][2]["last_reset"], "2026-03-01T00:00:00+00:00")
+
+    async def test_argumentos_invalidos_sin_llamar(self) -> None:
+        stats = _stats()
+        casos = [
+            {"stats": [{**stats[0], "start": "2026-03-01T10:00:00"}]},
+            {"stats": [{**stats[0], "start": "2026-03-01T10:30:00+00:00"}]},
+            {"stats": [{**stats[0], "start": "2026-03-01T10:00:00+05:30"}]},
+            {"stats": [stats[0], {**stats[0], "start": "2026-03-01T10:00:00Z"}]},
+            {"stats": []},
+            {"stats": [{"start": "2026-03-01T10:00:00Z", "sum": 1.0}] * 2},
+            {"stats": [{**stats[0], "sum": float("nan")}]},
+            {"stats": [{**stats[0], "sum": None}]},
+            {"stats": [{**stats[0], "otra": 1}]},
+            {"stats": [{"sum": 1.0}]},
+            {"stats": None},
+            {"stats": "no"},
+            {"metadata": _metadata(mean_type=3)},
+            {"metadata": {**_metadata(), "has_mean": False}},
+            {"metadata": {**_metadata(), "otra": 1}},
+            {"metadata": _metadata("sensor.x", source="banco")},
+            {"metadata": _metadata("banco:x", source="otra")},
+            {"metadata": {k: v for k, v in _metadata().items() if k != "has_sum"}},
+            {"metadata": {k: v for k, v in _metadata().items() if k != "mean_type"}},
+            {"metadata": _metadata("Nada")},
+            {"metadata": "no"},
+        ]
+        for caso in casos:
+            with self.subTest(caso=caso):
+                args = {"metadata": _metadata(), "stats": stats, **caso}
+                r = await self.tool(**args)
+                self.assertEqual(r["error"], "invalid_argument", r)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_limite_de_filas(self) -> None:
+        r = await self.tool(metadata=_metadata(), stats=_stats(5001, "2026-01-01T00:00:00+00:00"))
+        self.assertEqual(r["error"], "invalid_argument")
+        self.assertIn("5000", r["detail"])
+        self.ha.ws_send.assert_not_awaited()
+        r = await self.tool(metadata=_metadata(), stats=_stats(5000, "2026-01-01T00:00:00+00:00"))
+        self.assertIn("confirmation_token", r)
+
+    async def test_error_de_ha_al_confirmar(self) -> None:
+        args = {"metadata": _metadata(unit_class="temperature"), "stats": _stats()}
+        r = await self.tool(**args)
+        self.fallos["recorder/import_statistics"] = _ha_error(
+            "home_assistant_error", f"Unsupported unit token={_CENTINELA}")
+        hecho = await self.tool(**args, confirmation_token=r["confirmation_token"])
+        self.assertEqual(hecho["error"], "ha_command_failed")
+        self.assertNotIn(_CENTINELA, json.dumps(hecho))
+
+    async def test_log_sin_ids_ni_valores(self) -> None:
+        args = {"metadata": _metadata(), "stats": _stats()}
+        with capture_logs() as logs:
+            r = await self.tool(**args)
+            await self.tool(**args, confirmation_token=r["confirmation_token"])
+        texto = json.dumps(logs, default=str)
+        for prohibido in ("banco:importada", "Importada", "2026-03", "kWh"):
+            self.assertNotIn(prohibido, texto)
+        self.assertIn("ha_import_statistics_ok", texto)
+
+
+class TestTokenTramo2(_BaseTramo2):
+    """T023 — el token de las dos (FR-005, FR-007, SC-003)."""
+
+    async def _no_casa(self, tool: str, previa: dict[str, Any], otra: dict[str, Any]) -> None:
+        r = await self.t[tool](**previa)
+        no = await self.t[tool](**otra, confirmation_token=r["confirmation_token"])
+        self.assertIn("does not match", no["error"])
+        self._sin_escrituras()
+
+    async def test_cambiar_ajuste_unidad_o_instante_no_casa(self) -> None:
+        tool = "ha_adjust_statistics_sum"
+        base = {"statistic_id": "sensor.consumo", "start_time": _HORA,
+                "adjustment": 5, "adjustment_unit": "kWh"}
+        await self._no_casa(tool, base, {**base, "adjustment": 6})
+        await self._no_casa(tool, base, {**base, "adjustment_unit": "Wh"})
+        await self._no_casa(tool, base, {**base, "start_time": "2026-03-01T11:00:00+00:00"})
+        await self._no_casa(tool, base, {**base, "statistic_id": "sensor.solar"})
+
+    async def test_ajuste_de_un_solo_uso(self) -> None:
+        tool = self.t["ha_adjust_statistics_sum"]
+        args = {"statistic_id": "sensor.consumo", "start_time": _HORA,
+                "adjustment": 5, "adjustment_unit": "kWh"}
+        r = await tool(**args)
+        await tool(**args, confirmation_token=r["confirmation_token"])
+        otra = await tool(**args, confirmation_token=r["confirmation_token"])
+        self.assertIn("already used", otra["error"])
+        self.assertEqual(len(self._escrituras()), 1)
+
+    async def test_confirmar_sin_stats_usa_lo_guardado(self) -> None:
+        tool = self.t["ha_import_statistics"]
+        r = await tool(metadata=_metadata(), stats=_stats())
+        self.assertEqual(r["confirm_with"], ["confirmation_token", "metadata"])
+        hecho = await tool(metadata=_metadata(), confirmation_token=r["confirmation_token"])
+        self.assertIs(hecho["queued"], True)
+        self.assertEqual(hecho["rows"], 3)
+        self.assertEqual(len(self._escrituras()[0]["stats"]), 3)
+
+    async def test_stats_distinto_no_casa(self) -> None:
+        otra = _stats()
+        otra[1]["sum"] = 99.0
+        await self._no_casa("ha_import_statistics",
+                            {"metadata": _metadata(), "stats": _stats()},
+                            {"metadata": _metadata(), "stats": otra})
+        await self._no_casa("ha_import_statistics",
+                            {"metadata": _metadata(), "stats": _stats()},
+                            {"metadata": _metadata(name="Otra")})
+
+    async def test_misma_fila_en_otra_zona_casa(self) -> None:
+        tool = self.t["ha_import_statistics"]
+        r = await tool(metadata=_metadata(), stats=_stats())
+        hecho = await tool(metadata=_metadata(), stats=_stats(desde="2026-03-01T10:00:00Z"),
+                           confirmation_token=r["confirmation_token"])
+        self.assertIs(hecho["queued"], True)
+
+    async def test_metadatos_cambiados_entre_medias(self) -> None:
+        casos = [
+            ("ha_adjust_statistics_sum", {"statistic_id": "sensor.consumo", "start_time": _HORA,
+                                          "adjustment": 5, "adjustment_unit": "kWh"}),
+            ("ha_import_statistics", {"metadata": _metadata("sensor.consumo"),
+                                      "stats": _stats()}),
+        ]
+        for tool, args in casos:
+            with self.subTest(tool=tool):
+                self.metadatos["sensor.consumo"] = _meta("sensor.consumo")
+                r = await self.t[tool](**args)
+                self.metadatos["sensor.consumo"]["statistics_unit_of_measurement"] = "kWh"
+                no = await self.t[tool](**args, confirmation_token=r["confirmation_token"])
+                self.assertEqual(no["error"], "statistics_changed")
+                self._sin_escrituras()
+        # Importar una que no existía y que alguien crea entre medias.
+        r = await self.t["ha_import_statistics"](metadata=_metadata(), stats=_stats())
+        self.metadatos["banco:importada"] = _meta("banco:importada", source="banco")
+        no = await self.t["ha_import_statistics"](metadata=_metadata(),
+                                                  confirmation_token=r["confirmation_token"])
+        self.assertEqual(no["error"], "statistics_changed")
+        self._sin_escrituras()
+
+    async def test_tope_lleno_pide_reenviar_stats(self) -> None:
+        tool = self.t["ha_import_statistics"]
+        original = security.CONFIRMATION_STORED_MAX_BYTES
+        security.CONFIRMATION_STORED_MAX_BYTES = 10
+        try:
+            r = await tool(metadata=_metadata(), stats=_stats())
+        finally:
+            security.CONFIRMATION_STORED_MAX_BYTES = original
+        self.assertNotIn("omit_on_confirm", r)
+        self.assertIn("stats", r["confirm_hint"])
+        no = await tool(metadata=_metadata(), confirmation_token=r["confirmation_token"])
+        self.assertIn("no stored value for: stats", no["error"])
+        self._sin_escrituras()
+        hecho = await tool(metadata=_metadata(), stats=_stats(),
+                           confirmation_token=r["confirmation_token"])
+        self.assertIs(hecho["queued"], True)
+
+
 if __name__ == "__main__":
     unittest.main()

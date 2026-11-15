@@ -636,6 +636,21 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Tres tools de SOLO LECTURA: ninguna", texto)
         self.assertIn("mantenimiento", await self.guide())
 
+    async def test_mantenimiento_del_tramo_2_de_la_020(self) -> None:
+        """Spec 020, T029 (FR-020): las cinco de mantenimiento; el ajuste no
+        es idempotente; la importación (horas en punto, `mean_type`, fuente,
+        `stats` omitible al confirmar) y la genérica para regenerar los avisos
+        de Repairs."""
+        texto = await self.guide("recorder")
+        for palabra in ("ha_adjust_statistics_sum", "ha_import_statistics",
+                        "NO es idempotente", "statistic_has_no_sum", "sum_at_start",
+                        "hora en punto", "mean_type", "source: recorder", "stats",
+                        "omit_on_confirm", "overwritten_rows", "5000",
+                        'ha_call_ws_command(type="recorder/update_statistics_issues")',
+                        "ha_statistics_during_period"):
+            self.assertIn(palabra, texto)
+        self.assertIn("Las cinco en dos pasos", texto)
+
     async def test_alias(self) -> None:
         texto = await self.guide("recorder")
         for alias in ("recorder_info", "statistics_validation", "action_calls",

@@ -180,6 +180,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "ha_clear_statistics",
     "ha_change_statistics_unit",
     "ha_update_statistics_metadata",
+    # Spec 020, tramo 2: sumar a la suma de todas las filas desde una hora y
+    # sobrescribir filas importando. Tampoco `ha_adjust_` ni `ha_import_`
+    # son prefijos destructivos.
+    "ha_adjust_statistics_sum",
+    "ha_import_statistics",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -233,6 +238,10 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # creaciones y acciones que se acumulan; repetir no deja el mismo estado.
     "ha_call_ws_command",
     "sv_call_api",
+    # Spec 020: `adjustment` es un DELTA, como el de `ha_change_timer`.
+    # Confirmar dos ajustes iguales suma dos veces; el token de un solo uso
+    # evita el reintento con el mismo token, pero no una segunda vista previa.
+    "ha_adjust_statistics_sum",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

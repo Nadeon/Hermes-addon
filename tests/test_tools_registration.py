@@ -795,6 +795,11 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     "ha_clear_statistics": ("-DI-", "Clear statistics (Home Assistant)"),
     "ha_change_statistics_unit": ("-DI-", "Change statistics unit (Home Assistant)"),
     "ha_update_statistics_metadata": ("-DI-", "Update statistics metadata (Home Assistant)"),
+    # Spec 020, tramo 2: ajustar la suma suma otra vez si se repite (no
+    # idempotente, también en `_NON_IDEMPOTENT_EXACT`); importar las mismas
+    # filas deja el mismo estado.
+    "ha_adjust_statistics_sum": ("-D--", "Adjust statistics sum (Home Assistant)"),
+    "ha_import_statistics": ("-DI-", "Import statistics (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1321,7 +1326,8 @@ class TestStatisticsMaintenanceRegistration:
     desaparece con ella. Los hints están en `_HINTS_NUEVAS_1_2_0`."""
 
     _DE_LA_020 = {"ha_clear_statistics", "ha_change_statistics_unit",
-                  "ha_update_statistics_metadata"}
+                  "ha_update_statistics_metadata", "ha_adjust_statistics_sum",
+                  "ha_import_statistics"}
 
     def test_registradas_y_con_token(self):
         tools = _real_registry()
@@ -1334,6 +1340,14 @@ class TestStatisticsMaintenanceRegistration:
     def test_con_recorder_desactivada_no_queda_ninguna_de_la_familia(self):
         sin = set(_real_registry(["recorder"]))
         assert not (self._DE_LA_020 | TestRecorderRegistration._TRES) & sin
+
+    def test_ajustar_la_suma_no_es_idempotente(self):
+        # Tramo 2 (T025): repetir el ajuste suma dos veces; un cliente que
+        # reintente tras un timeout de red tiene que saberlo.
+        from hermes.tools._annotations import _NON_IDEMPOTENT_EXACT, classify
+        assert "ha_adjust_statistics_sum" in _NON_IDEMPOTENT_EXACT
+        assert classify("ha_adjust_statistics_sum").idempotent_hint is False
+        assert classify("ha_import_statistics").idempotent_hint is True
 
 
 class TestMarketplaceRegistration:

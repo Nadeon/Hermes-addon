@@ -396,6 +396,10 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
     ("GET", "/host/disks"): (
         "spec 013: lectura menor de CAP-085 (discos con particiones montables, "
         "para los montajes de la 019); sin tool en el research de la 008"),
+    "recorder/update_statistics_issues": (
+        "spec 020: no toca filas ni metadatos, solo vuelve a crear o quitar los "
+        "avisos de Repairs de las estadísticas; sin argumentos, una tool no "
+        "tendría vista previa útil (research R-3, decisión D-3)"),
 }
 
 
@@ -578,7 +582,9 @@ class TestDiscoHostYOsDeLa013(unittest.TestCase):
             elif "solo lee" not in e.reason:
                 malas.append(f"{k}: el motivo no dice que solo lee: {e.reason!r}")
         self.assertEqual(malas, [], "\n".join(malas))
-        self.assertEqual(set(_READ_013), set(_POR_LA_TABLA))
+        # Las de la 013 en `_POR_LA_TABLA`; otras specs suman las suyas (020).
+        self.assertEqual(set(_READ_013), {k for k, v in _POR_LA_TABLA.items()
+                                          if v.startswith("spec 013: ")})
 
     def test_hardware_y_red_siguen_read(self) -> None:
         malas = sorted(
