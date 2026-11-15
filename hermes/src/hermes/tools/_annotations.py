@@ -83,6 +83,11 @@ _READ_ONLY_EXACT: frozenset[str] = frozenset({
     # Blueprints (spec 017): HA sustituye las entradas y devuelve la
     # configuración resultante sin guardar nada (`saved: false`).
     "ha_preview_blueprint_substitution",
+    # Targets (spec 017, tramo C): `extract_from_target` y `explain_target`
+    # solo calculan qué abarca un target. Su nombre no tiene prefijo de
+    # lectura; las `ha_list_*_for_target` y `ha_list_device_*` ya lo tienen.
+    "ha_resolve_target",
+    "ha_explain_target",
 })
 
 # ── Destructivas ──────────────────────────────────────────────────────────────

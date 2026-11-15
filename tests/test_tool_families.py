@@ -202,6 +202,21 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(familia_de_modulo("blueprints"), "blueprints")
         self.assertEqual(validar_desactivadas(["blueprints"]), frozenset({"blueprints"}))
 
+    def test_automation_assist_de_la_1_2_0(self) -> None:
+        """Spec 017 (FR-011, T026): familia nueva de la 1.2.0, desactivable,
+        con los módulos de dispositivo y de targets (el tramo D añade
+        `wait_for_trigger` y ajusta este test). Control negativo comprobado:
+        con `targets` en la familia `automations` cae este test (y el SC-005
+        de las 216 de la 1.1.2)."""
+        familia = FAMILIAS["automation_assist"]
+        self.assertEqual(familia.desde, "1.2.0")
+        self.assertTrue(familia.desactivable)
+        self.assertEqual(familia.modulos, ("device_automation", "targets"))
+        for modulo in familia.modulos:
+            self.assertEqual(familia_de_modulo(modulo), "automation_assist")
+        self.assertEqual(validar_desactivadas(["automation_assist"]),
+                         frozenset({"automation_assist"}))
+
     def test_familia_de_modulo(self) -> None:
         self.assertEqual(familia_de_modulo("scenes"), "automations")
         self.assertEqual(familia_de_modulo("guide"), "base")

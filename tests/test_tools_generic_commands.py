@@ -1062,6 +1062,42 @@ class TestDedicadasDeLa017(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+class TestDedicadasDeLa017TramoC(unittest.IsolatedAsyncioTestCase):
+    """Spec 017, tramo C (FR-012, T032): las genéricas rechazan los comandos
+    de dispositivo y de targets con `use_dedicated_tool` y el nombre de la
+    tool, sin ejecutarlos; con `automation_assist` desactivada, con
+    `family_disabled: true`.
+
+    Control negativo (T037, 4): dejar `device_automation/trigger/list` en
+    `deny` → cae `test_a_su_dedicada` (`command_denied`).
+    """
+
+    async def test_a_su_dedicada(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for generica in ("ha_read_ws_command", "ha_call_ws_command"):
+            for tipo, args, tool in (
+                ("device_automation/trigger/list", {"device_id": "x"},
+                 "ha_list_device_triggers"),
+                ("get_services_for_target", {"target": {"entity_id": "light.salon"}},
+                 "ha_list_actions_for_target"),
+            ):
+                with self.subTest(generica=generica, tipo=tipo):
+                    r = await mcp.tools[generica](tipo, args)
+                    self.assertEqual(
+                        (r["error"], r["tool"], r["family"], r["family_disabled"]),
+                        ("use_dedicated_tool", tool, "automation_assist", False))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["automation_assist"])
+        self.assertNotIn("ha_resolve_target", mcp.tools)
+        r = await mcp.tools["ha_read_ws_command"](
+            "extract_from_target", {"target": {"area_id": "salon"}})
+        self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                         ("use_dedicated_tool", "ha_resolve_target", True))
+        ha.ws_send.assert_not_awaited()
+
+
 class TestRegistro(unittest.TestCase):
     def test_registra_las_cuatro(self) -> None:
         mcp = DummyMCP()

@@ -132,6 +132,16 @@ _CATALOGO: tuple[Familia, ...] = (
             "Automation, script and template blueprints: list, preview a "
             "substitution, save and delete.",
             "1.2.0", True, ("blueprints",)),
+    # Spec 017 (research R-10): la ayuda para escribir automatizaciones, toda
+    # de solo lectura: lo que ofrece un dispositivo (`device_automation`) y
+    # qué abarca un target y qué se puede hacer con él (`targets`). No va en
+    # `automations` (1.1.2) por FR-010 de la 008, ni con `blueprints`, que
+    # escribe en /config. El tramo D añade aquí `wait_for_trigger`.
+    Familia("automation_assist",
+            "Help to write automations: device triggers, conditions and "
+            "actions, and resolving a target and what can be done with it "
+            "(read only).",
+            "1.2.0", True, ("device_automation", "targets")),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

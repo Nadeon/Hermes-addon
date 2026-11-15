@@ -741,5 +741,32 @@ class TestTemaBlueprints(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(faltan, [])
 
 
+class TestTemaAutomationAssist(unittest.IsolatedAsyncioTestCase):
+    """Spec 017, tramo C (FR-014, T033): el tema `automation_assist` existe
+    con sus alias (el tramo D añade `wait_for_trigger`), el índice lo lista y
+    trae las dos recetas. Que nombre cada tool de la familia lo cubre
+    `TestTemaBlueprints.test_nombra_cada_tool_de_las_familias_de_la_017`.
+    Control negativo comprobado: quitar el alias `targets` → cae
+    `test_tema_y_alias`."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_y_alias(self) -> None:
+        tema = _GUIDE["automation_assist"]
+        for alias in ("automation_assist", "device_automation", "targets", "TARGETS"):
+            self.assertEqual(await self.guide(alias), tema, alias)
+        for clave in ("include_capabilities", "capabilities_truncated", "extra_fields",
+                      "AUTOMATIZACIÓN PARA UN DISPOSITIVO", "ha_validate_config",
+                      '"trigger": "light.turned_on", "target"', "exclude",
+                      "ha_version_unsupported", "invalid_argument"):
+            self.assertIn(clave, tema)
+
+    async def test_indice(self) -> None:
+        self.assertIn("`automation_assist`", await self.guide())
+
+
 if __name__ == "__main__":
     unittest.main()

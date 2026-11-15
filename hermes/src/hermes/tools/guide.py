@@ -134,6 +134,7 @@ para el detalle de un área. Temas disponibles:
 - `diagnostics`    — Repairs, trazas, relaciones y resolución del Supervisor
 - `core_diagnostics` — logs, validación, diagnósticos y notificaciones de Core
 - `blueprints`     — listar, ver la sustitución, guardar y borrar blueprints
+- `automation_assist` — triggers, condiciones y acciones de un dispositivo; resolver un target y qué admite
 - `config_entries` — integraciones y sus flujos de configuración
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — add-ons, host y core de HAOS
@@ -893,6 +894,60 @@ antes. Para `template`, HA no dice quién lo usa (`used_by: null`); si alguna
 plantilla lo usa, HA rechaza el borrado al confirmar. Un blueprint borrado
 solo vuelve con un backup.
 """,
+    "automation_assist": """\
+# Ayuda para escribir automatizaciones
+
+Todas estas tools solo leen: no crean ni ejecutan nada.
+
+LO QUE OFRECE UN DISPOSITIVO
+`ha_list_device_triggers(device_id)`, `ha_list_device_conditions(device_id)`
+y `ha_list_device_actions(device_id)` (el `device_id` sale de
+`ha_list_devices`). Cada elemento es un trigger, una condición o una acción
+de dispositivo YA ESCRITO: se pega tal cual en `triggers`, `conditions` o
+`actions`. Con `include_capabilities=true`, cada elemento (los 50 primeros;
+si hay más, `capabilities_truncated: true`) trae `capabilities.extra_fields`:
+los campos extra que admite (una duración `for`, un umbral…), que se añaden
+junto a las claves del elemento. Si las de uno fallan, ese elemento trae
+`capabilities_error` y los demás siguen. Un dispositivo que no existe:
+`not_found`.
+
+RECETA: AUTOMATIZACIÓN PARA UN DISPOSITIVO
+1. `ha_list_devices` para encontrar el `device_id`.
+2. `ha_list_device_triggers(device_id, include_capabilities=true)`; elige
+   un elemento y cópialo entero (añade los `extra_fields` que quieras).
+3. Lo mismo con `ha_list_device_actions` (y condiciones si hacen falta).
+4. `ha_validate_config(triggers=[…], actions=[…])` para comprobarlo.
+5. `ha_create_or_update_automation` (token) para guardarla.
+
+TARGETS
+Un target es `{"entity_id"|"device_id"|"area_id"|"floor_id"|"label_id": id
+o [ids], "exclude": {mismas claves}}`, con al menos una clave fuera de
+`exclude`. Una clave distinta, un valor vacío o un `exclude` solo dan
+`invalid_argument` sin llamar a HA.
+- `ha_resolve_target(target)`: las entidades, dispositivos y áreas que
+  abarca, ordenadas, y en `missing` los ids que no existen.
+- `ha_explain_target(target)`: por qué entra cada entidad (por el área, por
+  un dispositivo del área…) y qué quita cada exclusión.
+`expand_group` y `primary_entities_only` tienen los valores por defecto de HA
+de cada comando.
+
+TRIGGERS, CONDICIONES Y ACCIONES POR PROPÓSITO
+`ha_list_triggers_for_target(target)`, `ha_list_conditions_for_target(target)`
+y `ha_list_actions_for_target(target)` dan, ordenados, los NOMBRES de lo que
+sirve para alguna entidad del target (`light.turned_on`, `light.is_on`,
+`light.turn_on`…), sin sus opciones. Un trigger por propósito se escribe
+`{"trigger": "light.turned_on", "target": {"area_id": "salon"}}`, una
+condición `{"condition": "light.is_on", "target": {…}}`. Para saber si las
+opciones que añades son válidas, `ha_validate_config`; los campos de una
+acción salen en `ha_list_services`. En un HA anterior a estos comandos:
+`ha_version_unsupported` con la versión.
+
+RECETA: TARGET → PROPÓSITO → VALIDAR
+1. `ha_resolve_target(target)` para ver que abarca lo que crees.
+2. `ha_list_triggers_for_target(target)` y elige un nombre.
+3. Escríbelo con el mismo `target` y compruébalo con `ha_validate_config`.
+4. Guárdalo con `ha_create_or_update_automation` (token).
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -974,6 +1029,9 @@ _ALIASES: dict[str, str] = {
     "notifications": "core_diagnostics",
     "validation": "core_diagnostics",
     "blueprint": "blueprints",
+    # Spec 017, tramo C (el tramo D añade `wait_for_trigger`).
+    "device_automation": "automation_assist",
+    "targets": "automation_assist",
     "integrations": "config_entries",
     "config_entry": "config_entries",
     "flows": "config_entries",
@@ -1128,7 +1186,8 @@ def register(mcp: object) -> None:
                 helpers, events, data, registries, diagnostics, config_entries,
                 filesystem, supervisor, system_diagnostics, backups, lovelace,
                 marketplace, security, generic_commands, system_status, recorder,
-                core_diagnostics, blueprints, workflows. Acepta alias
+                core_diagnostics, blueprints, automation_assist,
+                workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,

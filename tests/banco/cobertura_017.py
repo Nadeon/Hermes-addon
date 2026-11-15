@@ -15,6 +15,10 @@ en el invariante, aunque también se ejecutan en ese fichero.
 Tramo B (importar): `ha_import_blueprint`, en el mismo fichero, importando
 desde `/local/` de la propia HA del banco (que no tiene salida a internet):
 importador genérico. Los de GitHub, gist y foro, prueba manual pendiente.
+
+Tramo C (dispositivo y targets): sus ocho tools solo leen (`readOnlyHint`), así
+que no entran aquí; se ejecutan igualmente contra HA Core real en
+`tests/banco/test_banco_automatizacion_asistida.py`.
 """
 
 from __future__ import annotations

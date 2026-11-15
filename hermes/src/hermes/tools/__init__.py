@@ -369,6 +369,19 @@ def register_all_tools(
         from hermes.tools.blueprints import register as register_blueprints
         register_blueprints(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Ayuda para escribir automatizaciones (spec 017, CAP-051 y CAP-052): lo
+    # que ofrece un dispositivo y qué abarca un target. Solo lee. Reciben
+    # `response_max_bytes` las dos: un dispositivo con muchas entidades (y
+    # sus capacidades) o un área grande dan listas largas.
+    if _activa("automation_assist"):
+        from hermes.tools.device_automation import (
+            register as register_device_automation,
+        )
+        register_device_automation(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+        from hermes.tools.targets import register as register_targets
+        register_targets(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea
     # antes las tools dedicadas, que son las que debe preferir.

@@ -796,6 +796,17 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # Tramo B: importar pide token (`_DESTRUCTIVE_EXACT`) y es la única de
     # la familia de mundo abierto (`_OPEN_WORLD`): HA descarga de la URL.
     "ha_import_blueprint": ("-DIO", "Import blueprint (Home Assistant)"),
+    # Tramo C (contracts/tools.md): las ocho solo leen. Las `ha_list_*`, por
+    # prefijo; resolver y explicar, en `_READ_ONLY_EXACT`. Ninguna sale a
+    # internet.
+    "ha_list_device_triggers": ("R-I-", "List device triggers (Home Assistant)"),
+    "ha_list_device_conditions": ("R-I-", "List device conditions (Home Assistant)"),
+    "ha_list_device_actions": ("R-I-", "List device actions (Home Assistant)"),
+    "ha_resolve_target": ("R-I-", "Resolve target (Home Assistant)"),
+    "ha_explain_target": ("R-I-", "Explain target (Home Assistant)"),
+    "ha_list_triggers_for_target": ("R-I-", "List triggers for target (Home Assistant)"),
+    "ha_list_conditions_for_target": ("R-I-", "List conditions for target (Home Assistant)"),
+    "ha_list_actions_for_target": ("R-I-", "List actions for target (Home Assistant)"),
 }
 
 # Las tools de la spec 013 en este tramo (logs, CAP-081).
@@ -1551,6 +1562,57 @@ class TestBlueprintsRegistration:
         assert classify("ha_preview_blueprint_substitution").read_only_hint
         assert [n for n in _BLUEPRINTS_017 if classify(n).open_world_hint] == [
             "ha_import_blueprint"]
+
+
+# ── Spec 017, tramo C: automatizaciones de dispositivo y targets (T031) ───────
+
+_AUTOMATION_ASSIST_017 = (
+    "ha_list_device_triggers", "ha_list_device_conditions", "ha_list_device_actions",
+    "ha_resolve_target", "ha_explain_target", "ha_list_triggers_for_target",
+    "ha_list_conditions_for_target", "ha_list_actions_for_target",
+)
+
+
+class TestAutomationAssistRegistration:
+    """Las ocho tools del tramo C se registran bajo `automation_assist`, con
+    los hints del contrato (`_HINTS_NUEVAS_1_2_0`); con la familia
+    desactivada no aparece ninguna y las de la 1.1.2 siguen igual.
+
+    Control negativo comprobado: quitar `ha_resolve_target` de
+    `_READ_ONLY_EXACT` → caen `test_las_ocho_solo_leen` y
+    `test_hints_y_titulos_de_las_nuevas`.
+    """
+
+    def test_registradas(self):
+        mcp = _register_all()
+        assert [n for n in _AUTOMATION_ASSIST_017 if n not in mcp.tools] == []
+
+    def test_con_la_familia_desactivada_no_aparece_ninguna(self):
+        mcp = _do_register(["automation_assist"])
+        assert [n for n in _AUTOMATION_ASSIST_017 if n in mcp.tools] == []
+        assert "ha_search_related" in mcp.tools
+        assert "ha_list_blueprints" in mcp.tools
+
+    def test_reciben_response_max_bytes(self):
+        from unittest.mock import patch
+
+        with patch("hermes.tools.device_automation.register") as dispositivo, \
+                patch("hermes.tools.targets.register") as targets:
+            register_all_tools(
+                _RecordingMCP(), MagicMock(), fire_event_allowlist=[],
+                response_max_bytes=54_321, call_service_auto_classify=False,
+                tool_families_disabled=[],
+            )
+        assert dispositivo.call_args.kwargs.get("response_max_bytes") == 54_321
+        assert targets.call_args.kwargs.get("response_max_bytes") == 54_321
+
+    def test_las_ocho_solo_leen(self):
+        from hermes.tools._annotations import classify
+
+        for nombre in _AUTOMATION_ASSIST_017:
+            ann = classify(nombre)
+            assert ann.read_only_hint and not ann.destructive_hint, nombre
+            assert not ann.open_world_hint, nombre
 
 
 # ── Spec 005, bloque C: resolución del Supervisor y backups de HA ────────────
