@@ -287,6 +287,47 @@ class TestSafetyBackupKeep(unittest.TestCase):
 
 
 
+class TestSafetyBackupEncryption(unittest.TestCase):
+    """Spec 031, FR-012: `auto` por defecto; un valor desconocido impide
+    arrancar (fail-closed: una errata en `required` no puede acabar en
+    backups sin cifrar).
+
+    Control negativo (T059 e), comprobado: quitar la comprobación de
+    `validate()` → cae `test_valor_desconocido_impide_arrancar`.
+    """
+
+    def _cfg(self, modo: str) -> HermesConfig:
+        return HermesConfig(
+            auth_password=FUERTE,
+            public_hostname="hermes.tail-abc123.ts.net",
+            supervisor_token="supervisor-token",
+            safety_backup_encryption=modo,
+        )
+
+    def test_por_defecto_es_auto(self) -> None:
+        self.assertEqual(_cargar().safety_backup_encryption, "auto")
+        self.assertEqual(HermesConfig().safety_backup_encryption, "auto")
+
+    def test_se_lee_de_su_variable(self) -> None:
+        for modo in ("auto", "required", "off"):
+            with self.subTest(modo=modo):
+                cfg = _cargar(HERMES_SAFETY_BACKUP_ENCRYPTION=modo)
+                self.assertEqual(cfg.safety_backup_encryption, modo)
+                self._cfg(modo).validate()
+
+    def test_vacia_es_auto(self) -> None:
+        self.assertEqual(_cargar(HERMES_SAFETY_BACKUP_ENCRYPTION="").safety_backup_encryption,
+                         "auto")
+
+    def test_valor_desconocido_impide_arrancar(self) -> None:
+        for modo in ("requried", "AUTO", "on", "true"):
+            with self.subTest(modo=modo):
+                with self.assertRaises(ValueError) as ctx:
+                    self._cfg(modo).validate()
+                self.assertIn("safety_backup_encryption", str(ctx.exception))
+                self.assertIn("required", str(ctx.exception))
+
+
 class TestToolFamiliesDisabled(unittest.TestCase):
     """Spec 011, FR-020: `tool_families_disabled`, validada al arrancar.
 

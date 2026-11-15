@@ -783,6 +783,85 @@ class TestEnganches(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fuente.count("keep=safety_backup_keep"), 5)
 
 
+# ── Spec 031 (T050, FR-014): retención de los safety backups cifrados ────────
+
+
+class TestRetencionDeCifrados(_ConAnotacion):
+    """Con el cifrado (spec 031), todos los safety backups nuevos salen
+    `protected`: la retención los poda solo si Hermes los anotó como cifrados
+    por él (`encrypted: true`); uno protegido sin esa marca sigue intocable.
+
+    Control negativo (T059 d), comprobado: sin la excepción de `encrypted` en
+    `_motivo_exclusion` caen `test_protegido_y_anotado_como_cifrado_se_poda` y
+    `test_cinco_cifrados_se_podan_como_los_de_antes`; admitiendo `protected`
+    sin `encrypted` cae `test_protegido_sin_marca_sigue_excluido`.
+    """
+
+    async def test_record_launch_guarda_encrypted(self) -> None:
+        await sr.record_launch("hermes-safety-20261114T083000Z", "abc123",
+                               origin="auto", encrypted=True)
+        [e] = self._entradas()
+        self.assertIs(e["encrypted"], True)
+
+    async def test_sin_cifrar_la_entrada_es_la_de_antes(self) -> None:
+        await sr.record_launch("hermes-safety-20261114T083000Z", "abc123", origin="auto")
+        await sr.record_launch("hermes-safety-20261114T093000Z", "abc124",
+                               origin="tool", encrypted=False)
+        for e in self._entradas():
+            self.assertEqual(set(e), {"name", "job_id", "launched_at", "origin",
+                                      "slug", "confirmed_by"})
+
+    async def _poda(self, entrada_0: dict[str, Any], **backup_0: Any) -> tuple[Any, Any]:
+        entradas, backups = self._cinco()
+        entradas[0].update(entrada_0)
+        backups[0].update(backup_0)
+        self._anotar(entradas)
+        sv = _Supervisor(backups)
+        resumen = await sr.apply_retention(sv, 3)
+        return sv, resumen
+
+    async def test_protegido_y_anotado_como_cifrado_se_poda(self) -> None:
+        sv, _ = await self._poda({"encrypted": True}, protected=True)
+        self.assertEqual(sv.deletes, [_slug(0), _slug(1)])
+
+    async def test_cinco_cifrados_se_podan_como_los_de_antes(self) -> None:
+        entradas, backups = self._cinco()
+        for e, b in zip(entradas, backups):
+            e["encrypted"] = True
+            b["protected"] = True
+        self._anotar(entradas)
+        sv = _Supervisor(backups)
+        await sr.apply_retention(sv, 3)
+        self.assertEqual(sv.deletes, [_slug(0), _slug(1)])
+
+    async def test_protegido_sin_marca_sigue_excluido(self) -> None:
+        for marca in ({}, {"encrypted": False}, {"encrypted": "true"}, {"encrypted": 1}):
+            with self.subTest(marca=marca):
+                sv, resumen = await self._poda(marca, protected=True)
+                self.assertNotIn(_slug(0), sv.deletes)
+                self.assertEqual(sv.deletes, [_slug(1)])
+                motivos = {x["name"]: x["reason"] for x in resumen["excluded"]}
+                self.assertEqual(set(motivos.values()), {"protected"})
+
+    async def test_cifrado_con_protected_raro_sigue_excluido(self) -> None:
+        # Solo `protected: true` exacto: un valor raro no es «cifrado por Hermes».
+        for raro in (None, "true", 1):
+            with self.subTest(protected=raro):
+                sv, _ = await self._poda({"encrypted": True}, protected=raro)
+                self.assertNotIn(_slug(0), sv.deletes)
+
+    async def test_cifrado_sin_proteger_se_poda_igual(self) -> None:
+        sv, _ = await self._poda({"encrypted": True})
+        self.assertEqual(sv.deletes, [_slug(0), _slug(1)])
+
+    async def test_las_demas_exclusiones_siguen_con_cifrados(self) -> None:
+        sv, resumen = await self._poda({"encrypted": True}, protected=True,
+                                       locations=[None, "nas"])
+        self.assertNotIn(_slug(0), sv.deletes)
+        motivos = {x["name"]: x["reason"] for x in resumen["excluded"]}
+        self.assertIn("multiple_locations", motivos.values())
+
+
 # ── Lock del safety backup (CodeQL: `_SAFETY_LOCK_LOOP` sin uso) ──────────────
 
 

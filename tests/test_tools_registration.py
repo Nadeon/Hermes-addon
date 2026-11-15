@@ -1675,6 +1675,34 @@ class TestBackupIntegrationRegistration:
         sin = set(_real_registry(["backup_integration"]))
         assert completo - sin == self._DOS
 
+    def test_desactivada_el_resto_es_identico(self):
+        """Tramo 4 (T057; FR-023, SC-006): con `backup_integration` apagada,
+        cada tool que queda es idéntica a la del registro por defecto
+        (argumentos, anotaciones, título y descripción): la familia no cambia
+        nada fuera de sí. Lo que la 031 cambia de la 1.1.2 (la descripción de
+        `sv_create_safety_backup` y de las `sv_restore_*`, y el campo nuevo de
+        `ha_list_backups`) es igual con la familia encendida o apagada, y los
+        argumentos de la 1.1.2 los vigila `test_esquemas_de_la_1_1_2`."""
+        completo = _real_registry()
+        sin = _real_registry(["backup_integration"])
+        assert set(completo) - set(sin) == self._DOS
+        distintos = []
+        for nombre, tool in sin.items():
+            otra = completo[nombre]
+            for campo in ("parameters", "annotations", "title", "description"):
+                if getattr(tool, campo, None) != getattr(otra, campo, None):
+                    distintos.append(f"{nombre}.{campo}")
+        assert distintos == []
+
+    def test_descripcion_del_safety_backup_dice_el_cifrado(self):
+        """Tramo 4 (T053, principio V): la descripción no puede seguir
+        callando que el backup sale cifrado ni cómo se restaura."""
+        doc = _real_registry()["sv_create_safety_backup"].description
+        for palabra in ("safety_backup_encryption", "`encrypted`", "kit de emergencia",
+                        "encryption_key_unavailable", "encryption_skipped_reason",
+                        "sv_restore_backup_full"):
+            assert palabra in doc, palabra
+
     def test_recibe_response_max_bytes(self):
         from unittest.mock import patch
 

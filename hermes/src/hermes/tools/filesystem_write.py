@@ -165,6 +165,8 @@ def register_write(
     config_write_min_interval_seconds: int = 5,
     config_write_max_per_minute: int = 10,
     safety_backup_keep: int = 3,
+    # `off` para quien registra a mano (tests); el arranque pasa la opción.
+    safety_backup_encryption: str = "off",
 ) -> None:
     """Registra las tools de escritura en /config.
 
@@ -324,6 +326,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -500,6 +503,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -680,6 +684,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -837,6 +842,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(
@@ -1150,6 +1156,7 @@ def register_write(
             ha_client, safety_backup_window_minutes,
             enabled=safety_backup_enabled,
             keep=safety_backup_keep,
+            encryption=safety_backup_encryption,
         )
         if backup_err:
             await complete_confirmation_token(

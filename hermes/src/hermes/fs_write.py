@@ -39,6 +39,11 @@ import structlog
 
 import hermes.fs as _fs
 from hermes import safety_retention as _retencion
+from hermes.backup_key import (
+    CLAVE_NO_DISPONIBLE,
+    clave_para_safety_backup,
+    sin_clave_bloquea,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -748,7 +753,7 @@ def _ya_no_existe(state: dict[str, Any], job_id: str) -> dict[str, Any]:
 
 
 async def _anotar_lanzamiento(nombre: str, job_id: str | None,
-                              slug: Any = None) -> None:
+                              slug: Any = None, *, encrypted: bool = False) -> None:
     """Apunta el safety backup en la anotación de la retención.
 
     Un fallo aquí (disco lleno, `/data` de solo lectura) solo significa que
@@ -756,7 +761,8 @@ async def _anotar_lanzamiento(nombre: str, job_id: str | None,
     """
     try:
         await _retencion.record_launch(nombre, job_id, origin="auto",
-                                       slug=slug if isinstance(slug, str) else None)
+                                       slug=slug if isinstance(slug, str) else None,
+                                       encrypted=encrypted)
     except Exception as exc:  # noqa: BLE001
         logger.warning("safety_backup_ledger_error", error=str(exc))
 
@@ -880,6 +886,7 @@ async def maybe_trigger_safety_backup(
     enabled: bool = False,
     ctx: Any = None,
     keep: int = 0,
+    encryption: str = "off",
 ) -> dict[str, Any] | None:
     """Dispara un safety backup (FULL de HAOS) antes de escribir en /config.
 
@@ -894,6 +901,13 @@ async def maybe_trigger_safety_backup(
     los demás (`hermes.safety_retention`); 0 = no podar. La poda nunca
     cambia el valor de retorno.
 
+    `encryption` es `safety_backup_encryption` (spec 031, FR-013): con
+    `auto` o `required` el backup se cifra con la clave de los backups de HA,
+    leída en el momento y descartada; con `auto` sin clave sale sin cifrar y
+    el log lo avisa; con `required` sin clave no se hace y se devuelve
+    `encryption_key_unavailable` (la escritura no se hace). `off` por defecto
+    para quien llama a mano; las tools de escritura pasan la opción.
+
     Returns:
         None si está desactivado, si no fue necesario, o si el backup completó.
         dict con "error" si el backup falló (la escritura debe abortarse).
@@ -907,7 +921,8 @@ async def maybe_trigger_safety_backup(
         return dict(_retencion.SAFETY_LOCK_BUSY)
     try:
         return await _maybe_trigger_safety_backup(
-            ha_client, safety_backup_window_minutes, ctx=ctx, keep=keep
+            ha_client, safety_backup_window_minutes, ctx=ctx, keep=keep,
+            encryption=encryption,
         )
     finally:
         _safety_lock().release()
@@ -919,6 +934,7 @@ async def _maybe_trigger_safety_backup(
     *,
     ctx: Any = None,
     keep: int = 0,
+    encryption: str = "off",
 ) -> dict[str, Any] | None:
     """Cuerpo de `maybe_trigger_safety_backup`, ya con el lock tomado."""
     from hermes.tools.backups import (
@@ -966,11 +982,30 @@ async def _maybe_trigger_safety_backup(
                          "attempt did not complete less than "
                          f"{_SAFETY_BACKUP_MIN_INTERVAL_SECONDS} s ago; retry later"}
 
+    # Clave de cifrado (spec 031): se lee solo cuando de verdad toca hacer un
+    # backup y vive en esta llamada; va en el POST y en nada más.
+    leida = await clave_para_safety_backup(ha_client, encryption)
+    clave = leida.clave if leida is not None else None
+    if leida is not None and clave is None:
+        if sin_clave_bloquea(encryption):
+            # `required` sin clave: no hay backup y la escritura no se hace
+            # (fail-closed, como cualquier fallo del safety backup). No es un
+            # intento: no cuenta para el límite de 60 s.
+            logger.error("safety_backup_encryption_key_unavailable",
+                         origin="auto", reason=leida.motivo)
+            return {"error": f"{CLAVE_NO_DISPONIBLE}: safety_backup_encryption is "
+                             "'required' and Home Assistant's backup encryption "
+                             f"key is not available ({leida.motivo}); no safety "
+                             "backup was made, so the write was not made",
+                    "reason": leida.motivo}
+        logger.warning("safety_backup_unencrypted", origin="auto", reason=leida.motivo)
+
     # Disparar safety backup
     logger.info(
         "safety_backup_auto_trigger",
         elapsed_minutes=elapsed / 60,
         window_minutes=safety_backup_window_minutes,
+        encrypted=clave is not None,
     )
 
     timestamp_str = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -980,16 +1015,25 @@ async def _maybe_trigger_safety_backup(
     # Supervisor sí empezó el backup, la escritura siguiente no debe lanzar
     # otro en el acto (límite de 60 s entre intentos).
     _save_safety_state({_ULTIMO_INTENTO: time.time()})
+    cuerpo: dict[str, Any] = {"name": backup_name, "background": True}
+    if clave is not None:
+        cuerpo["password"] = clave
     try:
         resp = await ha_client.sv_request(
             "POST",
             "/backups/new/full",
-            json_body={"name": backup_name, "background": True},
+            json_body=cuerpo,
             timeout_seconds=30.0,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.error("safety_backup_trigger_failed", error=str(exc))
-        return {"error": f"safety_backup_failed: {exc}"}
+        # Tapada por si el Supervisor citara la contraseña en su error.
+        texto = str(exc).replace(clave, "***") if clave else str(exc)
+        logger.error("safety_backup_trigger_failed", error=texto)
+        return {"error": f"safety_backup_failed: {texto}"}
+    # A partir de aquí solo hace falta saber SI iba cifrado; la clave y la
+    # carga que la lleva se sueltan (FR-011: no más allá de la llamada).
+    cifrado = clave is not None
+    del clave, cuerpo
 
     if not isinstance(resp, dict):
         return {"error": "safety_backup_unexpected_response"}
@@ -1002,7 +1046,8 @@ async def _maybe_trigger_safety_backup(
             _MARCA: time.time(),
             "last_backup_name": backup_name,
         })
-        await _anotar_lanzamiento(backup_name, None, slug=resp.get("slug"))
+        await _anotar_lanzamiento(backup_name, None, slug=resp.get("slug"),
+                                  encrypted=cifrado)
         try:
             await _retencion.apply_retention(ha_client, keep, recien_creado=backup_name)
         except Exception as exc:  # noqa: BLE001
@@ -1025,7 +1070,7 @@ async def _maybe_trigger_safety_backup(
         _ULTIMO_INTENTO: lanzado,
     })
     pendiente = {"pending_job_id": job_id, "pending_started_at": lanzado}
-    await _anotar_lanzamiento(backup_name, job_id)
+    await _anotar_lanzamiento(backup_name, job_id, encrypted=cifrado)
 
     # Pollear hasta que el job esté done
     deadline = time.time() + _SAFETY_POLL_TIMEOUT_SECONDS

@@ -83,3 +83,37 @@ async def leer_clave_de_backups(ha_client: Any) -> ClaveDeBackups:
     if not isinstance(clave, str):
         return ClaveDeBackups(None, SIN_INTEGRACION)
     return ClaveDeBackups(clave, None)
+
+
+# ── Safety backups (spec 031, tramo 4; FR-012, FR-013) ──────────────────────
+# Valores de la opción `safety_backup_encryption` y el error de `required`.
+CIFRADO_AUTO = "auto"
+CIFRADO_OBLIGATORIO = "required"
+CIFRADO_NO = "off"
+CLAVE_NO_DISPONIBLE = "encryption_key_unavailable"
+
+
+async def clave_para_safety_backup(ha_client: Any, modo: str) -> ClaveDeBackups | None:
+    """Clave con la que cifrar un safety backup según `safety_backup_encryption`.
+
+    Devuelve None con `off` (no se lee nada: exactamente la 1.1.2). Con
+    `auto` o `required`, el resultado de `leer_clave_de_backups`; quien llama
+    decide qué hacer sin clave. Un valor desconocido se trata como `required`
+    (fail-closed): `config.validate()` ya lo impide al arrancar, pero quien
+    registre las tools a mano no puede acabar sin cifrar por una errata.
+
+    Cualquier excepción inesperada al leer (no `HAConnectionError`) cuenta como
+    «integración no disponible»: un safety backup no puede caerse con una
+    traza por esto, y el texto de la excepción no se guarda en ningún sitio.
+    """
+    if modo == CIFRADO_NO:
+        return None
+    try:
+        return await leer_clave_de_backups(ha_client)
+    except Exception:  # noqa: BLE001 — fail-closed: sin clave
+        return ClaveDeBackups(None, SIN_INTEGRACION)
+
+
+def sin_clave_bloquea(modo: str) -> bool:
+    """¿Sin clave no hay safety backup? Solo `auto` deja crearlo sin cifrar."""
+    return modo != CIFRADO_AUTO

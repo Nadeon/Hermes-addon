@@ -152,6 +152,7 @@ def test_servidor_mcp_con_version_y_limites_de_la_configuracion(
         wait_for_event_max_seconds=150,
         wait_for_event_max_concurrent=3,
         safety_backup_keep=5,
+        safety_backup_encryption="required",
     )
     with mock.patch("hermes.tools.register_all_tools") as registrar:
         mcp = main_mod._build_mcp(config, object())
@@ -162,6 +163,44 @@ def test_servidor_mcp_con_version_y_limites_de_la_configuracion(
     assert kwargs["wait_for_event_max_seconds"] == 150
     assert kwargs["wait_for_event_max_concurrent"] == 3
     assert kwargs["safety_backup_keep"] == 5
+    # Spec 031 (FR-012): la opción llega a las tools de backups y a fs_write.
+    assert kwargs["safety_backup_encryption"] == "required"
+
+
+@pytest.mark.parametrize("modo", ["auto", "required", "off"])
+def test_safety_backup_encryption_llega_a_backups_y_a_fs_write(modo: str) -> None:
+    """Spec 031 (T048): sin este cableado, la opción no manda y las tools se
+    quedarían con su valor por defecto (`off`, el de la 1.1.2)."""
+    from unittest.mock import MagicMock
+
+    from hermes.tools import register_all_tools
+
+    with mock.patch("hermes.tools.backups.register") as backups, \
+            mock.patch("hermes.tools.filesystem_write.register_write") as escritura:
+        register_all_tools(
+            MagicMock(), MagicMock(), fire_event_allowlist=[],
+            response_max_bytes=131_072, call_service_auto_classify=False,
+            tool_families_disabled=[], safety_backup_encryption=modo,
+        )
+    assert backups.call_args.kwargs["safety_backup_encryption"] == modo
+    assert escritura.call_args.kwargs["safety_backup_encryption"] == modo
+
+
+def test_safety_backup_encryption_de_la_configuracion_si_no_se_pasa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from hermes.tools import register_all_tools
+
+    monkeypatch.setenv("HERMES_SAFETY_BACKUP_ENCRYPTION", "required")
+    with mock.patch("hermes.tools.backups.register") as backups:
+        register_all_tools(
+            MagicMock(), MagicMock(), fire_event_allowlist=[],
+            response_max_bytes=131_072, call_service_auto_classify=False,
+            tool_families_disabled=[],
+        )
+    assert backups.call_args.kwargs["safety_backup_encryption"] == "required"
 
 
 def test_instrucciones_sin_genericas_con_su_familia_desactivada() -> None:

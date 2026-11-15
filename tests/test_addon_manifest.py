@@ -226,6 +226,14 @@ class TestManifiesto(unittest.TestCase):
         self.assertEqual(self.schema.get("safety_backup_keep"), "int(0,50)?")
         self.assertEqual(self.options.get("safety_backup_keep"), 3)
 
+    def test_safety_backup_encryption_declarada_y_auto(self) -> None:
+        """Spec 031, FR-012: tres valores, opcional y `auto` por defecto. Sin
+        el `?`, quien actualice sin tocarla no podría guardar; sin ella en el
+        esquema, el Supervisor rechaza el `options` que la incluye."""
+        self.assertEqual(self.schema.get("safety_backup_encryption"),
+                         "list(auto|required|off)?")
+        self.assertEqual(self.options.get("safety_backup_encryption"), "auto")
+
     def test_tool_families_disabled_declarada_y_vacia(self) -> None:
         """Spec 011, FR-020: lista opcional de texto y vacía por defecto. Los
         nombres los valida Hermes al arrancar (una sola lista, en Python), no

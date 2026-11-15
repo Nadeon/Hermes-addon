@@ -36,7 +36,13 @@ from typing import Any
 import structlog
 
 from hermes import safety_retention as _retencion
-from hermes.backup_key import leer_clave_de_backups
+from hermes.backup_key import (
+    CIFRADO_NO,
+    CLAVE_NO_DISPONIBLE,
+    clave_para_safety_backup,
+    leer_clave_de_backups,
+    sin_clave_bloquea,
+)
 from hermes.supervisor_jobs import child_job_errors, job_errors, redact_child_jobs
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
@@ -184,6 +190,21 @@ _PISTA_CLAVE_ANTERIOR = (
 )
 
 
+# Lo que dice la respuesta de un safety backup cifrado (spec 031, FR-013): que
+# restaurarlo necesita la clave de HA, y dónde está si Hermes no funciona.
+NOTA_SAFETY_CIFRADO = (
+    "Encrypted with Home Assistant's backup encryption key (the one in your "
+    "emergency kit). sv_restore_backup_full uses that key when you pass no "
+    "password; from the Home Assistant UI or CLI you need the emergency kit. "
+    "If the key is changed later, this backup still needs the old one."
+)
+AVISO_SAFETY_SIN_CIFRAR = (
+    "This safety backup is NOT encrypted: it holds secrets.yaml, integration "
+    "tokens and app data in clear. Set up Home Assistant's automatic backups "
+    "(that creates the encryption key) to have the next ones encrypted."
+)
+
+
 def _tapar(texto: str, secreto: str | None) -> str:
     """Quita la clave del texto de un error, por si el Supervisor la citara."""
     return texto.replace(secreto, "***") if secreto else texto
@@ -193,6 +214,11 @@ def register(
     mcp: object,
     ha_client: HAClient,
     safety_backup_window_minutes: int = 30,
+    # `off` aquí y no `auto`: es el valor de quien registra las tools a mano
+    # (tests, herramientas), que no siempre tiene WebSocket de HA. El
+    # arranque pasa SIEMPRE la opción del add-on, que por defecto es `auto`
+    # (`config.py`; lo comprueba `test_main_wiring`).
+    safety_backup_encryption: str = CIFRADO_NO,
 ) -> None:
     """Registra las tools de backups en la instancia MCP."""
 
@@ -460,6 +486,14 @@ def register(
 
         No requiere confirmation_token — crear backups es defensivo.
 
+        Cifrado (opción `safety_backup_encryption`, `auto` por defecto): con
+        la clave de los backups de Home Assistant (la del kit de emergencia),
+        que Hermes lee en el momento y no guarda ni devuelve. La respuesta
+        dice siempre `encrypted`. Con `auto` y HA sin clave, el backup sale sin
+        cifrar con `encryption_skipped_reason`; con `required` y sin clave no
+        se crea (`encryption_key_unavailable`). Para restaurarlo,
+        `sv_restore_backup_full` sin `password` usa la clave de HA.
+
         Retención: el backup se anota como safety backup de Hermes y entra en
         la retención `safety_backup_keep` (opción del add-on, 3 por defecto).
         Esta tool nunca borra nada: la poda se aplica tras cada safety backup
@@ -512,13 +546,46 @@ def register(
                 "slug": last_slug,
             }
 
+        # La clave se lee DESPUÉS de la ventana y del límite duro (un backup
+        # reutilizado no la necesita) y vive solo en esta llamada: va en el
+        # POST y en nada más (ni estado, ni anotación, ni log, ni respuesta).
+        leida = await clave_para_safety_backup(ha_client, safety_backup_encryption)
+        clave = leida.clave if leida is not None else None
+        motivo = leida.motivo if leida is not None else None
+        if leida is not None and clave is None and sin_clave_bloquea(safety_backup_encryption):
+            # `required`: sin clave no hay backup (FR-013). No se toca el
+            # estado: no hubo intento, y la ventana sigue contando del último.
+            logger.error("safety_backup_encryption_key_unavailable",
+                         origin="tool", reason=motivo)
+            return {
+                "error": CLAVE_NO_DISPONIBLE,
+                "reason": motivo,
+                "detail": (
+                    "safety_backup_encryption is 'required' and Home "
+                    "Assistant's backup encryption key is not available, so "
+                    "no safety backup was created."
+                ),
+            }
+        if leida is not None and clave is None:
+            # `auto` sin clave: sin cifrar, pero dicho (respuesta y log).
+            logger.warning("safety_backup_unencrypted", origin="tool", reason=motivo)
+
         ts_label = time.strftime("%Y%m%d-%H%M%S", time.gmtime(now))
         backup_name = f"hermes-safety-{ts_label}"
+        cuerpo: dict[str, Any] = {"name": backup_name, "background": True}
+        if clave is not None:
+            cuerpo["password"] = clave
+        cifrado: dict[str, Any] = {"encrypted": clave is not None}
+        if clave is not None:
+            cifrado["restore_note"] = NOTA_SAFETY_CIFRADO
+        elif leida is not None:
+            cifrado["encryption_skipped_reason"] = motivo
+            cifrado["warning"] = AVISO_SAFETY_SIN_CIFRAR
 
         try:
             data = await ha_client.sv_request(
                 "POST", "/backups/new/full",
-                json_body={"name": backup_name, "background": True},
+                json_body=cuerpo,
                 timeout_seconds=_LONG_OP_TIMEOUT,
             )
             job_id = data.get("job_id") if isinstance(data, dict) else None
@@ -538,23 +605,28 @@ def register(
             try:
                 await _retencion.record_launch(
                     backup_name, job_id if isinstance(job_id, str) else None,
-                    origin="tool", slug=slug if isinstance(slug, str) else None)
+                    origin="tool", slug=slug if isinstance(slug, str) else None,
+                    encrypted=clave is not None)
             except Exception as exc:  # noqa: BLE001 — anotar no puede tumbar el backup
                 logger.warning("safety_backup_ledger_error", error=str(exc))
 
             if job_id:
                 await _track_job(job_id, {"op": "create_safety_backup", "name": backup_name})
-                logger.info("sv_create_safety_backup_started", name=backup_name, job_id=job_id)
+                logger.info("sv_create_safety_backup_started", name=backup_name,
+                            job_id=job_id, encrypted=clave is not None)
                 return {
                     "reused": False,
                     "job_id": job_id,
                     "status": "running",
                     "backup_name": backup_name,
                     "poll_with": "sv_get_job_status",
+                    **cifrado,
                 }
-            return {"reused": False, "result": "ok", "slug": slug, "backup_name": backup_name}
+            return {"reused": False, "result": "ok", "slug": slug,
+                    "backup_name": backup_name, **cifrado}
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            # Por si el Supervisor citara la contraseña en su error.
+            return {"error": _tapar(str(exc), clave)}
 
     @mcp.tool()
     async def sv_delete_backup(

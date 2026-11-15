@@ -167,6 +167,11 @@ class TestValoresPorDefectoDeRunSh(unittest.TestCase):
         self.assertEqual(self._export("HERMES_SAFETY_BACKUP_KEEP"),
                          "safety_backup_keep 3")
 
+    def test_exporta_safety_backup_encryption_con_auto(self) -> None:
+        """Spec 031, FR-012."""
+        self.assertEqual(self._export("HERMES_SAFETY_BACKUP_ENCRYPTION"),
+                         "safety_backup_encryption auto")
+
 
     def test_exporta_tool_families_disabled_como_lista_json(self) -> None:
         """Spec 011, FR-020: como las demás listas, array JSON y `[]` si falta."""
