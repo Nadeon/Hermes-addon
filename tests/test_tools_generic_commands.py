@@ -561,6 +561,302 @@ class TestEscrituraCoreTablaReal(_Base):
         self.ha.ws_send.assert_awaited_once_with({"type": "tag/create", **payload})
 
 
+class TestMenoresDeCoreDeLa024(_Base):
+    """Spec 024, tramo 1 (T009 y T012; FR-005, FR-009, FR-010), con la tabla
+    real: preferencias de cámara, miniaturas tapadas en la navegación de
+    medios, calendario y tareas en dos pasos, y lo denegado.
+
+    Controles negativos (T013): (e) sin `redact_extra=("thumbnail",)` en
+    `media_source/browse_media` → cae `test_browse_media_tapa_la_miniatura`;
+    (f) `camera/update_prefs` de vuelta a `deny` → caen
+    `test_update_prefs_en_dos_pasos` y `test_update_prefs_no_es_lectura`.
+    """
+
+    inyectadas = False
+
+    async def test_get_prefs_lee(self) -> None:
+        self.ha.ws_send.return_value = {"preload_stream": False, "orientation": 1}
+        r = await self.t["ha_read_ws_command"]("camera/get_prefs", {"entity_id": "camera.entrada"})
+        self.assertEqual(r["result"], {"preload_stream": False, "orientation": 1})
+        self.ha.ws_send.assert_awaited_once_with(
+            {"type": "camera/get_prefs", "entity_id": "camera.entrada"})
+
+    async def test_update_prefs_en_dos_pasos(self) -> None:
+        carga = {"entity_id": "camera.entrada", "preload_stream": True}
+        vista = await self.t["ha_call_ws_command"]("camera/update_prefs", carga)
+        self.assertIn("confirmation_token", vista)
+        self.assertEqual((vista["preview"]["category"], vista["preview"]["cap"]),
+                         ("confirm", "CAP-059"))
+        self.assertIn("internet", vista["preview"]["reason"])
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_send.return_value = {"preload_stream": True, "orientation": 1}
+        r = await self.t["ha_call_ws_command"](
+            "camera/update_prefs", carga, confirmation_token=vista["confirmation_token"])
+        self.assertTrue(r["executed"])
+        self.ha.ws_send.assert_awaited_once_with({"type": "camera/update_prefs", **carga})
+
+    async def test_update_prefs_no_es_lectura(self) -> None:
+        r = await self.t["ha_read_ws_command"](
+            "camera/update_prefs", {"entity_id": "camera.entrada", "preload_stream": True})
+        self.assertEqual((r["error"], r["use_tool"]), ("wrong_generic_tool", "ha_call_ws_command"))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_browse_media_tapa_la_miniatura(self) -> None:
+        # Research R-6: la fuente de motionEye firma la miniatura de cada
+        # vídeo con `async_sign_path` (authSig, 5 min). En dos niveles.
+        firmada = f"/api/motioneye/media/x/y.mp4?authSig={_CENTINELA}"
+        self.ha.ws_send.return_value = {
+            "title": "motionEye", "media_content_id": "media-source://motioneye",
+            "thumbnail": firmada, "can_expand": True,
+            "children": [{
+                "title": "Cámara", "media_content_id": "media-source://motioneye/x",
+                "thumbnail": firmada,
+                "children": [{"title": "vídeo", "thumbnail": firmada,
+                              "media_content_id": "media-source://motioneye/x/y"}],
+            }],
+        }
+        for comando, carga in (
+            ("media_source/browse_media", {"media_content_id": "media-source://motioneye"}),
+            ("media_source/search_media", {"search_query": "vídeo"}),
+        ):
+            with self.subTest(comando=comando):
+                r = await self.t["ha_read_ws_command"](comando, carga)
+                texto = json.dumps(r, ensure_ascii=False)
+                self.assertNotIn(_CENTINELA, texto)
+                self.assertNotIn("authSig", texto)
+                # Lo demás se sigue viendo: navegar sigue siendo útil.
+                self.assertIn("media-source://motioneye/x/y", texto)
+                self.assertEqual(r["result"]["thumbnail"], security.REDACTED_MARKER)
+
+    async def test_calendario_y_tareas_en_dos_pasos_de_mundo_abierto(self) -> None:
+        from hermes.command_table import CORE_WS
+
+        for comando, carga in (
+            ("calendar/event/delete", {"entity_id": "calendar.casa", "uid": "evento-ficticio"}),
+            ("todo/item/move", {"entity_id": "todo.compra", "uid": "tarea-ficticia"}),
+        ):
+            with self.subTest(comando=comando):
+                self.assertTrue(CORE_WS[comando].open_world)
+                vista = await self.t["ha_call_ws_command"](comando, carga)
+                self.assertIn("confirmation_token", vista)
+                self.assertIn("internet", vista["preview"]["reason"])
+                self.assertEqual(vista["preview"]["cap"], CORE_WS[comando].cap)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_lo_denegado(self) -> None:
+        for comando, palabra in (("image/create", "multipart"),
+                                 ("media_source/resolve_media", "authSig")):
+            for tool in ("ha_read_ws_command", "ha_call_ws_command"):
+                with self.subTest(comando=comando, tool=tool):
+                    r = await self.t[tool](comando, {"media_content_id": "media-source://x"})
+                    self.assertEqual(r["error"], "command_denied")
+                    self.assertIn(palabra, json.dumps(r, ensure_ascii=False))
+        self.ha.ws_send.assert_not_awaited()
+
+
+class TestMenoresDeCoreDeLa024Tramo2(_Base):
+    """Spec 024, tramo 2 (T017; FR-008, FR-011, FR-012, FR-014), con la tabla
+    real y respuestas con la forma REAL de Core 2026.11.1:
+
+    - `webhook/list` (`components/webhook/__init__.py`, `websocket_list`):
+      lista de `{webhook_id, domain, name, local_only, allowed_methods}`.
+    - `application_credentials/list`: la colección guarda `id`, `domain`,
+      `client_id`, `client_secret`, `auth_domain` y `name`.
+    - `application_credentials/config_entry` (`handle_config_entry`):
+      `{"application_credentials_id": …}` o `{}`.
+
+    Controles negativos (T029): (f) sacar `webhook_id` de los marcadores de
+    `security._SENSITIVE_KEY_MARKERS` → cae `test_webhook_list_tapa_el_id`
+    (restaurado enseguida); (e) dejar `lovelace/config/delete` en `deny` →
+    caen `test_restablecer_va_a_la_tool_dedicada` y
+    `test_restablecer_con_la_familia_desactivada`.
+    """
+
+    inyectadas = False
+    _CENTINELA_024 = "centinela-024"
+
+    async def test_webhook_list_tapa_el_id(self) -> None:
+        # Un `webhook_id` basta para disparar la automatización sin
+        # autenticación: con la forma real de la respuesta de Core.
+        self.ha.ws_send.return_value = [
+            {"webhook_id": self._CENTINELA_024, "domain": "automation",
+             "name": "Automatización del garaje", "local_only": True,
+             "allowed_methods": ["POST", "PUT"]},
+            {"webhook_id": f"otro-{self._CENTINELA_024}", "domain": "mobile_app",
+             "name": "Mobile App: teléfono", "local_only": False,
+             "allowed_methods": ["POST"]},
+        ]
+        r = await self.t["ha_read_ws_command"]("webhook/list")
+        texto = json.dumps(r, ensure_ascii=False)
+        self.assertNotIn(self._CENTINELA_024, texto)
+        primero = r["items"][0]
+        self.assertEqual(primero["webhook_id"], security.REDACTED_MARKER)
+        self.assertEqual(
+            (primero["domain"], primero["name"], primero["local_only"],
+             primero["allowed_methods"]),
+            ("automation", "Automatización del garaje", True, ["POST", "PUT"]))
+        self.ha.ws_send.assert_awaited_once_with({"type": "webhook/list"})
+
+    # Forma REAL de ONVIF en Core 2026.11.1: `components/onvif/event_manager.py`
+    # crea el id con `f"onvif{secrets.token_hex(6)}"` y lo registra como
+    # nombre e id a la vez (`webhook.async_register(hass, DOMAIN, webhook_id,
+    # webhook_id, …)`), con los valores por defecto de `async_register`
+    # (`local_only=False`, `DEFAULT_METHODS = (POST, PUT)`); `websocket_list`
+    # devuelve `sorted(allowed_methods)`.
+    _ONVIF = "onvif0123456789ab"
+
+    async def test_webhook_list_tapa_el_id_repetido_en_name_onvif(self) -> None:
+        # T032. Control negativo: sin `tapar_valores` en
+        # `_redactar_respuesta`, el `name` sale en claro y cae (comprobado).
+        self.ha.ws_send.return_value = [
+            {"webhook_id": self._ONVIF, "domain": "onvif", "name": self._ONVIF,
+             "local_only": False, "allowed_methods": ["POST", "PUT"]},
+            {"webhook_id": "abcdef0123", "domain": "automation",
+             "name": "Garaje (id abcdef0123)", "local_only": True,
+             "allowed_methods": ["POST"]},
+            {"webhook_id": self._CENTINELA_024, "domain": "automation",
+             "name": "Automatización del garaje", "local_only": True,
+             "allowed_methods": ["POST", "PUT"]},
+        ]
+        r = await self.t["ha_read_ws_command"]("webhook/list")
+        texto = json.dumps(r, ensure_ascii=False)
+        for secreto in (self._ONVIF, "abcdef0123", self._CENTINELA_024):
+            self.assertNotIn(secreto, texto)
+        onvif, parte, intacto = r["items"]
+        self.assertEqual(onvif, {
+            "webhook_id": security.REDACTED_MARKER, "domain": "onvif",
+            "name": security.REDACTED_MARKER, "local_only": False,
+            "allowed_methods": ["POST", "PUT"]})
+        self.assertEqual(parte["name"], f"Garaje (id {security.REDACTED_MARKER})")
+        # El `name` que no contiene el id no se pierde.
+        self.assertEqual(intacto["name"], "Automatización del garaje")
+
+    async def test_webhook_list_sin_id_legible_tapa_el_name(self) -> None:
+        # T032, fail-closed: sin `webhook_id` legible no se puede buscar en
+        # el `name`, que puede ser el id. Control negativo: sin
+        # `_webhook_sin_id_legible`, cae (comprobado).
+        self.ha.ws_send.return_value = [
+            {"domain": "onvif", "name": self._ONVIF, "local_only": False,
+             "allowed_methods": ["POST", "PUT"]},
+            {"webhook_id": None, "domain": "onvif", "name": self._ONVIF,
+             "local_only": False, "allowed_methods": ["POST", "PUT"], "extra": "x"},
+            {"webhook_id": 12345678, "domain": "Raro con espacios", "name": "12345678",
+             "local_only": "no", "allowed_methods": [self._ONVIF]},
+            self._ONVIF,
+        ]
+        r = await self.t["ha_read_ws_command"]("webhook/list")
+        texto = json.dumps(r, ensure_ascii=False)
+        self.assertNotIn(self._ONVIF, texto)
+        self.assertNotIn("12345678", texto)
+        primero, segundo, tercero, cuarto = r["items"]
+        self.assertEqual(primero, {
+            "domain": "onvif", "name": security.REDACTED_MARKER, "local_only": False,
+            "allowed_methods": ["POST", "PUT"]})
+        self.assertEqual(segundo["webhook_id"], None)
+        self.assertEqual(segundo["extra"], security.REDACTED_MARKER)
+        self.assertEqual(tercero, {k: security.REDACTED_MARKER for k in tercero})
+        self.assertEqual(cuarto, security.REDACTED_MARKER)
+
+    async def test_automation_config_tapa_el_id_en_toda_la_configuracion(self) -> None:
+        # T032: `automation/config` (lectura de la tabla) devuelve
+        # `{"config": automation.raw_config}` (`components/automation/
+        # __init__.py`, `websocket_config`); un trigger de webhook lleva el id
+        # (`components/webhook/trigger.py`), y una condición o la descripción
+        # pueden repetirlo.
+        self.ha.ws_send.return_value = {"config": {
+            "id": "1700000000000", "alias": "Garaje",
+            "description": f"Se abre con /api/webhook/{self._CENTINELA_024}",
+            "triggers": [{"trigger": "webhook", "webhook_id": self._CENTINELA_024,
+                          "allowed_methods": ["POST"], "local_only": True}],
+            "conditions": [{"condition": "template", "value_template":
+                            f"{{{{ trigger.webhook_id == '{self._CENTINELA_024}' }}}}"}],
+            "actions": [{"action": "cover.open_cover", "target": {"entity_id": "cover.garaje"}}],
+        }}
+        r = await self.t["ha_read_ws_command"]("automation/config",
+                                               {"entity_id": "automation.garaje"})
+        self.assertNotIn(self._CENTINELA_024, json.dumps(r, ensure_ascii=False))
+        config = r["result"]["config"]
+        self.assertEqual(config["description"],
+                         f"Se abre con /api/webhook/{security.REDACTED_MARKER}")
+        self.assertEqual(config["alias"], "Garaje")
+
+    async def test_credenciales_de_aplicacion_sin_secretos(self) -> None:
+        self.ha.ws_send.return_value = [
+            {"id": "spotify_cliente", "domain": "spotify", "client_id": "cliente-publico",
+             "client_secret": self._CENTINELA_024, "auth_domain": "spotify",
+             "name": "Spotify"},
+        ]
+        r = await self.t["ha_read_ws_command"]("application_credentials/list")
+        self.assertNotIn(self._CENTINELA_024, json.dumps(r))
+        self.assertEqual(r["items"][0]["client_id"], "cliente-publico")
+
+        self.ha.ws_send.return_value = {"application_credentials_id": self._CENTINELA_024}
+        r = await self.t["ha_read_ws_command"](
+            "application_credentials/config_entry", {"config_entry_id": "01ABC"})
+        self.assertNotIn(self._CENTINELA_024, json.dumps(r))
+        self.assertEqual(r["result"], {"application_credentials_id": security.REDACTED_MARKER})
+        # Y el motivo de la entrada lo dice (H2 de la revisión de la spec).
+        from hermes.command_table import CORE_WS
+
+        self.assertIn("el id sale tapado",
+                      CORE_WS["application_credentials/config_entry"].reason)
+
+    async def test_segmentos_de_mundo_abierto(self) -> None:
+        from hermes.command_table import CORE_WS
+
+        e = CORE_WS["vacuum/get_segments"]
+        self.assertEqual((e.category, e.open_world), ("read", True))
+        self.ha.ws_send.return_value = {"segments": [
+            {"id": "cocina", "name": "Cocina", "group": None}]}
+        r = await self.t["ha_read_ws_command"](
+            "vacuum/get_segments", {"entity_id": "vacuum.banco"})
+        self.assertEqual(r["result"]["segments"][0]["id"], "cocina")
+
+    async def test_lecturas_de_cap_071(self) -> None:
+        for comando in ("trace/contexts", "frontend/get_themes", "radio_frequency/list"):
+            with self.subTest(comando=comando):
+                self.ha.ws_send.reset_mock()
+                self.ha.ws_send.return_value = {}
+                r = await self.t["ha_read_ws_command"](comando)
+                self.assertEqual((r["command"], r["category"]), (comando, "read"))
+                self.ha.ws_send.assert_awaited_once_with({"type": comando})
+
+    async def test_restablecer_va_a_la_tool_dedicada(self) -> None:
+        for tool in ("ha_call_ws_command", "ha_read_ws_command"):
+            with self.subTest(tool=tool):
+                r = await self.t[tool]("lovelace/config/delete", {})
+                self.assertEqual(
+                    (r["error"], r["tool"], r["family"], r["family_disabled"]),
+                    ("use_dedicated_tool", "ha_reset_lovelace_dashboard_config",
+                     "dashboard_reset", False))
+                self.assertNotIn("confirmation_token", r)
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_restablecer_con_la_familia_desactivada(self) -> None:
+        mcp = DummyMCP()
+        mod.register(mcp, self.ha, response_max_bytes=self.max_bytes,
+                     familias_desactivadas=frozenset({"dashboard_reset"}))
+        r = await mcp.tools["ha_call_ws_command"]("lovelace/config/delete", {})
+        self.assertEqual((r["error"], r["family_disabled"]), ("use_dedicated_tool", True))
+        self.assertIn("family_disabled", json.dumps(r))
+        self.ha.ws_send.assert_not_awaited()
+
+    async def test_orden_de_areas_en_dos_pasos(self) -> None:
+        carga = {"area_ids": ["cocina", "salon"]}
+        vista = await self.t["ha_call_ws_command"]("config/area_registry/reorder", carga)
+        self.assertIn("confirmation_token", vista)
+        self.assertEqual((vista["preview"]["category"], vista["preview"]["cap"]),
+                         ("confirm", "CAP-070"))
+        self.ha.ws_send.assert_not_awaited()
+        self.ha.ws_send.return_value = None
+        r = await self.t["ha_call_ws_command"](
+            "config/area_registry/reorder", carga,
+            confirmation_token=vista["confirmation_token"])
+        self.assertTrue(r["executed"])
+        self.ha.ws_send.assert_awaited_once_with(
+            {"type": "config/area_registry/reorder", **carga})
+
+
 # ── Supervisor (T021) ────────────────────────────────────────────────────────
 
 _RUTAS_MALAS = (

@@ -520,6 +520,9 @@ _READ_QUE_SALEN: dict[str | tuple[str, str], str] = {
     # Spec 021 (FR-003, FR-071 de la 008): propone la configuración del
     # núcleo consultando un servicio externo de geolocalización por IP.
     "config/core/detect": "consulta un servicio externo de geolocalización por IP",
+    # Spec 024 (research R-5): `async_get_segments` lo implementa cada
+    # integración; la de Roborock refresca el mapa por red al leer.
+    "vacuum/get_segments": "algunas integraciones piden los segmentos al aspirador o a su nube",
 }
 
 
@@ -673,6 +676,31 @@ _POR_LA_TABLA: dict[tuple[str, str] | str, str] = {
     "config/core/detect": (
         "spec 021: FR-071 de la 008 la deja `read` en la tabla; consulta un "
         "servicio externo de geolocalización y no guarda nada"),
+    # Spec 024 (research R-1): la 008 manda las preferencias de cámara a la
+    # tabla (FR-085); la instantánea sí tiene tool dedicada.
+    "camera/get_prefs": (
+        "spec 024: lectura de las preferencias de stream (precarga y "
+        "orientación); FR-085 de la 008 la manda a la tabla"),
+    "camera/update_prefs": (
+        "spec 024: escritura de bajo riesgo (precarga y orientación), en dos "
+        "pasos; FR-085 de la 008 la manda a la tabla"),
+    # Spec 024, tramo 2 (research R-5): las lecturas de CAP-071; la 008
+    # (FR-086) solo pide tool para restablecer un dashboard.
+    "trace/contexts": (
+        "spec 024: lectura de los contextos con traza; FR-086 de la 008 la "
+        "manda a la tabla"),
+    "frontend/get_themes": (
+        "spec 024: lectura de los temas del frontend; FR-086 de la 008 la "
+        "manda a la tabla"),
+    "webhook/list": (
+        "spec 024: lectura de los webhooks con el webhook_id tapado por la "
+        "redacción estructural; FR-086 de la 008 la manda a la tabla"),
+    "vacuum/get_segments": (
+        "spec 024: lectura de los segmentos de un aspirador, de mundo "
+        "abierto; FR-086 de la 008 la manda a la tabla"),
+    "radio_frequency/list": (
+        "spec 024: lectura de los transmisores y receptores de "
+        "radiofrecuencia; FR-086 de la 008 la manda a la tabla"),
 }
 
 
@@ -1495,6 +1523,142 @@ class TestConversacionDeLa023(unittest.TestCase):
         run = ct.CORE_WS["assist_pipeline/run"]
         self.assertEqual(run.category, "deny")
         self.assertIn("clase D", run.reason)
+
+
+# Spec 024 (FR-005, FR-008…FR-012, FR-014; SC-003): las 33 entradas de
+# CAP-059, 065, 066, 067, 070, 071, 072 y 073, con su categoría,
+# `open_world` y `redact_extra`. Todas de `generic_commands` salvo
+# `lovelace/config/delete`, que va a la tool dedicada.
+_CLASIFICACION_024: dict[str, tuple[str, bool, tuple[str, ...]]] = {
+    # CAP-059: preferencias de cámara (la imagen va por tools dedicadas).
+    "camera/get_prefs": ("read", False, ()),
+    "camera/update_prefs": ("confirm", True, ()),
+    # CAP-065: calendario y tareas; los remotos salen a internet.
+    "calendar/event/update": ("confirm", True, ()),
+    "calendar/event/delete": ("confirm", True, ()),
+    "todo/item/move": ("confirm", True, ()),
+    # CAP-066: tags.
+    "tag/list": ("read", False, ()),
+    "tag/create": ("confirm", False, ()),
+    "tag/update": ("confirm", False, ()),
+    "tag/delete": ("confirm", False, ()),
+    # CAP-067: medios; miniaturas tapadas (research R-6) y la URL firmada
+    # de `resolve_media`, denegada.
+    "media_source/browse_media": ("read", True, ("thumbnail",)),
+    "media_source/search_media": ("read", True, ("thumbnail",)),
+    "media_source/local_source/remove": ("confirm", False, ()),
+    "media_source/resolve_media": ("deny", False, ()),
+    # CAP-070: orden y ajustes de los registros.
+    "config/area_registry/reorder": ("confirm", False, ()),
+    "config/floor_registry/reorder": ("confirm", False, ()),
+    "config/entity_registry/settings/update": ("confirm", False, ()),
+    "config/entity_registry/settings/get": ("read", False, ()),
+    "config/entity_registry/get_automatic_entity_ids": ("read", False, ()),
+    "config/device_registry/list_linked_devices": ("read", False, ()),
+    "config/device_registry/list_composite_splits": ("read", False, ()),
+    # CAP-071: restablecer va por la tool dedicada; el resto, lecturas
+    # (`webhook_id` tapado por el marcador general; segmentos de mundo abierto).
+    "lovelace/config/delete": ("dedicated", False, ()),
+    "trace/contexts": ("read", False, ()),
+    "frontend/get_themes": ("read", False, ()),
+    "webhook/list": ("read", False, ()),
+    "vacuum/get_segments": ("read", True, ()),
+    "radio_frequency/list": ("read", False, ()),
+    # CAP-072: imágenes subidas; subir va por REST multipart.
+    "image/list": ("read", False, ()),
+    "image/update": ("confirm", False, ()),
+    "image/delete": ("confirm", False, ()),
+    "image/create": ("deny", False, ()),
+    # CAP-073: credenciales de aplicación; `client_secret` y el id tapados
+    # por la redacción general.
+    "application_credentials/list": ("read", False, ()),
+    "application_credentials/config": ("read", False, ()),
+    "application_credentials/config_entry": ("read", False, ()),
+}
+
+_CAPS_024 = {"CAP-059", "CAP-065", "CAP-066", "CAP-067", "CAP-070", "CAP-071",
+             "CAP-072", "CAP-073"}
+
+
+class TestClasificacionDeLa024(unittest.TestCase):
+    """Spec 024, T009 y T024. Controles negativos: (T013 f) dejar
+    `camera/update_prefs` en `deny` → cae `test_las_33_entradas` nombrándola
+    (y los de la genérica en test_tools_generic_commands.py); (T029 e) dejar
+    `lovelace/config/delete` en `deny` → caen `test_las_33_entradas`,
+    `test_restablecer_va_a_la_tool_dedicada`, `test_ninguna_pendiente` y
+    `test_desde_cero_igual_que_la_tabla_real` (está en el mapa)."""
+
+    def test_las_33_entradas(self) -> None:
+        self.assertEqual(len(_CLASIFICACION_024), 33)
+        malas = []
+        for k, esperado in _CLASIFICACION_024.items():
+            e = ct.CORE_WS[k]
+            real = (e.category, e.open_world, tuple(e.redact_extra))
+            if e.category == "dedicated":
+                familia_ok = e.family == "dashboard_reset"
+            else:
+                familia_ok = e.family == "generic_commands" and e.tool is None
+            if real != esperado or not familia_ok:
+                malas.append(f"{k}: {real} {e.family} {e.tool}")
+        self.assertEqual(malas, [], "\n".join(malas))
+
+    def test_son_todas_las_de_sus_cap(self) -> None:
+        de_sus_cap = {k for k, e in ct.CORE_WS.items() if e.cap in _CAPS_024}
+        self.assertEqual(de_sus_cap, set(_CLASIFICACION_024))
+
+    def test_restablecer_va_a_la_tool_dedicada(self) -> None:
+        e = ct.CORE_WS["lovelace/config/delete"]
+        self.assertEqual(
+            (e.category, e.tool, e.family, e.cap, e.reason),
+            ("dedicated", "ha_reset_lovelace_dashboard_config", "dashboard_reset",
+             "CAP-071", "cubierto por ha_reset_lovelace_dashboard_config"))
+        # Y el generador la tiene en su mapa (una generación desde cero da lo
+        # mismo: test_desde_cero_igual_que_la_tabla_real).
+        from scripts.inventario import generar_tabla as gt
+
+        self.assertEqual(gt._DEDICADAS_INICIALES["lovelace/config/delete"],
+                         "ha_reset_lovelace_dashboard_config")
+
+    def test_motivos(self) -> None:
+        self.assertIn("solo lee", ct.CORE_WS["camera/get_prefs"].reason)
+        self.assertIn("internet", ct.CORE_WS["camera/update_prefs"].reason)
+        for k in ("media_source/browse_media", "media_source/search_media"):
+            with self.subTest(k=k):
+                self.assertIn("thumbnail", ct.CORE_WS[k].reason)
+                self.assertIn("tapada", ct.CORE_WS[k].reason)
+        self.assertIn("authSig", ct.CORE_WS["media_source/resolve_media"].reason)
+        self.assertIn("multipart", ct.CORE_WS["image/create"].reason)
+        self.assertIn("webhook_id sale tapado", ct.CORE_WS["webhook/list"].reason)
+        self.assertIn("nube", ct.CORE_WS["vacuum/get_segments"].reason)
+        # H2 de la revisión de la spec (research R-7): el motivo no promete
+        # el id, que sale tapado.
+        motivo = ct.CORE_WS["application_credentials/config_entry"].reason
+        self.assertIn("el id sale tapado", motivo)
+        self.assertIn("client_secret sale tapado",
+                      ct.CORE_WS["application_credentials/list"].reason)
+        for k in ("trace/contexts", "frontend/get_themes", "webhook/list",
+                  "vacuum/get_segments", "radio_frequency/list"):
+            with self.subTest(k=k):
+                self.assertIn("solo lee", ct.CORE_WS[k].reason)
+
+    def test_lo_de_clase_d_sigue_denegado(self) -> None:
+        for k in ("application_credentials/create", "application_credentials/update",
+                  "application_credentials/delete", "webhook/handle"):
+            with self.subTest(k=k):
+                self.assertEqual(ct.CORE_WS[k].category, "deny")
+
+    def test_ninguna_de_la_024_por_el_proxy(self) -> None:
+        self.assertEqual(
+            [k for k in _CLASIFICACION_024 if k.startswith(("hassio/", "supervisor/"))], [])
+
+    def test_ninguna_pendiente(self) -> None:
+        # Al cerrar la 024 (T024): ninguna entrada «spec 024» en la tabla.
+        pendientes = sorted(
+            k for k, e in ct.CORE_WS.items() if "(spec 024)" in e.reason)
+        self.assertEqual(pendientes, [])
+        texto = (_RAIZ / "hermes" / "src" / "hermes" / "command_table.py").read_text(
+            encoding="utf-8")
+        self.assertEqual(texto.count("spec 024"), 0)
 
 
 if __name__ == "__main__":

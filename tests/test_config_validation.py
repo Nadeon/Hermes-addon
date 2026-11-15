@@ -376,6 +376,10 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         # Spec 032 (tramo 2): y la de la red del host, sola o con la otra.
         self._cfg(["host_network"]).validate()
         self._cfg(["host_control", "host_network"]).validate()
+        # Spec 024 (FR-013): y la de cámaras e imágenes.
+        self._cfg(["cameras"]).validate()
+        # Spec 024, tramo 2 (FR-013): y la de restablecer un dashboard.
+        self._cfg(["dashboard_reset"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

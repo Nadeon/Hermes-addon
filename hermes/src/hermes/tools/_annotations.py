@@ -330,6 +330,11 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # disparar una automatización cualquiera. Es el mismo motivo por el que la
     # acción `conversation.process` está en la denylist. Pide token siempre.
     "ha_process_conversation",
+    # Spec 024, tramo 2: borra la configuración guardada de un dashboard
+    # (todas sus vistas y tarjetas), irreversible salvo backup. Pide token y
+    # el prefijo `ha_reset_` no lo delata. Idempotente: repetirla no tiene
+    # más efecto (la segunda vez no hay nada que restablecer).
+    "ha_reset_lovelace_dashboard_config",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -415,6 +420,10 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # el peor caso (principio V). `ha_debug_conversation` no: solo usa el
     # agente integrado, que reconoce en local.
     "ha_process_conversation",
+    # Spec 024 (research R-2): una cámara en la nube (Nest, Ring…) o una
+    # entidad `image` que descarga de una URL salen a internet cuando se pide
+    # la imagen. Son de solo lectura, pero no pueden decir que no salen.
+    "ha_get_camera_snapshot", "ha_get_image_entity",
 })
 
 # ── No idempotentes ───────────────────────────────────────────────────────────

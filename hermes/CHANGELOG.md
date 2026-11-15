@@ -1069,8 +1069,9 @@ desactivar), y analytics y labs por la tabla.
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 124 y 72), `read` (36 y 29),
-  `confirm` (20 y 25) o `deny` (443 y 128, con su motivo). Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 160 y 87), `read` (42 y 29),
+  `confirm` (21 y 25) o `deny` (400 y 113, con su motivo); recuentos con las
+  sub-features integradas hasta la 024. Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -1654,6 +1655,105 @@ con ella apagada (y las demás de la 1.2.0), la lista de tools es la de la
   de un backup cifrado, el rechazo de apps sin Supervisor y la contraseña
   incorrecta (HA la rechaza sin reiniciarse); la restauración con éxito
   reinicia Core y queda para la VM de la 014.
+
+### Menores de Core
+
+Spec 024: cámaras e imágenes, restablecer un dashboard y lo menor de Core
+por la tabla.
+
+- **`ha_get_camera_snapshot` y `ha_get_image_entity`** (familia nueva
+  `cameras`, activa por defecto y desactivable): la instantánea de una
+  entidad `camera.*` y la imagen de una entidad `image.*`, devueltas como un
+  bloque de imagen MCP junto a sus metadatos (`content_type`, `bytes`,
+  `width`, `height`). Solo leen; se anuncian de mundo abierto porque una
+  cámara en la nube o una entidad `image` que descarga de una URL salen a
+  internet. Privacidad: una cámara puede enseñar el interior de la casa y la
+  imagen se manda al cliente MCP; lo dicen las descripciones y la guía. No
+  devuelven nunca el `access_token` de la entidad ni una URL firmada: Hermes
+  pide la imagen por la API REST de Core con su propio token, y el log solo
+  lleva la entidad, los bytes y el resultado.
+- **Tope de 2 MiB, sin Pillow**: la imagen se lee en flujo
+  (`HAClient.rest_get_image`) y, si pasa de 2 MiB, se deja de leer y la tool
+  responde `image_too_large`; nunca se devuelve una imagen a medias. A Home
+  Assistant se le pide la imagen de la cámara de unos `max_width` píxeles (64
+  a 1920, 640 por defecto), pero solo escala JPEG. Solo se devuelve algo cuyo
+  `Content-Type` sea una imagen (`unsupported_content_type` si no). Errores:
+  `not_found`, `camera_unavailable`/`image_unavailable`, `snapshot_failed`
+  (con el estado de Home Assistant) y `ha_unavailable`.
+- **Preferencias de cámara por la tabla**: `camera/get_prefs` pasa a `read` y
+  `camera/update_prefs` a `confirm` (precarga del stream y orientación, en
+  dos pasos; de mundo abierto, porque precargar el stream de una cámara en la
+  nube mantiene tráfico hacia internet).
+- **Miniaturas tapadas** (hallazgo de la especificación):
+  `media_source/browse_media` y `media_source/search_media` siguen `read`,
+  pero tapan la `thumbnail` de cada elemento, porque alguna fuente de medios
+  (motionEye) la firma con `authSig`, una credencial temporal que da acceso al
+  medio sin token.
+- **Clasificación fijada por tests** de las 17 entradas de cámaras,
+  calendario y tareas, tags, medios e imágenes subidas (`media_source/
+  resolve_media` e `image/create` siguen `deny`).
+- **Guía**: tema nuevo `cameras` (alias `camera`, `cámaras`, `camaras`,
+  `snapshot`, `image`, `imagen`), que las instrucciones del servidor nombran
+  solo con la familia activa, y tema nuevo `core_minor` (alias `minor`,
+  `menores`) con calendario y tareas, tags, medios e imágenes subidas.
+- **Banco de Core**: las dos tools contra HA Core 2026.11.1 real (una cámara
+  `local_file` con un JPEG gris generado por el propio banco, sin fotos, y la
+  entidad `image` de `kitchen_sink`), y una ejecución por las genéricas de
+  calendario y tareas (`local_calendar`, `local_todo`), imágenes subidas,
+  medios locales y preferencias de cámara, con el efecto comprobado por el
+  lector y la vista previa sin efecto. La configuración del banco carga
+  `media_source:` e `image_upload:` y apunta `media_dirs` a su carpeta
+  `media/`.
+- **`ha_reset_lovelace_dashboard_config`** (familia nueva `dashboard_reset`,
+  activa por defecto y desactivable; la familia `lovelace` de la 1.1.2 no
+  cambia): borra la configuración guardada de un dashboard en modo
+  almacenamiento (`lovelace/config/delete`) y lo devuelve a la vista
+  autogenerada. Siempre en dos pasos: la vista previa dice el título, el
+  modo, cuántas vistas y tarjetas se pierden (en un dashboard de estrategia,
+  `strategy` con el tipo de la estrategia que se pierde), que es irreversible
+  salvo con un backup y cómo copiarlo antes con `ha_get_lovelace_dashboard`.
+  Si no se puede leer la lista de dashboards, `dashboards_unavailable`: no
+  se borra nada, nunca un `not_found` falso, y el token no se gasta. El token
+  ata el dashboard y la configuración leída: si cambia antes de confirmar,
+  `dashboard_changed` y no se borra nada. El dashboard principal y el panel
+  por defecto se rechazan siempre, con y sin token
+  (`cannot_reset_default_dashboard`), y si no se puede leer el panel por
+  defecto no se borra nada (`default_panel_unknown`). Los de modo YAML dan
+  `yaml_mode_dashboard` y uno ya autogenerado, `nothing_to_reset`. Destructiva
+  e idempotente, de mundo cerrado. El log no lleva la configuración.
+  `lovelace/config/delete` pasa a `dedicated` hacia ella en la tabla.
+- **Cinco lecturas de la UI por la tabla** (antes `deny`), comprobado en el
+  código de Core que solo leen: `trace/contexts`, `frontend/get_themes`,
+  `webhook/list` (el `webhook_id` sale tapado: basta para disparar la
+  automatización desde fuera sin autenticarse; su valor se tapa también
+  donde se repita, entero o dentro de un texto, como el nombre que ONVIF
+  pone igual al id, y una entrada sin `webhook_id` legible solo deja ver el
+  dominio, `local_only` y los métodos), `vacuum/get_segments` (de
+  mundo abierto: alguna integración pide los segmentos al aspirador o a su
+  nube) y `radio_frequency/list`.
+- **Credenciales de aplicación**: el motivo de
+  `application_credentials/config_entry` ya no promete el id de la
+  credencial, que la redacción general tapa; el `client_secret` de
+  `application_credentials/list` sigue tapado y crear, cambiar o borrar
+  credenciales sigue denegado.
+- **Las 33 entradas** de cámaras, calendario y tareas, tags, medios,
+  registros (orden de áreas y plantas, ids automáticos y ajustes),
+  restablecer, lecturas de la UI, imágenes subidas y credenciales de
+  aplicación, fijadas por test; ninguna queda «pendiente (spec 024)».
+- **Guía**: el tema `lovelace` gana la sección «Restablecer un dashboard»
+  (alias `reset`, `restablecer`) y `core_minor` se completa con temas,
+  webhooks, contextos de trazas, segmentos, radiofrecuencia, orden y
+  ajustes de los registros y credenciales de aplicación (alias
+  `webhooks`, `themes`, `temas`).
+- **Banco de Core**: restablecer un dashboard creado en el test contra HA
+  Core 2026.11.1 real (vista previa sin efecto y `config_not_found` al
+  confirmar, comprobado por el lector; el principal, rechazado sin token),
+  y una ejecución por las genéricas de cada lectura de la UI (con una
+  automatización de disparador `webhook` y un aspirador de plantilla con
+  zonas), de los registros (el orden de las áreas, en dos pasos y
+  restaurado) y de las credenciales de aplicación. La configuración del
+  banco carga además `webhook:` y `application_credentials:`. Sin
+  hallazgos.
 
 ### Banco de pruebas
 

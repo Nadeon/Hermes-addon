@@ -36,7 +36,9 @@ CORE_WS: dict[str, E] = {
     # genérica de escritura no puede anunciar que no sale a internet.
     "analytics/preferences": E("confirm", "guarda qué datos de uso se envían a Home Assistant (analytics) y reprograma el envío", "generic_commands", cap="CAP-074", open_world=True),
     "application_credentials/config": E("read", "dominios que admiten credenciales de aplicación OAuth y su configuración; solo lee", "generic_commands", cap="CAP-073"),
-    "application_credentials/config_entry": E("read", "id de la credencial de aplicación que usa una integración; solo lee", "generic_commands", cap="CAP-073"),
+    # Responde `{"application_credentials_id": …}`: la clave contiene
+    # «credential» y redact_structure la tapa (research R-7 de la 024).
+    "application_credentials/config_entry": E("read", "dice si una integración usa una credencial de aplicación; el id sale tapado por la redacción general; solo lee", "generic_commands", cap="CAP-073"),
     "application_credentials/create": E("deny", "introduce o cambia client_secret OAuth de terceros (clase D)", "generic_commands"),
     "application_credentials/delete": E("deny", "introduce o cambia client_secret OAuth de terceros (clase D)", "generic_commands"),
     # La lista de la colección devuelve `client_secret` en claro: lo tapa el
@@ -107,9 +109,9 @@ CORE_WS: dict[str, E] = {
     "calendar/event/update": E("confirm", "modifica un evento (o parte de una serie recurrente); si el calendario es remoto, el cambio sale a internet", "generic_commands", cap="CAP-065", open_world=True),
     "call_service": E("dedicated", "cubierto por ha_call_service", "services", tool="ha_call_service"),
     "camera/capabilities": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
-    "camera/get_prefs": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-059"),
+    "camera/get_prefs": E("read", "preferencias de stream de una cámara (precarga y orientación); solo lee", "generic_commands", cap="CAP-059", example={"entity_id": "camera.entrada"}),
     "camera/stream": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
-    "camera/update_prefs": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-059"),
+    "camera/update_prefs": E("confirm", "cambia la precarga del stream y la orientación de una cámara; precargar el stream de una cámara en la nube mantiene tráfico hacia internet", "generic_commands", cap="CAP-059", open_world=True, example={"entity_id": "camera.entrada", "orientation": 1}),
     "camera/webrtc/candidate": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
     "camera/webrtc/get_client_config": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
     "camera/webrtc/offer": E("deny", "negociación de vídeo en el navegador (HLS/WebRTC) (clase B)", "generic_commands"),
@@ -244,7 +246,7 @@ CORE_WS: dict[str, E] = {
     # Hermes lo lee por dentro para proteger el dashboard principal, pero
     # ha_list_lovelace_dashboards no expone estos datos.
     "frontend/get_system_data": E("read", "datos de sistema del frontend por clave (p. ej. `core`: panel por defecto); solo lee", "generic_commands"),
-    "frontend/get_themes": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "frontend/get_themes": E("read", "temas del frontend y los temas claro y oscuro por defecto; solo lee", "generic_commands", cap="CAP-071"),
     # Hermes lo usa por dentro para los textos de los avisos de Repairs
     # (spec 016, CAP-036: `tools/_translations.py`); para las genéricas sigue
     # `deny` (clase B).
@@ -409,7 +411,7 @@ CORE_WS: dict[str, E] = {
     "lorawan/devices/list": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "lorawan/devices/subscribe": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "lovelace/config": E("dedicated", "cubierto por ha_get_lovelace_dashboard", "lovelace", tool="ha_get_lovelace_dashboard"),
-    "lovelace/config/delete": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "lovelace/config/delete": E("dedicated", "cubierto por ha_reset_lovelace_dashboard_config", "dashboard_reset", tool="ha_reset_lovelace_dashboard_config", cap="CAP-071"),
     "lovelace/config/save": E("dedicated", "cubierto por ha_save_lovelace_dashboard", "lovelace", tool="ha_save_lovelace_dashboard"),
     "lovelace/dashboards/create": E("dedicated", "cubierto por ha_create_lovelace_dashboard", "lovelace", tool="ha_create_lovelace_dashboard"),
     "lovelace/dashboards/delete": E("dedicated", "cubierto por ha_delete_lovelace_dashboard", "lovelace", tool="ha_delete_lovelace_dashboard"),
@@ -462,13 +464,13 @@ CORE_WS: dict[str, E] = {
     # Con una fuente remota (radio_browser, google_photos, immich…) navegar y buscar
     # consultan APIs de internet: `read` de mundo abierto, y por eso
     # ha_read_ws_command se anuncia con openWorldHint (T047).
-    "media_source/browse_media": E("read", "navega por las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
+    "media_source/browse_media": E("read", "navega por las fuentes de medios (las remotas consultan internet); la miniatura (`thumbnail`) sale tapada porque alguna fuente la firma con authSig, una credencial temporal; solo lee", "generic_commands", cap="CAP-067", redact_extra=("thumbnail",), open_world=True),
     "media_source/local_source/remove": E("confirm", "borra del disco un fichero de medios locales (irreversible)", "generic_commands", cap="CAP-067"),
     # async_process_play_media_url firma la ruta con async_sign_path y `expires` es
     # libre (media_source/http.py de Core 2026.11.1). La 008 (FR-087) la daba como
     # lectura; se deniega por coherencia con auth/sign_path.
     "media_source/resolve_media": E("deny", "devuelve una URL firmada (authSig) con la caducidad que pida quien llama: es una credencial temporal, como auth/sign_path (clase D)", "generic_commands", cap="CAP-067"),
-    "media_source/search_media": E("read", "busca en las fuentes de medios (las remotas consultan internet); solo lee", "generic_commands", cap="CAP-067", open_world=True),
+    "media_source/search_media": E("read", "busca en las fuentes de medios (las remotas consultan internet); la miniatura (`thumbnail`) sale tapada porque alguna fuente la firma con authSig, una credencial temporal; solo lee", "generic_commands", cap="CAP-067", redact_extra=("thumbnail",), open_world=True),
     "mobile_app/push_notification_channel": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "mobile_app/push_notification_confirm": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "modbus/connections/list": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
@@ -493,7 +495,7 @@ CORE_WS: dict[str, E] = {
     "person/update": E("dedicated", "cubierto por ha_update_person", "helpers", tool="ha_update_person"),
     "person/update_own_profile": E("deny", "perfil del usuario conectado (Hermes no es una persona) (clase B)", "generic_commands"),
     "ping": E("deny", "keepalive del protocolo (clase B)", "generic_commands"),
-    "radio_frequency/list": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "radio_frequency/list": E("read", "transmisores y receptores de radiofrecuencia con sus rangos y modulaciones; solo lee", "generic_commands", cap="CAP-071"),
     "recorder/adjust_sum_statistics": E("dedicated", "cubierto por ha_adjust_statistics_sum", "recorder", tool="ha_adjust_statistics_sum", cap="CAP-050"),
     "recorder/change_statistics_unit": E("dedicated", "cubierto por ha_change_statistics_unit", "recorder", tool="ha_change_statistics_unit", cap="CAP-050"),
     "recorder/clear_statistics": E("dedicated", "cubierto por ha_clear_statistics", "recorder", tool="ha_clear_statistics", cap="CAP-050"),
@@ -579,7 +581,7 @@ CORE_WS: dict[str, E] = {
     "todo/item/list": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
     "todo/item/move": E("confirm", "cambia el orden de una tarea en su lista; si la lista es remota, el cambio sale a internet", "generic_commands", cap="CAP-065", open_world=True),
     "todo/item/subscribe": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
-    "trace/contexts": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    "trace/contexts": E("read", "contextos con traza guardada (enlaza una traza con lo que la disparó: run_id, dominio e id); solo lee", "generic_commands", cap="CAP-071"),
     "trace/debug/breakpoint/clear": E("deny", "depurador paso a paso interactivo de la UI (clase B)", "generic_commands"),
     "trace/debug/breakpoint/list": E("deny", "depurador paso a paso interactivo de la UI (clase B)", "generic_commands"),
     "trace/debug/breakpoint/set": E("deny", "depurador paso a paso interactivo de la UI (clase B)", "generic_commands"),
@@ -599,14 +601,21 @@ CORE_WS: dict[str, E] = {
     "usb/list_serial_integrations": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
     "usb/list_serial_ports": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
     "usb/scan": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-105"),
-    "vacuum/get_segments": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    # `async_get_segments` lo implementa cada integración: alguna (Roborock)
+    # refresca el mapa del aspirador por red o por su nube al leer.
+    "vacuum/get_segments": E("read", "zonas (segmentos) que puede limpiar un aspirador; algunas integraciones las piden al aspirador o a su nube; solo lee", "generic_commands", cap="CAP-071", open_world=True),
     "validate_config": E("dedicated", "cubierto por ha_validate_config", "core_diagnostics", tool="ha_validate_config", cap="CAP-040"),
     "wake_word/info": E("read", "palabras de activación que admite una entidad wake_word; solo lee", "generic_commands", cap="CAP-062"),
     "weather/convertible_units": E("deny", "ayudas de formulario de la UI (unidades convertibles) (clase B)", "generic_commands"),
     "weather/subscribe_forecast": E("dedicated", "cubierto por ha_call_service_response (acción de HA)", "services", tool="ha_call_service_response"),
     "web_rtc/ice_servers": E("deny", "token o configuración para que el navegador cargue recursos (clase B)", "generic_commands"),
     "webhook/handle": E("deny", "dispara webhooks como si viniera de fuera; sin valor y con riesgo (clase D)", "generic_commands"),
-    "webhook/list": E("deny", "pendiente de tool dedicada (spec 024)", "generic_commands", cap="CAP-071"),
+    # Un `webhook_id` basta para disparar la automatización o integración
+    # desde fuera, sin autenticación: lo tapa el marcador `webhook_id` de
+    # redact_structure (security.py), sin redact_extra. Su VALOR se tapa
+    # además en toda la respuesta (`_redactar_respuesta` de las genéricas):
+    # ONVIF lo registra también como nombre (T032 de la 024).
+    "webhook/list": E("read", "webhooks registrados (dominio, nombre, local_only, métodos); el webhook_id sale tapado, también en el nombre o en cualquier texto que lo repita (ONVIF usa el id como nombre), y en una entrada sin webhook_id legible se tapa todo menos dominio, local_only y métodos; solo lee", "generic_commands", cap="CAP-071"),
     "wyoming/info": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "zeroconf/subscribe_discovery": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "zha/configuration": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-101"),

@@ -582,8 +582,11 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "generic_commands": "906066a916e93727",
         "helpers": "c99850e94eb5c996",
         # La 018 cambia `lovelace` (guardado por vista) y `services`
-        # (`ha_call_service_response` con token); su CHANGELOG lo dice.
-        "lovelace": "38d00048b136b460",
+        # (`ha_call_service_response` con token); su CHANGELOG lo dice. La
+        # 024 (tramo 2) le añade la sección «Restablecer un dashboard»
+        # (FR-016); su CHANGELOG lo dice. La convergencia de la 024 (T033,
+        # T034) añade `strategy` y `dashboards_unavailable`. Huella recalculada.
+        "lovelace": "04bebf2041d378db",
         "marketplace": "f83ec233a87ad95b",
         "registries": "42894b4111cb8c80",
         "security": "157ee929e7db08ae",
@@ -1940,6 +1943,187 @@ class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
             with self.subTest(tema=tema):
                 real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
                 self.assertEqual(real, huella)
+
+
+
+class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
+    """Spec 024, tramo 1 (FR-016, T010): temas `cameras` y `core_minor` (la
+    parte de CAP-065, 066, 067 y 072) con sus alias; el índice los nombra;
+    las instrucciones del servidor nombran `cameras` solo con su familia
+    activa; los demás temas no cambian (el índice sí, a propósito).
+
+    Control negativo comprobado: sin `@TEMA_CAMARAS@` en las instrucciones →
+    cae `test_instrucciones_con_y_sin_la_familia`."""
+
+    # sha256 (16 hex) de cada tema antes de la 024: el tramo 1 solo añade
+    # temas (y dos líneas al índice, que no está aquí). El tramo 2 añade a
+    # `lovelace` la sección «Restablecer un dashboard» (FR-016, la única
+    # que cambia a propósito; la convergencia, T033 y T034, le añade
+    # `strategy` y `dashboards_unavailable`): huella recalculada.
+    # Al integrar en la rama del programa se recalculan `backups`,
+    # `diagnostics`, `recorder`, `supervisor` y `system_status`: la 024 no los
+    # toca, pero la 020, 021, 022, 031 y 032, integradas antes, sí (son las
+    # huellas de la rama del programa, sin cambio de la 024).
+    _HUELLAS = {
+        "app_store": "f02491e7f0e6c93c",
+        "automation_assist": "d360de0f7fd1deb5",
+        "automations": "d27ee3c45bc13171",
+        "backups": "3e685f47171224e7",
+        "blueprints": "f0b99d3c0a4103e4",
+        "config_entries": "c5acb413e7fedf5a",
+        "core_diagnostics": "29db774e2062ebde",
+        "data": "c77e3e6782cc89a7",
+        "diagnostics": "838ff4a3a3eeaddb",
+        "events": "3765a76095ece40f",
+        "filesystem": "b5902d6d0ff666c1",
+        "generic_commands": "906066a916e93727",
+        "helpers": "c99850e94eb5c996",
+        "integration_flows": "5df1b039b66924d5",
+        "lovelace": "04bebf2041d378db",
+        "marketplace": "f83ec233a87ad95b",
+        "mounts": "df26cd22a86efe39",
+        "recorder": "690516ce68c93d6c",
+        "registries": "42894b4111cb8c80",
+        "repair_flows": "49f0ab3db2c30057",
+        "security": "157ee929e7db08ae",
+        "services": "e7b494a2e8ad587e",
+        "supervisor": "dc38e81c61a06932",
+        "system_diagnostics": "50509e336b5ca215",
+        "system_status": "f6401ab7737759f6",
+        "updates": "bde22d629e7468f4",
+        "workflows": "53b81454a6708b9a",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_cameras_y_alias(self) -> None:
+        tema = _GUIDE["cameras"]
+        for alias in ("cameras", "camera", "cámaras", "camaras", "snapshot",
+                      "image", "imagen", "CAMERA"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), tema)
+        plano = " ".join(tema.split())
+        for clave in ("`ha_get_camera_snapshot", "`ha_get_image_entity", "PRIVACIDAD",
+                      "interior de la casa", "SOLO ESCALA JPEG", "2 MiB",
+                      "image_too_large", "camera_unavailable", "unsupported_content_type",
+                      "access_token", "camera/get_prefs", "camera/update_prefs",
+                      '{"entity_id": "camera.entrada"}', "`cameras`"):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, plano)
+
+    async def test_core_minor_y_alias(self) -> None:
+        tema = _GUIDE["core_minor"]
+        for alias in ("core_minor", "minor", "menores", "MINOR"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), tema)
+        plano = " ".join(tema.split())
+        for clave in ("calendar/event/update", "calendar/event/delete", "todo/item/move",
+                      "sale a internet", "tag/list", "tag/create",
+                      "media_source/browse_media", "media_source/search_media",
+                      "`thumbnail`", "TAPADA", "authSig", "media_source/resolve_media",
+                      "DENEGADO", "media_source/local_source/remove", "IRREVERSIBLE",
+                      "image/list", "image/delete", "Subir una imagen NO se puede",
+                      "image/create"):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, plano)
+
+    async def test_indice(self) -> None:
+        indice = await self.guide()
+        self.assertIn("`cameras`", indice)
+        self.assertIn("`core_minor`", indice)
+
+    def test_instrucciones_con_y_sin_la_familia(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("lovelace, cameras, marketplace", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"cameras"}))
+        self.assertNotIn("cameras", sin)
+        self.assertNotIn("@", sin)
+        self.assertIn("lovelace, marketplace", sin)
+
+    def test_nombra_cada_tool_de_la_familia(self) -> None:
+        from tests.test_tools_registration import _do_register
+
+        de_la_familia = sorted(set(_do_register().tools) - set(_do_register(["cameras"]).tools))
+        self.assertEqual(de_la_familia, ["ha_get_camera_snapshot", "ha_get_image_entity"])
+        self.assertEqual([n for n in de_la_familia if f"`{n}" not in _GUIDE["cameras"]], [])
+
+    async def test_preferencias_en_la_tabla(self) -> None:
+        texto = await self.guide("generic_commands", search="camera/")
+        linea = next(l for l in texto.splitlines() if "camera/update_prefs" in l)
+        self.assertIn("confirm", linea)
+
+    def test_los_demas_temas_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)
+
+
+class TestTemasDeLa024Tramo2(unittest.IsolatedAsyncioTestCase):
+    """Spec 024, tramo 2 (FR-016, FR-020, T025): la sección «Restablecer» del
+    tema `lovelace`, `core_minor` completo (CAP-070, 071 y 073) y sus alias;
+    la búsqueda en la tabla da `lovelace/config/delete` como `dedicated`.
+
+    Control negativo comprobado: sin la sección en `lovelace` → caen
+    `test_lovelace_restablecer` y las huellas de los temas."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_lovelace_restablecer(self) -> None:
+        tema = _GUIDE["lovelace"]
+        for alias in ("reset", "restablecer", "RESET"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), tema)
+        plano = " ".join(tema.split())
+        for clave in ("`ha_reset_lovelace_dashboard_config", "`dashboard_reset`",
+                      "IRREVERSIBLE", "autogenerada", "ha_get_lovelace_dashboard(url_path)",
+                      "cannot_reset_default_dashboard", "default_panel_unknown",
+                      "dashboard_changed", "yaml_mode_dashboard", "nothing_to_reset",
+                      "panel por defecto", "Con la familia desactivada"):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, plano)
+
+    async def test_core_minor_completo(self) -> None:
+        tema = _GUIDE["core_minor"]
+        for alias in ("webhooks", "themes", "temas"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), tema)
+        plano = " ".join(tema.split())
+        for clave in ("frontend/get_themes", "webhook/list", "`webhook_id` sale TAPADO",
+                      "trace/contexts", "vacuum/get_segments", "salir a internet",
+                      "radio_frequency/list", "config/area_registry/reorder",
+                      "config/floor_registry/reorder",
+                      "config/entity_registry/get_automatic_entity_ids",
+                      "config/entity_registry/settings/update",
+                      "config/device_registry/list_linked_devices",
+                      "application_credentials/list", "application_credentials/config_entry",
+                      "`client_secret` NUNCA sale", "Crear, cambiar y borrar credenciales NO se puede",
+                      "`ha_reset_lovelace_dashboard_config`"):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, plano)
+
+    async def test_busqueda_da_la_dedicada(self) -> None:
+        texto = await self.guide("generic_commands", search="lovelace/config/delete")
+        linea = next(l for l in texto.splitlines() if l.startswith("| `lovelace/config/delete`"))
+        self.assertIn("dedicated", linea)
+        self.assertIn("ha_reset_lovelace_dashboard_config", linea)
+
+    def test_nombra_la_tool_de_la_familia(self) -> None:
+        from tests.test_tools_registration import _do_register
+
+        de_la_familia = sorted(
+            set(_do_register().tools) - set(_do_register(["dashboard_reset"]).tools))
+        self.assertEqual(de_la_familia, ["ha_reset_lovelace_dashboard_config"])
+        self.assertIn(f"`{de_la_familia[0]}", _GUIDE["lovelace"])
 
 
 if __name__ == "__main__":

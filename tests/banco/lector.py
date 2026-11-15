@@ -139,6 +139,25 @@ class Lector:
                 datos = texto
             return resp.status, datos
 
+    async def subir(
+        self, ruta: str, campo: str, nombre: str, datos: bytes, tipo: str
+    ) -> tuple[int, Any]:
+        """POST multipart directo a Core: `(estado, cuerpo)`.
+
+        Spec 024: la subida de `image_upload` (`/api/image/upload`) solo va
+        por REST multipart; por WebSocket Core responde NotImplementedError.
+        """
+        assert self._session is not None
+        formulario = aiohttp.FormData()
+        formulario.add_field(campo, datos, filename=nombre, content_type=tipo)
+        async with self._session.post(f"{self._core_url}{ruta}", data=formulario) as resp:
+            texto = await resp.text()
+            try:
+                cuerpo: Any = json.loads(texto) if texto else None
+            except ValueError:
+                cuerpo = texto
+            return resp.status, cuerpo
+
     async def listar(self, dominio: str) -> list[dict[str, Any]]:
         """Elementos de un dominio de helpers (`<dominio>/list`)."""
         return await self._comando({"type": f"{dominio}/list"})

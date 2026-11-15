@@ -283,6 +283,23 @@ _CATALOGO: tuple[Familia, ...] = (
             "Assist conversation agents, custom sentences, sentence analysis "
             "and sending a sentence to Assist (with confirmation).",
             "1.2.0", True, ("conversation",)),
+    # Spec 024 (research R-3): la instantánea de una cámara y la imagen de una
+    # entidad `image` van solas porque son las únicas tools que devuelven
+    # imágenes, y una cámara puede enseñar el interior de la casa: quien no
+    # quiera que el cliente MCP las vea apaga esta familia sin perder nada
+    # más. No van en `services` (1.1.2) por FR-010 de la 008. Activa por
+    # defecto: si debe venir apagada es la duda D-03 de la 008.
+    Familia("cameras",
+            "Camera snapshots and image entities (returns images).",
+            "1.2.0", True, ("cameras",)),
+    # Spec 024, tramo 2 (research R-3): restablecer un dashboard borra toda su
+    # configuración guardada. Va en su propia familia porque la `lovelace` de
+    # la 1.1.2 no puede ganar tools (FR-010 de la 008: apagando las familias
+    # de la 1.2.0 vuelve la lista exacta de la 1.1.2), y así quien no quiera
+    # que el cliente pueda vaciar un dashboard la apaga sola.
+    Familia("dashboard_reset",
+            "Reset a Lovelace dashboard to its auto-generated config.",
+            "1.2.0", True, ("lovelace_reset",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

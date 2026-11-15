@@ -533,6 +533,20 @@ def register_all_tools(
         register_ha_backup_actions(mcp, ha_client, response_max_bytes=response_max_bytes)
         from hermes.tools.ha_backup_restore import register as register_ha_backup_restore
         register_ha_backup_restore(mcp, ha_client, response_max_bytes=response_max_bytes)
+    # Cámaras e imágenes (spec 024, CAP-059): la instantánea de una cámara y
+    # la imagen de una entidad `image`, como bloque de imagen MCP. Solo leen.
+    # Reciben `response_max_bytes` por uniformidad, pero su límite es el tope
+    # fijo de bytes de la imagen (el guardián central no toca las imágenes).
+    if _activa("cameras"):
+        from hermes.tools.cameras import register as register_cameras
+        register_cameras(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # Restablecer un dashboard (spec 024, tramo 2, CAP-071): borra la
+    # configuración guardada en dos pasos, con la protección del principal y
+    # del panel por defecto de `ha_delete_lovelace_dashboard`.
+    if _activa("dashboard_reset"):
+        from hermes.tools.lovelace_reset import register as register_lovelace_reset
+        register_lovelace_reset(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

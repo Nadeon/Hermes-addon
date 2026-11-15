@@ -83,7 +83,7 @@ reintentar. `done` es true también si falla: cualquier entrada en `errors` da
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
 events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_CONTROL@@TEMA_HOST@@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
-backups@TEMA_MONTAJES@, lovelace, marketplace@TEMA_TIENDA@@TEMA_CONVERSACION@, security@TEMA_GENERICAS@) y
+backups@TEMA_MONTAJES@, lovelace@TEMA_CAMARAS@, marketplace@TEMA_TIENDA@@TEMA_CONVERSACION@, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
 """
@@ -135,6 +135,10 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     texto = texto.replace(
         "@TEMA_CONVERSACION@",
         ", conversation" if "conversation" not in desactivadas else "")
+    # Spec 024: el de las cámaras, igual (sin la familia no hay tools de
+    # imagen que anunciar).
+    texto = texto.replace(
+        "@TEMA_CAMARAS@", ", cameras" if "cameras" not in desactivadas else "")
     return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
 
 
@@ -173,6 +177,7 @@ para el detalle de un área. Temas disponibles:
 - `backup_integration` — backups de Home Assistant: agentes, ajustes (programación, retención), crear, borrar y restaurar
 - `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
 - `lovelace`       — dashboards y recursos del frontend
+- `cameras`        — instantánea de una cámara e imagen de una entidad `image` (devuelven la imagen)
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
@@ -185,6 +190,7 @@ para el detalle de un área. Temas disponibles:
 - `users`          — usuarios de HA: listar, crear sin credenciales, editar y borrar
 - `core_network`   — adaptadores de red y servidor HTTP de Core (puerto, SSL, proxy inverso)
 - `conversation`   — Assist: agentes, frases, analizar una frase sin ejecutarla y procesarla (con confirmación); pipelines, voz y satélites
+- `core_minor`     — lo menor de Core por las genéricas: calendario y tareas, tags, medios, imágenes subidas, temas, webhooks, trazas, aspiradores, radiofrecuencia, orden de los registros y credenciales de aplicación
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -964,6 +970,24 @@ trae `omit_on_confirm`, confirma con `url_path`, `view_index` y el token, sin
 reenviar `view`; si no, reenvía todo. Si el dashboard cambia entre la vista
 previa y la confirmación, se rechaza con `dashboard_changed` sin guardar nada:
 pide otra vista previa. Solo sustituye vistas que existen (no añade ni borra).
+
+RESTABLECER UN DASHBOARD (familia `dashboard_reset`, nueva en 1.2.0)
+`ha_reset_lovelace_dashboard_config(url_path)` borra la configuración guardada
+de un dashboard en modo almacenamiento: el dashboard sigue existiendo, pero
+vuelve a la vista autogenerada de Home Assistant. Es IRREVERSIBLE salvo con un
+backup: copia antes la configuración con `ha_get_lovelace_dashboard(url_path)`
+(para restaurarla, guárdala con `ha_save_lovelace_dashboard`). Siempre en dos
+pasos: la vista previa dice cuántas vistas y tarjetas se pierden (en un
+dashboard de estrategia, `strategy` dice cuál se pierde); si la
+configuración cambia antes de confirmar, se rechaza con `dashboard_changed`.
+Si no se puede leer la lista de dashboards, `dashboards_unavailable`: no se
+borra nada y el token sigue valiendo hasta que caduque.
+El dashboard principal (`lovelace` o sin `url_path`) y el panel por defecto
+están protegidos siempre (`cannot_reset_default_dashboard`); si no se puede
+leer el panel por defecto, no se restablece nada (`default_panel_unknown`).
+Los de modo YAML no se pueden restablecer (`yaml_mode_dashboard`) y uno ya
+autogenerado da `nothing_to_reset`. Con la familia desactivada, la tool no
+existe.
 """,
     "marketplace": """\
 # Marketplace (antes HACS), de solo lectura
@@ -2298,6 +2322,134 @@ PIPELINES, VOZ, AI TASK Y SATÉLITES (por las genéricas)
 - No disponibles: `assist_pipeline/run` (audio y voz en tiempo real), la
   captura de audio y los asistentes de configuración de los satélites.
 """,
+    "cameras": """\
+# Cámaras e imágenes
+
+Dos tools de solo lectura que devuelven la IMAGEN (un bloque de imagen MCP)
+y, aparte, sus metadatos (`entity_id`, `content_type`, `bytes`, `width`,
+`height` y `scaling`):
+
+- `ha_get_camera_snapshot(entity_id, max_width=640)` — lo que ve ahora una
+  entidad `camera.*`.
+- `ha_get_image_entity(entity_id)` — la imagen actual de una entidad
+  `image.*` (un código QR, la portada de algo, un mapa…).
+
+PRIVACIDAD
+Una cámara puede enseñar el interior de la casa, y la imagen se manda a este
+cliente MCP. Pide una instantánea solo cuando el usuario lo quiera. Ninguna
+de las dos devuelve el `access_token` de la entidad ni una URL firmada:
+Hermes pide la imagen con su propio token. Quien no quiera que el cliente vea
+las cámaras desactiva la familia `cameras` en las opciones del add-on.
+
+TAMAÑO
+- La cámara se pide a Home Assistant de unos `max_width` píxeles de ancho
+  (64 a 1920) y 9/16 de eso de alto. Home Assistant SOLO ESCALA JPEG (y solo
+  si tiene TurboJPEG): una cámara que dé PNG, o un factor que no cuadre,
+  llega más grande. `requested_max_width` dice lo que se pidió, no lo que
+  llegó; el tamaño real está en `width`/`height` (si la cabecera es PNG o
+  JPEG; si no, `null` y la imagen llega igual).
+- `ha_get_image_entity` no escala: Home Assistant sirve el original.
+- Tope fijo de 2 MiB: una imagen mayor NO se devuelve (`image_too_large`
+  con `max_bytes`); no hay imagen a medias. Con una cámara, prueba con un
+  `max_width` menor.
+- Las cámaras en la nube y algunas entidades `image` descargan la imagen de
+  internet al pedirla.
+
+ERRORES (sin imagen)
+`invalid_argument` (con `field`; el `entity_id` tiene que ser del dominio de
+la tool, en minúsculas), `not_found`, `camera_unavailable` (cámara apagada) o
+`image_unavailable`, `snapshot_failed` (con el `status` de Home Assistant;
+p. ej. una cámara que saca las fotos del stream y no lo tiene),
+`unsupported_content_type` (Home Assistant no devolvió una imagen),
+`image_too_large` y `ha_unavailable`.
+
+PREFERENCIAS DE STREAM (por la tabla)
+La precarga del stream y la orientación de una cámara van por las genéricas:
+`ha_read_ws_command("camera/get_prefs", {"entity_id": "camera.entrada"})` y
+`ha_call_ws_command("camera/update_prefs", {"entity_id": "camera.entrada",
+"orientation": 1})`, en dos pasos. Precargar el stream de una cámara en la
+nube mantiene tráfico hacia internet. La orientación (1 a 8, como en EXIF)
+solo se puede cambiar en cámaras creadas desde la interfaz. Vídeo, streams y
+WebRTC no están disponibles.
+""",
+    "core_minor": """\
+# Lo menor de Core por las genéricas
+
+Estas partes de Home Assistant no tienen tool dedicada: van por
+`ha_read_ws_command` (lecturas) y `ha_call_ws_command` (cambios, siempre en
+dos pasos). `hermes_guide("generic_commands", search="…")` da la categoría y
+el motivo de cada comando.
+
+CALENDARIO Y TAREAS
+- Crear eventos y tareas: las acciones `calendar.create_event` y
+  `todo.add_item` (`ha_call_service`).
+- `calendar/event/update` (`entity_id`, `uid` y `event` con los campos
+  nuevos) y `calendar/event/delete` (`entity_id` y `uid`), en una serie
+  también `recurrence_id` y `recurrence_range`, y `todo/item/move`
+  (`entity_id`, `uid` y `previous_uid`) piden confirmación. Si el calendario o
+  la lista es remoto (CalDAV, Google…), el cambio sale a internet.
+
+TAGS
+`tag/list` lee; `tag/create`, `tag/update` y `tag/delete` piden
+confirmación.
+
+MEDIOS
+- `media_source/browse_media` (`media_content_id`, p. ej.
+  `media-source://media_source`) y `media_source/search_media` leen; las
+  fuentes remotas consultan internet. La miniatura (`thumbnail`) de cada
+  elemento sale TAPADA: alguna fuente la firma con `authSig`, una credencial
+  temporal que da acceso al medio sin token.
+- `media_source/resolve_media` está DENEGADO: devuelve una URL firmada.
+- `media_source/local_source/remove` borra un fichero de los medios locales
+  del disco: es IRREVERSIBLE (pide confirmación).
+
+IMÁGENES SUBIDAS (`image_upload`)
+`image/list` lee; `image/update` y `image/delete` (borra la imagen y sus
+ficheros) piden confirmación. Subir una imagen NO se puede: va por REST
+multipart (`image/create` está denegado).
+
+TEMAS, WEBHOOKS, TRAZAS, ASPIRADORES Y RADIOFRECUENCIA (solo lectura)
+- `frontend/get_themes`: los temas del frontend y los temas claro y oscuro
+  por defecto.
+- `webhook/list`: los webhooks registrados (dominio, nombre, `local_only`,
+  métodos). El `webhook_id` sale TAPADO: basta para disparar la
+  automatización desde fuera sin autenticarse. Su valor se tapa también en el
+  nombre o en cualquier texto que lo repita (ONVIF usa el id como nombre, y
+  sale `***REDACTED***`), y en una entrada sin `webhook_id` legible se tapa
+  todo menos dominio, `local_only` y métodos. Lo mismo vale para cualquier
+  respuesta de las genéricas (p. ej. `automation/config`).
+- `trace/contexts` (`domain` e `item_id` opcionales, juntos): los contextos con
+  traza guardada, para enlazar una traza con lo que la disparó; la traza se
+  lee con `ha_get_trace`.
+- `vacuum/get_segments` (`entity_id`): las zonas que puede limpiar un
+  aspirador; algunas integraciones las piden al aspirador o a su nube, así
+  que puede salir a internet.
+- `radio_frequency/list`: transmisores y receptores de radiofrecuencia con sus
+  rangos y modulaciones.
+- Restablecer un dashboard NO va por aquí: `lovelace/config/delete` tiene tool
+  dedicada (`ha_reset_lovelace_dashboard_config`, ver `hermes_guide("lovelace")`).
+
+REGISTROS: ORDEN, IDS AUTOMÁTICOS Y AJUSTES
+- `config/area_registry/reorder` (`area_ids`, TODAS en el orden nuevo) y
+  `config/floor_registry/reorder` (`floor_ids`) cambian el orden en que la
+  interfaz enseña áreas y plantas; piden confirmación.
+- `config/entity_registry/get_automatic_entity_ids` (`entity_ids`) calcula el
+  `entity_id` que HA daría a cada entidad, sin cambiar nada.
+- `config/entity_registry/settings/get` lee y
+  `config/entity_registry/settings/update` (pide confirmación) cambia qué
+  partes del nombre forman los `entity_id` nuevos.
+- `config/device_registry/list_linked_devices` y
+  `config/device_registry/list_composite_splits` leen relaciones entre
+  dispositivos.
+
+CREDENCIALES DE APLICACIÓN (OAuth de terceros)
+`application_credentials/config` (dominios que las admiten),
+`application_credentials/list` y `application_credentials/config_entry`
+(`config_entry_id`: dice si una integración usa una) leen. El `client_secret`
+NUNCA sale (tapado), y el id de la credencial de `config_entry` tampoco.
+Crear, cambiar y borrar credenciales NO se puede (denegado: introduciría
+secretos de terceros).
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -2516,6 +2668,21 @@ _ALIASES: dict[str, str] = {
     "satellite": "conversation",
     "ai_task": "conversation",
     "llm": "conversation",
+    # Spec 024.
+    "camera": "cameras",
+    "cámaras": "cameras",
+    "camaras": "cameras",
+    "snapshot": "cameras",
+    "image": "cameras",
+    "imagen": "cameras",
+    "minor": "core_minor",
+    "menores": "core_minor",
+    # Spec 024, tramo 2.
+    "reset": "lovelace",
+    "restablecer": "lovelace",
+    "webhooks": "core_minor",
+    "themes": "core_minor",
+    "temas": "core_minor",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -2624,10 +2791,11 @@ def register(mcp: object) -> None:
                 helpers, events, data, registries, diagnostics, config_entries,
                 integration_flows, repair_flows, filesystem, supervisor,
                 system_control, host_control, system_diagnostics, updates, backups,
-                backup_integration, lovelace, marketplace, security,
+                backup_integration, lovelace, cameras, marketplace, security,
                 generic_commands, system_status, recorder, energy, core_diagnostics,
                 app_store, blueprints, automation_assist, core_config,
-                assistant_exposure, users, core_network, conversation, workflows. Acepta alias
+                assistant_exposure, users, core_network, conversation, core_minor,
+                workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists
                 up to 50 entries of Hermes' command table whose command, route,

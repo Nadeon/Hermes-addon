@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 351 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 354 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -218,6 +218,8 @@ usar, ni directamente ni a través de las tools genéricas.
 | `core_network` | 3 | Adaptadores de red y servidor HTTP de Home Assistant (puerto, SSL, proxy inverso); cambiar el HTTP reinicia Home Assistant (nueva en 1.2.0) |
 | `conversation` | 4 | Assist: agentes de conversación y sus idiomas, frases de los disparadores de frase, analizar frases sin ejecutarlas y mandar una frase a Assist, que la ejecuta (siempre en dos pasos; con un agente que no es el integrado, el texto puede salir a un servicio externo) (nueva en 1.2.0) |
 | `backup_integration` | 6 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear, borrar y restaurar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
+| `cameras` | 2 | Instantánea de una cámara e imagen de una entidad `image`, devueltas como imagen al cliente; solo lectura. Una cámara puede enseñar el interior de tu casa: desactívala si no quieres que Claude las vea (nueva en 1.2.0) |
+| `dashboard_reset` | 1 | Restablecer un dashboard de Lovelace al autogenerado (borra su configuración guardada), en dos pasos; el dashboard principal y el panel por defecto están protegidos (nueva en 1.2.0) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 
@@ -235,7 +237,8 @@ familias desactivadas y cuántas tools quedan. Con las familias nuevas de la
 `mounts`, `system_updates`, `app_store`, `blueprints`, `automation_assist`,
 `energy`, `system_control`, `resolution_fixes`, `core_config`,
 `assistant_exposure`, `users`, `core_network`, `host_control`,
-`host_network`, `conversation` y `backup_integration`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
+`host_network`, `conversation`, `backup_integration`, `cameras` y
+`dashboard_reset`) desactivadas, la lista de tools es exactamente la de la 1.1.2.
 
 ### Tools genéricas
 

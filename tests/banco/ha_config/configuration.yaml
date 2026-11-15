@@ -28,6 +28,12 @@ homeassistant:
   time_zone: Etc/UTC
   country: US
   currency: USD
+  # Spec 024 (tramo 1): la carpeta de medios locales es `media/` de esta
+  # misma configuración (con un JPEG gris borrable, versionado), para probar
+  # `media_source/browse_media` y `media_source/local_source/remove` sin
+  # depender de `/media` del contenedor.
+  media_dirs:
+    local: /config/media
 
 http:
 api:
@@ -236,6 +242,19 @@ template:
               entity_id: input_text.banco_update_backup
             data:
               value: "{{ 'si' if backup else 'no' }}"
+  # Spec 024 (tramo 2): un aspirador de plantilla con zonas (`segments` y
+  # `clean_segments`, que Core exige juntos y con `unique_id`) para
+  # `vacuum/get_segments`. No limpia nada: `start` y `clean_segments` solo
+  # disparan un evento. Sin hardware ni red.
+  - vacuum:
+      - name: Banco aspirador
+        unique_id: banco_aspirador
+        segments: "{{ [{'id': 'cocina', 'name': 'Cocina'}, {'id': 'salon', 'name': 'Salon'}] }}"
+        start:
+          - event: banco_aspirador_start
+        clean_segments:
+          - event: banco_aspirador_segmentos
+
 # ── Spec 020 (tramo 3): panel de energía ────────────────────────────────────
 #
 # energy: registra `energy/get_prefs` y `energy/save_prefs` (sin la
@@ -248,3 +267,29 @@ template:
 # del recorder; sin hardware ni internet (la previsión solar solo devuelve lo
 # que tienen las integraciones de previsión, y aquí no hay ninguna).
 energy:
+
+# ── Spec 024 (tramo 1): cámaras, imágenes y medios ──────────────────────────
+#
+# media_source: registra `media_source/browse_media`, `search_media` y
+# `local_source/remove` (con los `media_dirs` de arriba). image_upload:
+# registra `image/list|update|delete` y la subida `/api/image/upload`, que el
+# lector usa para sembrar una imagen (es el JPEG gris de
+# `www/hermes_banco/camara.jpg`). La cámara es una entrada de `local_file`
+# que el test crea por el flujo con ese mismo fichero (no tiene YAML), y la
+# imagen, `image.qr_code` de `kitchen_sink`. El calendario y las tareas son
+# entradas de `local_calendar` y `local_todo` creadas por el lector. Nada sale
+# a internet.
+media_source:
+image_upload:
+
+# ── Spec 024 (tramo 2): webhooks y credenciales de aplicación ───────────────
+#
+# webhook: registra `webhook/list` y el disparador `webhook` de las
+# automatizaciones (el test crea una con el lector). application_credentials:
+# registra `application_credentials/config|list|config_entry`; el banco no
+# guarda ninguna credencial (crearlas es clase D). `trace/contexts` lo da
+# `trace`, que carga `automation`; `frontend/get_themes`, `frontend`; y
+# `radio_frequency/list`, el transmisor de `kitchen_sink`. Nada sale a
+# internet.
+webhook:
+application_credentials:

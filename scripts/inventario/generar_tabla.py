@@ -443,6 +443,10 @@ _DEDICADAS_INICIALES: dict[
     "backup/restore": "ha_restore_backup",
     "hassio/update/config/info": _PROXY_SUPERVISOR,
     "hassio/update/config/update": _PROXY_SUPERVISOR,
+    # Restablecer un dashboard (spec 024, tramo 2), clase A de vía D+T
+    # (CAP-071): la tool dedicada protege el principal y el panel por
+    # defecto, que la genérica no puede.
+    "lovelace/config/delete": "ha_reset_lovelace_dashboard_config",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
