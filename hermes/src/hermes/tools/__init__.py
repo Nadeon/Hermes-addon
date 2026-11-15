@@ -282,8 +282,8 @@ def register_all_tools(
         from hermes.tools.backup_settings import register as register_backup_settings
         register_backup_settings(mcp, ha_client)
 
-    # Centro de resolución del Supervisor (lee y descarta; nunca aplica
-    # sugerencias) y backups de la integración `backup` de HA, que ven todas
+    # Centro de resolución del Supervisor (lee y descarta; aplicar una
+    # sugerencia es de `resolution_fixes`, spec 022) y backups de la integración `backup` de HA, que ven todas
     # las ubicaciones y no solo las locales del Supervisor.
     if _activa("diagnostics"):
         from hermes.tools.resolution import register as register_resolution
@@ -461,6 +461,19 @@ def register_all_tools(
             wait_for_event_max_seconds=wait_for_event_max_seconds,
             response_max_bytes=response_max_bytes,
         )
+
+    # Control de Core y del Supervisor (spec 022, CAP-084): arrancar,
+    # reconstruir y configurar Core; recargar, reiniciar, reparar y
+    # configurar el Supervisor. Todo lo que corta pide token.
+    if _activa("system_control"):
+        from hermes.tools.system_control import register as register_system_control
+        register_system_control(mcp, ha_client, response_max_bytes=response_max_bytes)
+
+    # Aplicar sugerencias del centro de resolución (spec 022, tramo 2,
+    # CAP-087): con vista previa que traduce el efecto y token.
+    if _activa("resolution_fixes"):
+        from hermes.tools.resolution_fixes import register as register_resolution_fixes
+        register_resolution_fixes(mcp, ha_client, response_max_bytes=response_max_bytes)
 
     # Genéricas (spec 011): la cola larga de Core y del Supervisor, solo lo
     # que la tabla de comandos permite. Van las últimas para que el cliente vea

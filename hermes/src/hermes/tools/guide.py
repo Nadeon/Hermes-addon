@@ -82,7 +82,7 @@ reintentar. `done` es true también si falla: cualquier entrada en `errors` da
 
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
-events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
+events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_CONTROL@@TEMA_DIAGNOSTICO@@TEMA_ACTUALIZACIONES@,
 backups@TEMA_MONTAJES@, lovelace, marketplace@TEMA_TIENDA@, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
@@ -112,6 +112,10 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     texto = texto.replace(
         "@TEMA_DIAGNOSTICO@",
         ", system_diagnostics" if "system_diagnostics" not in desactivadas else "")
+    # Spec 022: el tema del control de Core y del Supervisor, igual.
+    texto = texto.replace(
+        "@TEMA_CONTROL@",
+        ", system_control" if "system_control" not in desactivadas else "")
     # Spec 019: el tema de los montajes, solo con su familia activa.
     texto = texto.replace(
         "@TEMA_MONTAJES@", ", mounts" if "mounts" not in desactivadas else "")
@@ -152,6 +156,7 @@ para el detalle de un área. Temas disponibles:
 - `repair_flows`   — arreglar avisos de Repairs con su flujo de reparación
 - `filesystem`     — leer y escribir ficheros de /config
 - `supervisor`     — apps (add-ons), host y core de HAOS
+- `system_control` — arrancar, reconstruir y configurar Core; recargar, reiniciar, reparar y configurar el Supervisor; aplicar sugerencias
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `updates`        — qué hay que actualizar, buscar actualizaciones, actualizar Core, OS y Supervisor y las entidades `update`
 - `backups`        — crear, restaurar y gestionar backups
@@ -395,9 +400,9 @@ reorganizar la casa (asignar entidades/dispositivos a áreas) trabaja aquí.
 - Resolución del Supervisor: `sv_get_resolution` lista por qué la instalación
   sale como no soportada o no saludable, más sus issues, sugerencias y checks.
   `sv_dismiss_resolution_issue(uuid)` y `sv_dismiss_resolution_suggestion(uuid)`
-  (token) los descartan; si la causa sigue, vuelven. Hermes NUNCA aplica una
-  sugerencia del Supervisor (algunas borran backups o reinician el host): si
-  conviene aplicarla, que lo haga el usuario desde la interfaz.
+  (token) los descartan; si la causa sigue, vuelven. Aplicar una sugerencia
+  es `sv_apply_resolution_suggestion` (token, con una vista previa que dice
+  qué hace; algunas borran backups o reinician el host): `hermes_guide("system_control")`.
 
 Receta «¿por qué no se ejecutó mi automatización?»: `ha_list_traces` con su
 `entity_id`; mira `state`, `error` y `last_step` de la última ejecución; si
@@ -749,6 +754,8 @@ reversible con `fs_restore_file_backup`.
 - Actualizar Core, el OS o el Supervisor (y ver qué tiene actualización):
   `hermes_guide("updates")`.
   Las apps siguen con `sv_update_addon`.
+- Arrancar o reconstruir Core, sus opciones, y recargar, reiniciar, reparar
+  o configurar el Supervisor: `hermes_guide("system_control")`.
 
 Cuidado con el propio Hermes (`local_hermes`): pararlo/desinstalarlo te deja sin
 acceso; el preview lo advierte. Operaciones largas devuelven `job_id`: pollea
@@ -1051,6 +1058,132 @@ planta o `all`: `use_dedicated_tool` hacia `ha_install_update`), rechaza la
 entidad de Hermes (`self_update_not_supported`) y remite las de Core, OS y
 Supervisor a sus `sv_*` (`use_dedicated_tool`), sin token. Las demás siguen
 igual.
+""",
+    "system_control": """\
+# Control de Core y del Supervisor
+
+Para recuperar Home Assistant sin su interfaz y para ajustar el Supervisor.
+Hermes funciona con Core parado: estas tools hablan con el Supervisor. Todo lo
+que corta algo va en dos pasos (vista previa + `confirmation_token`), y la
+vista previa dice qué se corta (`interrupts.stops`), qué sigue en marcha
+(`keeps_running`), cuánto suele tardar (`duration`) y qué le pasa a Hermes
+(`hermes`). Enséñaselo al usuario antes de confirmar.
+
+## Core
+
+- `sv_start_core` (token) — arranca Core cuando está parado; Home Assistant
+  tarda unos 1-5 minutos en estar entero. Si ya corre: `already_running`, sin
+  token (también al confirmar). Con escrituras en `/config` sin validar avisa,
+  pero no bloquea: arrancar es recuperar.
+- `sv_rebuild_core(safe_mode=False)` (token) — reconstruye el contenedor de
+  Core: Home Assistant se corta unos 1-5 minutos y Hermes se reconecta solo.
+  `safe_mode=true` arranca sin integraciones propias ni YAML. El token ata
+  `safe_mode`. Bloqueado como `sv_restart_core` con escrituras sin validar
+  (`blocked` en la vista previa; antes, `sv_check_core_config`).
+- `sv_set_core_options(options)` (token) — lista cerrada: `boot`, `watchdog`,
+  `backups_exclude_database`, `duplicate_log_file` (true/false),
+  `audio_input`, `audio_output` (nombre de dispositivo o null). `image`,
+  `refresh_token`, `port` y `ssl` → `not_allowed`. No reinicia nada; el audio
+  y `duplicate_log_file` se aplican en el próximo arranque o rebuild. OJO:
+  `boot=false` deja Home Assistant apagado tras reiniciar el host (se arranca
+  con `sv_start_core`); `watchdog=false`, sin reinicio automático si cae.
+
+## Supervisor
+
+- `sv_reload_supervisor` — sin token: relee las versiones (internet), los
+  secretos y la evaluación del sistema. No corta nada.
+- `sv_restart_supervisor` (token) — se cortan la API del Supervisor y la
+  conexión de Hermes con Core (va por el Supervisor) unos 30-90 s; Core y las
+  apps siguen. Hermes no ve el final: la respuesta es `status: "started"` y se
+  comprueba con `sv_get_supervisor_info`.
+- `sv_repair_supervisor` (token) — BORRA contenedores parados, imágenes,
+  caché de builds y volúmenes sin usar, y descarga lo que falte de plugins,
+  apps y Core. Minutos. Después, `sv_get_resolution`.
+- Reiniciar y reparar se rechazan con `jobs_in_progress` (con los nombres)
+  si hay jobs del Supervisor sin terminar, porque se perderían; espera con
+  `sv_list_pending_jobs` / `sv_get_job_status`.
+- `sv_set_supervisor_options(options)` (token) — lista cerrada: `timezone`
+  (zona IANA; cambia también la del host, no la de Home Assistant), `country`
+  (dos letras mayúsculas), `logging` (debug, info, warning, error, critical),
+  `auto_update` y `diagnostics`. `channel` y las opciones de desarrollo →
+  `not_allowed`. OJO: `auto_update=false`, en cuanto salga un Supervisor
+  nuevo, deja la instalación como no soportada y bloquea instalar y
+  actualizar apps, actualizar Core, el OS y los plugins, y recargar la tienda;
+  `auto_update=true` hace que el Supervisor se actualice y se reinicie solo
+  cuando haya versión nueva (Hermes pierde las `sv_*` un rato);
+  `diagnostics` cambia también los diagnósticos del OS Agent, y
+  `diagnostics=true` envía informes de fallos a un tercero (Sentry).
+
+Las opciones devuelven `no_changes` si nada cambia, y el token ata también los
+valores actuales: si cambian antes de confirmar, no se ejecuta (pide otra
+vista previa). Si una operación larga no responde a tiempo (o se corta la
+conexión), la respuesta es `status: "started"` con `verify_with`: Hermes no
+sabe si terminó y no lo afirma. Si la petición ni llegó a salir (Hermes sin
+conexión), es un error con `sent: false`: no se hizo nada.
+
+## Por la tabla (genéricas)
+
+- `sv_read_api("/core/stats")` y `sv_read_api("/supervisor/stats")` — CPU,
+  memoria, red y disco de cada contenedor (con Core parado, error).
+- `sv_call_api("POST", "/host/reload")` (token) — refresca la información del
+  host; no corta nada.
+- `sv_call_api("POST", "/resolution/check/{check}/run")` (token) — ejecuta
+  ya un chequeo; `.../{check}/options` con `{"enabled": false}` lo desactiva
+  (y oculta ese problema). `POST /resolution/healthcheck` (token) relanza
+  todos los chequeos y PUEDE aplicar los arreglos automáticos del Supervisor.
+- Plugins (`dns`, `audio`, `multicast`, `observer`, `cli`): `sv_read_api`
+  de `/<plugin>/info` y `/<plugin>/stats`; `update`, `restart`, `reset`,
+  `reload`, `options` y los de audio (`profile`, `volume`, `mute`,
+  `default`) por `sv_call_api` (token). OJO: `/dns/options` cambia el DNS de
+  TODOS los contenedores y `/docker/options` la red (IPv6, MTU) de todos:
+  pueden dejar sin red a las apps.
+- Docker: `sv_read_api("/docker/registries")` (solo el usuario);
+  `POST /docker/registries` con `{"<host>": {"username", "password"}}` y
+  `DELETE /docker/registries/<host>` (token; la contraseña sale tapada en la
+  vista previa, el log y los errores).
+- Placas y hora: `sv_read_api("/os/boards/green")`, `yellow`,
+  `raspberrypi/firmware`; sus `POST` (LED, firmware de la Raspberry Pi) y
+  `POST /time/options` (servidores NTP) por `sv_call_api` (token).
+- `/core/stop` y el `channel` del Supervisor siguen cerrados por cualquier vía.
+
+## Aplicar sugerencias del Supervisor
+
+- `sv_apply_resolution_suggestion(suggestion_uuid)` (token; familia
+  `resolution_fixes`) — el uuid sale de `sv_get_resolution`. La vista previa
+  traduce el arreglo: `effect`, `interrupts`, `duration`, `reversible`, los
+  `issues` que arregla y `details` (los backups completos que
+  `clear_full_backup` borraría —todos menos los 2 más nuevos, nunca los
+  parciales—, los contenedores que reconstruiría, la app afectada). Algunas
+  borran una app con sus datos o reinician el host: enséñaselo al usuario.
+- `clear_full_backup` borra cada backup de TODAS sus ubicaciones: el host y
+  los montajes de red (NAS). Cada backup de `details.backups_to_delete` lleva
+  sus `locations`, y si alguna está fuera del host el primer aviso lo dice en
+  mayúsculas (`off_host_copies_deleted`). El token ata los backups y sus
+  ubicaciones. Las copias ya subidas a Home Assistant Cloud no las borra el
+  Supervisor.
+- `create_full_backup` para durante la copia las apps con backup en frío
+  (`cold`) y luego las arranca; la API no dice cuáles son.
+- Tras el arreglo, el Supervisor lanza su healthcheck: sus chequeos pueden
+  crear sugerencias nuevas y puede aplicar sus arreglos automáticos.
+  `also_auto_applied` lista los que hay AHORA, no todos. El token ata la
+  sugerencia y esa lista: si algo cambia antes de confirmar →
+  `suggestion_changed`, sin aplicar nada (pide otra vista previa).
+- Rechazos sin token: `no_fixup` (el Supervisor no tiene arreglo: es un
+  consejo para el usuario, p. ej. `execute_stop`, `execute_update`,
+  `registry_login`), `unknown_effect` (más nueva que el Supervisor 2026.11.0),
+  `not_allowed` (`adopt_data_disk`, `rename_data_disk`: discos de datos),
+  `targets_hermes` (pararía, reconstruiría o desinstalaría al propio Hermes,
+  también por un arreglo automático) y `suggestion_not_found`.
+
+## Receta: Core no arranca
+
+1. `sv_get_core_logs` (con `boot=-1` si fue en el arranque anterior): por qué
+   cayó.
+2. Si es la configuración, corrígela y valida con `sv_check_core_config`.
+3. `sv_start_core`; si el contenedor está dañado o no arranca,
+   `sv_rebuild_core` (con `safe_mode=true` para descartar una integración
+   propia).
+4. Comprueba con `sv_get_core_info`.
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)
@@ -1763,6 +1896,11 @@ _ALIASES: dict[str, str] = {
     "nas": "mounts",
     "network_storage": "mounts",
     "backup_settings": "mounts",
+    # Spec 022. `core` y `system` siguen siendo `supervisor`, como en la 1.1.2.
+    "core_control": "system_control",
+    "supervisor_control": "system_control",
+    "suggestions": "system_control",
+    "fixups": "system_control",
     "dashboards": "lovelace",
     "dashboard": "lovelace",
     "hacs": "marketplace",
@@ -1906,7 +2044,8 @@ def register(mcp: object) -> None:
             topic (str, opcional): Tema. Uno de: overview, services, automations,
                 helpers, events, data, registries, diagnostics, config_entries,
                 integration_flows, repair_flows, filesystem, supervisor,
-                system_diagnostics, updates, backups, lovelace, marketplace, security,
+                system_control, system_diagnostics, updates, backups, lovelace,
+                marketplace, security,
                 generic_commands, system_status, recorder, energy, core_diagnostics,
                 app_store, blueprints, automation_assist, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).

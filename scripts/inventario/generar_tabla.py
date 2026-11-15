@@ -457,6 +457,19 @@ _DEDICADAS_INICIALES: dict[
     ("POST", "/os/update"): "sv_update_os",
     ("POST", "/supervisor/update"): "sv_update_supervisor",
     "update/release_notes": "ha_get_update_release_notes",
+    # 022: control de Core y del Supervisor (CAP-084), clase A de vía D+T,
+    # por el mismo mecanismo. Las estadísticas y `/host/reload` van por la
+    # tabla (`read`/`confirm`), revisadas a mano.
+    ("POST", "/core/start"): "sv_start_core",
+    ("POST", "/core/rebuild"): "sv_rebuild_core",
+    ("POST", "/core/options"): "sv_set_core_options",
+    ("POST", "/supervisor/reload"): "sv_reload_supervisor",
+    ("POST", "/supervisor/restart"): "sv_restart_supervisor",
+    ("POST", "/supervisor/repair"): "sv_repair_supervisor",
+    ("POST", "/supervisor/options"): "sv_set_supervisor_options",
+    # 022, tramo 2: aplicar sugerencias (CAP-087). Los chequeos y el
+    # healthcheck van por la tabla (`confirm`), revisados a mano.
+    ("POST", "/resolution/suggestion/{suggestion}"): "sv_apply_resolution_suggestion",
     # 013: logs del sistema (CAP-081) y disco, host y OS (CAP-085), clase A de
     # vía D, por el mismo mecanismo que las de la 012 y la 029.
     **{("GET", f"/{origen}/logs{sufijo}"): tool

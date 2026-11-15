@@ -109,8 +109,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # de backup) y las 5 de la 030 (4 de repositorios de la tienda del
         # tramo 1 y `sv_rebuild_addon` del tramo 2), y las 3 de la 017 (guardar
         # y borrar blueprints del tramo A e importar del tramo B), y las 6 de la
-        # 020 (5 de estadísticas de los tramos 1 y 2 y la de energía del 3).
-        self.assertEqual(len(reales), 167)
+        # 020 (5 de estadísticas de los tramos 1 y 2 y la de energía del 3), y
+        # las 8 de la 022 (7 de control de Core y del Supervisor del tramo 1 y
+        # la de aplicar sugerencias del tramo 2).
+        self.assertEqual(len(reales), 175)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -152,8 +154,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         self.assertEqual(total, 53, f"las listas de la 028 suman {total}, no 53")
         # 24 de la 1.1.2, 7 de la 019 (5 de montajes y 2 de ajustes) y 5 de
         # la 030: las cuatro de repositorios de la tienda (`_SV_TIENDA`) y
-        # `sv_rebuild_addon` (`_SV_APPS_TIENDA`), FR-022 de la 030.
-        self.assertEqual(len(c028.FUERA_DEL_BANCO), 36)
+        # `sv_rebuild_addon` (`_SV_APPS_TIENDA`), FR-022 de la 030, y 8 de la
+        # 022: 7 del tramo 1 (control de Core y del Supervisor) y 1 del tramo 2
+        # (aplicar sugerencias).
+        self.assertEqual(len(c028.FUERA_DEL_BANCO), 44)
 
     def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
         # El plugin del job (010) solo exige lo que le pasa el conftest. Si la

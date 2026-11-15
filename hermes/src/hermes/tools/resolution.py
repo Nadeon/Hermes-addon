@@ -5,10 +5,13 @@ Tools:
   sv_dismiss_resolution_issue       — descarta un issue (con token)
   sv_dismiss_resolution_suggestion  — descarta una sugerencia SIN aplicarla (con token)
 
-Hermes nunca APLICA sugerencias (`POST /resolution/suggestion/{uuid}`):
+Este módulo nunca APLICA sugerencias (`POST /resolution/suggestion/{uuid}`):
 varias borran datos o reinician (`clear_full_backup`, `execute_remove`,
-`execute_reset`, `execute_reboot`…) y quedan fuera de alcance por decisión
-del mantenedor. Un test recorre el código de las tools y falla si aparece.
+`execute_reboot`…). Hasta la 1.1.x Hermes no las aplicaba nunca; desde la
+1.2.0 (spec 022, FR-077 de la 008) solo lo hace `sv_apply_resolution_suggestion`
+(`tools/resolution_fixes.py`, familia `resolution_fixes`), con una vista previa
+que traduce el efecto y token. Un test recorre el código de las tools y falla
+si ese `POST` aparece en cualquier otro fichero.
 """
 
 from __future__ import annotations
@@ -39,8 +42,8 @@ _EFECTO_ISSUE = (
 # de BAJO-13). Se dice «may» porque depende de la versión del Supervisor.
 _EFECTO_SUGERENCIA = (
     "Removes this suggestion from the Supervisor without applying it. It may "
-    "come back on the next check if the condition persists. Hermes never "
-    "applies Supervisor suggestions."
+    "come back on the next check if the condition persists. To apply it "
+    "instead, use sv_apply_resolution_suggestion (preview + token)."
 )
 
 
@@ -123,7 +126,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         (the same plus `auto`) and `checks` (slug, enabled). Type names are
         returned as the Supervisor sends them. Use
         `sv_dismiss_resolution_issue` / `sv_dismiss_resolution_suggestion`
-        to dismiss one; Hermes never applies suggestions.
+        to dismiss one; to apply one, use sv_apply_resolution_suggestion.
         """
         info = await _leer()
         if "error" not in info:
@@ -206,7 +209,7 @@ def register(mcp: object, ha_client: HAClient) -> None:
         First call returns a preview and a token; repeat with the same
         `suggestion_uuid` and the token to dismiss it. Dismissing does not
         run the suggested action, and it may come back on the next check.
-        Hermes never applies Supervisor suggestions. Unknown uuid →
+        To apply one instead, use sv_apply_resolution_suggestion. Unknown uuid →
         `not_found`, no token.
         """
         return await _descartar("sv_dismiss_resolution_suggestion", "suggestion",
