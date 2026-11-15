@@ -192,6 +192,13 @@ _SV_TIENDA = (
     "simulado que solo reenvía a Core; se prueba con simuladores en la suite "
     "normal y en la VM de la 014"
 )
+# Spec 030, tramo 2 (FR-022): reconstruir una app.
+_SV_APPS_TIENDA = (
+    "apps de la tienda: reconstruir necesita una app instalada en un "
+    "Supervisor real (Docker, imagen local o descargada); el del banco es un "
+    "simulado que solo reenvía a Core; se prueba con simuladores en la suite "
+    "normal y en la VM de la 014"
+)
 
 # Solo `fs_*` y `sv_*`: una `ha_*` que no se pueda ejecutar va a
 # `NO_EJECUTABLES_028` con su motivo, nunca aquí (lo vigila el invariante).
@@ -224,4 +231,5 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_remove_store_repository": _SV_TIENDA,
     "sv_repair_store_repository": _SV_TIENDA,
     "sv_reload_store": _SV_TIENDA,
+    "sv_rebuild_addon": _SV_APPS_TIENDA,
 }

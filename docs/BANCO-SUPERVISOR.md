@@ -360,6 +360,22 @@ tool del Supervisor o de ficheros añade aquí su línea y su fila en la matriz.
     rechaza sin token (`repository_in_use`, con la lista); sobre `core`,
     `builtin_repository`; tras desinstalarla, la vista previa da token y, al
     confirmar, el repositorio desaparece de `ha store repositories`.
+- Apps de la tienda (spec 030, tramo 2), en la tanda 2:
+  - `sv_rebuild_addon` sobre una app local de prueba (`build: true`): la
+    vista previa dice que se borran contenedor e imagen, que se conservan las
+    opciones y `/data` y qué pasa si falla; al confirmar, la app vuelve a su
+    estado anterior con la misma versión (`ha apps info <slug>`). Sobre una
+    app de imagen sin `force`, `rebuild_not_supported` sin token; con
+    `force=true`, la vista previa dice que se vuelve a descargar la imagen.
+    Con una actualización pendiente, `rebuild_version_changed` sin token.
+  - Lecturas y vistas previas, sin escribir nada: el changelog y la
+    documentación de una app oficial (`sv_get_addon_changelog`,
+    `sv_get_addon_documentation`, con `offset`), la disponibilidad de una app
+    de otra arquitectura (`available: false` y el motivo),
+    `sv_install_addon` de esa app (`addon_not_available` sin token),
+    `sv_update_addon` de una app al día (`already_up_to_date` sin token) y
+    `sv_set_addon_options` con una opción inválida (`invalid_options` sin
+    token).
 
 ## Probar hassio_role: manager
 

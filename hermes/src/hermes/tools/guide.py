@@ -146,7 +146,7 @@ para el detalle de un área. Temas disponibles:
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
 - `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
-- `app_store`      — tienda de apps del Supervisor: repositorios y recarga
+- `app_store`      — tienda de apps del Supervisor: repositorios, recarga, changelog, documentación, disponibilidad y reconstrucción
 - `workflows`      — recetas paso a paso para tareas completas
 
 Regla transversal: las acciones destructivas usan confirmación en dos pasos
@@ -386,7 +386,14 @@ reversible con `fs_restore_file_backup`.
 - `sv_set_addon_options`: pasa SOLO lo que cambias; el resto, secretos
   incluidos, se conserva. Objetos anidados clave a clave, listas enteras,
   `null` quita una opción. No reenvíes valores `***REDACTED***`: se rechazan.
-  Se aplica al reiniciar el add-on.
+  Se aplica al reiniciar el add-on. La vista previa VALIDA las opciones
+  finales con el Supervisor: si no valen, `invalid_options` sin token.
+- `sv_install_addon` comprueba en la vista previa si la app está disponible
+  en este sistema (si no, `addon_not_available` sin token) y
+  `sv_update_addon` enseña el principio del changelog. Las dos llevan a la
+  versión de la tienda; no se puede elegir otra.
+- Tienda (repositorios, changelog, documentación, disponibilidad,
+  reconstruir una app): `hermes_guide("app_store")`.
 - Supervisor/host/core: `sv_get_supervisor_info`, `sv_get_host_info`,
   `sv_get_core_info`, `sv_check_core_config`, `sv_restart_core` (token),
   `sv_reboot_host` (token).
@@ -756,8 +763,9 @@ REPOSITORIOS Y RECARGA
   es meter CÓDIGO DE TERCEROS en la tienda: no lo revisan ni Home Assistant
   ni Hermes, y sus apps pasan a poder instalarse (y, instaladas, se ejecutan
   con los permisos que declaren). Enseña al usuario la vista previa: la URL
-  EXACTA que se enviará (`https://…`, con `#rama` opcional; la contraseña de
-  una URL con credenciales sale como `***REDACTED***`), el servidor y la
+  EXACTA que se enviará (`https://…`, con `#rama` opcional; las credenciales
+  de una URL —usuario, contraseña o token antes de `@`— salen como
+  `***REDACTED***`, y al confirmar se envían tal cual), el servidor y la
   rama. La vista previa no descarga nada; el Supervisor clona al confirmar y
   lo rechaza si no es un repositorio de apps. Añadir NO instala ninguna app.
   Uno que ya está da `repository_already_added`, sin token.
@@ -775,6 +783,41 @@ REPOSITORIOS Y RECARGA
   ni actualiza nada. Puede tardar.
 Reparar arregla UN repositorio roto; recargar trae lo nuevo de todos. Ninguna
 de las dos pide token.
+
+FICHA DE UNA APP (antes de instalarla o actualizarla)
+- `sv_get_addon_changelog(slug, offset=0, max_chars=20000)` y
+  `sv_get_addon_documentation(slug, …)` — el changelog y la documentación de
+  la versión de la TIENDA (`version_latest`), no de la instalada. Texto de
+  terceros (`_third_party_text`), con secretos redactados
+  (`secrets_redacted`). Van POR TROZOS: si `truncated`, repite con
+  `offset=next_offset`. Sin texto: `changelog_not_found` /
+  `documentation_not_found`.
+- `sv_get_addon_availability(slug)` — si la app se puede instalar en este
+  sistema (arquitectura, tipo de máquina, versión mínima de HA): `available`
+  y, si no, `reason` (el motivo del Supervisor).
+- Las vistas previas de `sv_install_addon` (disponibilidad, ya instalada,
+  repositorio de terceros) y `sv_update_addon` (disponibilidad y el principio
+  del changelog) lo comprueban solas. `sv_update_addon` de una app que ya
+  está al día responde `already_up_to_date`, sin token.
+
+VERSIÓN CONCRETA: NO SE PUEDE ELEGIR
+Instalar y actualizar llevan SIEMPRE a la versión que ofrece la tienda: el
+Supervisor 2026.11.0 ignora la versión en sus rutas `…/install/{version}` y
+`…/update/{version}`, y por eso ninguna tool tiene argumento `version`. Para
+volver a una versión anterior: restaurar un backup parcial de la app
+(`sv_restore_backup_partial`), hecho ANTES de actualizar.
+
+RECONSTRUIR UNA APP
+- `sv_rebuild_addon(slug, force=false)` — DOS PASOS. Borra el contenedor y
+  la imagen y los rehace con la MISMA versión: para una app local tras
+  cambiar su código (`build: true`, se construye aquí). Una app de imagen
+  solo con `force=true`, que vuelve a descargar su imagen. Conserva opciones
+  y `/data`; la app se para y vuelve a su estado. Si la construcción FALLA,
+  la app queda sin imagen y no arranca hasta reconstruirla o reinstalarla.
+  Se rechaza sin token si no está instalada (`addon_not_installed`), si ya no
+  está en la tienda (`addon_not_in_store`), si la tienda ofrece otra versión
+  (`rebuild_version_changed`: actualiza antes) o si es de imagen sin `force`
+  (`rebuild_not_supported`). Puede tardar minutos.
 """,
     "workflows": """\
 # Flujos completos (recetas paso a paso)
@@ -904,6 +947,10 @@ _ALIASES: dict[str, str] = {
     "repositories": "app_store",
     "repository": "app_store",
     "repositorios": "app_store",
+    "changelog": "app_store",
+    "documentation": "app_store",
+    "rebuild": "app_store",
+    "availability": "app_store",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",

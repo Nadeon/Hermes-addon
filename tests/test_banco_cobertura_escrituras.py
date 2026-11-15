@@ -81,9 +81,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             f"clasificar: {sin_clasificar}; declaradas que no modifican o no existen: "
             f"{no_modifican}",
         )
-        # Las 124 de la 1.1.2 más las 2 genéricas de escritura de la 011 y
-        # las 4 de repositorios de la tienda de la 030 (tramo 1).
-        self.assertEqual(len(reales), 130)
+        # Las 124 de la 1.1.2 más las 2 genéricas de escritura de la 011, las
+        # 4 de repositorios de la tienda de la 030 (tramo 1) y
+        # `sv_rebuild_addon` (tramo 2).
+        self.assertEqual(len(reales), 131)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -119,9 +120,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
     def test_recuento_028(self) -> None:
         total = len(c028.PROBADAS_028) + len(c028.NO_EJECUTABLES_028)
         self.assertEqual(total, 53, f"las listas de la 028 suman {total}, no 53")
-        # 24 de la 028 y las cuatro de repositorios de la tienda de la 030
-        # (`_SV_TIENDA`, FR-022 de la 030).
-        self.assertEqual(len(c028.FUERA_DEL_BANCO), 28)
+        # 24 de la 028, las cuatro de repositorios de la tienda de la 030
+        # (`_SV_TIENDA`) y `sv_rebuild_addon` (`_SV_APPS_TIENDA`), FR-022 de
+        # la 030.
+        self.assertEqual(len(c028.FUERA_DEL_BANCO), 29)
 
     def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
         # El plugin del job (010) solo exige lo que le pasa el conftest. Si la

@@ -642,10 +642,11 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     Control negativo comprobado: sin `@TEMA_TIENDA@` en las instrucciones →
     cae `test_indice_e_instrucciones`."""
 
-    # sha256 (16 hex) de temas que el tramo 1 no toca. El tramo 2 cambiará
-    # `supervisor` (remitir a `app_store`) y actualizará su huella.
+    # sha256 (16 hex) de temas que la 030 no toca, más `supervisor`, que el
+    # tramo 2 cambia a propósito (remite a `app_store`, validación de
+    # opciones y vistas previas de instalar y actualizar; FR-020).
     _HUELLAS = {
-        "supervisor": "c98824cfe8ee20c1",
+        "supervisor": "3a4f0a54e6dd454e",
         "marketplace": "f83ec233a87ad95b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
@@ -679,6 +680,44 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
                       "repositorios", "STORE"):
             with self.subTest(alias=alias):
                 self.assertEqual(await self.guide(alias), texto)
+
+    async def test_tramo_2_fichas_reconstruir_y_version(self) -> None:
+        """T024 (FR-011, FR-020): las nueve tools, que changelog y
+        documentación son de la versión de la tienda y por trozos, la
+        disponibilidad, reconstruir (local frente a `force`, qué pasa si
+        falla) y que no se puede elegir versión, con la vuelta atrás."""
+        texto = " ".join(_GUIDE["app_store"].split())
+        for palabra in ("sv_get_addon_changelog", "sv_get_addon_documentation",
+                        "sv_get_addon_availability", "sv_rebuild_addon",
+                        "versión de la TIENDA", "POR TROZOS", "next_offset",
+                        "changelog_not_found", "documentation_not_found",
+                        "arquitectura", "force=true", "Si la construcción FALLA",
+                        "rebuild_version_changed", "rebuild_not_supported",
+                        "addon_not_in_store", "already_up_to_date",
+                        "NO SE PUEDE ELEGIR", "sv_restore_backup_partial",
+                        "usuario, contraseña o token"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        for alias in ("changelog", "documentation", "rebuild", "availability"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), _GUIDE["app_store"])
+
+    async def test_el_tema_supervisor_remite(self) -> None:
+        texto = " ".join(_GUIDE["supervisor"].split())
+        for palabra in ('hermes_guide("app_store")', "VALIDA las opciones",
+                        "invalid_options", "addon_not_available",
+                        "principio del changelog", "no se puede elegir otra"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    async def test_la_busqueda_de_la_tabla_lista_las_dedicadas(self) -> None:
+        texto = await self.guide("generic_commands", search="store")
+        for palabra in ("sv_get_addon_changelog", "sv_get_addon_availability",
+                        "sv_install_addon", "sv_list_store_repositories", "dedicated"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        texto = await self.guide("generic_commands", search="rebuild")
+        self.assertIn("sv_rebuild_addon", texto)
 
     async def test_indice_e_instrucciones(self) -> None:
         from hermes.tools.guide import instrucciones
