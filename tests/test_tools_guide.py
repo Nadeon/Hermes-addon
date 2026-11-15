@@ -589,7 +589,10 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # (FR-016); su CHANGELOG lo dice. La convergencia de la 024 (T033,
         # T034) añade `strategy` y `dashboards_unavailable`. Huella recalculada.
         "lovelace": "04bebf2041d378db",
-        "marketplace": "f83ec233a87ad95b",
+        # La converge de la 026 (T033) cambia `marketplace`: aceptar el aviso
+        # en la interfaz no sirve a Hermes (D-29) y remite a
+        # `marketplace_manage`; su CHANGELOG lo dice.
+        "marketplace": "f49c5f1c9d78b51b",
         "registries": "42894b4111cb8c80",
         "security": "157ee929e7db08ae",
         "services": "e7b494a2e8ad587e",
@@ -1124,7 +1127,7 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     # swap, ranura y red del host; FR-017 de la 032).
     _HUELLAS = {
         "supervisor": "dc38e81c61a06932",
-        "marketplace": "f83ec233a87ad95b",
+        "marketplace": "f49c5f1c9d78b51b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
         "workflows": "53b81454a6708b9a",
@@ -1204,8 +1207,10 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
         sin = instrucciones(frozenset({"app_store"}))
         self.assertNotIn("app_store", sin)
         self.assertNotIn("@", sin)
-        # Desde la 023, el tema `conversation` va entre los dos.
-        self.assertIn("marketplace, conversation, security", sin)
+        # Desde la 023, el tema `conversation` va entre los dos y, desde la
+        # 026, con `marketplace_manage` activa su tema va detrás de
+        # `marketplace`.
+        self.assertIn("marketplace, marketplace_manage, conversation, security", sin)
 
     def test_los_temas_que_no_toca_no_cambian(self) -> None:
         import hashlib
@@ -1676,6 +1681,141 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestTemaMarketplaceManage(unittest.IsolatedAsyncioTestCase):
+    """Spec 026, tramo 1 (T012; FR-022 tras la DV-1): tema
+    `marketplace_manage` con las cuatro tools, ignorar frente a reconocer,
+    quitar solo personalizados no instalados, la condición del aviso de
+    riesgos y del usuario del Supervisor (lo que Hermes no puede hacer); sus
+    alias; el índice y las instrucciones lo nombran solo con su familia
+    activa; los temas que este tramo no toca no cambian (huellas).
+
+    Control negativo (T013): sin `@TEMA_MARKETPLACE@` en las instrucciones →
+    cae `test_indice_e_instrucciones`."""
+
+    # sha256 (16 hex) de temas que el tramo 1 de la 026 no toca.
+    # `marketplace` lo cambia a propósito la converge (T033): ver
+    # `test_tema_marketplace_dice_la_verdad_y_remite`.
+    _HUELLAS = {
+        "marketplace": "f49c5f1c9d78b51b",
+        "security": "157ee929e7db08ae",
+        "workflows": "53b81454a6708b9a",
+    }
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_cuatro_tools(self) -> None:
+        texto = await self.guide("marketplace_manage")
+        self.assertIs(texto, _GUIDE["marketplace_manage"])
+        plano = " ".join(texto.split())
+        for palabra in ("ha_marketplace_acknowledge_critical",
+                        "ha_marketplace_ignore_repository",
+                        "ha_marketplace_remove_repository",
+                        "ha_marketplace_refresh_repository",
+                        "DOS PASOS", "not_critical", "already_acknowledged",
+                        "repository_not_removed", "critical_repository",
+                        "not_custom_repository", "repository_installed",
+                        "github_rate_limited", "marketplace_write_unsupported",
+                        "Ignorar frente a reconocer", "PERSONALIZADO",
+                        "aviso de riesgos", "usuario del Supervisor",
+                        "Hermes nunca lo acepta", "interfaz del Marketplace",
+                        "third_party", "reviewed_by_home_assistant",
+                        "_third_party_text"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+
+    async def test_tema_marketplace_dice_la_verdad_y_remite(self) -> None:
+        """Converge T033 (FR-018, FR-022, R-2, D-29): aceptar el aviso en la
+        interfaz no hace que Hermes pueda instalar, y el tema de lectura
+        remite a `marketplace_manage`. Control negativo comprobado: con el
+        texto anterior («lo tiene que aceptar una persona») caen el
+        `assertNotIn` y la remisión."""
+        plano = " ".join(_GUIDE["marketplace"].split())
+        for palabra in ("NO hace que Hermes pueda instalar", "D-29",
+                        "usuario del Supervisor", 'hermes_guide("marketplace_manage")'):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+        self.assertNotIn("lo tiene que aceptar una persona", plano)
+
+    async def test_converge_automatizaciones_betas_y_bajos(self) -> None:
+        """Converge T031, T032, T034-T037: la guía ya no dice que
+        `update.install` por automatización «choca con lo mismo» ni que
+        Hermes no puede activar betas; explica la vía sin usuario, el aviso
+        de la vista previa, el interruptor «pre-release» con token y
+        `use_entity_ids`, el aviso de Repairs que queda al ignorar, GitHub
+        para volver a añadir, y `outcome_unknown`. Control negativo
+        comprobado: con el texto anterior cae el `assertNotIn`."""
+        plano = " ".join(_GUIDE["marketplace_manage"].split())
+        self.assertNotIn("choca con lo mismo", plano)
+        self.assertNotIn("mostrar betas y añadir", plano)
+        for palabra in ("ALGUNA persona aceptó el aviso", "warning_marketplace_install",
+                        "Es un aviso, no una barrera", "pre-release",
+                        "warning_marketplace_beta", "use_entity_ids",
+                        "hasta el próximo reinicio de Core", "GitHub conectado",
+                        "outcome_unknown", "ha_marketplace_get_repository",
+                        "la carpeta y el dominio"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+
+    async def test_desinstalar(self) -> None:
+        # Tramo 2 (T026): el backup parcial sin base de datos y qué pasa si
+        # falla, el reinicio (Hermes no reinicia) y `repository_in_use`.
+        plano = " ".join(_GUIDE["marketplace_manage"].split())
+        for palabra in ("ha_marketplace_uninstall", "Las cinco", "repository_not_installed",
+                        "repository_in_use", "ha_delete_config_entry",
+                        "SIN la base de datos", "sin cifrar", "backup_failed",
+                        "no se desinstala nada", "backup=false", "restart_required",
+                        "Hermes NO reinicia", "sv_restart_core", "may_break",
+                        "desinstálalo antes con `ha_marketplace_uninstall`"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, plano)
+        self.assertNotIn("Las cuatro", plano)
+        for alias in ("marketplace uninstall", "hacs uninstall", "desinstalar marketplace"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), _GUIDE["marketplace_manage"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b",
+                                   _GUIDE["marketplace_manage"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_alias(self) -> None:
+        texto = _GUIDE["marketplace_manage"]
+        for alias in ("marketplace write", "marketplace_write", "hacs install",
+                      "critical", "custom repository", "repositorio personalizado",
+                      "CRITICAL"):
+            with self.subTest(alias=alias):
+                self.assertIs(await self.guide(alias), texto)
+        # `hacs` sigue llevando al de lectura, como en la 1.1.2.
+        self.assertIs(await self.guide("hacs"), _GUIDE["marketplace"])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`marketplace_manage`", await self.guide())
+        self.assertIn("marketplace, marketplace_manage", INSTRUCTIONS)
+        sin = instrucciones(frozenset({"marketplace_manage"}))
+        self.assertNotIn("marketplace_manage", sin)
+        self.assertNotIn("@", sin)
+        self.assertIn("marketplace, app_store", sin)
+
+    def test_los_temas_que_no_toca_no_cambian(self) -> None:
+        import hashlib
+
+        for tema, huella in self._HUELLAS.items():
+            with self.subTest(tema=tema):
+                real = hashlib.sha256(_GUIDE[tema].encode()).hexdigest()[:16]
+                self.assertEqual(real, huella)
+
+
 class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
     """Spec 019, FR-018 (tramo 1): tema `mounts` con las seis tools de
     montajes, el flujo de llevar los backups a un NAS, que las credenciales
@@ -2108,7 +2248,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "helpers": "c99850e94eb5c996",
         "integration_flows": "5df1b039b66924d5",
         "lovelace": "04bebf2041d378db",
-        "marketplace": "f83ec233a87ad95b",
+        # La convergencia de la 026 (T033) cambia `marketplace` (D-29 y la
+        # remisión a `marketplace_manage`); su CHANGELOG lo dice. Huella
+        # recalculada al integrar la 026.
+        "marketplace": "f49c5f1c9d78b51b",
         "mounts": "df26cd22a86efe39",
         "recorder": "690516ce68c93d6c",
         "registries": "42894b4111cb8c80",

@@ -380,6 +380,8 @@ class TestToolFamiliesDisabled(unittest.TestCase):
         self._cfg(["cameras"]).validate()
         # Spec 024, tramo 2 (FR-013): y la de restablecer un dashboard.
         self._cfg(["dashboard_reset"]).validate()
+        # Spec 026: y la del mantenimiento del Marketplace.
+        self._cfg(["marketplace_manage"]).validate()
 
     def test_nombre_desconocido_impide_arrancar(self) -> None:
         with self.assertRaises(ValueError) as ctx:

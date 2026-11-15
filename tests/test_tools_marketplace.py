@@ -493,11 +493,18 @@ class TestListUpdates(_Base):
     async def test_how_to_update(self) -> None:
         mcp = self._mcp(self._fake([]))
         result = await mcp.tools["ha_marketplace_list_updates"]()
+        # Spec 026, T033 (R-2, D-29): ya no manda a una persona a aceptar el
+        # aviso, porque eso no hace que `update.install` funcione desde
+        # Hermes (el aviso es del usuario del Supervisor). Control negativo
+        # comprobado: con el texto anterior cae el `assertNotIn`.
         for text in (result["how_to_update"], mcp.tools["ha_marketplace_list_updates"].__doc__):
-            self.assertIn("update", text)
-            self.assertIn("install", text)
-            self.assertIn("confirmation_token", text)
-            self.assertIn("never accepts", text)
+            plano = " ".join(text.split())
+            self.assertIn("update.install", plano.replace("'update', 'install'", "update.install"))
+            self.assertIn("Supervisor user", plano)
+            self.assertIn("does not change", plano)
+            self.assertIn("Marketplace UI", plano)
+            self.assertNotIn("a person must accept", plano)
+        self.assertIn("confirmation_token", result["how_to_update"])
 
 
 # ── Fase 4: US2 con HACS ──────────────────────────────────────────────────────

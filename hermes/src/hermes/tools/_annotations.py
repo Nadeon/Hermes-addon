@@ -335,6 +335,18 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # el prefijo `ha_reset_` no lo delata. Idempotente: repetirla no tiene
     # más efecto (la segunda vez no hay nada que restablecer).
     "ha_reset_lovelace_dashboard_config",
+    # Spec 026, tramo 1 (contracts/tools.md): las cuatro de escritura del
+    # Marketplace piden token (reconocer e ignorar no se pueden deshacer;
+    # quitar cambia la lista; refrescar escribe en el storage). Por nombre
+    # exacto, NUNCA por el prefijo `ha_marketplace_`, que también llevan las
+    # siete de lectura (FR-018 de la 004).
+    "ha_marketplace_acknowledge_critical",
+    "ha_marketplace_ignore_repository",
+    "ha_marketplace_remove_repository",
+    "ha_marketplace_refresh_repository",
+    # Spec 026, tramo 2: desinstalar borra ficheros de /config (con backup
+    # antes).
+    "ha_marketplace_uninstall",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -351,6 +363,11 @@ _OPEN_WORLD: frozenset[str] = frozenset({
     # tiene en memoria; antes de 1.1.0 los alias se anunciaban de mundo abierto
     # porque `ha_hacs_get_repository` pedía `repository/info`, que sí sale.
     "ha_marketplace_list_releases",
+    # Spec 026: refrescar hace que HA vuelva a pedir el repositorio a GitHub.
+    "ha_marketplace_refresh_repository",
+    # Y desinstalar: con GitHub conectado, HA refresca el repositorio desde
+    # GitHub antes de borrarlo (`marketplace_repository_uninstall`).
+    "ha_marketplace_uninstall",
     # Genéricas de escritura (spec 011): algunas entradas `confirm` salen a
     # internet (actualizar un plugin, calendarios remotos).
     "ha_call_ws_command",

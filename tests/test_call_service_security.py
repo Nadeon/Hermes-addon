@@ -48,6 +48,19 @@ def _make_ha_client(call_result: object = None) -> MagicMock:
     client.get_state = AsyncMock(return_value={})
     client.get_services = AsyncMock(return_value={})
     client.fire_event = AsyncMock(return_value={})
+
+    # Spec 026, T032: `switch|homeassistant.turn_on…` lee el registro para
+    # saber si alcanza un interruptor «pre-release» del Marketplace. Aquí no
+    # hay ninguno (formas reales: `list_for_display` da `entities` con `ei` y
+    # `pl`; `get_entries` un dict por entity_id).
+    async def _registro(payload: dict, timeout_seconds: int = 30) -> object:
+        if payload.get("type") == "config/entity_registry/list_for_display":
+            return {"entity_categories": {}, "entities": []}
+        if payload.get("type") == "config/entity_registry/get_entries":
+            return {eid: None for eid in payload.get("entity_ids", [])}
+        raise AssertionError(f"unexpected ws_send: {payload.get('type')}")
+
+    client.ws_send = AsyncMock(side_effect=_registro)
     return client
 
 

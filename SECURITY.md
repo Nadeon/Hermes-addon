@@ -245,6 +245,24 @@ report about one of them will be closed with a pointer to this section:
     token is bound to the dashboard and to the config read in the preview:
     if it changes before the confirmation, nothing is reset. The log never
     carries the dashboard config.
+  - **Marketplace maintenance** (`marketplace_manage`): acknowledging a
+    critical repository, ignoring a removed one, removing a custom one and
+    refreshing one all take two steps, and the token is bound to what the
+    preview read (the critical or removed entry, the repository name,
+    category, `custom` and `installed`). The preview states that the
+    repository is third-party code that neither Home Assistant nor Hermes
+    reviews. Uninstalling also takes two steps; an integration with config
+    entries is refused without a token, and on confirmation Hermes first
+    asks the Supervisor for a partial backup of the Home Assistant
+    configuration without the database (not encrypted, with a generic name
+    that does not include the repository) and sends nothing to Home
+    Assistant if it fails. Only `marketplace/*` commands from a closed list are sent;
+    Hermes never accepts the Marketplace risk warning nor connects GitHub,
+    and it has no tool to install, pin versions, show betas or add
+    repositories: Home Assistant requires the risk warning accepted by the
+    user that sends the command, and Hermes connects as the Supervisor user.
+    The log records the tool, the outcome and the category, never
+    repository names, ids or third-party text.
   - **Tool families** (`tool_families_disabled`): whole groups of tools can
     be left unregistered. An unknown family name, or `base`, stops the add-on
     from starting rather than silently leaving tools on.

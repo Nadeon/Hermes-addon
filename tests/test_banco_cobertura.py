@@ -283,6 +283,7 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
         from tests.banco.cobertura_017 import PROBADAS_017
         from tests.banco.cobertura_020 import LECTURAS_020, PROBADAS_020
         from tests.banco.cobertura_023 import LECTURAS_023, PROBADAS_023
+        from tests.banco.cobertura_026 import PROBADAS_026
         from tests.banco.cobertura_escrituras import PROBADAS_028
 
         # Desde la 029, también sus lecturas.
@@ -307,7 +308,9 @@ class TestCoberturaDeLasGenericas(unittest.TestCase):
             # Spec 031: sus escrituras y la lectura de agentes.
             | PROBADAS_031 | LECTURAS_EN_BANCO_031
             # Spec 024: las dos de imagen y restablecer un dashboard.
-            | LECTURAS_EN_BANCO_024 | PROBADAS_024,
+            | LECTURAS_EN_BANCO_024 | PROBADAS_024
+            # Spec 026: reconocer el aviso crítico sembrado.
+            | PROBADAS_026,
         )
 
 
@@ -466,3 +469,61 @@ class TestCoberturaDeLa024(unittest.TestCase):
                      config / "media" / "banco_borrable.jpg"):
             with self.subTest(ruta=ruta.name):
                 self.assertEqual(ruta.read_bytes(), jpeg_gris(16))
+
+
+class TestCoberturaDeLa026(unittest.TestCase):
+    """Spec 026, tramos 1 y 2 (T014, T027; FR-023): `PROBADAS_026` y
+    `NO_EJECUTABLES_026` son EXACTAMENTE lo que registran `MODULOS_026`, que
+    son los de la familia `marketplace_manage`; cada probada aparece en algún
+    `tests/banco/test_banco_*.py` (que se ejecuta de verdad lo exige el job);
+    cada no ejecutable tiene motivo.
+
+    Control negativo (T013): quitar `ha_marketplace_acknowledge_critical` de
+    `PROBADAS_026` → caen `test_inventario_exacto` nombrándola y el invariante
+    de escrituras."""
+
+    def test_inventario_exacto(self) -> None:
+        from tests.banco.cobertura_026 import MODULOS_026, NO_EJECUTABLES_026, PROBADAS_026
+
+        registradas: set[str] = set()
+        for modulo in MODULOS_026:
+            mod = importlib.import_module(f"hermes.tools.{modulo}")
+            dummy = _DummyMCP()
+            mod.register(dummy, MagicMock(), response_max_bytes=131_072)
+            registradas.update(dummy.nombres)
+        declaradas = set(PROBADAS_026) | set(NO_EJECUTABLES_026)
+        self.assertEqual(declaradas, registradas)
+        self.assertFalse(set(PROBADAS_026) & set(NO_EJECUTABLES_026))
+        for tool, motivo in NO_EJECUTABLES_026.items():
+            self.assertIn("internet", motivo, tool)
+
+    def test_modulos_de_la_026(self) -> None:
+        from hermes.tool_families import FAMILIAS
+        from tests.banco.cobertura_026 import MODULOS_026
+
+        self.assertEqual(set(MODULOS_026), set(FAMILIAS["marketplace_manage"].modulos))
+
+    def test_cada_probada_en_un_fichero_del_banco(self) -> None:
+        from tests.banco.cobertura_026 import PROBADAS_026
+
+        textos = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((RAIZ / "tests" / "banco").glob("test_banco_*.py")))
+        faltan = sorted(t for t in PROBADAS_026 if f'"{t}"' not in textos)
+        self.assertEqual(faltan, [], f"sin test en tests/banco/: {faltan}")
+
+    def test_la_semilla_tiene_la_forma_del_store_de_ha(self) -> None:
+        # `Store` versión 1 con la clave `marketplace.critical` y una entrada
+        # con las claves que guarda `async_handle_critical_repositories` de
+        # HA 2026.11.1 (`repository`, `reason`, `link`, `acknowledged`).
+        import json
+
+        datos = json.loads((RAIZ / "tests" / "banco" / "ha_config" / ".storage"
+                            / "marketplace.critical").read_text(encoding="utf-8"))
+        self.assertEqual((datos["version"], datos["key"]), (1, "marketplace.critical"))
+        self.assertEqual(datos["data"], [{
+            "repository": "ejemplo/tarjeta-critica",
+            "reason": "Aviso ficticio del banco de pruebas de Hermes",
+            "link": "https://example.com/aviso",
+            "acknowledged": False,
+        }])

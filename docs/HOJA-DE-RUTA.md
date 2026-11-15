@@ -397,6 +397,15 @@ un cliente contra la instalación real.
   tema del foro. Comprobar la vista previa (`importer`, ruta sugerida, YAML
   entero y huella), la confirmación y el `source_url` guardado. El banco
   solo cubre el importador genérico (sin salida a internet).
+- [ ] (instalación real, con internet y el Marketplace configurado)
+  **Mantenimiento del Marketplace (spec 026), en vivo**: ignorar un
+  repositorio retirado, quitar un personalizado no instalado, refrescar uno
+  y desinstalar uno de prueba (comprobar que el backup parcial sin base de
+  datos se crea antes y que, si falla, no se desinstala nada; el banco no
+  tiene catálogo ni Supervisor real), y reconocer un aviso crítico real.
+  Instalar, fijar versión, betas y añadir no tienen tool (DV-1, duda D-29):
+  revisar si una versión futura de HA deja aceptar el aviso al usuario de
+  una app.
 - [ ] (instalación real, tras publicar) **Pruebas en vivo de las tools nuevas
   de la 1.2.0**: las tools nuevas del programa en una instalación en uso,
   solo después de publicar; las destructivas, antes en la VM.
@@ -490,7 +499,7 @@ el mantenedor. Spec, plan, tareas, investigación e inventarios en
 | 023 | Assist y conversación | 060–063 | hecha: familia `conversation` con cuatro tools (agentes, frases de los disparadores, análisis sin ejecutar y `ha_process_conversation`, siempre en dos pasos, con lo que reconoce el agente integrado o el aviso del agente externo, y `outcome_unknown` si vence el plazo); 5 entradas de la tabla a `dedicated`; pipelines, motores, AI Task y satélites por las genéricas, con el token del audio de `pipeline_debug/get` tapado en su `url`, su `media_id` y cualquier `/api/tts_proxy/…` o `media-source://tts/-stream-/…`; tema `conversation`; en el banco de Core, `ha_process_conversation` con un disparador de frase y pipelines y AI Task por las genéricas. Solo en unitarios: otro agente (un LLM) y los satélites, que el banco no tiene |
 | 024 | Menores de Core | 059, 065–067, 070–073 | hecha: familia `cameras` con `ha_get_camera_snapshot` y `ha_get_image_entity` (imagen MCP, tope de 2 MiB, sin Pillow) y familia `dashboard_reset` con `ha_reset_lovelace_dashboard_config` (dos pasos, token atado a la configuración leída, principal y panel por defecto protegidos); `lovelace/config/delete` a `dedicated`; preferencias de cámara y cinco lecturas de la UI (`trace/contexts`, `frontend/get_themes`, `webhook/list` con el `webhook_id` tapado, `vacuum/get_segments`, `radio_frequency/list`) por la tabla; miniaturas de `browse_media`/`search_media` tapadas (hallazgo); motivo de `application_credentials/config_entry` corregido; las 33 entradas fijadas por test; temas `cameras` y `core_minor` y sección «Restablecer» en `lovelace`; todo probado en el banco de Core, sin hallazgos. Pendiente manual: una cámara real JPEG y otra en la nube (reducción y tope) |
 | 025 | Integraciones específicas por la tabla | 100–106 | hecha: las 192 entradas de la clase C clasificadas con el handler leído (73 de lectura, 57 en dos pasos, 62 rechazadas; ninguna «pendiente»), sin tools nuevas (no hay filas en la matriz de pruebas): Z-Wave JS 18/13/24; ZHA, Matter, Thread y OTBR 18/13/19; MQTT, USB, Bluetooth y el resto 37/31/19. Redacción de valor entero bajo claves sensibles y claves S0/S2 como secretos; nueve entradas tapan secretos con su centinela; mapa de la clase C del generador (desde cero igual que la tabla; lo nuevo, «sin revisar»); temas `zwave`, `zigbee`, `matter_thread` y `other_integrations`; `usb` en el banco de Core |
-| 026 | Escritura en el Marketplace | 075 | pendiente |
+| 026 | Escritura en el Marketplace | 075 | hecha: familia `marketplace_manage` con `ha_marketplace_acknowledge_critical`, `ha_marketplace_ignore_repository`, `ha_marketplace_remove_repository`, `ha_marketplace_refresh_repository` y `ha_marketplace_uninstall` (con backup parcial sin base de datos antes; en la misma familia por la D-2), en dos pasos; reconocer probado en el banco de Core, las otras cuatro no ejecutables allí (sin catálogo) con su carga comprobada contra HA real. Instalar, fijar versión, betas y añadir repositorios sin tool: HA exige el aviso de riesgos aceptado por el usuario de Hermes, que no puede aceptarlo (DV-1, desviación parcial de FR-091; duda D-29); sus comandos, `deny`. Converge: aviso en la vista previa de automatizaciones y scripts con `update.install` (HA les deja instalar sin usuario si alguna persona aceptó el aviso; bloquearlo, decisión pendiente de la D-29) y token para el interruptor «pre-release» por `ha_call_service`. Prueba en vivo pendiente |
 | 027 | Plataforma y deprecaciones | 025, 026, 028–033 | hecha: `child_errors` en `sv_get_job_status`, y los errores de los sub-jobs cuentan como fallo, también en el sondeo del safety backup (D-1); `child_jobs` redactado; `command_removed_in_ha`; detección del socket Unix y de la `/v2` al arrancar, sin usarlos; guarda de deprecaciones del SDK; nada deprecado se retira; traducciones de las opciones y «app» en las tools de apps y en la guía; hosts CIMD, `outputSchema` y vía nativa documentados |
 | 028 | Pruebas de las escrituras de Core en el banco | 034 | hecha |
 | 029 | Estado del sistema y estadísticas de Core | 043, 049, 058, 068 | hecha: familias `system_status` (cinco tools, CAP-043) y `recorder` (tres, CAP-049), `ws_collect_subscription`, auditoría de acciones y red y HTTP por la genérica (CAP-058, CAP-068), tabla, guía y banco de las ocho. Solo leen, así que no tienen fila en la matriz de la 014; en vivo (salud con `cloud` y `hassio`, un reinicio pendiente y la validación de estadísticas de una instalación real), en las pruebas manuales pendientes |
@@ -753,6 +762,11 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 | `ha_increment_counter` | banco de Core | ok | |
 | `ha_increment_input_number` | banco de Core | ok | |
 | `ha_install_update` | banco de Core | ok | spec 015; entidad `update` de plantilla del banco |
+| `ha_marketplace_acknowledge_critical` | banco de Core | ok | spec 026; aviso crítico ficticio sembrado en el storage del banco |
+| `ha_marketplace_ignore_repository` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet el Marketplace no descarga el catálogo y no hay repositorio sobre el que actuar; carga comprobada contra HA real en el test de contrato |
+| `ha_marketplace_refresh_repository` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet el Marketplace no descarga el catálogo y no hay repositorio sobre el que actuar; carga comprobada contra HA real en el test de contrato |
+| `ha_marketplace_remove_repository` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet el Marketplace no descarga el catálogo y no hay repositorio sobre el que actuar; carga comprobada contra HA real en el test de contrato |
+| `ha_marketplace_uninstall` | instalación real | pendiente | spec 026; no ejecutable en el banco: sin internet no hay catálogo y no se puede instalar ningún repositorio que desinstalar; carga comprobada contra HA real en el test de contrato; el backup previo, con el Supervisor simulado |
 | `ha_pause_timer` | banco de Core | ok | |
 | `ha_press_input_button` | banco de Core | ok | |
 | `ha_process_conversation` | banco de Core | ok | spec 023; disparador de frase del banco |
@@ -902,8 +916,10 @@ programa:
   también dan `success: false`; el sondeo del safety backup los cuenta igual.
 - **Aplicar sugerencias del Supervisor** con confirmación y vista previa
   completa (022).
-- **Escritura en el Marketplace** (026), con confirmación, backup previo y
-  vista previa completa.
+- **Escritura en el Marketplace** (026, hecho en parte): reconocer críticos,
+  ignorar retirados, quitar personalizados, refrescar y desinstalar (con
+  backup previo), con confirmación y vista previa completa. Instalar, fijar
+  versión, betas y añadir no tienen tool (DV-1, duda D-29).
 - **Auditoría de llamadas a acciones, estado del sistema y notificaciones
   persistentes** (012 y 029); **mantenimiento de estadísticas** (validar,
   corregir unidades, ajustar sumas) **y energía** (020). Las estadísticas

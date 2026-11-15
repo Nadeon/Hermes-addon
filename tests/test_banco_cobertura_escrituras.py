@@ -43,6 +43,7 @@ from tests.banco import cobertura_023 as c023
 from tests.banco import cobertura_031 as c031
 from tests.banco import cobertura_024 as c024
 from tests.banco.cobertura_024 import LECTURAS_EN_BANCO_024
+from tests.banco import cobertura_026 as c026
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -101,6 +102,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 024 (contrato de la 028): restablecer un dashboard.
         "PROBADAS_024": set(c024.PROBADAS_024),
         "NO_EJECUTABLES_024": set(c024.NO_EJECUTABLES_024),
+        # Spec 026 (contrato de la 028): mantenimiento del Marketplace.
+        "PROBADAS_026": set(c026.PROBADAS_026),
+        "NO_EJECUTABLES_026": set(c026.NO_EJECUTABLES_026),
     }
 
 
@@ -135,8 +139,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # y las 5 de la 031 (tramo 1: `ha_update_backup_config`; tramo 2:
         # crear, crear con los ajustes automáticos y borrar; tramo 3:
         # restaurar, no ejecutable), y la de la 024 (restablecer un dashboard,
-        # tramo 2).
-        self.assertEqual(len(reales), 198)
+        # tramo 2), y las 5 de la 026 (las 4 de mantenimiento del Marketplace
+        # del tramo 1 y desinstalar del tramo 2).
+        self.assertEqual(len(reales), 203)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -204,7 +209,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             | c031.PROBADAS_031 | c031.LECTURAS_EN_BANCO_031
             # Spec 024: las dos de imagen leen, pero se exigen por ejecución;
             # restablecer un dashboard modifica.
-            | LECTURAS_EN_BANCO_024 | c024.PROBADAS_024,
+            | LECTURAS_EN_BANCO_024 | c024.PROBADAS_024
+            # Spec 026: reconocer el aviso crítico sembrado.
+            | c026.PROBADAS_026,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028,

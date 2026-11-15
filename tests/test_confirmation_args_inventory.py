@@ -225,6 +225,26 @@ tool con token, comprobada en el código (`tools/lovelace_reset.py`):
 token, la configuración del dashboard leída en la vista previa (si cambia
 antes de confirmar, `dashboard_changed` y no se borra nada). Las dos de
 `cameras` (tramo 1) son de solo lectura y no piden token. Ningún hallazgo.
+
+Recuento: 145 desde la integración de la 026, que trae cinco tools con
+token, comprobadas en el código (`tools/marketplace_manage.py`). Tramo 1,
+cuatro: `ha_marketplace_acknowledge_critical` ata `repository` (el
+`owner/repo` tal como llega) y, en el `estado`, la entrada crítica leída
+(`repository`, `reason`, `link`, `acknowledged`);
+`ha_marketplace_ignore_repository`, `ha_marketplace_remove_repository` y
+`ha_marketplace_refresh_repository` atan `repository_id` (normalizado a
+texto) y, en el `estado`, el `full_name` y la categoría leídos (ignorar,
+además, la entrada de retirados; quitar, además, `custom` e `installed`).
+Tramo 2 (misma familia, decisión D-2): `ha_marketplace_uninstall` ata
+`repository_id` (normalizado a texto) y `backup` (bool estricto: quien
+previsualizó sin backup no confirma con él) y, en el `estado`, el
+`full_name`, la categoría, la versión instalada, el `domain` y el
+`local_path` leídos (si la carpeta o el dominio cambian antes de confirmar,
+lo que la vista previa dice que se borra ya no es cierto y el token no
+vale). Las que exigen el
+aviso de riesgos (añadir, detectar, instalar, fijar versión, betas) no
+existen (DESVIACIÓN DV-1 de la 026). Ninguna usa `allow_dangerous`. Ningún
+hallazgo.
 """
 
 from __future__ import annotations
@@ -540,6 +560,16 @@ INVENTARIO: dict[str, dict[str, str]] = {
     # ── restablecer un dashboard (spec 024, tramo 2) ────────────────────
     # Ata además, en el `estado`, la configuración leída en la vista previa.
     "ha_reset_lovelace_dashboard_config": {"url_path": A},
+    # ── mantenimiento del Marketplace (spec 026, tramo 1) ───────────────
+    # Lo leído en la vista previa (la entrada crítica o retirada, el
+    # `full_name`, la categoría, `custom`, `installed`) va en el `estado`.
+    "ha_marketplace_acknowledge_critical": {"repository": A},
+    "ha_marketplace_ignore_repository": {"repository_id": A},
+    "ha_marketplace_remove_repository": {"repository_id": A},
+    "ha_marketplace_refresh_repository": {"repository_id": A},
+    # Tramo 2: `backup` cambia lo que se hace al confirmar; el `estado` ata
+    # además la versión instalada, el `domain` y el `local_path` leídos.
+    "ha_marketplace_uninstall": {"repository_id": A, "backup": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -639,8 +669,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # 021 + las cuatro del host de la 032 y las dos de su red (tramo 2)
         # + la de la 023 (`ha_process_conversation`) + las cinco de la 031
         # (ajustes, crear, crear con los ajustes automáticos, borrar y
-        # restaurar backups de HA) + la de restablecer un dashboard de la 024.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 140)
+        # restaurar backups de HA) + la de restablecer un dashboard de la 024 + las cuatro del tramo 1 de la 026
+        # y la del tramo 2 (desinstalar).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 145)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -660,7 +691,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 140)
+        self.assertEqual(len(publicadas), 145)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

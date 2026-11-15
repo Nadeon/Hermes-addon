@@ -300,6 +300,19 @@ _CATALOGO: tuple[Familia, ...] = (
     Familia("dashboard_reset",
             "Reset a Lovelace dashboard to its auto-generated config.",
             "1.2.0", True, ("lovelace_reset",)),
+    # Spec 026, tramo 1 (research R-3): mantener el catálogo y los avisos del
+    # Marketplace (reconocer críticos, ignorar retirados, quitar
+    # personalizados, refrescar). Familia propia y no `marketplace` (1.1.2,
+    # que solo lee), para que apagar las de la 1.2.0 deje la lista de la
+    # 1.1.2 y para que quien no quiera que un agente toque el Marketplace la
+    # apague sin perder la lectura. Tramo 2 (decisión D-2 del supervisor):
+    # desinstalar va aquí también; con una sola tool no merecía familia
+    # propia (`marketplace_install` no existe).
+    Familia("marketplace_manage",
+            "Marketplace catalogue, notices and uninstalling: acknowledge "
+            "critical repositories, ignore removed ones, remove custom ones, "
+            "refresh them and uninstall installed ones (backup first).",
+            "1.2.0", True, ("marketplace_manage",)),
 )
 
 FAMILIAS: dict[str, Familia] = {f.nombre: f for f in _CATALOGO}

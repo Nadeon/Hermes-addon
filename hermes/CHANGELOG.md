@@ -1069,9 +1069,9 @@ desactivar), y analytics y labs por la tabla.
   el `code` de alarmas y cerraduras de cada llamada.
 - **Tabla de comandos** (`command_table.py`): los 623 comandos WebSocket de
   Core 2026.11.1 y las 254 rutas (método y plantilla) del Supervisor 2026.11.0,
-  cada uno `dedicated` (tiene tool propia: 160 y 87), `read` (42 y 29),
-  `confirm` (21 y 25) o `deny` (400 y 113, con su motivo); recuentos con las
-  sub-features integradas hasta la 024. Lo que no está se
+  cada uno `dedicated` (tiene tool propia: 195 y 102), `read` (120 y 31),
+  `confirm` (79 y 29) o `deny` (229 y 92, con su motivo); recuentos con todas
+  las sub-features del programa integradas (la última, la 026). Lo que no está se
   rechaza. El proxy de Core del Supervisor (`/core/api`, `/homeassistant/api`)
   y las rutas dirigidas al propio Hermes se rechazan siempre. Un test de deriva
   la compara con los inventarios de la spec 008 y otro impide clasificar como
@@ -1894,6 +1894,120 @@ Seguridad:
   (`{"credentials": {"password": …}}`): con el tapado entero se habían dejado
   de reconocer, y un mensaje del Supervisor que nombrara uno corto salía tal
   cual en lugar del mensaje genérico.
+### Escritura en el Marketplace
+
+Spec 026: atender los avisos del Marketplace de Core (antes HACS), mantener
+su lista y desinstalar, en una familia nueva, `marketplace_manage`. Con la
+familia desactivada (y las demás de la 1.2.0), la lista de tools es la de la
+1.1.2.
+
+- **Cinco tools nuevas, familia `marketplace_manage`**, todas en **dos
+  pasos** y ninguna instala nada:
+  - `ha_marketplace_acknowledge_critical`: reconoce un repositorio crítico
+    (HA ya lo desinstaló al marcarlo) y quita su aviso de Repairs. Sin token
+    si no está en la lista de críticos (`not_critical`) o ya está reconocido
+    (`already_acknowledged`).
+  - `ha_marketplace_ignore_repository`: deja de avisar de un repositorio
+    retirado del catálogo y lo conserva. Solo uno retirado y no crítico (sin
+    token: `repository_not_removed`, `critical_repository`).
+  - `ha_marketplace_remove_repository`: quita de la lista un repositorio
+    personalizado que no está instalado (sin token: `not_custom_repository`,
+    `repository_installed`).
+  - `ha_marketplace_refresh_repository`: HA vuelve a pedir el repositorio a
+    GitHub; `github_rate_limited` explicado.
+  - `ha_marketplace_uninstall`: desinstala un repositorio instalado (HA
+    borra sus ficheros de `/config`, el recurso de Lovelace de una tarjeta y
+    la entidad `update` del Marketplace). Sin token si no está instalado
+    (`repository_not_installed`) o si es una integración con entradas de
+    configuración, también ignoradas (`repository_in_use`, con la pista de
+    `ha_delete_config_entry`). La vista previa dice qué se quita, si habrá
+    que reiniciar Core (y cuándo Hermes no lo puede saber) y qué puede dejar
+    de funcionar según la categoría (HA no dice qué entidades o tarjetas lo
+    usan, y la vista previa lo avisa). **Backup previo**: al confirmar, y
+    antes de enviar nada a HA, Hermes pide al Supervisor un backup parcial de
+    la configuración de HA **sin la base de datos** (sin cifrar), con un
+    nombre genérico sin el repositorio, y espera a que termine; si falla o no
+    termina, responde `backup_failed` (con el `job_id` si lo hay), no
+    desinstala nada y el token queda gastado. `backup=false` lo omite.
+    Hermes no reinicia Core: `restart_required` lo dice y `sv_restart_core`
+    lo hace. Por decisión del supervisor (D-2) va en `marketplace_manage` y
+    no en una familia de una sola tool.
+- **Vistas previas**: el efecto, si se puede deshacer (reconocer e ignorar no
+  tienen comando que los deshaga), si hay backup (solo al desinstalar, lo
+  único que cambia ficheros de `/config`) y que el repositorio es de terceros y nadie lo ha revisado
+  (`third_party`, `reviewed_by_home_assistant: false`,
+  `in_default_catalog`). El token se ata al repositorio y a lo leído en la
+  vista previa (la entrada crítica o retirada, el `full_name`, la categoría,
+  `custom` e `installed`): si cambia antes de confirmar, no se hace nada.
+  Los textos de terceros salen recortados y marcados (`_third_party_text`) y
+  la parte de usuario de cualquier URL, tapada.
+- **Solo `marketplace/*`**: con HACS 2.x (HA ≤ 2026.10) las cinco responden
+  `marketplace_write_unsupported` sin probar `hacs/*` (desinstalar lee
+  además `config_entries/get` del dominio y pide el backup al Supervisor). Lista cerrada de
+  comandos de escritura con su guarda; nunca `warning/accept` ni
+  `github/connect`. El evento de log `marketplace_write` lleva la tool, el
+  resultado y la categoría, nunca repositorios, ids ni textos.
+- **Lo que Hermes no puede hacer (HALLAZGO)**: HA 2026.11.1 exige que el
+  usuario de HA que manda el comando haya aceptado el aviso de riesgos del
+  Marketplace para instalar, fijar versión, mostrar betas, detectar y añadir
+  repositorios. Hermes se conecta con el usuario del Supervisor, que nadie
+  puede usar en la interfaz, y nunca acepta el aviso: esas operaciones no
+  tienen tool (una tool que no puede funcionar no se publica) y sus cinco
+  comandos quedan `deny` en la tabla con ese motivo. Es una **desviación
+  parcial de FR-091 de la spec 008** (DV-1 de la 026): de las nueve tools
+  previstas quedan cinco. **Duda abierta D-29**: si una versión futura de HA
+  deja que el usuario de una app acepte el aviso (o lo exime), esas tools
+  podrán volver; hasta entonces, instalar, fijar versión, mostrar betas y
+  añadir repositorios se hacen desde la interfaz del Marketplace.
+- **Tabla de comandos**: `marketplace/critical/acknowledge`,
+  `repository/ignore`, `repositories/remove` y `repository/refresh` pasan a
+  `dedicated`; `repositories/add`, `repositories/detect`,
+  `repository/install`, `repository/version` y `repository/beta`, a `deny`
+  con el motivo del aviso de riesgos; `repository/uninstall`, a `dedicated`
+  hacia `ha_marketplace_uninstall`. No queda ninguna entrada «pendiente» de
+  la 026.
+- **Guía**: tema `marketplace_manage` (alias `marketplace write`,
+  `critical`, `custom repository`, `repositorio personalizado`, `hacs
+  install`, `marketplace uninstall`, `hacs uninstall`, `desinstalar
+  marketplace`), con desinstalar, su backup y el reinicio, que el índice y las instrucciones del servidor nombran solo con
+  la familia activa.
+- **Pruebas**: con un HA simulado con la forma de 2026.11.1. En el banco de
+  Core, `ha_marketplace_acknowledge_critical` reconoce un aviso crítico
+  ficticio sembrado en el storage del banco y el lector ve el efecto; las
+  otras cuatro no se pueden ejecutar allí (sin internet no hay catálogo, ni
+  por tanto nada instalado que desinstalar), así que un test de contrato
+  envía a HA real la carga exacta de cada comando y comprueba que la acepta;
+  el backup previo se prueba con el Supervisor simulado. Prueba en vivo
+  pendiente.
+- **Converge de la revisión independiente** (T031-T037):
+  - **Automatizaciones y scripts con `update.install` (D-29 ampliada)**: HA
+    2026.11.1 deja instalar desde el Marketplace a una automatización o un
+    script (corren sin usuario) si ALGUNA persona aceptó el aviso de riesgos.
+    La guía ya no dice que esa vía «choca con lo mismo»: explica la verdad, y
+    la vista previa de `ha_create_or_update_automation` y
+    `ha_create_or_update_script` trae `warning_marketplace_install` si la
+    configuración llama a `update.install` (con `action`, `service` o una
+    plantilla que lo nombre). Es un aviso, no una barrera: no ve llamadas
+    indirectas. Bloquearlo del todo queda como decisión de producto (D-29).
+  - **Interruptor «pre-release» del Marketplace**: cambia a betas de código
+    de terceros sin el aviso de riesgos. Por `ha_call_service`, `switch` u
+    `homeassistant` `turn_on`/`turn_off`/`toggle` sobre uno de ellos (resuelto
+    por el registro de entidades) pide `confirmation_token`, con
+    `warning_marketplace_beta`; un objetivo indirecto (área, dispositivo,
+    etiqueta, planta, `all`) que pueda alcanzarlos se rechaza con
+    `use_entity_ids`, y un registro ilegible, con `registry_unavailable`. Lo
+    demás sigue como en la 1.1.2.
+  - **Textos que decían que una persona podía aceptar el aviso**: el tema
+    `marketplace` de la guía y `how_to_update` de
+    `ha_marketplace_list_updates` dicen que aceptarlo en la interfaz NO hace
+    que Hermes pueda instalar (D-29), y el tema remite a `marketplace_manage`.
+  - **Bajos**: ignorar dice que el aviso de Repairs ya creado sigue hasta el
+    próximo reinicio de Core (`repairs_issue`); quitar dice que volver a
+    añadirlo exige GitHub conectado; el token de desinstalar ata también la
+    carpeta y el dominio, y `removes.path_note` avisa de que con GitHub
+    conectado HA puede recalcular la ruta; si desinstalar agota el plazo, la
+    respuesta es `outcome_unknown` (quizá se hizo; `sent`: `null` = no se
+    sabe) con la pista de releer.
 
 ### Banco de pruebas
 

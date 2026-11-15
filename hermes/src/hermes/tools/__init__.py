@@ -347,6 +347,14 @@ def register_all_tools(
         from hermes.tools.hacs import register as register_hacs
         register_hacs(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+    # Mantenimiento del Marketplace (spec 026, tramo 1, CAP-075): reconocer
+    # avisos críticos, ignorar retirados, quitar personalizados y refrescar,
+    # todo en dos pasos. Instalar y añadir no tienen tool: HA exige el aviso
+    # de riesgos aceptado por el usuario de Hermes, que no puede aceptarlo.
+    if _activa("marketplace_manage"):
+        from hermes.tools.marketplace_manage import register as register_marketplace_manage
+        register_marketplace_manage(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Diagnóstico del sistema (spec 013): logs de Core, del Supervisor, de los
     # plugins y del host, también de arranques anteriores. Solo leen. Reciben
     # `response_max_bytes` para devolver las ÚLTIMAS líneas que caben en vez

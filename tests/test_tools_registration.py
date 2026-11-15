@@ -1030,6 +1030,21 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # idempotente y de mundo cerrado, como `ha_delete_lovelace_dashboard`.
     "ha_reset_lovelace_dashboard_config": (
         "-DI-", "Reset Lovelace dashboard config (Home Assistant)"),
+    # Spec 026, tramo 1 (contracts/tools.md): mantenimiento del Marketplace,
+    # familia `marketplace_manage`. Las cuatro piden token: destructivas por
+    # nombre exacto, idempotentes; solo refrescar sale a internet (GitHub).
+    "ha_marketplace_acknowledge_critical": (
+        "-DI-", "Marketplace acknowledge critical (Home Assistant)"),
+    "ha_marketplace_ignore_repository": (
+        "-DI-", "Marketplace ignore repository (Home Assistant)"),
+    "ha_marketplace_remove_repository": (
+        "-DI-", "Marketplace remove repository (Home Assistant)"),
+    "ha_marketplace_refresh_repository": (
+        "-DIO", "Marketplace refresh repository (Home Assistant)"),
+    # Spec 026, tramo 2: desinstalar, en la misma familia (decisión D-2):
+    # destructiva, idempotente (otra vez da `repository_not_installed`) y de
+    # mundo abierto (con GitHub conectado, HA lo refresca antes de borrar).
+    "ha_marketplace_uninstall": ("-DIO", "Marketplace uninstall (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -1087,6 +1102,11 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
     "conversation": {
         "ha_list_conversation_agents", "ha_list_conversation_sentences",
         "ha_debug_conversation", "ha_process_conversation",
+    },
+    "marketplace_manage": {
+        "ha_marketplace_acknowledge_critical", "ha_marketplace_ignore_repository",
+        "ha_marketplace_remove_repository", "ha_marketplace_refresh_repository",
+        "ha_marketplace_uninstall",
     },
 }
 
@@ -2095,6 +2115,85 @@ class TestTiendaDeApps030:
         completo = set(_real_registry())
         sin = set(_real_registry(["app_store"]))
         assert completo - sin == set(_TIENDA_030)
+
+
+_MARKETPLACE_MANAGE_026 = (
+    "ha_marketplace_acknowledge_critical", "ha_marketplace_ignore_repository",
+    "ha_marketplace_remove_repository", "ha_marketplace_refresh_repository",
+    # Tramo 2 (decisión D-2: misma familia).
+    "ha_marketplace_uninstall",
+)
+
+
+class TestMarketplaceManage026:
+    """Spec 026, tramo 1 (T009; FR-020, FR-021, tras la DESVIACIÓN DV-1):
+    las cuatro de `marketplace_manage` se registran por defecto con las
+    anotaciones de contracts/tools.md y `confirmation_token`; con la familia
+    desactivada no queda ninguna, las siete de lectura siguen y sus comandos
+    siguen `dedicated`. Las que exigen el aviso de riesgos no existen.
+
+    Control negativo (T013 g): añadir `ha_marketplace_` a
+    `_READ_ONLY_PREFIXES` → 5 failed: `test_prefijo_no_da_solo_lectura`,
+    `test_anotaciones`,
+    `TestMarketplaceRegistration.test_read_only_is_by_exact_name_not_prefix`,
+    `test_hints_y_titulos_de_las_nuevas` y el invariante «pide token ⇔
+    destructiva»."""
+
+    def test_anotaciones(self):
+        tools = _real_registry()
+        for nombre in _MARKETPLACE_MANAGE_026:
+            codigo, titulo = _HINTS_NUEVAS_1_2_0[nombre]
+            assert _hint_code(tools[nombre].annotations) == codigo, nombre
+            assert tools[nombre].title == titulo, nombre
+
+    def test_argumentos(self):
+        tools = _real_registry()
+        props = {n: set(tools[n].parameters.get("properties", {}))
+                 for n in _MARKETPLACE_MANAGE_026}
+        assert props == {
+            "ha_marketplace_acknowledge_critical": {"repository", "confirmation_token"},
+            "ha_marketplace_ignore_repository": {"repository_id", "confirmation_token"},
+            "ha_marketplace_remove_repository": {"repository_id", "confirmation_token"},
+            "ha_marketplace_refresh_repository": {"repository_id", "confirmation_token"},
+            "ha_marketplace_uninstall": {"repository_id", "backup", "confirmation_token"},
+        }
+
+    def test_prefijo_no_da_solo_lectura(self):
+        from hermes.tools._annotations import classify
+
+        assert not classify("ha_marketplace_xyz").read_only_hint
+        for nombre in _MARKETPLACE_MANAGE_026:
+            assert not classify(nombre).read_only_hint, nombre
+
+    def test_las_que_exigen_el_aviso_no_existen(self):
+        # DV-1 de la 026: HA exige el aviso de riesgos aceptado por el
+        # usuario de Hermes, que no puede aceptarlo.
+        tools = _real_registry()
+        for nombre in ("ha_marketplace_install", "ha_marketplace_set_version",
+                       "ha_marketplace_set_beta", "ha_marketplace_add_repository"):
+            assert nombre not in tools, nombre
+
+    def test_desinstalar_sin_familia_propia(self):
+        # Decisión D-2 del supervisor: `ha_marketplace_uninstall` va en
+        # `marketplace_manage`; la familia `marketplace_install` de la spec no
+        # existe (ni se acepta en `tool_families_disabled`).
+        from hermes.tool_families import FAMILIAS
+
+        assert "marketplace_install" not in FAMILIAS
+        assert "ha_marketplace_uninstall" not in set(_real_registry(["marketplace_manage"]))
+        props = _real_registry()["ha_marketplace_uninstall"].parameters["properties"]
+        assert props["backup"].get("default") is True
+
+    def test_con_la_familia_apagada(self):
+        from hermes.command_table import CORE_WS
+
+        completo = set(_real_registry())
+        sin = set(_real_registry(["marketplace_manage"]))
+        assert completo - sin == set(_MARKETPLACE_MANAGE_026)
+        assert set(_MARKETPLACE_TOOLS) <= sin
+        dedicadas = {e.tool for e in CORE_WS.values()
+                     if e.category == "dedicated" and e.family == "marketplace_manage"}
+        assert dedicadas == set(_MARKETPLACE_MANAGE_026)
 
 
 class TestStatisticsMaintenanceRegistration:
