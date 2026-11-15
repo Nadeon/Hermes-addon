@@ -90,6 +90,21 @@ en el `estado` (si la tienda ofrece otra al confirmar, `preview_outdated`);
 `sv_set_addon_options` sigue atando `slug` y `options`.
 `sv_repair_store_repository` y `sv_reload_store` no piden token. Ningún
 hallazgo.
+
+Recuento: 105 desde la integración de la 017, que trae tres tools con
+token, comprobadas en el código (`tools/blueprints.py`):
+`ha_save_blueprint` ata `domain`, `path` (normalizada, con `.yaml`),
+`yaml` (omitible al confirmar: se resuelve desde lo guardado en la vista
+previa y el hash lo cubre) y `allow_override`; `ha_delete_blueprint`,
+`domain` y `path`; y `ha_import_blueprint`, `url`, `path` (la pedida) y
+`allow_override`, más, en el `estado` del token, lo que HA descargó: el
+dominio, la ruta final y la huella `content_sha256` (si cambia al volver a
+descargar al confirmar, `content_changed` y no se guarda). Las otras once
+de la 017 son de solo lectura y no piden token. La 017 cambia también dos
+de la 1.1.2 sin cambiar sus argumentos: `ha_create_or_update_automation` y
+`ha_create_or_update_script` validan con HA en la vista previa (sin token si
+la configuración es inválida) y siguen atando su id y `config`. Ningún
+hallazgo.
 """
 
 from __future__ import annotations
@@ -276,6 +291,13 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "sv_add_store_repository": {"repository": A},
     "sv_remove_store_repository": {"repository": A},
     "sv_rebuild_addon": {"slug": A, "force": A},
+    # ── blueprints (spec 017) ───────────────────────────────────────────
+    # Guardar: `yaml` es omitible al confirmar (`resolve_confirmation_token`
+    # con `omitibles`), pero el hash lo cubre. Importar ata además, en el
+    # `estado`, el dominio, la ruta final y la huella de lo descargado.
+    "ha_save_blueprint": {"domain": A, "path": A, "yaml": A, "allow_override": A},
+    "ha_delete_blueprint": {"domain": A, "path": A},
+    "ha_import_blueprint": {"url": A, "path": A, "allow_override": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -370,7 +392,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
         # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
         # cuatro de montajes de la 019.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 102)
+        self.assertEqual(len(firmas_con_token(TOOLS)), 105)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -390,7 +412,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 102)
+        self.assertEqual(len(publicadas), 105)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).
