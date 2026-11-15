@@ -829,8 +829,11 @@ de un dashboard en modo almacenamiento: el dashboard sigue existiendo, pero
 vuelve a la vista autogenerada de Home Assistant. Es IRREVERSIBLE salvo con un
 backup: copia antes la configuración con `ha_get_lovelace_dashboard(url_path)`
 (para restaurarla, guárdala con `ha_save_lovelace_dashboard`). Siempre en dos
-pasos: la vista previa dice cuántas vistas y tarjetas se pierden; si la
+pasos: la vista previa dice cuántas vistas y tarjetas se pierden (en un
+dashboard de estrategia, `strategy` dice cuál se pierde); si la
 configuración cambia antes de confirmar, se rechaza con `dashboard_changed`.
+Si no se puede leer la lista de dashboards, `dashboards_unavailable`: no se
+borra nada y el token sigue valiendo hasta que caduque.
 El dashboard principal (`lovelace` o sin `url_path`) y el panel por defecto
 están protegidos siempre (`cannot_reset_default_dashboard`); si no se puede
 leer el panel por defecto, no se restablece nada (`default_panel_unknown`).
@@ -1628,7 +1631,11 @@ TEMAS, WEBHOOKS, TRAZAS, ASPIRADORES Y RADIOFRECUENCIA (solo lectura)
   por defecto.
 - `webhook/list`: los webhooks registrados (dominio, nombre, `local_only`,
   métodos). El `webhook_id` sale TAPADO: basta para disparar la
-  automatización desde fuera sin autenticarse.
+  automatización desde fuera sin autenticarse. Su valor se tapa también en el
+  nombre o en cualquier texto que lo repita (ONVIF usa el id como nombre, y
+  sale `***REDACTED***`), y en una entrada sin `webhook_id` legible se tapa
+  todo menos dominio, `local_only` y métodos. Lo mismo vale para cualquier
+  respuesta de las genéricas (p. ej. `automation/config`).
 - `trace/contexts` (`domain` e `item_id` opcionales, juntos): los contextos con
   traza guardada, para enlazar una traza con lo que la disparó; la traza se
   lee con `ha_get_trace`.

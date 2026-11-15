@@ -135,8 +135,10 @@ class TestLecturasDeLaUI(BancoEscrituras):
         id_ = f"banco_024_{hexa}"
         webhook_id = f"banco-024-{hexa}"
         async with self.sesion() as s:
+            # El alias repite el id (como el nombre de ONVIF, T032): Core lo
+            # devuelve como `name` en `webhook/list` y tiene que salir tapado.
             entidad = await _automatizacion(s, id_, {
-                "alias": f"Banco 024 {hexa}",
+                "alias": f"Banco 024 {webhook_id}",
                 "triggers": [{"trigger": "webhook", "webhook_id": webhook_id,
                               "local_only": True}],
                 "actions": [{"event": f"banco_024_{hexa}"}],
@@ -153,6 +155,8 @@ class TestLecturasDeLaUI(BancoEscrituras):
             de_automatizacion = [w for w in r["items"] if w.get("domain") == "automation"]
             self.assertTrue(de_automatizacion, r)
             self.assertTrue(all(w["webhook_id"] == "***REDACTED***" for w in r["items"]))
+            self.assertIn("Banco 024 ***REDACTED***",
+                          [w.get("name") for w in de_automatizacion])
 
             # Dispara la automatización (por el lector) y busca su traza.
             await s.lector.comando({"type": "call_service", "domain": "automation",

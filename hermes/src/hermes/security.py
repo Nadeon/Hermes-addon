@@ -861,7 +861,86 @@ def _looks_sensitive(key: str) -> bool:
 es_clave_sensible = _looks_sensitive
 
 
+# Claves cuyo VALOR es una credencial que HA puede repetir en otros campos.
+# Tapar la clave no basta: la integración ONVIF de Core registra su webhook
+# con el id también como nombre (`webhook.async_register(hass, DOMAIN,
+# webhook_id, webhook_id, …)` en `components/onvif/event_manager.py`), así que
+# `webhook/list` devolvía `"webhook_id": "***REDACTED***"` junto a `"name":
+# "onvif…"` con el mismo valor en claro (revisión de la 024, T032). Una
+# plantilla de una automatización (`trigger.webhook_id == '…'`) o su
+# descripción pueden llevarlo también.
+_CLAVES_DE_VALOR_SECRETO: tuple[str, ...] = ("webhook_id",)
+
+# Un valor de menos caracteres solo se tapa cuando un campo entero coincide:
+# como subcadena, un id de 1-3 caracteres (que HA admite en un trigger de
+# webhook escrito a mano) destrozaría media respuesta sin proteger nada.
+_MIN_SUBCADENA_SECRETA = 4
+
+
+def valores_de_credencial(value: Any) -> frozenset[str]:
+    """Los textos que van bajo una clave de `_CLAVES_DE_VALOR_SECRETO`, a
+    cualquier profundidad, para taparlos después en TODA la respuesta."""
+    out: set[str] = set()
+
+    def visitar(v: Any, clave: str) -> None:
+        if isinstance(v, dict):
+            for k, hijo in v.items():
+                visitar(hijo, str(k))
+        elif isinstance(v, list):
+            for hijo in v:
+                visitar(hijo, clave)
+        elif isinstance(v, str) and v and v != _STRUCT_REDACTED:
+            normal = clave.lower().replace("-", "_")
+            if any(m in normal for m in _CLAVES_DE_VALOR_SECRETO):
+                out.add(v)
+
+    visitar(value, "")
+    return frozenset(out)
+
+
+def tapar_valores(value: Any, valores: frozenset[str]) -> Any:
+    """Sustituye cada valor de `valores` en cualquier texto (también en las
+    claves de un dict): entero si el campo coincide, o la parte que lo
+    contiene si mide al menos `_MIN_SUBCADENA_SECRETA`."""
+    if not valores:
+        return value
+    largos = sorted((v for v in valores if len(v) >= _MIN_SUBCADENA_SECRETA),
+                    key=len, reverse=True)
+
+    def texto(t: str) -> str:
+        if t in valores:
+            return _STRUCT_REDACTED
+        # Del más largo al más corto: si uno contiene a otro, se tapa entero.
+        for v in largos:
+            if v in t:
+                t = t.replace(v, _STRUCT_REDACTED)
+        return t
+
+    def visitar(v: Any) -> Any:
+        if isinstance(v, dict):
+            return {(texto(k) if isinstance(k, str) else k): visitar(h)
+                    for k, h in v.items()}
+        if isinstance(v, list):
+            return [visitar(h) for h in v]
+        if isinstance(v, str):
+            return texto(v)
+        return v
+
+    return visitar(value)
+
+
 def redact_structure(value: Any, _key: str = "") -> Any:
+    """Copia del dato con los valores sensibles sustituidos (ver
+    `_redact_por_clave`), y además el valor de cada `webhook_id` tapado en
+    cualquier otro campo en el que aparezca (`tapar_valores`, T032 de la 024).
+    """
+    valores = valores_de_credencial(value)
+    if valores:
+        value = tapar_valores(value, valores)
+    return _redact_por_clave(value, _key)
+
+
+def _redact_por_clave(value: Any, _key: str = "") -> Any:
     """Devuelve una copia del dato con los valores sensibles sustituidos.
 
     Pensado para lo que las tools devuelven al cliente MCP, no para logs
@@ -881,9 +960,9 @@ def redact_structure(value: Any, _key: str = "") -> Any:
     falta la contraseña") y no revela ningún secreto.
     """
     if isinstance(value, dict):
-        return {k: redact_structure(v, k) for k, v in value.items()}
+        return {k: _redact_por_clave(v, k) for k, v in value.items()}
     if isinstance(value, list):
-        return [redact_structure(item, _key) for item in value]
+        return [_redact_por_clave(item, _key) for item in value]
     if isinstance(value, str) and value and _looks_sensitive(_key):
         return _STRUCT_REDACTED
     return value

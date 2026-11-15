@@ -988,8 +988,11 @@ por la tabla.
   cambia): borra la configuración guardada de un dashboard en modo
   almacenamiento (`lovelace/config/delete`) y lo devuelve a la vista
   autogenerada. Siempre en dos pasos: la vista previa dice el título, el
-  modo, cuántas vistas y tarjetas se pierden, que es irreversible salvo con
-  un backup y cómo copiarlo antes con `ha_get_lovelace_dashboard`. El token
+  modo, cuántas vistas y tarjetas se pierden (en un dashboard de estrategia,
+  `strategy` con el tipo de la estrategia que se pierde), que es irreversible
+  salvo con un backup y cómo copiarlo antes con `ha_get_lovelace_dashboard`.
+  Si no se puede leer la lista de dashboards, `dashboards_unavailable`: no
+  se borra nada, nunca un `not_found` falso, y el token no se gasta. El token
   ata el dashboard y la configuración leída: si cambia antes de confirmar,
   `dashboard_changed` y no se borra nada. El dashboard principal y el panel
   por defecto se rechazan siempre, con y sin token
@@ -1001,7 +1004,10 @@ por la tabla.
 - **Cinco lecturas de la UI por la tabla** (antes `deny`), comprobado en el
   código de Core que solo leen: `trace/contexts`, `frontend/get_themes`,
   `webhook/list` (el `webhook_id` sale tapado: basta para disparar la
-  automatización desde fuera sin autenticarse), `vacuum/get_segments` (de
+  automatización desde fuera sin autenticarse; su valor se tapa también
+  donde se repita, entero o dentro de un texto, como el nombre que ONVIF
+  pone igual al id, y una entrada sin `webhook_id` legible solo deja ver el
+  dominio, `local_only` y los métodos), `vacuum/get_segments` (de
   mundo abierto: alguna integración pide los segmentos al aspirador o a su
   nube) y `radio_frequency/list`.
 - **Credenciales de aplicación**: el motivo de

@@ -57,6 +57,8 @@ from hermes.security import (
     es_clave_sensible,
     redact_secrets,
     resolve_confirmation_token,
+    tapar_valores,
+    valores_de_credencial,
 )
 from hermes.tools._common import (
     ajustar_lista_a_bytes,
@@ -160,6 +162,60 @@ def _redactar(valor: Any, extra: frozenset[str], clave: str = "") -> Any:
         # (p. ej. un PIN numérico): se tapa sea cual sea su tipo.
         return REDACTED_MARKER
     return valor
+
+
+# Lo que se deja ver de una entrada de `webhook/list` sin `webhook_id`
+# legible: campos cuyo valor nunca puede ser el id (el dominio de una
+# integración, un booleano, los métodos HTTP).
+_METODOS_HTTP = frozenset({"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"})
+_DOMINIO = re.compile(r"^[a-z0-9_]+$")
+
+
+def _webhook_sin_id_legible(item: Any) -> Any:
+    """Una entrada de `webhook/list` cuyo `webhook_id` no se puede leer.
+
+    Sin el id no se puede buscar en los demás campos, y el `name` puede ser
+    el id (ONVIF). Fail-closed (T032): se tapa todo menos `domain`,
+    `local_only` y `allowed_methods`, y estos solo si tienen la forma que
+    nunca lleva un id.
+    """
+    if not isinstance(item, Mapping):
+        return REDACTED_MARKER
+    out: dict[str, Any] = {}
+    for k, v in item.items():
+        if k == "domain" and isinstance(v, str) and _DOMINIO.match(v):
+            out[k] = v
+        elif k == "local_only" and isinstance(v, bool):
+            out[k] = v
+        elif (k == "allowed_methods" and isinstance(v, list)
+              and all(isinstance(m, str) and m in _METODOS_HTTP for m in v)):
+            out[k] = v
+        else:
+            out[k] = None if v is None else REDACTED_MARKER
+    return out
+
+
+def _redactar_respuesta(bruto: Any, extra: frozenset[str], tipo: str = "") -> Any:
+    """La redacción de una respuesta entera de las genéricas.
+
+    Antes de `_redactar`: el valor de cada `webhook_id` se tapa en TODA la
+    respuesta, en cualquier campo y también como parte de un texto (T032:
+    ONVIF repite el id en `name`, y una plantilla de `automation/config` o
+    `script/config` puede compararlo). Va sobre el dato en bruto porque
+    `redact_secrets` podría cambiar el texto que lo contiene y esconderlo
+    de la búsqueda.
+    """
+    if tipo == "webhook/list" and isinstance(bruto, list):
+        bruto = [
+            item if isinstance(item, Mapping)
+            and isinstance(item.get("webhook_id"), str) and item["webhook_id"]
+            else _webhook_sin_id_legible(item)
+            for item in bruto
+        ]
+    valores = valores_de_credencial(bruto)
+    if valores:
+        bruto = tapar_valores(bruto, valores)
+    return _redactar(bruto, extra)
 
 
 def _extra(entrada: Entrada) -> frozenset[str]:
@@ -283,7 +339,7 @@ def register(
                 from hermes.command_table import TABLE_HA_CORE
                 error["hint"] = _PISTA_VERSION.format(version=TABLE_HA_CORE)
             return None, error
-        return _redactar(bruto, _extra(entrada)), None
+        return _redactar_respuesta(bruto, _extra(entrada), type), None
 
     @mcp.tool()
     @ready
@@ -464,7 +520,7 @@ def register(
             # La redacción de los logs: secretos y datos de red (FR-014).
             limpio = redact_network(redact_secrets(texto))
             return _ultimas_lineas(cabecera, limpio, response_max_bytes), None
-        return _respuesta(cabecera, _redactar(bruto, _extra(entrada))), None
+        return _respuesta(cabecera, _redactar_respuesta(bruto, _extra(entrada))), None
 
     @mcp.tool()
     @ready

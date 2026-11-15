@@ -172,5 +172,41 @@ class TestToolsApplyRedaction(unittest.TestCase):
             self.assertIn("redact_structure", window, f"{endpoint} sin redactar")
 
 
+class TestValorDelWebhookIdEnTodaLaRespuesta(unittest.TestCase):
+    """T032 de la 024: el valor de un `webhook_id` se tapa en cualquier campo,
+    no solo bajo su clave. Forma real: el trigger de una traza de webhook
+    (`components/webhook/trigger.py`: `{"platform": "webhook", "webhook_id":
+    …, "description": "webhook"}`) y la `config` de la automatización, cuya
+    plantilla puede comparar el id.
+
+    Control negativo: sin `tapar_valores` en `redact_structure`, cae
+    (comprobado).
+    """
+
+    _ID = "onvif0123456789ab"
+
+    def test_repetido_en_otros_campos(self) -> None:
+        traza = {
+            "trigger": {"platform": "webhook", "webhook_id": self._ID,
+                        "description": "webhook"},
+            "config": {"triggers": [{"trigger": "webhook", "webhook_id": self._ID}],
+                       "conditions": [{"condition": "template", "value_template":
+                                       f"{{{{ trigger.webhook_id == '{self._ID}' }}}}"}],
+                       "alias": self._ID},
+            self._ID: {"name": self._ID},
+        }
+        out = redact_structure(traza)
+        self.assertNotIn(self._ID, repr(out))
+        self.assertEqual(out["config"]["alias"], "***REDACTED***")
+        self.assertEqual(out["trigger"]["description"], "webhook")
+
+    def test_id_corto_solo_entero(self) -> None:
+        # Un id de menos de 4 caracteres no se busca como subcadena: taparía
+        # media respuesta.
+        out = redact_structure({"webhook_id": "ab", "name": "ab", "alias": "cabina"})
+        self.assertEqual(out, {"webhook_id": "***REDACTED***",
+                               "name": "***REDACTED***", "alias": "cabina"})
+
+
 if __name__ == "__main__":
     unittest.main()

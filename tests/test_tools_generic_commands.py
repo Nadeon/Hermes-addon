@@ -695,6 +695,89 @@ class TestMenoresDeCoreDeLa024Tramo2(_Base):
             ("automation", "Automatización del garaje", True, ["POST", "PUT"]))
         self.ha.ws_send.assert_awaited_once_with({"type": "webhook/list"})
 
+    # Forma REAL de ONVIF en Core 2026.11.1: `components/onvif/event_manager.py`
+    # crea el id con `f"onvif{secrets.token_hex(6)}"` y lo registra como
+    # nombre e id a la vez (`webhook.async_register(hass, DOMAIN, webhook_id,
+    # webhook_id, …)`), con los valores por defecto de `async_register`
+    # (`local_only=False`, `DEFAULT_METHODS = (POST, PUT)`); `websocket_list`
+    # devuelve `sorted(allowed_methods)`.
+    _ONVIF = "onvif0123456789ab"
+
+    async def test_webhook_list_tapa_el_id_repetido_en_name_onvif(self) -> None:
+        # T032. Control negativo: sin `tapar_valores` en
+        # `_redactar_respuesta`, el `name` sale en claro y cae (comprobado).
+        self.ha.ws_send.return_value = [
+            {"webhook_id": self._ONVIF, "domain": "onvif", "name": self._ONVIF,
+             "local_only": False, "allowed_methods": ["POST", "PUT"]},
+            {"webhook_id": "abcdef0123", "domain": "automation",
+             "name": "Garaje (id abcdef0123)", "local_only": True,
+             "allowed_methods": ["POST"]},
+            {"webhook_id": self._CENTINELA_024, "domain": "automation",
+             "name": "Automatización del garaje", "local_only": True,
+             "allowed_methods": ["POST", "PUT"]},
+        ]
+        r = await self.t["ha_read_ws_command"]("webhook/list")
+        texto = json.dumps(r, ensure_ascii=False)
+        for secreto in (self._ONVIF, "abcdef0123", self._CENTINELA_024):
+            self.assertNotIn(secreto, texto)
+        onvif, parte, intacto = r["items"]
+        self.assertEqual(onvif, {
+            "webhook_id": security.REDACTED_MARKER, "domain": "onvif",
+            "name": security.REDACTED_MARKER, "local_only": False,
+            "allowed_methods": ["POST", "PUT"]})
+        self.assertEqual(parte["name"], f"Garaje (id {security.REDACTED_MARKER})")
+        # El `name` que no contiene el id no se pierde.
+        self.assertEqual(intacto["name"], "Automatización del garaje")
+
+    async def test_webhook_list_sin_id_legible_tapa_el_name(self) -> None:
+        # T032, fail-closed: sin `webhook_id` legible no se puede buscar en
+        # el `name`, que puede ser el id. Control negativo: sin
+        # `_webhook_sin_id_legible`, cae (comprobado).
+        self.ha.ws_send.return_value = [
+            {"domain": "onvif", "name": self._ONVIF, "local_only": False,
+             "allowed_methods": ["POST", "PUT"]},
+            {"webhook_id": None, "domain": "onvif", "name": self._ONVIF,
+             "local_only": False, "allowed_methods": ["POST", "PUT"], "extra": "x"},
+            {"webhook_id": 12345678, "domain": "Raro con espacios", "name": "12345678",
+             "local_only": "no", "allowed_methods": [self._ONVIF]},
+            self._ONVIF,
+        ]
+        r = await self.t["ha_read_ws_command"]("webhook/list")
+        texto = json.dumps(r, ensure_ascii=False)
+        self.assertNotIn(self._ONVIF, texto)
+        self.assertNotIn("12345678", texto)
+        primero, segundo, tercero, cuarto = r["items"]
+        self.assertEqual(primero, {
+            "domain": "onvif", "name": security.REDACTED_MARKER, "local_only": False,
+            "allowed_methods": ["POST", "PUT"]})
+        self.assertEqual(segundo["webhook_id"], None)
+        self.assertEqual(segundo["extra"], security.REDACTED_MARKER)
+        self.assertEqual(tercero, {k: security.REDACTED_MARKER for k in tercero})
+        self.assertEqual(cuarto, security.REDACTED_MARKER)
+
+    async def test_automation_config_tapa_el_id_en_toda_la_configuracion(self) -> None:
+        # T032: `automation/config` (lectura de la tabla) devuelve
+        # `{"config": automation.raw_config}` (`components/automation/
+        # __init__.py`, `websocket_config`); un trigger de webhook lleva el id
+        # (`components/webhook/trigger.py`), y una condición o la descripción
+        # pueden repetirlo.
+        self.ha.ws_send.return_value = {"config": {
+            "id": "1700000000000", "alias": "Garaje",
+            "description": f"Se abre con /api/webhook/{self._CENTINELA_024}",
+            "triggers": [{"trigger": "webhook", "webhook_id": self._CENTINELA_024,
+                          "allowed_methods": ["POST"], "local_only": True}],
+            "conditions": [{"condition": "template", "value_template":
+                            f"{{{{ trigger.webhook_id == '{self._CENTINELA_024}' }}}}"}],
+            "actions": [{"action": "cover.open_cover", "target": {"entity_id": "cover.garaje"}}],
+        }}
+        r = await self.t["ha_read_ws_command"]("automation/config",
+                                               {"entity_id": "automation.garaje"})
+        self.assertNotIn(self._CENTINELA_024, json.dumps(r, ensure_ascii=False))
+        config = r["result"]["config"]
+        self.assertEqual(config["description"],
+                         f"Se abre con /api/webhook/{security.REDACTED_MARKER}")
+        self.assertEqual(config["alias"], "Garaje")
+
     async def test_credenciales_de_aplicacion_sin_secretos(self) -> None:
         self.ha.ws_send.return_value = [
             {"id": "spotify_cliente", "domain": "spotify", "client_id": "cliente-publico",

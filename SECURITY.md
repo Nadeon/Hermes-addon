@@ -187,7 +187,12 @@ report about one of them will be closed with a pointer to this section:
     forbid `read` for any command with a write verb or any route other than
     `GET`. Some `read` entries hide fields that work as credentials: the
     `webhook_id` of `webhook/list` (anyone who knows it can trigger the
-    automation without authenticating), the `client_secret` and the
+    automation without authenticating; its value is also hidden wherever
+    it repeats in the answer, whole or inside a text, such as the `name`
+    that ONVIF sets to the id, and an entry without a readable
+    `webhook_id` keeps only its domain, `local_only` and methods; every
+    answer that redacts by key hides a `webhook_id` value the same way),
+    the `client_secret` and the
     credential id of the application credentials, and the `thumbnail` of
     `media_source/browse_media` and `search_media` (some media sources sign
     it with `authSig`, a temporary credential); `media_source/resolve_media`,

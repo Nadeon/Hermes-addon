@@ -615,8 +615,10 @@ CORE_WS: dict[str, E] = {
     "webhook/handle": E("deny", "dispara webhooks como si viniera de fuera; sin valor y con riesgo (clase D)", "generic_commands"),
     # Un `webhook_id` basta para disparar la automatización o integración
     # desde fuera, sin autenticación: lo tapa el marcador `webhook_id` de
-    # redact_structure (security.py), sin redact_extra.
-    "webhook/list": E("read", "webhooks registrados (dominio, nombre, local_only, métodos); el webhook_id sale tapado; solo lee", "generic_commands", cap="CAP-071"),
+    # redact_structure (security.py), sin redact_extra. Su VALOR se tapa
+    # además en toda la respuesta (`_redactar_respuesta` de las genéricas):
+    # ONVIF lo registra también como nombre (T032 de la 024).
+    "webhook/list": E("read", "webhooks registrados (dominio, nombre, local_only, métodos); el webhook_id sale tapado, también en el nombre o en cualquier texto que lo repita (ONVIF usa el id como nombre), y en una entrada sin webhook_id legible se tapa todo menos dominio, local_only y métodos; solo lee", "generic_commands", cap="CAP-071"),
     "wyoming/info": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "zeroconf/subscribe_discovery": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-106"),
     "zha/configuration": E("deny", "pendiente de revisión (spec 025)", "generic_commands", cap="CAP-101"),
