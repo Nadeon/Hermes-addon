@@ -745,11 +745,15 @@ cambia `pendiente` por `ok` o `falla`. Las filas van en orden alfabético.
 <!-- matriz-pruebas:inicio -->
 | Tool | Entorno | Resultado | Nota |
 |---|---|---|---|
+| `fs_create_dir_in_folder` | VM | pendiente | spec 034 |
 | `fs_delete_file` | VM | pendiente | |
+| `fs_delete_in_folder` | VM | pendiente | spec 034 |
 | `fs_move_file` | VM | pendiente | |
+| `fs_move_in_folder` | VM | pendiente | spec 034 |
 | `fs_restore_file_backup` | VM | pendiente | |
 | `fs_set_secret` | VM | pendiente | |
 | `fs_write_file` | VM | pendiente | |
+| `fs_write_file_in_folder` | VM | pendiente | spec 034 |
 | `ha_abort_config_entry_flow` | banco de Core | ok | |
 | `ha_abort_repair_fix` | banco de Core | ok | spec 016 |
 | `ha_abort_subentry_flow` | banco de Core | ok | spec 016 |

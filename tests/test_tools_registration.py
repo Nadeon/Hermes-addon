@@ -1053,6 +1053,15 @@ _HINTS_NUEVAS_1_2_1: dict[str, tuple[str, str]] = {
     "fs_list_dir_in_folder": ("R-I-", "List dir in folder (files)"),
     "fs_stat_in_folder": ("R-I-", "Stat in folder (files)"),
     "fs_read_file_in_folder": ("R-I-", "Read file in folder (files)"),
+    # Tramo 2: las cuatro que modifican piden token, así que se anuncian
+    # destructivas (invariante «pide token ⇔ destructiva»; crear carpeta
+    # también, como `sv_start_core` en la 022). Idempotentes: repetida, cada
+    # una deja el mismo estado o se rechaza sin efecto (`already_exists`,
+    # `not_found`, `destination_exists`). Ninguna sale a internet.
+    "fs_write_file_in_folder": ("-DI-", "Write file in folder (files)"),
+    "fs_create_dir_in_folder": ("-DI-", "Create dir in folder (files)"),
+    "fs_move_in_folder": ("-DI-", "Move in folder (files)"),
+    "fs_delete_in_folder": ("-DI-", "Delete in folder (files)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -1124,11 +1133,13 @@ _TOOLS_DE_FAMILIA_1_2_0: dict[str, set[str]] = {
     },
 }
 
-# Tools de cada familia nueva de la 1.2.1 (spec 034). El tramo 2 añade a
-# `addons_share` las cuatro que modifican.
+# Tools de cada familia nueva de la 1.2.1 (spec 034): las tres de lectura
+# (tramo 1) y las cuatro que modifican (tramo 2).
 _TOOLS_DE_FAMILIA_1_2_1: dict[str, set[str]] = {
     "addons_share": {
         "fs_list_dir_in_folder", "fs_stat_in_folder", "fs_read_file_in_folder",
+        "fs_write_file_in_folder", "fs_create_dir_in_folder", "fs_move_in_folder",
+        "fs_delete_in_folder",
     },
 }
 
@@ -3106,6 +3117,17 @@ _ARGUMENTOS_034 = {
 }
 
 
+_ESCRITURA_034 = {
+    "fs_write_file_in_folder": (["confirmation_token", "content", "folder", "path"],
+                                ["folder", "path"]),
+    "fs_create_dir_in_folder": (["confirmation_token", "folder", "path"], ["folder", "path"]),
+    "fs_move_in_folder": (["confirmation_token", "dst", "folder", "src"],
+                          ["dst", "folder", "src"]),
+    "fs_delete_in_folder": (["confirmation_token", "folder", "path", "recursive"],
+                            ["folder", "path"]),
+}
+
+
 class TestFamiliaAddonsShare:
     """Spec 034, T011 (FR-003, FR-024): las tres de lectura de /addons y
     /share se registran por defecto, solo leen (sin `destructiveHint` ni
@@ -3143,9 +3165,38 @@ class TestFamiliaAddonsShare:
 
     def test_ninguna_con_la_familia_apagada(self):
         tools = _real_registry(["addons_share"])
-        assert not set(_LECTURA_034) & set(tools)
+        assert not (set(_LECTURA_034) | set(_ESCRITURA_034)) & set(tools)
         # Y la de /config siguen.
-        assert {"fs_list_dir", "fs_stat", "fs_read_file"} <= set(tools)
+        assert {"fs_list_dir", "fs_stat", "fs_read_file", "fs_write_file",
+                "fs_move_file", "fs_delete_file"} <= set(tools)
+
+    def test_las_que_modifican_piden_token_y_son_destructivas(self):
+        """Tramo 2 (T025, FR-011, FR-024): las cuatro que modifican se
+        registran por defecto, con `confirmation_token`, `destructiveHint`
+        (escribir, crear carpeta y mover por nombre exacto; borrar por el
+        prefijo `fs_delete_`), idempotentes y sin `openWorldHint`.
+
+        Control negativo comprobado: sacando `fs_move_in_folder` de
+        `_DESTRUCTIVE_EXACT` caen este test, `test_hints_y_titulos_de_las_nuevas`
+        y el invariante «pide token ⇔ destructiva»."""
+        tools = _real_registry()
+        for nombre, (props, obligatorios) in _ESCRITURA_034.items():
+            assert nombre in tools, nombre
+            ann = tools[nombre].annotations
+            assert ann.read_only_hint is False, nombre
+            assert ann.destructive_hint is True, nombre
+            assert ann.idempotent_hint is True, nombre
+            assert not ann.open_world_hint, nombre
+            codigo, titulo = _HINTS_NUEVAS_1_2_1[nombre]
+            assert _hint_code(ann) == codigo, nombre
+            assert tools[nombre].title == titulo, nombre
+            esquema = tools[nombre].parameters
+            assert sorted(esquema.get("properties", {})) == props, nombre
+            assert sorted(esquema.get("required", [])) == obligatorios, nombre
+            assert esquema["properties"]["folder"].get("type") == "string", nombre
+        # `content` es texto exactamente (el SDK no hace `json.loads`).
+        contenido = tools["fs_write_file_in_folder"].parameters["properties"]["content"]
+        assert contenido.get("type") == "string", contenido
 
 
 class TestToolCountInDocs:

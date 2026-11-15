@@ -214,19 +214,6 @@ def _trozo(p: Path, encoding: str, offset: int, limit: int,
     }
 
 
-async def _apps_instaladas(ha_client: Any) -> set[str] | None:
-    """Slugs instalados según el Supervisor (`GET /addons`), o `None` si no
-    respondió o respondió algo que no se entiende (fail-closed: «no se sabe»)."""
-    try:
-        data = await ha_client.sv_request("GET", "/addons")
-    except Exception:  # noqa: BLE001 — caído, sin permiso o lo que sea: no se sabe
-        return None
-    apps = data.get("addons") if isinstance(data, dict) else None
-    if not isinstance(apps, list):
-        return None
-    return {a["slug"] for a in apps if isinstance(a, dict) and isinstance(a.get("slug"), str)}
-
-
 # ── Registro ──────────────────────────────────────────────────────────────────
 
 def register(
@@ -348,7 +335,7 @@ def register(
             # Solo se pregunta al Supervisor si la ruta es la carpeta de una
             # app: un `stat` cualquiera no tiene por qué depender de él.
             if slug is not None:
-                instaladas = await _apps_instaladas(ha_client)
+                instaladas = await _folders.apps_instaladas(ha_client)
                 resultado["app"] = {
                     "slug": slug,
                     "installed": None if instaladas is None else slug in instaladas,

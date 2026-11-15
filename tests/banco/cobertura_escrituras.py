@@ -265,6 +265,12 @@ _SV_CONTROL = (
     "(tests/fixtures/supervisor_control.py) y en la VM de la 014"
 )
 
+# Spec 034, tramo 2: las cuatro que modifican /addons y /share.
+_CARPETAS = (
+    "ficheros de /addons y /share: no hablan con Core; se prueban con "
+    "ficheros reales en la suite normal y en la VM de la 014"
+)
+
 # Solo `fs_*` y `sv_*`: una `ha_*` que no se pueda ejecutar va a
 # `NO_EJECUTABLES_028` con su motivo, nunca aquí (lo vigila el invariante).
 FUERA_DEL_BANCO: dict[str, str] = {
@@ -329,4 +335,10 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_reload_network": _SV_RED,
     "sv_update_network_interface": _SV_RED,
     "sv_create_vlan": _SV_RED,
+    # Spec 034, tramo 2: /addons y /share no existen en el banco de Core, que
+    # no monta carpetas del Supervisor.
+    "fs_write_file_in_folder": _CARPETAS,
+    "fs_create_dir_in_folder": _CARPETAS,
+    "fs_move_in_folder": _CARPETAS,
+    "fs_delete_in_folder": _CARPETAS,
 }

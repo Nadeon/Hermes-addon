@@ -1,6 +1,6 @@
 # Hermes
 
-Servidor MCP que expone tu Home Assistant a Claude: 362 herramientas para leer
+Servidor MCP que expone tu Home Assistant a Claude: 366 herramientas para leer
 estados, llamar servicios, escribir automatizaciones, editar `/config`,
 gestionar add-ons y backups.
 
@@ -234,7 +234,7 @@ usar, ni directamente ni a través de las tools genéricas.
 | `backup_integration` | 6 | Backups de la integración `backup` de Home Assistant: dónde se guardan (agentes), la programación, la retención y el contenido de los automáticos, y crear, borrar y restaurar backups (nueva en 1.2.0). La clave de cifrado no sale ni se cambia aquí |
 | `cameras` | 2 | Instantánea de una cámara e imagen de una entidad `image`, devueltas como imagen al cliente; solo lectura. Una cámara puede enseñar el interior de tu casa: desactívala si no quieres que Claude las vea (nueva en 1.2.0) |
 | `dashboard_reset` | 1 | Restablecer un dashboard de Lovelace al autogenerado (borra su configuración guardada), en dos pasos; el dashboard principal y el panel por defecto están protegidos (nueva en 1.2.0) |
-| `addons_share` | 3 | Ficheros de `/addons` (el código de las apps locales) y de `/share`: listar, ver metadatos y leer texto, con las mismas comprobaciones de ruta y los mismos nombres bloqueados que en `/config` (nueva en 1.2.1; por ahora solo lectura) |
+| `addons_share` | 7 | Ficheros de `/addons` (el código de las apps locales) y de `/share`: listar, ver metadatos y leer texto, con las mismas comprobaciones de ruta y los mismos nombres bloqueados que en `/config`; escribir, crear carpetas, mover y borrar, siempre en dos pasos, sin backup automático y sin tocar las apps locales instaladas ni los puntos de montaje (nueva en 1.2.1) |
 
 Por ejemplo, si no usas Lovelace ni el Marketplace desde Claude:
 

@@ -141,8 +141,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # crear, crear con los ajustes automáticos y borrar; tramo 3:
         # restaurar, no ejecutable), y la de la 024 (restablecer un dashboard,
         # tramo 2), y las 5 de la 026 (las 4 de mantenimiento del Marketplace
-        # del tramo 1 y desinstalar del tramo 2).
-        self.assertEqual(len(reales), 203)
+        # del tramo 1 y desinstalar del tramo 2), y las 4 de la 034 (tramo 2:
+        # escribir, crear carpeta, mover y borrar en /addons y /share).
+        self.assertEqual(len(reales), 207)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -191,8 +192,10 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # `sv_rebuild_addon` (`_SV_APPS_TIENDA`), FR-022 de la 030, y 8 de la
         # 022: 7 del tramo 1 (control de Core y del Supervisor) y 1 del tramo 2
         # (aplicar sugerencias), y 7 de la 032: 4 del control del host
-        # (`_SV_HOST`) y 3 de la red del host (`_SV_RED`).
-        self.assertEqual(len(c028.FUERA_DEL_BANCO), 51)
+        # (`_SV_HOST`) y 3 de la red del host (`_SV_RED`), y 4 de la 034
+        # (tramo 2): las que modifican /addons y /share (`_CARPETAS`), que no
+        # hablan con Core.
+        self.assertEqual(len(c028.FUERA_DEL_BANCO), 55)
 
     def test_el_job_exige_por_ejecucion_las_probadas_de_la_028(self) -> None:
         # El plugin del job (010) solo exige lo que le pasa el conftest. Si la

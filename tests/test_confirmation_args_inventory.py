@@ -245,6 +245,18 @@ vale). Las que exigen el
 aviso de riesgos (añadir, detectar, instalar, fijar versión, betas) no
 existen (DESVIACIÓN DV-1 de la 026). Ninguna usa `allow_dangerous`. Ningún
 hallazgo.
+
+Recuento: 149 desde el tramo 2 de la 034 (1.2.1, `tools/folders_write.py`),
+que trae las cuatro tools que modifican /addons y /share, comprobadas en el
+código: `fs_write_file_in_folder` ata `folder`, `path` (normalizada y
+relativa a la carpeta) y `content` (omitible al confirmar: se resuelve desde
+lo guardado en la vista previa y el hash lo cubre);
+`fs_create_dir_in_folder`, `folder` y `path`; `fs_move_in_folder`,
+`folder`, `src` y `dst` (normalizadas sin seguir el último symlink); y
+`fs_delete_in_folder`, `folder`, `path` y `recursive` (bool estricto). Las
+cuatro atan además, en el `estado`, la huella de lo que la vista previa vio
+(contenido de un fichero, destino de un symlink o el árbol entero de una
+carpeta; en mover, la del origen y la del destino). Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -576,6 +588,13 @@ INVENTARIO: dict[str, dict[str, str]] = {
     "fs_move_file": {"src": A, "dst": A, "overwrite": A},
     "fs_restore_file_backup": {"path": A, "timestamp": A},
     "fs_set_secret": {"key": A, "value": A},
+    # ── /addons y /share (spec 034, tramo 2) ────────────────────────────
+    # Rutas normalizadas y relativas a la carpeta; el `estado` ata además la
+    # huella de lo que la vista previa vio.
+    "fs_write_file_in_folder": {"folder": A, "path": A, "content": A},
+    "fs_create_dir_in_folder": {"folder": A, "path": A},
+    "fs_move_in_folder": {"folder": A, "src": A, "dst": A},
+    "fs_delete_in_folder": {"folder": A, "path": A, "recursive": A},
 }
 # `confirmation_token` está en todas y nunca entra en su propio hash.
 for _args in INVENTARIO.values():
@@ -670,8 +689,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         # + la de la 023 (`ha_process_conversation`) + las cinco de la 031
         # (ajustes, crear, crear con los ajustes automáticos, borrar y
         # restaurar backups de HA) + la de restablecer un dashboard de la 024 + las cuatro del tramo 1 de la 026
-        # y la del tramo 2 (desinstalar).
-        self.assertEqual(len(firmas_con_token(TOOLS)), 145)
+        # y la del tramo 2 (desinstalar) + las cuatro que modifican /addons y
+        # /share (034, tramo 2).
+        self.assertEqual(len(firmas_con_token(TOOLS)), 149)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -691,7 +711,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 145)
+        self.assertEqual(len(publicadas), 149)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).

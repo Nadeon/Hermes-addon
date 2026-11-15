@@ -3,9 +3,9 @@
 POR QUÉ EXISTE ESTE MÓDULO
 --------------------------
 Con el programa de cobertura total, Hermes pasa de 216 tools a 359 en la
-1.2.0, y con la familia `addons_share` de la 1.2.1, de 216 tools a 362 (las de
+1.2.0, y con la familia `addons_share` de la 1.2.1, de 216 tools a 366 (las de
 una instalación normal; con `HERMES_DEV=1` se registra además la auxiliar
-`test_progress`, 363 en total, y por eso los tests que activan esa variable
+`test_progress`, 367 en total, y por eso los tests que activan esa variable
 cuentan una más que la documentación). Un cliente con poco contexto, o un
 usuario que no usa Lovelace ni el Marketplace, quiere poder apagar grupos enteros con una opción (`tool_families_disabled`).
 Una familia agrupa módulos de `hermes/tools/` por área —las mismas áreas que

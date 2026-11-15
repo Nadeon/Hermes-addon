@@ -271,6 +271,12 @@ def register_all_tools(
         from hermes.tools.folders import register as register_folders
         register_folders(mcp, ha_client, response_max_bytes=response_max_bytes)
 
+        # Las cuatro que modifican, en dos pasos con huella (tramo 2). El
+        # cliente del Supervisor, para no borrar ni mover una app local
+        # instalada; el tope, para recortar la muestra de la vista previa.
+        from hermes.tools.folders_write import register as register_folders_write
+        register_folders_write(mcp, ha_client, response_max_bytes=response_max_bytes)
+
     # Supervisor — add-ons, supervisor/host/core, backups
     if _activa("supervisor"):
         from hermes.tools.addons import register as register_addons
