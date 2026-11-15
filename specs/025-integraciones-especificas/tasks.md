@@ -397,3 +397,49 @@ MVP = tramo 1: el mecanismo y Z-Wave JS ya dan valor y fijan el patrón que los
 tramos 2 y 3 repiten. Al terminar el tramo 3 corre el converge de la 025
 (`speckit-converge` sobre este directorio) antes de integrar en
 `feat/cobertura-total`.
+
+---
+
+## Fase 4: Convergencia
+
+Añadida por la revisión independiente y el converge de la 025. Los FR-001…
+FR-017 y los SC están cumplidos en el código (tabla y generación desde cero
+iguales en las 192 filas, 73/57/62, ninguna «spec 025» ni «sin revisar»,
+centinelas con la forma real de HA, suite con solo los 6 fallos conocidos de
+Windows); quedan estos hallazgos de la revisión.
+
+- [ ] T047 [ALTO] `ha_call_ws_command` (`hermes/src/hermes/tools/generic_commands.py`)
+  rechaza, sin token y sin llamar a HA, una carga que lleve `***REDACTED***`
+  en cualquier valor de texto (error propio, p. ej. `redacted_value_in_payload`,
+  con las rutas, nunca los valores), como ya hacen `_flujos.py`, `energy.py`
+  y `sv_set_addon_options`. Escenario: leer `zha/configuration` (el
+  `alarm_master_code` sale tapado), cambiar otra opción y reenviar `data`
+  entero a `zha/configuration/update` → HA guarda `***REDACTED***` como
+  código maestro de la alarma, y la vista previa no lo deja ver (la fila sale
+  `hidden: sensitive`). Añadir al tema `zigbee` de la guía y al motivo de la
+  entrada que `zha/configuration/update` REEMPLAZA la configuración propia
+  entera (lo que no se envía vuelve al valor por defecto). Test de ejecución
+  con la forma real de `zha/configuration`, con control negativo.
+- [ ] T048 [MEDIO] `_valores_secretos` (`hermes/src/hermes/tools/addons.py`)
+  vuelve a recoger los secretos que `tapar_entero` tapa enteros: si el valor
+  redactado es el marcador y el original es un objeto o una lista, todos sus
+  textos (con `_hojas`) cuentan como secretos. Regresión de D-2: con
+  `{"credentials": {"username": "u", "password": "abc"}}` y un mensaje del
+  Supervisor que nombra `abc`, `_sin_valores_secretos` ya no da el mensaje
+  genérico y deja el secreto a la vista (antes de la 025 sí lo daba). Test
+  con control negativo; revisar si otra función compara el original con
+  `redact_structure` recorriendo los dos a la vez.
+- [ ] T049 [MEDIO] `mqtt/device/debug_info`: los mensajes RECIBIDOS
+  (`subscriptions[].messages[].payload`, texto libre del dispositivo) salen
+  sin tapar aunque lleven un código (un teclado que publica
+  `{"action": "disarm", "action_code": "4321"}` en su topic de estado);
+  `redact_extra` solo casa claves de objetos y `redact_secrets` no conoce
+  `code`. Decidir entre tapar también los `payload` recibidos (o la lista
+  `messages`) o tapar en el texto las claves JSON terminadas en `code`, y en
+  todo caso que el motivo de la entrada, la guía y el CHANGELOG digan
+  exactamente qué sale tapado. Centinela con la forma real de
+  `_info_for_entity` (`mqtt/debug_info.py`).
+- [ ] T050 [BAJO] `hermes/CHANGELOG.md` (seguridad, primera viñeta): «Lo
+  mismo para las claves extra (`redact_extra`)» no es exacto; bajo una clave
+  de `redact_extra` también se tapan los booleanos y los objetos o listas
+  vacíos (solo se conservan `null` y la cadena vacía). Ajustar el texto.
