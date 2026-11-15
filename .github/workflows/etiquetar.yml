@@ -12,7 +12,9 @@ name: Etiquetar versión
 # release ya existe, no la duplica. Así sirve también para crear la release
 # de una versión ya etiquetada, a mano o por una versión anterior de este
 # workflow que solo etiquetaba, aunque la rama haya avanzado desde entonces.
-# Las notas salen del CHANGELOG de la rama elegida, que las tiene todas.
+# Las notas salen del CHANGELOG de la rama elegida, que las tiene todas; si
+# pasan del límite de GitHub, `scripts/recortar_notas.py` las recorta y
+# enlaza el CHANGELOG completo.
 #
 # Con quién se firma: si existe el secreto RELEASE_TOKEN (un token personal
 # de acceso de grano fino, con permiso Contents: read and write solo sobre
@@ -102,5 +104,10 @@ jobs:
             echo "hermes/CHANGELOG.md no tiene sección para la $VERSION." >&2
             exit 1
           fi
+          # GitHub no admite notas de más de 125 000 caracteres (la release
+          # de la 1.2.0 falló por eso): si pasan, se recortan y enlazan el
+          # CHANGELOG completo de la etiqueta.
+          python3 scripts/recortar_notas.py /tmp/notas.md "$VERSION" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           gh release create "v$VERSION" --title "Hermes $VERSION" --notes-file /tmp/notas.md --latest
           echo "Release v$VERSION creada."
