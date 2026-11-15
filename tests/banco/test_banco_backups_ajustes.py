@@ -11,13 +11,11 @@ Contra HA Core real, con el lector independiente leyendo directo de Core:
   lector lee `backup/config/info` antes y después y son iguales) y la
   confirmación sí (el lector lo lee). Hermes completa lo no pasado con lo
   actual: los `days` de la programación y de la retención no se pierden.
-- `ha_get_update_backup_settings` debería responder
-  `supervisor_integration_unavailable` (el banco es Core sin la integración
-  `hassio`), pero el comando ni llega a Core: el proxy WebSocket del
+- La genérica de escritura rechaza `backup/config/update` hacia su tool, y
+  `hassio/update/config/*` con `command_denied`: el proxy WebSocket del
   Supervisor (aquí, el simulado, que copia su regla) rechaza todo `hassio/*`
-  de una app con «Unauthorized». Es el HALLAZGO de la 031
-  (`cobertura_031.DENEGADAS_POR_EL_PROXY_031`), en un `xfail` estricto.
-- La genérica de escritura rechaza `backup/config/update` hacia su tool.
+  de una app con «Unauthorized» (HALLAZGO de la 031). Por eso no hay tools de
+  los ajustes del backup previo a actualizar.
 
 Limpieza: el lector deja la programación y la retención como estaban, pase lo
 que pase. Solo corre en el job `banco-core` del CI; fuera se salta con su
@@ -35,12 +33,6 @@ from tests.banco.base_escrituras import BancoEscrituras, SesionEscrituras
 from tests.banco.entorno import rechazo
 
 pytestmark = pytest.mark.banco
-
-
-class DenegadoPorElProxy(Exception):
-    """El proxy WebSocket del Supervisor rechazó el comando `hassio/*` con
-    «Unauthorized»: el fallo concreto del HALLAZGO de la 031. Es su propia
-    clase para que el `xfail` estricto no se trague cualquier otro fallo."""
 
 
 async def _config(s: SesionEscrituras) -> dict[str, Any]:
@@ -122,24 +114,17 @@ class TestAgentesYAjustes(BancoEscrituras):
             # La respuesta y la vista previa no llevan la clave en ningún sitio.
             self.assertNotIn('"password"', json.dumps([vista, r]))
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=DenegadoPorElProxy,
-        reason=(
-            "HALLAZGO (spec 031): el proxy WebSocket del Supervisor rechaza "
-            "hassio/* a las apps (Unauthorized); FR-004 suponía que llegaba"
-        ),
-    )
-    async def test_ajustes_previos_a_actualizar_sin_supervisor(self) -> None:
-        async with self.sesion() as s:
-            r = await rechazo(s.cliente, "ha_get_update_backup_settings")
-            if "Unauthorized" in str(r.get("error")):
-                raise DenegadoPorElProxy(r["error"])
-            self.assertEqual(r["error"], "supervisor_integration_unavailable")
-
     async def test_la_generica_rechaza_hacia_su_tool(self) -> None:
         async with self.sesion() as s:
             r = await rechazo(s.cliente, "ha_call_ws_command", type="backup/config/update",
                               payload={"retention": {"copies": 1}})
             self.assertEqual((r["error"], r["tool"]),
                              ("use_dedicated_tool", "ha_update_backup_config"))
+
+    async def test_la_generica_deniega_hassio_update_config(self) -> None:
+        async with self.sesion() as s:
+            for comando in ("hassio/update/config/info", "hassio/update/config/update"):
+                with self.subTest(comando=comando):
+                    r = await rechazo(s.cliente, "ha_call_ws_command", type=comando,
+                                      payload={})
+                    self.assertEqual(r["error"], "command_denied")

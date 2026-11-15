@@ -138,7 +138,7 @@ para el detalle de un área. Temas disponibles:
 - `supervisor`     — add-ons, host y core de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
-- `backup_integration` — agentes y ajustes de los backups de Home Assistant (programación, retención, backup antes de actualizar)
+- `backup_integration` — agentes y ajustes de los backups de Home Assistant (programación, retención)
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
@@ -557,11 +557,11 @@ backups que ve HA, `ha_list_backups`.
   automáticos); un `null` explícito sí se manda. La vista previa trae
   `current`, `resulting`, `sends` (lo que se manda a HA), `changed`,
   `warnings` y `retention_effect`.
-- `ha_get_update_backup_settings()` y `ha_set_update_backup_settings(…)` — si
-  HA hace un backup antes de actualizar Core (`core_backup_before_update`) o
-  una app (`add_on_backup_before_update`) y cuántos guarda de cada app
-  (`add_on_backup_retain_copies`, de 1 a 100). Solo existen con Supervisor:
-  sin él, `supervisor_integration_unavailable`. Cambiarlos pide token.
+
+Si HA hace un backup antes de actualizar Core o una app (y cuántos guarda) NO
+se lee ni se cambia desde Hermes: el proxy del Supervisor no deja a las apps
+mandar comandos `hassio/*`. Se ajusta en la interfaz de HA (Ajustes → Sistema
+→ Backups).
 
 LA RETENCIÓN BORRA BACKUPS
 `retention` (`copies`, `days`; `null` es sin límite) y la de cada agente

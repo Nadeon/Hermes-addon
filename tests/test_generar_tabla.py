@@ -276,7 +276,9 @@ class TestClaseAConToolDedicada(_Base):
             for k, e in revisada.items():
                 if not clases[k].startswith("A"):
                     continue
-                en_mapa = isinstance(gt._DEDICADAS_INICIALES.get(k), str)
+                # Spec 031: también las A del mapa que van a `deny` con su
+                # motivo (`hassio/update/config/*`, proxy del Supervisor).
+                en_mapa = isinstance(gt._DEDICADAS_INICIALES.get(k), (str, gt._Deny))
                 if e.category != "dedicated" and not en_mapa:
                     continue
                 n += 1

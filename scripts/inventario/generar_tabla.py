@@ -180,6 +180,15 @@ _INTERNO = _Deny("uso interno de Hermes")
 _SUSCRIPCION_NO_USADA = _Deny(
     "suscripción/streaming: MCP es petición-respuesta (Hermes no la usa)"
 )
+# Hermes es una app y habla con Core por el proxy WebSocket del Supervisor,
+# que rechaza con «Unauthorized» todo comando `hassio/*` y `supervisor/*` de
+# las apps (HALLAZGO de la 031). Ni una genérica ni una tool dedicada pueden
+# mandarlos: van a `deny` con este motivo.
+MOTIVO_PROXY_SUPERVISOR = (
+    "el proxy WS del Supervisor rechaza los comandos `hassio/*` y "
+    "`supervisor/*` de las apps (DENIED_WS_TYPE_PREFIXES, Supervisor 2026.11.0)"
+)
+_PROXY_SUPERVISOR = _Deny(MOTIVO_PROXY_SUPERVISOR)
 
 # Solo sirve para la PRIMERA generación: la revisión manual (T015 de la 011)
 # reclasificó después en command_table.py lo que la tool dedicada no expone
@@ -322,11 +331,12 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     "persistent_notification/get": "ha_list_persistent_notifications",
     # 031: backups de la integración `backup` de HA (CAP-057, clase A de vía
     # D+T). Tramo 1: agentes y ajustes; crear, borrar y restaurar llegan en
-    # los tramos siguientes.
+    # los tramos siguientes. Los ajustes del backup previo a actualizar
+    # (`hassio/update/config/*`) no llegan a Core desde una app: `deny`.
     "backup/agents/info": "ha_list_backup_agents",
     "backup/config/update": "ha_update_backup_config",
-    "hassio/update/config/info": "ha_get_update_backup_settings",
-    "hassio/update/config/update": "ha_set_update_backup_settings",
+    "hassio/update/config/info": _PROXY_SUPERVISOR,
+    "hassio/update/config/update": _PROXY_SUPERVISOR,
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",
@@ -514,6 +524,11 @@ def _clasificar(
         destino = _DEDICADAS_INICIALES.get(clave)
         if isinstance(destino, str):
             return dedicada(destino)
+        # Una fila A que ninguna tool puede cubrir (spec 031: `hassio/*`,
+        # que el proxy del Supervisor rechaza a las apps) sale con su motivo
+        # y no como «pendiente de tool dedicada».
+        if isinstance(destino, _Deny):
+            return deny(destino.motivo)
         via = MATRIZ[cap][0]
         escribe = bool(_tokens(texto) & _VERBOS_ESCRITURA) or (es_sv and metodo != "GET")
         if via in ("D", "D+T", "D+X"):

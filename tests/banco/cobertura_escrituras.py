@@ -10,7 +10,7 @@ suite normal (sin HA ni Docker):
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
       ∪ FUERA_DEL_BANCO                                              (24)
       ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 3)
-      ∪ cobertura_031.PROBADAS_031 ∪ cobertura_031.NO_EJECUTABLES_031  (031, 2)
+      ∪ cobertura_031.PROBADAS_031 ∪ cobertura_031.NO_EJECUTABLES_031  (031, 1)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
 (`hermes/src/hermes/tools/_annotations.py`): es la misma definición que ve el
@@ -157,7 +157,7 @@ TOOLS_EXIGIDAS_DEL_JOB: frozenset[str] = (
 )
 XFAIL_DEL_JOB: dict[str, str] = {
     **cobertura.XFAIL_PERMITIDOS, **XFAIL_PERMITIDOS_028,
-    # Spec 031: el HALLAZGO del proxy del Supervisor con `hassio/*`.
+    # Spec 031: vacío desde que se quitaron las tools de `hassio/*`.
     **XFAIL_PERMITIDOS_031,
 }
 

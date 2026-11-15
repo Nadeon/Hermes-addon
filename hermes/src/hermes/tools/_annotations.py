@@ -175,12 +175,10 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     "ha_create_scene_from_current",
     # Spec 031: cambiar la retención BORRA backups automáticos (por días al
     # día siguiente, por copias tras el próximo automático) y
-    # `protected: false` sube la casa sin cifrar; los ajustes previos a
-    # actualizar deciden si una actualización tiene vuelta atrás. Las dos
-    # piden token; sin estar aquí, el prefijo `ha_update_`/`ha_set_` las
-    # dejaría sin `destructiveHint` (invariante «pide token ⇔ destructiva»).
+    # `protected: false` sube la casa sin cifrar. Pide token; sin estar
+    # aquí, el prefijo `ha_update_` la dejaría sin `destructiveHint`
+    # (invariante «pide token ⇔ destructiva»).
     "ha_update_backup_config",
-    "ha_set_update_backup_settings",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────

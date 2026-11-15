@@ -714,13 +714,18 @@ class TestTemaBackupIntegration(unittest.IsolatedAsyncioTestCase):
         texto = await self.guide("backup_integration")
         self.assertIs(texto, _GUIDE["backup_integration"])
         for palabra in ("ha_list_backup_agents", "ha_update_backup_config",
-                        "ha_get_update_backup_settings", "ha_set_update_backup_settings",
                         "retention_effect", "ESTIMACIÓN", "within_24h",
                         "after_next_automatic_backup", "password_set",
                         "kit de emergencia", "state_changed", "sv_",
-                        "supervisor_integration_unavailable"):
+                        "hassio/*"):
             with self.subTest(palabra=palabra):
                 self.assertIn(palabra, texto)
+        # HALLAZGO de la 031: estas dos se quitaron (el proxy del Supervisor
+        # rechaza `hassio/*` a las apps); la guía no puede prometerlas.
+        for quitada in ("ha_get_update_backup_settings", "ha_set_update_backup_settings",
+                        "supervisor_integration_unavailable"):
+            with self.subTest(quitada=quitada):
+                self.assertNotIn(quitada, texto)
         for alias in ("backup_agents", "backup_config", "backup_schedule",
                       "backup_retention", "BACKUP_AGENTS"):
             with self.subTest(alias=alias):

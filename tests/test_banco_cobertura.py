@@ -223,12 +223,7 @@ class TestCoberturaDelBanco(unittest.TestCase):
                             f"tests/banco/{ruta.name}::{clase.name}::{metodo.name}"
                         )
         self.assertEqual(marcados, set(XFAIL_DEL_JOB))
-        # Desde la 031, un HALLAZGO: el proxy WebSocket del Supervisor
-        # rechaza `hassio/*` a las apps (`cobertura_031.DENEGADAS_POR_EL_PROXY_031`).
-        self.assertEqual(set(XFAIL_DEL_JOB), {
-            "tests/banco/test_banco_backups_ajustes.py::TestAgentesYAjustes::"
-            "test_ajustes_previos_a_actualizar_sin_supervisor",
-        })
+        self.assertEqual(XFAIL_DEL_JOB, {})
 
 
 

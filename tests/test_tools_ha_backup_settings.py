@@ -1,9 +1,9 @@
-"""Agentes y ajustes de los backups de HA (spec 031, tramo 1: T003, T004, T005).
+"""Agentes y ajustes de los backups de HA (spec 031, tramo 1: T003 y T004).
 
-`ha_list_backup_agents`, `ha_update_backup_config`,
-`ha_get_update_backup_settings` y `ha_set_update_backup_settings` con
-`ws_send` simulado. Datos ficticios (`hassio.nas_backups`, `cloud.cloud`,
-`centinela-031`).
+`ha_list_backup_agents` y `ha_update_backup_config` con `ws_send` simulado.
+Los tests de T005 (`hassio/update/config/*`) se quitaron con sus tools: el
+proxy del Supervisor rechaza `hassio/*` a las apps. Datos ficticios
+(`hassio.nas_backups`, `cloud.cloud`, `centinela-031`).
 
 `backup/config/info` devuelve la clave de cifrado de los backups EN CLARO: el
 centinela de esa clave no puede salir en ninguna respuesta, vista previa,
@@ -124,12 +124,6 @@ def _respuestas(**extra: Any) -> dict[str, Any]:
         "backup/agents/info": _agents_info(),
         "backup/info": _backup_info(),
         "backup/config/update": None,
-        "hassio/update/config/info": {
-            "core_backup_before_update": True,
-            "add_on_backup_before_update": True,
-            "add_on_backup_retain_copies": 3,
-        },
-        "hassio/update/config/update": None,
     }
     r.update(extra)
     return r
@@ -394,68 +388,6 @@ class TestUpdateBackupConfig(_Base):
         token = json.loads(
             (Path(self.temp_dir.name) / f"{vista['confirmation_token']}.json").read_text())
         self.assertEqual(token["state"], "failed")
-
-
-# ── T005: ha_get_update_backup_settings y ha_set_update_backup_settings ────
-
-class TestUpdateBackupSettings(_Base):
-    async def test_leer(self) -> None:
-        r = await self.t["ha_get_update_backup_settings"]()
-        self.assertEqual(r, {"core_backup_before_update": True,
-                             "add_on_backup_before_update": True,
-                             "add_on_backup_retain_copies": 3})
-
-    async def test_sin_hassio(self) -> None:
-        self.montar(_respuestas(**{"hassio/update/config/info": HAConnectionError(
-            "Unknown command.", code="unknown_command")}))
-        r = await self.t["ha_get_update_backup_settings"]()
-        self.assertEqual(r["error"], "supervisor_integration_unavailable")
-        r = await self.t["ha_set_update_backup_settings"](core_backup_before_update=False)
-        self.assertEqual(r["error"], "supervisor_integration_unavailable")
-
-    async def test_validacion(self) -> None:
-        for args, campo in (({}, "arguments"),
-                            ({"add_on_backup_retain_copies": 0}, "add_on_backup_retain_copies"),
-                            ({"add_on_backup_retain_copies": 101}, "add_on_backup_retain_copies"),
-                            ({"add_on_backup_retain_copies": True}, "add_on_backup_retain_copies"),
-                            ({"core_backup_before_update": "no"}, "core_backup_before_update")):
-            with self.subTest(args=args):
-                r = await self.t["ha_set_update_backup_settings"](**args)
-                self.assertEqual(r["error"], "invalid_argument")
-                self.assertEqual(r["field"], campo)
-        self.assertEqual(self.ha.enviados, [])
-
-    async def test_vista_previa_y_confirmacion(self) -> None:
-        args = {"add_on_backup_retain_copies": 1, "core_backup_before_update": False}
-        vista = await self.t["ha_set_update_backup_settings"](**args)
-        p = vista["preview"]
-        self.assertNotIn("hassio/update/config/update", self.ha.tipos())
-        self.assertEqual(p["current"]["add_on_backup_retain_copies"], 3)
-        self.assertEqual(p["resulting"], {"core_backup_before_update": False,
-                                          "add_on_backup_before_update": True,
-                                          "add_on_backup_retain_copies": 1})
-        self.assertEqual(p["changed"], ["core_backup_before_update",
-                                        "add_on_backup_retain_copies"])
-        avisos = " ".join(p["warnings"])
-        self.assertIn("newest 1", avisos)
-        self.assertIn("Updating Core will no longer make a backup first", avisos)
-        r = await self.t["ha_set_update_backup_settings"](
-            **args, confirmation_token=vista["confirmation_token"])
-        self.assertEqual(r["result"], "ok")
-        self.assertEqual(self.ha.enviados[-1], {"type": "hassio/update/config/update",
-                                                "core_backup_before_update": False,
-                                                "add_on_backup_retain_copies": 1})
-
-    async def test_estado_cambiado(self) -> None:
-        args = {"add_on_backup_retain_copies": 1}
-        vista = await self.t["ha_set_update_backup_settings"](**args)
-        self.ha.respuestas["hassio/update/config/info"] = {
-            "core_backup_before_update": False, "add_on_backup_before_update": True,
-            "add_on_backup_retain_copies": 3}
-        r = await self.t["ha_set_update_backup_settings"](
-            **args, confirmation_token=vista["confirmation_token"])
-        self.assertEqual(r["error"], "state_changed")
-        self.assertNotIn("hassio/update/config/update", self.ha.tipos())
 
 
 if __name__ == "__main__":

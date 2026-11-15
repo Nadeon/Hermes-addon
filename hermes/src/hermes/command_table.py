@@ -270,8 +270,8 @@ CORE_WS: dict[str, E] = {
     "hardware/info": E("deny", "placa/hardware: ya lo da sv_get_host_info (clase B)", "generic_commands"),
     "hardware/subscribe_system_status": E("deny", "suscripción/streaming: MCP es petición-respuesta (ha_wait_for_event cubre esperas puntuales) (clase B)", "generic_commands"),
     "hassio/update/addon": E("dedicated", "cubierto por sv_update_addon", "supervisor", tool="sv_update_addon"),
-    "hassio/update/config/info": E("dedicated", "cubierto por ha_get_update_backup_settings", "backup_integration", tool="ha_get_update_backup_settings", cap="CAP-057"),
-    "hassio/update/config/update": E("dedicated", "cubierto por ha_set_update_backup_settings", "backup_integration", tool="ha_set_update_backup_settings", cap="CAP-057"),
+    "hassio/update/config/info": E("deny", "el proxy WS del Supervisor rechaza los comandos `hassio/*` y `supervisor/*` de las apps (DENIED_WS_TYPE_PREFIXES, Supervisor 2026.11.0)", "generic_commands", cap="CAP-057"),
+    "hassio/update/config/update": E("deny", "el proxy WS del Supervisor rechaza los comandos `hassio/*` y `supervisor/*` de las apps (DENIED_WS_TYPE_PREFIXES, Supervisor 2026.11.0)", "generic_commands", cap="CAP-057"),
     # `hassio.core_update` ya no existe en 2026.11: la vía es `update.install` sobre
     # la entidad update de Core, que está en la denylist (dos pasos). Ver la nota de
     # `backup/generate_with_automatic_settings` (T046).

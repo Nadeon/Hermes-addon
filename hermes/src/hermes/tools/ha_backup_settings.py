@@ -1,21 +1,27 @@
 """Hermes — Agentes y ajustes de los backups de Home Assistant (spec 031, tramo 1).
 
-Cuatro tools de la familia `backup_integration` (CAP-057 de la 008):
+Dos tools de la familia `backup_integration` (CAP-057 de la 008):
 
 - `ha_list_backup_agents`: dónde puede guardar HA sus backups (local, montajes
   de red del Supervisor, nube…), con su cifrado y su retención.
 - `ha_update_backup_config`: programación, retención, agentes y contenido de
   los backups automáticos, en dos pasos.
-- `ha_get_update_backup_settings` y `ha_set_update_backup_settings`: si HA
-  hace un backup antes de actualizar Core o una app, y cuántos guarda.
 
-POR QUÉ CONFIRMAN LAS DOS QUE ESCRIBEN
---------------------------------------
+NO HAY TOOLS DE `hassio/update/config/*`
+---------------------------------------
+Si HA hace un backup antes de actualizar Core o una app (y cuántos guarda) se
+ajusta con `hassio/update/config/info` y `hassio/update/config/update`, pero
+Hermes es una app y habla con Core por el proxy WebSocket del Supervisor, que
+rechaza todo `hassio/*` y `supervisor/*` de las apps con «Unauthorized»
+(`DENIED_WS_TYPE_PREFIXES`, Supervisor 2026.11.0). Una tool que no puede
+funcionar mentiría (principio V): la tabla de comandos los deja en `deny`.
+
+POR QUÉ CONFIRMA LA QUE ESCRIBE
+------------------------------
 Cambiar la retención BORRA backups: HA aplica la nueva regla por días al día
-siguiente y la de copias al terminar el siguiente backup automático. Poner un
-agente en `protected: false` sube la casa entera (con `secrets.yaml`) sin
-cifrar. Y quitar el backup previo a actualizar deja una actualización sin
-vuelta atrás. La vista previa dice lo que cambia, lo que HA borraría (una
+siguiente y la de copias al terminar el siguiente backup automático. Y poner
+un agente en `protected: false` sube la casa entera (con `secrets.yaml`) sin
+cifrar. La vista previa dice lo que cambia, lo que HA borraría (una
 ESTIMACIÓN con sus reglas, `backup_retention_estimate.py`) y los avisos; el
 token ata los argumentos y la huella de la configuración leída y de lo que se
 estimó borrar (estado atado de la spec 018): si algo cambia en los 60 s del
@@ -73,7 +79,6 @@ _MAX_LISTA = 100
 _MAX_NOMBRE = 255
 # Cuántos backups enseña la estimación de la retención como mucho.
 _MAX_WOULD_DELETE = 50
-_MAX_COPIAS_ACTUALIZAR = 100
 
 # `<dominio>.<id>`: `backup.local`, `hassio.nas_backups`, `cloud.cloud`. El id
 # lo pone cada integración (a veces un identificador de su servicio), así que
@@ -81,15 +86,6 @@ _MAX_COPIAS_ACTUALIZAR = 100
 _AGENTE_RE = re.compile(r"^[a-z0-9_]+\.[^\s\x00-\x1f\x7f]{1,200}$")
 _SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 _HORA_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$")
-
-_UPDATE_CAMPOS = ("core_backup_before_update", "add_on_backup_before_update",
-                  "add_on_backup_retain_copies")
-
-_NO_SUPERVISOR = {
-    "error": "supervisor_integration_unavailable",
-    "detail": "The Home Assistant Supervisor integration (hassio) is not loaded: "
-              "these settings only exist on installations with a Supervisor.",
-}
 
 _ESTIMACION_DETALLE = (
     "Computed with Home Assistant's retention rules; it depends on what "
@@ -571,123 +567,4 @@ def register(
         resultado = {"result": "ok", "changed": cambios}
         await complete_confirmation_token(confirmation_token, success=True, result=resultado)
         logger.info(f"{tool}_ok", changed=len(cambios), would_delete=len(ids_borrar))
-        return resultado
-
-    # ── hassio/update/config ──────────────────────────────────────────────
-
-    async def _ajustes_actualizar() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        data, err = await _leer("hassio/update/config/info", sin_integracion=_NO_SUPERVISOR)
-        if err:
-            return None, err
-        if not isinstance(data, dict):
-            return None, {"error": "unexpected_response from hassio/update/config/info"}
-        return {k: _hb._escalar(data.get(k)) for k in _UPDATE_CAMPOS}, None
-
-    @mcp.tool()
-    @ready
-    async def ha_get_update_backup_settings() -> object:
-        """Get whether Home Assistant backs up before updating (HA 2025.1+, read-only).
-
-        Returns {"core_backup_before_update", "add_on_backup_before_update",
-        "add_on_backup_retain_copies"}. Needs the Supervisor integration
-        (hassio): elsewhere returns {"error": "supervisor_integration_unavailable"}.
-        """
-        if (err := await _hb.comprobar_version_backup(ha_client)):
-            return err
-        actual, err = await _ajustes_actualizar()
-        if err:
-            return err
-        logger.info("ha_get_update_backup_settings_ok")
-        return actual
-
-    @mcp.tool()
-    @ready
-    async def ha_set_update_backup_settings(
-        core_backup_before_update: bool | None = None,
-        add_on_backup_before_update: bool | None = None,
-        add_on_backup_retain_copies: int | None = None,
-        confirmation_token: str | None = None,
-    ) -> object:
-        """Change whether Home Assistant backs up before updating (HA 2025.1+).
-
-        Two steps: without confirmation_token returns a preview (current and
-        resulting settings, what changes, warnings) and a token; repeat the
-        same call with the token to apply. Turning a backup off leaves that
-        kind of update without a way back. Needs the Supervisor integration
-        (hassio).
-
-        Args:
-            core_backup_before_update: Back up before updating Core.
-            add_on_backup_before_update: Back up an app before updating it.
-            add_on_backup_retain_copies: 1-100 backups kept per app; on each
-                app update, HA deletes that app's older update backups.
-            confirmation_token: Token from the preview call.
-
-        Returns:
-            Preview + token; {"result": "ok", "changed": [...]}; or
-            {"error": ...}.
-        """
-        tool = "ha_set_update_backup_settings"
-        pedido = {
-            "core_backup_before_update": core_backup_before_update,
-            "add_on_backup_before_update": add_on_backup_before_update,
-            "add_on_backup_retain_copies": add_on_backup_retain_copies,
-        }
-        if all(v is None for v in pedido.values()):
-            return _invalido(_Invalido("arguments", "pass at least one setting"))
-        for clave in ("core_backup_before_update", "add_on_backup_before_update"):
-            if pedido[clave] is not None and not isinstance(pedido[clave], bool):
-                return _invalido(_Invalido(clave, "must be true or false"))
-        copias = add_on_backup_retain_copies
-        if copias is not None and (not _es_entero(copias)
-                                   or not 1 <= copias <= _MAX_COPIAS_ACTUALIZAR):
-            return _invalido(_Invalido("add_on_backup_retain_copies",
-                                       f"must be an integer from 1 to {_MAX_COPIAS_ACTUALIZAR}"))
-        if (err := await _hb.comprobar_version_backup(ha_client)):
-            return err
-        actual, err = await _ajustes_actualizar()
-        if err:
-            return err
-        carga = {k: v for k, v in pedido.items() if v is not None}
-        resultante = {**actual, **carga}
-        cambios = [k for k in _UPDATE_CAMPOS if actual.get(k) != resultante.get(k)]
-
-        if not confirmation_token:
-            avisos = []
-            previas = actual.get("add_on_backup_retain_copies")
-            if copias is not None and _es_entero(previas) and copias < previas:
-                avisos.append(
-                    "On the next update of each app, Home Assistant deletes that app's "
-                    f"update backups beyond the newest {copias}."
-                )
-            for clave, texto in (("core_backup_before_update", "Core"),
-                                 ("add_on_backup_before_update", "an app")):
-                if actual.get(clave) is True and resultante.get(clave) is False:
-                    avisos.append(f"Updating {texto} will no longer make a backup first.")
-            preview = {
-                "action": "set_update_backup_settings",
-                "current": actual, "resulting": resultante,
-                "changed": cambios, "warnings": avisos,
-            }
-            logger.info(f"{tool}_preview", changed=len(cambios))
-            return await create_confirmation_token(tool, pedido, preview=preview, estado=actual)
-
-        ok, error, _ = await resolve_confirmation_token(
-            confirmation_token, tool, pedido, estado=actual)
-        if not ok:
-            if error == ESTADO_CAMBIADO:
-                logger.warning(f"{tool}_error", code="state_changed")
-                return {"error": "state_changed", "detail": error}
-            logger.warning(f"{tool}_error", code="token_invalid")
-            return {"error": error}
-        try:
-            await ha_client.ws_send({"type": "hassio/update/config/update", **carga})
-        except HAConnectionError as exc:
-            detalle = _error_ha(exc)
-            await complete_confirmation_token(confirmation_token, success=False, error=detalle)
-            logger.warning(f"{tool}_error", code=exc.code or "connection")
-            return {"error": detalle}
-        resultado = {"result": "ok", "changed": cambios}
-        await complete_confirmation_token(confirmation_token, success=True, result=resultado)
-        logger.info(f"{tool}_ok", changed=len(cambios))
         return resultado

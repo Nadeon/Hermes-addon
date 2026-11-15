@@ -90,8 +90,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         )
         # Las 124 de la 1.1.2, las 2 genéricas de escritura de la 011 y las
         # 3 de la 012 (2 de logs del tramo A y el descarte de notificaciones
-        # del tramo B) y 2 de la 031 (tramo 1: ajustes de los backups de HA).
-        self.assertEqual(len(reales), 131)
+        # del tramo B) y 1 de la 031 (tramo 1: `ha_update_backup_config`).
+        self.assertEqual(len(reales), 130)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -186,27 +186,15 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             excepcion = marcas[0].kwargs.get("raises")
             self.assertNotIn(excepcion, (None, AssertionError, Exception, BaseException), nodeid)
 
-    def test_hallazgo_de_la_031_con_su_xfail(self) -> None:
-        # El mismo contrato que los de la 028 para el HALLAZGO del proxy del
-        # Supervisor: cada xfail apunta a un test que existe, es estricto,
-        # espera una excepción concreta, dice HALLAZGO y documenta una tool de
-        # `DENEGADAS_POR_EL_PROXY_031`. Control negativo, comprobado: sin
-        # `strict=True` en la marca, cae.
-        self.assertLessEqual(set(c031.XFAIL_PERMITIDOS_031.values()),
-                             set(c031.DENEGADAS_POR_EL_PROXY_031))
-        for tool, motivo in c031.DENEGADAS_POR_EL_PROXY_031.items():
-            self.assertIn("HALLAZGO", motivo, tool)
-        for nodeid in c031.XFAIL_PERMITIDOS_031:
-            ruta, clase, metodo = nodeid.split("::")
-            self.assertTrue((RAIZ / ruta).is_file(), nodeid)
-            modulo = importlib.import_module(ruta.removesuffix(".py").replace("/", "."))
-            prueba = getattr(getattr(modulo, clase), metodo)
-            marcas = [m for m in getattr(prueba, "pytestmark", []) if m.name == "xfail"]
-            self.assertEqual(len(marcas), 1, nodeid)
-            self.assertIs(marcas[0].kwargs.get("strict"), True, nodeid)
-            self.assertIn("HALLAZGO", marcas[0].kwargs.get("reason", ""), nodeid)
-            excepcion = marcas[0].kwargs.get("raises")
-            self.assertNotIn(excepcion, (None, AssertionError, Exception, BaseException), nodeid)
+    def test_031_sin_xfail_ni_tools_de_hassio(self) -> None:
+        # El HALLAZGO del tramo 1 (el proxy WebSocket del Supervisor rechaza
+        # `hassio/*` a las apps) se resolvió quitando las dos tools de
+        # `hassio/update/config/*`: no queda ningún `xfail` de la 031 ni
+        # ninguna de las dos en sus listas.
+        self.assertEqual(c031.XFAIL_PERMITIDOS_031, {})
+        quitadas = {"ha_get_update_backup_settings", "ha_set_update_backup_settings"}
+        self.assertFalse(quitadas & (set(c031.PROBADAS_031) | set(c031.LECTURAS_EN_BANCO_031)
+                                     | set(c031.NO_EJECUTABLES_031)))
 
 
 if __name__ == "__main__":

@@ -127,8 +127,8 @@ _CATALOGO: tuple[Familia, ...] = (
     # restaurar). Familia propia y no `backups` (1.1.2), para que apagar las
     # de la 1.2.0 deje la lista de la 1.1.2 (FR-010 de la 008).
     Familia("backup_integration",
-            "Home Assistant backup integration: backup agents, automatic backup "
-            "settings and backups before updates.",
+            "Home Assistant backup integration: backup agents and automatic "
+            "backup settings.",
             "1.2.0", True, ("ha_backup_settings",)),
 )
 
