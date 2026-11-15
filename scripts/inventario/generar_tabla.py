@@ -47,6 +47,21 @@ Primera generación (sin tabla previa), por fila (research R-4):
   nueva la nombra el test de la clase C hasta que alguien lea su handler);
 - `/core/api*` y `/homeassistant/api*` → `deny`, por encima de todo lo demás.
 
+LA GENERACIÓN DESDE CERO NO ES LA TABLA DE CIERRE
+-------------------------------------------------
+Generar sin tabla previa sirve para comprobar las reglas, no para sustituir la
+tabla: las filas que se clasifican A MANO salen «pendiente de tool dedicada
+(spec NNN)» (clase A de vía D sin tool en `_DEDICADAS_INICIALES`) o con el
+motivo `PROVISIONAL` (clase A de vía T, por verbo). Con los inventarios de
+2026.11.1 / 2026.11.0 son 23 «pendiente» (14 de Core y 9 del Supervisor) y
+102 «provisional» (53 y 49); la tabla revisada no tiene ninguna, porque cada
+una se revisó comando a comando. La REFERENCIA es la tabla revisada
+(`hermes/src/hermes/command_table.py`), que la regeneración en su sitio
+conserva byte a byte. `TestFilasClasificadasAMano` (tests/test_generar_tabla.py)
+fija esos recuentos para que no crezcan sin querer: una fila nueva que se
+quede en «pendiente» o «provisional» desde cero tiene que pasar al mapa o
+subir el recuento a propósito.
+
 Solo lee texto (TSV y la tabla previa, por AST) y el árbol de tools por AST:
 no importa ni ejecuta nada de lo que lee. Importa `hermes.tool_families`
 (módulo neutral) para la familia de cada tool dedicada.

@@ -173,6 +173,12 @@ nunca.
 5. **Deriva**: test que carga los dos TSV y la tabla y compara claves; el test
    de verbos recorre la tabla. Con una HA nueva: regenerar inventario → el test
    falla con la lista de diferencias → clasificar → verde.
+   La generación DESDE CERO (`scripts/inventario/generar_tabla.py` sin tabla
+   previa) no es la tabla de cierre: las filas que se clasifican a mano salen
+   «pendiente de tool dedicada» (23) o «provisional» (102). La referencia es
+   la tabla revisada, que la regeneración en su sitio conserva;
+   `TestFilasClasificadasAMano` (`tests/test_generar_tabla.py`) fija los
+   recuentos (T034).
 6. **Banco de Core**: job de GitHub Actions con la imagen de Core por digest
    como servicio; onboarding por REST y token de larga duración por WebSocket
    generados en el job; Supervisor simulado (aiohttp) en `tests/` que responde
@@ -196,7 +202,7 @@ cambio transversal o de una tool existente, **M** = manual o documental.
 | CAP-004 | alta | 011 | FR-010 | X | `tool_families.py` y `tool_families_disabled`: `TestCatalogo`, `TestValidarDesactivadas`, `TestAliasDeFamilias` (`tests/test_tool_families.py`), `TestToolFamiliesDisabled` (`tests/test_config_validation.py`), `TestRegistroPorFamilias` con SC-005 (`tests/test_tools_registration.py`), `TestFamiliasDesactivadasInyectadas`, `TestFamiliasDesdeElRegistro` (`tests/test_tools_generic_commands.py`) |
 | CAP-005 | alta | 010 | FR-013 | X | job del banco en el CI: `tests/test_banco_workflow.py`, `tests/banco/test_banco_humo.py` |
 | CAP-006 | alta | 014 | FR-016 | M | procedimiento `docs/BANCO-SUPERVISOR.md` y matriz en la hoja de ruta: `tests/test_matriz_pruebas.py` (`test_procedimiento_con_sus_secciones`) |
-| CAP-007 | media-alta | 011 | FR-005 | X | `scripts/inventario/extraer.py` y `generar_tabla.py`: `TestDeriva` (`tests/test_command_table.py`), `tests/test_command_inventory.py`, `tests/test_generar_tabla.py`, `tests/test_extractor_inventario.py` |
+| CAP-007 | media-alta | 011 | FR-005 | X | `scripts/inventario/extraer.py` y `generar_tabla.py`: `TestDeriva` (`tests/test_command_table.py`), `tests/test_command_inventory.py`, `tests/test_generar_tabla.py` (con `TestFilasClasificadasAMano`, T034), `tests/test_extractor_inventario.py` |
 | CAP-008 | media | 011 | FR-011 | X | `hermes_guide(topic="generic_commands", search=…)`: `TestTemaGenericCommands` (`tests/test_tools_guide.py`), `TestRegistro.test_la_guia_que_citan_existe_y_busca` (`tests/test_tools_generic_commands.py`) |
 | CAP-010 | alta | 009 | FR-025 | X | `TestRedaccionLineal` y `TestRedaccionDiferencial` (`tests/test_redact_secrets.py`) |
 | CAP-011 | media | 009 | FR-026 | X | `TestHostsDeLasUrlsDeHA` (`tests/test_log_redact_network.py`), `TestUrlsDeHAAlConectar` (`tests/test_ha_ws_reliability.py`) |
