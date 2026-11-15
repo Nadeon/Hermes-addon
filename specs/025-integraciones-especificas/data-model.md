@@ -14,7 +14,7 @@ existentes.
 | `cap` | la del inventario (CAP-100…CAP-106); no cambia |
 | `one_shot` | `True` en las cinco suscripciones de R-2 (solo `read`) |
 | `response` | `json` (por defecto) |
-| `redact_extra` | `("dsk",)`, `("network_key", "tc_link_key", "key_table", "stack_specific")` (tres de ZHA), `("active_dataset_tlvs",)` o `("code", "transmitted")` (`mqtt/device/debug_info`) |
+| `redact_extra` | `("dsk",)`, `("network_key", "tc_link_key", "key_table", "stack_specific")` (tres de ZHA), `("active_dataset_tlvs",)` o `("code", "transmitted", "messages.payload")` (`mqtt/device/debug_info`; una clave con punto, `padre.hija`, tapa `hija` solo dentro de `padre`: convergencia, T049) |
 | `open_world` | `True` en `zwave_js/check_for_config_updates` (`read`) y `zwave_js/install_config_update` (`confirm`) |
 | `example` | las seis cargas de ejemplo de R-1 (datos ficticios, sin `id` ni `type`) |
 

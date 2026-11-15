@@ -408,7 +408,7 @@ iguales en las 192 filas, 73/57/62, ninguna «spec 025» ni «sin revisar»,
 centinelas con la forma real de HA, suite con solo los 6 fallos conocidos de
 Windows); quedan estos hallazgos de la revisión.
 
-- [ ] T047 [ALTO] `ha_call_ws_command` (`hermes/src/hermes/tools/generic_commands.py`)
+- [x] T047 [ALTO] `ha_call_ws_command` (`hermes/src/hermes/tools/generic_commands.py`)
   rechaza, sin token y sin llamar a HA, una carga que lleve `***REDACTED***`
   en cualquier valor de texto (error propio, p. ej. `redacted_value_in_payload`,
   con las rutas, nunca los valores), como ya hacen `_flujos.py`, `energy.py`
@@ -420,7 +420,7 @@ Windows); quedan estos hallazgos de la revisión.
   entrada que `zha/configuration/update` REEMPLAZA la configuración propia
   entera (lo que no se envía vuelve al valor por defecto). Test de ejecución
   con la forma real de `zha/configuration`, con control negativo.
-- [ ] T048 [MEDIO] `_valores_secretos` (`hermes/src/hermes/tools/addons.py`)
+- [x] T048 [MEDIO] `_valores_secretos` (`hermes/src/hermes/tools/addons.py`)
   vuelve a recoger los secretos que `tapar_entero` tapa enteros: si el valor
   redactado es el marcador y el original es un objeto o una lista, todos sus
   textos (con `_hojas`) cuentan como secretos. Regresión de D-2: con
@@ -429,7 +429,7 @@ Windows); quedan estos hallazgos de la revisión.
   genérico y deja el secreto a la vista (antes de la 025 sí lo daba). Test
   con control negativo; revisar si otra función compara el original con
   `redact_structure` recorriendo los dos a la vez.
-- [ ] T049 [MEDIO] `mqtt/device/debug_info`: los mensajes RECIBIDOS
+- [x] T049 [MEDIO] `mqtt/device/debug_info`: los mensajes RECIBIDOS
   (`subscriptions[].messages[].payload`, texto libre del dispositivo) salen
   sin tapar aunque lleven un código (un teclado que publica
   `{"action": "disarm", "action_code": "4321"}` en su topic de estado);
@@ -439,7 +439,35 @@ Windows); quedan estos hallazgos de la revisión.
   todo caso que el motivo de la entrada, la guía y el CHANGELOG digan
   exactamente qué sale tapado. Centinela con la forma real de
   `_info_for_entity` (`mqtt/debug_info.py`).
-- [ ] T050 [BAJO] `hermes/CHANGELOG.md` (seguridad, primera viñeta): «Lo
+- [x] T050 [BAJO] `hermes/CHANGELOG.md` (seguridad, primera viñeta): «Lo
   mismo para las claves extra (`redact_extra`)» no es exacto; bajo una clave
   de `redact_extra` también se tapan los booleanos y los objetos o listas
   vacíos (solo se conservan `null` y la cadena vacía). Ajustar el texto.
+
+Notas de la convergencia (al hacerla):
+- T047: decisión del supervisor, más amplia que la tarea: también
+  `sv_call_api`, y el marcador cuenta en valores, en claves y dentro de un
+  texto. Helper común `rutas_con_marcador` y error
+  `redacted_value_in_payload` en `tools/_common.py` (rutas, nunca valores;
+  como mucho 20). Se comprueba tras clasificar el comando y ANTES del token,
+  en los dos pasos. Escenario de `sv_call_api`: `POST /docker/registries`
+  (`create_registry` sobrescribe el registro con la contraseña). Tools
+  dedicadas revisadas: ya rechazaban el marcador `sv_set_addon_options`,
+  `ha_update_energy_prefs`, `sv_create_mount` y `sv_update_mount`,
+  `ha_continue_config_entry_flow`, `ha_continue_subentry_flow`,
+  `ha_continue_reconfigure_flow` y `ha_continue_repair_fix`. Lovelace,
+  automatizaciones, scripts, escenas, ficheros y el options flow leen sin
+  tapar (no puede salir de ellas un marcador que reenviar); las opciones de
+  Core y del Supervisor solo admiten booleanos y enumerados, y
+  `sv_add_store_repository` crea un repositorio nuevo, no machaca nada.
+  Ninguna dedicada de esta rama necesitó el cambio.
+- T048: además de objetos y listas, un número bajo una clave sensible (que
+  `tapar_entero` también tapa) cuenta como secreto. `_valores_secretos` es la
+  única función que recorre el original y `redact_structure` a la vez.
+- T049: se tapa el `payload` de cada mensaje recibido con una clave extra
+  con punto, `messages.payload` (`padre.hija`: `hija` solo dentro de
+  `padre` o de los objetos de su lista), nueva en `_redactar`. Una clave
+  `payload` sin padre habría tapado también el descubrimiento, que es la
+  configuración que se quiere ver. Motivo de la tabla (y del mapa del
+  generador), guía, CHANGELOG y data-model al día; el centinela de
+  `TestResto` espera ahora el `payload` recibido tapado.

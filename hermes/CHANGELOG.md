@@ -1264,8 +1264,10 @@ Seguridad:
   clave es sensible, el valor entero (texto, número, objeto o lista) sale
   como `***REDACTED***`; `null`, los booleanos y lo vacío se conservan. Un
   número legítimo bajo una clave sensible (`token_expiry_seconds`) sale
-  también tapado, y una lista de secretos es un solo marcador. Lo mismo
-  para las claves extra de una entrada de la tabla (`redact_extra`).
+  también tapado, y una lista de secretos es un solo marcador. Bajo una
+  clave extra de una entrada de la tabla (`redact_extra`) se tapa aún más:
+  todo salvo `null` y la cadena vacía, también los booleanos y los objetos
+  o listas vacíos.
 - **Las claves S0 y S2 de Z-Wave se reconocen como secretos.** La
   integración las guarda en las opciones de la app Z-Wave JS como
   `s0_legacy_key`, `s2_access_control_key`, `s2_authenticated_key`,
@@ -1284,10 +1286,29 @@ Seguridad:
   `zha/configuration/update`.
 - `insteon/config/get` devuelve la contraseña del hub tapada, y
   `mqtt/device/debug_info`, el `code` del descubrimiento de alarmas y
-  cerraduras MQTT y la lista entera de mensajes que HA envió (el de armar
-  una alarma puede llevar el código dentro del texto); los recibidos siguen
-  visibles. En total, nueve entradas de la clase C tapan secretos, cada una
-  con un test centinela con la forma real de los datos de HA.
+  cerraduras MQTT, la lista entera de mensajes que HA envió (el de armar
+  una alarma puede llevar el código dentro del texto) y el contenido
+  (`payload`) de cada mensaje recibido, que es texto libre del dispositivo
+  (un teclado puede publicar el código que se ha tecleado); de los recibidos
+  se siguen viendo el topic, la fecha, el QoS y `retain`. En total, nueve
+  entradas de la clase C tapan secretos, cada una con un test centinela con
+  la forma real de los datos de HA.
+- **Las genéricas de escritura rechazan el marcador de redacción.**
+  `ha_call_ws_command` y `sv_call_api` rechazan, sin token y sin llamar a
+  nada, una carga que lleve `***REDACTED***` en cualquier valor o clave
+  (`redacted_value_in_payload`, con las rutas, nunca los valores). Leer
+  `zha/configuration`, cambiar otra opción y reenviar `data` entero a
+  `zha/configuration/update` guardaba el marcador como código maestro de la
+  alarma (la actualización REEMPLAZA las opciones propias de ZHA), y la vista
+  previa no lo dejaba ver. Las tools dedicadas que reciben un documento
+  leído ya lo rechazaban: `sv_set_addon_options`, las de energía, los
+  puntos de montaje y los flujos de integración, de subentradas y de
+  reparación.
+- Los errores de `sv_set_addon_options` vuelven a reconocer como secretos los
+  valores de un objeto o una lista bajo una clave sensible
+  (`{"credentials": {"password": …}}`): con el tapado entero se habían dejado
+  de reconocer, y un mensaje del Supervisor que nombrara uno corto salía tal
+  cual en lugar del mensaje genérico.
 
 ### Banco de pruebas
 
