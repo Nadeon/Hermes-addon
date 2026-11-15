@@ -366,6 +366,17 @@ _DEDICADAS_INICIALES: dict[str | tuple[str, str], str | _Deny] = {
     ("GET", "/resolution/info"): "sv_get_resolution",
     ("DELETE", "/resolution/suggestion/{suggestion}"): "sv_dismiss_resolution_suggestion",
     ("DELETE", "/resolution/issue/{issue}"): "sv_dismiss_resolution_issue",
+    # 019: montajes del Supervisor y ajustes de backup (CAP-083), clase A de
+    # vía D, por el mismo mecanismo que las de la 012 y la 029.
+    ("GET", "/mounts"): "sv_list_mounts",
+    ("POST", "/mounts"): "sv_create_mount",
+    ("PUT", "/mounts/{mount}"): "sv_update_mount",
+    ("DELETE", "/mounts/{mount}"): "sv_delete_mount",
+    ("POST", "/mounts/{mount}/reload"): "sv_reload_mount",
+    ("POST", "/mounts/options"): "sv_set_default_backup_mount",
+    ("GET", "/backups/info"): "sv_get_backup_settings",
+    ("POST", "/backups/options"): "sv_set_backup_settings",
+    ("POST", "/backups/reload"): "sv_reload_backups",
     # 013: logs del sistema (CAP-081) y disco, host y OS (CAP-085), clase A de
     # vía D, por el mismo mecanismo que las de la 012 y la 029.
     **{("GET", f"/{origen}/logs{sufijo}"): tool

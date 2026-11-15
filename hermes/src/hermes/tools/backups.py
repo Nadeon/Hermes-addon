@@ -27,6 +27,7 @@ backups consecutivos.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 import time
 from pathlib import Path
@@ -51,6 +52,32 @@ logger = structlog.get_logger(__name__)
 _LONG_OP_TIMEOUT = 300.0  # 5 min
 _SAFETY_BACKUP_STATE_PATH = Path("/data/last_safety_backup.json")
 _SAFETY_BACKUP_MIN_INTERVAL_SECONDS = 60  # límite duro absoluto
+
+
+# ── Ubicación del backup (spec 019, FR-014; research R-9) ────────────────────
+# `.local` es el disco de Home Assistant OS; lo demás, el nombre de un montaje
+# de uso `backup` (la forma de nombre del Supervisor, con el tope de 64 de
+# Hermes). `.cloud_backup` es una ubicación interna de Home Assistant que el
+# Supervisor rechaza a un add-on: decirlo antes evita un error opaco. Que el
+# montaje exista y sea de backup lo comprueba el Supervisor (una lectura
+# previa sería otra llamada y otra carrera).
+_UBICACION = re.compile(r"^(\.local|[A-Za-z0-9_]{1,64})$")
+_DETALLE_UBICACION = (
+    "location must be '.local' (local storage), the name of a backup mount "
+    "(letters, digits or '_') or a non-empty list of those without "
+    "repetitions; '.cloud_backup' is not allowed."
+)
+
+
+def _ubicacion_invalida(location: Any) -> dict[str, Any] | None:
+    """`None` si `location` es válida (o no se pasó); si no, el error."""
+    if location is None:
+        return None
+    valores = location if isinstance(location, list) else [location]
+    if (not valores or len(set(map(str, valores))) != len(valores)
+            or not all(isinstance(v, str) and _UBICACION.match(v) for v in valores)):
+        return {"error": "invalid_argument", "detail": _DETALLE_UBICACION}
+    return None
 
 
 def _load_safety_state() -> dict[str, Any]:
@@ -212,6 +239,7 @@ def register(
     async def sv_create_backup_full(
         name: str,
         password: str | None = None,
+        location: str | list[str] | None = None,
     ) -> object:
         """Crea un backup completo de HAOS.
 
@@ -222,14 +250,25 @@ def register(
         Args:
             name: Nombre descriptivo del backup.
             password: Contraseña opcional para cifrar el backup.
+            location: Opcional. Dónde guardarlo: '.local' (disco local), el
+                nombre de un montaje de uso backup (sv_list_mounts) o una
+                lista de esos (el primero es el principal; el resto, copias).
+                Sin ella, el Supervisor usa el montaje por defecto
+                (sv_get_backup_settings). '.cloud_backup' no se admite.
 
         Returns:
             {"job_id": "...", "status": "running",
-             "poll_with": "sv_get_job_status"}
+             "poll_with": "sv_get_job_status"} (más `location` si se pasó)
         """
+        if (error := _ubicacion_invalida(location)) is not None:
+            return error
         payload: dict[str, Any] = {"name": name, "background": True}
         if password:
             payload["password"] = password
+        # Sin `location`, la carga es la de la 1.1.2 (FR-017 de la 019).
+        if location is not None:
+            payload["location"] = location
+        con_ubicacion = {} if location is None else {"location": location}
 
         try:
             data = await ha_client.sv_request(
@@ -240,17 +279,21 @@ def register(
             job_id = data.get("job_id") if isinstance(data, dict) else None
             if job_id:
                 await _track_job(job_id, {"op": "create_backup_full", "name": name})
-                logger.info("sv_create_backup_full_started", name=name, job_id=job_id)
+                logger.info("sv_create_backup_full_started", name=name, job_id=job_id,
+                            **con_ubicacion)
                 return {
                     "job_id": job_id,
                     "status": "running",
                     "poll_with": "sv_get_job_status",
+                    **con_ubicacion,
                 }
             # Backup completado sincrónicamente (no debería ocurrir con background=True)
             slug = data.get("slug") if isinstance(data, dict) else None
-            return {"result": "ok", "slug": slug}
+            return {"result": "ok", "slug": slug, **con_ubicacion}
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            # Redactado (019): con `location`, el error puede venir del montaje
+            # de un NAS y repetir sus opciones.
+            return {"error": redact_secrets(str(exc))}
 
     @mcp.tool()
     async def sv_create_backup_partial(
@@ -259,6 +302,7 @@ def register(
         folders: str | None = None,
         password: str | None = None,
         include_homeassistant: bool = True,
+        location: str | list[str] | None = None,
     ) -> object:
         """Crea un backup parcial de HAOS.
 
@@ -276,11 +320,18 @@ def register(
             password: Contraseña opcional para cifrar el backup.
             include_homeassistant: Si incluir la configuración de HA
                                    core (default True).
+            location: Opcional. Dónde guardarlo: '.local' (disco local), el
+                nombre de un montaje de uso backup (sv_list_mounts) o una
+                lista de esos (el primero es el principal; el resto, copias).
+                Sin ella, el Supervisor usa el montaje por defecto
+                (sv_get_backup_settings). '.cloud_backup' no se admite.
 
         Returns:
             {"job_id": "...", "status": "running",
-             "poll_with": "sv_get_job_status"}
+             "poll_with": "sv_get_job_status"} (más `location` si se pasó)
         """
+        if (error := _ubicacion_invalida(location)) is not None:
+            return error
         payload: dict[str, Any] = {
             "name": name,
             "background": True,
@@ -298,6 +349,10 @@ def register(
                 payload["folders"] = json.loads(folders)
             except json.JSONDecodeError as exc:
                 return {"error": f"folders must be a JSON array: {exc}"}
+        # Sin `location`, la carga es la de la 1.1.2 (FR-017 de la 019).
+        if location is not None:
+            payload["location"] = location
+        con_ubicacion = {} if location is None else {"location": location}
 
         try:
             data = await ha_client.sv_request(
@@ -308,16 +363,18 @@ def register(
             job_id = data.get("job_id") if isinstance(data, dict) else None
             if job_id:
                 await _track_job(job_id, {"op": "create_backup_partial", "name": name})
-                logger.info("sv_create_backup_partial_started", name=name, job_id=job_id)
+                logger.info("sv_create_backup_partial_started", name=name,
+                            job_id=job_id, **con_ubicacion)
                 return {
                     "job_id": job_id,
                     "status": "running",
                     "poll_with": "sv_get_job_status",
+                    **con_ubicacion,
                 }
             slug = data.get("slug") if isinstance(data, dict) else None
-            return {"result": "ok", "slug": slug}
+            return {"result": "ok", "slug": slug, **con_ubicacion}
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            return {"error": redact_secrets(str(exc))}
 
     @mcp.tool()
     async def sv_create_safety_backup() -> object:

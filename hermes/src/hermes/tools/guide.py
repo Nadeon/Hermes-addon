@@ -83,7 +83,7 @@ reintentar. `done` es true también si falla: cualquier entrada en `errors` da
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
 events, data, registries, diagnostics, config_entries, filesystem, supervisor@TEMA_DIAGNOSTICO@,
-backups, lovelace, marketplace, security@TEMA_GENERICAS@) y
+backups@TEMA_MONTAJES@, lovelace, marketplace, security@TEMA_GENERICAS@) y
 `hermes_guide("workflows")` recetas paso a paso. Sin argumentos devuelve el
 índice.
 """
@@ -112,6 +112,9 @@ def instrucciones(familias_desactivadas: Iterable[str] = ()) -> str:
     texto = texto.replace(
         "@TEMA_DIAGNOSTICO@",
         ", system_diagnostics" if "system_diagnostics" not in desactivadas else "")
+    # Spec 019: el tema de los montajes, solo con su familia activa.
+    texto = texto.replace(
+        "@TEMA_MONTAJES@", ", mounts" if "mounts" not in desactivadas else "")
     return texto.replace("@TEMA_GENERICAS@", ", generic_commands" if activas else "")
 
 
@@ -142,6 +145,7 @@ para el detalle de un área. Temas disponibles:
 - `supervisor`     — apps (add-ons), host y core de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
+- `mounts`         — montajes CIFS, NFS y de disco del Supervisor (backups en un NAS)
 - `lovelace`       — dashboards y recursos del frontend
 - `marketplace`    — Marketplace (antes HACS), de solo lectura
 - `security`       — confirmation tokens, denylist y límites
@@ -722,6 +726,11 @@ avisos de errores fatales), y los errores de los sub-jobs van en
 - Crear (asíncrono, devuelven `job_id`): `sv_create_backup_full`,
   `sv_create_backup_partial`, `sv_create_safety_backup` (full bajo demanda con
   cooldown).
+- Dónde (1.2.0): `sv_create_backup_full` y `sv_create_backup_partial` aceptan
+  `location` opcional: `.local` (disco local), el nombre de un montaje de uso
+  `backup` o una lista de esos (el primero es el principal; el resto, copias).
+  Sin ella, el backup va al montaje por defecto (`sv_get_backup_settings`; ver
+  el tema `mounts`). `.cloud_backup` no se admite.
 - Borrar/restaurar (token): `sv_delete_backup`, `sv_restore_backup_full`
   (¡sobrescribe TODO!), `sv_restore_backup_partial`.
 - Jobs: `sv_get_job_status(job_id)`, `sv_list_pending_jobs`. Mira `success`,
@@ -827,6 +836,66 @@ Otros límites: escritura en /config con rate limit (intervalo mínimo + máx/mi
 respuestas truncadas por tamaño, y `/config` con anti-traversal + blacklist de
 secretos. Si algo te pide confirmación, es por diseño: confirma sólo lo que el
 usuario quiere.
+""",
+    "mounts": """\
+# Montajes del Supervisor (red y disco)
+
+Un montaje conecta un recurso CIFS (Samba/Windows) o NFS de tu red, o un disco
+local, para que el Supervisor guarde ahí backups (`usage="backup"`), medios
+(`media`, en `/media/<nombre>`) o ficheros compartidos (`share`, en
+`/share/<nombre>`).
+
+- `sv_list_mounts` — montajes, su estado (`state`: `active`, `failed`…) y el
+  montaje por defecto de backups (`default_backup_mount`; `null` = disco
+  local). Las credenciales nunca se devuelven.
+- `sv_create_mount` (token) — `type`:
+  - `cifs`: `server` y `share`; `username` y `password` los dos o ninguno (sin
+    ellos monta como invitado); `version` `1.0`, `2.0` o `auto`;
+  - `nfs`: `server` y `path` (export absoluto);
+  - `disk`: un disco local por `device` (bajo `/dev/`) y/o `uuid`, nada más.
+  El Supervisor lo monta al crearlo y, si no puede, no crea nada.
+- `sv_update_mount` (token) — lo que no pases se conserva; `version="auto"`
+  vuelve a la automática. OJO: el Supervisor reemplaza la configuración
+  entera y nunca devuelve las credenciales, así que editar un CIFS sin
+  `username` y `password` las quita si las tenía (la vista previa dice
+  `credentials: "removed_if_present"`). Pásalas siempre que el recurso las
+  pida. Desmonta y vuelve a montar.
+- `sv_delete_mount` (token) — la vista previa dice si es el montaje por
+  defecto y qué backups están ahí: los que solo están ahí dejan de verse y de
+  poder restaurarse desde Home Assistant (los ficheros siguen en el servidor).
+- `sv_reload_mount` — comprueba un montaje caído y lo rearma, sin token.
+- `sv_set_default_backup_mount(name)` (token) — a dónde van los backups sin
+  ubicación, también los safety backups de Hermes; `name=null` vuelve al
+  disco local. Solo montajes de uso `backup`.
+
+Las credenciales entran pero nunca se devuelven: ni en la vista previa, ni en
+la respuesta, ni en un error, ni en el log de Hermes. El token ata los
+argumentos (también la contraseña) y el estado que describe la vista previa:
+si el montaje cambia entre la vista previa y la confirmación, la respuesta es
+`mount_changed` y hay que pedir otra vista previa.
+
+## Llevar los backups a un NAS
+
+1. `sv_create_mount(name="nas_backups", type="cifs", usage="backup",
+   server=..., share=..., username=..., password=...)` → enseña la vista
+   previa al usuario y confirma.
+2. Si no había montaje por defecto, este pasa a serlo; si no,
+   `sv_set_default_backup_mount("nas_backups")`.
+3. Comprueba con `sv_list_mounts` que `state` es `active`. Si falla,
+   `sv_get_resolution` dice por qué y `sv_reload_mount` reintenta.
+4. Los backups nuevos (también `sv_create_safety_backup`) irán al NAS. Para
+   uno concreto en otro sitio, `sv_create_backup_full(..., location=".local")`.
+
+## Ajustes de backup (sin token)
+
+- `sv_get_backup_settings` — `days_until_stale`, el montaje por defecto y los
+  montajes de uso `backup` con su estado (la lista de backups es
+  `sv_list_backups`).
+- `sv_set_backup_settings(days_until_stale)` — días sin un backup completo
+  nuevo tras los que el Supervisor avisa de que los backups están viejos
+  (entero de 1 a 3650, diez años; 30 por defecto). Solo cambia el aviso.
+- `sv_reload_backups` — el Supervisor relee los backups de todas las
+  ubicaciones (p. ej., tras copiar a mano un backup al NAS) y dice cuántos ve.
 """,
     "system_diagnostics": """\
 # Diagnóstico del sistema: logs, disco, host y OS (Supervisor)
@@ -1170,6 +1239,12 @@ _ALIASES: dict[str, str] = {
     "os": "system_diagnostics",
     "jobs": "system_diagnostics",
     "backup": "backups",
+    # Spec 019. `backup` sigue siendo `backups`, como en la 1.1.2.
+    "cifs": "mounts",
+    "nfs": "mounts",
+    "nas": "mounts",
+    "network_storage": "mounts",
+    "backup_settings": "mounts",
     "dashboards": "lovelace",
     "dashboard": "lovelace",
     "hacs": "marketplace",

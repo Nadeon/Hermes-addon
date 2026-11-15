@@ -554,9 +554,10 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         # (`ha_get_config_entry_options` da
         # `not_supported`) y `helpers` (counters); su CHANGELOG lo dice.
         "automations": "7792fa788da1e1cc",
-        # La 027 cambia `backups` (`success` y `child_errors` de los jobs);
-        # su CHANGELOG lo dice.
-        "backups": "d0cfde463c856427",
+        # La 027 cambia `backups` (`success` y `child_errors` de los jobs) y la
+        # 019 (tramo 2) también (`location` en sv_create_backup_*); sus
+        # CHANGELOG lo dicen. Huella recalculada al integrar la 019.
+        "backups": "284e226b8aaf6fed",
         # La 016 cambia `config_entries` (remite a `integration_flows`; el
         # reconfigure va por su tool y el `reauth` pide token), `diagnostics`
         # (textos de los avisos y remite a `repair_flows`) y `helpers`
@@ -932,3 +933,90 @@ class TestGuiaApps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTemaMounts(unittest.IsolatedAsyncioTestCase):
+    """Spec 019, FR-018 (tramo 1): tema `mounts` con las seis tools de
+    montajes, el flujo de llevar los backups a un NAS, que las credenciales
+    no se devuelven y que editar sin ellas las quita; sus alias; el índice y
+    las instrucciones lo nombran solo con la familia activa. El tema
+    `backups` no cambia en este tramo (lo hace el tramo 2).
+
+    Control negativo comprobado: sin el tema, su línea del índice y su
+    hueco en las instrucciones caen los tres (3 failed, 45 passed).
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_las_tools_y_alias(self) -> None:
+        texto = await self.guide("mounts")
+        self.assertIs(texto, _GUIDE["mounts"])
+        for palabra in ("sv_list_mounts", "sv_create_mount", "sv_update_mount",
+                        "sv_delete_mount", "sv_reload_mount",
+                        "sv_set_default_backup_mount", "cifs", "nfs", "disk",
+                        "device", "uuid", "sv_get_resolution", "safety backup",
+                        "removed_if_present", "credentials"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+        # Las frases que importan: no se devuelven y editar sin ellas las
+        # quita; el flujo del NAS.
+        for frase in ("nunca se devuelven", "las quita", "NAS"):
+            with self.subTest(frase=frase):
+                self.assertIn(frase, texto)
+        for alias in ("cifs", "nfs", "nas", "network_storage", "backup_settings",
+                      "NAS"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+        # `backup` sigue llevando a `backups`, como en la 1.1.2.
+        self.assertEqual(await self.guide("backup"), _GUIDE["backups"])
+
+    async def test_las_tools_que_nombra_existen(self) -> None:
+        import re
+
+        from tests.test_tools_registration import _real_registry
+
+        registradas = set(_real_registry())
+        nombradas = set(re.findall(r"\b((?:sv|ha|fs)_[a-z_]+)\b", _GUIDE["mounts"]))
+        self.assertTrue(nombradas)
+        self.assertEqual(sorted(nombradas - registradas), [])
+
+    async def test_indice_e_instrucciones(self) -> None:
+        from hermes.tools.guide import instrucciones
+
+        self.assertIn("`mounts`", await self.guide())
+        self.assertIn("mounts", INSTRUCTIONS)
+        self.assertNotIn("mounts", instrucciones(frozenset({"mounts"})))
+
+
+class TestGuiaCompleta019(unittest.IsolatedAsyncioTestCase):
+    """Spec 019, FR-018 (tramo 2): el tema `mounts` nombra las tres tools de
+    ajustes de backup y `days_until_stale`; el tema `backups` explica
+    `location`, `.local` y que sin ella el backup va al montaje por defecto.
+
+    Control negativo comprobado: quitar `sv_reload_backups` del tema
+    `mounts` → 1 failed (su subtest); quitar «`.cloud_backup` no se admite»
+    de `backups` → 2 failed (su subtest y la huella del tema); restaurado,
+    verde.
+    """
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_mounts_con_los_ajustes(self) -> None:
+        texto = await self.guide("mounts")
+        for palabra in ("sv_get_backup_settings", "sv_set_backup_settings",
+                        "sv_reload_backups", "days_until_stale", "location"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)
+
+    async def test_backups_con_location(self) -> None:
+        texto = await self.guide("backups")
+        for palabra in ("location", ".local", "montaje por defecto",
+                        ".cloud_backup", "sv_create_backup_full"):
+            with self.subTest(palabra=palabra):
+                self.assertIn(palabra, texto)

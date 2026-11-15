@@ -8,7 +8,7 @@ suite normal (sin HA ni Docker):
         ∪ cobertura.FALLAN_EN_BANCO                                  (010, 46 + 1 + 0)
       ∪ cobertura.PROBADAS_GENERICAS ∪ cobertura.NO_EJECUTABLES_GENERICAS (011, 1 + 1)
       ∪ PROBADAS_028 ∪ NO_EJECUTABLES_028                            (028, 53)
-      ∪ FUERA_DEL_BANCO                                              (24)
+      ∪ FUERA_DEL_BANCO                                              (31)
       ∪ cobertura_012.PROBADAS_012 ∪ cobertura_012.NO_EJECUTABLES_012  (012, 3)
 
 «Modifica» = sin `readOnlyHint` en la tabla central de anotaciones
@@ -177,6 +177,13 @@ _SV_AVISOS = (
     "simuladores en la suite normal y en la VM de la 014"
 )
 
+_SV_MONTAJES = (
+    "montajes del Supervisor: necesitan un recurso CIFS o NFS (o un disco) y "
+    "el Supervisor real; se prueban con el Supervisor simulado de "
+    "tests/fixtures/supervisor_montajes.py en la suite normal y en la VM de "
+    "la 014"
+)
+
 # Solo `fs_*` y `sv_*`: una `ha_*` que no se pueda ejecutar va a
 # `NO_EJECUTABLES_028` con su motivo, nunca aquí (lo vigila el invariante).
 FUERA_DEL_BANCO: dict[str, str] = {
@@ -204,4 +211,15 @@ FUERA_DEL_BANCO: dict[str, str] = {
     "sv_reboot_host": _SV_REINICIOS,
     "sv_dismiss_resolution_issue": _SV_AVISOS,
     "sv_dismiss_resolution_suggestion": _SV_AVISOS,
+    # Spec 019 (montajes del Supervisor): ni el NAS ni el disco existen en el
+    # Supervisor simulado del banco, que solo reenvía a Core.
+    "sv_create_mount": _SV_MONTAJES,
+    "sv_update_mount": _SV_MONTAJES,
+    "sv_delete_mount": _SV_MONTAJES,
+    "sv_reload_mount": _SV_MONTAJES,
+    "sv_set_default_backup_mount": _SV_MONTAJES,
+    # Spec 019, tramo 2 (ajustes de backup): el Supervisor simulado del banco
+    # no tiene backups ni montajes.
+    "sv_set_backup_settings": _SV_MONTAJES,
+    "sv_reload_backups": _SV_MONTAJES,
 }

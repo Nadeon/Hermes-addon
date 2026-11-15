@@ -54,6 +54,15 @@ paso actual que leen de HA al previsualizar y al confirmar, y el `user_input`
 entero; la de Repairs, también el aviso), y `ha_continue_config_entry_flow`,
 de la 1.1.2, que gana `confirmation_token` solo para los flujos `reauth`
 (mismo esquema de atado que el reconfigure). Ningún hallazgo.
+
+Recuento: 95 desde la integración de la 019 (T033), que trae cuatro tools
+con token, comprobadas en el código: `sv_create_mount` y `sv_update_mount`
+atan sus 13 argumentos tal como llegan (credenciales incluidas; desde la
+019 el `action_hash` es un HMAC-SHA256 con una clave del proceso), y
+`sv_delete_mount` y `sv_set_default_backup_mount`, `name`. El estado que
+cambia la acción (el montaje actual, el por defecto y los backups
+afectados) va además en el `estado` del token. Las otras cinco de la 019
+no piden token. Ningún hallazgo.
 """
 
 from __future__ import annotations
@@ -71,6 +80,11 @@ A = "atado"
 TOKEN = "exento: es el propio token; no puede formar parte de su hash"
 
 # Grupos para no repetir; el dict final se arma abajo.
+# Los 13 argumentos de `sv_create_mount` y `sv_update_mount` (spec 019).
+_CAMPOS_MONTAJE = (
+    "name", "type", "usage", "server", "share", "path", "port", "version",
+    "read_only", "username", "password", "device", "uuid",
+)
 _RECARGAS = (
     "ha_reload_automations",
     "ha_reload_counters",
@@ -207,6 +221,17 @@ INVENTARIO: dict[str, dict[str, str]] = {
     },
     "sv_dismiss_resolution_issue": {"issue_uuid": A},
     "sv_dismiss_resolution_suggestion": {"suggestion_uuid": A},
+    # ── montajes del Supervisor (spec 019, T033) ────────────────────────
+    # Crear y editar atan los 13 argumentos tal como llegan, credenciales
+    # incluidas (el hash es HMAC con la clave del proceso, así que el
+    # fichero del token no sirve para probar contraseñas). Editar fusiona
+    # con el montaje actual, que va en el `estado` del token: si cambió
+    # entre la vista previa y la confirmación, no se envía nada.
+    **{t: {c: A for c in _CAMPOS_MONTAJE} for t in ("sv_create_mount", "sv_update_mount")},
+    # El montaje y el por defecto (y en el borrado, los backups afectados)
+    # van además en el `estado`.
+    "sv_delete_mount": {"name": A},
+    "sv_set_default_backup_mount": {"name": A},
     # ── ficheros ────────────────────────────────────────────────────────
     "fs_write_file": {"path": A, "content": A},
     "fs_delete_file": {"path": A},
@@ -299,8 +324,9 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
     def test_recuento(self) -> None:
         # 79 de la auditoría de la 033 + 2 genéricas de la 011 + la escena
         # desde el estado actual (tramo 2 de la 033) + `ha_call_service_response`
-        # (018) + las tres de la 012 que confirman + las cinco de la 016.
-        self.assertEqual(len(firmas_con_token(TOOLS)), 91)
+        # (018) + las tres de la 012 que confirman + las cinco de la 016 + las
+        # cuatro de montajes de la 019.
+        self.assertEqual(len(firmas_con_token(TOOLS)), 95)
 
     def test_el_token_siempre_exento_y_lo_demas_atado_o_con_motivo(self) -> None:
         for tool, args in INVENTARIO.items():
@@ -320,7 +346,7 @@ class TestInventarioDeArgumentosAtados(unittest.TestCase):
         self.assertEqual(
             diferencias_con_el_registro(firmas_con_token(TOOLS), publicadas), []
         )
-        self.assertEqual(len(publicadas), 91)
+        self.assertEqual(len(publicadas), 95)
 
     def test_las_variables_de_las_entidades_restringidas_quedan_atadas(self) -> None:
         # El hallazgo que origina este inventario (spec 033, FR-001).
