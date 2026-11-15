@@ -198,8 +198,28 @@ def normalize_path(user_path: str) -> Path:
     distinto desde fuera: es una ruta inválida. Si se dejara salir tal cual el
     ValueError/OSError de abajo, la tool reventaría en vez de contestar.
 
+    Desde la 1.2.1 (spec 034) el cuerpo vive en `normalize_in_root`, con la
+    raíz y el alias como parámetros, para que /addons y /share pasen por la
+    MISMA validación. `CONFIG_BASE` se lee aquí, en cada llamada, y no al
+    definir la función: los tests lo parchean.
+
     Raises:
         PathTraversalError: si el path escapa de CONFIG_BASE o es inválido.
+    """
+    return normalize_in_root(user_path, CONFIG_BASE, "/config")
+
+
+def prepare_in_root(user_path: str, root: Path, alias: str) -> str | None:
+    """Pasos 0 a 4 de `normalize_in_root`: la ruta del usuario, ya
+    decodificada, en NFC, sin espacios y relativa a `root`; `None` si es la
+    propia raíz (su ruta real o su alias). No toca el disco.
+
+    Aparte para que quien necesite el último nombre SIN resolver (borrar o
+    mover un symlink en /addons y /share, spec 034) haga exactamente la misma
+    preparación, sin decodificar dos veces.
+
+    Raises:
+        PathTraversalError: ruta vacía o absoluta fuera de `root`.
     """
     if not user_path or not user_path.strip():
         raise PathTraversalError("Empty path is not allowed")
@@ -213,27 +233,38 @@ def normalize_path(user_path: str) -> Path:
     # 3. Strip leading/trailing whitespace
     user_path = user_path.strip()
 
-    # 4. Si es absoluto, acepta CONFIG_BASE real y el alias /config.
+    # 4. Si es absoluto, acepta la raíz real y su alias (/config, /addons…).
     #    Cualquier otra ruta absoluta es rechazada.
-    config_str = str(CONFIG_BASE)
-    config_prefix = config_str.rstrip("/") + "/"
-    config_exact = config_str.rstrip("/")
-    if user_path == config_exact or user_path == "/config":
-        return CONFIG_BASE
-    if user_path.startswith(config_prefix):
-        user_path = user_path[len(config_prefix):]
-    elif user_path.startswith("/config/"):
-        # Traditional /config alias → remap to CONFIG_BASE
-        user_path = user_path[len("/config/"):]
+    root_str = str(root)
+    root_prefix = root_str.rstrip("/") + "/"
+    root_exact = root_str.rstrip("/")
+    alias_prefix = alias.rstrip("/") + "/"
+    if user_path == root_exact or user_path == alias:
+        return None
+    if user_path.startswith(root_prefix):
+        user_path = user_path[len(root_prefix):]
+    elif user_path.startswith(alias_prefix):
+        # Alias tradicional (/config/…) → relativo a la raíz real
+        user_path = user_path[len(alias_prefix):]
     elif user_path.startswith("/"):
         raise PathTraversalError(
-            f"Absolute paths outside /config are forbidden: {user_path!r}"
+            f"Absolute paths outside {alias} are forbidden: {user_path!r}"
         )
+    return user_path
 
+
+def resolve_in_root(user_path: str, root: Path, alias: str) -> Path:
+    """Pasos 5 a 7 de `normalize_in_root` sobre una ruta ya preparada
+    (`prepare_in_root`) y relativa a `root`: límites del kernel, `resolve()`
+    (sigue symlinks) y comprobación de que el resultado sigue dentro.
+
+    Raises:
+        PathTraversalError: ruta demasiado larga, inválida o fuera de `root`.
+    """
     # 5. Forma del nombre: límites del kernel, antes de tocar el disco.
     #    resolve() no valida longitudes, así que sin esto un nombre de 5000
     #    caracteres pasaba de largo y explotaba luego en exists()/open().
-    joined = CONFIG_BASE / user_path
+    joined = root / user_path
     if len(str(joined).encode("utf-8", "surrogatepass")) > _PATH_MAX_BYTES:
         raise PathTraversalError(
             f"Path is too long (max {_PATH_MAX_BYTES} bytes): {user_path[:80]!r}…"
@@ -256,16 +287,33 @@ def normalize_path(user_path: str) -> Path:
             f"Invalid path {user_path[:80]!r}: {exc}"
         ) from exc
 
-    # 7. Verifica que sigue dentro de CONFIG_BASE
+    # 7. Verifica que sigue dentro de la raíz
     try:
-        candidate.relative_to(CONFIG_BASE)
+        candidate.relative_to(root)
     except ValueError:
         raise PathTraversalError(
-            f"Path escapes /config boundary: {user_path!r} "
+            f"Path escapes {alias} boundary: {user_path!r} "
             f"→ {candidate}"
         )
 
     return candidate
+
+
+def normalize_in_root(user_path: str, root: Path, alias: str) -> Path:
+    """`normalize_path` con la raíz como parámetro (spec 034, research R-2).
+
+    Mismos pasos y mismos mensajes (con `alias` donde decían `/config`):
+    vacía, URL-decode, NFC, `strip`, absoluta solo con la raíz real o con
+    `alias`, `NAME_MAX`/`PATH_MAX`, `resolve()` con sus errores traducidos y
+    `relative_to(root)`. Devuelve `root` tal cual si la ruta es la raíz.
+
+    Raises:
+        PathTraversalError: si el path escapa de `root` o es inválido.
+    """
+    relative = prepare_in_root(user_path, root, alias)
+    if relative is None:
+        return root
+    return resolve_in_root(relative, root, alias)
 
 
 # ── Blacklist / Allowlist checks ──────────────────────────────────────────────
@@ -276,6 +324,26 @@ def _rel_posix(path: Path) -> str:
         return path.relative_to(CONFIG_BASE).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def blacklisted_name(name: str) -> tuple[bool, str]:
+    """Pasos 1b y 2 de `check_blacklisted`: la lista negra por NOMBRE de
+    fichero (`BLACKLIST_BASENAMES` y `BLACKLIST_PATTERNS`), sin mirar la ruta.
+
+    Aparte porque es la única parte que tiene sentido fuera de /config: /addons
+    y /share (spec 034, research R-5) protegen por nombre (`secrets.yaml`,
+    `*.pem`, `*token*`…); las reglas de ruta exacta, de directorio y de
+    `.storage` describen /config.
+
+    Returns:
+        (True, reason) si el nombre está bloqueado; (False, "") si no.
+    """
+    if name in BLACKLIST_BASENAMES:
+        return True, "Contains potentially sensitive data"
+    for pat in BLACKLIST_PATTERNS:
+        if fnmatch.fnmatch(name, pat):
+            return True, f"Matches sensitive file pattern {pat!r}"
+    return False, ""
 
 
 def check_blacklisted(path: Path) -> tuple[bool, str]:
@@ -313,14 +381,11 @@ def check_blacklisted(path: Path) -> tuple[bool, str]:
     if rel_str in BLACKLIST_NAMES:
         return True, "Contains potentially sensitive data"
 
-    # 1b. Blacklist por nombre de fichero, en cualquier subdirectorio
-    if name in BLACKLIST_BASENAMES:
-        return True, "Contains potentially sensitive data"
-
-    # 2. Blacklist por patrón (contra el nombre del fichero)
-    for pat in BLACKLIST_PATTERNS:
-        if fnmatch.fnmatch(name, pat):
-            return True, f"Matches sensitive file pattern {pat!r}"
+    # 1b y 2. Blacklist por nombre de fichero (en cualquier subdirectorio) y
+    #    por patrón (contra el nombre del fichero)
+    blacklisted, reason = blacklisted_name(name)
+    if blacklisted:
+        return True, reason
 
     # 3. Directorios blacklisteados (primer componente)
     parts = path.relative_to(CONFIG_BASE).parts if path != CONFIG_BASE else ()
