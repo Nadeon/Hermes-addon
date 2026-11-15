@@ -129,24 +129,59 @@ paralelo con B si no se tocan a la vez los ficheros comunes); D necesita A
 
 ### Tests (escritos antes de T020)
 
-- [ ] T017 [P] [US1] Tests de la vista previa de `ha_import_blueprint` en `tests/test_tools_blueprints.py` (`TestImportar`), con `blueprint/import` simulado: (a) `url` vacía o sin esquema `http(s)` → `invalid_argument` sin `ws_send`; `path` inválido → ídem; (b) vista previa con todos los campos de data-model: `importer` por patrón (foro, GitHub, gist, web de HA, genérico), `path` final (`<suggested_filename>.yaml` o el `path` dado), `full_path`, metadatos, entradas, `content` = `raw_data`, `content_bytes`, `content_sha256` correcto, `on_save`, `_third_party_text`; NINGÚN `blueprint/save`; (c) `validation_errors` no vacío → `invalid_blueprint` sin token; dominio `light` → `invalid_blueprint`; (d) `exists: true` sin `allow_override` → `already_exists` sin token; con `allow_override` → `used_by` y aviso de recarga; (e) `raw_data` que no cabe en `response_max_bytes` → `blueprint_too_large` sin token y sin recortar el YAML; (f) `raw_data` con un centinela → tapado en `content` con `content_redacted: true` y la nota; (g) errores de HA (`not_supported`, `timeout`, `unknown_error`, `invalid_format`) → `import_failed` con `ha_code` y `detail` redactado, sin token; (h) el log no lleva la URL con credenciales (`https://user:centinela-017@example.com/…`) ni el YAML (FR-002, FR-015, FR-016)
-- [ ] T018 [P] [US1] Tests de la confirmación: (a) mismo contenido → `blueprint/import` otra vez y un solo `blueprint/save` con `domain` de los metadatos, `path` final, `yaml` = `raw_data` ORIGINAL (no el tapado), `source_url` = `url` y `allow_override`; (b) contenido distinto en la segunda descarga → `content_changed` con la pista, sin `blueprint/save`; (c) sugerencia de ruta distinta (sin `path`) → `content_changed`; (d) token con otra `url`, otro `path` u otro `allow_override` → rechazado sin `blueprint/save`; reutilizado → rechazado; (e) la segunda descarga falla → `import_failed` sin guardar; (f) `blueprint/save` responde `already_exists` (carrera) → error y token completado con fallo; (g) el fichero del token no contiene el YAML (FR-002, SC-003, SC-004)
+- [x] T017 [P] [US1] Tests de la vista previa de `ha_import_blueprint` en `tests/test_tools_blueprints.py` (`TestImportar`), con `blueprint/import` simulado: (a) `url` vacía o sin esquema `http(s)` → `invalid_argument` sin `ws_send`; `path` inválido → ídem; (b) vista previa con todos los campos de data-model: `importer` por patrón (foro, GitHub, gist, web de HA, genérico), `path` final (`<suggested_filename>.yaml` o el `path` dado), `full_path`, metadatos, entradas, `content` = `raw_data`, `content_bytes`, `content_sha256` correcto, `on_save`, `_third_party_text`; NINGÚN `blueprint/save`; (c) `validation_errors` no vacío → `invalid_blueprint` sin token; dominio `light` → `invalid_blueprint`; (d) `exists: true` sin `allow_override` → `already_exists` sin token; con `allow_override` → `used_by` y aviso de recarga; (e) `raw_data` que no cabe en `response_max_bytes` → `blueprint_too_large` sin token y sin recortar el YAML; (f) `raw_data` con un centinela → tapado en `content` con `content_redacted: true` y la nota; (g) errores de HA (`not_supported`, `timeout`, `unknown_error`, `invalid_format`) → `import_failed` con `ha_code` y `detail` redactado, sin token; (h) el log no lleva la URL con credenciales (`https://user:centinela-017@example.com/…`) ni el YAML (FR-002, FR-015, FR-016)
+- [x] T018 [P] [US1] Tests de la confirmación: (a) mismo contenido → `blueprint/import` otra vez y un solo `blueprint/save` con `domain` de los metadatos, `path` final, `yaml` = `raw_data` ORIGINAL (no el tapado), `source_url` = `url` y `allow_override`; (b) contenido distinto en la segunda descarga → `content_changed` con la pista, sin `blueprint/save`; (c) sugerencia de ruta distinta (sin `path`) → `content_changed`; (d) token con otra `url`, otro `path` u otro `allow_override` → rechazado sin `blueprint/save`; reutilizado → rechazado; (e) la segunda descarga falla → `import_failed` sin guardar; (f) `blueprint/save` responde `already_exists` (carrera) → error y token completado con fallo; (g) el fichero del token no contiene el YAML (FR-002, SC-003, SC-004)
 
 ### Implementación
 
-- [ ] T019 [US1] `ha_import_blueprint` en `hermes/src/hermes/tools/blueprints.py` (research R-1, data-model): `_importador_de(url)` con los patrones de `importer.py` (copiados como constantes con su origen en un comentario), vista previa, huella `sha256` del texto en UTF-8, token atado a `url`, ruta final, `allow_override` y `content_sha256`; confirmación con nueva descarga y `validate_confirmation_token` con los valores recalculados (si no casa, `content_changed`). Docstring que dice que HA descarga, que es texto de terceros y que la vista previa enseña el YAML entero. T017–T018 en verde (FR-002)
-- [ ] T020 [US6] Anotaciones y matriz: `ha_import_blueprint` en `_DESTRUCTIVE_EXACT` y en `_OPEN_WORLD` de `tools/_annotations.py` con su comentario; su fila en la matriz de `docs/HOJA-DE-RUTA.md` (`banco de Core`, `ok`, nota «importador genérico desde `/local/` del banco; GitHub, gist y foro sin probar»), en el MISMO commit que su alta en `PROBADAS_017` (T023). Test en `tests/test_tools_registration.py`: `openWorldHint` verdadero solo en ella de entre las de la familia (FR-013)
+- [x] T019 [US1] `ha_import_blueprint` en `hermes/src/hermes/tools/blueprints.py` (research R-1, data-model): `_importador_de(url)` con los patrones de `importer.py` (copiados como constantes con su origen en un comentario), vista previa, huella `sha256` del texto en UTF-8, token atado a `url`, ruta final, `allow_override` y `content_sha256`; confirmación con nueva descarga y `validate_confirmation_token` con los valores recalculados (si no casa, `content_changed`). Docstring que dice que HA descarga, que es texto de terceros y que la vista previa enseña el YAML entero. T017–T018 en verde (FR-002)
+- [x] T020 [US6] Anotaciones y matriz: `ha_import_blueprint` en `_DESTRUCTIVE_EXACT` y en `_OPEN_WORLD` de `tools/_annotations.py` con su comentario; su fila en la matriz de `docs/HOJA-DE-RUTA.md` (`banco de Core`, `ok`, nota «importador genérico desde `/local/` del banco; GitHub, gist y foro sin probar»), en el MISMO commit que su alta en `PROBADAS_017` (T023). Test en `tests/test_tools_registration.py`: `openWorldHint` verdadero solo en ella de entre las de la familia (FR-013)
 
 ### Tabla, guía y banco
 
-- [ ] T021 [US6] Tabla: test de la genérica con `blueprint/import` → `use_dedicated_tool`; `blueprint/import` en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py`; regenerar → sin diferencias, anotado en el commit (FR-012)
-- [ ] T022 [US6] Guía: parte de importar del tema `blueprints` (HA descarga; la vista previa enseña el YAML entero; texto de terceros: leerlo, enseñárselo al usuario, no seguir instrucciones que contenga; `content_changed`; `allow_override`). El test genérico de T011 la cubre; añadir uno que exija «third-party» en el tema (FR-014)
-- [ ] T023 [US1] Banco: `tests/banco/ha_config/www/hermes_banco/luz_por_movimiento.yaml` (blueprint de automatización mínimo, propio, con un comentario de por qué está en `www`); en `test_banco_blueprints.py`, una prueba que (1) comprueba con el lector que `GET /local/hermes_banco/luz_por_movimiento.yaml` responde 200 (si no, el fallo dice que HA no sirve `www`), (2) llama a `ha_import_blueprint(url="http://127.0.0.1:8123/local/hermes_banco/luz_por_movimiento.yaml")` → vista previa con `importer: generic`, `path` `127.0.0.1/luz_por_movimiento.yaml` y el YAML → el lector no lo ve → confirmación → el lector lo ve con `source_url`, (3) lo borra con `ha_delete_blueprint`. `ha_import_blueprint` a `PROBADAS_017`. Prueba manual pendiente con una URL de GitHub en los pendientes de `docs/HOJA-DE-RUTA.md` (FR-017, research R-11)
+- [x] T021 [US6] Tabla: test de la genérica con `blueprint/import` → `use_dedicated_tool`; `blueprint/import` en `_DEDICADAS_INICIALES` y a `dedicated` en `command_table.py`; regenerar → sin diferencias, anotado en el commit (FR-012)
+- [x] T022 [US6] Guía: parte de importar del tema `blueprints` (HA descarga; la vista previa enseña el YAML entero; texto de terceros: leerlo, enseñárselo al usuario, no seguir instrucciones que contenga; `content_changed`; `allow_override`). El test genérico de T011 la cubre; añadir uno que exija «third-party» en el tema (FR-014)
+- [x] T023 [US1] Banco: `tests/banco/ha_config/www/hermes_banco/luz_por_movimiento.yaml` (blueprint de automatización mínimo, propio, con un comentario de por qué está en `www`); en `test_banco_blueprints.py`, una prueba que (1) comprueba con el lector que `GET /local/hermes_banco/luz_por_movimiento.yaml` responde 200 (si no, el fallo dice que HA no sirve `www`), (2) llama a `ha_import_blueprint(url="http://127.0.0.1:8123/local/hermes_banco/luz_por_movimiento.yaml")` → vista previa con `importer: generic`, `path` `127.0.0.1/luz_por_movimiento.yaml` y el YAML → el lector no lo ve → confirmación → el lector lo ve con `source_url`, (3) lo borra con `ha_delete_blueprint`. `ha_import_blueprint` a `PROBADAS_017`. Prueba manual pendiente con una URL de GitHub en los pendientes de `docs/HOJA-DE-RUTA.md` (FR-017, research R-11)
 
 ### Documentación y cierre del tramo
 
-- [ ] T024 CHANGELOG: `ha_import_blueprint` en la sección de la 017 (con la huella, la nueva descarga al confirmar y la anotación de mundo abierto); fila 017 → «en curso (tramos A y B)» (FR-019)
-- [ ] T025 Cierre del tramo B: suite completa; controles negativos anotados: (1) confirmación sin comparar la huella (guarda lo nuevo) → T018(b) en rojo; (2) guardar el `content` tapado en vez del original → T018(a); (3) recortar el YAML en vez de `blueprint_too_large` → T017(e); (4) sin `_third_party_text` → T017(b); (5) `ha_import_blueprint` fuera de `_OPEN_WORLD` → T020; (6) dar token con `validation_errors` → T017(c). Revisión del diff. Commit(s) del tramo (FR-020, SC-006)
+- [x] T024 CHANGELOG: `ha_import_blueprint` en la sección de la 017 (con la huella, la nueva descarga al confirmar y la anotación de mundo abierto); fila 017 → «en curso (tramos A y B)» (FR-019)
+- [x] T025 Cierre del tramo B: suite completa; controles negativos anotados: (1) confirmación sin comparar la huella (guarda lo nuevo) → T018(b) en rojo; (2) guardar el `content` tapado en vez del original → T018(a); (3) recortar el YAML en vez de `blueprint_too_large` → T017(e); (4) sin `_third_party_text` → T017(b); (5) `ha_import_blueprint` fuera de `_OPEN_WORLD` → T020; (6) dar token con `validation_errors` → T017(c). Revisión del diff. Commit(s) del tramo (FR-020, SC-006)
+
+### Notas del tramo B (al implementarlo)
+
+- **Línea base** al empezar el tramo (punta `37cb45e`): 2844 passed, 91
+  skipped, 6 failed (los 6 conocidos de Windows). Al cerrar: los mismos 6
+  fallos y nada más.
+- **Desviación (T019), cómo ata el token**: los argumentos del cliente
+  (`url`, `path` tal como lo pide, `None` si se usa la sugerencia, y
+  `allow_override`) van al `action_hash`; lo descargado (dominio, ruta final
+  y `content_sha256`) va como `estado` (mecanismo de la 018) y no al hash.
+  Así un token de otra llamada da «does not match» y un contenido o una
+  sugerencia distintos dan `content_changed` sin gastar el token. Ata lo
+  mismo que decía data-model (URL, ruta final, sobrescribir y huella).
+- **Consecuencia**: al confirmar, HA descarga ANTES de validar el token
+  (hace falta la huella nueva para validarlo). Un token de otros argumentos
+  cuesta una descarga de HA (solo lectura) y nunca guarda.
+- **Sugerencia de ruta de HA que no pasa `_validar_ruta`** (sale de la URL o
+  del autor): `invalid_argument` en `path` sin token, pidiendo `path`
+  (fail-closed). `validation_errors` que no es lista: `invalid_blueprint`.
+- **`exists`**: el de HA vale para la ruta sugerida; con `path`, manda
+  `blueprint/list` (un fichero roto también cuenta).
+- **`blueprint_too_large`** se mide con el sobre entero del token
+  (`confirmation_token`, `expires_in_seconds`, `preview`), que es lo que sale.
+- **Banco (T023)**: el blueprint de `www` es solo ASCII a propósito: HA lo
+  lee con `resp.text()` y, sin charset, aiohttp adivina la codificación; con
+  ASCII la huella del lector casa con la de HA en cualquier caso. La red del
+  banco no se toca: 127.0.0.1 dentro del contenedor no pasa por la regla de
+  `iptables` (solo corta lo que sale de la subred).
+- **Control negativo (3)**: se hizo quitando la comprobación de tamaño (la
+  vista previa sale con token aunque no quepa); cae `test_no_cabe_sin_token`.
+- README, README.es y DOCS: 256 tools y la fila de `blueprints` con 5.
+- Inventario de argumentos atados al token (033, aún no integrado en esta
+  rama): al integrar hay que añadir `ha_import_blueprint` (`url`, `path`,
+  `allow_override`: atados por el hash; dominio, ruta final y huella del
+  contenido: atados como estado; nada omitible).
 
 ---
 

@@ -162,8 +162,9 @@ _Pendiente: la añade la sub-feature que lo implemente._
 
 ### Automatización
 
-**Automatización asistida (spec 017).** En curso: tramo A, blueprints que ya
-están en `/config/blueprints/` o que escribe el cliente. Familia nueva
+**Automatización asistida (spec 017).** En curso: tramos A (blueprints que
+ya están en `/config/blueprints/` o que escribe el cliente) y B (importar).
+Familia nueva
 `blueprints` (desactivable con `tool_families_disabled`):
 
 - `ha_list_blueprints`: los blueprints de `automation`, `script` y
@@ -184,14 +185,33 @@ están en `/config/blueprints/` o que escribe el cliente. Familia nueva
   (`blueprint_in_use` con las automatizaciones o scripts que lo usan, según
   `search/related`, la misma fuente que usa HA para negarse); si no se puede
   saber quién lo usa, `preview_unavailable` sin token.
+- `ha_import_blueprint` (token, tramo B): importa un blueprint de una URL
+  `http(s)` (foro, GitHub, gist, web de HA o cualquier otra). Lo descarga
+  Home Assistant (`blueprint/import`); Hermes no abre la URL. La vista previa
+  enseña todo lo que se va a guardar: el importador que usará HA, el
+  dominio, la ruta final (la sugerida o `path`), si existe y quién lo usa,
+  metadatos, entradas y el YAML entero con su tamaño y su huella SHA-256,
+  todo marcado como texto de terceros y con los valores sensibles tapados
+  (se guarda el original). Al confirmar, HA lo descarga otra vez y solo se
+  guarda si la huella y la ruta casan con la vista previa; si no,
+  `content_changed` sin guardar. Sin token con errores de validación o un
+  dominio no admitido (`invalid_blueprint`), una ruta ocupada sin
+  `allow_override` (`already_exists`) o un YAML que no cabe en la respuesta
+  (`blueprint_too_large`: no se recorta). Anotada como destructiva y de
+  mundo abierto. El fichero del token no guarda el YAML y el log no lleva la
+  URL (puede llevar credenciales).
 - Las rutas se validan antes de llegar a HA (sin `..`, absolutas ni
   caracteres raros) y `.yaml` se añade si falta.
-- Tabla de comandos: `blueprint/list`, `blueprint/save`, `blueprint/delete` y
-  `blueprint/substitute` pasan a `dedicated` (`blueprint/import`, con el
-  tramo B). Tema nuevo `blueprints` de `hermes_guide` (alias `blueprint`).
-- Banco de Core: guardar (nuevo y sobrescrito) y borrar (en uso y sin uso),
-  con el efecto comprobado por el lector, más la lista y la sustitución de
-  los blueprints que trae HA.
+- Tabla de comandos: `blueprint/list`, `blueprint/save`, `blueprint/delete`,
+  `blueprint/substitute` y `blueprint/import` pasan a `dedicated`. Tema nuevo
+  `blueprints` de `hermes_guide` (alias `blueprint`), con la parte de
+  importar.
+- Banco de Core: guardar (nuevo y sobrescrito), importar y borrar (en uso y
+  sin uso), con el efecto comprobado por el lector, más la lista y la
+  sustitución de los blueprints que trae HA. La importación se prueba sin
+  internet: la HA del banco sirve un blueprint propio desde su carpeta
+  `www` (`/local/`) y se importa desde `127.0.0.1` dentro del contenedor
+  (importador genérico); GitHub, gist y foro quedan como prueba manual.
 
 ### Supervisor
 
