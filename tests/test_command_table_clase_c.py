@@ -396,7 +396,7 @@ class TestClaseC(unittest.TestCase):
             "zha/configuration": ("alarm_master_code",),
             "zha/configuration/update": ("alarm_master_code",),
             "otbr/info": ("active_dataset_tlvs",),
-            "mqtt/device/debug_info": ("code", "transmitted"),
+            "mqtt/device/debug_info": ("code", "transmitted", "messages.payload"),
         }
         for comando, claves in esperado.items():
             with self.subTest(comando=comando):

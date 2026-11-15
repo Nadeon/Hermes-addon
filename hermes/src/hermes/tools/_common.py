@@ -10,6 +10,7 @@ import structlog
 
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
+    REDACTED_MARKER,
     complete_confirmation_token,
     create_confirmation_token,
     redact_secrets,
@@ -39,6 +40,52 @@ def redactar_datos(valor: Any) -> Any:
     if isinstance(valor, str):
         return redact_secrets(valor)
     return valor
+
+
+_RUTAS_MARCADOR_MAX = 20
+
+
+def rutas_con_marcador(valor: Any, ruta: str = "") -> list[str]:
+    """Rutas (`data.zha_alarm_options.alarm_master_code`, `items[0]`) de una
+    carga donde aparece el marcador de redacción, en un valor de texto o en
+    una CLAVE, a cualquier profundidad. Nunca valores: es seguro devolverlo.
+
+    Convergencia de la 025 (T047, hallazgo ALTO-1): lo que Hermes lee sale
+    con los secretos tapados con `REDACTED_MARKER`. Si el cliente reenvía ese
+    documento a una escritura, HA o el Supervisor guardan el marcador LITERAL
+    en lugar del secreto real (`zha/configuration/update` reemplaza la
+    configuración entera, código maestro de la alarma incluido). Se rechaza
+    antes de emitir el token y antes de llamar. Una clave con el marcador
+    también: no es un nombre que nadie quiera guardar.
+    """
+    rutas: list[str] = []
+    if isinstance(valor, dict):
+        for clave, sub in valor.items():
+            nombre = str(clave)
+            hija = f"{ruta}.{nombre}" if ruta else nombre
+            if REDACTED_MARKER in nombre:
+                rutas.append(hija)
+            rutas += rutas_con_marcador(sub, hija)
+    elif isinstance(valor, (list, tuple)):
+        for i, sub in enumerate(valor):
+            rutas += rutas_con_marcador(sub, f"{ruta}[{i}]")
+    elif isinstance(valor, str) and REDACTED_MARKER in valor:
+        rutas.append(ruta or "(root)")
+    return rutas[:_RUTAS_MARCADOR_MAX]
+
+
+def error_marcador_en_carga(rutas: list[str]) -> dict[str, Any]:
+    """El rechazo común `redacted_value_in_payload` (T047)."""
+    return {
+        "error": "redacted_value_in_payload",
+        "detail": (
+            f"The payload contains the redaction marker {REDACTED_MARKER}, the "
+            "placeholder Hermes shows instead of a secret when reading. Sending "
+            "it would save that text in place of the real value. Send the real "
+            "value, or remove that field from the payload."
+        ),
+        "paths": rutas,
+    }
 
 
 def tam_json(valor: Any) -> int:

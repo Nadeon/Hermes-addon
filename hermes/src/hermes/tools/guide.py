@@ -1310,6 +1310,10 @@ RECHAZOS (ninguno llega a Home Assistant ni al Supervisor)
   ejecuta por la genérica).
 - `wrong_generic_tool` — es de la otra genérica; `use_tool` dice cuál.
 - `family_disabled` — la familia de la entrada está desactivada.
+- `redacted_value_in_payload` — la carga de `ha_call_ws_command` o el cuerpo
+  de `sv_call_api` llevan `***REDACTED***` (en un valor o en una clave), el
+  texto con que Hermes tapa un secreto al leer: se guardaría en lugar del
+  valor real. `paths` dice dónde; manda el valor real o quita ese campo.
 - `path_not_allowed` — ruta con forma inválida (`rule: shape`), el proxy de
   Core del Supervisor (`core_proxy`) o dirigida al propio Hermes
   (`self_target`).
@@ -1889,8 +1893,12 @@ Escrituras (`ha_call_ws_command`, dos pasos):
   un dispositivo a un grupo.
 - `zha/network/backups/create` — crea una copia de la red (5-30 s); las
   claves salen tapadas en la respuesta (la copia se guarda en Home Assistant).
-- `zha/configuration/update` — cambia las opciones de ZHA y recarga la
-  integración.
+- `zha/configuration/update` — REEMPLAZA las opciones propias de ZHA
+  enteras con `data` (lo que no se envía vuelve a su valor por defecto) y
+  recarga la integración. Si partes de `zha/configuration`, el código maestro
+  llega tapado: una carga con `***REDACTED***` se rechaza
+  (`redacted_value_in_payload`) porque lo guardaría como código. Manda el
+  código real o quita `alarm_master_code` (sin él vuelve al de por defecto).
 
 RECHAZADO (`command_denied`, sin llamar a Home Assistant)
 - `zha/devices/permit` (abre la red con el modo depuración y eventos que la
@@ -1979,8 +1987,10 @@ POR LA GENÉRICA
 Lecturas (`ha_read_ws_command`):
 - MQTT: `type="mqtt/device/debug_info", payload={"device_id": "<device_id>"}`
   — topics, suscripciones, descubrimiento y últimos mensajes recibidos de un
-  dispositivo; los mensajes ENVIADOS por Home Assistant y el `code` de
-  alarmas y cerraduras salen tapados.
+  dispositivo. Salen tapados el contenido (`payload`) de cada mensaje
+  recibido (se ven su topic, fecha, QoS y `retain`), la lista entera de los
+  ENVIADOS por Home Assistant y el `code` del descubrimiento de alarmas y
+  cerraduras.
 - USB y Bluetooth: `type="usb/list_serial_ports", payload={"include_usage":
   true}` — puertos serie y dongles y quién los usa; `usb/list_serial_integrations`,
   qué integraciones se configuran con un puerto serie; `usb/scan` pide un

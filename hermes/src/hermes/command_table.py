@@ -496,9 +496,11 @@ CORE_WS: dict[str, E] = {
     # `code`: el del payload de descubrimiento de alarmas y cerraduras MQTT.
     # `transmitted`: la lista ENTERA de mensajes que HA envió (el de armar una
     # alarma puede llevar el código dentro del texto, y la redacción de textos
-    # no reconoce `code`). Los recibidos (`subscriptions`) siguen visibles, que
-    # es lo útil para depurar (research R-6 de la 025).
-    "mqtt/device/debug_info": E("read", "topics, suscripciones, descubrimiento y últimos mensajes recibidos de un dispositivo MQTT; los mensajes enviados y el `code` de alarmas y cerraduras salen tapados", "generic_commands", cap="CAP-104", redact_extra=("code", "transmitted"), example={"device_id": "<device_id>"}),
+    # no reconoce `code`). `messages.payload`: el contenido de cada mensaje
+    # RECIBIDO (`subscriptions[].messages[]`), texto libre del dispositivo que
+    # puede llevar un código (un teclado que publica `action_code`); se
+    # conservan su topic, fecha, QoS y `retain` (convergencia de la 025, T049).
+    "mqtt/device/debug_info": E("read", "topics, suscripciones, descubrimiento y últimos mensajes recibidos de un dispositivo MQTT; salen tapados el contenido (`payload`) de cada mensaje recibido, la lista entera de los enviados y el `code` del descubrimiento de alarmas y cerraduras", "generic_commands", cap="CAP-104", redact_extra=("code", "transmitted", "messages.payload"), example={"device_id": "<device_id>"}),
     "mqtt/subscribe": E("deny", "suscripción/streaming sin primer mensaje con el estado: MCP es petición-respuesta", "generic_commands", cap="CAP-104"),
     "network": E("read", "adaptadores de red de HA y cuáles usa; solo lee", "generic_commands", cap="CAP-068"),
     "network/configure": E("deny", "pendiente de tool dedicada (spec 021)", "generic_commands", cap="CAP-069"),
@@ -645,8 +647,11 @@ CORE_WS: dict[str, E] = {
     # `zha/helpers.py`; `zha/diagnostics.py` lo tapa). Ningún marcador lo
     # reconoce: `redact_extra` (hallazgo del tramo 2 de la 025).
     "zha/configuration": E("read", "opciones de ZHA y su esquema; el código maestro de la alarma sale tapado; solo lee", "generic_commands", cap="CAP-101", redact_extra=("alarm_master_code",)),
-    # Ídem en la carga: la vista previa tapa el código maestro.
-    "zha/configuration/update": E("confirm", "cambia las opciones de ZHA y recarga la integración; el código maestro de la alarma sale tapado en la vista previa", "generic_commands", cap="CAP-101", redact_extra=("alarm_master_code",)),
+    # Ídem en la carga: la vista previa tapa el código maestro. El handler
+    # (`websocket_update_zha_configuration`) REEMPLAZA la configuración propia
+    # con `data`: reenviar lo leído con el código tapado lo machacaría, y por
+    # eso `ha_call_ws_command` rechaza el marcador (convergencia, T047).
+    "zha/configuration/update": E("confirm", "REEMPLAZA las opciones propias de ZHA enteras (lo que no se envía vuelve a su valor por defecto) y recarga la integración; el código maestro de la alarma sale tapado en la vista previa", "generic_commands", cap="CAP-101", redact_extra=("alarm_master_code",)),
     "zha/device": E("read", "un dispositivo Zigbee; solo lee", "generic_commands", cap="CAP-101"),
     "zha/devices": E("read", "dispositivos Zigbee con su información; solo lee", "generic_commands", cap="CAP-101"),
     "zha/devices/bind": E("confirm", "vincula dos dispositivos Zigbee", "generic_commands", cap="CAP-101", example={"source_ieee": "00:11:22:33:44:55:66:77", "target_ieee": "00:11:22:33:44:55:66:88"}),

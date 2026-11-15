@@ -80,6 +80,8 @@ class Entrada:
     # «text»: la respuesta son líneas de log (solo Supervisor).
     response: str = "json"
     # Claves que se tapan además de los marcadores de `redact_structure`.
+    # `padre.hija` tapa `hija` solo dentro de `padre` o de los objetos de su
+    # lista (`messages.payload` de MQTT; convergencia de la 025, T049).
     redact_extra: tuple[str, ...] = ()
     # La ejecución sale a internet. Puede ir en `read` (navegar fuentes de
     # medios remotas): entonces la genérica de lectura de esa tabla se anuncia

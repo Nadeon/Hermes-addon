@@ -576,7 +576,9 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "diagnostics": "838ff4a3a3eeaddb",
         "events": "3765a76095ece40f",
         "filesystem": "b5902d6d0ff666c1",
-        "generic_commands": "906066a916e93727",
+        # La convergencia de la 025 (T047) cambia `generic_commands`: el rechazo
+        # `redacted_value_in_payload`; su CHANGELOG lo dice.
+        "generic_commands": "c988dedafd2834db",
         "helpers": "c99850e94eb5c996",
         # La 018 cambia `lovelace` (guardado por vista) y `services`
         # (`ha_call_service_response` con token); su CHANGELOG lo dice.

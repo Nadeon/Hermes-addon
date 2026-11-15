@@ -61,7 +61,9 @@ from hermes.security import (
 )
 from hermes.tools._common import (
     ajustar_lista_a_bytes,
+    error_marcador_en_carga,
     requires_ready,
+    rutas_con_marcador,
     sobre_de_lista,
     tam_json,
 )
@@ -161,7 +163,21 @@ def _redactar(valor: Any, extra: frozenset[str], clave: str = "") -> Any:
     if clave and es_clave_sensible(clave) and tapar_entero(valor):
         return REDACTED_MARKER
     if isinstance(valor, Mapping):
-        return {k: _redactar(v, extra, str(k)) for k, v in valor.items()}
+        out: dict[Any, Any] = {}
+        for k, v in valor.items():
+            # Una clave extra con punto, `padre.hija`, tapa `hija` solo dentro
+            # de `padre` (o de los objetos de su lista). Convergencia de la 025
+            # (T049): el `payload` de los mensajes RECIBIDOS de MQTT
+            # (`messages[].payload`) es texto libre del dispositivo y puede
+            # llevar un código, pero el `payload` de `discovery_data` es la
+            # configuración que se quiere ver; una clave sin padre los tapaba
+            # los dos.
+            if (clave and f"{clave.lower()}.{str(k).lower()}" in extra
+                    and v is not None and v != ""):
+                out[k] = REDACTED_MARKER
+            else:
+                out[k] = _redactar(v, extra, str(k))
+        return out
     if isinstance(valor, list):
         return [_redactar(v, extra, clave) for v in valor]
     if isinstance(valor, str):
@@ -356,7 +372,10 @@ def register(
         interpret what the command will do. Show it to the user. Second call:
         the same `type` and `payload` plus `confirmation_token` (valid ~60 s,
         once). If the preview does not fit in the response limit, nothing is
-        issued (`preview_too_large`).
+        issued (`preview_too_large`). A payload that contains the redaction
+        marker `***REDACTED***` anywhere (a value read back from Hermes) is
+        rejected without a token (`redacted_value_in_payload`): send the real
+        value or leave that field out.
         `hermes_guide(topic="generic_commands")` explains the categories and
         searches the table (`search=`).
 
@@ -380,6 +399,10 @@ def register(
             return rechazo(tool, decision, type, **log_campos)
         entrada = decision.entrada
         log_campos["category"] = entrada.category
+        if (rutas := rutas_con_marcador(carga)):
+            # T047: reenviar lo leído tapado machacaría el secreto real.
+            log(tool, "rejected:redacted_value_in_payload", **log_campos)
+            return error_marcador_en_carga(rutas)
         # El hash ata el token a la tool, al comando y a la carga COMPLETA.
         args = {"type": type, "payload": carga}
 
@@ -536,6 +559,8 @@ def register(
         ones hidden). It does NOT interpret what the
         request will do. Show it to the user. Second call: the same `method`,
         `path` and `body` plus `confirmation_token` (valid ~60 s, once).
+        A body that contains the redaction marker `***REDACTED***` anywhere
+        is rejected without a token (`redacted_value_in_payload`).
         `hermes_guide(topic="generic_commands")` explains the categories and
         searches the table (`search=`).
 
@@ -565,6 +590,10 @@ def register(
             return rechazo(tool, decision, ruta, **log_campos)
         entrada = decision.entrada
         log_campos["category"] = entrada.category
+        if (rutas := rutas_con_marcador(cuerpo)):
+            # T047: lo mismo que en `ha_call_ws_command`.
+            log(tool, "rejected:redacted_value_in_payload", **log_campos)
+            return error_marcador_en_carga(rutas)
         # El hash ata el token al método, a la ruta CONCRETA y al cuerpo
         # completo: otra app con la misma plantilla no vale.
         args = {"method": metodo, "path": path, "body": cuerpo}

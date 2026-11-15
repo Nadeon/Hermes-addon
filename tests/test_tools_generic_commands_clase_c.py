@@ -630,9 +630,13 @@ class TestResto(_Base):
         entidad = r["result"]["entities"][0]
         self.assertEqual(entidad["discovery_data"]["payload"]["code"], "***REDACTED***")
         self.assertEqual(entidad["transmitted"], "***REDACTED***")
-        # Lo recibido, que es lo útil para depurar, sigue visible.
+        # De lo recibido se ve el topic, pero no el contenido: es texto libre
+        # del dispositivo y puede llevar un código (convergencia, T049; el
+        # escenario del teclado está en `tests/test_convergencia_025.py`).
         self.assertEqual(entidad["subscriptions"][0]["messages"][0]["payload"],
-                         "armed_away")
+                         "***REDACTED***")
+        self.assertEqual(entidad["subscriptions"][0]["messages"][0]["topic"],
+                         "casa/alarma/estado")
         self.assertEqual(entidad["discovery_data"]["payload"]["state_topic"],
                          "casa/alarma/estado")
         self.assertNotIn(codigo, json.dumps(r))
