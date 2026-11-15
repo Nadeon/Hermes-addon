@@ -461,3 +461,34 @@ cada control negativo, comprobado: revertido, en rojo y restaurado):
   que `_migrate_app_config` recorre con `":" in line`) no se imita: Hermes
   lo cuenta como app (fail-closed) y, si tumba la recarga, T057 hace que
   la recarga de Hermes falle y no se anote.
+
+## Fase 8: Convergencia 4
+
+Tercera verificación independiente del rango `3abcb87..3f3fcfb` (la
+convergencia 3). Severidad entre corchetes; las decisiones son del supervisor.
+
+- [x] T060 [MEDIO] N1: la marca de T057 no obliga a releer si `get_latest_mtime` (`utils/__init__.py`) lanza: relanza todo `OSError` que no sea `ENOENT`/`ELOOP`, `RepositoryLocal.update` lo convierte en `StoreRepositoryUnknownError` y `StoreManager.reload` lo traga (`asyncio.gather(..., return_exceptions=True)`, `store/__init__.py`): la recarga responde 200 sin releer y Hermes la anotaba. Una ruta de 4087–4095 bytes vista desde Hermes (`/addons/…`) da `ENAMETOOLONG` en el Supervisor (`/data/apps/local/…`, 9 bytes más); un symlink que pasa por un fichero da `ENOTDIR` y Hermes lo suprimía. Arreglo (fail-closed simétrico): `folders.fecha_mas_reciente` rechaza (`store_copy_stale`, con el motivo) ante CUALQUIER error del recorrido o entrada que pueda hacer fallar el del Supervisor: una ruta que, medida bajo `/data/apps/local/`, llegue al tope; `ENOTDIR`, `ELOOP`; un symlink roto o en bucle; un error de permisos. Ninguna excepción se ignora. Además, `fs_write_file_in_folder`, `fs_create_dir_in_folder` y `fs_move_in_folder` rechazan sin token, con `path_too_long`, crear o mover en `/addons` a una ruta que pase de ese tope (en `/share` no). Test con el escenario y control negativo
+- [ ] T061 [BAJO] N2: honestidad. La recarga programada (`tasks_reload_store`, `internal=True`, `misc/tasks.py`) no sale en `/jobs/info` (`APIJobs._list_jobs`, `api/jobs.py`, se salta los internos y su `store_manager_reload` hijo cuelga de él, así que tampoco se alcanza), y quitar un repositorio (`remove_repository`, `store/__init__.py`) llama a `data.update()` sin ser un job. Quitar del código, la guía, el CHANGELOG y estas tareas toda afirmación de que se detectan; documentar la carrera estrecha como riesgo residual en el CHANGELOG 1.2.1 y en la hoja de ruta; el test usa la forma REAL de `/jobs/info`. Test y control negativo
+- [ ] T062 [BAJO] N3: clasificación conservadora. Solo es «saltado» (`ignored_config_files`) un `config.*` cuyo rechazo captura el Supervisor sin tumbar la recarga, comprobado en `fuentes`: los fallos de lectura (`read_yaml_file`, `read_json_file`) y lo que `_migrate_app_config` rechaza con `vol.Invalid` antes de tocar ningún otro campo (no es un mapa, no tiene `name`). Un `config.*` con `name` al que le falta un campo obligatorio o con un slug inválido o demasiado largo pasa antes por `_migrate_app_config` y `_warn_app_config`, que recorren `devices`, `map`, `arch`, `machine`… y pueden lanzar `TypeError` o `AttributeError`, que no se capturan: va a `rompen_recarga` y bloquea instalar, actualizar y reconstruir apps locales, con un motivo honesto («puede tumbar»). Test y control negativo
+- [ ] T063 Honestidad de `privileges`: para una app que no es `local_*`, la vista previa de `sv_install_addon` y de `sv_update_addon` dice qué privilegios no se pueden conocer antes porque la ficha de la tienda no los da (`api/store.py`, `_generate_app_information`): `privileged`, `devices`, `host_ipc`, `host_uts`, `host_dbus`, `kernel_modules`, `udev`, `usb`, `uart`, `gpio`, `devicetree`, `video`, `audio`, `realtime`, `map`, `ports`. Así `elevated: []` no se lee como «no pide nada». Guía (`supervisor`, `app_store`) y CHANGELOG. El esquema de entrada no cambia. Test y control negativo
+
+Notas de la convergencia 4 (tests en `tests/test_convergencia_4_034.py`;
+cada control negativo, comprobado: revertido, en rojo y restaurado):
+
+- T060: tope `folders.TOPE_RUTA_EN_EL_SUPERVISOR` = 3840 bytes medidos como
+  `/data/apps/local/<ruta>` (`PATH_MAX_LINUX` 4096 menos `MARGEN_PATH_MAX`
+  256: el prefijo del Supervisor ya cambió una vez, `FOLDER_ADDONS` en
+  `const.py`, y ninguna app real necesita rutas así). `fecha_mas_reciente`
+  lanza `folders.RecorridoNoFiable` (un `OSError` con `detail`) y
+  `copia_de_tienda_desfasada` lo convierte en `store_copy_stale` con el
+  motivo y la pista. Se rechazan también `ENOENT` y `ELOOP`, que el
+  Supervisor salta: más simple y nunca de menos. Hallazgo de paso: un
+  symlink que apunta fuera de `/addons` (absoluto o que sale con `..`) lo
+  resuelve el Supervisor en SU sistema de ficheros, distinto del de Hermes:
+  también se rechaza. `inspeccionar` devuelve `rel_max_bytes` para mover
+  una carpeta. Controles negativos: sin el tope en el recorrido caen
+  `TestRutaLarga` (el escenario: token con la copia de `SYS_ADMIN`); con
+  `_larga_en_addons` sin efecto caen los tres de `/addons` y el de la
+  confirmación; sin el `try` del `scandir` cae
+  `test_carpeta_que_no_se_puede_listar`; con el `suppress(OSError)` de antes
+  caen los tres symlinks en el CI de Linux (rama desechable).

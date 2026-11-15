@@ -184,7 +184,8 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   pero la siguiente volvía «bien» sin releer nada y Hermes la daba por
   buena. Ahora, justo antes de cada recarga, Hermes cambia la fecha de la
   propia carpeta `/addons` (no toca ningún fichero), así que el Supervisor
-  relee siempre; si falla, la recarga da error y no cuenta. Ese cambio de
+  relee siempre, salvo que no pueda recorrer `/addons` (siguiente punto);
+  si releer falla, la recarga da error y no cuenta. Ese cambio de
   Hermes no cuenta como «algo cambió en `/addons`»; cualquier cambio
   posterior, sí. Sin `/addons` o si no se puede cambiar la fecha, la
   recarga se hace igual, pero no cuenta para las apps locales.
@@ -214,6 +215,22 @@ existente cambia ni pasa a ser obligatorio (spec 034).
 - La nota de `declared_in_folder` decía `token ***REDACTED***`: la redacción
   de secretos tomaba la palabra que seguía a «token» por un secreto. Está
   reescrita.
+- **`store_copy_stale` también cuando el Supervisor no puede recorrer
+  `/addons`.** Para decidir si relee las apps locales, el Supervisor mira la
+  fecha de todo lo que hay en `/addons`, y si eso falla (una ruta que para él
+  es demasiado larga: la ve como `/data/apps/local/…`, 9 bytes más que
+  Hermes; un symlink que pasa por un fichero…), su recarga responde bien
+  SIN releer, y Hermes la daba por buena. Ahora Hermes recorre `/addons`
+  como él y rechaza instalar, actualizar o reconstruir una app local ante
+  cualquier error o entrada que pueda hacer fallar ese recorrido: una ruta
+  que en el Supervisor pase de 3840 bytes (`PATH_MAX`, 4096, menos un
+  margen de 256 por si su prefijo cambia), un symlink roto, en bucle, que
+  pasa por un fichero o que apunta fuera de `/addons` (el Supervisor lo
+  resuelve en su propio sistema de ficheros), una carpeta que no se puede
+  listar o un error de permisos. Ninguno se ignora, y el motivo dice cuál
+  es y dónde. Además, en `/addons`, escribir, crear una carpeta o mover a
+  una ruta que pase de ese tope (al mover una carpeta, también lo que
+  cuelga de ella) se rechaza sin token: `path_too_long`. En `/share`, no.
 
 ### Pruebas
 

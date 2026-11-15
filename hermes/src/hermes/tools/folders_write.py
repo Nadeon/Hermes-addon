@@ -270,6 +270,19 @@ def _fallo_de_operacion(exc: Exception, rel: str) -> dict[str, Any]:
 _FALLOS = (_folders.RutaCambiada, OSError)
 
 
+def _larga_en_addons(folder: str, rel: str, extra: int = 0) -> dict[str, Any] | None:
+    """`path_too_long` si `rel` (más `extra` bytes, lo que cuelga de una
+    carpeta que se mueve) pasa en /addons del tope del Supervisor
+    (convergencia 4, T060). En /share no hay tope: el Supervisor no la
+    recorre."""
+    if folder != "addons":
+        return None
+    n = _folders.bytes_en_el_supervisor(rel) + extra
+    if n > _folders.TOPE_RUTA_EN_EL_SUPERVISOR:
+        return _folders.ruta_demasiado_larga(rel, n)
+    return None
+
+
 def _faltan_padres(base: Path, p: Path) -> tuple[list[Path], dict[str, Any] | None]:
     """Padres de `p` que no existen (de arriba abajo), o el rechazo si el
     más cercano que existe no es una carpeta."""
@@ -335,7 +348,9 @@ def register(
             "new_sha256_12", "is_blacklisted", "backup": null, ...}}.
             Confirmed: {"result": "ok", "action", "folder", "path",
             "bytes_written"}. Errors: invalid_argument, folder_unavailable,
-            traversal, is_directory, not_a_directory, not_regular_file (a
+            traversal, path_too_long (in "addons", a path longer than the
+            Supervisor can check), is_directory, not_a_directory,
+            not_regular_file (a
             FIFO, socket or device is never overwritten), installed_app,
             installed_check_failed, preview_outdated, path_changed (a
             folder on the way changed while confirming: nothing was done),
@@ -349,6 +364,8 @@ def register(
         base = _folders.raiz(folder)
 
         def comprobar() -> dict[str, Any] | None:
+            if larga := _larga_en_addons(folder, rel):
+                return larga
             if p.is_dir():
                 return {"error": "is_directory", "path": rel,
                         "hint": "fs_write_file_in_folder only writes files."}
@@ -464,8 +481,9 @@ def register(
             "create_dir", "folder", "path", "creates_parents", "backup":
             null, "reversible": true, ...}}. Confirmed: {"result": "ok",
             "action", "folder", "path", "created"}. Errors: invalid_argument,
-            folder_unavailable, traversal, already_exists, not_a_directory,
-            preview_outdated, path_changed, io_error.
+            folder_unavailable, traversal, path_too_long (in "addons", a
+            path longer than the Supervisor can check), already_exists,
+            not_a_directory, preview_outdated, path_changed, io_error.
         """
         tool = "fs_create_dir_in_folder"
         p = _resolver(folder, path)
@@ -475,6 +493,8 @@ def register(
         base = _folders.raiz(folder)
 
         def comprobar() -> tuple[list[Path], dict[str, Any] | None]:
+            if larga := _larga_en_addons(folder, rel):
+                return [], larga
             if os.path.lexists(p):
                 return [], {"error": "already_exists", "path": rel,
                             "detail": "Something already exists at this path."}
@@ -530,7 +550,7 @@ def register(
 
     # ── fs_move_in_folder ─────────────────────────────────────────────────────
 
-    def _reglas_mover(info: dict[str, Any], src_p: Path, dst_p: Path,
+    def _reglas_mover(folder: str, info: dict[str, Any], src_p: Path, dst_p: Path,
                       rel_src: str, rel_dst: str) -> dict[str, Any] | None:
         """Rechazos de mover que se miran en la vista previa y otra vez al
         confirmar (FR-015, FR-017), con la inspección del origen."""
@@ -548,7 +568,11 @@ def register(
         if info["tipo"] == "dir" and (dst_p == src_p or src_p in dst_p.parents):
             return {"error": "invalid_destination", "path": rel_dst,
                     "detail": "A folder cannot be moved inside itself."}
-        return None
+        # Convergencia 4 (T060): en /addons, ni el destino ni lo que cuelga
+        # de él (al mover una carpeta) pueden pasar del tope del Supervisor.
+        hijos = info.get("rel_max_bytes") or 0
+        return _larga_en_addons(folder, rel_dst,
+                                (hijos + 1) if hijos else 0)
 
     @mcp.tool()
     @_con_candado
@@ -579,6 +603,8 @@ def register(
             ...}}. Confirmed: {"result": "ok", "action", "folder", "src",
             "dst"}. Errors: the ones above plus invalid_argument,
             folder_unavailable, traversal, too_large_to_preview,
+            path_too_long (in "addons", dst or anything under it would be
+            longer than the Supervisor can check),
             installed_check_failed, installed_check_inconclusive,
             preview_outdated, path_changed, io_error.
         """
@@ -601,7 +627,7 @@ def register(
             return _rechazo(tool, folder, rel_src, _rechazo_de_inspeccion(exc))
 
         if not confirmation_token:
-            error = _reglas_mover(info, src_p, dst_p, rel_src, rel_dst)
+            error = _reglas_mover(folder, info, src_p, dst_p, rel_src, rel_dst)
             if error:
                 return _rechazo(tool, folder, rel_src, error)
             error, extra = await _apps(ha_client, folder, rel_src, modo="quitar",
@@ -627,7 +653,7 @@ def register(
         if not ok:
             return resultado
         # FR-017: todo otra vez, DESPUÉS del token y su estado.
-        error = _reglas_mover(info, src_p, dst_p, rel_src, rel_dst)
+        error = _reglas_mover(folder, info, src_p, dst_p, rel_src, rel_dst)
         if error is None:
             error, _ = await _apps(ha_client, folder, rel_src, modo="quitar",
                                    otras=(rel_dst,))

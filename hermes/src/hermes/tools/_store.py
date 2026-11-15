@@ -1019,6 +1019,16 @@ def copia_de_tienda_desfasada(slug: str) -> tuple[dict[str, Any] | None, dict[st
         return _desfasada(slug, "/addons is too large to check in time (" + exc.detail
                                 + "), so it is unknown whether it changed after "
                                 "the last store reload."), nota
+    except folders.RecorridoNoFiable as exc:
+        # Convergencia 4 (T060): lo mismo que haría fallar el recorrido del
+        # Supervisor, que entonces responde a la recarga sin releer.
+        rechazo = _desfasada(slug, "/addons cannot be checked the way the Supervisor "
+                                   "checks it (" + exc.detail + "). With it, the "
+                                   "Supervisor's check fails and a store reload "
+                                   "silently stops re-reading the local apps."), nota
+        rechazo[0]["hint"] = ("Fix or remove that entry, reload the store with "
+                              "sv_reload_store and request a new preview.")
+        return rechazo
     except OSError:
         return _desfasada(slug, "/addons could not be fully checked (it may be "
                                 "changing right now)."), nota

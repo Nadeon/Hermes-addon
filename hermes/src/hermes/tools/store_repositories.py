@@ -647,7 +647,11 @@ def register(
         appear. Installs and updates no app. It may take a while. Just
         before, Hermes sets a new modification date on the /addons folder
         itself (no file is changed), so the Supervisor re-reads the local
-        apps even if an earlier reload failed halfway.
+        apps even if an earlier reload failed halfway. If something in
+        /addons makes the Supervisor's own check of the folder fail (a path
+        too long for it, a broken symlink…), it answers without re-reading
+        them; Hermes then refuses to install, update or rebuild a local app
+        (store_copy_stale) until that is fixed.
 
         Returns:
             {"result": "ok", "hint"} or an error.

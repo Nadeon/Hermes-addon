@@ -171,6 +171,17 @@ sin token en la vista previa y al confirmar, bajo el candado de `/addons`.
   que tenía y que la hora actual) y solo anotan si la marca se puso y no
   había ni hay una recarga en curso; la marca anotada (valor exacto en ns)
   no cuenta como cambio (T057).
+- Convergencia 4 (T060): `store_copy_stale` también si el recorrido de
+  `/addons` (el que imita a `get_latest_mtime`) encuentra algo que puede
+  hacer fallar el del Supervisor: una ruta que, medida bajo
+  `/data/apps/local/`, pase de `TOPE_RUTA_EN_EL_SUPERVISOR` (3840 bytes:
+  `PATH_MAX` 4096 menos 256 de margen), un symlink roto, en bucle, que pasa
+  por un fichero o que apunta fuera de `/addons`, o cualquier error al
+  listar o mirar una entrada; `reason` dice cuál y dónde.
+  `fs_write_file_in_folder`, `fs_create_dir_in_folder` y
+  `fs_move_in_folder` responden en `addons`, sin token, `{"error":
+  "path_too_long", "path", "detail", "hint"}` si la ruta (o, al mover una
+  carpeta, lo que cuelga de ella) pasa de ese tope.
 - `folder_busy`: `{"error": "folder_busy", "folder", "detail"}` (y `slug` en
   las `sv_*`) si el candado de la carpeta no se consigue en
   `ESPERA_MAX_CANDADO_S` (15 s); el token no se gasta (T056).

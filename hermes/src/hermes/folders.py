@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import fnmatch
 import hashlib
 import json
@@ -109,6 +110,75 @@ class ArbolDemasiadoGrande(CarpetaError):
     """El recorrido pasó del tope de entradas o de tiempo."""
 
     codigo = "too_large_to_preview"
+
+
+class RecorridoNoFiable(OSError):
+    """El recorrido de /addons que imita al del Supervisor encontró algo que
+    puede hacer fallar el suyo (convergencia 4, T060). `detail` dice qué y
+    dónde, sin rutas absolutas. Es `OSError` para que quien solo capture
+    `OSError` también falle cerrado."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+# ── Rutas como las ve el Supervisor (convergencia 4, T060) ───────────────────
+#
+# El Supervisor ve /addons como `/data/apps/local/` (`SUPERVISOR_DATA` en
+# `const.py` y `APPS_LOCAL` en `config.py`): 9 bytes más que `/addons/`. Una
+# ruta que desde Hermes se puede leer puede pasar en el Supervisor de
+# `PATH_MAX` (4096 bytes en Linux, con el nulo final) y su `path.stat()` da
+# `ENAMETOOLONG`. `utils.get_latest_mtime` relanza ese error,
+# `RepositoryLocal.update` lo convierte en `StoreRepositoryUnknownError` y
+# `StoreManager.reload` se lo traga (`asyncio.gather(...,
+# return_exceptions=True)`): la recarga responde bien SIN releer las apps
+# locales. Por eso Hermes no deja crear esas rutas y rechaza si las
+# encuentra.
+
+#: La raíz de /addons dentro del Supervisor.
+RAIZ_ADDONS_EN_EL_SUPERVISOR = "/data/apps/local/"
+#: `PATH_MAX` de Linux (`linux/limits.h`), con el byte nulo final: una ruta
+#: de 4096 bytes o más da `ENAMETOOLONG`.
+PATH_MAX_LINUX = 4096
+#: Margen bajo `PATH_MAX`: 256 bytes. Por qué: el prefijo del Supervisor ya
+#: cambió una vez (el nombre antiguo, `addons/local`, sigue en `const.py`
+#: como `FOLDER_ADDONS`) y puede volver a cambiar o crecer, y ninguna app
+#: real necesita rutas de más de 3,8 KB; así una ruta que Hermes admite
+#: nunca roza el límite del Supervisor.
+MARGEN_PATH_MAX = 256
+#: Tope (en bytes, medido como lo vería el Supervisor, prefijo incluido).
+TOPE_RUTA_EN_EL_SUPERVISOR = PATH_MAX_LINUX - MARGEN_PATH_MAX
+
+
+def bytes_en_el_supervisor(rel: str) -> int:
+    """Longitud en bytes de la ruta relativa de /addons `rel` tal como la
+    vería el Supervisor (`/data/apps/local/<rel>`)."""
+    return (len(RAIZ_ADDONS_EN_EL_SUPERVISOR.encode("ascii"))
+            + len(os.fsencode(rel)))
+
+
+def demasiado_larga_para_el_supervisor(rel: str) -> bool:
+    """True si `rel` (relativa a /addons) pasa de `TOPE_RUTA_EN_EL_SUPERVISOR`."""
+    return bytes_en_el_supervisor(rel) > TOPE_RUTA_EN_EL_SUPERVISOR
+
+
+def ruta_demasiado_larga(rel: str, bytes_: int | None = None) -> dict[str, Any]:
+    """La respuesta `path_too_long` de las tools que crean o mueven en
+    /addons (T060)."""
+    n = bytes_en_el_supervisor(rel) if bytes_ is None else bytes_
+    return {
+        "error": "path_too_long",
+        "path": rel,
+        "detail": (
+            f"In the Supervisor this path would be {n} bytes long "
+            f"({RAIZ_ADDONS_EN_EL_SUPERVISOR}…), over the limit of "
+            f"{TOPE_RUTA_EN_EL_SUPERVISOR} bytes that Hermes keeps below "
+            f"Linux's PATH_MAX ({PATH_MAX_LINUX}). A longer path makes the "
+            "Supervisor's check of /addons fail, and then a store reload "
+            "silently stops re-reading the local apps."),
+        "hint": "Use a shorter path.",
+    }
 
 
 # ── Raíz y rutas ──────────────────────────────────────────────────────────────
@@ -333,12 +403,38 @@ def fecha_mas_reciente(carpeta: Path, marca_raiz_ns: int | None = None) -> tuple
     cuenta (ese cambio es de Hermes y la recarga lo vio); cualquier otro
     valor, también el de alguien que la toque después, cuenta como siempre.
 
+    Convergencia 4 (T060): fail-closed simétrico. Si el `get_latest_mtime`
+    del Supervisor lanza (relanza todo `OSError` salvo `ENOENT` y `ELOOP`),
+    su recarga responde bien SIN releer las apps locales (ver
+    `RAIZ_ADDONS_EN_EL_SUPERVISOR`). Así que aquí ningún error se ignora y
+    se rechaza también lo que podría hacer fallar el suyo aunque a Hermes
+    no le falle: una ruta que en el Supervisor pase de
+    `TOPE_RUTA_EN_EL_SUPERVISOR`; un symlink cuyo destino no se puede
+    mirar (roto, en bucle, que pasa por un fichero: `ENOENT`, `ELOOP`,
+    `ENOTDIR`), y uno que apunta fuera de /addons (absoluto o que sale con
+    `..`): el Supervisor lo resuelve en SU sistema de ficheros, que no es el
+    de Hermes, y Hermes no puede saber qué encontraría. Se rechaza aunque el
+    Supervisor salte `ENOENT` y `ELOOP`: es más simple y nunca de menos.
+
     Raises:
         ArbolDemasiadoGrande: si pasa de un tope (quien llama no supone nada).
-        OSError: si algo no se puede leer.
+        RecorridoNoFiable: lo de T060, con el motivo y la ruta relativa.
     """
     inicio = time.monotonic()
-    st_raiz = os.lstat(carpeta)
+
+    def no_fiable(rel: str, que: str, exc: OSError | None = None) -> RecorridoNoFiable:
+        donde = "/addons itself" if rel in ("", ".") else repr(rel)
+        causa = ""
+        if exc is not None:
+            nombre = errno.errorcode.get(exc.errno or 0) if exc.errno else None
+            causa = f" ({nombre or type(exc).__name__})"
+        return RecorridoNoFiable(f"{donde}: {que}{causa}")
+
+    try:
+        st_raiz = os.lstat(carpeta)
+        raiz_real = os.path.realpath(carpeta)
+    except OSError as exc:
+        raise no_fiable(".", "it could not be checked", exc) from exc
     if marca_raiz_ns is not None and st_raiz.st_mtime_ns == marca_raiz_ns:
         ultima, ruta = float("-inf"), "."
     else:
@@ -348,17 +444,56 @@ def fecha_mas_reciente(carpeta: Path, marca_raiz_ns: int | None = None) -> tuple
     while pendientes:
         actual, prefijo = pendientes.pop()
         _comprobar_tiempo(inicio)
-        with os.scandir(actual) as it:
-            for e in it:
-                st = e.stat(follow_symlinks=False)
+        try:
+            it = os.scandir(actual)
+        except OSError as exc:
+            raise no_fiable(prefijo.rstrip("/"), "the folder could not be listed",
+                            exc) from exc
+        with it:
+            while True:
+                try:
+                    e = next(it)
+                except StopIteration:
+                    break
+                except OSError as exc:
+                    raise no_fiable(prefijo.rstrip("/"),
+                                    "the folder could not be listed", exc) from exc
+                rel = prefijo + e.name
+                if demasiado_larga_para_el_supervisor(rel):
+                    raise no_fiable(
+                        rel[:80] + "…",
+                        f"its path is {bytes_en_el_supervisor(rel)} bytes long in "
+                        f"the Supervisor ({RAIZ_ADDONS_EN_EL_SUPERVISOR}…), over "
+                        f"the limit of {TOPE_RUTA_EN_EL_SUPERVISOR} that Hermes "
+                        f"keeps below PATH_MAX ({PATH_MAX_LINUX})")
+                try:
+                    st = e.stat(follow_symlinks=False)
+                except OSError as exc:
+                    raise no_fiable(rel, "it could not be checked", exc) from exc
                 fecha = st.st_mtime
                 if _stat.S_ISLNK(st.st_mode):
-                    with contextlib.suppress(OSError):
+                    try:
+                        destino = os.readlink(e.path)
+                        real = os.path.realpath(e.path)
+                    except OSError as exc:
+                        raise no_fiable(rel, "the symlink could not be read",
+                                        exc) from exc
+                    if os.path.isabs(destino) or not (
+                            real == raiz_real
+                            or real.startswith(raiz_real.rstrip(os.sep) + os.sep)):
+                        raise no_fiable(
+                            rel, "it is a symlink that points outside /addons, "
+                            "which the Supervisor resolves in its own filesystem")
+                    try:
                         fecha = max(fecha, os.stat(e.path).st_mtime)
+                    except OSError as exc:
+                        raise no_fiable(
+                            rel, "the symlink's target cannot be checked (broken, "
+                            "a loop or through a file)", exc) from exc
                 elif _stat.S_ISDIR(st.st_mode):
-                    pendientes.append((e.path, prefijo + e.name + "/"))
+                    pendientes.append((e.path, rel + "/"))
                 if fecha > ultima:
-                    ultima, ruta = fecha, prefijo + e.name
+                    ultima, ruta = fecha, rel
                 vistas += 1
                 if vistas > MAX_ENTRADAS:
                     raise ArbolDemasiadoGrande(
@@ -470,7 +605,8 @@ def inspeccionar(p: Path) -> dict[str, Any]:
     solo recorrido (en `/share` un árbol puede ser enorme y la vista previa
     y la confirmación lo miran dos veces cada una).
 
-    Devuelve `{"tipo", "huella", "montaje", "recuento", "size"}`: `tipo` como
+    Devuelve `{"tipo", "huella", "montaje", "recuento", "size"}` (y, en una
+    carpeta, `rel_max_bytes`, T060): `tipo` como
     en el listado (`file`, `dir`, `symlink`, `other`) o `None` si no existe;
     `montaje` dice si `p` es un punto de montaje o contiene alguno (sin
     entrar en él); `recuento` solo para una carpeta; `size` solo para un
@@ -507,6 +643,9 @@ def inspeccionar(p: Path) -> dict[str, Any]:
         "montaje": any(e[1] == "mount" for e in lista),
         "recuento": _recuento_de_lista(lista),
         "size": None,
+        # Convergencia 4 (T060): la ruta relativa más larga de lo que hay
+        # dentro, en bytes; al mover la carpeta a /addons, cada una crece.
+        "rel_max_bytes": max((len(os.fsencode(e[0])) for e in lista), default=0),
     }
 
 

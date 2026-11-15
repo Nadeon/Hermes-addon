@@ -930,6 +930,11 @@ MODIFICAR (DOS PASOS, SIEMPRE)
   su vista previa cuenta ficheros, carpetas y bytes y da una muestra de 20
   rutas. Si el borrado se queda a medias, la respuesta lo dice
   (`partial: true` y lo que quedó).
+- En addons, escribir, crear o mover a una ruta que en el Supervisor
+  (`/data/apps/local/…`) pasaría de 3840 bytes (al mover una carpeta, también
+  lo que cuelga de ella) se rechaza sin token: `path_too_long`. Con una ruta
+  así, el Supervisor no puede recorrer /addons y deja de releer las apps
+  locales sin decirlo.
 El token se ata a una HUELLA de lo que vio la vista previa (el contenido del
 fichero o la lista de todo lo que hay en la carpeta): si algo cambia antes de
 confirmar, `preview_outdated: true` y no se toca nada; pide otra vista
@@ -978,7 +983,12 @@ APPS LOCALES INSTALADAS (solo addons)
   y pide otra vista previa. También sin /addons, si tiene más de 50 000
   entradas o tarda más de 10 s en recorrerse, sin la app en su índice, con
   dos `config.*` válidos del mismo slug o con alguno que Hermes no puede
-  leer (symlink, más de 1 MiB…). También si el Supervisor tiene una recarga
+  leer (symlink, más de 1 MiB…). También si algo en /addons haría fallar el
+  recorrido con el que el Supervisor decide si relee (una ruta demasiado
+  larga para él, un symlink roto, en bucle, que pasa por un fichero o que
+  apunta fuera de /addons, una carpeta que no se puede listar): entonces
+  su recarga responde bien sin releer nada; el motivo dice qué es y dónde.
+  Arréglalo o quítalo y recarga. También si el Supervisor tiene una recarga
   de la tienda en curso (o su lista de jobs no responde): espera a que
   termine y recarga. Un `config.*` que el Supervisor SALTA (sin `slug`,
   YAML roto, sin un campo obligatorio) no bloquea: sale en
