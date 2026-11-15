@@ -102,6 +102,7 @@ from hermes.security import (
 )
 from hermes.tools._common import ajustar_lista_a_bytes, sobre_de_lista
 from hermes.tools._eco_supervisor import sin_eco_del_supervisor
+from hermes.tools._store import anotar_recarga_de_tienda
 from hermes.tools.addons import _es_hermes, _track_job
 
 logger = structlog.get_logger(__name__)
@@ -835,6 +836,8 @@ def register(
         # recarga el registro de versiones, sin la tienda, así que no vería
         # las actualizaciones de apps; y con el rol `manager` de la API v1 da
         # 403.
+        # Convergencia T047: recarga también la tienda; se anota su inicio.
+        inicio = time.time()
         try:
             await ha_client.sv_request("POST", "/refresh_updates",
                                        timeout_seconds=_ESPERA_REFRESH_S)
@@ -843,6 +846,7 @@ def register(
                            status=getattr(exc, "status", None),
                            error_type=type(exc).__name__)
             return _error("supervisor_error", _detalle(exc))
+        anotar_recarga_de_tienda(inicio)
         items, cabecera = await _listar()
         # El mismo sobre que `sv_list_available_updates`, con `refreshed` en
         # la cabecera (cuenta para el tope).

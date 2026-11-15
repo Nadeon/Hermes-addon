@@ -22,12 +22,14 @@ from __future__ import annotations
 import json
 import unittest
 from typing import Any
+from unittest import mock
 
 from structlog.testing import capture_logs
 
 from hermes.ha import HAConnectionError
 from hermes.tools.addons import _LONG_OP_TIMEOUT
 from hermes.tools.marketplace import _THIRD_PARTY_WARNING
+from hermes.tools import store_apps as store_apps_mod
 from hermes.tools.store_apps import register
 from tests.fixtures.supervisor_tienda import (
     CENTINELA_DOC,
@@ -63,6 +65,13 @@ class _Base(unittest.IsolatedAsyncioTestCase):
         mcp = _MCP()
         register(mcp, self.sv, response_max_bytes=self.max_bytes)
         self.t = mcp.tools
+        # La reconstrucción de la 030 con `local_ejemplo` y sin /addons: la
+        # comprobación de la copia de la tienda (convergencia T047 de la 034)
+        # se prueba en `test_tools_privilegios.TestCopiaDeTienda`.
+        p = mock.patch.object(store_apps_mod, "comprobar_copia_de_tienda",
+                              mock.AsyncMock(return_value=None))
+        p.start()
+        self.addCleanup(p.stop)
 
     def ficha(self, slug: str = _SLUG, **campos: Any) -> dict[str, Any]:
         f = ficha(slug, **campos)

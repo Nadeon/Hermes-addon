@@ -51,6 +51,8 @@ from hermes.tools._store import (
     disponibilidad,
     estado_de_privilegios,
     ficha_de_tienda,
+    candado_de_app,
+    comprobar_copia_de_tienda,
     leer_declarado,
     privilegios_de,
     privilegios_para_mostrar,
@@ -398,6 +400,18 @@ def register(
         token is bound to them: if they change before confirming, the answer
         is `preview_outdated` and nothing is rebuilt.
 
+        Local app (`local_*`): the rebuild applies the Supervisor's OWN copy
+        of its config file, read at the last store reload, which may not be
+        the file in /addons. If the config file or a folder on its path
+        changed after the start of the last store reload launched by Hermes
+        (sv_reload_store, sv_check_for_updates, adding or removing a
+        repository), or Hermes has launched none since it started, it is
+        rejected WITHOUT a token with `store_copy_stale` (hint:
+        sv_reload_store). Also without /addons, without the app in its index,
+        with two config files for the same slug or with an unreadable one.
+        Checked in the preview and again when confirming, together with the
+        request, with no Hermes write to /addons in between.
+
         Args:
             slug: App slug.
             force: Rebuild even an app that uses a prebuilt image (default false).
@@ -456,11 +470,24 @@ def register(
             # Spec 034 (FR-022, FR-023): los privilegios, y el token atado a
             # ellos.
             bloque = await _privilegios_de_reconstruir(slug, info, None)
+            # Convergencia T047: para una app local, `rebuild` aplica la copia
+            # de la última recarga de la tienda, no el fichero.
+            if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+                return _rechazo(tool, desfase, slug=slug)
             preview["privileges"] = privilegios_para_mostrar(bloque)
             _log(tool, "preview", slug=slug)
             return await create_confirmation_token(
                 tool, args, preview=preview, estado=estado_de_privilegios(bloque))
 
+        # T047 y T048: la comprobación y la petición, bajo el candado de
+        # /addons (solo para `local_*`).
+        async with candado_de_app(slug):
+            return await _confirmar_reconstruir(slug, force, args, confirmation_token)
+
+    async def _confirmar_reconstruir(
+        slug: str, force: bool, args: dict[str, Any], confirmation_token: str
+    ) -> dict[str, Any]:
+        tool = "sv_rebuild_addon"
         # Primero el token con su estado: un cambio en los privilegios es
         # `preview_outdated` sin gastar el token (como en instalar).
         valid, error_token, _ = await resolve_confirmation_token(
@@ -477,6 +504,10 @@ def register(
                              "again without confirmation_token)."),
                 }
             return _rechazo(tool, {"error": error_token}, slug=slug)
+        if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="store_copy_stale")
+            return _rechazo(tool, desfase, slug=slug)
         try:
             # Sin `background`: la ruta no lo admite (`api/apps.py`, `rebuild`)
             # y espera a que la app vuelva a arrancar. De ahí la espera larga.

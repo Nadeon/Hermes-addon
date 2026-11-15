@@ -904,13 +904,21 @@ LEER (sin token)
   `app` con su `slug` y si está instalada (`installed: null` si el
   Supervisor no respondió).
 - `fs_read_file_in_folder(folder, path, offset=0, limit=500)` — texto por
-  líneas (`limit` hasta 5000); si quedan más, `truncated` y `next_offset`.
-  Un binario devuelve solo metadatos (`binary: true`).
+  líneas (`limit` hasta 5000), leído por bloques sin cargar más de lo que
+  cabe en la respuesta; si puede haber más, `truncated` y `next_offset`.
+  Una línea más larga que el tope de respuesta (un minificado, un volcado
+  sin saltos) sale CORTADA solo si es la primera de la página:
+  `cut_lines` dice cuál, cuántos caracteres vuelven (`returned_chars`) y su
+  largo (`line_chars`, null si no se leyó hasta su final); el resto de esa
+  línea no se puede leer con esta tool. Un binario devuelve solo metadatos
+  (`binary: true`). Un FIFO, socket o dispositivo no se abre:
+  `not_regular_file`.
 
 MODIFICAR (DOS PASOS, SIEMPRE)
 - `fs_write_file_in_folder(folder, path, content)` — crea o sobrescribe un
   fichero de texto y las carpetas padre que falten. Si la vista previa trae
-  `omit_on_confirm`, confirma sin `content`.
+  `omit_on_confirm`, confirma sin `content`. Solo sobrescribe ficheros
+  regulares (un FIFO, socket o dispositivo → `not_regular_file`).
 - `fs_create_dir_in_folder(folder, path)` — crea la carpeta y sus padres;
   si ya hay algo en esa ruta, `already_exists`.
 - `fs_move_in_folder(folder, src, dst)` — mueve o renombra DENTRO de la
@@ -927,6 +935,10 @@ fichero o la lista de todo lo que hay en la carpeta): si algo cambia antes de
 confirmar, `preview_outdated: true` y no se toca nada; pide otra vista
 previa. Una carpeta en la que otra app está escribiendo (logs, una base de
 datos) nunca casa la huella: para antes esa app (`sv_stop_addon`).
+Las confirmaciones de una misma carpeta se hacen de una en una, y justo
+antes de tocar el disco la ruta se vuelve a resolver: si una carpeta del
+camino cambió entretanto (por ejemplo, ahora es un symlink),
+`path_changed` y no se toca nada.
 
 SIN BACKUP
 Hermes NO hace backup antes de escribir, mover ni borrar aquí (a diferencia
@@ -952,6 +964,14 @@ APPS LOCALES INSTALADAS (solo addons)
   `sv_install_addon("local_<slug>")`. Su vista previa enseña los privilegios
   que pide la app (`privileges`, con `declared_in_folder`): revísalos con el
   usuario.
+- RECARGA LA TIENDA DESPUÉS DE TOCAR UNA APP LOCAL. El Supervisor instala y
+  reconstruye con SU copia del `config.*`, la de la última recarga de la
+  tienda, que puede no ser el fichero. Si el `config.*` o una carpeta de su
+  camino cambió después del inicio de la última recarga que lanzó Hermes
+  (o Hermes no ha recargado desde que arrancó), `sv_install_addon` y
+  `sv_rebuild_addon` responden `store_copy_stale` SIN token: llama a
+  `sv_reload_store()` y pide otra vista previa. También sin /addons, sin la
+  app en su índice, con dos `config.*` del mismo slug o con alguno ilegible.
 
 OTRAS REGLAS
 - Lista negra por NOMBRE de fichero, la misma de /config (secrets.yaml,
@@ -1002,6 +1022,14 @@ OTRAS REGLAS
   ellos: si cambian antes de confirmar, `preview_outdated`. Si la ficha no
   se puede leer, `privileges: null` y `privileges_unavailable`.
   `sv_rebuild_addon` hace lo mismo (`hermes_guide("app_store")`).
+- App local (`local_*`): el Supervisor instala (y reconstruye) con SU copia
+  del `config.*`, la de la última recarga de la tienda. Si el fichero o una
+  carpeta de su camino cambió después del inicio de la última recarga que
+  lanzó Hermes (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar
+  un repositorio), o Hermes no ha recargado desde que arrancó,
+  `store_copy_stale` sin token (también sin /addons o si la app no está en
+  su índice): `sv_reload_store()` y otra vista previa. Se comprueba otra vez
+  al confirmar (`hermes_guide("folders")`).
 - Tienda (repositorios, changelog, documentación, disponibilidad,
   reconstruir una app): `hermes_guide("app_store")`.
 - Escribir el código de una app local en /addons (familia `addons_share`):
@@ -2137,7 +2165,9 @@ REPOSITORIOS Y RECARGA
   vale para `local` (`not_supported`).
 - `sv_reload_store()` — actualiza TODOS los repositorios (`git pull`) y
   relee el catálogo: para que aparezcan apps o versiones nuevas. No instala
-  ni actualiza nada. Puede tardar.
+  ni actualiza nada. Puede tardar. Hermes anota cuándo EMPEZÓ: instalar o
+  reconstruir una app local exige una recarga posterior al último cambio de
+  su `config.*` (si no, `store_copy_stale`).
 Reparar arregla UN repositorio roto; recargar trae lo nuevo de todos. Ninguna
 de las dos pide token.
 
@@ -2183,10 +2213,15 @@ RECONSTRUIR UNA APP
   (`store`, la ficha de la tienda, que la reconstrucción copia), lo actual
   (`installed`), cuáles son elevados (`elevated`) y, para una app local
   (`local_*`), lo que declara ahora su `config.*` en /addons
-  (`declared_in_folder`; el Supervisor usa su copia hasta `sv_reload_store`).
-  El token se ata a ese bloque: si cambia antes de confirmar,
-  `preview_outdated` y no se reconstruye nada. El código de una app local se
-  edita con las tools de `hermes_guide("folders")`.
+  (`declared_in_folder`). El token se ata a ese bloque: si cambia antes de
+  confirmar, `preview_outdated` y no se reconstruye nada. El código de una
+  app local se edita con las tools de `hermes_guide("folders")`.
+- App local: la reconstrucción aplica la copia del Supervisor de la última
+  recarga, no el fichero. Si el `config.*` o una carpeta de su camino cambió
+  después del inicio de la última recarga que lanzó Hermes (o no ha lanzado
+  ninguna), `store_copy_stale` sin token: `sv_reload_store()` y otra vista
+  previa. Se comprueba también al confirmar, sin que ninguna escritura de
+  Hermes en /addons se cuele entre medias.
 """,
     "blueprints": """\
 # Blueprints

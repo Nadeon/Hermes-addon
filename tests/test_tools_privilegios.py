@@ -30,7 +30,9 @@ Controles negativos (T035, recuentos en `tasks.md`):
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -39,6 +41,7 @@ from unittest import mock
 from hermes import folders
 from hermes.ha import HAConnectionError
 from hermes.tools import addons as addons_mod
+from hermes.tools import _store
 from hermes.tools import store_apps as store_apps_mod
 from hermes.tools._store import (
     CAMPOS_PRIVILEGIO_INSTALADA,
@@ -168,6 +171,10 @@ class _ConRaices(unittest.IsolatedAsyncioTestCase):
             p.start()
             self.addCleanup(p.stop)
         self.addCleanup(self._tmp.cleanup)
+        # Convergencia T047: una recarga de la tienda «posterior» a todo lo
+        # que escriban estos tests, para que la copia del Supervisor cuente
+        # como al día. `TestCopiaDeTienda` lo cambia.
+        _store._ULTIMA_RECARGA = time.time() + 60
 
     def app_local(self, texto: str = _CONFIG_LOCAL, carpeta: str = "ejemplo",
                   raiz: Path | None = None) -> Path:
@@ -422,20 +429,23 @@ class TestInstalar(_Instalar):
         self.assertSin(r, "centinela-opcion")
 
     async def test_app_local_sin_carpeta_no_lo_inventa(self) -> None:
-        # `local_ejemplo` sin `config.*` en /addons: no hay nada declarado.
+        # `local_ejemplo` sin `config.*` en /addons: no hay nada declarado, y
+        # desde la convergencia T047 no se supone nada: sin token.
         self.tienda(_LOCAL, repository="local")
         r = await self.t["sv_install_addon"](_LOCAL)
-        self.assertNotIn("declared_in_folder", r["preview"]["privileges"])
+        self.assertEqual(r["error"], "store_copy_stale")
+        self.assertNotIn("confirmation_token", r)
 
     async def test_app_local_con_addons_sin_montar(self) -> None:
         self.app_local()
         self.tienda(_LOCAL, repository="local")
         with mock.patch.object(folders, "ADDONS_BASE", self.addons / "sin_montar"):
             r = await self.t["sv_install_addon"](_LOCAL)
-        priv = r["preview"]["privileges"]
-        self.assertIsNone(priv["declared_in_folder"])
-        self.assertIn("declared_in_folder", priv["unavailable"])
-        self.assertIn("confirmation_token", r)
+        # Convergencia T047: sin /addons no se sabe qué copia tiene el
+        # Supervisor: sin token.
+        self.assertEqual(r["error"], "store_copy_stale")
+        self.assertIn("/addons", r["reason"])
+        self.assertNotIn("confirmation_token", r)
 
     async def test_tienda_no_local_sin_declared(self) -> None:
         # Aunque haya una carpeta con el mismo slug en /addons.
@@ -572,14 +582,21 @@ class TestReconstruir(_ConRaices):
 
     async def test_sin_carpeta_ni_tienda(self) -> None:
         # La ficha de la tienda no está (404): `store` es null con su motivo
-        # y el token sale igual; sin `config.*` local no hay `declared_in_folder`.
+        # y el token sale igual.
         self.sv.respuesta("GET", f"/addons/{_LOCAL}/info", info_instalada(_LOCAL))
+        self.app_local()
         r = await self.t["sv_rebuild_addon"](_LOCAL)
         priv = r["preview"]["privileges"]
         self.assertIsNone(priv["store"])
         self.assertIn("store", priv["unavailable"])
-        self.assertNotIn("declared_in_folder", priv)
+        self.assertIn("declared_in_folder", priv)
         self.assertIn("confirmation_token", r)
+        # Sin `config.*` local: desde la convergencia T047 no se supone qué
+        # copia tiene el Supervisor, y no hay token.
+        (self.addons / "ejemplo" / "config.yaml").unlink()
+        r = await self.t["sv_rebuild_addon"](_LOCAL)
+        self.assertEqual(r["error"], "store_copy_stale")
+        self.assertNotIn("confirmation_token", r)
 
     async def _cambio(self, cambiar) -> dict[str, Any]:
         prev = await self.t["sv_rebuild_addon"](_LOCAL)
@@ -632,6 +649,245 @@ class TestReconstruir(_ConRaices):
                 self.assertNotIn("confirmation_token", r)
                 self.assertNotIn("privileges", r)
         self.assertEqual(self.sv.escrituras(), [])
+
+
+# ── Copia de la tienda desfasada (convergencia T047) ──────────────────────────
+
+
+class TestCopiaDeTienda(_ConRaices):
+    """El Supervisor instala y reconstruye una app local con SU copia del
+    `config.*`, la de la última recarga de la tienda (`store/data.py`;
+    `rebuild` copia esa ficha, `apps/app.py`). Si el fichero o su camino
+    cambiaron después de la última recarga que lanzó Hermes, o Hermes no ha
+    lanzado ninguna, `store_copy_stale` sin token, en la vista previa y otra
+    vez al confirmar, con la comprobación y la petición bajo el candado de
+    /addons.
+
+    Controles negativos comprobados: (a) sin la comprobación en la vista
+    previa de instalar → cae `test_sin_recarga_instalar`; (b) sin ella al
+    confirmar → cae `test_cambia_el_camino_entre_vista_previa_y_confirmacion`
+    (instalar y reconstruir); (c) mirando solo la fecha del fichero → cae
+    `test_mover_una_carpeta_del_camino_cuenta`; (d) sin el candado → cae
+    `test_confirmar_espera_al_candado_de_addons`.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.sv = SupervisorSimulado()
+        mcp = _MCP()
+        addons_mod.register(mcp, self.sv)
+        store_apps_mod.register(mcp, self.sv)
+        self.t = mcp.tools
+        self.sv.respuesta("GET", f"/store/addons/{_LOCAL}",
+                          ficha_extendida(_LOCAL, repository="local"))
+        self.sv.respuesta("GET", f"/store/addons/{_LOCAL}/availability", {})
+        self.sv.respuesta("POST", f"/store/addons/{_LOCAL}/install", {"job_id": "j1"})
+
+    def reconstruible(self) -> None:
+        self.sv.respuesta("GET", f"/store/addons/{_LOCAL}", ficha_extendida(
+            _LOCAL, repository="local", installed=True, version="1.0.0",
+            version_latest="1.0.0", build=True))
+        self.sv.respuesta("GET", f"/addons/{_LOCAL}/info", info_instalada(_LOCAL))
+        self.sv.respuesta("POST", f"/addons/{_LOCAL}/rebuild", {})
+
+    def fechas(self, ruta: Path, segundos: float) -> None:
+        os.utime(ruta, (segundos, segundos))
+
+    def app_con_fechas(self, hace: float = 600) -> Path:
+        """App local con el fichero y su camino fechados `hace` segundos."""
+        p = self.app_local()
+        antes = time.time() - hace
+        for r in (p, p.parent, self.addons):
+            self.fechas(r, antes)
+        return p
+
+    async def test_sin_recarga_instalar(self) -> None:
+        self.app_con_fechas()
+        _store._ULTIMA_RECARGA = None
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertEqual(r["error"], "store_copy_stale", r)
+        self.assertIn("not reloaded the store", r["reason"])
+        self.assertIn("sv_reload_store", r["hint"])
+        self.assertNotIn("confirmation_token", r)
+        self.assertEqual(self.sv.escrituras(), [])
+
+    async def test_sin_recarga_reconstruir(self) -> None:
+        self.app_con_fechas()
+        self.reconstruible()
+        _store._ULTIMA_RECARGA = None
+        r = await self.t["sv_rebuild_addon"](_LOCAL)
+        self.assertEqual(r["error"], "store_copy_stale", r)
+        self.assertNotIn("confirmation_token", r)
+
+    async def test_fichero_posterior_a_la_recarga(self) -> None:
+        p = self.app_con_fechas()
+        _store._ULTIMA_RECARGA = time.time() - 300
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertIn("confirmation_token", r)
+        # Se reescribe después de la recarga: la copia del Supervisor puede
+        # ser otra (el ataque de escribir, recargar y volver a escribir).
+        self.fechas(p, time.time() - 60)
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertEqual(r["error"], "store_copy_stale")
+        self.assertIn("changed after the last store reload", r["reason"])
+
+    async def test_margen_de_la_fecha(self) -> None:
+        # Escrito un segundo antes de empezar la recarga: cuenta como
+        # posterior (hay sistemas de ficheros con 2 s de resolución).
+        p = self.app_con_fechas()
+        _store._ULTIMA_RECARGA = time.time() - 100
+        self.fechas(p, time.time() - 101)
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertEqual(r["error"], "store_copy_stale")
+
+    async def test_mover_una_carpeta_del_camino_cuenta(self) -> None:
+        # Mover una carpeta conserva la fecha de sus ficheros pero cambia la
+        # de su carpeta padre: una app movida a su sitio después de recargar
+        # (desde una carpeta oculta, que el Supervisor no lee) es posterior.
+        self.app_con_fechas()
+        _store._ULTIMA_RECARGA = time.time() - 300
+        self.fechas(self.addons, time.time() - 60)
+        r = await self.t["sv_install_addon"](_LOCAL)
+        self.assertEqual(r["error"], "store_copy_stale")
+
+    async def test_cambia_el_camino_entre_vista_previa_y_confirmacion(self) -> None:
+        for tool in ("sv_install_addon", "sv_rebuild_addon"):
+            with self.subTest(tool=tool):
+                self.sv.llamadas.clear() if hasattr(self.sv, "llamadas") else None
+                p = self.app_con_fechas()
+                if tool == "sv_rebuild_addon":
+                    self.reconstruible()
+                _store._ULTIMA_RECARGA = time.time() - 300
+                prev = await self.t[tool](_LOCAL)
+                self.assertIn("confirmation_token", prev, prev)
+                # Los privilegios no cambian (el token casa); cambia la
+                # fecha de la carpeta de la app.
+                self.fechas(p.parent, time.time() - 10)
+                r = await self.t[tool](_LOCAL, confirmation_token=prev["confirmation_token"])
+                self.assertEqual(r.get("error"), "store_copy_stale", r)
+                self.assertNotIn(("POST", f"/store/addons/{_LOCAL}/install"), self.sv.rutas())
+                self.assertNotIn(("POST", f"/addons/{_LOCAL}/rebuild"), self.sv.rutas())
+                # El token se completó con error: no vuelve a valer.
+                otra = await self.t[tool](_LOCAL, confirmation_token=prev["confirmation_token"])
+                self.assertNotEqual(otra.get("error"), "store_copy_stale")
+                self.assertIn("error", otra)
+
+    async def test_al_dia_instala_y_reconstruye(self) -> None:
+        self.app_con_fechas()
+        _store._ULTIMA_RECARGA = time.time() - 300
+        prev = await self.t["sv_install_addon"](_LOCAL)
+        r = await self.t["sv_install_addon"](_LOCAL, confirmation_token=prev["confirmation_token"])
+        self.assertEqual(r.get("job_id"), "j1", r)
+        self.reconstruible()
+        prev = await self.t["sv_rebuild_addon"](_LOCAL)
+        r = await self.t["sv_rebuild_addon"](_LOCAL, confirmation_token=prev["confirmation_token"])
+        self.assertEqual(r, {"result": "ok", "slug": _LOCAL, "force": False})
+
+    async def test_no_se_supone_nada(self) -> None:
+        _store._ULTIMA_RECARGA = time.time() + 60
+        casos = {
+            "sin /addons": lambda: mock.patch.object(
+                folders, "ADDONS_BASE", self.addons / "sin_montar"),
+            "no está en el índice": None,
+            "dos config para el mismo slug": "dos",
+            "un config ilegible": "ilegible",
+        }
+        for nombre, preparar in casos.items():
+            with self.subTest(caso=nombre):
+                for hijo in list(self.addons.iterdir()):
+                    import shutil
+
+                    shutil.rmtree(hijo)
+                if nombre != "no está en el índice":
+                    self.app_local()
+                if preparar == "dos":
+                    self.app_local(carpeta="copia")
+                elif preparar == "ilegible":
+                    (self.addons / "rota").mkdir()
+                    (self.addons / "rota" / "config.yaml").write_bytes(b"\xff\xfe: [")
+                if callable(preparar):
+                    with preparar():
+                        r = await self.t["sv_install_addon"](_LOCAL)
+                else:
+                    r = await self.t["sv_install_addon"](_LOCAL)
+                self.assertEqual(r.get("error"), "store_copy_stale", r)
+                self.assertNotIn("confirmation_token", r)
+
+    async def test_otra_app_no_depende_de_la_recarga(self) -> None:
+        _store._ULTIMA_RECARGA = None
+        self.sv.respuesta("GET", f"/store/addons/{_TERCEROS}", ficha_extendida(_TERCEROS))
+        self.sv.respuesta("GET", f"/store/addons/{_TERCEROS}/availability", {})
+        r = await self.t["sv_install_addon"](_TERCEROS)
+        self.assertIn("confirmation_token", r)
+
+    async def test_confirmar_espera_al_candado_de_addons(self) -> None:
+        # Mientras otra operación de Hermes tiene el candado de /addons, la
+        # confirmación de instalar una app local no comprueba ni envía nada.
+        import asyncio
+
+        self.app_con_fechas()
+        _store._ULTIMA_RECARGA = time.time() - 300
+        prev = await self.t["sv_install_addon"](_LOCAL)
+        candado = folders.candado("addons")
+        await candado.acquire()
+        tarea = asyncio.ensure_future(self.t["sv_install_addon"](
+            _LOCAL, confirmation_token=prev["confirmation_token"]))
+        await asyncio.sleep(0.05)
+        self.assertFalse(tarea.done())
+        self.assertNotIn(("POST", f"/store/addons/{_LOCAL}/install"), self.sv.rutas())
+        candado.release()
+        r = await tarea
+        self.assertEqual(r.get("job_id"), "j1", r)
+
+
+class TestRecargasAnotadas(unittest.IsolatedAsyncioTestCase):
+    """Las vías de Hermes que recargan la tienda anotan la hora de INICIO
+    (antes de la petición) solo si el Supervisor respondió bien.
+    Control negativo comprobado: sin `anotar_recarga_de_tienda` en
+    `sv_reload_store` cae `test_reload_store`."""
+
+    async def test_reload_store(self) -> None:
+        from hermes.tools import store_repositories
+
+        sv = SupervisorSimulado()
+        mcp = _MCP()
+        store_repositories.register(mcp, sv)
+        sv.respuesta("POST", "/store/reload", {})
+        antes = time.time()
+        r = await mcp.tools["sv_reload_store"]()
+        self.assertEqual(r["result"], "ok")
+        anotada = _store.ultima_recarga_de_tienda()
+        self.assertIsNotNone(anotada)
+        self.assertTrue(antes <= anotada <= time.time())
+        _store._ULTIMA_RECARGA = None
+        sv.respuesta("POST", "/store/reload", HAConnectionError("failed 500: boom", status=500))
+        r = await mcp.tools["sv_reload_store"]()
+        self.assertIn("error", r)
+        self.assertIsNone(_store.ultima_recarga_de_tienda())
+
+    async def test_check_for_updates(self) -> None:
+        from hermes.tools import system_updates
+
+        llamadas: list[tuple[str, str]] = []
+
+        class Cliente:
+            async def sv_request(self, metodo: str, ruta: str, **_: Any) -> Any:
+                llamadas.append((metodo, ruta))
+                return {}
+
+        mcp = _MCP()
+        system_updates.register(mcp, Cliente())
+        antes = time.time()
+        await mcp.tools["sv_check_for_updates"]()
+        self.assertIn(("POST", "/refresh_updates"), llamadas)
+        anotada = _store.ultima_recarga_de_tienda()
+        self.assertIsNotNone(anotada)
+        self.assertTrue(antes <= anotada <= time.time())
+
+    def test_la_mas_reciente_gana(self) -> None:
+        _store.anotar_recarga_de_tienda(100.0)
+        _store.anotar_recarga_de_tienda(50.0)
+        self.assertEqual(_store.ultima_recarga_de_tienda(), 100.0)
 
 
 if __name__ == "__main__":

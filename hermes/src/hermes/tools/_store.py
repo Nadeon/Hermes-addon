@@ -22,8 +22,10 @@ POR QUÉ
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
+import os
 import re
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -386,8 +388,10 @@ _ROLES_ELEVADOS: frozenset[str] = frozenset({"manager", "admin"})
 
 NOTA_DECLARADO = (
     "This is what the app's config file in /addons declares now. The "
-    "Supervisor uses its own copy until the store is reloaded "
-    "(sv_reload_store), so it may differ from 'store'."
+    "Supervisor installs and rebuilds from its own copy, read at the last "
+    "store reload; Hermes only gives a token when that file has not changed "
+    "since the last reload it launched (sv_reload_store); otherwise "
+    "store_copy_stale."
 )
 
 # Topes de lo que se ENSEÑA (no de lo que se ata al token, que va entero):
@@ -699,3 +703,134 @@ async def leer_declarado(slug: str) -> tuple[Any, str | None]:
     except DeclaradoIlegible as exc:
         return None, str(exc)
     return (NO_APLICA if declarado is None else declarado), None
+
+
+# ── Copia de la tienda desfasada (convergencia T047) ──────────────────────────
+#
+# El Supervisor no instala ni reconstruye una app local a partir del
+# `config.*` que hay AHORA en /addons, sino de su propia copia, la que leyó
+# en la última recarga de la tienda (`store/data.py`; `rebuild` copia esa
+# ficha a la app, `apps/app.py`). Y la ficha de la tienda no trae
+# `privileged`, `devices`, `host_dbus`, `kernel_modules`, `udev`, `map`…: esos
+# privilegios solo se ven en el fichero (`declared_in_folder`). Si el fichero
+# cambió después de esa recarga, la vista previa enseñaría unos privilegios y
+# el Supervisor aplicaría otros (escribir uno con `SYS_ADMIN`, recargar y
+# volver a escribirlo inocuo). Por eso, para una app `local_*`, Hermes exige
+# que la última recarga LANZADA POR ÉL empezara después de la última
+# modificación del fichero y del camino hasta él (un `rename` de una carpeta
+# del camino cambia la fecha de su padre, no la del fichero). Si no, se
+# rechaza sin token: `store_copy_stale`. Sin suponer nada: sin /addons, sin
+# la app en el índice, con dos `config.*` para el mismo slug o con alguno
+# ilegible (el Supervisor podría leer otro), también se rechaza.
+
+#: Hora (`time.time()`) del INICIO de la última recarga de la tienda que lanzó
+#: Hermes y que terminó bien. `None` desde que arranca: ninguna conocida.
+_ULTIMA_RECARGA: float | None = None
+#: Margen para las fechas de los ficheros (hay sistemas de ficheros con una
+#: resolución de hasta 2 s): un fichero escrito justo antes de recargar
+#: cuenta como posterior.
+MARGEN_RECARGA_S = 2.0
+
+
+def anotar_recarga_de_tienda(inicio: float) -> None:
+    """Anota una recarga de la tienda que Hermes lanzó a las `inicio` (antes
+    de mandar la petición) y que el Supervisor completó. La llaman
+    `sv_reload_store`, `sv_check_for_updates` (`/refresh_updates` recarga la
+    tienda) y `sv_add_store_repository` / `sv_remove_store_repository` (que
+    vuelven a leer todas las fichas)."""
+    global _ULTIMA_RECARGA
+    if _ULTIMA_RECARGA is None or inicio > _ULTIMA_RECARGA:
+        _ULTIMA_RECARGA = inicio
+
+
+def ultima_recarga_de_tienda() -> float | None:
+    return _ULTIMA_RECARGA
+
+
+def _desfasada(slug: str, motivo: str) -> dict[str, Any]:
+    return {
+        "error": "store_copy_stale",
+        "slug": slug,
+        "reason": motivo,
+        "detail": (
+            "The Supervisor installs and rebuilds a local app from its own copy "
+            "of the app's config file, read at the last store reload, which may "
+            "not be the file in /addons now. The privileges in the preview come "
+            "from the file, and several of them (privileged, devices, host_dbus, "
+            "kernel_modules, udev, map…) are not in the store's data, so Hermes "
+            "cannot show what would really be applied. Nothing was done."),
+        "hint": ("Reload the store with sv_reload_store (after the last change "
+                 "to the app's files) and request a new preview."),
+    }
+
+
+def _fecha_mas_reciente(base: Any, rel_config: str) -> float:
+    """La fecha de modificación más reciente del `config.*` y de cada
+    carpeta de su camino desde la raíz de /addons (incluida), sin seguir
+    symlinks."""
+    from pathlib import Path
+
+    ruta = Path(base)
+    fechas = [os.lstat(ruta).st_mtime]
+    for parte in rel_config.split("/"):
+        ruta = ruta / parte
+        fechas.append(os.lstat(ruta).st_mtime)
+    return max(fechas)
+
+
+def copia_de_tienda_desfasada(slug: str) -> dict[str, Any] | None:
+    """El rechazo `store_copy_stale` para la app local `slug`, o `None` si su
+    `config.*` no ha cambiado desde la última recarga lanzada por Hermes (o
+    si `slug` no es `local_*`). Síncrono (recorre /addons): quien llama lo
+    manda a un hilo."""
+    from hermes import folders
+
+    if not isinstance(slug, str) or not slug.startswith("local_"):
+        return None
+    try:
+        base = folders.raiz("addons")
+        indice = folders.indice_de_apps_locales(base)
+    except folders.CarpetaError:
+        return _desfasada(slug, "The /addons folder is not available, so the app's "
+                                "config file cannot be checked.")
+    except OSError:
+        return _desfasada(slug, "The /addons folder could not be read.")
+    datos = indice.apps.get(slug)
+    if datos is None:
+        return _desfasada(slug, "No config file in /addons declares this app.")
+    if sum(1 for s in indice.configs.values() if s == slug) > 1:
+        return _desfasada(slug, "Several config files in /addons declare this app; "
+                                "it is unknown which one the Supervisor read.")
+    if indice.ilegibles:
+        return _desfasada(slug, "Some config files in /addons cannot be read by "
+                                "Hermes (" + ", ".join(indice.ilegibles[:5]) + "); one "
+                                "of them could declare this app for the Supervisor.")
+    ultima = _ULTIMA_RECARGA
+    if ultima is None:
+        return _desfasada(slug, "Hermes has not reloaded the store since it started, "
+                                "so it does not know which copy the Supervisor has.")
+    try:
+        fecha = _fecha_mas_reciente(base, datos["config"])
+    except OSError:
+        return _desfasada(slug, "The app's config file could not be checked.")
+    if fecha > ultima - MARGEN_RECARGA_S:
+        return _desfasada(slug, "The app's config file (or a folder on its path) "
+                                "changed after the last store reload started.")
+    return None
+
+
+async def comprobar_copia_de_tienda(slug: str) -> dict[str, Any] | None:
+    """`copia_de_tienda_desfasada` en un hilo."""
+    return await asyncio.to_thread(copia_de_tienda_desfasada, slug)
+
+
+def candado_de_app(slug: str) -> Any:
+    """El candado de /addons para una app `local_*` (convergencia T047 y
+    T048): la comprobación de `store_copy_stale` y la petición de instalar o
+    reconstruir van bajo el mismo candado que las escrituras de Hermes en
+    /addons, para que ninguna se cuele entre medias. Para otra app, nada."""
+    from hermes import folders
+
+    if isinstance(slug, str) and slug.startswith("local_"):
+        return folders.candado("addons")
+    return contextlib.nullcontext()

@@ -70,6 +70,8 @@ from hermes.tools._store import (
     es_integrado,
     estado_de_privilegios,
     ficha_de_tienda,
+    candado_de_app,
+    comprobar_copia_de_tienda,
     leer_declarado,
     mensaje_del_supervisor,
     privilegios_de,
@@ -1006,6 +1008,18 @@ def register(
         previa: si cambian al confirmar, responde `preview_outdated` sin
         instalar.
 
+        App local (`local_*`): el Supervisor la instala con SU copia del
+        `config.*`, la de la última recarga de la tienda, que puede no ser el
+        fichero de /addons. Si el `config.*` o una carpeta de su camino
+        cambió después del inicio de la última recarga que lanzó Hermes
+        (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar un
+        repositorio), o Hermes no ha lanzado ninguna desde que arrancó, se
+        rechaza SIN token con `store_copy_stale` (pista: `sv_reload_store`).
+        También sin /addons, sin la app en su índice, con dos `config.*` para
+        el mismo slug o con alguno ilegible. Se comprueba en la vista previa
+        y otra vez al confirmar, junto con la petición, sin que ninguna
+        escritura de Hermes en /addons se cuele entre medias.
+
         Operación larga — devuelve inmediatamente un job_id.
         Usa sv_get_job_status(job_id) para consultar el progreso.
 
@@ -1040,9 +1054,22 @@ def register(
             rechazo = await _vista_previa_de_instalar(slug, preview, estado)
             if rechazo is not None:
                 return rechazo
+            # Convergencia T047: para una app local, el Supervisor instala su
+            # copia de la última recarga de la tienda, no el fichero.
+            if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+                return desfase
             return await create_confirmation_token(
                 tool_name, args, preview=preview, estado=estado)
 
+        # T047 y T048: la comprobación y la petición, bajo el candado de
+        # /addons (solo para `local_*`).
+        async with candado_de_app(slug):
+            return await _confirmar_instalar(slug, args, confirmation_token)
+
+    async def _confirmar_instalar(
+        slug: str, args: dict[str, Any], confirmation_token: str
+    ) -> dict[str, Any]:
+        tool_name = "sv_install_addon"
         rechazo = await _token_con_version(
             tool_name, args, confirmation_token, await _estado_de_instalar(slug),
             hint=("The store version or the app's privileges changed since the "
@@ -1050,6 +1077,10 @@ def register(
                   "without confirmation_token)."))
         if rechazo is not None:
             return rechazo
+        if (desfase := await comprobar_copia_de_tienda(slug)) is not None:
+            await complete_confirmation_token(
+                confirmation_token, success=False, error="store_copy_stale")
+            return desfase
 
         try:
             data = await ha_client.sv_request(

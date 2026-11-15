@@ -15,8 +15,9 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   `fs_list_dir_in_folder` (hasta 500 entradas y 3 niveles; los symlinks se
   listan y no se siguen), `fs_stat_in_folder` (en `/addons`, si una carpeta
   es una app local, su `local_<slug>` y si está instalada) y
-  `fs_read_file_in_folder` (texto por líneas, hasta 5000 por llamada, sin
-  cargar el fichero entero; de un binario, solo los metadatos). Las que
+  `fs_read_file_in_folder` (texto por líneas, hasta 5000 por llamada, por
+  bloques y sin cargar más de lo que cabe en la respuesta; de un binario,
+  solo los metadatos). Las que
   modifican, **siempre en dos pasos**: `fs_write_file_in_folder` (crea o
   sobrescribe un fichero de texto con la misma escritura atómica de
   `/config`; al confirmar basta con el token), `fs_create_dir_in_folder`,
@@ -84,8 +85,8 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   módulos del kernel, udev, capacidades `privileged`, `devices`, un rol del
   Supervisor `manager` o `admin`, AppArmor desactivado, un `map` con
   escritura) y, para una app local, lo que declara ahora su `config.*` en
-  `/addons` (`declared_in_folder`, con el aviso de que el Supervisor usa su
-  copia hasta recargar la tienda). Si la ficha no se puede leer,
+  `/addons` (`declared_in_folder`; para una app local,
+  ver «Convergencia» más abajo). Si la ficha no se puede leer,
   `privileges: null` y `privileges_unavailable`. El token se ata a la
   versión de la tienda y a ese bloque: si cualquiera cambia antes de
   confirmar, `preview_outdated` y no se instala nada.
@@ -99,6 +100,42 @@ existente cambia ni pasa a ser obligatorio (spec 034).
   libre del autor y, en la instalada, las opciones), y el texto del autor
   pasa por la redacción de secretos. El esquema de entrada de las dos no
   cambia.
+
+### Convergencia tras la revisión independiente
+
+- **Cambio de comportamiento de `sv_install_addon` y `sv_rebuild_addon` para
+  las apps locales (`local_*`).** El Supervisor instala y reconstruye con su
+  propia copia del `config.*`, la que leyó en la última recarga de la tienda,
+  y varios privilegios (`privileged`, `devices`, `host_dbus`,
+  `kernel_modules`, `udev`, `map`…) no salen en su ficha: la vista previa
+  podía enseñar los del fichero y el Supervisor aplicar otros (escribir uno
+  con `SYS_ADMIN`, recargar y volver a escribirlo inocuo). Ahora Hermes
+  anota la hora de inicio de cada recarga de la tienda que lanza él
+  (`sv_reload_store`, `sv_check_for_updates`, añadir o quitar un
+  repositorio) y, si el `config.*` de la app o una carpeta de su camino
+  cambió después del inicio de la última, o no ha lanzado ninguna desde que
+  arrancó, rechaza SIN token con `store_copy_stale` y la pista
+  `sv_reload_store`. También sin `/addons`, sin la app en su índice, con dos
+  `config.*` para el mismo slug o con alguno ilegible. Se comprueba en la
+  vista previa y otra vez al confirmar, junto con la petición, bajo el mismo
+  candado que las escrituras de Hermes en `/addons`. Las apps que no son
+  locales no cambian.
+- `elevated` interpreta el `config.*` como el Supervisor (`vol.Boolean`):
+  `host_dbus: 1` o `apparmor: 0` cuentan; un valor que el Supervisor no
+  sabría interpretar sale como `<campo>:unparsed` y cuenta como elevado.
+- `fs_read_file_in_folder` lee por bloques y nunca guarda más de lo que cabe
+  en la respuesta, aunque el fichero sea una sola línea de varios GB: una
+  línea más larga que el tope sale cortada si es la primera de la página, y
+  `cut_lines` dice cuál, cuántos caracteres vuelven y su largo.
+- Solo se leen o sobrescriben ficheros regulares: un FIFO (el de Snapcast
+  en `/share`, por ejemplo), un socket o un dispositivo da
+  `not_regular_file` sin bloquear nada.
+- Las confirmaciones que modifican una carpeta van de una en una y, justo
+  antes de tocar el disco, la ruta se vuelve a resolver (y, en Linux, se
+  opera relativa a la carpeta padre abierta sin seguir symlinks): si una
+  carpeta del camino cambió entretanto, `path_changed` y no se toca nada.
+- README y DOCS decían que no se toca una app local instalada; lo exacto es
+  que no se borra ni se mueve (escribir dentro se admite, con aviso).
 
 ### Pruebas
 

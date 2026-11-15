@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import functools
 import re
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -57,6 +58,7 @@ from hermes.tools._eco_supervisor import sin_eco_del_supervisor
 from hermes.tools._logs import ArgumentoInvalido
 from hermes.tools._store import (
     URLS_DE_CORE,
+    anotar_recarga_de_tienda,
     credenciales_de_url,
     es_integrado,
     redactar_mensaje,
@@ -423,6 +425,7 @@ def register(
         valid, error = await validate_confirmation_token(confirmation_token, tool, args)
         if not valid:
             return _rechazo(tool, {"error": error}, repository=slug)
+        inicio = time.time()  # T047: añadir vuelve a leer todas las fichas
         try:
             await ha_client.sv_request(
                 "POST", "/store/repositories",
@@ -438,6 +441,7 @@ def register(
             _log(tool, "error", repository=slug)
             return {"error": mensaje}
 
+        anotar_recarga_de_tienda(inicio)
         result: dict[str, Any] = {"result": "ok"}
         try:
             repos = await _repositorios()
@@ -558,6 +562,7 @@ def register(
             confirmation_token, tool, args, estado=estado)
         if not valid:
             return _rechazo(tool, {"error": error_token}, repository=repository)
+        inicio = time.time()  # T047: quitar vuelve a leer todas las fichas
         try:
             await ha_client.sv_request(
                 "DELETE", f"/store/repositories/{repository}",
@@ -568,6 +573,7 @@ def register(
             await complete_confirmation_token(confirmation_token, success=False, error=mensaje)
             _log(tool, "error", repository=repository)
             return {"error": mensaje}
+        anotar_recarga_de_tienda(inicio)
         result = {"result": "ok", "repository": repository}
         await complete_confirmation_token(confirmation_token, success=True, result=result)
         _log(tool, "ok", repository=repository)
@@ -629,6 +635,8 @@ def register(
             {"result": "ok", "hint"} or an error.
         """
         tool = "sv_reload_store"
+        # Convergencia T047: la hora de INICIO, antes de mandar la petición.
+        inicio = time.time()
         try:
             await ha_client.sv_request(
                 "POST", "/store/reload", timeout_seconds=_LONG_OP_TIMEOUT)
@@ -642,6 +650,7 @@ def register(
                 repos = []
             _log(tool, "error")
             return {"error": _redactar(str(exc), repos)}
+        anotar_recarga_de_tienda(inicio)
         _log(tool, "ok")
         return {
             "result": "ok",

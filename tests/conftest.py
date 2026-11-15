@@ -133,3 +133,15 @@ def _vaciar_registro_de_flujos_propios():
     _flujos_propios.limpiar()
     yield
     _flujos_propios.limpiar()
+
+
+@_pytest.fixture(autouse=True)
+def _sin_recarga_de_tienda_conocida():
+    """Convergencia T047: la hora de la última recarga de la tienda lanzada
+    por Hermes vive en memoria; no pasa de un test a otro (como al arrancar,
+    ninguna conocida)."""
+    from hermes.tools import _store
+
+    _store._ULTIMA_RECARGA = None
+    yield
+    _store._ULTIMA_RECARGA = None

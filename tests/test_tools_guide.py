@@ -586,8 +586,9 @@ class TestTemaSystemDiagnostics(unittest.IsolatedAsyncioTestCase):
         "diagnostics": "838ff4a3a3eeaddb",
         "events": "3765a76095ece40f",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
-        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
-        # lo dice.
+        # `app_store` (privilegios en instalar y reconstruir; en su
+        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # CHANGELOG lo dice.
         "filesystem": "803cd5255be768b5",
         # La convergencia de la 025 (T047) cambia `generic_commands`: el rechazo
         # `redacted_value_in_payload`; su CHANGELOG lo dice.
@@ -1137,9 +1138,10 @@ class TestTemaAppStore(unittest.IsolatedAsyncioTestCase):
     # swap, ranura y red del host; FR-017 de la 032).
     _HUELLAS = {
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
-        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
-        # lo dice.
-        "supervisor": "a73a78043e9a14a3",
+        # `app_store` (privilegios en instalar y reconstruir; en su
+        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # CHANGELOG lo dice.
+        "supervisor": "45800cac1e73bdf9",
         "marketplace": "f49c5f1c9d78b51b",
         "system_diagnostics": "50509e336b5ca215",
         "security": "157ee929e7db08ae",
@@ -2148,14 +2150,16 @@ class TestTemaConversacion(unittest.IsolatedAsyncioTestCase):
         # (su CHANGELOG lo dice); huella recalculada al integrar la 025.
         "generic_commands": "55325dfe9602e63b",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
-        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
-        # lo dice.
-        "app_store": "2ba35623c8c92c0b",
+        # `app_store` (privilegios en instalar y reconstruir; en su
+        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # CHANGELOG lo dice.
+        "app_store": "63ddb8754e02d611",
         "workflows": "53b81454a6708b9a",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
-        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
-        # lo dice.
-        "supervisor": "a73a78043e9a14a3",
+        # `app_store` (privilegios en instalar y reconstruir; en su
+        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # CHANGELOG lo dice.
+        "supervisor": "45800cac1e73bdf9",
     }
 
     def setUp(self) -> None:
@@ -2251,9 +2255,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
     # huellas de la rama del programa, sin cambio de la 024).
     _HUELLAS = {
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
-        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
-        # lo dice.
-        "app_store": "2ba35623c8c92c0b",
+        # `app_store` (privilegios en instalar y reconstruir; en su
+        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # CHANGELOG lo dice.
+        "app_store": "63ddb8754e02d611",
         "automation_assist": "d360de0f7fd1deb5",
         "automations": "d27ee3c45bc13171",
         "backups": "3e685f47171224e7",
@@ -2267,8 +2272,9 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "diagnostics": "838ff4a3a3eeaddb",
         "events": "3765a76095ece40f",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
-        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
-        # lo dice.
+        # `app_store` (privilegios en instalar y reconstruir; en su
+        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # CHANGELOG lo dice.
         "filesystem": "803cd5255be768b5",
         # La convergencia de la 025 (T047) añade a `generic_commands` el rechazo
         # `redacted_value_in_payload` de las cargas con el marcador de redacción
@@ -2288,9 +2294,10 @@ class TestTemasDeLa024(unittest.IsolatedAsyncioTestCase):
         "security": "157ee929e7db08ae",
         "services": "e7b494a2e8ad587e",
         # La 034 cambia `filesystem` (remite a `folders`), `supervisor` y
-        # `app_store` (privilegios en instalar y reconstruir); su CHANGELOG
-        # lo dice.
-        "supervisor": "a73a78043e9a14a3",
+        # `app_store` (privilegios en instalar y reconstruir; en su
+        # convergencia, T047, `store_copy_stale` para las apps locales); su
+        # CHANGELOG lo dice.
+        "supervisor": "45800cac1e73bdf9",
         "system_diagnostics": "50509e336b5ca215",
         "system_status": "f6401ab7737759f6",
         # El remate del cierre de seguridad cambia `updates`: otra app
