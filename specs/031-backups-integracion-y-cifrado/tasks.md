@@ -149,33 +149,92 @@ Cada tramo necesita el anterior integrado.
 
 ### Tests (antes del código)
 
-- [ ] T017 [P] [US5] Tests en `tests/test_backup_key.py` para `leer_clave_de_backups` (data-model sección 6): clave → `ClaveDeBackups(clave=…, motivo=None)`; `password` `None` o `""` → `no_key_configured`; `unknown_command` → `backup_integration_unavailable`; `HAConnectionError` sin código → `ha_unreachable`; respuesta sin `config` → `backup_integration_unavailable`; `repr()` y `str()` no contienen el centinela; ninguna llamada deja el centinela en el log; dos llamadas leen dos veces (sin caché) (FR-011)
-- [ ] T018 [P] [US2] Tests en `tests/test_tools_ha_backups.py`: `ha_list_backups` devuelve `last_action_event` con los cuatro escalares; claves extra del evento (`agent_id`, `uploaded_bytes`) no salen; evento ausente → `null`; el resto de la respuesta no cambia (los tests existentes siguen sin tocar) (FR-010, FR-023)
-- [ ] T019 [P] [US2] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_create_backup`: `agent_ids` vacío, con más de 10 o con forma inválida → `invalid_argument`; un agente que no está en `backup/agents/info` → `unknown_agent` con `available`; `include_all_addons` con `include_addons` → `invalid_argument`; carpeta desconocida → `invalid_argument`; apps o carpetas sin `hassio.local` entre los agentes → `invalid_argument`; `encrypt=True` sin clave → `no_encryption_key` sin token; vista previa (data-model sección 7) sin llamar a `backup/generate`, con `kind` y `encrypted` de cada agente (`encrypt` y su `protected`; sin entrada de configuración, cifrado) y el aviso de agente remoto sin cifrar; con token, `backup/generate` recibe la clave centinela como `password` y la respuesta trae `backup_job_id` y `follow_with`; el centinela no está en la vista previa, la respuesta, el log ni el directorio de tokens; los agentes cambian entre vista previa y confirmación → `state_changed`; `Backup manager busy` → error redactado y token fallido (FR-005, FR-011, FR-019, FR-020)
-- [ ] T020 [P] [US2] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_create_automatic_backup`: sin `create_backup.agent_ids` → `automatic_backups_not_configured` sin token; vista previa con agentes, contenido, `encrypted` (= `password_set`) y `retention_effect` solo con `after_next_automatic_backup`; con token, `backup/generate_with_automatic_settings` y `backup_job_id`; configuración o backups cambiados → `state_changed` (FR-006, FR-003)
-- [ ] T021 [P] [US4] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_delete_backup`: id inválido → `invalid_argument`; `backup/details` sin backup → `not_found` sin token; vista previa (data-model sección 9) con todas las ubicaciones, `automatic`, `hermes_safety_backup` (id confirmado en una anotación de prueba en el `HERMES_CONFIG_BASE` propio) y el aviso de único backup con configuración; con token, `backup/delete` y respuesta `ok`; con `agent_errors` en un agente → `partial`, `deleted_from` y `failed` con el error enmascarado (`192.0.2.10` y un `token=centinela-031` no salen); una ubicación nueva entre vista previa y confirmación → `state_changed` (FR-009, FR-019)
+- [x] T017 [P] [US5] Tests en `tests/test_backup_key.py` para `leer_clave_de_backups` (data-model sección 6): clave → `ClaveDeBackups(clave=…, motivo=None)`; `password` `None` o `""` → `no_key_configured`; `unknown_command` → `backup_integration_unavailable`; `HAConnectionError` sin código → `ha_unreachable`; respuesta sin `config` → `backup_integration_unavailable`; `repr()` y `str()` no contienen el centinela; ninguna llamada deja el centinela en el log; dos llamadas leen dos veces (sin caché) (FR-011)
+- [x] T018 [P] [US2] Tests en `tests/test_tools_ha_backups.py`: `ha_list_backups` devuelve `last_action_event` con los cuatro escalares; claves extra del evento (`agent_id`, `uploaded_bytes`) no salen; evento ausente → `null`; el resto de la respuesta no cambia (los tests existentes siguen sin tocar) (FR-010, FR-023)
+- [x] T019 [P] [US2] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_create_backup`: `agent_ids` vacío, con más de 10 o con forma inválida → `invalid_argument`; un agente que no está en `backup/agents/info` → `unknown_agent` con `available`; `include_all_addons` con `include_addons` → `invalid_argument`; carpeta desconocida → `invalid_argument`; apps o carpetas sin `hassio.local` entre los agentes → `invalid_argument`; `encrypt=True` sin clave → `no_encryption_key` sin token; vista previa (data-model sección 7) sin llamar a `backup/generate`, con `kind` y `encrypted` de cada agente (`encrypt` y su `protected`; sin entrada de configuración, cifrado) y el aviso de agente remoto sin cifrar; con token, `backup/generate` recibe la clave centinela como `password` y la respuesta trae `backup_job_id` y `follow_with`; el centinela no está en la vista previa, la respuesta, el log ni el directorio de tokens; los agentes cambian entre vista previa y confirmación → `state_changed`; `Backup manager busy` → error redactado y token fallido (FR-005, FR-011, FR-019, FR-020)
+- [x] T020 [P] [US2] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_create_automatic_backup`: sin `create_backup.agent_ids` → `automatic_backups_not_configured` sin token; vista previa con agentes, contenido, `encrypted` (= `password_set`) y `retention_effect` solo con `after_next_automatic_backup`; con token, `backup/generate_with_automatic_settings` y `backup_job_id`; configuración o backups cambiados → `state_changed` (FR-006, FR-003)
+- [x] T021 [P] [US4] Tests en `tests/test_tools_ha_backup_actions.py`, `ha_delete_backup`: id inválido → `invalid_argument`; `backup/details` sin backup → `not_found` sin token; vista previa (data-model sección 9) con todas las ubicaciones, `automatic`, `hermes_safety_backup` (id confirmado en una anotación de prueba en el `HERMES_CONFIG_BASE` propio) y el aviso de único backup con configuración; con token, `backup/delete` y respuesta `ok`; con `agent_errors` en un agente → `partial`, `deleted_from` y `failed` con el error enmascarado (`192.0.2.10` y un `token=centinela-031` no salen); una ubicación nueva entre vista previa y confirmación → `state_changed` (FR-009, FR-019)
 
 ### Implementación
 
-- [ ] T022 [US5] `hermes/src/hermes/backup_key.py` (data-model sección 6) con comentarios del porqué (research R-3: por qué esta clave, por qué sin caché, por qué se tapa el `repr`). T017 en verde (FR-011)
-- [ ] T023 [US2] [US4] `hermes/src/hermes/tools/ha_backup_actions.py` con las tres tools de contracts/tools.md (mismo patrón que `ha_backup_settings.py`; `estimar_retencion` de T007; `hermes_safety_backup` con una lectura pública nueva y de solo lectura de la anotación en `safety_retention.py`, que no toma el lock de escritura ni repara nada; la clave solo dentro de la confirmación, nunca en `args` ni en `estado`, que lleva `key_set`). T019–T021 en verde (FR-005, FR-006, FR-009, FR-019, FR-020)
-- [ ] T024 [US2] `hermes/src/hermes/tools/ha_backups.py`: `last_action_event` por lista blanca en `ha_list_backups` y su descripción. T018 en verde (FR-010, FR-023)
-- [ ] T025 [US6] `tool_families.py` (módulo `ha_backup_actions`), `tools/__init__.py`, `_annotations.py` (`ha_create_backup` y `ha_create_automatic_backup` en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD`; `ha_delete_backup` en `_OPEN_WORLD`; cada una con su porqué) y `tests/test_tools_registration.py` (las tres en `_HINTS_NUEVAS_1_2_0`: `-D-O`, `-D-O`, `-DIO`) (FR-016, FR-018)
+- [x] T022 [US5] `hermes/src/hermes/backup_key.py` (data-model sección 6) con comentarios del porqué (research R-3: por qué esta clave, por qué sin caché, por qué se tapa el `repr`). T017 en verde (FR-011)
+- [x] T023 [US2] [US4] `hermes/src/hermes/tools/ha_backup_actions.py` con las tres tools de contracts/tools.md (mismo patrón que `ha_backup_settings.py`; `estimar_retencion` de T007; `hermes_safety_backup` con una lectura pública nueva y de solo lectura de la anotación en `safety_retention.py`, que no toma el lock de escritura ni repara nada; la clave solo dentro de la confirmación, nunca en `args` ni en `estado`, que lleva `key_set`). T019–T021 en verde (FR-005, FR-006, FR-009, FR-019, FR-020)
+- [x] T024 [US2] `hermes/src/hermes/tools/ha_backups.py`: `last_action_event` por lista blanca en `ha_list_backups` y su descripción. T018 en verde (FR-010, FR-023)
+- [x] T025 [US6] `tool_families.py` (módulo `ha_backup_actions`), `tools/__init__.py`, `_annotations.py` (`ha_create_backup` y `ha_create_automatic_backup` en `_DESTRUCTIVE_EXACT` y `_OPEN_WORLD`; `ha_delete_backup` en `_OPEN_WORLD`; cada una con su porqué) y `tests/test_tools_registration.py` (las tres en `_HINTS_NUEVAS_1_2_0`: `-D-O`, `-D-O`, `-DIO`) (FR-016, FR-018)
 
 ### Tabla
 
-- [ ] T026 [P] [US6] Tests en `tests/test_tools_generic_commands.py`: `backup/generate`, `backup/generate_with_automatic_settings` y `backup/delete` por la genérica → `use_dedicated_tool` con su tool (el motivo ya no habla de `ha_call_service`) (FR-017)
-- [ ] T027 [US6] `command_table.py`: las tres entradas de data-model sección 13 (sin `cap`), sin los comentarios de «hasta la tool dedicada de la 031»; en `specs/008-cobertura-total/inventario/core-ws.tsv`, sus filas con cobertura `si` y la nota con la tool nueva (research R-13); claves de `_DEDICADAS_INICIALES` hacia las tools nuevas; regenerar (idéntica; desde cero, iguales y sin « (acción de HA)»); `test_dedicadas_de_la_031` ampliado. T026 en verde (FR-017)
+- [x] T026 [P] [US6] Tests en `tests/test_tools_generic_commands.py`: `backup/generate`, `backup/generate_with_automatic_settings` y `backup/delete` por la genérica → `use_dedicated_tool` con su tool (el motivo ya no habla de `ha_call_service`) (FR-017)
+- [x] T027 [US6] `command_table.py`: las tres entradas de data-model sección 13 (sin `cap`), sin los comentarios de «hasta la tool dedicada de la 031»; en `specs/008-cobertura-total/inventario/core-ws.tsv`, sus filas con cobertura `si` y la nota con la tool nueva (research R-13); claves de `_DEDICADAS_INICIALES` hacia las tools nuevas; regenerar (idéntica; desde cero, iguales y sin « (acción de HA)»); `test_dedicadas_de_la_031` ampliado. T026 en verde (FR-017)
 
 ### Guía y banco
 
-- [ ] T028 [US2] [US4] Tests y tema `backup_integration` ampliado en `guide.py`: crear (con `encrypt`, `follow_with` y `ha_list_backups`), crear con ajustes automáticos (borra por retención), borrar (todas las ubicaciones); alias `create_backup`, `delete_backup` (FR-021)
-- [ ] T029 [US2] [US4] [US5] `tests/banco/test_banco_backups_acciones.py`: el lector fija una clave centinela con `backup/config/update` (`create_backup.password`) y la restaura al cerrar; `leer_clave_de_backups` con el `ha_client` de la sesión la devuelve; `ha_create_backup(agent_ids=["backup.local"])` con y sin `encrypt` → el backup aparece (lector, `backup/info`) con `protected` correcto, siguiéndolo con `ha_list_backups` hasta `state: idle`; con `ha_update_backup_config` (`create_backup.agent_ids: ["backup.local"]`, `retention.copies: 1`) y dos `ha_create_automatic_backup`, la vista previa del segundo estima borrar el primero y el lector ve que HA lo borra; `ha_delete_backup` del resto (lector: ya no están); ninguna respuesta ni el log capturado contienen el centinela. Añadir las tres a `PROBADAS_031` y sus filas (banco de Core, ok) a la matriz (FR-003, FR-011, FR-022, SC-002, SC-005)
+- [x] T028 [US2] [US4] Tests y tema `backup_integration` ampliado en `guide.py`: crear (con `encrypt`, `follow_with` y `ha_list_backups`), crear con ajustes automáticos (borra por retención), borrar (todas las ubicaciones); alias `create_backup`, `delete_backup` (FR-021)
+- [x] T029 [US2] [US4] [US5] `tests/banco/test_banco_backups_acciones.py`: el lector fija una clave centinela con `backup/config/update` (`create_backup.password`) y la restaura al cerrar; `leer_clave_de_backups` con el `ha_client` de la sesión la devuelve; `ha_create_backup(agent_ids=["backup.local"])` con y sin `encrypt` → el backup aparece (lector, `backup/info`) con `protected` correcto, siguiéndolo con `ha_list_backups` hasta `state: idle`; con `ha_update_backup_config` (`create_backup.agent_ids: ["backup.local"]`, `retention.copies: 1`) y dos `ha_create_automatic_backup`, la vista previa del segundo estima borrar el primero y el lector ve que HA lo borra; `ha_delete_backup` del resto (lector: ya no están); ninguna respuesta ni el log capturado contienen el centinela. Añadir las tres a `PROBADAS_031` y sus filas (banco de Core, ok) a la matriz (FR-003, FR-011, FR-022, SC-002, SC-005)
 
 ### Cierre del tramo 2
 
-- [ ] T030 Control negativo del tramo 2, anotando recuentos: (a) `ClaveDeBackups` sin `__repr__` propio → cae T017; (b) meter la clave en `args` del token → cae el centinela del directorio de tokens; (c) no validar `agent_ids` contra HA → cae `unknown_agent`; (d) `ha_delete_backup` sin `estado=` → cae `state_changed`; no enmascarar `failed` → cae; (e) `last_action_event` copiado entero → cae T018; (f) `ha_create_backup` fuera de `_OPEN_WORLD` → cae el de hints; (g) `backup/delete` en `deny` → caen T026 y `test_dedicadas_de_la_031`. Restaurar y comprobar verde
-- [ ] T031 Documentación parcial y cierre: recuento (+3), CHANGELOG, DOCS y README; suite completa; revisión del diff; commit con los recuentos de T030 y la regeneración de T027 (FR-024)
+- [x] T030 Control negativo del tramo 2, anotando recuentos: (a) `ClaveDeBackups` sin `__repr__` propio → cae T017; (b) meter la clave en `args` del token → cae el centinela del directorio de tokens; (c) no validar `agent_ids` contra HA → cae `unknown_agent`; (d) `ha_delete_backup` sin `estado=` → cae `state_changed`; no enmascarar `failed` → cae; (e) `last_action_event` copiado entero → cae T018; (f) `ha_create_backup` fuera de `_OPEN_WORLD` → cae el de hints; (g) `backup/delete` en `deny` → caen T026 y `test_dedicadas_de_la_031`. Restaurar y comprobar verde
+- [x] T031 Documentación parcial y cierre: recuento (+3), CHANGELOG, DOCS y README; suite completa; revisión del diff; commit con los recuentos de T030 y la regeneración de T027 (FR-024)
+
+
+### Notas del tramo 2 (implementación)
+
+- **Proxy del Supervisor (DV-1)**: ningún comando del tramo empieza por
+  `hassio/` ni `supervisor/` (`backup/generate`,
+  `backup/generate_with_automatic_settings`, `backup/delete`,
+  `backup/details`, `backup/info`, `backup/agents/info`,
+  `backup/config/info`). Ninguna tarea del tramo queda fuera.
+- Línea base al empezar (punta `e3d4dad`): 2883 passed, 99 skipped y los 6
+  fallos conocidos de Windows. Al cerrar: 2923 passed, 102 skipped, los
+  mismos 6.
+- **Decisión del supervisor (vista previa FUERTE de borrar)**: la de
+  `ha_delete_backup` lleva además `lost` (configuración, base de datos, apps
+  con versión y carpetas del backup) y el aviso del safety backup; el estado
+  atado es todo lo que enseña (backup, `automatic`, `hermes_safety_backup`,
+  ubicaciones con tamaño y cifrado, contenido y si es el único con la
+  configuración), no solo id, fecha, nombre y ubicaciones. Si `backup/details`
+  trae `agent_errors`, falla cerrado sin token
+  (`backup_locations_unreadable`, con los errores enmascarados), también al
+  confirmar.
+- **Desviación (estado de `ha_create_backup`)**: además de los agentes
+  disponibles y `key_set`, ata `encrypted` de cada agente pedido: si un
+  agente pasa a `protected: false` entre la vista previa y la confirmación,
+  la vista previa mentiría sobre el cifrado.
+- **Desviación (borrar sin éxito en ninguna ubicación)**: si HA da error en
+  todas, `{"error": "delete_failed", "failed": …}` y token fallido; el
+  data-model solo tenía `ok` y `partial`, y `partial` con `deleted_from`
+  vacío diría que algo se borró.
+- **Añadidos de validación**: `include_homeassistant: false` sin el agente
+  `hassio.local` → `invalid_argument` (HA Core: «Home Assistant must be
+  included in backup»), y nada que guardar → `invalid_argument`.
+- `ha_create_automatic_backup` estima solo la regla de copias (la que HA
+  aplica al terminar ese backup); un backup que saldría por las dos reglas
+  va como `within_24h` y no se lista.
+- `hermes_safety_backup`: `safety_retention.es_safety_backup_confirmado`, de
+  solo lectura y sin lock; con la integración `hassio`, el `backup_id` es el
+  slug del Supervisor.
+- **T030 (b)**: el fichero del token solo guarda la huella de los
+  argumentos, así que meter la clave en `args` no deja el centinela en disco.
+  El control se hace espiando los argumentos y el estado que recibe
+  `security` (`test_la_clave_no_entra_en_el_token`) y con la clave rotada
+  entre vista previa y confirmación, que sigue valiendo
+  (`test_clave_rotada_entre_vista_y_confirmacion`).
+- **T027**: regenerada la tabla sobre la editada (0 nuevas, 0 quitadas,
+  idéntica byte a byte) y desde cero en un temporal (las tres entradas,
+  iguales y sin « (acción de HA)»). Los dos tests de T046 de
+  `tests/test_command_table.py` que nombraban
+  `backup/generate_with_automatic_settings` (ya no `deny`) quedan con
+  `hassio/update/core`. Se corrige el comentario de `hassio/update/core` que
+  remitía a la nota quitada.
+- **T030** (recuentos): (a) sin `__repr__` propio cae 1 de 7; (b) clave en
+  `args` caen 2; (c) sin validar `agent_ids` cae 1; (d) borrar sin `estado=`
+  caen 2, `failed` sin enmascarar cae 1; (e) `last_action_event` entero caen
+  3; (f) `ha_create_backup` fuera de `_OPEN_WORLD` cae 1 (hints); (g)
+  `backup/delete` en `deny` caen 4 (3 subtests de las genéricas y
+  `test_dedicadas_de_la_031`). Restaurado y en verde.
+- Recuentos: familia `backup_integration`, 5 tools; total, 256; inventario
+  de argumentos atados, 90; escrituras del banco, 133.
 
 ---
 

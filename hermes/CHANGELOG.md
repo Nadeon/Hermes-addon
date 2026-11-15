@@ -337,7 +337,7 @@ la lista de tools es la de la 1.1.2.
 
 ### Backups de Home Assistant
 
-Spec 031 (en curso; tramo 1: agentes y ajustes). Familia nueva
+Spec 031 (en curso; tramos 1 y 2: agentes, ajustes, crear y borrar). Familia nueva
 `backup_integration`, desactivable: con ella apagada (y las demás de la
 1.2.0), la lista de tools es la de la 1.1.2.
 
@@ -358,6 +358,33 @@ Spec 031 (en curso; tramo 1: agentes y ajustes). Familia nueva
   ESTIMACIÓN, con las reglas de HA, de los backups automáticos que la
   retención borraría y cuándo. El token ata además la configuración leída y
   esa estimación: si cambian antes de confirmar, `state_changed`.
+- **`ha_create_backup`** (dos pasos): un backup a medida
+  (`backup/generate`) en los agentes que se elijan (validados contra los de
+  HA: `unknown_agent` con los disponibles), con la configuración, la base de
+  datos, apps y carpetas. `encrypt` (por defecto `true`) cifra con la clave
+  de los backups de HA, la del kit de emergencia: no acepta contraseñas, y
+  sin clave en HA responde `no_encryption_key` sin crear nada. La vista
+  previa dice qué se guarda, dónde y si cada copia va cifrada (HA descifra la
+  de un agente con `protected: false`), y avisa si una copia sin cifrar sale
+  a un agente remoto. La clave se lee otra vez al confirmar y no entra en el
+  token, la vista previa, la respuesta ni el log. Devuelve `backup_job_id` y
+  cómo seguirlo.
+- **`ha_create_automatic_backup`** (dos pasos): un backup ahora con los
+  ajustes automáticos. La vista previa trae la estimación de los backups que
+  la retención borrará al terminar; sin agentes en los ajustes,
+  `automatic_backups_not_configured`.
+- **`ha_delete_backup`** (dos pasos): borra un backup de TODAS sus
+  ubicaciones, también las remotas, que `sv_delete_backup` no ve. La vista
+  previa dice el backup, su fecha y versión, cada ubicación con su tamaño y
+  su cifrado, lo que se pierde (configuración, base de datos, apps y
+  carpetas), si es automático o un safety backup de Hermes, y avisa si es el
+  único con la configuración de HA. El token ata el backup, su contenido y
+  sus ubicaciones; si un agente no se puede leer no hay token
+  (`backup_locations_unreadable`). La respuesta dice dónde se borró y dónde
+  falló (`result: partial`), con los errores enmascarados.
+- **`ha_list_backups`** añade `last_action_event` (`manager_state`, `state`,
+  `stage`, `reason`, por lista blanca) para ver si un backup creado terminó
+  bien o falló; el resto de la respuesta no cambia.
 - **Sin tools para el backup previo a actualizar**: si HA hace un backup
   antes de actualizar Core o una app se ajusta con `hassio/update/config/*`,
   y el proxy WebSocket del Supervisor rechaza todo `hassio/*` y
@@ -368,14 +395,21 @@ Spec 031 (en curso; tramo 1: agentes y ajustes). Familia nueva
   rechazan con `use_dedicated_tool`), y `hassio/update/config/*` a `deny`
   con el motivo del proxy del Supervisor. Un test nuevo impide que un
   comando `hassio/*` o `supervisor/*` quede en `read` o `confirm`, o como
-  `dedicated` hacia una tool que lo mande por WebSocket.
+  `dedicated` hacia una tool que lo mande por WebSocket. `backup/generate`,
+  `backup/generate_with_automatic_settings` y `backup/delete` pasan de `deny`
+  a sus tools (antes la de los ajustes automáticos remitía a
+  `ha_call_service`).
 - **Guía**: tema nuevo `backup_integration` (alias `backup_agents`,
-  `backup_config`, `backup_schedule`, `backup_retention`); `backup` sigue
-  llevando a `backups`.
+  `backup_config`, `backup_schedule`, `backup_retention`, `create_backup`,
+  `delete_backup`), con crear, crear con los ajustes automáticos y borrar;
+  `backup` sigue llevando a `backups`.
 - **Banco de Core**: la configuración carga `backup:` (agente
-  `backup.local`); `ha_list_backup_agents` y `ha_update_backup_config` se
-  ejecutan contra HA real, con el efecto leído por el lector y la vista
-  previa sin cambiar nada.
+  `backup.local`); `ha_list_backup_agents`, `ha_update_backup_config`,
+  `ha_create_backup` (cifrado y sin cifrar), `ha_create_automatic_backup`
+  (con la retención borrando de verdad) y `ha_delete_backup` se ejecutan
+  contra HA real, con el efecto leído por el lector y la vista previa sin
+  cambiar nada; la clave de cifrado se lee de HA real y no sale en ninguna
+  respuesta ni en el log.
 
 ### Banco de pruebas
 
