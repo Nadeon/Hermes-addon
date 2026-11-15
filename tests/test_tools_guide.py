@@ -796,6 +796,38 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
                         "ha_statistics_during_period"):
             self.assertIn(palabra, texto)
 
+    async def test_mantenimiento_de_la_020(self) -> None:
+        """Spec 020, T013 (FR-020): el tema suma las tres tools de
+        mantenimiento, los dos pasos, `queued`, la diferencia entre convertir
+        (cambiar la unidad) y no convertir (metadatos), que solo un backup lo
+        deshace y el rango efectivo al borrar. «SOLO LECTURA» queda solo para
+        el grupo de las tres lecturas, no para el tema entero."""
+        texto = await self.guide("recorder")
+        for palabra in ("ha_clear_statistics", "ha_change_statistics_unit",
+                        "ha_update_statistics_metadata", "dos pasos",
+                        "confirmation_token", "queued: true", "backup",
+                        "CONVIERTE", "sin convertir valores", "converts_values: false",
+                        "effective_range", "SE SOLAPAN", "not_supported_for_source",
+                        "unit_mismatch", "statistics_not_found", "statistics_changed"):
+            self.assertIn(palabra, texto)
+        self.assertNotIn("Tres tools de SOLO LECTURA: ninguna", texto)
+        self.assertIn("mantenimiento", await self.guide())
+
+    async def test_mantenimiento_del_tramo_2_de_la_020(self) -> None:
+        """Spec 020, T029 (FR-020): las cinco de mantenimiento; el ajuste no
+        es idempotente; la importación (horas en punto, `mean_type`, fuente,
+        `stats` omitible al confirmar) y la genérica para regenerar los avisos
+        de Repairs."""
+        texto = await self.guide("recorder")
+        for palabra in ("ha_adjust_statistics_sum", "ha_import_statistics",
+                        "NO es idempotente", "statistic_has_no_sum", "sum_at_start",
+                        "hora en punto", "mean_type", "source: recorder", "stats",
+                        "omit_on_confirm", "overwritten_rows", "5000",
+                        'ha_call_ws_command(type="recorder/update_statistics_issues")',
+                        "ha_statistics_during_period"):
+            self.assertIn(palabra, texto)
+        self.assertIn("Las cinco en dos pasos", texto)
+
     async def test_alias(self) -> None:
         texto = await self.guide("recorder")
         for alias in ("recorder_info", "statistics_validation", "action_calls",
@@ -815,6 +847,49 @@ class TestTemaRecorder(unittest.IsolatedAsyncioTestCase):
         self.assertIn("logbook/get_action_calls", texto)
         self.assertIn('"start_time": "2026-01-01T00:00:00+00:00"', texto)
         self.assertIn('"end_time": "2026-01-01T06:00:00+00:00"', texto)
+
+
+class TestTemaEnergy(unittest.IsolatedAsyncioTestCase):
+    """Spec 020, T045 (FR-020): el tema `energy` nombra las dos tools, la
+    semántica de reemplazo por lista, el ciclo leer → editar → guardar y las
+    cuatro lecturas con su llamada exacta; sus alias resuelven a él, el
+    índice lo menciona y la búsqueda en la tabla enseña el ejemplo de
+    consumo fósil."""
+
+    def setUp(self) -> None:
+        self.mcp = _MockMCP()
+        register(self.mcp)
+        self.guide = self.mcp.tools["hermes_guide"]
+
+    async def test_tema_con_contenido(self) -> None:
+        texto = await self.guide("energy")
+        self.assertIs(texto, _GUIDE["energy"])
+        for palabra in ("ha_get_energy_prefs", "ha_update_energy_prefs",
+                        "REEMPLAZA ENTERA", "se conservan", "leer → editar → guardar",
+                        "confirmation_token", "current", "new", "kept", "warnings",
+                        "removes_all_sources", "unknown_statistic", "energy_prefs_changed",
+                        "configured: false", "energy_not_loaded", "invalid_format",
+                        'ha_read_ws_command(type="energy/validate")',
+                        'ha_read_ws_command(type="energy/info")',
+                        'ha_read_ws_command(type="energy/solar_forecast")',
+                        'ha_read_ws_command(type="energy/fossil_energy_consumption"',
+                        '"co2_statistic_id": "sensor.intensidad_co2"'):
+            self.assertIn(palabra, texto)
+
+    async def test_alias(self) -> None:
+        texto = await self.guide("energy")
+        for alias in ("energy_prefs", "energy_dashboard", "energia", "ENERGIA"):
+            with self.subTest(alias=alias):
+                self.assertEqual(await self.guide(alias), texto)
+
+    async def test_el_indice_lo_menciona(self) -> None:
+        self.assertIn("`energy`", await self.guide())
+
+    async def test_la_busqueda_enseña_el_ejemplo(self) -> None:
+        texto = await self.guide("generic_commands", search="fossil")
+        self.assertIn("energy/fossil_energy_consumption", texto)
+        self.assertIn('"co2_statistic_id": "sensor.intensidad_co2"', texto)
+        self.assertIn('"period": "hour"', texto)
 
 
 class TestTemaCoreDiagnostics(unittest.IsolatedAsyncioTestCase):

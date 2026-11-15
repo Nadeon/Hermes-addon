@@ -161,7 +161,8 @@ para el detalle de un área. Temas disponibles:
 - `security`       — confirmation tokens, denylist y límites
 - `generic_commands` — las genéricas y la tabla de comandos (`search=` busca en ella)
 - `system_status`  — salud del sistema, reinicio pendiente, arranque, manifiestos, red y URLs
-- `recorder`       — estado del recorder, validación de estadísticas y auditoría de acciones
+- `recorder`       — estado del recorder, validación y mantenimiento de estadísticas y auditoría de acciones
+- `energy`         — preferencias del panel de energía (leer y guardar) y sus lecturas
 - `app_store`      — tienda de apps del Supervisor: repositorios, recarga, changelog, documentación, disponibilidad y reconstrucción
 - `workflows`      — recetas paso a paso para tareas completas
 
@@ -1253,7 +1254,7 @@ denegadas a la espera de su tool dedicada (CAP-069).
     "recorder": """\
 # Recorder y estadísticas (familia `recorder`)
 
-Tres tools de SOLO LECTURA: ninguna cambia nada ni pide token.
+LECTURA: tres tools de SOLO LECTURA; ninguna cambia nada ni pide token.
 
 - `ha_get_recorder_info(entity_id=None)` — si el recorder graba
   (`recording`, `thread_running`), su cola (`backlog`, `max_backlog`), si hay
@@ -1271,8 +1272,75 @@ Tres tools de SOLO LECTURA: ninguna cambia nada ni pide token.
 Para listar todas las estadísticas, `ha_list_statistic_ids`; para sus
 valores, `ha_statistics_during_period` (tema `data`).
 
-Sin la integración `recorder` cargada (va en `default_config`), las tres
-responden `recorder_not_loaded`.
+Sin la integración `recorder` cargada (va en `default_config`), todas las
+del tema responden `recorder_not_loaded`.
+
+MANTENIMIENTO DE ESTADÍSTICAS (escriben; dos pasos con token)
+Reescriben el histórico: solo restaurar un backup (el de HA incluye la base)
+lo deshace. Las cinco en dos pasos: sin `confirmation_token` devuelven una
+vista previa y no cambian nada; repite la MISMA llamada con el token para
+ejecutar. Antes del token leen los metadatos y rechazan lo que HA aceptaría
+sin hacer nada (`statistics_not_found` con `missing`); si los metadatos
+cambian antes de confirmar, `statistics_changed` y nada se ejecuta.
+- `ha_clear_statistics(statistic_ids, start_time=None, end_time=None)` —
+  borra de 1 a 100 estadísticas. Sin rango, enteras (filas y metadatos). Lo
+  borrado no vuelve, pero la estadística de una entidad que se sigue grabando
+  NO desaparece: sigue en las listas y el recorder la vuelve a compilar desde
+  ahora. Con rango (ISO 8601 con zona, los dos o
+  ninguno), las filas que SE SOLAPAN con él: la vista previa da
+  `effective_range`, que en la tabla horaria empieza una hora antes de
+  `start_time` y en la de 5 minutos, 5 minutos antes.
+- `ha_change_statistics_unit(statistic_id, old_unit, new_unit)` — CONVIERTE
+  todos los valores guardados (media, mínimo, máximo, estado y suma, de las
+  dos tablas) a otra unidad de la misma clase, p. ej. Wh → kWh. Solo
+  estadísticas con `source: recorder` (si no, `not_supported_for_source`) y
+  con `old_unit` igual a la guardada (si no, `unit_mismatch` con la actual).
+  HA lo aplica desde la cola del recorder: la confirmación responde
+  `queued: true`; comprueba con `ha_get_statistics_metadata` que
+  `statistics_unit_of_measurement` ya es la nueva.
+- `ha_update_statistics_metadata(statistic_id, unit_of_measurement,
+  unit_class)` — cambia la unidad y la clase GUARDADAS sin convertir valores
+  (`converts_values: false`): para arreglar un aviso de «unidad cambiada»
+  cuando los valores ya están en la unidad nueva. Si hay que convertirlos,
+  `ha_change_statistics_unit`.
+- `ha_adjust_statistics_sum(statistic_id, start_time, adjustment,
+  adjustment_unit)` — suma `adjustment` (negativo para restar) a la suma de
+  cada fila (horaria y de 5 minutos) desde `start_time`, que tiene que ser
+  una hora en punto en UTC (si no, `invalid_argument`: HA no tocaría la fila
+  horaria que enseña la vista previa): para arreglar un salto o un reinicio
+  de un contador. NO es idempotente: dos ajustes suman
+  dos veces (cada token sirve una vez, pero otra vista previa da otro). La
+  vista previa da `sum_at_start` (la suma guardada en esa hora antes y, si la
+  unidad del ajuste es la de la estadística, después). Sin suma,
+  `statistic_has_no_sum`. Responde `queued: true`: comprueba con
+  `ha_statistics_during_period` ANTES de repetir.
+- `ha_import_statistics(metadata, stats)` — importa filas horarias (de 1 a
+  5000; para más, varias llamadas) y crea o actualiza los metadatos. Una fila
+  con la misma hora que una existente la SOBRESCRIBE. `metadata` lleva las
+  siete claves: `statistic_id`, `source` (`source: recorder` para un id de
+  entidad como `sensor.x`; el prefijo para `fuente:x`), `name`,
+  `unit_of_measurement`, `unit_class`, `mean_type` (0 sin media, 1
+  aritmética, 2 circular) y `has_sum`. Cada fila: `start` en hora en punto
+  (en UTC) con zona, y `mean`, `min`, `max`, `state`, `sum`, `last_reset`
+  opcionales. La vista previa resume (si existe, metadatos, filas, primera y
+  última hora y `overwritten_rows`, las que se sobrescriben, contadas si
+  abarcan 31 días o menos) sin volcar las filas, y avisa si el id es de una
+  entidad que se graba (el recorder puede pisar las horas nuevas). Al
+  confirmar, `stats` se puede omitir (`omit_on_confirm`): el servidor guarda
+  el de la vista previa; si lo mandas, tiene que ser idéntico. Responde
+  `queued: true`.
+Diferencia clave: cambiar la unidad convierte los números; editar los
+metadatos solo cambia la etiqueta.
+Lo que NO se comprueba (`not_validated: ["statistic_in_database"]` en cambiar
+la unidad, editar los metadatos y ajustar): HA lista también las
+estadísticas que una integración añadirá en su próxima compilación (un
+sensor nuevo con `state_class`, o uno recién borrado), con los mismos campos
+que las guardadas. Con una de esas HA responde «ok» y no hace nada: comprueba
+el resultado con la tool de `check_with`.
+
+Avisos de Repairs de las estadísticas: tras arreglar una estadística,
+`ha_call_ws_command(type="recorder/update_statistics_issues")` (dos pasos,
+sin carga) los vuelve a calcular; no toca filas ni metadatos.
 
 AUDITORÍA DE LLAMADAS A ACCIONES (por la genérica de lectura)
 `ha_read_ws_command(type="logbook/get_action_calls",
@@ -1516,6 +1584,61 @@ Esas dos son de la familia `events`: si está apagada, la espera de trigger
 funciona igual pero no se puede listar ni cancelar desde otra llamada (acaba
 sola al disparar o al agotar el plazo).
 """,
+    "energy": """\
+# Panel de energía (familia `energy`)
+
+- `ha_get_energy_prefs()` — SOLO LEE la configuración del panel de energía:
+  `energy_sources` (fuentes: `type` grid, solar, battery, gas, water o home,
+  con sus estadísticas `stat_*`), `device_consumption` (dispositivos
+  eléctricos: `stat_consumption`, y `stat_rate`, `name`, `included_in_stat`
+  opcionales) y `device_consumption_water` (los de agua, igual).
+  `configured: false` y las tres listas vacías si nunca se configuró.
+- `ha_update_energy_prefs(energy_sources=None, device_consumption=None,
+  device_consumption_water=None)` — guarda, en dos pasos con token. Cada
+  lista que pasas REEMPLAZA ENTERA la de Home Assistant; las que no pasas se
+  conservan. Un elemento que no reenvías en una lista que pasas, se quita.
+
+Ciclo: leer → editar → guardar.
+1. `ha_get_energy_prefs()`.
+2. Edita la lista que quieras cambiar y pásala COMPLETA, p. ej. añadir un
+   dispositivo: `ha_update_energy_prefs(device_consumption=[<los que había>,
+   {"stat_consumption": "sensor.horno_energia"}])`.
+3. La vista previa (no cambia nada) da, por cada lista que pasas, `current`
+   (cómo está) y `new` (cómo quedará), y en `changes` cuántos había y habrá
+   y los elementos que entran (`added`), salen (`removed`) y cambian
+   (`changed`), identificados por su `type` y sus `stat_*`. `kept` dice qué
+   listas se conservan. `warnings` avisa de lo que se quita
+   (`removes_items`), de las estadísticas que el recorder no conoce
+   (`unknown_statistic`: HA las acepta igual) y de si no se pudo comprobar
+   (`statistics_not_checked`). `removes_all_sources: true` si quitas todas
+   las fuentes.
+4. Repite la MISMA llamada con `confirmation_token`. Si alguien guardó el
+   panel entre medias (p. ej. desde la interfaz), `energy_prefs_changed` y
+   no se guarda nada: pide otra vista previa. Responde `saved: true` y
+   `prefs`, lo que HA guardó (puede rellenar `stat_rate` de las fuentes con
+   `power_config`).
+Hermes comprueba la forma básica; el esquema completo lo valida HA al
+guardar (`ha_command_failed` con `ha_code: invalid_format`, y no cambia
+nada). No reenvíes un `***REDACTED***` de una lectura: se rechaza. Para
+deshacer, guarda de vuelta las listas de `current`. Sin la integración
+`energy` (va en `default_config`), `energy_not_loaded`.
+
+LECTURAS POR LA GENÉRICA (solo leen; ninguna sale a internet)
+- `ha_read_ws_command(type="energy/validate")` — problemas de configuración
+  del panel por fuente y dispositivo.
+- `ha_read_ws_command(type="energy/info")` — sensores de coste que creó el
+  panel y dominios con previsión solar.
+- `ha_read_ws_command(type="energy/solar_forecast")` — la previsión que ya
+  tienen las integraciones configuradas en las fuentes solares (`{}` si
+  ninguna); no la descarga.
+- `ha_read_ws_command(type="energy/fossil_energy_consumption",
+  payload={"start_time": "2026-01-01T00:00:00+00:00",
+  "end_time": "2026-01-02T00:00:00+00:00",
+  "energy_statistic_ids": ["sensor.consumo"],
+  "co2_statistic_id": "sensor.intensidad_co2", "period": "hour"})` — el
+  consumo de origen fósil por periodo (`5minute`, `hour`, `day` o `month`),
+  calculado con las estadísticas de energía y la de intensidad de CO2.
+""",
     "workflows": """\
 # Flujos completos (recetas paso a paso)
 
@@ -1673,6 +1796,9 @@ _ALIASES: dict[str, str] = {
     "documentation": "app_store",
     "rebuild": "app_store",
     "availability": "app_store",
+    "energy_prefs": "energy",
+    "energy_dashboard": "energy",
+    "energia": "energy",
     "recipes": "workflows",
     "recetas": "workflows",
     "howto": "workflows",
@@ -1781,7 +1907,7 @@ def register(mcp: object) -> None:
                 helpers, events, data, registries, diagnostics, config_entries,
                 integration_flows, repair_flows, filesystem, supervisor,
                 system_diagnostics, updates, backups, lovelace, marketplace, security,
-                generic_commands, system_status, recorder, core_diagnostics,
+                generic_commands, system_status, recorder, energy, core_diagnostics,
                 app_store, blueprints, automation_assist, workflows. Acepta alias
                 comunes (p. ej. "addons" → supervisor, "files" → filesystem).
             search (str, optional): Only with topic="generic_commands". Lists

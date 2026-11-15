@@ -1079,6 +1079,162 @@ class TestDedicadasDeLa029Recorder(unittest.IsolatedAsyncioTestCase):
         ha.ws_send.assert_not_awaited()
 
 
+# Spec 020 (CAP-050): mantenimiento de estadísticas en `recorder`. El tramo 2
+# suma ajustar la suma e importar (T027).
+_DEDICADAS_020_TRAMO_1 = {
+    "recorder/clear_statistics": "ha_clear_statistics",
+    "recorder/change_statistics_unit": "ha_change_statistics_unit",
+    "recorder/update_statistics_metadata": "ha_update_statistics_metadata",
+    "recorder/adjust_sum_statistics": "ha_adjust_statistics_sum",
+    "recorder/import_statistics": "ha_import_statistics",
+}
+
+
+class TestDedicadasDeLa020(unittest.IsolatedAsyncioTestCase):
+    """Spec 020, T011 (FR-015): las dos genéricas rechazan los comandos de
+    mantenimiento de estadísticas hacia su tool, sin llegar a HA; con
+    `recorder` desactivada, además `family_disabled: true`.
+
+    Control negativo (T019 g): dejar `recorder/clear_statistics` en `deny` →
+    cae `test_rechazo_hacia_su_tool` (`command_denied`)."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_020_TRAMO_1.items():
+            with self.subTest(comando=comando):
+                self.assertIn(tool, mcp.tools)
+                r = await mcp.tools["ha_call_ws_command"](comando, {"statistic_ids": ["sensor.x"]})
+                self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                 ("use_dedicated_tool", tool, "recorder", False))
+                r = await mcp.tools["ha_read_ws_command"](comando)
+                self.assertEqual((r["error"], r["tool"]), ("use_dedicated_tool", tool))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["recorder"])
+        for comando, tool in _DEDICADAS_020_TRAMO_1.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                for generica in ("ha_call_ws_command", "ha_read_ws_command"):
+                    r = await mcp.tools[generica](comando)
+                    self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                     ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+
+class TestAvisosDeEstadisticasPorLaTabla(unittest.IsolatedAsyncioTestCase):
+    """Spec 020, T027 (FR-009, research R-3, decisión D-3): regenerar los
+    avisos de Repairs de las estadísticas va por la genérica de escritura,
+    en dos pasos y sin carga; la de lectura lo rechaza por ser `confirm`.
+
+    Control negativo (T033 f): dejar `recorder/update_statistics_issues` en
+    `deny` → caen los dos (`command_denied`)."""
+
+    _TIPO = "recorder/update_statistics_issues"
+
+    async def asyncSetUp(self) -> None:
+        self.original_dir = security.CONFIRMATIONS_DIR
+        self.temp_dir = tempfile.TemporaryDirectory()
+        security.CONFIRMATIONS_DIR = Path(self.temp_dir.name)
+
+    async def asyncTearDown(self) -> None:
+        security.CONFIRMATIONS_DIR = self.original_dir
+        self.temp_dir.cleanup()
+
+    async def test_en_dos_pasos_sin_carga(self) -> None:
+        mcp, ha = _registrar_todo([])
+        vista = await mcp.tools["ha_call_ws_command"](self._TIPO)
+        ha.ws_send.assert_not_awaited()
+        self.assertIn("confirmation_token", vista, vista)
+        self.assertEqual(vista["preview"]["category"], "confirm")
+        self.assertIn("Repairs", vista["preview"]["reason"])
+        ha.ws_send.return_value = None
+        r = await mcp.tools["ha_call_ws_command"](
+            self._TIPO, confirmation_token=vista["confirmation_token"])
+        ha.ws_send.assert_awaited_once_with({"type": self._TIPO})
+        self.assertIs(r["executed"], True)
+
+    async def test_la_de_lectura_lo_rechaza(self) -> None:
+        mcp, ha = _registrar_todo([])
+        r = await mcp.tools["ha_read_ws_command"](self._TIPO)
+        self.assertEqual(r["error"], "wrong_generic_tool")
+        ha.ws_send.assert_not_awaited()
+
+
+# Spec 020, tramo 3 (CAP-054): las preferencias de energía, a su familia.
+_DEDICADAS_020_ENERGIA = {
+    "energy/get_prefs": "ha_get_energy_prefs",
+    "energy/save_prefs": "ha_update_energy_prefs",
+}
+_JWT_020 = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJh"
+
+
+class TestEnergiaPorLaTabla(unittest.IsolatedAsyncioTestCase):
+    """Spec 020, T043 (FR-013, FR-015): leer y guardar las preferencias van a
+    sus tools dedicadas (con `family_disabled` si `energy` está apagada); las
+    cuatro lecturas de energía responden por la genérica de lectura y su
+    respuesta sale redactada.
+
+    Control negativo (T050 e): dejar `energy/validate` en `deny` → cae
+    `test_las_cuatro_lecturas` (`command_denied`)."""
+
+    async def test_rechazo_hacia_su_tool(self) -> None:
+        mcp, ha = _registrar_todo([])
+        for comando, tool in _DEDICADAS_020_ENERGIA.items():
+            with self.subTest(comando=comando):
+                self.assertIn(tool, mcp.tools)
+                for generica in ("ha_call_ws_command", "ha_read_ws_command"):
+                    r = await mcp.tools[generica](comando)
+                    self.assertEqual((r["error"], r["tool"], r["family"], r["family_disabled"]),
+                                     ("use_dedicated_tool", tool, "energy", False))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_con_la_familia_desactivada(self) -> None:
+        mcp, ha = _registrar_todo(["energy"])
+        for comando, tool in _DEDICADAS_020_ENERGIA.items():
+            with self.subTest(comando=comando):
+                self.assertNotIn(tool, mcp.tools)
+                for generica in ("ha_call_ws_command", "ha_read_ws_command"):
+                    r = await mcp.tools[generica](comando)
+                    self.assertEqual((r["error"], r["tool"], r["family_disabled"]),
+                                     ("use_dedicated_tool", tool, True))
+        ha.ws_send.assert_not_awaited()
+
+    async def test_las_cuatro_lecturas(self) -> None:
+        from hermes.command_table import CORE_WS
+
+        mcp, ha = _registrar_todo([])
+        ejemplo = CORE_WS["energy/fossil_energy_consumption"].example
+        casos = {
+            "energy/validate": (None, {"energy_sources": [], "device_consumption": [
+                [{"affected_entities": [], "type": "x", "translation_placeholders": {
+                    "nota": f"Bearer {_JWT_020}"}}]]}),
+            "energy/info": (None, {"cost_sensors": {}, "solar_forecast_domains": []}),
+            "energy/solar_forecast": (None, {}),
+            "energy/fossil_energy_consumption": (ejemplo, {"2026-01-01T00:00:00+00:00": 0.4}),
+        }
+        for comando, (carga, respuesta) in casos.items():
+            with self.subTest(comando=comando):
+                ha.ws_send.reset_mock()
+                ha.ws_send.return_value = respuesta
+                r = await mcp.tools["ha_read_ws_command"](comando, carga)
+                self.assertNotIn("error", r, r)
+                ha.ws_send.assert_awaited_once_with({"type": comando, **(carga or {})})
+                self.assertNotIn(_JWT_020, json.dumps(r))
+
+    def test_ejemplo_de_consumo_fosil(self) -> None:
+        # Las cinco claves obligatorias de `ws_get_fossil_energy_consumption`
+        # (energy/websocket_api.py) y un `period` que HA admite.
+        from hermes.command_table import CORE_WS
+
+        e = CORE_WS["energy/fossil_energy_consumption"]
+        self.assertEqual(e.category, "read")
+        self.assertEqual(set(e.example), {"start_time", "end_time", "energy_statistic_ids",
+                                          "co2_statistic_id", "period"})
+        self.assertIn(e.example["period"], {"5minute", "hour", "day", "month"})
+        self.assertIsInstance(e.example["energy_statistic_ids"], list)
+
+
 class TestDedicadasDelTramoBDeLa012(unittest.IsolatedAsyncioTestCase):
     """Spec 012, tramo B (FR-014, T028): validación, diagnósticos y
     notificaciones pasan a sus tools dedicadas; la genérica de lectura las

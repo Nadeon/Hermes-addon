@@ -385,6 +385,18 @@ _DEDICADAS_INICIALES: dict[
     # clase B a A con CAP-038 en el inventario (research R-13); un solo
     # disparo, con lista cerrada de triggers.
     "subscribe_trigger": "ha_wait_for_trigger",
+    # 020: mantenimiento de estadísticas (CAP-050, clase A de vía D), por el
+    # mismo mecanismo que las de la 012 y la 029.
+    "recorder/clear_statistics": "ha_clear_statistics",
+    "recorder/change_statistics_unit": "ha_change_statistics_unit",
+    "recorder/update_statistics_metadata": "ha_update_statistics_metadata",
+    "recorder/adjust_sum_statistics": "ha_adjust_statistics_sum",
+    "recorder/import_statistics": "ha_import_statistics",
+    # 020, tramo 3: preferencias del panel de energía (CAP-054, familia
+    # `energy`). Las cuatro lecturas de energía no van aquí: son `read` por la
+    # tabla, editadas a mano.
+    "energy/get_prefs": "ha_get_energy_prefs",
+    "energy/save_prefs": "ha_update_energy_prefs",
 
     # ── Supervisor ──
     ("GET", "/addons"): "sv_list_addons",

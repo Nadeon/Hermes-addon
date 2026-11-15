@@ -242,6 +242,23 @@ _DESTRUCTIVE_EXACT: frozenset[str] = frozenset({
     # Importar (spec 017, tramo B) guarda lo descargado igual que
     # `ha_save_blueprint`, y con `allow_override` sobrescribe y recarga.
     "ha_import_blueprint",
+    # Spec 020 (CAP-050): reescriben el histórico de estadísticas y solo un
+    # backup lo deshace (borrar filas o metadatos, convertir todos los
+    # valores, cambiar la unidad guardada). Ningún prefijo las clasifica:
+    # `ha_clear_`, `ha_change_` y `ha_update_` no son destructivos por nombre.
+    "ha_clear_statistics",
+    "ha_change_statistics_unit",
+    "ha_update_statistics_metadata",
+    # Spec 020, tramo 2: sumar a la suma de todas las filas desde una hora y
+    # sobrescribir filas importando. Tampoco `ha_adjust_` ni `ha_import_`
+    # son prefijos destructivos.
+    "ha_adjust_statistics_sum",
+    "ha_import_statistics",
+    # Spec 020, tramo 3 (CAP-054): cada lista que recibe reemplaza ENTERA la
+    # de HA, así que quita las fuentes o dispositivos que no se reenvían.
+    # `ha_update_` no es prefijo destructivo. Repetirla con las mismas listas
+    # deja el mismo estado (idempotente).
+    "ha_update_energy_prefs",
 })
 
 # ── Mundo abierto ─────────────────────────────────────────────────────────────
@@ -331,6 +348,10 @@ _NON_IDEMPOTENT_EXACT: frozenset[str] = frozenset({
     # avanzarlo un paso.
     "ha_start_repair_fix",
     "ha_continue_repair_fix",
+    # Spec 020: `adjustment` es un DELTA, como el de `ha_change_timer`.
+    # Confirmar dos ajustes iguales suma dos veces; el token de un solo uso
+    # evita el reintento con el mismo token, pero no una segunda vista previa.
+    "ha_adjust_statistics_sum",
 })
 
 # Excepción: un upsert SÍ es idempotente (repetirlo con la misma config deja el

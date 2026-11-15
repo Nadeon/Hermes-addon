@@ -896,6 +896,21 @@ _HINTS_NUEVAS_1_2_0: dict[str, tuple[str, str]] = {
     # Tramo D: la espera de trigger solo escucha (lista cerrada de triggers,
     # research R-8), en `_READ_ONLY_EXACT`.
     "ha_wait_for_trigger": ("R-I-", "Wait for trigger (Home Assistant)"),
+    # Spec 020, tramo 1 (CAP-050, familia `recorder`): reescriben histórico y
+    # piden token; van por nombre exacto en `_DESTRUCTIVE_EXACT`. Repetirlas
+    # deja el mismo estado (idempotentes).
+    "ha_clear_statistics": ("-DI-", "Clear statistics (Home Assistant)"),
+    "ha_change_statistics_unit": ("-DI-", "Change statistics unit (Home Assistant)"),
+    "ha_update_statistics_metadata": ("-DI-", "Update statistics metadata (Home Assistant)"),
+    # Spec 020, tramo 2: ajustar la suma suma otra vez si se repite (no
+    # idempotente, también en `_NON_IDEMPOTENT_EXACT`); importar las mismas
+    # filas deja el mismo estado.
+    "ha_adjust_statistics_sum": ("-D--", "Adjust statistics sum (Home Assistant)"),
+    "ha_import_statistics": ("-DI-", "Import statistics (Home Assistant)"),
+    # Spec 020, tramo 3 (CAP-054, familia `energy`): leer por prefijo; guardar
+    # reemplaza listas enteras (`_DESTRUCTIVE_EXACT`), con token, idempotente.
+    "ha_get_energy_prefs": ("R-I-", "Get energy prefs (Home Assistant)"),
+    "ha_update_energy_prefs": ("-DI-", "Update energy prefs (Home Assistant)"),
 }
 
 # Únicos hints de la 1.1.2 que cambian a propósito en la 1.2.0, con su motivo.
@@ -1670,14 +1685,18 @@ class TestRecorderRegistration:
             assert "confirmation_token" not in props, nombre
 
     def test_desactivada_no_registra_ninguna(self):
+        # Desde la 020 la familia también lleva el mantenimiento de
+        # estadísticas: apagarla quita las de la 029 y las de la 020.
         completo = set(_real_registry())
         sin = set(_real_registry(["recorder"]))
-        assert completo - sin == self._TRES
+        assert completo - sin == self._TRES | TestStatisticsMaintenanceRegistration._DE_LA_020
 
     def test_sin_las_dos_familias_es_la_lista_de_antes_de_la_029(self):
+        # Las de la 020 van en `recorder`, así que también se restan aquí.
         completo = set(_real_registry())
         sin = set(_real_registry(["system_status", "recorder"]))
-        assert completo - sin == self._TRES | TestSystemStatusRegistration._CINCO
+        assert completo - sin == (self._TRES | TestSystemStatusRegistration._CINCO
+                                  | TestStatisticsMaintenanceRegistration._DE_LA_020)
         assert sin <= completo
 
 
@@ -1738,6 +1757,71 @@ class TestTiendaDeApps030:
         completo = set(_real_registry())
         sin = set(_real_registry(["app_store"]))
         assert completo - sin == set(_TIENDA_030)
+
+
+class TestStatisticsMaintenanceRegistration:
+    """Spec 020, T007 (FR-014, FR-016, SC-001): el mantenimiento de
+    estadísticas va en la familia `recorder`, con `confirmation_token`, y
+    desaparece con ella. Los hints están en `_HINTS_NUEVAS_1_2_0`."""
+
+    _DE_LA_020 = {"ha_clear_statistics", "ha_change_statistics_unit",
+                  "ha_update_statistics_metadata", "ha_adjust_statistics_sum",
+                  "ha_import_statistics"}
+
+    def test_registradas_y_con_token(self):
+        tools = _real_registry()
+        assert self._DE_LA_020 <= set(tools)
+        for nombre in self._DE_LA_020:
+            props = tools[nombre].parameters.get("properties", {})
+            assert "confirmation_token" in props, nombre
+            assert nombre in _HINTS_NUEVAS_1_2_0, nombre
+
+    def test_con_recorder_desactivada_no_queda_ninguna_de_la_familia(self):
+        sin = set(_real_registry(["recorder"]))
+        assert not (self._DE_LA_020 | TestRecorderRegistration._TRES) & sin
+
+    def test_ajustar_la_suma_no_es_idempotente(self):
+        # Tramo 2 (T025): repetir el ajuste suma dos veces; un cliente que
+        # reintente tras un timeout de red tiene que saberlo.
+        from hermes.tools._annotations import _NON_IDEMPOTENT_EXACT, classify
+        assert "ha_adjust_statistics_sum" in _NON_IDEMPOTENT_EXACT
+        assert classify("ha_adjust_statistics_sum").idempotent_hint is False
+        assert classify("ha_import_statistics").idempotent_hint is True
+
+
+class TestEnergyRegistration:
+    """Spec 020, T036 (FR-014, FR-016, SC-001): las dos de CAP-054 van en la
+    familia `energy`; solo la que guarda pide `confirmation_token`. Con
+    `energy` desactivada no aparece ninguna y el resto no cambia; con
+    `recorder` y `energy` desactivadas, la lista es la de antes de la 029
+    (sin `system_status`, que también es de la 029)."""
+
+    _DOS = {"ha_get_energy_prefs", "ha_update_energy_prefs"}
+
+    def test_registradas_y_token_solo_al_guardar(self):
+        tools = _real_registry()
+        assert self._DOS <= set(tools)
+        for nombre in self._DOS:
+            assert nombre in _HINTS_NUEVAS_1_2_0, nombre
+        props = tools["ha_update_energy_prefs"].parameters.get("properties", {})
+        assert "confirmation_token" in props
+        assert {"energy_sources", "device_consumption",
+                "device_consumption_water"} <= set(props)
+        props = tools["ha_get_energy_prefs"].parameters.get("properties", {})
+        assert "confirmation_token" not in props
+
+    def test_desactivada_no_registra_ninguna(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["energy"]))
+        assert completo - sin == self._DOS
+        assert sin <= completo
+
+    def test_sin_recorder_ni_energy_es_la_lista_de_antes_de_la_029(self):
+        completo = set(_real_registry())
+        sin = set(_real_registry(["system_status", "recorder", "energy"]))
+        assert completo - sin == (self._DOS | TestRecorderRegistration._TRES
+                                  | TestSystemStatusRegistration._CINCO
+                                  | TestStatisticsMaintenanceRegistration._DE_LA_020)
 
 
 class TestMarketplaceRegistration:

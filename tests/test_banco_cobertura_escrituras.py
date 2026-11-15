@@ -37,6 +37,7 @@ from unittest.mock import MagicMock
 from tests.banco import cobertura, cobertura_012 as c012, cobertura_015 as c015
 from tests.banco import cobertura_016 as c016
 from tests.banco import cobertura_017 as c017
+from tests.banco import cobertura_020 as c020
 from tests.banco import cobertura_escrituras as c028
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -80,6 +81,9 @@ def _listas() -> dict[str, set[str]]:
         # Spec 017 (contrato de la 028): blueprints.
         "PROBADAS_017": set(c017.PROBADAS_017),
         "NO_EJECUTABLES_017": set(c017.NO_EJECUTABLES_017),
+        # Spec 020 (contrato de la 028): mantenimiento de estadísticas.
+        "PROBADAS_020": set(c020.PROBADAS_020),
+        "NO_EJECUTABLES_020": set(c020.NO_EJECUTABLES_020),
     }
 
 
@@ -104,8 +108,9 @@ class TestInventarioDeEscrituras(unittest.TestCase):
         # 7 del B y 3 del C), las 7 de la 019 (5 de montajes y 2 de ajustes
         # de backup) y las 5 de la 030 (4 de repositorios de la tienda del
         # tramo 1 y `sv_rebuild_addon` del tramo 2), y las 3 de la 017 (guardar
-        # y borrar blueprints del tramo A e importar del tramo B).
-        self.assertEqual(len(reales), 161)
+        # y borrar blueprints del tramo A e importar del tramo B), y las 6 de la
+        # 020 (5 de estadísticas de los tramos 1 y 2 y la de energía del 3).
+        self.assertEqual(len(reales), 167)
 
     def test_listas_disjuntas(self) -> None:
         listas = _listas()
@@ -160,7 +165,8 @@ class TestInventarioDeEscrituras(unittest.TestCase):
             c028.TOOLS_EXIGIDAS_DEL_JOB,
             cobertura.PROBADAS_EN_BANCO | cobertura.PROBADAS_GENERICAS | c028.PROBADAS_028
             | cobertura.PROBADAS_EN_BANCO_029 | c012.PROBADAS_012 | c015.PROBADAS_015
-            | c016.PROBADAS_016 | c017.PROBADAS_017,
+            | c016.PROBADAS_016 | c017.PROBADAS_017 | c020.PROBADAS_020
+            | c020.LECTURAS_020,
         )
         self.assertEqual(
             c028.XFAIL_DEL_JOB, {**cobertura.XFAIL_PERMITIDOS, **c028.XFAIL_PERMITIDOS_028}
