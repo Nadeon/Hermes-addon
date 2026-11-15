@@ -260,9 +260,11 @@ Tramo D: esperar a un trigger y validar al guardar.
   `homeassistant`, `mqtt`, `tag`, `calendar`, `persistent_notification`, y
   `<integración>.<nombre>` o `device` de integraciones incluidas en HA
   (según `manifest/get`). Rechaza sin suscribirse (`trigger_not_allowed`)
-  `webhook`, `conversation`, el `turn_on` de `samsungtv`, `webostv` y
-  `lg_netcast`, los de integraciones personalizadas y todo lo que no está en
-  la lista (o si no se puede comprobar). Un trigger que HA no acepta da
+  `webhook`, `conversation`, el `turn_on` de `samsungtv`, `webostv`,
+  `lg_netcast` y `philips_js`, los de integraciones personalizadas (también
+  una que sobrescribe una de HA, como una `mqtt` propia: el `manifest/get` se
+  mira en todas las plataformas, con o sin punto) y todo lo que no está en la
+  lista (o si no se puede comprobar). Un trigger que HA no acepta da
   `invalid_trigger`. El disparo sale con los valores sensibles tapados; si
   no cabe, sin `from_state`/`to_state` y con `truncated: true`. Comparte con
   `ha_wait_for_event` el tope de segundos y el de esperas a la vez, sale en

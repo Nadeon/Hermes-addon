@@ -975,9 +975,11 @@ Solo admite triggers de los que se sabe que SOLO ESCUCHAN: `state`,
 `persistent_notification`, y `<integración>.<nombre>` o `device` de
 integraciones incluidas en HA. Rechaza (`trigger_not_allowed`, sin
 suscribirse) `webhook` (abre un endpoint HTTP), `conversation` (contesta en
-Assist), el `turn_on` de `samsungtv`, `webostv` y `lg_netcast` (da a la tele
-la acción de encender) y los de integraciones personalizadas. Si HA rechaza
-el trigger: `invalid_trigger` con su mensaje.
+Assist), el `turn_on` de `samsungtv`, `webostv`, `lg_netcast` y `philips_js`
+(da a la tele la acción de encender) y los de integraciones personalizadas,
+también una personalizada que sobrescribe una de HA (una `mqtt` o un
+`template` propios: se comprueba con `manifest/get` en todas las
+plataformas). Si HA rechaza el trigger: `invalid_trigger` con su mensaje.
 Comparte con `ha_wait_for_event` el tope de segundos
 (`wait_for_event_max_seconds`) y el de esperas a la vez: sale en
 `ha_list_active_waits` con `kind: "trigger"` y se corta con `ha_cancel_wait`.

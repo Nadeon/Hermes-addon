@@ -9,18 +9,25 @@ POR QUÉ UNA LISTA CERRADA DE TRIGGERS (research R-8, principio III)
 -------------------------------------------------------------------
 Un trigger activo no siempre se limita a escuchar. En HA 2026.11.1,
 `webhook` registra un endpoint HTTP sin autenticación; `conversation`
-registra frases y contesta en Assist; `samsungtv`, `webostv` y `lg_netcast`
-(`turn_on`, también como trigger de dispositivo) dan a la tele la acción de
-encender mientras el trigger existe; uno de una integración personalizada
-puede hacer cualquier cosa. Una lista negra dejaría pasar lo que aún no se
+registra frases y contesta en Assist; `samsungtv`, `webostv`, `lg_netcast` y
+`philips_js` (`turn_on`, también como trigger de dispositivo) dan a la tele la
+acción de encender mientras el trigger existe (con `PluggableAction`: la
+entidad anuncia `TURN_ON` y `async_turn_on` ejecuta el trigger); uno de una
+integración personalizada puede hacer cualquier cosa. Una lista negra dejaría pasar lo que aún no se
 conoce, así que se admite SOLO lo que se sabe que escucha:
 
 - sin punto: las plataformas de `_PLATAFORMAS_SIN_PUNTO` (y `device` con la
   regla de la integración sobre su `domain`);
 - `<integración>.<nombre>` (los de propósito, `light.turned_on`) y `device`
-  con `domain`: la integración tiene que ser de HA (`manifest/get` →
-  `is_built_in: true`; una personalizada que sobrescribe una de HA da
-  `false`) y no estar en `_INTEGRACIONES_EXCLUIDAS`;
+  con `domain`: la integración no puede estar en `_INTEGRACIONES_EXCLUIDAS`;
+- en TODOS los casos, la integración que HA carga para el trigger tiene que
+  ser de HA (`manifest/get` → `is_built_in: true`; una personalizada que
+  sobrescribe una de HA da `false`). Las sin punto también: HA carga su
+  `trigger.py` con `async_get_integration`, que prefiere una personalizada
+  con el mismo nombre (`custom_components/mqtt`). Para las que HA traduce
+  (`_ALIAS_DE_HA`: `state`, `event`… → `homeassistant`; `device` →
+  `device_automation`) se consulta la traducida, que es la que HA carga, y en
+  `device`, además, la integración de su `domain`;
 - todo lo demás, o si `manifest/get` falla: `trigger_not_allowed`, sin
   suscribirse (fail-closed).
 
@@ -30,6 +37,13 @@ listas se escribieron leyendo los `trigger.py` y `device_trigger.py` de
 volver a leerlos: una plataforma nueva sin punto no entra hasta que alguien la
 añada aquí (fail-closed), y una integración de HA que empiece a hacer algo más
 que escuchar mientras su trigger existe tiene que ir a la lista de excluidas.
+Criterio de revisión: `grep -rl PluggableAction components/` (en la 2026.11.1
+da exactamente `lg_netcast`, `philips_js`, `samsungtv` y `webostv`), y leer los
+`async_attach_trigger` de `trigger.py`, `triggers/` y `device_trigger.py`
+buscando los que registran algo (endpoints, frases, acciones de la entidad) o
+llaman a servicios; en la 2026.11.1, además de esas cuatro, `webhook` y
+`conversation`. Los `turn_on` de `arcam_fmj` y `kodi` solo escuchan un evento
+que la entidad lanza siempre, exista o no el trigger: se admiten.
 
 La espera comparte gestor y cupo con `ha_wait_for_event` (se lista y se
 cancela con `ha_list_active_waits` y `ha_cancel_wait`, de la familia
@@ -85,7 +99,20 @@ _INTEGRACIONES_EXCLUIDAS: frozenset[str] = frozenset({
     "samsungtv",
     "webostv",
     "lg_netcast",
+    "philips_js",
 })
+
+# Plataformas sin punto que HA traduce a otra integración antes de cargarla
+# (`_PLATFORM_ALIASES` de `helpers/trigger/__init__.py`, HA 2026.11.1). Las
+# demás sin punto se cargan con su propio nombre. Revisar con cada versión.
+_ALIAS_DE_HA: dict[str, str] = {
+    "device": "device_automation",
+    "event": "homeassistant",
+    "numeric_state": "homeassistant",
+    "state": "homeassistant",
+    "time_pattern": "homeassistant",
+    "time": "homeassistant",
+}
 
 _PISTA_NO_PERMITIDO = (
     "ha_wait_for_trigger only accepts triggers known to just listen. For this "
@@ -169,21 +196,15 @@ async def _comprobar_triggers(
                 "each trigger needs a 'trigger' key (or the old 'platform' key, not both) "
                 "with the platform name",
             )
-        if plataforma == "device":
-            dominio = elemento.get("domain")
-            if not isinstance(dominio, str) or not dominio:
-                return [], _no_permitido("a device trigger needs its 'domain'")
-            error = await integracion_de_ha(dominio)
-            if error:
-                return [], error
-        elif "." in plataforma:
-            dominio = plataforma.split(".", 1)[0]
-            if not dominio:
+        if "." in plataforma:
+            # Los de propósito no se traducen: HA carga la integración del
+            # prefijo tal cual.
+            cargada = plataforma.split(".", 1)[0]
+            if not cargada:
                 return [], _no_permitido(f"'{plataforma}' is not a known trigger platform")
-            error = await integracion_de_ha(dominio)
-            if error:
-                return [], error
-        elif plataforma not in _PLATAFORMAS_SIN_PUNTO:
+        elif plataforma == "device" or plataforma in _PLATAFORMAS_SIN_PUNTO:
+            cargada = _ALIAS_DE_HA.get(plataforma, plataforma)
+        else:
             if plataforma in _INTEGRACIONES_EXCLUIDAS:
                 return [], await integracion_de_ha(plataforma) or _no_permitido(plataforma)
             return [], _no_permitido(
@@ -191,6 +212,21 @@ async def _comprobar_triggers(
                 f"({', '.join(sorted(_PLATAFORMAS_SIN_PUNTO))}, device, "
                 "and '<integration>.<name>' of integrations included in Home Assistant)"
             )
+        if plataforma == "device":
+            # La del dispositivo, que es la que pone el `device_trigger.py`:
+            # primero, para que una excluida se nombre a ella.
+            dominio = elemento.get("domain")
+            if not isinstance(dominio, str) or not dominio:
+                return [], _no_permitido("a device trigger needs its 'domain'")
+            error = await integracion_de_ha(dominio)
+            if error:
+                return [], error
+        # La integración que HA carga para este trigger, sea cual sea la
+        # plataforma: también `mqtt`, `template` o `homeassistant` pueden venir
+        # de una personalizada que sobrescribe la de HA.
+        error = await integracion_de_ha(cargada)
+        if error:
+            return [], error
         if plataforma not in plataformas:
             plataformas.append(plataforma)
     return plataformas, None
@@ -252,9 +288,10 @@ def register(
         geo_location, homeassistant, mqtt, tag, calendar,
         persistent_notification, and "<integration>.<name>" or device
         triggers of integrations included in Home Assistant, except webhook,
-        conversation, samsungtv, webostv and lg_netcast (their triggers do
-        more than listen while they exist). Anything else, including custom
-        integrations, gives "trigger_not_allowed".
+        conversation, samsungtv, webostv, lg_netcast and philips_js (their
+        triggers do more than listen while they exist). Anything else,
+        including a custom integration (also one that replaces a built-in
+        one, such as a custom mqtt), gives "trigger_not_allowed".
 
         Shares the limits of ha_wait_for_event (maximum seconds and number of
         concurrent waits); list or cancel it with ha_list_active_waits and

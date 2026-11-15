@@ -12,6 +12,13 @@ Controles negativos, comprobados y restaurados:
 - sin `redact_structure` en el disparo → cae `test_disparo_redactado`;
 - gestor no compartido (cada registro con el suyo) → cae
   `test_cupo_compartido_con_la_espera_de_evento`.
+- (convergencia, T056) quitar `philips_js` de `_INTEGRACIONES_EXCLUIDAS` →
+  caen `test_dispositivo_philips_js` y `test_cada_excluida_sin_suscribir`
+  (`philips_js`);
+- (convergencia, T058) volver a no mirar `manifest/get` en las plataformas
+  sin punto (`cargada` solo para las de punto) → caen
+  `test_mqtt_personalizada`, `test_template_personalizada`,
+  `test_homeassistant_personalizada` y `test_device_automation_personalizada`.
 """
 
 from __future__ import annotations
@@ -42,9 +49,16 @@ class DummyMCP:
 class FakeHA:
     """`HAClient` mínimo para la espera de trigger."""
 
+    # Las integraciones que HA carga para las plataformas sin punto (con sus
+    # alias, `state` → `homeassistant`, `device` → `device_automation`) son
+    # de HA salvo que el test diga otra cosa (T058).
+    DE_HA = {d: {"domain": d, "is_built_in": True} for d in (
+        "homeassistant", "device_automation", "template", "sun", "zone",
+        "geo_location", "mqtt", "tag", "calendar", "persistent_notification")}
+
     def __init__(self, manifiestos: dict[str, Any] | None = None) -> None:
         self.ready = True
-        self.manifiestos = manifiestos or {}
+        self.manifiestos = {**self.DE_HA, **(manifiestos or {})}
         self.eventos: list[Any] = []
         self.suscripciones: list[dict] = []
         self.desuscritas: list[int] = []
@@ -231,6 +245,10 @@ class TestListaCerrada(_Base):
         "mi_custom": {"domain": "mi_custom", "is_built_in": False},
         "samsungtv": {"domain": "samsungtv", "is_built_in": True},
         "webostv": {"domain": "webostv", "is_built_in": True},
+        "philips_js": {"domain": "philips_js", "is_built_in": True},
+        "lg_netcast": {"domain": "lg_netcast", "is_built_in": True},
+        "webhook": {"domain": "webhook", "is_built_in": True},
+        "conversation": {"domain": "conversation", "is_built_in": True},
         "falla": HAConnectionError("HA WS command failed: boom password=" + CENTINELA,
                                    code="unknown_error"),
     }
@@ -246,8 +264,10 @@ class TestListaCerrada(_Base):
         self.assertIs(r.get("matched"), True, r)
         self.assertEqual(len(self.fake.suscripciones), 1)
 
-    async def _rechazado(self, trigger: Any) -> dict:
-        self._registrar(self._fake())
+    async def _rechazado(self, trigger: Any, **manifiestos: Any) -> dict:
+        fake = self._fake()
+        fake.manifiestos.update(manifiestos)
+        self._registrar(fake)
         r = await self.esperar(trigger)
         self.assertEqual(r.get("error"), "trigger_not_allowed", r)
         self.assertIn("hint", r)
@@ -257,7 +277,8 @@ class TestListaCerrada(_Base):
 
     async def test_estado(self) -> None:
         await self._admitido({"trigger": "state", "entity_id": "input_boolean.prueba"})
-        self.assertEqual(self.fake.manifest_pedidos, [])
+        # `state` es un alias de HA: se mira la integración que carga (T058).
+        self.assertEqual(self.fake.manifest_pedidos, ["homeassistant"])
 
     async def test_clave_antigua_platform(self) -> None:
         await self._admitido({"platform": "numeric_state", "entity_id": "sensor.t",
@@ -284,6 +305,72 @@ class TestListaCerrada(_Base):
     async def test_dispositivo_webostv(self) -> None:
         await self._rechazado({"trigger": "device", "domain": "webostv",
                                "device_id": "<device_id>", "type": "webostv.turn_on"})
+
+    async def test_dispositivo_philips_js(self) -> None:
+        # T056: su `turn_on` engancha una `PluggableAction` y la tele anuncia y
+        # ejecuta la acción de encender mientras el trigger existe.
+        r = await self._rechazado({"trigger": "device", "domain": "philips_js",
+                                   "device_id": "<device_id>", "type": "turn_on"})
+        self.assertIn("philips_js", r["detail"])
+
+    async def test_cada_excluida_sin_suscribir(self) -> None:
+        # T056: cada plataforma excluida, como trigger de dispositivo, de
+        # propósito y sin punto, se rechaza sin llegar a suscribirse.
+        # Lista escrita aquí, no la del módulo: quitar una de allí tiene que
+        # hacer caer el test.
+        excluidas = ("webhook", "conversation", "samsungtv", "webostv",
+                     "lg_netcast", "philips_js")
+        self.assertTrue(set(excluidas) <= wft_mod._INTEGRACIONES_EXCLUIDAS)
+        for dominio in excluidas:
+            for trigger in (
+                {"trigger": "device", "domain": dominio, "device_id": "<device_id>",
+                 "type": "turn_on"},
+                {"trigger": f"{dominio}.turn_on", "entity_id": "media_player.tv"},
+                {"trigger": dominio},
+            ):
+                with self.subTest(trigger=trigger):
+                    r = await self._rechazado(trigger)
+                    self.assertIn(dominio, r["detail"])
+
+    async def test_arcam_y_kodi_solo_escuchan(self) -> None:
+        # Su `turn_on` escucha un evento que la entidad lanza siempre: entran.
+        for dominio in ("arcam_fmj", "kodi"):
+            fake = self._fake()
+            fake.manifiestos[dominio] = {"domain": dominio, "is_built_in": True}
+            self._registrar(fake)
+            r = await self.esperar({"trigger": "device", "domain": dominio,
+                                    "device_id": "<device_id>", "type": "turn_on",
+                                    "entity_id": "media_player.tv"})
+            self.assertIs(r.get("matched"), True, r)
+
+    async def test_mqtt_personalizada(self) -> None:
+        # T058: HA carga el `trigger.py` de `mqtt` con `async_get_integration`,
+        # que prefiere `custom_components/mqtt`.
+        r = await self._rechazado({"trigger": "mqtt", "topic": "a/b"},
+                                  mqtt={"domain": "mqtt", "is_built_in": False})
+        self.assertIn("mqtt", r["detail"])
+        self.assertIn("mqtt", self.fake.manifest_pedidos)
+
+    async def test_template_personalizada(self) -> None:
+        await self._rechazado({"trigger": "template", "value_template": "{{ true }}"},
+                              template={"domain": "template", "is_built_in": False})
+
+    async def test_homeassistant_personalizada(self) -> None:
+        # `state` se traduce a `homeassistant`: se mira esa.
+        r = await self._rechazado(
+            {"trigger": "state", "entity_id": "input_boolean.prueba"},
+            homeassistant={"domain": "homeassistant", "is_built_in": False})
+        self.assertIn("homeassistant", r["detail"])
+
+    async def test_device_automation_personalizada(self) -> None:
+        await self._rechazado(
+            {"trigger": "device", "domain": "zwave_js", "device_id": "<device_id>",
+             "type": "event"},
+            device_automation={"domain": "device_automation", "is_built_in": False})
+
+    async def test_sin_punto_cuyo_manifest_falla(self) -> None:
+        await self._rechazado({"trigger": "sun", "event": "sunset"},
+                              sun=HAConnectionError("caída", code="unknown_error"))
 
     async def test_sin_punto_fuera_de_la_lista(self) -> None:
         await self._rechazado({"trigger": "plataforma_nueva"})

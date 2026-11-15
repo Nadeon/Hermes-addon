@@ -95,9 +95,11 @@ en [research.md](research.md)):
   `<integración>.<nombre>` y `device` de integraciones incluidas en HA, salvo
   los que hacen algo mientras están activos: `webhook` (abre un endpoint HTTP
   sin autenticación), `conversation` (contesta a las frases de Assist de
-  cualquier usuario) y el «encender» de `samsungtv`, `webostv` y `lg_netcast`
+  cualquier usuario) y el «encender» de `samsungtv`, `webostv`, `lg_netcast`
+  y `philips_js`
   (le dan a la tele la acción de encender). Los de integraciones
-  personalizadas se rechazan: Hermes no puede saber qué hacen. Así la
+  personalizadas se rechazan, también la que sobrescribe una de HA con el
+  mismo nombre (una `mqtt` propia): Hermes no puede saber qué hacen. Así la
   anotación de solo lectura es verdad (research R-8).
 - P: ¿Qué valida `ha_create_or_update_automation` antes de dar el token? → R:
   triggers, condiciones y acciones con `validate_config` de HA (la misma
@@ -407,7 +409,9 @@ Cada requisito cita entre paréntesis el FR y la CAP de la 008 que cumple.
   admite los triggers de la lista cerrada de research R-8 (plataformas de Core
   que escuchan; `<integración>.<nombre>` y `device` de integraciones incluidas
   en HA, comprobado con `manifest/get`, salvo `webhook`, `conversation`,
-  `samsungtv`, `webostv` y `lg_netcast`); el resto, `trigger_not_allowed` sin
+  `samsungtv`, `webostv`, `lg_netcast` y `philips_js`; en todas las
+  plataformas, con o sin punto, la integración que HA carga tiene que ser de
+  HA); el resto, `trigger_not_allowed` sin
   suscribirse, y si no se puede comprobar, también (fail-closed). Siempre
   cancela la suscripción al terminar. Solo lectura (FR-061, CAP-038).
 

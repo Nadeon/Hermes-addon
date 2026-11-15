@@ -245,7 +245,8 @@ Decisiones:
    siempre se limita a observar. Leyendo los `trigger.py` de
    `components/` de 2026.11.1: `webhook/trigger.py` registra un endpoint HTTP
    sin autenticación; `conversation/trigger.py` registra frases y contesta a
-   quien las diga en Assist; `samsungtv`, `webostv` y `lg_netcast` (`turn_on`,
+   quien las diga en Assist; `samsungtv`, `webostv`, `lg_netcast` y
+   `philips_js` (`turn_on`,
    también como trigger de dispositivo) enganchan una `PluggableAction` que da
    a la tele la acción de encender mientras el trigger existe. Los de
    integraciones personalizadas pueden hacer cualquier cosa. Una lista negra
@@ -260,14 +261,23 @@ Decisiones:
      integración, `zwave_js.value_updated`) y `device` con `domain`: la
      integración tiene que estar incluida en HA (`manifest/get` →
      `is_built_in: true`; una personalizada que sobrescribe una incluida da
-     `false`) y no ser `webhook`, `conversation`, `samsungtv`, `webostv` ni
-     `lg_netcast`;
+     `false`) y no ser `webhook`, `conversation`, `samsungtv`, `webostv`,
+     `lg_netcast` ni `philips_js`;
+   - en todas las plataformas, también las sin punto (`mqtt`, `template`…),
+     la integración que HA carga para el trigger (con sus alias: `state`,
+     `event`… → `homeassistant`; `device` → `device_automation`) tiene que
+     dar `is_built_in: true`: HA la carga con `async_get_integration`, que
+     prefiere una personalizada con el mismo nombre (convergencia, T058);
    - lo demás, o si `manifest/get` falla: `trigger_not_allowed` con el motivo
      y sin suscribirse; la pista dice que para eso se cree una automatización.
    `manifest/get` es de la 029 (CAP-043, pendiente de tool dedicada); aquí se
    usa por dentro, solo para leer, como `search/related` en los blueprints.
    Con esto, la anotación de solo lectura es verdad. La lista se revisa al
-   subir la versión de HA de referencia (duda D-3).
+   subir la versión de HA de referencia (duda D-3). Criterio:
+   `grep -rl PluggableAction components/` (en la 2026.11.1, `lg_netcast`,
+   `philips_js`, `samsungtv` y `webostv`) y leer los `async_attach_trigger`
+   buscando los que registran algo o llaman a servicios (`webhook`,
+   `conversation`). `philips_js` se añadió en la convergencia (T056).
 4. **Respuesta**: `{"matched": true, "trigger": <variables.trigger>, "waited_seconds"}`,
    con `redact_structure` (un estado puede llevar `access_token` de una
    cámara) y el tope de respuesta: si no cabe, se quitan `from_state` y
