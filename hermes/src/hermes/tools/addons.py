@@ -237,11 +237,11 @@ def register(
 
     @mcp.tool()
     async def sv_list_addons(installed_only: bool = True) -> object:
-        """Lista los add-ons de Home Assistant.
+        """Lista las apps (add-ons) de Home Assistant.
 
         Args:
-            installed_only: Si True (default), solo devuelve los add-ons
-                instalados (`GET /addons`). Si False, devuelve el catálogo
+            installed_only: Si True (default), solo devuelve las apps
+                instaladas (`GET /addons`). Si False, devuelve el catálogo
                 completo del store (`GET /store/addons`), que puede ser una
                 lista larga.
 
@@ -270,13 +270,13 @@ def register(
 
     @mcp.tool()
     async def sv_get_addon(slug: str, include_long_description: bool = False) -> object:
-        """Devuelve información detallada de un add-on instalado.
+        """Devuelve información detallada de una app (add-on) instalada.
 
         Args:
-            slug: Identificador del add-on (ej. 'core_mosquitto',
+            slug: Identificador de la app (ej. 'core_mosquitto',
                   'a0d7b954_tailscale', 'local_hermes').
-            include_long_description: Incluir el README completo del add-on.
-                  Por defecto NO: en add-ons con documentación larga son
+            include_long_description: Incluir el README completo de la app.
+                  Por defecto NO: en apps con documentación larga son
                   decenas de miles de caracteres que rara vez se necesitan.
 
         Returns:
@@ -315,17 +315,17 @@ def register(
 
     @mcp.tool()
     async def sv_get_addon_options(slug: str) -> object:
-        """Devuelve las opciones actuales de configuración de un add-on.
+        """Devuelve las opciones actuales de configuración de una app (add-on).
 
         Devuelve las opciones tal como el usuario las tiene configuradas
-        (el formulario del add-on en la UI de HAOS), y nada más.
+        (el formulario de la app en la UI de HAOS), y nada más.
 
         Es la versión enfocada de `sv_get_addon`: aquella trae el manifiesto
         entero —schema, traducciones, red, permisos—, que son varios kilobytes
         para leer cuatro valores.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
 
         Returns:
             {"slug": "...", "options": {...}} con los secretos redactados.
@@ -387,7 +387,7 @@ def register(
         options: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Cambia opciones de configuración de un add-on, conservando el resto.
+        """Cambia opciones de configuración de una app (add-on), conservando el resto.
 
         Pasa SOLO lo que quieres cambiar. El Supervisor sustituye las opciones
         guardadas por las que recibe, así que esta tool lee las actuales, pone
@@ -399,7 +399,7 @@ def register(
           `{"mqtt": {"user": "x"}}` conserva `mqtt.password` y el resto.
         - Listas y valores simples: se sustituyen enteros. Una lista con
           secretos (p. ej. `logins` de Mosquitto) hay que pasarla completa.
-        - `null`: quita la opción. Si el add-on le da un valor por defecto,
+        - `null`: quita la opción. Si la app le da un valor por defecto,
           vuelve ese valor; si es obligatoria, el Supervisor rechaza el cambio.
         - Un valor con `***REDACTED***` se rechaza: es el marcador con que
           Hermes tapa los secretos, y guardarlo machacaría el real.
@@ -408,8 +408,8 @@ def register(
         (`current_options_unavailable`): enviar solo los cambios borraría el
         resto.
 
-        Siempre requiere confirmation_token: cambiar opciones puede dejar un
-        add-on sin arrancar. Las opciones nuevas se aplican cuando el add-on
+        Siempre requiere confirmation_token: cambiar opciones puede dejar una
+        app sin arrancar. Las opciones nuevas se aplican cuando la app
         se reinicia (`sv_restart_addon`).
 
         Primera llamada (sin token): preview con las opciones actuales, los
@@ -420,7 +420,7 @@ def register(
         cambias conserva su valor más reciente.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             options: JSON string con un objeto: solo las opciones a cambiar.
             confirmation_token: Token obtenido del preview anterior.
 
@@ -526,14 +526,14 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Arranca un add-on detenido.
+        """Arranca una app (add-on) detenida.
 
         Siempre requiere confirmation_token.
         Primera llamada: devuelve preview + token.
-        Segunda llamada: arranca el add-on.
+        Segunda llamada: arranca la app.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -576,13 +576,13 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Para un add-on en ejecución.
+        """Para una app (add-on) en ejecución.
 
-        Siempre requiere confirmation_token. Si el add-on objetivo es
+        Siempre requiere confirmation_token. Si la app objetivo es
         Hermes mismo, el preview incluye una advertencia crítica.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -625,13 +625,13 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Reinicia un add-on.
+        """Reinicia una app (add-on).
 
-        Siempre requiere confirmation_token. Si el add-on objetivo es
+        Siempre requiere confirmation_token. Si la app objetivo es
         Hermes mismo, el preview incluye una advertencia crítica.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -674,13 +674,13 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Instala un add-on del store de HAOS.
+        """Instala una app (add-on) del store de HAOS.
 
         Operación larga — devuelve inmediatamente un job_id.
         Usa sv_get_job_status(job_id) para consultar el progreso.
 
         Args:
-            slug: Identificador del add-on en el store.
+            slug: Identificador de la app en el store.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -734,16 +734,16 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Desinstala un add-on de HAOS.
+        """Desinstala una app (add-on) de HAOS.
 
-        WARNING: la desinstalación elimina todos los datos del add-on
-        en /data por defecto. Lee la documentación del add-on antes de
+        WARNING: la desinstalación elimina todos los datos de la app
+        en /data por defecto. Lee la documentación de la app antes de
         confirmar si necesitas conservar los datos.
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -808,7 +808,7 @@ def register(
         slug: str,
         confirmation_token: str | None = None,
     ) -> object:
-        """Actualiza un add-on a la versión más reciente disponible.
+        """Actualiza una app (add-on) a la versión más reciente disponible.
 
         Operación larga — devuelve job_id. Usa sv_get_job_status(job_id).
 
@@ -817,7 +817,7 @@ def register(
         interfaz de Home Assistant.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             confirmation_token: Token del preview anterior.
 
         Returns:
@@ -901,7 +901,7 @@ def register(
         boot: int | str | None = None,
         latest: bool = False,
     ) -> object:
-        """Lee los logs recientes de un add-on.
+        """Lee los logs recientes de una app (add-on).
 
         Los logs se REDACTAN automáticamente antes de ser devueltos:
         passwords, tokens, JWT, URLs con auth básica son sustituidos
@@ -911,18 +911,18 @@ def register(
         defecto), también se redactan el hostname público (`<public_hostname>`),
         los nombres `*.ts.net` y las IPs que no son de loopback
         (`<ip:CLASE:HHHHHHHH>`, misma IP → mismo seudónimo), incluidas las
-        líneas escritas antes de actualizar. Los logs de otros add-ons
+        líneas escritas antes de actualizar. Los logs de otras apps
         conservan sus IPs, que suelen ser justo lo que se quiere diagnosticar.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
             lines: Número de líneas a devolver (default 100, máx 1000).
             boot: Opcional (1.2.0): arranque a leer, como desplazamiento
                 entero (0 = el actual, -1 = el anterior) o un id de
                 `sv_list_boots`. Sin `boot` ni `latest`, la petición y la
                 respuesta son las de siempre.
             latest: Opcional (1.2.0): solo las líneas desde el último arranque
-                del contenedor del add-on. No se combina con `boot`.
+                del contenedor de la app. No se combina con `boot`.
 
         Returns:
             {"slug": "...", "lines_requested": N, "redacted": bool,
@@ -932,9 +932,9 @@ def register(
             `secrets_redacted`: esta llamada sustituyó al menos un secreto.
             `network_redacted`: se aplicó la redacción de red (log de Hermes
             con `log_redact_network` activo), aunque el texto ya viniera
-            redactado y no cambie; `false` para otros add-ons.
+            redactado y no cambie; `false` para otras apps.
             `lines_requested` es el número pedido después de acotarlo a
-            [1, 1000]; el log devuelto puede traer menos líneas si el add-on
+            [1, 1000]; el log devuelto puede traer menos líneas si la app
             no tiene más. Si el log no cabe en `response_max_bytes`, se
             devuelven sus ÚLTIMAS líneas que caben, con `truncated: true`,
             `lines_returned` y una pista.
@@ -1015,10 +1015,10 @@ def register(
 
     @mcp.tool()
     async def sv_get_addon_stats(slug: str) -> object:
-        """Devuelve estadísticas de recursos de un add-on (CPU, RAM, red, disco).
+        """Devuelve estadísticas de recursos de una app (add-on): CPU, RAM, red, disco.
 
         Args:
-            slug: Identificador del add-on.
+            slug: Identificador de la app.
 
         Returns:
             La respuesta del Supervisor tal cual:

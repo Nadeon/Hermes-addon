@@ -28,10 +28,10 @@ from typing import Any
 
 _INSTRUCCIONES_BASE = """\
 Controlas Home Assistant a través de Hermes: tools con prefijo `ha_` (Home
-Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: add-ons, host,
-backups). Los nombres son predecibles —`ha_list_*`, `ha_get_*`, `ha_update_*`,
-`sv_restart_*`, `fs_read_*`…— así que normalmente sabrás cuál usar leyendo la
-lista. Lo que sigue es lo que NO se deduce del nombre.
+Assistant), `fs_` (ficheros de /config) y `sv_` (sistema: apps (add-ons),
+host, backups). Los nombres son predecibles —`ha_list_*`, `ha_get_*`,
+`ha_update_*`, `sv_restart_*`, `fs_read_*`…— así que normalmente sabrás cuál
+usar leyendo la lista. Lo que sigue es lo que NO se deduce del nombre.
 @GENERICAS@
 
 1) CONFIRMACIÓN EN DOS PASOS
@@ -75,8 +75,10 @@ Enseña al usuario lo que dice el `preview` antes de confirmar algo grave
 - Si una respuesta llega truncada, filtra más; no repitas la misma llamada.
 
 4) OPERACIONES LARGAS
-Instalar/actualizar add-ons y crear/restaurar backups devuelven `job_id`.
-Consulta el progreso con `sv_get_job_status(job_id)` en vez de reintentar.
+Instalar/actualizar apps (add-ons) y crear/restaurar backups devuelven
+`job_id`. Consulta el progreso con `sv_get_job_status(job_id)` en vez de
+reintentar. `done` es true también si falla: cualquier entrada en `errors` da
+`success: false`, y los errores de los sub-jobs (`child_errors`) también.
 
 5) SI DUDAS
 `hermes_guide(tema)` da la guía de un área (services, automations, helpers,
@@ -135,7 +137,7 @@ para el detalle de un área. Temas disponibles:
 - `core_diagnostics` — logs, validación, diagnósticos y notificaciones de Core
 - `config_entries` — integraciones y sus flujos de configuración
 - `filesystem`     — leer y escribir ficheros de /config
-- `supervisor`     — add-ons, host y core de HAOS
+- `supervisor`     — apps (add-ons), host y core de HAOS
 - `system_diagnostics` — logs de Core, Supervisor, plugins y host (también de arranques anteriores), disco, servicios y OS
 - `backups`        — crear, restaurar y gestionar backups
 - `lovelace`       — dashboards y recursos del frontend
@@ -488,18 +490,20 @@ las tools `ha_*` correspondientes). Cada escritura hace un backup por-fichero,
 reversible con `fs_restore_file_backup`.
 """,
     "supervisor": """\
-# Sistema: add-ons, host y core (Supervisor)
+# Sistema: apps (add-ons), host y core (Supervisor)
 
-- Add-ons: `sv_list_addons`, `sv_get_addon(slug)`, `sv_get_addon_options`,
-  `sv_set_addon_options` (token), `sv_start/stop/restart_addon` (token),
-  `sv_install/uninstall/update_addon` (token, asíncrono → `job_id`),
-  `sv_get_addon_logs` (secretos redactados; con `boot=-1` el del arranque
-  anterior, con `latest=true` solo desde que arrancó el contenedor),
+- Apps (los nombres de las tools siguen diciendo `addon`): `sv_list_addons`,
+  `sv_get_addon(slug)`, `sv_get_addon_options`, `sv_set_addon_options`
+  (token), `sv_start_addon`, `sv_stop_addon` y `sv_restart_addon` (token),
+  `sv_install_addon`, `sv_uninstall_addon` y `sv_update_addon` (token,
+  asíncrono → `job_id`), `sv_get_addon_logs` (secretos redactados; con
+  `boot=-1` el del arranque anterior, con `latest=true` solo desde que
+  arrancó el contenedor),
   `sv_get_addon_stats`.
 - `sv_set_addon_options`: pasa SOLO lo que cambias; el resto, secretos
   incluidos, se conserva. Objetos anidados clave a clave, listas enteras,
   `null` quita una opción. No reenvíes valores `***REDACTED***`: se rechazan.
-  Se aplica al reiniciar el add-on.
+  Se aplica al reiniciar la app.
 - Supervisor/host/core: `sv_get_supervisor_info`, `sv_get_host_info`,
   `sv_get_core_info`, `sv_check_core_config`, `sv_restart_core` (token),
   `sv_reboot_host` (token).
@@ -508,7 +512,10 @@ reversible con `fs_restore_file_backup`.
 
 Cuidado con el propio Hermes (`local_hermes`): pararlo/desinstalarlo te deja sin
 acceso; el preview lo advierte. Operaciones largas devuelven `job_id`: pollea
-con `sv_get_job_status(job_id)` hasta `done`.
+con `sv_get_job_status(job_id)` hasta `done`, que es true también si falla:
+cualquier entrada en `errors` da `success: false` (el Supervisor no distingue
+avisos de errores fatales), y los errores de los sub-jobs van en
+`child_errors` y también lo dan.
 """,
     "backups": """\
 # Backups
@@ -519,7 +526,11 @@ con `sv_get_job_status(job_id)` hasta `done`.
   cooldown).
 - Borrar/restaurar (token): `sv_delete_backup`, `sv_restore_backup_full`
   (¡sobrescribe TODO!), `sv_restore_backup_partial`.
-- Jobs: `sv_get_job_status(job_id)`, `sv_list_pending_jobs`.
+- Jobs: `sv_get_job_status(job_id)`, `sv_list_pending_jobs`. Mira `success`,
+  no `done`: cualquier entrada en `errors` da `success: false`, y los errores
+  de los sub-jobs van en `child_errors` y también lo dan (p. ej. una app que
+  no se pudo guardar: el backup existe pero le falta; míralo con
+  `sv_get_backup`).
 - Backups de Home Assistant (HA 2025.1+, solo lectura): `ha_list_backups`,
   `ha_get_backup(backup_id)` y `ha_get_backup_config`. Ven todas las
   ubicaciones de la integración `backup` (local, red, nube), no solo las del

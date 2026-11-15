@@ -35,11 +35,12 @@ from typing import Any
 import structlog
 
 from hermes import safety_retention as _retencion
-from hermes.supervisor_jobs import job_errors
+from hermes.supervisor_jobs import child_job_errors, job_errors, redact_child_jobs
 from hermes.ha import HAClient, HAConnectionError
 from hermes.security import (
     complete_confirmation_token,
     create_confirmation_token,
+    redact_secrets,
     validate_confirmation_token,
 )
 from hermes.tools.addons import _PENDING_JOBS_PATH, _jobs_lock, _load_jobs_sync, _track_job, _write_jobs_sync
@@ -685,10 +686,20 @@ def register(
         Returns:
             {"job_id": "...", "name": "...", "done": bool,
              "success": true|false|null, "errors": ["..."],
+             "child_errors": [{"job": "...", "message": "..."}],
              "progress": 0-100, "stage": "...", "reference": "..."}
             `done` es True también cuando el job FALLA: mira `success`.
             success=true: terminado sin errores; false: terminado con
-            errores (los motivos en `errors`); null: aún en curso.
+            errores; null: aún en curso.
+            `success` es false si hay CUALQUIER entrada en `errors`: el
+            Supervisor no distingue avisos de errores fatales.
+            Los errores de los sub-jobs no suben al job en el Supervisor: van
+            en `child_errors` y TAMBIÉN dan success=false aunque `errors`
+            esté vacío (p. ej. una app que no se pudo guardar en un backup
+            completo). `child_errors_truncated: true` si hubo más de los que
+            se muestran o sub-jobs sin revisar; también da success=false.
+            Con errores, `reference` puede apuntar a algo que sí se creó (un
+            backup incompleto): compruébalo con sv_get_backup.
             Cuando success=true, reference puede contener el slug del backup
             creado u otro identificador del resultado.
         """
@@ -704,7 +715,14 @@ def register(
             # backup fallido por falta de espacio se veía como correcto.
             done = data.get("done") is True
             errores = _job_errors(data)
-            success = (not errores) if done else None
+            # Los errores de los sub-jobs se quedan en el sub-job y no suben
+            # al padre: un backup completo con una app fallida terminaba con
+            # `errors: []` y salía `success: true`, que mentía. Cuentan como
+            # fallo, igual que cualquier error del propio job (spec 027,
+            # D-1); un recorrido recortado también, porque no se miró todo.
+            errores_hijos, hijos_recortados = child_job_errors(data)
+            fallido = bool(errores or errores_hijos or hijos_recortados)
+            success = (not fallido) if done else None
 
             result: dict[str, Any] = {
                 "job_id": job_id,
@@ -712,24 +730,33 @@ def register(
                 "done": data.get("done", False),
                 "success": success,
                 "errors": errores,
+                "child_errors": errores_hijos,
                 "progress": data.get("progress"),
                 "stage": data.get("stage"),
                 "reference": data.get("reference"),
-                "child_jobs": data.get("child_jobs"),
+                # Entero, pero redactado: los mensajes de los sub-jobs pueden
+                # citar secretos, igual que los de `child_errors`.
+                "child_jobs": redact_child_jobs(data.get("child_jobs")),
             }
+            if hijos_recortados:
+                result["child_errors_truncated"] = True
 
             # Si el job ha terminado, actualizar nuestro tracking local
             if data.get("done"):
                 async with _jobs_lock:
                     jobs = _load_jobs_sync()
                     if job_id in jobs:
-                        jobs[job_id]["status"] = "failed" if errores else "done"
+                        jobs[job_id]["status"] = "failed" if fallido else "done"
                         jobs[job_id]["reference"] = data.get("reference")
                         _write_jobs_sync(jobs)
 
             return result
         except HAConnectionError as exc:
-            return {"error": str(exc)}
+            # El texto del error lleva el cuerpo de la respuesta del
+            # Supervisor: se redacta como `errors` y `child_errors`, para que
+            # ningún camino de esta tool devuelva su texto sin tapar
+            # (revisión de la 027).
+            return {"error": redact_secrets(str(exc))}
 
     @mcp.tool()
     async def sv_list_pending_jobs() -> object:

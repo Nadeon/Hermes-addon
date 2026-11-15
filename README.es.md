@@ -447,6 +447,10 @@ hacer nada.
 
 ## Opciones de configuración
 
+La página de configuración de la app enseña el nombre y una descripción corta
+de cada opción, en inglés o en español (`hermes/translations/`). El detalle
+completo está aquí abajo.
+
 | Opción | Default | Descripción |
 |--------|---------|-------------|
 | `auth_password` | _(obligatorio)_ | Contraseña del flujo OAuth. Mínimo 12 caracteres y se comprueba que no sea adivinable: Hermes no arranca con una débil |
@@ -468,7 +472,7 @@ hacer nada.
 | `max_concurrent_requests` | `64` | Peticiones simultáneas que acepta el servidor. Acota la memoria máxima en vuelo (`max_concurrent_requests × max_request_body_bytes`). Claude lanza ráfagas de ~24 llamadas, así que 64 deja holgura |
 | `wait_for_event_max_seconds` | `90` | Máximo timeout permitido para `ha_wait_for_event` (10–220; un valor guardado por encima de 220 se recorta) |
 | `wait_for_event_max_concurrent` | `5` | Máximo de `ha_wait_for_event` simultáneos (1–20) |
-| `safety_backup_keep` | `3` | Retención de los safety backups automáticos (0–50). Tras cada uno correcto, Hermes conserva este número de los más recientes y borra el resto, como mucho 5 por vez. Solo borra los que él mismo anotó al crearlos: nunca uno tuyo, aunque se llame `hermes-safety-…`, ni uno protegido con contraseña, parcial o copiado a otra ubicación. `0` la desactiva. Solo actúa con `safety_backup_enabled` |
+| `safety_backup_keep` | `3` | Retención de los safety backups automáticos (0–50). Tras cada uno correcto, Hermes conserva este número de los más recientes y borra el resto, como mucho 5 por vez. Un safety backup que terminó con errores en sus sub-jobs (una app que no se pudo guardar) está incompleto: no cuenta entre los que se conservan y se borra el primero. Solo borra los que él mismo anotó al crearlos: nunca uno tuyo, aunque se llame `hermes-safety-…`, ni uno protegido con contraseña, parcial o copiado a otra ubicación. `0` la desactiva. Solo actúa con `safety_backup_enabled` |
 | `safety_backup_window_minutes` | `30` | Si Hermes hizo su propio backup de seguridad hace menos de esto, no se hace otro. Los backups hechos a mano o por otras herramientas no cuentan. Mientras se hace, la escritura espera hasta 5 minutos, y se cancela si el backup falla |
 | `file_backup_max_per_path` | `20` | Copias que se guardan de cada fichero antes de sobrescribirlo |
 | `file_backup_max_total_mb` | `200` | Tope total del directorio de copias por fichero |
@@ -497,7 +501,7 @@ Estas cuatro cambian **qué puede hacer Claude sin preguntarte**. Merece la pena
 | `call_service_denylist_extra` | `[]` | Servicios adicionales que exigirán confirmación explícita, además de los ~70 que ya trae Hermes. Formato `dominio.servicio`, admite comodín (`shell_command.*`) |
 | `call_service_restricted_entities` | `[]` | Entidades concretas que exigirán confirmación aunque el servicio no esté vetado. Útil para `script.abrir_garaje` y compañía |
 | `fire_event_allowlist` | `[]` | Tipos de evento que `ha_fire_event` puede disparar. Vacío significa que la herramienta está deshabilitada: hay que nombrar explícitamente cada evento permitido |
-| `call_service_auto_classify_dangerous` | `true` | Al arrancar y al guardar, Hermes lee tus scripts y automatizaciones y marca automáticamente como restringidas las que invocan servicios peligrosos. Desactívalo solo si quieres gestionar la lista a mano |
+| `call_service_auto_classify_dangerous` | `true` | Al arrancar y tras recargar scripts o automatizaciones desde Hermes, Hermes lee tus scripts y automatizaciones y marca automáticamente como restringidas las que invocan servicios peligrosos (la lista de serie más `call_service_denylist_extra`). Desactivarla solo apaga esas dos revisiones: los scripts y automatizaciones que se guardan desde Hermes (`ha_create_or_update_script`, `ha_create_or_update_automation`) se revisan siempre y se restringen si son peligrosos, aunque la opción esté desactivada |
 
 Ver `config.yaml` para el schema completo con sus rangos válidos.
 

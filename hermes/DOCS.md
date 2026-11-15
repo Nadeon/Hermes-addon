@@ -36,7 +36,8 @@ Y una que conviene revisar:
 | `network_mode` | `tailscale` | `tailscale` si usas Funnel; `reverse_proxy` para cualquier otra cosa |
 
 El resto de opciones, con sus valores por defecto y qué hace cada una, están
-documentadas en el README.
+documentadas en el README. La página de configuración de la app enseña además
+el nombre y una descripción corta de cada opción, en inglés o en español.
 
 ## Conectar Claude
 
@@ -69,8 +70,9 @@ rechaza con `safety_backup_in_progress`.
 
 Con `safety_backup_enabled`, la opción `safety_backup_keep` (3 por defecto, 0
 la desactiva) conserva solo los safety backups automáticos más recientes y
-borra el resto tras cada uno correcto. Solo toca los que Hermes anotó al
-crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
+borra el resto tras cada uno correcto. Uno que terminó con errores en sus
+sub-jobs (una app que no se pudo guardar) no cuenta entre los que se conservan
+y se borra el primero. Solo toca los que Hermes anotó al crearlos; los anteriores a 1.1.0 se borran a mano con `sv_delete_backup`. El
 detalle de qué borra y qué no está en el README.
 
 El Marketplace (HACS hasta HA 2026.10) es de **solo lectura** para Hermes:
@@ -88,7 +90,7 @@ Claude:
 
 | Opción | Defecto | Máximo efectivo | Qué es |
 |---|---|---|---|
-| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de cualquier tool. Por encima, se recorta la lista más larga y se indica con `truncated: true` (una lista sola, como la de `ha_get_states`, llega como `{truncated, count, total, items}`); el historial y las estadísticas se recortan por el final y los logs de un add-on devuelven sus últimas líneas. Una vista previa de confirmación nunca pierde su `confirmation_token`: sus campos grandes se resumen (`_omitted`) y se marca `preview_truncated: true`. Si no hay lista de primer nivel que recortar, la respuesta es el error `response_too_large`: una configuración que se guarda de vuelta (un script, una automatización, una vista de Lovelace) nunca sale recortada por dentro |
+| `response_max_bytes` | `131072` (128 KiB) | `524288` (512 KiB) | Tamaño máximo de la respuesta de cualquier tool. Por encima, se recorta la lista más larga y se indica con `truncated: true` (una lista sola, como la de `ha_get_states`, llega como `{truncated, count, total, items}`); el historial y las estadísticas se recortan por el final y los logs de una app devuelven sus últimas líneas. Una vista previa de confirmación nunca pierde su `confirmation_token`: sus campos grandes se resumen (`_omitted`) y se marca `preview_truncated: true`. Si no hay lista de primer nivel que recortar, la respuesta es el error `response_too_large`: una configuración que se guarda de vuelta (un script, una automatización, una vista de Lovelace) nunca sale recortada por dentro |
 | `ha_ws_max_msg_size_bytes` | `16777216` (16 MiB) | `16777216` | Tamaño máximo de un mensaje de la WebSocket con Home Assistant. Un mensaje mayor cierra la conexión entera (fallan todas las llamadas en curso y Hermes reconecta) y lo anota en el log como `ha_ws_message_too_big`. Bájalo solo si la memoria del equipo es muy justa |
 | `wait_for_event_max_seconds` | `90` | `220` | Espera máxima que admite `ha_wait_for_event` |
 

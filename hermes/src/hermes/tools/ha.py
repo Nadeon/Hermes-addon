@@ -7,6 +7,7 @@ import json
 import re
 import unicodedata
 from pathlib import Path
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 import structlog
@@ -346,6 +347,15 @@ def automation_entity_ids_for(config: dict, config_id: str) -> list[str]:
     return ids
 
 
+# Denylist efectiva (la de base más `call_service_denylist_extra`) con la que
+# se clasifica lo que se guarda. La fija `register`, que es quien conoce la
+# opción; hasta entonces vale la de base. Antes `classify_saved_config` usaba
+# solo la de base: un script que llamaba a un servicio vetado SOLO por la
+# extra se guardaba sin restringir, aunque `ha_call_service` sí lo vetaba
+# (revisión de la 027).
+_denylist_al_guardar: frozenset[str] = CALL_SERVICE_DENYLIST
+
+
 def classify_saved_config(entity_id: str, config: dict) -> bool:
     """Clasifica AL VUELO la config que se acaba de guardar.
 
@@ -359,11 +369,15 @@ def classify_saved_config(entity_id: str, config: dict) -> bool:
     Se clasifica el dict recibido en vez de releer el YAML del disco: es
     inmediato y no depende de cuándo escriba HA el fichero.
 
+    No depende de `call_service_auto_classify_dangerous`: esa opción apaga la
+    clasificación del arranque y la de tras un `reload`, pero lo que se guarda
+    por Hermes se clasifica siempre (fail-closed), con la denylist efectiva.
+
     Devuelve True si la entidad ha quedado marcada como restringida.
     """
     if not isinstance(config, dict) or not entity_id:
         return False
-    if _scan_for_dangerous_services(config, CALL_SERVICE_DENYLIST):
+    if _scan_for_dangerous_services(config, _denylist_al_guardar):
         _policy.add_auto_restricted_entity(entity_id)
         # Sin `entity_id` (FR-003 de la 009): el log se pega en issues
         # públicos y el id de una automatización sale de su alias, que nombra
@@ -397,6 +411,52 @@ def get_auto_restricted_entities() -> frozenset[str]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Tareas de fondo: con el bucle en marcha o aplazadas al arranque
+# ══════════════════════════════════════════════════════════════════════════════
+
+# `asyncio.ensure_future(coro)` sin un bucle en marcha cae en
+# `get_event_loop()`, que da `DeprecationWarning` (y en Python 3.14 es un
+# error); además la tarea quedaba en un bucle que nadie ejecuta. En el add-on
+# `register` corre dentro de `_boot`, con el bucle en marcha, pero no tiene
+# por qué depender de eso: si no hay bucle, la tarea se guarda como FÁBRICA
+# (no como corrutina, que daría «never awaited» si no llega a lanzarse) y la
+# lanza `lanzar_tareas_aplazadas` desde el lifespan del servidor.
+_tareas_aplazadas: list[Callable[[], Coroutine[Any, Any, Any]]] = []
+# Referencias fuertes: el bucle solo guarda referencias débiles a sus tareas y
+# una tarea sin referencia puede desaparecer a medias (documentación de asyncio).
+_tareas_vivas: set[asyncio.Task[Any]] = set()
+
+
+def _lanzar(fabrica: Callable[[], Coroutine[Any, Any, Any]]) -> None:
+    tarea = asyncio.get_running_loop().create_task(fabrica())
+    _tareas_vivas.add(tarea)
+    tarea.add_done_callback(_tareas_vivas.discard)
+
+
+def _lanzar_o_aplazar(fabrica: Callable[[], Coroutine[Any, Any, Any]]) -> None:
+    """Lanza la tarea en el bucle en marcha o, si no lo hay, la aplaza."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        _tareas_aplazadas.append(fabrica)
+        return
+    _lanzar(fabrica)
+
+
+def lanzar_tareas_aplazadas() -> int:
+    """Lanza en el bucle en marcha las tareas aplazadas; devuelve cuántas.
+
+    Se llama desde el lifespan del servidor (`__main__._boot`). Sin tareas
+    aplazadas, que es lo normal en el add-on, no hace nada.
+    """
+    pendientes = list(_tareas_aplazadas)
+    _tareas_aplazadas.clear()
+    for fabrica in pendientes:
+        _lanzar(fabrica)
+    return len(pendientes)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Registro de tools
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -415,6 +475,10 @@ def register(
     effective_denylist: frozenset[str] = CALL_SERVICE_DENYLIST
     if call_service_denylist_extra:
         effective_denylist = effective_denylist | frozenset(call_service_denylist_extra)
+    # La misma para clasificar al guardar automatizaciones y scripts: lo que
+    # `ha_call_service` veta tiene que restringirse también al guardarlo.
+    global _denylist_al_guardar
+    _denylist_al_guardar = effective_denylist
 
     # Añadir entidades restringidas por config
     if call_service_restricted_entities:
@@ -428,7 +492,7 @@ def register(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("auto_classify_boot_error", error=str(exc))
 
-        asyncio.ensure_future(_boot_classify())
+        _lanzar_o_aplazar(_boot_classify)
 
     @mcp.tool()
     @ready
@@ -610,7 +674,7 @@ def register(
                 if call_service_auto_classify and service_lower == "reload" and domain_lower in (
                     "automation", "script"
                 ):
-                    asyncio.ensure_future(auto_classify_dangerous(effective_denylist))
+                    _lanzar_o_aplazar(lambda: auto_classify_dangerous(effective_denylist))
                 return result
             except Exception as exc:  # noqa: BLE001
                 await complete_confirmation_token(

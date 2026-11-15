@@ -448,6 +448,10 @@ queries `hermes_guide` on its own — you do not have to do anything.
 
 ## Configuration options
 
+The configuration page of the app shows a name and a short description of
+each option, in English or Spanish (`hermes/translations/`). The full detail
+is below.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `auth_password` | _(required)_ | OAuth flow password. Minimum 12 characters, and checked for guessability: Hermes will not start with a weak one |
@@ -456,7 +460,7 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `mcp_bind` | `127.0.0.1` | Address Hermes listens on. Use `172.30.32.1` if your proxy runs on the HAOS bridge network |
 | `trusted_proxy_ips` | `[]` | Proxies whose `X-Forwarded-For` is trusted, as plain IPs or CIDR ranges (`172.30.32.0/23` is the HAOS bridge network). Empty means only `127.0.0.1` is trusted, which under `reverse_proxy` turns every per-IP limit into a single global bucket. Anybody inside a trusted range can forge the client IP (rate limits and logs only — never authorization) |
 | `log_level` | `info` | Log level (`debug`/`info`/`warning`/`error`) |
-| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder` and `core_diagnostics`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the add-on from starting and the log names the wrong value and the valid ones |
+| `tool_families_disabled` | `[]` | Tool families Hermes does not register, so the client loads fewer tools: `services`, `automations`, `helpers`, `events`, `data`, `registries`, `diagnostics`, `config_entries`, `filesystem`, `supervisor`, `backups`, `lovelace`, `marketplace`, `generic_commands`, `system_diagnostics`, `system_status`, `recorder` and `core_diagnostics`. `base` (`ping` and `hermes_guide`) cannot be switched off. An unknown name, or `base`, stops the app from starting and the log names the wrong value and the valid ones |
 | `log_redact_network` | `true` | Replaces your `public_hostname`, the hosts of Home Assistant's `external_url` and `internal_url`, any `*.ts.net` name and every non-loopback IP (also when written as `ip-a-b-c-d`) in the log with placeholders, so you can paste it when asking for help. Turn it off only to debug networking: the log says so with `log_network_redaction_disabled`. Secrets are always redacted |
 | `oauth_cimd_enabled` | `true` | Accepts clients that identify themselves with a metadata URL (CIMD), such as Claude Code. Turn it off only if a client fails with CIMD: dynamic registration (DCR) keeps working the same |
 | `oauth_cimd_allowed_hosts` | `[]` | Hosts whose CIMD documents Hermes accepts (e.g. `claude.ai`, where Claude Code publishes its own). Empty means **any public host**: every download leaves from your home IP towards a host that anyone can pick without the password. List only the hosts you use; see `SECURITY.md` |
@@ -469,7 +473,7 @@ queries `hermes_guide` on its own — you do not have to do anything.
 | `max_concurrent_requests` | `64` | Simultaneous requests the server accepts. Bounds the maximum in-flight memory (`max_concurrent_requests × max_request_body_bytes`). Claude fires bursts of ~24 calls, so 64 leaves headroom |
 | `wait_for_event_max_seconds` | `90` | Maximum timeout allowed for `ha_wait_for_event` (10–220; a saved value above 220 is clamped) |
 | `wait_for_event_max_concurrent` | `5` | Maximum simultaneous `ha_wait_for_event` calls (1–20) |
-| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected or partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
+| `safety_backup_keep` | `3` | Retention of the automatic safety backups (0–50). After each successful one, Hermes keeps this many most recent and deletes the rest, at most 5 at a time. A safety backup that finished with errors in its sub-jobs (an app that could not be saved) is incomplete: it does not count among those kept and is deleted first. It only deletes backups it recorded itself when creating them: never one of yours, even if it is called `hermes-safety-…`, nor a password-protected or partial one, or one copied to another location. `0` turns it off. It only applies with `safety_backup_enabled` |
 | `safety_backup_window_minutes` | `30` | If Hermes made its own safety backup more recently than this, another one is skipped. Backups made by hand or by other tools do not count. While the backup runs, the write waits up to 5 minutes, and it is cancelled if the backup fails |
 | `file_backup_max_per_path` | `20` | Copies kept of each file before overwriting it |
 | `file_backup_max_total_mb` | `200` | Total cap for the per-file backup directory |
@@ -496,7 +500,7 @@ These change **what Claude can do without asking you**. Worth reading:
 | `call_service_denylist_extra` | `[]` | Additional services that will require explicit confirmation, on top of the ~70 Hermes already ships. Format `domain.service`, wildcards allowed (`shell_command.*`) |
 | `call_service_restricted_entities` | `[]` | Specific entities that will require confirmation even when the service is not denylisted. Useful for `script.open_garage` and friends |
 | `fire_event_allowlist` | `[]` | Event types `ha_fire_event` is allowed to fire. Empty means the tool is disabled: every permitted event must be named explicitly |
-| `call_service_auto_classify_dangerous` | `true` | On startup and on save, Hermes reads your scripts and automations and automatically marks as restricted the ones invoking dangerous services. Disable it only if you want to manage the list by hand |
+| `call_service_auto_classify_dangerous` | `true` | On startup and after a scripts or automations reload made through Hermes, Hermes reads your scripts and automations and automatically marks as restricted the ones invoking dangerous services (the built-in list plus `call_service_denylist_extra`). Disabling it stops only those two scans: scripts and automations saved through Hermes (`ha_create_or_update_script`, `ha_create_or_update_automation`) are always checked and restricted if dangerous, even with this option off |
 
 See `config.yaml` for the full schema with valid ranges.
 

@@ -426,6 +426,77 @@ la lista de tools es la de la 1.1.2.
   del Supervisor que usa Hermes caben en `manager` según el código del
   Supervisor 2026.11.0.
 
+### Plataforma y deprecaciones
+
+- **`sv_get_job_status` ya no da por bueno un job con sub-jobs fallidos.** El
+  Supervisor guarda el error de un sub-job en ese sub-job y no lo sube al job
+  padre: un backup completo con una app que no se pudo guardar terminaba con
+  `errors: []` y la tool daba `success: true`. Ahora devuelve también
+  `child_errors` (`{job, message}`, recortados y redactados, hasta 20 y 5
+  niveles; `child_errors_truncated: true` si hay más) y, con cualquiera de
+  ellos, `success: false`, igual que con cualquier error del propio job. Es un
+  arreglo, no un cambio de contrato: el campo `success` decía que todo había
+  ido bien cuando no. La descripción y la guía explican además que `done` es
+  `true` también cuando el job falla, que el Supervisor no distingue avisos
+  de errores fatales (cualquier entrada en `errors` da `success: false`) y
+  que, con errores, `reference` puede apuntar a un backup incompleto.
+- **`child_jobs` sale redactado.** `sv_get_job_status` devuelve el árbol de
+  sub-jobs entero, y antes iba en bruto: un secreto en el error de un sub-job
+  salía por ahí aunque `child_errors` lo tapara. Ahora pasa por la misma
+  redacción, igual que el error HTTP de la tool. Los mensajes de `errors` y
+  `child_errors` se redactan antes de recortarlos a 500 caracteres: un
+  secreto que cruzaba el corte salía a medias.
+- **Al guardar scripts y automatizaciones, cuenta la denylist extra.** La
+  clasificación de lo peligroso al guardar con `ha_create_or_update_script` o
+  `ha_create_or_update_automation` usaba solo la lista de serie; ahora usa
+  también `call_service_denylist_extra`, como `ha_call_service`. Y la
+  descripción de `call_service_auto_classify_dangerous` dice lo que hace: con
+  `false` solo se apagan la revisión del arranque y la de tras un `reload`;
+  lo que se guarda con Hermes se revisa siempre.
+- **El safety backup con sub-jobs fallidos ya no deja escribir.** El sondeo
+  del safety backup de las escrituras `fs_*` cuenta esos errores como fallo
+  (`safety_backup_job_failed` con el mensaje del sub-job): no se escribe sin
+  un backup válido. La retención (`safety_backup_keep`) aplica el mismo
+  criterio: ese backup incompleto se poda el primero y ya no cuenta como una
+  de las copias buenas que se conservan, así que no queda una copia completa
+  menos de las prometidas.
+- **Nada se retira en la 1.2.0.** Los alias `ha_hacs_*` siguen hasta la 1.3.0
+  y `ha_remove_device_from_config_entry` sigue registrada y deprecada, con
+  sus argumentos y anotaciones de siempre. Si Home Assistant retira su comando
+  (anunciado para la 2027.9), la tool responde `command_removed_in_ha` con
+  `replacement: "ha_remove_device"`, sin cambiar nada ni enviar otro comando.
+  Las deprecadas en esta versión (ver «Correcciones») también siguen
+  registradas hasta la 1.3.0 con sus argumentos: `ha_reload_counters` y
+  `ha_get_config_entry_options` responden `not_supported` con `_deprecated`, y
+  `ha_create_scene_from_current` conserva el argumento `name`, que con valor
+  responde `name_not_supported`. Hermes ya no depende de los campos de los dispositivos que HA retira en la
+  2027.8 y la 2027.10 (`config_entries`, `config_entries_subentries`,
+  `primary_config_entry`); hay tests con esa forma.
+- **Socket Unix y API `/v2` del Supervisor: se detectan, no se usan.** Al
+  arrancar, Hermes anota en el log (`supervisor_platform`) si el Supervisor le
+  ofrece `SUPERVISOR_SOCKET` o tiene activada la opción `supervisor_v2_api`, y
+  avisa de que sigue por TCP y por la V1, que el Supervisor mantiene. Si no
+  puede leerlo, lo dice (`api_v2_enabled: null`) y el arranque sigue. Lo que
+  hará falta para usarlos está en la hoja de ruta.
+- **Opciones traducidas y «apps».** La página de configuración enseña el
+  nombre y una descripción corta de cada opción, en inglés o en español
+  (`translations/en.yaml` y `es.yaml`). Como el Supervisor 2026.11, las
+  descripciones de las tools de apps, la guía y las instrucciones dicen «app
+  (add-on)»; los nombres de las tools (`sv_*_addon*`) y sus argumentos no
+  cambian.
+- **Guarda de deprecaciones del SDK MCP.** La suite falla si Hermes usa algo
+  que el SDK marque como deprecado (`MCPDeprecationWarning`, que no hereda de
+  `DeprecationWarning`, y los `DeprecationWarning` de `mcp` o de Hermes), y
+  fija qué tools declaran `outputSchema` (`ping` y `hermes_guide`). La
+  auto-clasificación de scripts peligrosos ya no usa `asyncio.ensure_future`,
+  que sin un bucle en marcha avisa en Python 3.13 y fallará en 3.14: lanza la
+  tarea en el bucle en marcha o la aplaza al arranque del servidor.
+- **Documentado en la hoja de ruta**: los hosts CIMD conocidos y cómo
+  averiguar otro (`oauth_cimd_allowed_hosts` sigue vacío por defecto), por qué
+  no se declara `outputSchema` y por qué la vía nativa de MCP para pedir
+  confirmación no sustituye a los dos pasos, y la tabla de deprecaciones al
+  día.
+
 ### Correcciones
 
 - **La redacción de secretos era cuadrática** (FR-001). Tres de las expresiones
